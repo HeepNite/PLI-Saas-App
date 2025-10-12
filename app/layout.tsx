@@ -11,8 +11,8 @@ const bricolage = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-    title: "Converso",
-    description: "Real-time AI Teaching Platform",
+    title: "Palladium Latin Institute",
+    description: "Artistic Teaching Platform",
 };
 
 export default function RootLayout({children,}: Readonly<{ children: React.ReactNode; }>) {
