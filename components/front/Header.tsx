@@ -4,6 +4,7 @@ import React from "react";
 import SearchInput from "@/components/front/ui/SearchInput";
 import HeaderLogo from "@/components/front/ui/HeaderLogo";
 import HeaderActions from "@/components/front/ui/HeaderActions";
+import ButtonForm from "@/components/ui/ButtonForm";
 
 const Header = () => {
     return (
@@ -12,6 +13,9 @@ const Header = () => {
                 <div className="flex items-center gap-4 py-3">
                     {/* Left: Logo */}
                     <HeaderLogo />
+
+                    {/* Explore mega menu */}
+                    <ButtonForm />
 
                     {/* Center: Search */}
                     <div className="flex-1 mx-auto max-w-xl">
