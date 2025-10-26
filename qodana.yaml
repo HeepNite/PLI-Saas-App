@@ -12,6 +12,7 @@ version: "1.0"
 #Specify inspection profile for code analysis
 profile:
   name: qodana.starter
+    - name: CheckDependencyLicenses
 
 #Enable inspections
 #include:
@@ -47,10 +48,3 @@ linter: jetbrains/qodana-js:2025.2
 ####################################################################################################################
 # WARNING: Do not store sensitive information in this file, as its contents will be included in the Qodana report. #
 ####################################################################################################################
-
-version: "1.0"
-linter: jetbrains/qodana-jvm:2025.2
-profile:
-  name: qodana.recommended
-include:
-  - name: CheckDependencyLicenses
