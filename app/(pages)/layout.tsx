@@ -3,6 +3,7 @@ import {ClerkProvider} from "@clerk/nextjs";
 import React from "react";
 import Header from "@/components/front/Header";
 import NotificationBar from "@/components/front/ui/NotificationBar";
+import FooterQuote from "@/components/front/ui/FooterQuote";
 
 export const metadata: Metadata = {
     title: "PLI Market Place",
@@ -16,6 +17,7 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
                 <NotificationBar/>
                 <Header/>
                 <main>{children}</main>
+                <FooterQuote/>
             </div>
         </ClerkProvider>
     );

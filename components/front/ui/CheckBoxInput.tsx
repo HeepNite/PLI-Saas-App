@@ -13,7 +13,7 @@ export default function CheckBoxInput() {
                 <Checkbox id="terms-1" defaultChecked/>
                 <div className="grid gap-2 text-destructive">
                     <Label htmlFor="terms-1">Become a better salsa dancer</Label>
-                    <p className="text-card dark:text-card-foreground text-sm">
+                    <p className="text-card dark:text-card-foreground text-sm hidden sm:block">
                         By clicking this checkbox, you agree to the terms and conditions.
                     </p>
                 </div>
@@ -24,7 +24,7 @@ export default function CheckBoxInput() {
                 <Checkbox id="terms-2" defaultChecked/>
                 <div className="grid gap-2 text-destructive">
                     <Label htmlFor="terms-2">Become a better salsa dancer</Label>
-                    <p className="text-card dark:text-card-foreground text-sm">
+                    <p className="text-card dark:text-card-foreground text-sm hidden sm:block">
                         By clicking this checkbox, you agree to the terms and conditions.
                     </p>
                 </div>
@@ -34,7 +34,7 @@ export default function CheckBoxInput() {
                 <Checkbox id="terms-3" defaultChecked/>
                 <div className="grid gap-2 text-destructive">
                     <Label htmlFor="terms-3">Become a better salsa dancer</Label>
-                    <p className="text-card dark:text-card-foreground text-sm">
+                    <p className="text-card dark:text-card-foreground text-sm hidden sm:block">
                         By clicking this checkbox, you agree to the terms and conditions.
                     </p>
                 </div>
@@ -44,7 +44,7 @@ export default function CheckBoxInput() {
                 <Checkbox id="terms-4" defaultChecked/>
                 <div className="grid gap-2 text-destructive">
                     <Label htmlFor="terms-4">Become a better salsa dancer</Label>
-                    <p className="text-card dark:text-card-foreground text-sm">
+                    <p className="text-card dark:text-card-foreground text-sm hidden sm:block">
                         By clicking this checkbox, you agree to the terms and conditions.
                     </p>
                 </div>
@@ -54,7 +54,7 @@ export default function CheckBoxInput() {
                 <Checkbox id="terms-5" defaultChecked/>
                 <div className="grid gap-2 text-destructive">
                     <Label htmlFor="terms-5">Become a better salsa dancer</Label>
-                    <p className="text-card dark:text-card-foreground text-sm">
+                    <p className="text-card dark:text-card-foreground text-sm hidden sm:block">
                         By clicking this checkbox, you agree to the terms and conditions.
                     </p>
                 </div>

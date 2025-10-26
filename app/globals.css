@@ -122,10 +122,10 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground overflow-x-hidden;
   }
   main {
-    @apply px-14 flex flex-col gap-8 bg-background h-full max-w-[1400px] pt-10 max-sm:px-2;
+    @apply flex flex-col gap-8 bg-background min-h-full w-full;
   }
   h1 {
     @apply text-3xl font-bold;

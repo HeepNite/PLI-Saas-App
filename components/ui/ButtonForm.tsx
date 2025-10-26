@@ -22,7 +22,7 @@ export default function ButtonForm() {
             <DropdownMenuContent
                 align="start"
                 sideOffset={8}
-                className="w-[760px] max-h-[80vh] overflow-x-hidden p-0 shadow-2xl borde-2 border-border/40 "
+                className="w-[760px] max-h-[80vh] overflow-x-hidden p-0 shadow-2xl border-2 border-border/40 "
             >
                 <DropdownMenuLabel className="px-6 pt-5 pb-2 text-xs uppercase tracking-wider text-muted-foreground">
                     CHOOSE THE BEST PATH FOR YOUR CREATIVITY
