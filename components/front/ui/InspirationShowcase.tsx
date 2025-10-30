@@ -165,6 +165,199 @@ const categories = [
     "Writing",
 ]
 
+// UI helpers and small subcomponents to remove duplication
+const cls = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ")
+
+const CategoryPill = React.memo(function CategoryPill({
+    label,
+    active,
+    onClick,
+}: {
+    label: string
+    active: boolean
+    onClick: () => void
+}) {
+    return (
+        <button
+            key={label}
+            type="button"
+            aria-pressed={active}
+            onClick={onClick}
+            className={cls(
+                "whitespace-nowrap rounded-full border px-3.5 py-2 text-xs sm:text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/70",
+                active
+                    ? "bg-neutral-800 text-white border-white/20 ring-1 ring-[var(--brand)]/60"
+                    : "bg-neutral-900 text-white/90 border-white/10 hover:text-white hover:border-white/20",
+            )}
+        >
+            {label}
+        </button>
+    )
+})
+
+const NavArrow = React.memo(function NavArrow({
+    side,
+    onClick,
+    label,
+}: {
+    side: "left" | "right"
+    onClick: () => void
+    label: string
+}) {
+    const Icon = side === "left" ? ChevronLeft : ChevronRight
+    const posClass = side === "left" ? "left-1" : "right-1"
+    return (
+        <button
+            aria-label={label}
+            onClick={onClick}
+            className={cls(
+                "hidden md:flex absolute top-1/2 -translate-y-1/2 z-20 size-10 items-center justify-center rounded-full bg-white/80 text-black hover:bg-white shadow dark:bg-neutral-800/80 dark:text-white",
+                posClass,
+            )}
+        >
+            <Icon className="size-5" />
+        </button>
+    )
+})
+
+const SideFade = React.memo(function SideFade({ side }: { side: "left" | "right" }) {
+    const isLeft = side === "left"
+    const style: React.CSSProperties = {
+        width: "8%",
+        backgroundColor: "rgba(0,0,0,0.25)",
+        WebkitMaskImage: isLeft
+            ? "linear-gradient(to right, black 0%, black 70%, transparent 100%)"
+            : "linear-gradient(to left, black 0%, black 70%, transparent 100%)",
+        maskImage: isLeft
+            ? "linear-gradient(to right, black 0%, black 70%, transparent 100%)"
+            : "linear-gradient(to left, black 0%, black 70%, transparent 100%)",
+    }
+    return (
+        <div aria-hidden className={cls("pointer-events-none absolute inset-y-0 z-[6] hidden md:block", isLeft ? "left-0" : "right-0")} style={style} />
+    )
+})
+
+type CardVariant = "single" | "grid" | "rail"
+
+const CardFigure = React.memo(function CardFigure({
+    card,
+    variant,
+    index = 0,
+    wrapperProps,
+}: {
+    card: ShowcaseCard
+    variant: CardVariant
+    index?: number
+    wrapperProps?: React.HTMLAttributes<HTMLElement>
+}) {
+    const baseCaptionCommon = (
+        <div className="text-left">
+            {variant === "single" ? (
+                <p className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.5)] leading-tight">{card.title}</p>
+            ) : (
+                <p className="text-3xl sm:text-4xl font-extrabold tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)] leading-none">{card.title}</p>
+            )}
+            {variant === "single" ? (
+                <div className="my-3 h-[2px] w-8 bg-white/80" />
+            ) : (
+                <div className="my-2 h-[2px] w-6 bg-white/80" />
+            )}
+            <p className={variant === "single" ? "text-sm sm:text-base text-white/90" : "text-xs sm:text-sm text-white/90"}>{card.subtitle}</p>
+            {card.details && (
+                <p className={variant === "single" ? "mt-2 text-xs sm:text-sm text-white/70" : "mt-2 text-[10px] sm:text-xs text-white/70"}>{card.details}</p>
+            )}
+        </div>
+    )
+
+    if (variant === "single") {
+        return (
+            <figure
+                {...wrapperProps}
+                className={cls(
+                    "relative w-full rounded-2xl overflow-hidden bg-neutral-900 aspect-[16/7] sm:aspect-[16/6] md:aspect-[21/8] min-h-[320px] sm:min-h-[360px] md:min-h-[420px]",
+                    wrapperProps?.className,
+                )}
+            >
+                <Image src={card.image} alt={card.title} fill sizes="100vw" className="object-cover" priority />
+                <figcaption className="absolute inset-0 p-5 sm:p-6 md:p-8 flex flex-col justify-end text-white">
+                    <div className="max-w-xl">{baseCaptionCommon}</div>
+                </figcaption>
+            </figure>
+        )
+    }
+
+    if (variant === "grid") {
+        return (
+            <figure
+                {...wrapperProps}
+                role="group"
+                className={cls(
+                    "relative rounded-2xl overflow-hidden bg-neutral-900 aspect-[3/4] sm:aspect-[4/5] md:aspect-[3/4] min-h-[260px] sm:min-h-[300px] md:min-h-[340px]",
+                    wrapperProps?.className,
+                )}
+            >
+                <Image
+                    src={card.image}
+                    alt={card.title}
+                    fill
+                    sizes="(max-width:768px) 100vw, 25vw"
+                    className="object-cover"
+                    priority={index < 2}
+                />
+                <figcaption className="absolute inset-0 p-4 sm:p-5 md:p-6 flex flex-col justify-end text-white">{baseCaptionCommon}</figcaption>
+            </figure>
+        )
+    }
+
+    // rail
+    return (
+        <figure
+            {...wrapperProps}
+            role="group"
+            data-card
+            className={cls(
+                "snap-start shrink-0 w-[68%] sm:w-[46%] md:w-[32%] lg:w-[22%] xl:w-[18%] relative rounded-2xl overflow-hidden bg-neutral-900 aspect-[3/4] sm:aspect-[4/5] md:aspect-[3/4] min-h-[260px] sm:min-h-[300px] md:min-h-[340px]",
+                wrapperProps?.className,
+            )}
+        >
+            <Image
+                src={card.image}
+                alt={card.title}
+                fill
+                sizes="(max-width:768px) 60vw, 20vw"
+                className="object-cover"
+                priority={index < 2}
+            />
+            <figcaption className="absolute inset-0 p-4 sm:p-5 md:p-6 flex flex-col justify-end text-white">{baseCaptionCommon}</figcaption>
+        </figure>
+    )
+})
+
+const PageDots = React.memo(function PageDots({
+    count,
+    active,
+    onSelect,
+}: {
+    count: number
+    active: number
+    onSelect: (idx: number) => void
+}) {
+    return (
+        <div className="mt-3 flex items-center justify-center gap-2">
+            {Array.from({ length: count }).map((_, i) => (
+                <button
+                    key={`dot-${i}`}
+                    type="button"
+                    aria-label={`Go to page ${i + 1}`}
+                    aria-current={active === i ? "true" : undefined}
+                    onClick={() => onSelect(i)}
+                    className={cls("size-2.5 rounded-full transition-colors", active === i ? "bg-[var(--brand)]" : "bg-neutral-500/50")}
+                />
+            ))}
+        </div>
+    )
+})
+
 export default function InspirationShowcase() {
     // STATE — refs and UI state
     const railRef = useRef<HTMLDivElement | null>(null)
@@ -186,6 +379,15 @@ export default function InspirationShowcase() {
     const singleMode = filteredCards.length === 1
     // Grid mode: when there are 2–4 items, distribute them across the full width (no scrolling)
     const gridMode = filteredCards.length > 1 && filteredCards.length <= 4
+
+    // Small logic helpers
+    const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
+    const computeStride = (children: HTMLElement[], rail: HTMLElement) => {
+        if (!children.length) return rail.clientWidth || 0
+        let s = children.length > 1 ? (children[1].offsetLeft - children[0].offsetLeft) : children[0].clientWidth
+        if (s <= 0) s = children[0].clientWidth || rail.clientWidth
+        return s
+    }
 
     // Compute visibleCount and pages based on actual DOM measurements
     const recomputePages = React.useCallback(() => {
@@ -211,8 +413,7 @@ export default function InspirationShowcase() {
             setActivePage(0)
             return
         }
-        let stride = children.length > 1 ? (children[1].offsetLeft - children[0].offsetLeft) : children[0].clientWidth
-        if (stride <= 0) stride = children[0].clientWidth || rail.clientWidth
+        const stride = computeStride(children, rail)
         const vc = Math.max(1, Math.round(rail.clientWidth / stride))
         const total = Math.max(1, Math.ceil(children.length / vc))
         setVisibleCount(vc)
@@ -232,13 +433,12 @@ export default function InspirationShowcase() {
         }
         const children = Array.from(rail.querySelectorAll('[data-card]')) as HTMLElement[]
         if (!children.length) return
-        let stride = children.length > 1 ? (children[1].offsetLeft - children[0].offsetLeft) : children[0].clientWidth
-        if (stride <= 0) stride = children[0].clientWidth
+        const stride = computeStride(children, rail)
         const pageStride = stride * Math.max(1, visibleCount)
         const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth)
-        const targetLeft = Math.max(0, Math.min(pageIdx * pageStride, maxLeft))
+        const targetLeft = clamp(pageIdx * pageStride, 0, maxLeft)
         rail.scrollTo({ left: targetLeft, behavior: "smooth" })
-        setActivePage(Math.max(0, Math.min(pageIdx, Math.max(0, totalPages - 1))))
+        setActivePage(clamp(pageIdx, 0, Math.max(0, totalPages - 1)))
     }, [gridMode, singleMode, visibleCount, totalPages])
 
     const next = () => {
@@ -284,14 +484,13 @@ export default function InspirationShowcase() {
         const onScroll = () => {
             const children = Array.from(el.querySelectorAll('[data-card]')) as HTMLElement[]
             if (!children.length) return
-            let stride = children.length > 1 ? (children[1].offsetLeft - children[0].offsetLeft) : children[0].clientWidth
-            if (stride <= 0) stride = children[0].clientWidth
+            const stride = computeStride(children, el)
             const pageStride = stride * Math.max(1, visibleCount)
             const page = pageStride > 0 ? Math.round(el.scrollLeft / pageStride) : 0
-            const clamped = Math.max(0, Math.min(page, Math.max(0, totalPages - 1)))
-            setActivePage(clamped)
+            const clampedPage = clamp(page, 0, Math.max(0, totalPages - 1))
+            setActivePage(clampedPage)
             // Keep an approximate active card index for aria/debug (left-most)
-            //const idx = pageStride > 0 ? Math.round((el.scrollLeft % pageStride) / stride) + clamped * Math.max(1, visibleCount) : 0
+            //const idx = pageStride > 0 ? Math.round((el.scrollLeft % pageStride) / stride) + clampedPage * Math.max(1, visibleCount) : 0
             // setActive(Math.max(0, Math.min(idx, filteredCards.length - 1)))
         }
         el.addEventListener("scroll", onScroll, {passive: true} as never)
@@ -315,19 +514,12 @@ export default function InspirationShowcase() {
                         {categories.map((c) => {
                             const isActive = selectedCategory === c || (c === "Trending" && selectedCategory === "Trending")
                             return (
-                                <button
+                                <CategoryPill
                                     key={c}
-                                    type="button"
-                                    aria-pressed={isActive}
+                                    label={c}
+                                    active={isActive}
                                     onClick={() => setSelectedCategory(c)}
-                                    className={`whitespace-nowrap rounded-full border px-3.5 py-2 text-xs sm:text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/70 ${
-                                        isActive
-                                            ? "bg-neutral-800 text-white border-white/20 ring-1 ring-[var(--brand)]/60"
-                                            : "bg-neutral-900 text-white/90 border-white/10 hover:text-white hover:border-white/20"
-                                    }`}
-                                >
-                                    {c}
-                                </button>
+                                />
                             )
                         })}
                     </div>
@@ -338,14 +530,8 @@ export default function InspirationShowcase() {
                     {/* arrows — shown only when there is more than 1 page in scroll mode */}
                     {!singleMode && totalPages > 1 && (
                         <>
-                            <button aria-label="Previous" onClick={prev}
-                                    className="hidden md:flex absolute left-1 top-1/2 -translate-y-1/2 z-20 size-10 items-center justify-center rounded-full bg-white/80 text-black hover:bg-white shadow dark:bg-neutral-800/80 dark:text-white">
-                                <ChevronLeft className="size-5"/>
-                            </button>
-                            <button aria-label="Next" onClick={next}
-                                    className="hidden md:flex absolute right-1 top-1/2 -translate-y-1/2 z-20 size-10 items-center justify-center rounded-full bg-white/80 text-black hover:bg-white shadow dark:bg-neutral-800/80 dark:text-white">
-                                <ChevronRight className="size-5"/>
-                            </button>
+                            <NavArrow side="left" onClick={prev} label="Previous" />
+                            <NavArrow side="right" onClick={next} label="Next" />
                         </>
                     )}
 
@@ -359,54 +545,16 @@ export default function InspirationShowcase() {
                         {/* Left subtle side fade (masked) */}
                         {!singleMode && !gridMode && totalPages > 1 && (
                             <>
-                                <div
-                                    aria-hidden
-                                    className="pointer-events-none absolute inset-y-0 left-0 z-[6] hidden md:block"
-                                    style={{
-                                        width: "8%",
-                                        backgroundColor: "rgba(0,0,0,0.25)",
-                                        WebkitMaskImage: "linear-gradient(to right, black 0%, black 70%, transparent 100%)",
-                                        maskImage: "linear-gradient(to right, black 0%, black 70%, transparent 100%)",
-                                    }}
-                                />
+                                <SideFade side="left" />
                                 {/* Right subtle side fade (masked) */}
-                                <div
-                                    aria-hidden
-                                    className="pointer-events-none absolute inset-y-0 right-0 z-[6] hidden md:block"
-                                    style={{
-                                        width: "8%",
-                                        backgroundColor: "rgba(0,0,0,0.25)",
-                                        WebkitMaskImage: "linear-gradient(to left, black 0%, black 70%, transparent 100%)",
-                                        maskImage: "linear-gradient(to left, black 0%, black 70%, transparent 100%)",
-                                    }}
-                                />
+                                <SideFade side="right" />
                             </>
                         )}
                         {/* SHADOW/VIGNETTE — end */}
 
                         {singleMode ? (
                             // Single-card mode: full-bleed, non-scrolling
-                            <figure
-                                className="relative w-full rounded-2xl overflow-hidden bg-neutral-900 aspect-[16/7] sm:aspect-[16/6] md:aspect-[21/8] min-h-[320px] sm:min-h-[360px] md:min-h-[420px]">
-                                <Image
-                                    src={filteredCards[0].image}
-                                    alt={filteredCards[0].title}
-                                    fill
-                                    sizes="100vw"
-                                    className="object-cover"
-                                    priority
-                                />
-                                <figcaption
-                                    className="absolute inset-0 p-5 sm:p-6 md:p-8 flex flex-col justify-end text-white">
-                                    <div className="max-w-xl">
-                                        <p className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.5)] leading-tight">{filteredCards[0].title}</p>
-                                        <div className="my-3 h-[2px] w-8 bg-white/80"/>
-                                        <p className="text-sm sm:text-base text-white/90">{filteredCards[0].subtitle}</p>
-                                        {filteredCards[0].details &&
-                                            <p className="mt-2 text-xs sm:text-sm text-white/70">{filteredCards[0].details}</p>}
-                                    </div>
-                                </figcaption>
-                            </figure>
+                            <CardFigure card={filteredCards[0]} variant="single" />
                         ) : gridMode ? (
                             // GRID MODE — 2–4 items: distribute evenly across the full width (no scrolling)
                             <div
@@ -414,28 +562,7 @@ export default function InspirationShowcase() {
                                 style={{ gridTemplateColumns: `repeat(${filteredCards.length}, minmax(0, 1fr))` }}
                             >
                                 {filteredCards.map((c, i) => (
-                                    <figure
-                                        key={`${c.title}-${i}`}
-                                        role="group"
-                                        className="relative rounded-2xl overflow-hidden bg-neutral-900 aspect-[3/4] sm:aspect-[4/5] md:aspect-[3/4] min-h-[260px] sm:min-h-[300px] md:min-h-[340px]"
-                                    >
-                                        <Image
-                                            src={c.image}
-                                            alt={c.title}
-                                            fill
-                                            sizes="(max-width:768px) 100vw, 25vw"
-                                            className="object-cover"
-                                            priority={i < 2}
-                                        />
-                                        <figcaption className="absolute inset-0 p-4 sm:p-5 md:p-6 flex flex-col justify-end text-white">
-                                            <div className="text-left">
-                                                <p className="text-3xl sm:text-4xl font-extrabold tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)] leading-none">{c.title}</p>
-                                                <div className="my-2 h-[2px] w-6 bg-white/80"/>
-                                                <p className="text-xs sm:text-sm text-white/90">{c.subtitle}</p>
-                                                {c.details && <p className="mt-2 text-[10px] sm:text-xs text-white/70">{c.details}</p>}
-                                            </div>
-                                        </figcaption>
-                                    </figure>
+                                    <CardFigure key={`${c.title}-${i}`} card={c} variant="grid" index={i} />
                                 ))}
                             </div>
                         ) : (
@@ -443,35 +570,13 @@ export default function InspirationShowcase() {
                             <div ref={railRef}
                                  className="relative flex snap-x snap-mandatory overflow-x-auto no-scrollbar gap-4 md:gap-6 scroll-pl-2 md:scroll-pl-4 pr-2 md:pr-4">
                                 {filteredCards.map((c, i) => (
-                                    // Each card uses Next/Image with `fill`, so the parent needs intrinsic height.
-                                    // We enforce it via aspect-ratio plus a small min-height to avoid 0px containers.
-                                    <figure
+                                    <CardFigure
                                         key={`${c.title}-${i}`}
-                                        id={ids[i]}
-                                        role="group"
-                                        data-card
-                                        className="snap-start shrink-0 w-[68%] sm:w-[46%] md:w-[32%] lg:w-[22%] xl:w-[18%] relative rounded-2xl overflow-hidden bg-neutral-900 aspect-[3/4] sm:aspect-[4/5] md:aspect-[3/4] min-h-[260px] sm:min-h-[300px] md:min-h-[340px]"
-                                    >
-                                        <Image
-                                            src={c.image}
-                                            alt={c.title}
-                                            fill
-                                            sizes="(max-width:768px) 60vw, 20vw"
-                                            className="object-cover"
-                                            priority={i < 2}
-                                        />
-                                        {/* Text overlay */}
-                                        <figcaption
-                                            className="absolute inset-0 p-4 sm:p-5 md:p-6 flex flex-col justify-end text-white">
-                                            <div className="text-left">
-                                                <p className="text-3xl sm:text-4xl font-extrabold tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)] leading-none">{c.title}</p>
-                                                <div className="my-2 h-[2px] w-6 bg-white/80"/>
-                                                <p className="text-xs sm:text-sm text-white/90">{c.subtitle}</p>
-                                                {c.details &&
-                                                    <p className="mt-2 text-[10px] sm:text-xs text-white/70">{c.details}</p>}
-                                            </div>
-                                        </figcaption>
-                                    </figure>
+                                        card={c}
+                                        variant="rail"
+                                        index={i}
+                                        wrapperProps={{ id: ids[i] }}
+                                    />
                                 ))}
                             </div>
                         )}
@@ -479,18 +584,7 @@ export default function InspirationShowcase() {
 
                     {/* dots — page-based (each dot = one full viewport of cards) */}
                     {!singleMode && !gridMode && totalPages > 1 && (
-                        <div className="mt-3 flex items-center justify-center gap-2">
-                            {Array.from({ length: totalPages }).map((_, i) => (
-                                <button
-                                    key={`dot-${i}`}
-                                    type="button"
-                                    aria-label={`Go to page ${i + 1}`}
-                                    aria-current={activePage === i ? "true" : undefined}
-                                    onClick={() => scrollToPage(i)}
-                                    className={`size-2.5 rounded-full transition-colors ${activePage === i ? "bg-[var(--brand)]" : "bg-neutral-500/50"}`}
-                                />
-                            ))}
-                        </div>
+                        <PageDots count={totalPages} active={activePage} onSelect={scrollToPage} />
                     )}
                 </div>
 
