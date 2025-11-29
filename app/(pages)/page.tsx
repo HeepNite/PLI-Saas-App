@@ -11,7 +11,8 @@ import InspirationShowcase from "@/components/front/ui/InspirationShowcase";
 const Page = () => {
     return (
         <div className='min-h-screen bg-background'>
-            <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 py-8 overflow-x-clip">
+            <div
+                className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 py-8 overflow-x-clip">
                 <HeroHome/>
             </div>
 

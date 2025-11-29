@@ -1,6 +1,7 @@
 "use client"
 
 import Image from "next/image"
+import Link from "next/link"
 import React from "react"
 import { Users, Filter, Clock, ChevronDown } from "lucide-react"
 
@@ -15,6 +16,7 @@ export type Course = {
   category?: string
   size?: "sm" | "md" | "lg"
   description?: string
+  slug?: string // optional: when provided, we can link to the booking page
 }
 
 export type CoursesMasonryProps = {
@@ -47,7 +49,9 @@ const sampleCourses: Course[] = [
     badge: "Staff Pick",
     category: "Salsa",
     size: "lg",
-    description: "Learn basic steps, timing, and body control with Latin musicality."
+    description: "Learn basic steps, timing, and body control with Latin musicality.",
+    // Demo link to real course page
+    slug: "salsa-basico",
   },
   {
     id: "2",
@@ -57,7 +61,9 @@ const sampleCourses: Course[] = [
     students: "4,119",
     duration: "1h 55m",
     category: "Bachata",
-    size: "md"
+    size: "md",
+    // Demo link to real course page
+    slug: "bachata-intermedio",
   },
   {
     id: "3",
@@ -219,6 +225,17 @@ export default function CoursesMasonry({
                 <p className="text-xs text-muted-foreground">{c.teacher}</p>
                 {c.description && (
                   <p className="text-xs text-muted-foreground/90 pt-1">{c.description}</p>
+                )}
+                {c.slug && (
+                  <div className="pt-2">
+                    <Link
+                      href={`/cursos/${c.slug}#enroll-cta`}
+                      className="inline-flex items-center justify-center rounded-md bg-[var(--brand,#111)] text-white px-3 py-1.5 text-xs hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--brand,#111)]"
+                      aria-label={`Reservar clase en ${c.title}`}
+                    >
+                      Reservar clase
+                    </Link>
+                  </div>
                 )}
               </div>
             </article>
