@@ -2,6 +2,7 @@
 
 import React from "react"
 import {Clock, X} from "lucide-react"
+import { useI18n } from "@/lib/i18n"
 
 // Dismissible, sticky notification bar shown above the Header.
 // Refactor: always shows on reload (no persistence), includes a live countdown,
@@ -16,18 +17,16 @@ type NotificationBarProps = {
 const DEFAULT_DURATION_MS = 12 * 60 * 60 * 1000 // 12 hours
 
 export default function NotificationBar({
-  message = (
-    <>
-      Announcement: purchases in the next 12 hours qualify for special deals and updates.
-    </>
-  ),
+  message,
   durationMs = DEFAULT_DURATION_MS,
 }: NotificationBarProps) {
+  const { t } = useI18n()
   const [visible, setVisible] = React.useState(true)
   const [closing, setClosing] = React.useState(false)
   const [remaining, setRemaining] = React.useState(durationMs)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const startedAtRef = React.useRef<number>(Date.now())
+  const finalMessage = message ?? t("notif_announcement")
 
   // Format remaining time as HH:MM:SS
   const format = (ms: number) => {
@@ -92,7 +91,7 @@ export default function NotificationBar({
         <div className="flex items-center justify-between gap-4 py-2 text-sm">
           <div className="flex-1 text-card dark:text-white">
             <div className="flex items-center gap-3">
-              <span>{message}</span>
+              <span>{finalMessage}</span>
               <span className="inline-flex items-center justify-between gap-3 rounded-md border border-primary bg-background/2 px-3 py-1.5 text-xs">
                 <Clock className="h-4.5 w-4.5 text-primary " />
                 <span aria-live="polite" aria-atomic>{format(remaining)}</span>
@@ -101,7 +100,7 @@ export default function NotificationBar({
           </div>
           <button
             type="button"
-            aria-label="Close notification"
+            aria-label={t("notif_close")}
             onClick={onClose}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-primary bg-background/2 hover:bg-accent hover:text-accent-foreground transition-colors"
           >
