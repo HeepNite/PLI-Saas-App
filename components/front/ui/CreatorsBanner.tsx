@@ -6,11 +6,13 @@ import React from "react"
 // Light applies a subtle glass look; dark keeps current site aesthetic.
 
 const carouselImages: string[] = [
-    "/images/carousel/_DSC0998.JPG",
+    "/images/Kids/Artboard 1.jpg",
     "/images/carousel/_DSC1076.JPG",
-    "/images/carousel/_DSC1079.JPG",
+    "/images/social-program/Background.jpg",
     "/images/carousel/_DSC1087.JPG",
+    "/images/social-program/Background-1.jpg",
     "/images/carousel/_DSC1090.JPG",
+    "/images/Kids/Artboard 3.jpg",
 ]
 
 function CardImage({src, alt}: { src: string; alt: string }) {

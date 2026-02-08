@@ -123,6 +123,7 @@
   }
   body {
     @apply bg-background text-foreground overflow-x-hidden;
+    scroll-behavior: smooth;
   }
   main {
     @apply flex flex-col gap-8 bg-background min-h-full w-full;
@@ -228,4 +229,7 @@
   .bg-brand-gradient {
     background-image: linear-gradient(to bottom, var(--brand), var(--brand-dark));
   }
+}
+html {
+  scroll-behavior: smooth;
 }

@@ -1,5 +1,5 @@
 import { cookies } from "next/headers"
-import { translations, type Locale } from "@/lib/i18n-dict"
+import { translations, type I18nKey, type Locale } from "@/lib/i18n-dict"
 
 export function getLocaleFromRequest(): Locale {
   const c = cookies()
@@ -7,7 +7,7 @@ export function getLocaleFromRequest(): Locale {
   return lang === "es" ? "es" : "en"
 }
 
-export function tServer(key: string, vars?: Record<string, string | number>, locale?: Locale): string {
+export function tServer(key: I18nKey, vars?: Record<string, string | number>, locale?: Locale): string {
   const loc = locale ?? getLocaleFromRequest()
   const dict = translations[loc]
   let val = dict[key] ?? translations.en[key] ?? key

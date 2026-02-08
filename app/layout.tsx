@@ -13,6 +13,8 @@ import {ThemeProvider} from "next-themes";
 import AssistantWidgetMountI18n from "@/components/front/AssistantWidgetMountI18n";
 import { ClerkProvider } from "@clerk/nextjs";
 import { I18nProvider } from "@/lib/i18n";
+import { cookies } from "next/headers";
+import FloatingTopHomeButton from "@/components/front/ui/FloatingTopHomeButton";
 
 
 export const metadata: Metadata = {
@@ -20,13 +22,15 @@ export const metadata: Metadata = {
     description: "Artistic Teaching Platform",
 };
 
-export default function RootLayout({children,}: Readonly<{ children: React.ReactNode; }>) {
+export default async function RootLayout({children,}: Readonly<{ children: React.ReactNode; }>) {
+    const lang = (await cookies()).get("lang")?.value;
+    const initialLocale = lang === "es" ? "es" : "en";
     return (
         <html lang="en" suppressHydrationWarning>
 
-        <body>
+        <body className="scroll-smooth">
         <ClerkProvider>
-          <I18nProvider>
+          <I18nProvider initialLocale={initialLocale}>
             <ThemeProvider
                 attribute="class"
                 defaultTheme="system"
@@ -34,6 +38,7 @@ export default function RootLayout({children,}: Readonly<{ children: React.React
                 disableTransitionOnChange
             >
                 {children}
+                <FloatingTopHomeButton />
                 {/* Floating assistant widget mounted globally (client-only wrapper, i18n-aware) */}
                 <AssistantWidgetMountI18n />
             </ThemeProvider>

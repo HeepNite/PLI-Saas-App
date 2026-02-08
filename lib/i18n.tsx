@@ -1,11 +1,12 @@
 "use client"
 import React, {createContext, useContext, useMemo} from "react"
 import {useSearchParams} from "next/navigation"
-import { translations, type Locale } from "@/lib/i18n-dict"
+import { translations, type I18nKey, type Locale } from "@/lib/i18n-dict"
+type I18nVars = Record<string, string | number>
 
 type I18nContextValue = {
   locale: Locale
-  t: (key: string, vars?: Record<string, string | number>) => string
+  t: (key: I18nKey, vars?: I18nVars) => string
 }
 
 const I18nContext = createContext<I18nContextValue>({
@@ -13,23 +14,39 @@ const I18nContext = createContext<I18nContextValue>({
   t: (k) => k,
 })
 
-export function I18nProvider({children}: {children: React.ReactNode}) {
+export function I18nProvider({
+  children,
+  initialLocale = "en",
+}: {
+  children: React.ReactNode
+  initialLocale?: Locale
+}) {
   const sp = useSearchParams()
-  const param = (sp?.get("lang") as Locale | null) || null
-  let initial: Locale = "en"
-  if (typeof document !== "undefined") {
-    const fromCookie = document.cookie.split("; ").find((c) => c.startsWith("lang="))?.split("=")?.[1] as Locale | undefined
-    if (fromCookie === "en" || fromCookie === "es") initial = fromCookie
-  }
-  const locale: Locale = param === "en" || param === "es" ? param : initial
-  // persist cookie if param provided
-  if (typeof document !== "undefined" && param && param !== initial) {
-    document.cookie = `lang=${param}; path=/; max-age=${60 * 60 * 24 * 365}`
-  }
+  const paramLocale = (sp?.get("lang") as Locale | null) || null
+  const initial = paramLocale === "en" || paramLocale === "es" ? paramLocale : initialLocale
+  const [locale, setLocale] = React.useState<Locale>(initial)
+
+  React.useEffect(() => {
+    const param = (sp?.get("lang") as Locale | null) || null
+    const cookieLocale = (() => {
+      const fromCookie = document.cookie.split("; ").find((c) => c.startsWith("lang="))?.split("=")?.[1] as Locale | undefined
+      return fromCookie === "en" || fromCookie === "es" ? fromCookie : null
+    })()
+    const next: Locale = param === "en" || param === "es"
+      ? param
+      : cookieLocale || initialLocale
+
+    if (param && param !== cookieLocale) {
+      document.cookie = `lang=${param}; path=/; max-age=${60 * 60 * 24 * 365}`
+    }
+    if (next !== locale) {
+      setLocale(next)
+    }
+  }, [sp, initialLocale, locale])
 
   const t = useMemo(() => {
     const dict = translations[locale]
-    return (key: string, vars?: Record<string, string | number>) => {
+    return (key: I18nKey, vars?: I18nVars) => {
       let val = dict[key] ?? translations.en[key] ?? key
       if (vars) {
         Object.entries(vars).forEach(([k, v]) => {

@@ -14,12 +14,12 @@ export type AssistantLink = { label: string; href: string }
 export default function AssistantWidget({
   videoSrc = "/videos/assistant.mp4",
   poster = "/images/assistant-poster.jpg",
-  title = "¡Hola! Soy tu asistente. ¿Cómo te ayudo?",
-  ctaLabel = "Iniciar chat",
+  title = "Hi! I'm your assistant. How can I help?",
+  ctaLabel = "Start chat",
   startHref = "/chat",
   links = [] as AssistantLink[],
   initialMinimized = false,
-  bubbleLabel = "Abrir asistente",
+  bubbleLabel = "Open assistant",
   position = "left" as "left" | "right",
 }: {
   videoSrc?: string
@@ -96,7 +96,7 @@ export default function AssistantWidget({
     <div
       ref={panelRef}
       role="dialog"
-      aria-label="Asistente flotante"
+      aria-label="Floating assistant"
       tabIndex={-1}
       className={`fixed bottom-4 ${sidePos} z-[9999] w-[320px] sm:w-[360px] rounded-2xl border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 backdrop-blur shadow-[0_10px_30px_-10px_rgba(0,0,0,.45)] overflow-hidden`}
     >
@@ -115,7 +115,7 @@ export default function AssistantWidget({
         {/* Close (minimize) button */}
         <button
           type="button"
-          aria-label="Minimizar asistente"
+          aria-label="Minimize assistant"
           onClick={() => {
             setMinimized(true)
             bubbleRef.current?.focus()
