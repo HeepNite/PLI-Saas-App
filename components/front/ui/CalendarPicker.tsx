@@ -19,9 +19,11 @@ export type CalendarPickerProps = {
   timezone?: string
   className?: string
   minDate?: string // YYYY-MM-DD, opcional
+  availableWeekdays?: number[] // 0=Mon ... 6=Sun; si se pasa, sólo esos días quedan habilitados
+  allowClear?: boolean
 }
 
-export default function CalendarPicker({ value, onChange, timezone, className = "", minDate }: CalendarPickerProps) {
+export default function CalendarPicker({ value, onChange, timezone, className = "", minDate, availableWeekdays, allowClear = false }: CalendarPickerProps) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
 
   // Mes/año visibles en el encabezado
@@ -59,6 +61,8 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
 
   const isDisabled = (d: Date) => {
     const iso = toISODate(d)
+    const weekday = (d.getDay() + 6) % 7 // Mon=0
+    if (availableWeekdays && availableWeekdays.length && !availableWeekdays.includes(weekday)) return true
     return iso < min
   }
 
@@ -86,6 +90,16 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
         <div className="ml-auto flex items-center gap-2">
           <button type="button" aria-label="Mes anterior" onClick={()=>go(-1)} className="h-8 w-8 rounded-md border">‹</button>
           <button type="button" aria-label="Mes siguiente" onClick={()=>go(1)} className="h-8 w-8 rounded-md border">›</button>
+          {allowClear && (
+            <button
+              type="button"
+              aria-label="Clear date"
+              onClick={() => onChange("")}
+              className="h-8 px-3 rounded-md border text-xs bg-white/70 dark:bg-white/10"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -103,16 +117,24 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
           const selected = value === iso
           const disabled = isDisabled(d)
           const isToday = iso === todayISO
+          const handleClick = () => {
+            if (disabled) return
+            if (selected && allowClear) onChange("")
+            else onChange(iso)
+          }
           return (
             <button
               key={idx}
               type="button"
-              onClick={()=> !disabled && onChange(iso)}
+              onClick={handleClick}
               disabled={disabled}
               className={`py-2 rounded-md border text-sm transition-colors ${
-                selected ? "bg-[var(--brand,#111)] text-white border-transparent" :
-                isToday ? "border-[var(--brand,#111)]/40" : "border-black/10 dark:border-white/10"
-              } ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-black/5 dark:hover:bg-white/10"}`}
+                selected
+                  ? "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"
+                  : isToday
+                    ? "border-[var(--brand,#b61616)] bg-white/10 text-white shadow-[0_0_0_1px_rgba(182,22,22,0.4)]"
+                    : "border-black/15 dark:border-white/15"
+              } ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-black/10 dark:hover:bg-white/10"}`}
             >
               {d.getDate()}
             </button>

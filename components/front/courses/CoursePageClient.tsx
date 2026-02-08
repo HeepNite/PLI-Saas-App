@@ -30,7 +30,7 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
           <section className="lg:col-span-6">
             {/* Fixed-height container so only this area scrolls on desktop */}
             <div
-              className="lg:h-[calc(100vh-180px)] lg:overflow-y-auto pr-1"
+              className="lg:h-[calc(100vh-180px)] lg:overflow-y-auto lg:scroll-smooth pr-1"
               // Explanation: 180px roughly equals header + paddings; adjust to your header height.
             >
               <CourseSections course={course} />

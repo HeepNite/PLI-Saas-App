@@ -1,8 +1,6 @@
 export type Locale = "en" | "es"
 
-export type Dict = Record<string, string>
-
-export const translations: Record<Locale, Dict> = {
+const translationsObj = {
   en: {
     // Generic
     back: "Back",
@@ -77,6 +75,23 @@ export const translations: Record<Locale, Dict> = {
     payments_onSite_desc: "The payment will be done on‑site.",
     payments_stripe: "Stripe",
     payments_stripe_desc: "You will be redirected to Stripe (demo).",
+    new_student_single_notice: "New student price applies to 1 person only.",
+    new_student_verify_phone: "Verify your phone by SMS to unlock the new student price.",
+    verify_phone_cta: "Verify phone now",
+    account_exists_error: "We found an existing account for this email or phone.",
+    account_exists_cta: "Sign in to continue",
+    account_exists_title: "Sign in to continue",
+    account_exists_signed_in: "We couldn't validate your session yet. Please try again in a moment.",
+    new_student_existing_error:
+      "Aaahh, a returning student trying to be clever? Just kidding. You'll just pay the regular class price.",
+    account_exists_back: "Back to form",
+    sign_in_modal_title: "Sign in",
+    sign_in_modal_subtitle: "Use your phone number to continue.",
+    phone_format_hint: "Use a valid US phone number (10 digits).",
+    verify_phone_title: "Verify your phone",
+    verify_phone_subtitle: "We use SMS verification to protect the new student price.",
+    verify_phone_signed_out: "Sign in to verify your phone and continue.",
+    verify_phone_back: "Back to courses",
 
     // Success and calendar
     addToCalendar: "Add to Calendar",
@@ -204,6 +219,23 @@ export const translations: Record<Locale, Dict> = {
     payments_onSite_desc: "El pago se realizará en el lugar.",
     payments_stripe: "Stripe",
     payments_stripe_desc: "Serás redirigido a Stripe (demo).",
+    new_student_single_notice: "El precio de alumno nuevo es solo para 1 persona.",
+    new_student_verify_phone: "Verifica tu teléfono por SMS para habilitar el precio de alumno nuevo.",
+    verify_phone_cta: "Verificar teléfono ahora",
+    account_exists_error: "Ya existe una cuenta con este email o teléfono.",
+    account_exists_cta: "Iniciar sesión para continuar",
+    account_exists_title: "Inicia sesión para continuar",
+    account_exists_signed_in: "No pudimos validar tu sesión todavía. Intenta nuevamente en un momento.",
+    new_student_existing_error:
+      "Aaahh con que alumno viejo queriendo ser listo… jajaja. Tranquilo, solo pagas la clase original.",
+    account_exists_back: "Volver al formulario",
+    sign_in_modal_title: "Inicia sesión",
+    sign_in_modal_subtitle: "Usa tu teléfono para continuar.",
+    phone_format_hint: "Usa un teléfono de EE. UU. válido (10 dígitos).",
+    verify_phone_title: "Verifica tu teléfono",
+    verify_phone_subtitle: "Usamos verificación por SMS para proteger el precio de alumno nuevo.",
+    verify_phone_signed_out: "Inicia sesión para verificar tu teléfono y continuar.",
+    verify_phone_back: "Volver a cursos",
 
     addToCalendar: "Agregar al calendario",
     congratulations: "¡Felicidades!",
@@ -255,5 +287,10 @@ export const translations: Record<Locale, Dict> = {
     startHere: "Empieza aquí",
     intermediate: "Intermedio",
     advanced: "Avanzado",
-  }
-}
+  },
+} as const
+
+export const translations = translationsObj
+export type Translations = typeof translations
+export type Dict = Translations[Locale]
+export type I18nKey = keyof Translations["en"]

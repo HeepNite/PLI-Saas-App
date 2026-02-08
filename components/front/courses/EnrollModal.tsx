@@ -2,10 +2,17 @@
 import React from "react"
 import Link from "next/link"
 import CalendarPicker from "../ui/CalendarPicker"
-import type { CourseData, EnrollmentOption } from "@/constants/courses"
+import type { EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
 import { Calendar as CalendarIcon, CalendarRange, CalendarDays, CalendarCheck, CreditCard, Building2 } from "lucide-react"
 import { useI18n } from "@/lib/i18n"
+import type { CourseEnrollmentData, Coupon, EnrollmentContact, PaymentMethod } from "./types"
+import { useEnrollDraft } from "./hooks/useEnrollDraft"
+import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
+import ChatLauncher from "../ui/ChatLauncher"
+import { SignIn, useAuth, useUser } from "@clerk/nextjs"
+import { StripePaymentModal } from "../payments/StripePaymentModal"
+import { useRouter } from "next/navigation"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -17,12 +24,17 @@ export default function EnrollModal({
   course,
   open,
   onCloseAction,
+  initialStep,
 }: {
-  course: CourseData
+  course: CourseEnrollmentData
   open: boolean
   onCloseAction: () => void
+  initialStep?: number
 }) {
   const { t } = useI18n()
+  const router = useRouter()
+  const { isLoaded, isSignedIn, user } = useUser()
+  const { getToken } = useAuth()
   // Paso 0: opciones/servicios
   const [service, setService] = React.useState<string>(course.enrollment.services[0]?.id ?? "")
   const [pkg, setPkg] = React.useState<string>("")
@@ -32,22 +44,82 @@ export default function EnrollModal({
   const [date, setDate] = React.useState<string>("") // YYYY-MM-DD
   const [time, setTime] = React.useState<string>("") // HH:MM
   // Paso 3: pagos
-  type Coupon = { code: string; type: "percent" | "amount"; value: number } | null
   const [couponInput, setCouponInput] = React.useState<string>("")
   const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
-  const [paymentMethod, setPaymentMethod] = React.useState<"onsite" | "stripe" | "">("")
+  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>("")
   // Paso 2: datos de contacto (modular, sin teléfono)
-  const [contact, setContact] = React.useState<{ firstName: string; lastName: string; email: string; note: string }>(
+  const [contact, setContact] = React.useState<EnrollmentContact>(
     {
       firstName: "",
       lastName: "",
       email: "",
+      phone: "+1 ",
       note: "",
     }
   )
   // Flujo multi‑paso + éxito
   const [step, setStep] = React.useState<number>(0)
   const [success, setSuccess] = React.useState<boolean>(false)
+  const [processing, setProcessing] = React.useState<boolean>(false)
+  const [timeLoading, setTimeLoading] = React.useState<boolean>(false)
+  const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
+  const [formError, setFormError] = React.useState<string | null>(null)
+  const [requiresPhoneVerification, setRequiresPhoneVerification] = React.useState<boolean>(false)
+  const [requiresSignIn, setRequiresSignIn] = React.useState<boolean>(false)
+  const [pendingAutoPay, setPendingAutoPay] = React.useState<boolean>(false)
+  const [phoneTouched, setPhoneTouched] = React.useState<boolean>(false)
+  const [stripeClientSecret, setStripeClientSecret] = React.useState<string>("")
+  const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
+  const isNewStudent = service === "new-student"
+  const returnTo = `/cursos/${course.slug}?enroll=1&step=2`
+  const verifyPhoneUrl = `/verify-phone?return=${encodeURIComponent(returnTo)}`
+  const steps = [
+    { key: "party", label: t("step_party") },
+    { key: "datetime", label: t("step_datetime") },
+    { key: "info", label: t("step_info") },
+    { key: "payments", label: t("step_payments") },
+    { key: "review", label: t("step_review") },
+  ] as const
+  const signInReturnTo = `/cursos/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
+  const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
+
+  useEnrollDraft({
+    open,
+    success,
+    draftKey,
+    stepsCount: steps.length,
+    state: {
+      service,
+      pkg,
+      addons,
+      participants,
+      date,
+      time,
+      contact,
+      couponInput,
+      appliedCoupon,
+      paymentMethod,
+      step,
+    },
+    setters: {
+      setService,
+      setPkg,
+      setAddons,
+      setParticipants,
+      setDate,
+      setTime,
+      setContact,
+      setCouponInput,
+      setAppliedCoupon,
+      setPaymentMethod,
+      setStep,
+    },
+  })
+
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setInitialLoading(false), 400)
+    return () => window.clearTimeout(id)
+  }, [])
 
   React.useEffect(() => {
     if (!open) {
@@ -57,10 +129,44 @@ export default function EnrollModal({
       setParticipants(1)
       setDate("")
       setTime("")
-      setContact({ firstName: "", lastName: "", email: "", note: "" })
+      setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
       setStep(0)
+      setRequiresPhoneVerification(false)
+      setRequiresSignIn(false)
+      setPendingAutoPay(false)
+      setPhoneTouched(false)
+      setStripeClientSecret("")
+      setShowStripeModal(false)
     }
   }, [open])
+
+
+  React.useEffect(() => {
+    const serviceIds = course.enrollment.services.map((s) => s.id)
+    setService((prev) => (serviceIds.includes(prev) ? prev : serviceIds[0] ?? ""))
+    setPkg((prev) => (course.enrollment.packages.some((p) => p.id === prev) ? prev : ""))
+    setAddons((prev) => prev.filter((id) => course.enrollment.addons?.some((a) => a.id === id)))
+  }, [course.slug, course.enrollment.services, course.enrollment.packages, course.enrollment.addons])
+
+  React.useEffect(() => {
+    if (isNewStudent && participants !== 1) {
+      setParticipants(1)
+    }
+  }, [isNewStudent, participants])
+
+  React.useEffect(() => {
+    if (isLoaded && isSignedIn && user) {
+      const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
+      const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
+      setContact((prev) => ({
+        ...prev,
+        firstName: prev.firstName || user.firstName || "",
+        lastName: prev.lastName || user.lastName || "",
+        email: prev.email || user.primaryEmailAddress?.emailAddress || "",
+        phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
+      }))
+    }
+  }, [isLoaded, isSignedIn, user])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
@@ -87,7 +193,26 @@ export default function EnrollModal({
     if (h === 0) h = 12
     return `${h}:${m} ${ampm}`
   }
-  const TIME_SLOTS_24 = ["10:00", "11:00", "18:00", "19:00", "20:00"] as const
+  const TIME_SLOTS_24 = React.useMemo(() => {
+    if (!date) return [] as readonly string[]
+
+    const d = new Date(`${date}T00:00:00`)
+    const weekday = (d.getDay() + 6) % 7 // Mon=0 ... Sun=6
+
+    // Salsa evening: Mon/Thu 21:10, Tue/Fri 20:10, Sun 17:00
+    if (course.slug === "salsa-nocturno") {
+      if (weekday === 0 || weekday === 3) return ["21:10"] as const
+      if (weekday === 1 || weekday === 4) return ["20:10"] as const
+      if (weekday === 6) return ["17:00"] as const
+      return [] as const
+    }
+
+    const base = course.schedule.availableTimes?.length
+      ? (course.schedule.availableTimes as readonly string[])
+      : (["10:00", "11:00", "18:00", "19:00", "20:00"] as const)
+
+    return base
+  }, [course.slug, course.schedule.availableTimes, date])
 
   // Calendar helpers (Google URL + ICS data URI)
   const eventDates = React.useMemo(() => {
@@ -115,7 +240,7 @@ export default function EnrollModal({
     url.searchParams.set("location", location)
     url.searchParams.set("dates", dates)
     return url.toString()
-  }, [eventDates, course, service, participants, total])
+  }, [eventDates, course, service, participants, total, t])
 
   const icsDataUri = React.useMemo(() => {
     if (!eventDates) return "#"
@@ -140,14 +265,91 @@ export default function EnrollModal({
     ]
     const content = lines.join("\n")
     return `data:text/calendar;charset=utf-8,${encodeURIComponent(content)}`
-  }, [eventDates, course, service, participants, total])
+  }, [eventDates, course, service, participants, total, t])
 
   const toggleAddon = (id: string) => {
     setAddons((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const emailIsValid = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+
+  const validateBeforeSubmit = () => {
+    if (!service || !course.enrollment.services.some((s) => s.id === service)) {
+      return { step: 0, message: "Selecciona un servicio válido." }
+    }
+    if (pkg && !course.enrollment.packages.some((p) => p.id === pkg)) {
+      return { step: 0, message: "El paquete elegido no es válido." }
+    }
+    if (participants < 1 || participants > 10) {
+      return { step: 0, message: "El número de participantes no es válido." }
+    }
+    if (!date || !time) {
+      return { step: 1, message: "Selecciona fecha y hora." }
+    }
+    if (!contact.firstName.trim() || !contact.lastName.trim()) {
+      return { step: 2, message: "Completa tu nombre y apellido." }
+    }
+    if (!emailIsValid(contact.email)) {
+      return { step: 2, message: "Ingresa un email válido." }
+    }
+    if (!isCompleteUSPhone(contact.phone)) {
+      return { step: 2, message: "Ingresa un teléfono válido de EE. UU." }
+    }
+    if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {
+      return { step: 3, message: "Selecciona un método de pago." }
+    }
+    const addonsValid = addons.every((id) => course.enrollment.addons?.some((a) => a.id === id))
+    if (!addonsValid) {
+      return { step: 0, message: "Extras inválidos." }
+    }
+    if (!Number.isFinite(total) || total <= 0) {
+      return { step: 0, message: "El monto calculado es inválido." }
+    }
+    return null
+  }
+
+  const requestStripeIntent = async (token?: string | null) => {
+    const res = await fetch("/api/checkout/intent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        courseSlug: course.slug,
+        courseTitle: course.title,
+        amount: Math.round(total * 100),
+        currency: "usd",
+        date,
+        time,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        name: `${contact.firstName} ${contact.lastName}`.trim(),
+        email: contact.email,
+        participants,
+        addons,
+        coupon: appliedCoupon?.code || undefined,
+        packageId: pkg,
+        serviceId: service,
+        phone: contact.phone,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    return { res, data }
+  }
+
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
+    if (processing) return
+    setFormError(null)
+    const validationIssue = validateBeforeSubmit()
+    if (validationIssue) {
+      setFormError(validationIssue.message)
+      setStep(validationIssue.step)
+      return
+    }
+    setProcessing(true)
     // DEMO: log payload; replace with POST /api/enroll when ready
     const payload = {
       course: course.slug,
@@ -158,6 +360,7 @@ export default function EnrollModal({
       time,
       name: `${contact.firstName} ${contact.lastName}`.trim(),
       email: contact.email,
+      phone: contact.phone,
       note: contact.note,
       participants,
       coupon: appliedCoupon?.code || null,
@@ -165,26 +368,125 @@ export default function EnrollModal({
       total,
     }
     console.log("[EnrollModal] demo submit", payload)
+
+    if (paymentMethod === "stripe") {
+      try {
+        let token = isSignedIn ? await getToken({ skipCache: true }) : null
+        let result = await requestStripeIntent(token)
+
+        const code = typeof result.data?.code === "string" ? result.data.code : undefined
+        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
+          await new Promise((resolve) => window.setTimeout(resolve, 350))
+          const refreshed = await getToken({ skipCache: true })
+          if (refreshed) {
+            token = refreshed
+            result = await requestStripeIntent(token)
+          }
+        }
+
+        if (!result.res.ok) {
+          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
+          const needsSignIn = finalCode === "ACCOUNT_EXISTS"
+          const isNewStudentBlocked =
+            finalCode === "NEW_STUDENT_ALREADY" ||
+            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
+          if (needsSignIn && isSignedIn) {
+            setFormError(t("account_exists_signed_in"))
+            setRequiresSignIn(false)
+            setPendingAutoPay(false)
+            setProcessing(false)
+            return
+          }
+          if (isNewStudentBlocked) {
+            setFormError(t("new_student_existing_error"))
+            setRequiresPhoneVerification(false)
+            setRequiresSignIn(false)
+            setPendingAutoPay(false)
+            setProcessing(false)
+            setStep(0)
+            return
+          }
+          const message =
+            needsSignIn ? t("account_exists_error") : typeof result.data?.error === "string" ? result.data.error : "Stripe intent error"
+          const needsPhoneVerification = message.toLowerCase().includes("phone verification")
+          setFormError(needsSignIn ? null : message)
+          setRequiresPhoneVerification(needsPhoneVerification)
+          setRequiresSignIn(needsSignIn)
+          setPendingAutoPay(needsSignIn)
+          if (needsPhoneVerification) {
+            router.push(verifyPhoneUrl)
+          }
+          setProcessing(false)
+          return
+        }
+        if (!result.data.clientSecret) throw new Error("Missing client secret")
+        setStripeClientSecret(result.data.clientSecret)
+        setShowStripeModal(true)
+        setRequiresPhoneVerification(false)
+        setRequiresSignIn(false)
+        setPendingAutoPay(false)
+      } catch (err) {
+        console.error(err)
+        alert("Unable to start payment. Please try again.")
+      } finally {
+        setProcessing(false)
+      }
+      return
+    }
+
     setSuccess(true)
+    setProcessing(false)
   }
 
-  const steps = [
-    { key: "party", label: t("step_party") },
-    { key: "datetime", label: t("step_datetime") },
-    { key: "info", label: t("step_info") },
-    { key: "payments", label: t("step_payments") },
-    { key: "review", label: t("step_review") },
-  ] as const
+  const handleSubmitRef = React.useRef(handleSubmit)
+  handleSubmitRef.current = handleSubmit
+
+  React.useEffect(() => {
+    if (!pendingAutoPay || !isSignedIn || processing) return
+    let cancelled = false
+    let attempts = 0
+    const run = async () => {
+      const token = await getToken({ skipCache: true })
+      if (cancelled) return
+      if (!token) {
+        attempts += 1
+        if (attempts < 6) {
+          window.setTimeout(run, 350)
+        }
+        return
+      }
+      setRequiresSignIn(false)
+      setPendingAutoPay(false)
+      void handleSubmitRef.current()
+    }
+    const timeout = window.setTimeout(run, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [pendingAutoPay, isSignedIn, processing, getToken])
+
+  React.useEffect(() => {
+    if (!requiresSignIn || !isSignedIn) return
+    setRequiresSignIn(false)
+  }, [requiresSignIn, isSignedIn])
+
+  React.useEffect(() => {
+    if (open && typeof initialStep === "number") {
+      const safeStep = Math.max(0, Math.min(steps.length - 1, Math.floor(initialStep)))
+      setStep(safeStep)
+    }
+  }, [open, initialStep, steps.length])
 
   const stepValid = (s: number) => {
     switch (s) {
       case 0:
         // Paquete ahora es opcional según pedido; solo servicio y participantes
-        return participants >= 1 && Boolean(service)
+        return participants >= 1 && course.enrollment.services.some((opt) => opt.id === service)
       case 1:
         return Boolean(date) && Boolean(time)
       case 2:
-        return contact.firstName.trim().length > 1 && contact.email.trim().length > 5
+        return contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
       case 3:
         return paymentMethod !== ""
       case 4:
@@ -270,7 +572,7 @@ export default function EnrollModal({
                   <div className="text-sm font-semibold">{t("getInTouch")}</div>
                   <p className="mt-1 text-xs text-white/80">{t("assistantChatNote")}</p>
                   <div className="mt-2">
-                    {React.createElement(require("../ui/ChatLauncher").default, { className: "w-full" })}
+                    <ChatLauncher className="w-full" />
                   </div>
                 </div>
 
@@ -283,13 +585,26 @@ export default function EnrollModal({
                   {steps.map((st, idx) => {
                     const done = idx < step && stepValid(idx)
                     const active = idx === step
+                    const canJump = idx <= step
                     return (
-                      <li key={st.key} className={`flex items-center justify-between rounded-md px-3 py-2 border ${active ? "border-white/30 bg-white/5" : "border-white/10 bg-white/0"}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${done ? "bg-green-500" : active ? "bg-white text-black" : "bg-white/20"}`}>{done ? "✓" : idx + 1}</span>
-                          <span className="text-xs">{st.label}</span>
-                        </div>
-                        {done && <span className="text-green-400 text-[10px]">{t("done")}</span>}
+                      <li key={st.key}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!canJump) return
+                            setStep(idx)
+                          }}
+                          disabled={!canJump}
+                          className={`w-full flex items-center justify-between rounded-md px-3 py-2 border text-left transition ${
+                            active ? "border-white/30 bg-white/5" : "border-white/10 bg-white/0"
+                          } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${done ? "bg-green-500" : active ? "bg-white text-black" : "bg-white/20"}`}>{done ? "✓" : idx + 1}</span>
+                            <span className="text-xs">{st.label}</span>
+                          </div>
+                          {done && <span className="text-green-400 text-[10px]">{t("done")}</span>}
+                        </button>
                       </li>
                     )
                   })}
@@ -312,8 +627,7 @@ export default function EnrollModal({
                   <div className="text-sm font-semibold">{t("getInTouch")}</div>
                   <p className="mt-1 text-xs text-white/80">{t("assistantChatNote")}</p>
                   <div className="mt-2">
-                    {/* Lazy import to avoid circular deps */}
-                    {React.createElement(require("../ui/ChatLauncher").default, { className: "w-full" })}
+                    <ChatLauncher className="w-full" />
                   </div>
                 </div>
               </>
@@ -395,7 +709,10 @@ export default function EnrollModal({
                 </div>
               </div>
             ) : (
-              <form onSubmit={(e)=>{e.preventDefault(); if(step<steps.length-1){ setStep(step+1) } else { handleSubmit() }}} className="space-y-5">
+              <form
+                onSubmit={async (e)=>{e.preventDefault(); if(step<steps.length-1){ setStep(step+1) } else { await handleSubmit() }}}
+                className="space-y-5"
+              >
                 {/* Step contents */}
                 {step === 0 && (
                   <div className="space-y-5">
@@ -410,9 +727,17 @@ export default function EnrollModal({
                       </fieldset>
                       <fieldset className="space-y-2">
                         <label className="text-sm font-medium">{t("label_companion")}</label>
-                        <select value={participants} onChange={(e)=>setParticipants(parseInt(e.target.value)||1)} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2">
+                        <select
+                          value={participants}
+                          onChange={(e)=>setParticipants(parseInt(e.target.value)||1)}
+                          disabled={isNewStudent}
+                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 disabled:opacity-60"
+                        >
                           {[1,2,3,4].map(n=> <option key={n} value={n}>{n} {n===1?t("onePerson"):t("manyPeople")}</option>)}
                         </select>
+                        {isNewStudent && (
+                          <p className="text-xs text-neutral-500">{t("new_student_single_notice")}</p>
+                        )}
                       </fieldset>
                     </div>
 
@@ -481,22 +806,70 @@ export default function EnrollModal({
                   <div className="grid grid-cols-1 gap-4">
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("step_datetime")}</label>
-                      <CalendarPicker value={date} onChange={setDate} className="w-full" />
+                      {initialLoading ? (
+                        <div className="space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
+                          <div className="h-4 w-24 rounded-full shimmer" />
+                          <div className="grid grid-cols-7 gap-1">
+                            {Array.from({ length: 21 }).map((_, idx) => (
+                              <div key={idx} className="h-8 rounded-md shimmer" />
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <CalendarPicker
+                          value={date}
+                          onChange={(d) => {
+                            setDate(d)
+                            if (!d) {
+                              setTime("")
+                              setTimeLoading(false)
+                              return
+                            }
+                            setTime("")
+                            setTimeLoading(true)
+                            window.setTimeout(() => setTimeLoading(false), 350)
+                          }}
+                          className="w-full"
+                          availableWeekdays={course.schedule.availableWeekdays}
+                          allowClear
+                        />
+                      )}
                     </fieldset>
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("label_selectTime")}</label>
-                      <div className="flex flex-wrap gap-2">
-                        {(TIME_SLOTS_24 as readonly string[]).map((tSlot) => (
-                          <button
-                            type="button"
-                            key={tSlot}
-                            onClick={()=>setTime(tSlot)}
-                            className={`px-3 py-1.5 rounded-md border text-sm ${time===tSlot?"bg-[var(--brand,#111)] text-white border-transparent":"border-black/10 dark:border-white/10"}`}
-                          >
-                            {to12h(tSlot)}
-                          </button>
-                        ))}
-                      </div>
+                      {date ? (
+                        <div className="flex flex-wrap gap-2">
+                          {timeLoading ? (
+                            <>
+                              <div className="h-9 w-24 rounded-md shimmer" />
+                              <div className="h-9 w-24 rounded-md shimmer" />
+                              <div className="h-9 w-24 rounded-md shimmer" />
+                            </>
+                          ) : (
+                            <>
+                              {(TIME_SLOTS_24 as readonly string[]).map((tSlot) => (
+                                <button
+                                  type="button"
+                                  key={tSlot}
+                                  onClick={()=>setTime(tSlot)}
+                                  className={`px-3 py-1.5 rounded-md border text-sm ${time===tSlot?"bg-[var(--brand,#111)] text-white border-transparent":"border-black/10 dark:border-white/10"}`}
+                                >
+                                  {to12h(tSlot)}
+                                </button>
+                              ))}
+                              {TIME_SLOTS_24.length === 0 && (
+                                <p className="text-xs text-muted-foreground">No time slots available for this day.</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-muted-foreground">Select a date to see available times.</p>
+                          <div className="h-3 w-32 rounded-full shimmer" />
+                          <div className="h-3 w-24 rounded-full shimmer" />
+                        </div>
+                      )}
                     </fieldset>
                   </div>
                 )}
@@ -511,16 +884,54 @@ export default function EnrollModal({
                       <label className="text-sm font-medium">{t("label_lastName")}</label>
                       <input value={contact.lastName} onChange={(e)=>setContact((c)=>({...c, lastName: e.target.value}))} placeholder={t("placeholder_lastName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                     </fieldset>
-                    <fieldset className="space-y-2 sm:col-span-2">
-                      <label className="text-sm font-medium">{t("label_email")}</label>
-                      <input type="email" value={contact.email} onChange={(e)=>setContact((c)=>({...c, email: e.target.value}))} placeholder={t("placeholder_email")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
-                    </fieldset>
-                    <fieldset className="space-y-2 sm:col-span-2">
-                      <label className="text-sm font-medium">{t("label_notes")}</label>
-                      <textarea value={contact.note} onChange={(e)=>setContact((c)=>({...c, note: e.target.value}))} rows={3} placeholder={t("placeholder_notes")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
-                    </fieldset>
-                    <p className="text-xs text-neutral-500 sm:col-span-2">{t("phoneRemovedNote")}</p>
-                  </div>
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">{t("label_email")}</label>
+                    <input type="email" value={contact.email} onChange={(e)=>setContact((c)=>({...c, email: e.target.value}))} placeholder={t("placeholder_email")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                    <p className="text-xs text-neutral-500">
+                      ¿Ya tienes cuenta?{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRequiresSignIn(true)
+                          setPendingAutoPay(false)
+                        }}
+                        className="underline font-medium"
+                      >
+                        Inicia sesión
+                      </button>{" "}
+                      y se completan tus datos automáticamente.
+                    </p>
+                  </fieldset>
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">Phone</label>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
+                        US
+                      </span>
+                      <input
+                        type="tel"
+                        value={contact.phone}
+                        onChange={(e) => {
+                          setPhoneTouched(true)
+                          setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
+                        }}
+                        onBlur={() => setPhoneTouched(true)}
+                        placeholder="(929) 387-6584"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
+                        className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2"
+                      />
+                    </div>
+                    {phoneTouched && !isCompleteUSPhone(contact.phone) && (
+                      <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
+                    )}
+                  </fieldset>
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">{t("label_notes")}</label>
+                    <textarea value={contact.note} onChange={(e)=>setContact((c)=>({...c, note: e.target.value}))} rows={3} placeholder={t("placeholder_notes")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                  </fieldset>
+                </div>
                 )}
 
                 {step === 3 && (
@@ -624,6 +1035,7 @@ export default function EnrollModal({
                         <div>{t("dateTime")}: {date} {to12h(time)}</div>
                         <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
                         <div>{t("email")}: {contact.email || "—"}</div>
+                        <div>Phone: {contact.phone || "—"}</div>
                         <div>{t("paymentMethod")}: {paymentMethod || "—"}</div>
                         {contact.note && <div>{t("notes")}: {contact.note}</div>}
                         <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
@@ -662,19 +1074,101 @@ export default function EnrollModal({
                     ) : (
                       <button
                         type="button"
-                        onClick={() => handleSubmit()}
-                        className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white"
+                        onClick={() => void handleSubmit()}
+                        disabled={processing}
+                        className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"
                       >
-                        {t("confirm")}
+                        {processing ? "Processing..." : t("confirm")}
                       </button>
                     )}
                   </div>
                 </div>
+                {formError && <p className="text-sm text-red-600 mt-2" role="alert" aria-live="polite">{formError}</p>}
+                {requiresPhoneVerification && (
+                  <div className="mt-2 text-sm text-neutral-700 dark:text-neutral-200">
+                    <p>{t("new_student_verify_phone")}</p>
+                    <Link href={verifyPhoneUrl} className="underline font-medium">{t("verify_phone_cta")}</Link>
+                  </div>
+                )}
               </form>
             )}
           </section>
         </div>
+        {showStripeModal && stripeClientSecret && (
+          <StripePaymentModal
+            clientSecret={stripeClientSecret}
+            onClose={() => setShowStripeModal(false)}
+            onSuccess={() => setSuccess(true)}
+            email={contact.email}
+            name={`${contact.firstName} ${contact.lastName}`.trim()}
+            phone={contact.phone}
+          />
+        )}
       </GlassyCard>
+      {requiresSignIn && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center px-4">
+          <button
+            type="button"
+            aria-label={t("aria_close")}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => {
+              setRequiresSignIn(false)
+              setPendingAutoPay(false)
+            }}
+          />
+          <div className="relative z-10 w-full max-w-lg rounded-xl border border-black/10 dark:border-white/10 bg-white/95 dark:bg-neutral-900/95 p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold">
+                  {pendingAutoPay ? t("account_exists_title") : t("sign_in_modal_title")}
+                </h3>
+                <p className="text-sm text-neutral-600 dark:text-neutral-300">
+                  {pendingAutoPay ? t("account_exists_error") : t("sign_in_modal_subtitle")}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-black/10 dark:border-white/10 px-2 py-1 text-xs"
+                onClick={() => {
+                  setRequiresSignIn(false)
+                  setPendingAutoPay(false)
+                }}
+              >
+                {t("cancel")}
+              </button>
+            </div>
+            <div className="mt-4">
+              <SignIn
+                routing="virtual"
+                forceRedirectUrl={signInReturnTo}
+                initialValues={{
+                  phoneNumber: toE164Phone(contact.phone),
+                }}
+                appearance={{
+                  elements: {
+                    card: "shadow-none bg-transparent p-0 w-full",
+                    headerTitle: "hidden",
+                    headerSubtitle: "hidden",
+                    footer: "hidden",
+                  },
+                }}
+              />
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                className="text-sm font-medium underline"
+                onClick={() => {
+                  setRequiresSignIn(false)
+                  setPendingAutoPay(false)
+                }}
+              >
+                {t("account_exists_back")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   ) : null
 }
