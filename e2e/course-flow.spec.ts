@@ -76,7 +76,9 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
   await clickContinue()
   await clickContinue()
 
-  await page.getByRole("button", { name: /Stripe/i }).click()
+  const stripeBtn = booking.getByRole("button", { name: /Stripe/i })
+  await stripeBtn.scrollIntoViewIfNeeded()
+  await stripeBtn.evaluate((el: HTMLButtonElement) => el.click())
   await clickContinue()
 
   const intentWaiter = page.waitForResponse("**/api/checkout/intent")
