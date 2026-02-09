@@ -23,3 +23,9 @@ test("profile form can be closed and reopened", async ({ page }) => {
     page.getByRole("heading", { name: "Completa tu perfil y gana puntos", exact: true })
   ).toBeVisible()
 })
+
+test("profile booking opens course picker", async ({ page }) => {
+  await page.goto("/client-profile?lang=es")
+  await page.getByRole("button", { name: "Reservar", exact: true }).click()
+  await expect(page.getByText("Elegí la clase que querés reservar")).toBeVisible()
+})

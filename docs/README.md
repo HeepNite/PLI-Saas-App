@@ -151,6 +151,7 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - Unit tests: `npm run test` (Vitest).
 - Coverage: `npm run test:coverage`.
 - E2E (Playwright): `npm run test:e2e` (requiere `npx playwright install`).
+  - En Apple Silicon se usa el wrapper `scripts/run-playwright.mjs` para forzar `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac-arm64`.
 - Probar i18n: añade `?lang=es` o `?lang=en` y revisa cookie `lang`.
 - Prisma:
   - Migrar DB: `npx prisma migrate dev --name init`.
@@ -164,10 +165,11 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - `tests/checkout.test.ts`: validación pura de payload (email, teléfono, participantes, servicio) y reglas de clamping/errores.
 - `tests/api/checkout-intent.test.ts`: ruta `/api/checkout/intent` con payload mínimo, respuesta `clientSecret` y manejo de errores esperados.
 - `tests/api/checkout-session.test.ts`: ruta `/api/checkout/session`, creación de sesión y URL de Stripe con validaciones base.
+- `tests/profile-utils.test.ts`: utilidades del perfil (fecha, % de completado, prefill para booking).
 - `tests/api/profile.test.ts`: `/api/profile` (GET/PUT), sincronización con Clerk, puntos y perfil completo.
 - `tests/api/profile-avatar.test.ts`: `/api/profile/avatar`, validación de archivo y guardado del avatar en Clerk.
 - `e2e/course-flow.spec.ts`: flujo completo del modal de inscripción, persistencia de draft, selección de Stripe y apertura del modal de pago.
-- `e2e/profile.spec.ts`: render de perfil del alumno y toggle del formulario de perfil.
+- `e2e/profile.spec.ts`: render de perfil del alumno, toggle del formulario y apertura del selector de cursos.
 
 ### 9.2 Cómo correr tests puntuales
 - Unit test específico:
@@ -315,6 +317,7 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - `components/front/courses/hooks/useEnrollDraft.ts`: hook que centraliza guardar/restaurar el draft en `sessionStorage`.
 - `components/front/courses/utils/phone.ts`: helpers puros para formateo/validación de teléfono US.
 - `components/front/courses/CourseAsideRight.tsx`: abre automáticamente el modal si `?enroll=1` y permite volver a un paso específico con `?step=`.
+- `components/front/profile/profile-utils.ts`: helpers puros del perfil (fecha, % completado, prefill).
 - `app/(pages)/verify-phone/page.tsx`: pantalla de verificación SMS. Redirige de vuelta al flujo si el teléfono ya está verificado.
 - `app/(auth)/sign-in/page.tsx`: login standalone con `routing="hash"` para evitar errores en rutas no catch‑all.
 - `app/api/checkout/intent/route.ts`: crea PaymentIntent, maneja creación/merge de usuario en Clerk, valida `new-student`, bloquea cuentas existentes con `ACCOUNT_EXISTS` y usa `await auth()`.
