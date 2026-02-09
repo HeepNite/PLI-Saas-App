@@ -499,7 +499,7 @@ export default function InspirationShowcase() {
     }, [filteredCards.length, singleMode, gridMode, visibleCount, totalPages])
 
     return (
-        <section className="w-full mt-[160px] mb-[160px]" aria-label="Inspiration showcase">
+        <section className="w-full mt-16 md:mt-24 mb-16 md:mb-24" aria-label="Inspiration showcase">
             <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 overflow-x-clip">
                 {/* Heading */}
                 <header className="text-center">

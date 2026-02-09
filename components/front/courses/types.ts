@@ -2,10 +2,33 @@ import type { CourseData } from "@/constants/courses"
 
 export type CourseOverviewData = Pick<
   CourseData,
-  "title" | "description" | "level" | "heroMedia" | "schedule" | "location" | "benefits" | "instructors"
+  | "slug"
+  | "title"
+  | "description"
+  | "level"
+  | "heroMedia"
+  | "schedule"
+  | "location"
+  | "benefits"
+  | "instructors"
+  | "syllabus"
 >
 
-export type CourseSectionsData = Pick<CourseData, "description" | "requirements" | "syllabus" | "schedule" | "location">
+export type CourseSectionsData = Pick<
+  CourseData,
+  | "title"
+  | "description"
+  | "level"
+  | "duration"
+  | "requirements"
+  | "benefits"
+  | "syllabus"
+  | "schedule"
+  | "location"
+  | "instructors"
+  | "heroMedia"
+  | "enrollment"
+>
 
 export type CourseEnrollmentData = Pick<CourseData, "slug" | "title" | "enrollment" | "location" | "instructors">
 

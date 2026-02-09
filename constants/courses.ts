@@ -22,6 +22,11 @@ export type EnrollmentOption = {
   label: string
   description?: string
   price?: number
+  meta?: {
+    cadence?: string
+    totalClasses?: number
+    makeUps?: number
+  }
 }
 
 export type CourseData = {
@@ -82,8 +87,8 @@ export const demoCourses: CourseData[] = [
       availableTimes: ["20:10", "21:10"],
     },
     location: {
-      address: "Av. Corrientes 1234, CABA",
-      mapUrl: "https://maps.google.com/?q=Av.+Corrientes+1234+CABA",
+      address: "54 Coles St, Jersey City, NJ",
+      mapUrl: "https://maps.google.com/?q=54+Coles+St+Jersey+City+NJ",
     },
     instructors: [
       { name: "Mariano", role: "Instructor", photo: "/images/Teaches/Mariano.jpg" },
@@ -91,6 +96,7 @@ export const demoCourses: CourseData[] = [
     ],
     heroMedia: {
       image: "/images/carousel/_DSC1076.JPG",
+      video: "/videos/NightProgram.mp4",
     },
     enrollment: {
       services: [
@@ -98,8 +104,8 @@ export const demoCourses: CourseData[] = [
         { id: "new-student", label: "New students", price: 15 },
       ],
       packages: [
-        { id: "night-flex", label: "Night Flex (8 classes)", price: 140, description: "8 night classes / month" },
-        { id: "night-pro", label: "Night Pro (unlimited)", price: 220, description: "Unlimited classes / month" },
+        { id: "night-flex", label: "Night Flex (8 classes)", price: 140, description: "8 night classes / month", meta: { cadence: "2–3 clases/semana", totalClasses: 8 } },
+        { id: "night-pro", label: "Night Pro (unlimited)", price: 220, description: "Unlimited classes / month", meta: { cadence: "Ilimitado", totalClasses: 0 } },
       ],
       addons: [
         { id: "video", label: "Practice video access", price: 10 },
@@ -134,12 +140,13 @@ export const demoCourses: CourseData[] = [
       availableTimes: ["11:00"],
     },
     location: {
-      address: "Av. Corrientes 1234, CABA",
-      mapUrl: "https://maps.google.com/?q=Av.+Corrientes+1234+CABA",
+      address: "54 Coles St, Jersey City, NJ",
+      mapUrl: "https://maps.google.com/?q=54+Coles+St+Jersey+City+NJ",
     },
     instructors: [{ name: "Elvira", role: "Instructor", photo: "/images/Teaches/elvira-portrait.jpg" }],
     heroMedia: {
       image: "/images/LadiesStyles.png",
+      video: "/videos/LadyStyling.mp4",
     },
     enrollment: {
       services: [
@@ -147,11 +154,11 @@ export const demoCourses: CourseData[] = [
         { id: "new-student", label: "New students", price: 15 },
       ],
       packages: [
-        { id: "morning-3-week", label: "Morning 3-week pack", price: 145, description: "8 classes + 8 make-ups" },
-        { id: "morning-2-week", label: "Morning 2-week pack", price: 125, description: "5 classes + 5 make-ups" },
-        { id: "morning-1-week", label: "Morning 1-week pack", price: 90, description: "3 classes + 3 make-ups" },
-        { id: "morning-monthly", label: "Morning Monthly", price: 200, description: "1 class per day, make-ups included" },
-        { id: "morning-6-month", label: "Morning 6-month pack", price: 480, description: "1 class per day, no make-ups" },
+        { id: "morning-3-week", label: "Morning 3-week pack", price: 145, description: "8 classes + 8 make-ups", meta: { cadence: "3 clases/semana", totalClasses: 8, makeUps: 8 } },
+        { id: "morning-2-week", label: "Morning 2-week pack", price: 125, description: "5 classes + 5 make-ups", meta: { cadence: "2–3 clases/semana", totalClasses: 5, makeUps: 5 } },
+        { id: "morning-1-week", label: "Morning 1-week pack", price: 90, description: "3 classes + 3 make-ups", meta: { cadence: "3 clases/semana", totalClasses: 3, makeUps: 3 } },
+        { id: "morning-monthly", label: "Morning Monthly", price: 200, description: "1 class per day, make-ups included", meta: { cadence: "1 clase por día", totalClasses: 0, makeUps: 0 } },
+        { id: "morning-6-month", label: "Morning 6-month pack", price: 480, description: "1 class per day, no make-ups", meta: { cadence: "1 clase por día", totalClasses: 0, makeUps: 0 } },
       ],
       addons: [],
     },
@@ -183,8 +190,8 @@ export const demoCourses: CourseData[] = [
       availableTimes: ["10:00"],
     },
     location: {
-      address: "Av. Corrientes 1234, CABA",
-      mapUrl: "https://maps.google.com/?q=Av.+Corrientes+1234+CABA",
+      address: "54 Coles St, Jersey City, NJ",
+      mapUrl: "https://maps.google.com/?q=54+Coles+St+Jersey+City+NJ",
     },
     instructors: [{ name: "Elvira", role: "Instructor", photo: "/images/Teaches/elvira-portrait.jpg" }],
     heroMedia: {
@@ -197,11 +204,11 @@ export const demoCourses: CourseData[] = [
         { id: "new-student", label: "New students", price: 15 },
       ],
       packages: [
-        { id: "morning-3-week", label: "Morning 3-week pack", price: 145, description: "8 classes + 8 make-ups" },
-        { id: "morning-2-week", label: "Morning 2-week pack", price: 125, description: "5 classes + 5 make-ups" },
-        { id: "morning-1-week", label: "Morning 1-week pack", price: 90, description: "3 classes + 3 make-ups" },
-        { id: "morning-monthly", label: "Morning Monthly", price: 200, description: "1 class per day, make-ups included" },
-        { id: "morning-6-month", label: "Morning 6-month pack", price: 480, description: "1 class per day, no make-ups" },
+        { id: "morning-3-week", label: "Morning 3-week pack", price: 145, description: "8 classes + 8 make-ups", meta: { cadence: "3 clases/semana", totalClasses: 8, makeUps: 8 } },
+        { id: "morning-2-week", label: "Morning 2-week pack", price: 125, description: "5 classes + 5 make-ups", meta: { cadence: "2–3 clases/semana", totalClasses: 5, makeUps: 5 } },
+        { id: "morning-1-week", label: "Morning 1-week pack", price: 90, description: "3 classes + 3 make-ups", meta: { cadence: "3 clases/semana", totalClasses: 3, makeUps: 3 } },
+        { id: "morning-monthly", label: "Morning Monthly", price: 200, description: "1 class per day, make-ups included", meta: { cadence: "1 clase por día", totalClasses: 0, makeUps: 0 } },
+        { id: "morning-6-month", label: "Morning 6-month pack", price: 480, description: "1 class per day, no make-ups", meta: { cadence: "1 clase por día", totalClasses: 0, makeUps: 0 } },
       ],
       addons: [],
     },
@@ -233,8 +240,8 @@ export const demoCourses: CourseData[] = [
       availableTimes: ["10:00", "11:00"],
     },
     location: {
-      address: "Av. Corrientes 1234, CABA",
-      mapUrl: "https://maps.google.com/?q=Av.+Corrientes+1234+CABA",
+      address: "54 Coles St, Jersey City, NJ",
+      mapUrl: "https://maps.google.com/?q=54+Coles+St+Jersey+City+NJ",
     },
     instructors: [
       { name: "Omer Melendez", role: "Instructor (Tuesday)", photo: "/images/Teaches/Omer.jpg" },
@@ -249,10 +256,10 @@ export const demoCourses: CourseData[] = [
         { id: "dropin", label: "Single class", price: 30 },
       ],
       packages: [
-        { id: "babies-3-week", label: "Babies 3-week pack", price: 145, description: "8 classes + 8 make-ups" },
-        { id: "babies-2-week", label: "Babies 2-week pack", price: 125, description: "5 classes + 5 make-ups" },
-        { id: "babies-1-week", label: "Babies 1-week pack", price: 90, description: "3 classes + 3 make-ups" },
-        { id: "babies-monthly", label: "Babies Monthly", price: 200, description: "1 class per day, make-ups included" },
+        { id: "babies-3-week", label: "Babies 3-week pack", price: 145, description: "8 classes + 8 make-ups", meta: { cadence: "2 clases/semana", totalClasses: 8, makeUps: 8 } },
+        { id: "babies-2-week", label: "Babies 2-week pack", price: 125, description: "5 classes + 5 make-ups", meta: { cadence: "2 clases/semana", totalClasses: 5, makeUps: 5 } },
+        { id: "babies-1-week", label: "Babies 1-week pack", price: 90, description: "3 classes + 3 make-ups", meta: { cadence: "2 clases/semana", totalClasses: 3, makeUps: 3 } },
+        { id: "babies-monthly", label: "Babies Monthly", price: 200, description: "1 class per day, make-ups included", meta: { cadence: "2 clases/semana", totalClasses: 0, makeUps: 0 } },
       ],
       addons: [
         { id: "reserve", label: "Priority reservation (12 spots)", price: 5 },

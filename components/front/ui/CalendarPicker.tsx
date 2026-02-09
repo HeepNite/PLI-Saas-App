@@ -68,26 +68,28 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
 
   return (
     <div className={`rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3 ${className}`}>
-      <div className="flex items-center gap-2">
-        <div className="relative">
-          <select
-            value={month}
-            onChange={(e)=>setMonth(parseInt(e.target.value))}
-            className="rounded-md border bg-white/80 dark:bg-white/10 px-3 py-1.5 pr-8 text-sm"
-          >
-            {MONTHS.map((m, i)=> <option key={m} value={i}>{m}</option>)}
-          </select>
+      <div className="mx-auto flex w-full max-w-[360px] flex-nowrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="relative">
+            <select
+              value={month}
+              onChange={(e)=>setMonth(parseInt(e.target.value))}
+              className="w-[120px] rounded-md border bg-white/80 dark:bg-white/10 px-3 py-1.5 pr-8 text-sm"
+            >
+              {MONTHS.map((m, i)=> <option key={m} value={i}>{m}</option>)}
+            </select>
+          </div>
+          <div className="relative">
+            <select
+              value={year}
+              onChange={(e)=>setYear(parseInt(e.target.value))}
+              className="w-[86px] rounded-md border bg-white/80 dark:bg-white/10 px-3 py-1.5 pr-8 text-sm"
+            >
+              {years.map(y=> <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
         </div>
-        <div className="relative">
-          <select
-            value={year}
-            onChange={(e)=>setYear(parseInt(e.target.value))}
-            className="rounded-md border bg-white/80 dark:bg-white/10 px-3 py-1.5 pr-8 text-sm"
-          >
-            {years.map(y=> <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button type="button" aria-label="Mes anterior" onClick={()=>go(-1)} className="h-8 w-8 rounded-md border">‹</button>
           <button type="button" aria-label="Mes siguiente" onClick={()=>go(1)} className="h-8 w-8 rounded-md border">›</button>
           {allowClear && (
@@ -95,7 +97,7 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
               type="button"
               aria-label="Clear date"
               onClick={() => onChange("")}
-              className="h-8 px-3 rounded-md border text-xs bg-white/70 dark:bg-white/10"
+              className="h-8 px-2.5 rounded-md border text-xs bg-white/70 dark:bg-white/10"
             >
               Clear
             </button>
@@ -103,11 +105,11 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
         </div>
       </div>
 
-      <div className="mt-2 inline-flex items-center gap-2 text-xs">
+      <div className="mt-2 flex justify-center text-xs">
         <span className="rounded-full bg-black/5 dark:bg-white/10 px-2 py-1">{tz}</span>
       </div>
 
-      <div className="mt-3 grid grid-cols-7 gap-1 text-center text-xs">
+      <div className="mx-auto mt-3 grid max-w-[360px] grid-cols-7 gap-1 text-center text-xs">
         {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((w)=>(
           <div key={w} className="py-1 text-neutral-500 dark:text-neutral-400">{w}</div>
         ))}

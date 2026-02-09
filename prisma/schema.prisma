@@ -17,6 +17,10 @@ model User {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   purchases        Purchase[]
+  profile          StudentProfile?
+  points           PointsLedger[]
+  packages         PackagePurchase[]
+  attendances      Attendance[]
 }
 
 model Purchase {
@@ -41,7 +45,101 @@ model Purchase {
   metadata                Json?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
+  packagePurchases        PackagePurchase[]
 
   @@index([userId])
   @@index([courseSlug])
+}
+
+model StudentProfile {
+  id                       String         @id @default(cuid())
+  userId                   String         @unique
+  user                     User           @relation(fields: [userId], references: [id])
+  firstName                String?
+  lastName                 String?
+  birthDate                DateTime?
+  emergencyContactName     String?
+  emergencyContactRelation String?
+  emergencyContactPhone    String?
+  billingAddress           BillingAddress?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+}
+
+model BillingAddress {
+  id         String         @id @default(cuid())
+  profileId  String         @unique
+  profile    StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  postalCode String
+  country    String
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model PointsLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  points    Int
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+}
+
+model PackagePurchase {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  courseSlug       String?
+  packageId        String
+  packageLabel     String?
+  totalCredits     Int
+  remainingCredits Int
+  purchasedAt      DateTime @default(now())
+  expiresAt        DateTime?
+  status           String   @default("active")
+  purchaseId       String?
+  purchase         Purchase? @relation(fields: [purchaseId], references: [id])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+  @@index([packageId])
+  @@index([status])
+}
+
+model ClassSession {
+  id              String      @id @default(cuid())
+  courseSlug      String
+  title           String?
+  startsAt        DateTime
+  durationMinutes Int?
+  location        String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  attendances     Attendance[]
+
+  @@index([courseSlug, startsAt])
+}
+
+model Attendance {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  sessionId   String
+  session     ClassSession @relation(fields: [sessionId], references: [id])
+  status      String       @default("checked_in")
+  checkedInAt DateTime     @default(now())
+  qrToken     String?
+  metadata    Json?
+
+  @@index([userId])
+  @@index([sessionId])
 }

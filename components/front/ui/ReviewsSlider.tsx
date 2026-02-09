@@ -34,7 +34,7 @@ export default function ReviewsSlider({
   const prev = () => scrollTo((active - 1 + slides.length) % slides.length)
 
   return (
-    <section className={`w-full mt-[200px] mb-[200px] ${className ?? ""}`} aria-label="Student reviews slider">
+    <section className={`w-full mt-16 md:mt-24 mb-16 md:mb-24 ${className ?? ""}`} aria-label="Student reviews slider">
       <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 overflow-x-clip">
         {/* Heading */}
         <header className="text-center mb-6 sm:mb-8">

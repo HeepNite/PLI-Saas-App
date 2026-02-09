@@ -17,8 +17,8 @@ export function StripePaymentModal({ clientSecret, onClose, onSuccess, email, na
   if (!clientSecret) return null
 
   return (
-    <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/70 backdrop-blur-sm px-2 sm:px-4 py-6">
-      <div className="relative w-full max-w-lg rounded-lg bg-white p-4 shadow-2xl max-h-[88vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[11000] flex items-stretch justify-end bg-black/35 backdrop-blur-[2px] px-2 sm:px-4 py-6">
+      <div className="relative w-full sm:max-w-md rounded-2xl bg-white p-4 shadow-2xl h-auto max-h-[64vh] sm:max-h-[88vh] flex flex-col overflow-hidden">
         <button
           type="button"
           onClick={onClose}
@@ -92,10 +92,10 @@ function PaymentForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="relative flex flex-col gap-3 flex-1 overflow-y-auto pr-1 pb-16">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 overflow-y-auto pr-1">
       <h3 className="text-lg font-semibold">Pago seguro</h3>
       <p className="text-sm text-neutral-600">Usa Apple Pay, Google Pay o tarjeta.</p>
-      <div className="rounded-md border border-black/10 p-3 bg-white min-h-[260px]">
+      <div className="rounded-md border border-black/10 p-3 bg-white min-h-[220px]">
         <PaymentElement
           options={{
             layout: "tabs",
@@ -122,9 +122,13 @@ function PaymentForm({
           {error}
         </p>
       )}
-      <div className="absolute bottom-0 left-0 right-0 bg-white pt-3 pb-2 flex justify-end gap-2 border-t border-black/10">
-        <button type="button" onClick={onClose} className="rounded-md border px-4 py-2 text-sm">
-          Cancelar
+      <div className="mt-3 bg-white pt-3 pb-1 flex justify-end gap-2 border-t border-black/10">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-black/20 bg-white px-4 py-2 text-sm text-neutral-900 hover:bg-neutral-50"
+        >
+          Volver
         </button>
         <button
           type="submit"

@@ -39,7 +39,7 @@ export default function CreatorsBanner() {
     const imgs = [...carouselImages, ...carouselImages] // if we need more tiles
 
     return (
-        <section className="w-full mt-[200px] mb-6 md:mb-10">
+        <section className="w-full mt-16 md:mt-24 mb-8 md:mb-12">
             <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 overflow-x-clip">
                 {/* Mobile heading (top) */}
                 <div className="md:hidden text-center py-2">

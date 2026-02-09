@@ -55,6 +55,22 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - Modal inscripción: `EnrollModal.tsx` (flujo multi-paso, genera links de calendario, textos i18n, usa `ChatLauncher`).
   - Auto‑open: `?enroll=1` y `?step=2` reabren el modal en el paso indicado.
 
+## 4.1 Perfil del alumno (Client Profile)
+- Ruta: `/client-profile` → `app/client-profile/page.tsx`.
+- UI principal: `components/front/profile/ProfilePageClient.tsx` (3 columnas: perfil/analytics/booking).
+- Datos del alumno:
+  - Identidad base desde Clerk (`useUser`).
+  - Campos extendidos en Postgres: `StudentProfile` (cumpleaños + contacto de emergencia).
+  - Lectura/escritura con `/api/profile` (GET/PUT).
+- Avatar:
+  - Se actualiza desde el perfil con `/api/profile/avatar`.
+  - Usa Clerk `updateUserProfileImage` para persistir.
+  - Si hay proveedor social (Google), se usa su `imageUrl` como fallback.
+- Puntos (PLI Coins):
+  - Ledger en `PointsLedger` (acumulación histórica).
+  - Al completar perfil se otorgan puntos automáticos.
+  - En UI se muestra `pointsBalance` y progreso hacia meta.
+
 ## 5. Ediciones rápidas (qué tocar)
 - Barra de aviso: `notif_announcement` en `lib/i18n-dict.ts` o pasa `message` a `NotificationBar`.
 - Cursos home: `homeCourses` y `homeCourseCategories` en `constants/home-content.ts`.
@@ -139,6 +155,7 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - Prisma:
   - Migrar DB: `npx prisma migrate dev --name init`.
   - Generar cliente: `npx prisma generate`.
+  - Script: `npm run prisma:generate` (se ejecuta también en `postinstall`).
   - Explorar datos: `npx prisma studio`.
   - Nota: Prisma CLI carga `.env` por defecto, no `.env.local`. Para Railway local, pon `DATABASE_URL` en `.env` con `sslmode=require`.
 
@@ -147,7 +164,10 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - `tests/checkout.test.ts`: validación pura de payload (email, teléfono, participantes, servicio) y reglas de clamping/errores.
 - `tests/api/checkout-intent.test.ts`: ruta `/api/checkout/intent` con payload mínimo, respuesta `clientSecret` y manejo de errores esperados.
 - `tests/api/checkout-session.test.ts`: ruta `/api/checkout/session`, creación de sesión y URL de Stripe con validaciones base.
+- `tests/api/profile.test.ts`: `/api/profile` (GET/PUT), sincronización con Clerk, puntos y perfil completo.
+- `tests/api/profile-avatar.test.ts`: `/api/profile/avatar`, validación de archivo y guardado del avatar en Clerk.
 - `e2e/course-flow.spec.ts`: flujo completo del modal de inscripción, persistencia de draft, selección de Stripe y apertura del modal de pago.
+- `e2e/profile.spec.ts`: render de perfil del alumno y toggle del formulario de perfil.
 
 ### 9.2 Cómo correr tests puntuales
 - Unit test específico:
@@ -155,8 +175,11 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
   - `npm run test -- tests/checkout.test.ts`
   - `npm run test -- tests/api/checkout-intent.test.ts`
   - `npm run test -- tests/api/checkout-session.test.ts`
+  - `npm run test -- tests/api/profile.test.ts`
+  - `npm run test -- tests/api/profile-avatar.test.ts`
 - E2E específico:
   - `npx playwright test e2e/course-flow.spec.ts`
+  - `npx playwright test e2e/profile.spec.ts`
   - `npx playwright test e2e/course-flow.spec.ts:20`
 
 ### 9.3 Tests recomendados antes de deploy

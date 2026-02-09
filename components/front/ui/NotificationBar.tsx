@@ -85,10 +85,10 @@ export default function NotificationBar({
           document.documentElement.style.setProperty("--notif-offset", "0px")
         }
       }}
-      className={`sticky top-0 z-60 w-full flex items-center h-14 border-b-2 border-destructive  dark:border-destructive bg-neutral-900/100 backdrop-blur-xl transition-all duration-300 ease-out ${closing ? "opacity-0 -translate-y-2 pointer-events-none" : "opacity-100 translate-y-0"}`}
+      className={`sticky top-0 z-60 w-full flex items-center border-b-2 border-destructive dark:border-destructive bg-neutral-900/100 backdrop-blur-xl transition-all duration-300 ease-out ${closing ? "opacity-0 -translate-y-2 pointer-events-none" : "opacity-100 translate-y-0"}`}
     >
-      <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4 py-2 text-sm">
+      <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-6 sm:px-8 lg:px-10">
+        <div className="flex items-center justify-between gap-4 py-3 text-sm">
           <div className="flex-1 text-card dark:text-white">
             <div className="flex items-center gap-3">
               <span>{finalMessage}</span>

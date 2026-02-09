@@ -1,117 +1,236 @@
-'use client'
+"use client"
 import React from "react"
 import GlassyCard from "./GlassyCard"
-import {BookHeadphones} from "lucide-react";
-import Image from "next/image";
 import type { CourseOverviewData } from "./types"
+import { demoCourses } from "@/constants/courses"
 
-// Left sticky aside with course key facts and small hero visual.
-// Keep content compact to avoid vertical overflow. Intended to be sticky on desktop.
-export default function CourseAsideLeft({course}: { course: CourseOverviewData }) {
-    return (
-        <div className="space-y-4">
-            {/* Hero card: image with faint overlay and title */}
-            <GlassyCard img={course.heroMedia?.image} className="p-4">
-                <div className="flex items-center justify-between gap-3">
-                    <div
-                        className="h-12 w-12 rounded-xl bg-black/60 dark:bg-white/10 flex items-center justify-center text-white">
-                        {/* simple music/dance icon */}
-                        <BookHeadphones/>
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-semibold leading-tight">{course.title}</h1>
-                        <p className="text-xs text-neutral-600 dark:text-neutral-300">{course.level} </p>
-                    </div>
-                </div>
-
-                {/* Image wrapper to ensure the rounding actually clips the image */}
-                <div className="my-6 rounded-2xl overflow-hidden">
-                    <Image
-                        src="/images/carousel/_DSC1079.JPG"
-                        alt="_DSC1079.JPG"
-                        width={800}
-                        height={600}
-                        className="block h-52 w-full object-cover"
-                    />
-                </div>
-                <p className="mt-3 text-sm text-neutral-700 dark:text-neutral-300">{course.description}</p>
-
-                {/* Key facts */}
-                <br/>
-                <dl className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                        <dt className="text-neutral-500">Days</dt>
-                        <dd className="font-medium">{course.schedule.day}</dd>
-                    </div>
-                    <div>
-                        <dt className="text-neutral-500">Time</dt>
-                        <dd className="font-medium">{course.schedule.time}</dd>
-                    </div>
-                    <div>
-                        <dt className="text-neutral-500">Starts</dt>
-                        <dd className="font-medium">{course.schedule.starts}</dd>
-                    </div>
-                    {course.schedule.frequency && (
-                        <div>
-                            <dt className="text-neutral-500">Frequency</dt>
-                            <dd className="font-medium">{course.schedule.frequency}</dd>
-                        </div>
-                    )}
-                    <div className="col-span-2">
-                        <dt className="text-neutral-500">Location</dt>
-                        <dd className="font-medium">
-                            {course.location.mapUrl ? (
-                                <a href={course.location.mapUrl} target="_blank"
-                                   className="underline decoration-[var(--brand,#f97316)] decoration-2 underline-offset-4">{course.location.address}</a>
-                            ) : (
-                                course.location.address
-                            )}
-                        </dd>
-                    </div>
-                </dl>
-            </GlassyCard>
-
-            {/* Benefits */}
-            {!!course.benefits?.length && (
-                <GlassyCard className="p-4">
-                    <h3 className="text-sm font-semibold">What you get</h3>
-                    <ul className="mt-2 space-y-1.5 text-sm">
-                        {course.benefits!.map((b, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[var(--brand,#111)]"/>
-                                <span>{b}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </GlassyCard>
-            )}
-
-            {/* Instructors */}
-            {!!course.instructors?.length && (
-                <GlassyCard className="p-4">
-                    <h3 className="text-sm font-semibold">Instructors</h3>
-                    <ul className="mt-3 space-y-3">
-                        {course.instructors.map((ins, idx) => (
-                            <li key={idx} className="flex items-center gap-3">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                    src={ins.photo || "/images/instructors/placeholder.jpg"}
-                                    alt={ins.name}
-                                    className="h-12 w-12 rounded-full object-cover"
-                                    onError={(e) => {
-                                        e.currentTarget.onerror = null
-                                        e.currentTarget.src = "/images/instructors/placeholder.jpg"
-                                    }}
-                                />
-                                <div>
-                                    <p className="text-sm font-semibold leading-tight">{ins.name}</p>
-                                    {ins.role && <p className="text-xs text-neutral-500">{ins.role}</p>}
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                </GlassyCard>
-            )}
-        </div>
-    )
+const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+const fullDayMap: Record<string, string> = {
+  Monday: "Mon",
+  Tuesday: "Tue",
+  Wednesday: "Wed",
+  Thursday: "Thu",
+  Friday: "Fri",
+  Saturday: "Sat",
+  Sunday: "Sun",
+  Lunes: "Mon",
+  Martes: "Tue",
+  Miércoles: "Wed",
+  Miercoles: "Wed",
+  Jueves: "Thu",
+  Viernes: "Fri",
+  Sábado: "Sat",
+  Sabado: "Sat",
+  Domingo: "Sun",
 }
+
+const normalizeWeekdays = (raw: string) => {
+  const abbreviations = raw.match(/\bMon|Tue|Wed|Thu|Fri|Sat|Sun\b/gi)
+  if (abbreviations?.length) {
+    return Array.from(new Set(abbreviations.map((day) => day[0].toUpperCase() + day.slice(1).toLowerCase())))
+  }
+  const matches = raw.match(
+    /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Lunes|Martes|Mi[eé]rcoles|Jueves|Viernes|S[áa]bado|Domingo)\b/gi
+  )
+  if (!matches?.length) return []
+  return Array.from(
+    new Set(
+      matches.map((day) => {
+        const normalized = day[0].toUpperCase() + day.slice(1).toLowerCase()
+        return fullDayMap[normalized] || normalized.slice(0, 3)
+      })
+    )
+  )
+}
+
+const extractFirstTime = (raw: string) => {
+  const match = raw.match(/\d{1,2}:\d{2}/)
+  return match ? match[0] : ""
+}
+
+const formatTimeShort = (raw: string) => {
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return raw
+  let hours = Number(match[1])
+  const minutes = match[2]
+  const ampm = hours >= 12 ? "pm" : "am"
+  hours = hours % 12
+  if (hours === 0) hours = 12
+  return `${hours}${minutes === "00" ? "" : `:${minutes}`}${ampm}`
+}
+
+const splitTimeLabel = (label: string) => {
+  const match = label.match(/^(\d{1,2}(?::\d{2})?)(am|pm)$/i)
+  if (!match) return { main: label, suffix: "" }
+  return { main: match[1], suffix: match[2].toLowerCase() }
+}
+
+export default function CourseAsideLeft({ course }: { course: CourseOverviewData }) {
+  const mainInstructor = course.instructors?.[0]
+  const otherInstructors = course.instructors?.slice(1) ?? []
+  const isKidsCourse = course.slug === "musica-bebes"
+  const focusItems = (course.benefits?.length ? course.benefits : course.syllabus ?? []).slice(0, 4)
+  const instructorCourses = React.useMemo(() => {
+    if (!mainInstructor?.name) return []
+    return demoCourses.filter((item) =>
+      item.instructors?.some((ins) => ins.name === mainInstructor.name)
+    )
+  }, [mainInstructor?.name])
+  const otherCourses = instructorCourses.filter((item) => item.slug !== course.slug)
+
+  return (
+    <div className="space-y-4">
+      <GlassyCard className="p-4">
+        <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">
+          {isKidsCourse ? "Clase para bebés" : "Instructor principal"}
+        </p>
+        <div className="mt-3 overflow-hidden rounded-2xl border border-black/10 bg-black/30 dark:border-white/10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={isKidsCourse ? course.heroMedia?.image || "/images/Kids/Artboard 1.jpg" : mainInstructor?.photo || course.heroMedia?.image || "/images/Teaches/Mariano.jpg"}
+            alt={isKidsCourse ? course.title : mainInstructor?.name || "Instructor/a"}
+            className="w-full object-contain"
+            style={{ height: "calc(var(--spacing) * 92)" }}
+          />
+        </div>
+        {isKidsCourse ? (
+          <>
+            <h3 className="mt-4 text-lg font-semibold">{course.title}</h3>
+            <p className="text-xs text-neutral-500">Programa sensorial y musical</p>
+          </>
+        ) : (
+          <>
+            <h3 className="mt-4 text-lg font-semibold">{mainInstructor?.name || "Instructor PLI"}</h3>
+            <p className="text-xs text-neutral-500">{mainInstructor?.role || "Instructor/a"}</p>
+          </>
+        )}
+        <p className="mt-3 text-sm text-neutral-700 dark:text-neutral-300">
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore
+          magna aliqua. Enfocado en técnica, musicalidad y progreso real.
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
+            <p className="text-[color:var(--brand)]">Clase</p>
+            <p className="font-semibold">{course.title}</p>
+          </div>
+          <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
+            <p className="text-[color:var(--brand)]">Horario</p>
+            <p className="font-semibold">{stripAgeNotes(course.schedule.time).replace(/\s*\/\s*/g, " · ")}</p>
+          </div>
+          <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
+            <p className="text-[color:var(--brand)]">Días</p>
+            <p className="font-semibold">{course.schedule.day}</p>
+          </div>
+          <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
+            <p className="text-[color:var(--brand)]">Nivel</p>
+            <p className="font-semibold">{course.level}</p>
+          </div>
+        </div>
+
+        {!!focusItems.length && (
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Enfoque</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {focusItems.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-[color:var(--brand)]/60 px-3 py-1 text-xs text-white/90"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!!otherCourses.length && (
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Clases con este instructor</p>
+            <div className="mt-3 space-y-3">
+              {otherCourses.map((item) => {
+                const days =
+                  item.schedule.availableWeekdays?.length
+                    ? item.schedule.availableWeekdays.map((idx) => weekdayLabels[idx]).filter(Boolean)
+                    : normalizeWeekdays(item.schedule.day || "")
+                const safeDays = days.length ? days : ["—"]
+                const baseTime = item.schedule.availableTimes?.length
+                  ? formatTimeShort(item.schedule.availableTimes[0])
+                  : formatTimeShort(extractFirstTime(item.schedule.time || "")) || item.schedule.time || "—"
+                const timeLabels = item.schedule.availableTimes?.length && item.schedule.availableTimes.length >= safeDays.length
+                  ? item.schedule.availableTimes.slice(0, safeDays.length).map(formatTimeShort)
+                  : Array(safeDays.length).fill(baseTime)
+
+                return (
+                  <div key={item.slug} className="rounded-2xl border border-[color:var(--brand)]/50">
+                    <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-xs uppercase tracking-[0.2em] text-[color:var(--brand)]">
+                      <span>{item.title}</span>
+                      <span className="text-white/70">{item.level}</span>
+                    </div>
+                    <div
+                      className="grid bg-[color:var(--brand-dark)] text-[11px] uppercase tracking-[0.2em] text-white"
+                      style={{ gridTemplateColumns: `repeat(${safeDays.length}, minmax(0, 1fr))` }}
+                    >
+                      {safeDays.map((day) => (
+                        <div
+                          key={`${item.slug}-${day}`}
+                          className="border-r border-white/15 px-2 py-2 text-center last:border-r-0"
+                        >
+                          {day}
+                        </div>
+                      ))}
+                    </div>
+                    <div
+                      className="grid bg-[#1a0a0a] text-sm font-semibold text-white"
+                      style={{ gridTemplateColumns: `repeat(${safeDays.length}, minmax(0, 1fr))` }}
+                    >
+                      {timeLabels.map((time, idx) => {
+                        const parts = splitTimeLabel(time)
+                        return (
+                        <div
+                          key={`${item.slug}-${time}-${idx}`}
+                          className="border-r border-white/10 px-2 py-3 text-center last:border-r-0"
+                        >
+                          <span className="block text-base leading-none">{parts.main}</span>
+                          {parts.suffix ? (
+                            <span className="mt-1 block text-xs uppercase tracking-[0.18em] text-white/70">
+                              {parts.suffix}
+                            </span>
+                          ) : null}
+                        </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </GlassyCard>
+
+      {!!(isKidsCourse ? course.instructors?.length : otherInstructors.length) && (
+        <GlassyCard className="p-4">
+          <h4 className="text-sm font-semibold text-[color:var(--brand)]">Profesores</h4>
+          <ul className="mt-3 space-y-2">
+            {(isKidsCourse ? course.instructors : otherInstructors).map((ins, idx) => (
+              <li key={`${ins.name}-${idx}`} className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={ins.photo || "/images/Teaches/Mariano.jpg"}
+                  alt={ins.name}
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+                <div>
+                  <p className="text-sm font-semibold">{ins.name}</p>
+                  <p className="text-xs text-neutral-500">{ins.role || "Instructor/a"}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </GlassyCard>
+      )}
+    </div>
+  )
+}
+const stripAgeNotes = (value: string) => value.replace(/\([^)]*\)/g, "").replace(/\s{2,}/g, " ").trim()

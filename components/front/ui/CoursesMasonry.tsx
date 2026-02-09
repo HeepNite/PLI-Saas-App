@@ -305,32 +305,6 @@ export default function CoursesMasonry({
               ))}
         </div>
 
-        <style jsx>{`
-          .shimmer {
-            position: relative;
-            overflow: hidden;
-            background-color: rgba(255, 255, 255, 0.07);
-            background-image: linear-gradient(
-              90deg,
-              rgba(255, 255, 255, 0.04) 0%,
-              rgba(255, 255, 255, 0.12) 20%,
-              rgba(255, 255, 255, 0.35) 45%,
-              rgba(255, 255, 255, 0.12) 70%,
-              rgba(255, 255, 255, 0.04) 100%
-            );
-            background-size: 280% 100%;
-            animation: shimmer 1.1s ease-in-out infinite;
-            will-change: background-position;
-          }
-          @keyframes shimmer {
-            0% {
-              background-position: -220% 0;
-            }
-            100% {
-              background-position: 220% 0;
-            }
-          }
-        `}</style>
       </div>
     </section>
   )

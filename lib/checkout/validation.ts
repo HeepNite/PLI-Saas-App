@@ -87,7 +87,8 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
   }
 
   const safeParticipants = Math.min(10, Math.max(1, Math.floor(participants)))
-  const perPerson = (service.price || 0) + (pkg?.price || 0) + addonsOpts.reduce((sum, a) => sum + (a.price || 0), 0)
+  const serviceCharge = pkg ? 0 : service.price || 0
+  const perPerson = serviceCharge + (pkg?.price || 0) + addonsOpts.reduce((sum, a) => sum + (a.price || 0), 0)
   const subtotal = perPerson * safeParticipants
   const discountPercent = coupon?.toUpperCase() === "PLI10" ? 10 : coupon?.toUpperCase() === "PLI20" ? 20 : 0
   const discount = (subtotal * discountPercent) / 100

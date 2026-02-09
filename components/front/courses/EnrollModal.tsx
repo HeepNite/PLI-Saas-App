@@ -4,12 +4,21 @@ import Link from "next/link"
 import CalendarPicker from "../ui/CalendarPicker"
 import type { EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
-import { Calendar as CalendarIcon, CalendarRange, CalendarDays, CalendarCheck, CreditCard, Building2 } from "lucide-react"
+import {
+  Calendar as CalendarIcon,
+  CalendarRange,
+  CalendarDays,
+  CalendarCheck,
+  CreditCard,
+  Building2,
+  User,
+  FileText,
+  CheckCircle2,
+} from "lucide-react"
 import { useI18n } from "@/lib/i18n"
 import type { CourseEnrollmentData, Coupon, EnrollmentContact, PaymentMethod } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
 import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
-import ChatLauncher from "../ui/ChatLauncher"
 import { SignIn, useAuth, useUser } from "@clerk/nextjs"
 import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
@@ -25,16 +34,19 @@ export default function EnrollModal({
   open,
   onCloseAction,
   initialStep,
+  mode = "modal",
 }: {
   course: CourseEnrollmentData
   open: boolean
   onCloseAction: () => void
   initialStep?: number
+  mode?: "modal" | "inline"
 }) {
   const { t } = useI18n()
   const router = useRouter()
   const { isLoaded, isSignedIn, user } = useUser()
   const { getToken } = useAuth()
+  const isInline = mode === "inline"
   // Paso 0: opciones/servicios
   const [service, setService] = React.useState<string>(course.enrollment.services[0]?.id ?? "")
   const [pkg, setPkg] = React.useState<string>("")
@@ -80,6 +92,13 @@ export default function EnrollModal({
     { key: "payments", label: t("step_payments") },
     { key: "review", label: t("step_review") },
   ] as const
+  const stepIcons = {
+    party: User,
+    datetime: CalendarIcon,
+    info: FileText,
+    payments: CreditCard,
+    review: CheckCircle2,
+  }
   const signInReturnTo = `/cursos/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
@@ -121,24 +140,47 @@ export default function EnrollModal({
     return () => window.clearTimeout(id)
   }, [])
 
-  React.useEffect(() => {
-    if (!open) {
-      // Reset when closing
-      setSuccess(false)
-      setAddons([])
-      setParticipants(1)
-      setDate("")
-      setTime("")
-      setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
-      setStep(0)
-      setRequiresPhoneVerification(false)
-      setRequiresSignIn(false)
-      setPendingAutoPay(false)
-      setPhoneTouched(false)
-      setStripeClientSecret("")
-      setShowStripeModal(false)
+  const resetForm = React.useCallback(() => {
+    setSuccess(false)
+    setAddons([])
+    setParticipants(1)
+    setDate("")
+    setTime("")
+    setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
+    setStep(0)
+    setRequiresPhoneVerification(false)
+    setRequiresSignIn(false)
+    setPendingAutoPay(false)
+    setPhoneTouched(false)
+    setStripeClientSecret("")
+    setShowStripeModal(false)
+    setFormError(null)
+    setProcessing(false)
+  }, [])
+
+  const handleClose = React.useCallback(() => {
+    if (isInline) {
+      resetForm()
+      return
     }
-  }, [open])
+    onCloseAction()
+  }, [isInline, onCloseAction, resetForm])
+
+  React.useEffect(() => {
+    if (!open && !isInline) {
+      resetForm()
+    }
+  }, [open, isInline, resetForm])
+
+  React.useEffect(() => {
+    if (isInline) return
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open, isInline])
 
 
   React.useEffect(() => {
@@ -155,18 +197,42 @@ export default function EnrollModal({
   }, [isNewStudent, participants])
 
   React.useEffect(() => {
-    if (isLoaded && isSignedIn && user) {
-      const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
-      const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
-      setContact((prev) => ({
-        ...prev,
-        firstName: prev.firstName || user.firstName || "",
-        lastName: prev.lastName || user.lastName || "",
-        email: prev.email || user.primaryEmailAddress?.emailAddress || "",
-        phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
-      }))
-    }
-  }, [isLoaded, isSignedIn, user])
+    if (!isLoaded || !isSignedIn || !user) return
+    if (!open && !isInline) return
+    const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
+    const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
+    setContact((prev) => ({
+      ...prev,
+      firstName: prev.firstName || user.firstName || "",
+      lastName: prev.lastName || user.lastName || "",
+      email: prev.email || user.primaryEmailAddress?.emailAddress || "",
+      phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
+    }))
+  }, [isLoaded, isSignedIn, user, open, isInline])
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return
+    const hasDraft = sessionStorage.getItem(draftKey)
+    if (hasDraft) return
+    setService(course.enrollment.services[0]?.id ?? "")
+    setPkg("")
+    setAddons([])
+    setParticipants(1)
+    setDate("")
+    setTime("")
+    setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
+    setCouponInput("")
+    setAppliedCoupon(null)
+    setPaymentMethod("")
+    setStep(0)
+    setRequiresPhoneVerification(false)
+    setRequiresSignIn(false)
+    setPendingAutoPay(false)
+    setPhoneTouched(false)
+    setStripeClientSecret("")
+    setShowStripeModal(false)
+    setFormError(null)
+  }, [course.slug, draftKey])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
@@ -174,7 +240,11 @@ export default function EnrollModal({
   const serviceOpt = findOpt(course.enrollment.services, service)
   const pkgOpt = findOpt(course.enrollment.packages, pkg)
   const addonsOpts = (course.enrollment.addons || []).filter((a) => addons.includes(a.id))
-  const perPerson = (serviceOpt?.price || 0) + (pkgOpt?.price || 0) + addonsOpts.reduce((s, a) => s + (a.price || 0), 0)
+  const serviceBase = serviceOpt?.price || 0
+  const packagePrice = pkgOpt?.price || 0
+  const addonsTotal = addonsOpts.reduce((s, a) => s + (a.price || 0), 0)
+  const serviceCharge = pkgOpt ? 0 : serviceBase
+  const perPerson = serviceCharge + packagePrice + addonsTotal
   const subtotal = perPerson * Math.max(1, participants)
   const discount = appliedCoupon
     ? appliedCoupon.type === "percent"
@@ -182,6 +252,15 @@ export default function EnrollModal({
       : appliedCoupon.value
     : 0
   const total = Math.max(0, subtotal - discount)
+
+  const formatPackageMeta = React.useCallback((option?: EnrollmentOption | null) => {
+    if (!option?.meta) return option?.description
+    const parts: string[] = []
+    if (option.meta.cadence) parts.push(option.meta.cadence)
+    if (option.meta.totalClasses && option.meta.totalClasses > 0) parts.push(`${option.meta.totalClasses} clases`)
+    if (option.meta.makeUps && option.meta.makeUps > 0) parts.push(`+${option.meta.makeUps} make-ups`)
+    return parts.join(" • ") || option.description
+  }, [])
 
   // Helpers
   const to12h = (t: string) => {
@@ -407,7 +486,11 @@ export default function EnrollModal({
             return
           }
           const message =
-            needsSignIn ? t("account_exists_error") : typeof result.data?.error === "string" ? result.data.error : "Stripe intent error"
+            needsSignIn
+              ? t("account_exists_error")
+              : typeof result.data?.error === "string"
+                ? result.data.error
+                : "Error al iniciar el pago con Stripe."
           const needsPhoneVerification = message.toLowerCase().includes("phone verification")
           setFormError(needsSignIn ? null : message)
           setRequiresPhoneVerification(needsPhoneVerification)
@@ -427,7 +510,7 @@ export default function EnrollModal({
         setPendingAutoPay(false)
       } catch (err) {
         console.error(err)
-        alert("Unable to start payment. Please try again.")
+        alert("No pudimos iniciar el pago. Intenta nuevamente.")
       } finally {
         setProcessing(false)
       }
@@ -498,34 +581,55 @@ export default function EnrollModal({
 
   const canContinue = stepValid(step)
 
-  return open ? (
+  if (!open && !isInline) return null
+
+  return (
     <div
-      role="dialog"
-      aria-modal="true"
+      role={isInline ? "region" : "dialog"}
+      aria-modal={isInline ? undefined : true}
       aria-label={t("aria_dialog_bookingFor", { title: course.title })}
-      className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center"
+      className={
+        isInline
+          ? "w-full"
+          : "fixed inset-0 z-[10000] flex items-stretch sm:items-center justify-center"
+      }
     >
-      {/* Backdrop. Click closes modal. */}
-      <button
-        aria-label={t("aria_close")}
-        onClick={onCloseAction}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-      />
-
-      <GlassyCard className="relative mx-4 w-full max-w-4xl bg-white/70 dark:bg-white/10 p-0 overflow-hidden">
-        {/* Close button */}
+      {!isInline && (
         <button
-          type="button"
-          onClick={onCloseAction}
-          className="absolute right-3 top-3 h-9 w-9 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
           aria-label={t("aria_close")}
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/></svg>
-        </button>
+          onClick={handleClose}
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        />
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-12">
+      <GlassyCard
+        data-lenis-prevent
+        className={[
+          "relative w-full bg-white/70 dark:bg-white/10 p-0",
+          isInline
+            ? "rounded-3xl overflow-hidden"
+            : "mx-0 sm:mx-4 sm:max-w-5xl lg:max-w-6xl h-full sm:h-auto rounded-none sm:rounded-2xl overflow-y-auto",
+        ].join(" ")}
+      >
+        {!isInline && (
+          <button
+            type="button"
+            onClick={handleClose}
+            className="absolute right-3 top-3 h-9 w-9 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+            aria-label={t("aria_close")}
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/></svg>
+          </button>
+        )}
+
+        <div className={isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12"}>
           {/* Sidebar: stepper (form) OR calendar panel (success) */}
-          <aside className="md:col-span-4 lg:col-span-3 bg-neutral-900/90 text-white p-4 space-y-4">
+          <aside
+            className={[
+              "bg-neutral-900/90 text-white p-3 sm:p-4 space-y-3 sm:space-y-4",
+              isInline ? "md:col-span-1" : "md:col-span-4 lg:col-span-3",
+            ].join(" ")}
+          >
             {success ? (
               <div className="flex flex-col gap-4">
                 <h4 className="text-sm font-semibold">{t("addToCalendar")}</h4>
@@ -568,87 +672,161 @@ export default function EnrollModal({
                   <p className="text-xs text-white/70">{t("calendarsHint")}</p>
                 )}
 
-                <div className="pt-2 border-t border-white/10">
-                  <div className="text-sm font-semibold">{t("getInTouch")}</div>
-                  <p className="mt-1 text-xs text-white/80">{t("assistantChatNote")}</p>
-                  <div className="mt-2">
-                    <ChatLauncher className="w-full" />
-                  </div>
-                </div>
-
                 {/* Collapse menu eliminado por requerimiento */}
               </div>
             ) : (
               <>
                 <h4 className="text-sm font-semibold">{t("booking")}</h4>
-                <ol className="space-y-2">
-                  {steps.map((st, idx) => {
-                    const done = idx < step && stepValid(idx)
-                    const active = idx === step
-                    const canJump = idx <= step
-                    return (
-                      <li key={st.key}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!canJump) return
-                            setStep(idx)
-                          }}
-                          disabled={!canJump}
-                          className={`w-full flex items-center justify-between rounded-md px-3 py-2 border text-left transition ${
-                            active ? "border-white/30 bg-white/5" : "border-white/10 bg-white/0"
-                          } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${done ? "bg-green-500" : active ? "bg-white text-black" : "bg-white/20"}`}>{done ? "✓" : idx + 1}</span>
-                            <span className="text-xs">{st.label}</span>
+                {isInline ? (
+                  <nav aria-label="Breadcrumb" className="mt-3">
+                    {(() => {
+                      const start = step <= 2 ? 0 : Math.max(steps.length - 3, 0)
+                      const visible = steps.slice(start, start + 3)
+                      const progressIndex = Math.max(0, Math.min(visible.length - 1, step - start))
+                      const progressPct =
+                        visible.length > 1 ? (progressIndex / (visible.length - 1)) * 100 : 0
+                      const insetPct = 100 / (visible.length * 2)
+                      return (
+                        <div className="relative">
+                          <div
+                            className="absolute top-[18px] h-px bg-white/15"
+                            style={{ left: `${insetPct}%`, right: `${insetPct}%` }}
+                          />
+                          <div
+                            className="absolute top-[18px] h-px bg-[color:var(--brand)] transition-[width] duration-500 ease-out"
+                            style={{
+                              left: `${insetPct}%`,
+                              width: `calc((100% - ${insetPct * 2}%) * ${progressPct / 100})`,
+                            }}
+                          />
+                          <div className="relative z-10 grid grid-cols-3 gap-3">
+                            {visible.map((st, idx) => {
+                              const realIndex = start + idx
+                              const done = realIndex < step && stepValid(realIndex)
+                              const active = realIndex === step
+                              const canJump = realIndex <= step
+                              const Icon = stepIcons[st.key]
+                              return (
+                                <button
+                                  key={st.key}
+                                  type="button"
+                                  onClick={() => {
+                                    if (!canJump) return
+                                    setStep(realIndex)
+                                  }}
+                                  disabled={!canJump}
+                                  className={`flex flex-col items-center gap-2 text-[11px] transition ${
+                                    canJump ? "hover:text-white" : "cursor-not-allowed opacity-60"
+                                  }`}
+                                  aria-label={st.label}
+                                >
+                                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900/95">
+                                    <span
+                                      className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                                        done
+                                          ? "border-green-400/70 bg-green-500/20 text-green-200"
+                                          : active
+                                            ? "border-[color:var(--brand)] bg-[color:var(--brand)]/25 text-white"
+                                            : "border-white/15 bg-white/5 text-white/50"
+                                      }`}
+                                    >
+                                      <Icon className="h-4 w-4" aria-hidden />
+                                    </span>
+                                  </span>
+                                </button>
+                              )
+                            })}
                           </div>
-                          {done && <span className="text-green-400 text-[10px]">{t("done")}</span>}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ol>
+                        </div>
+                      )
+                    })()}
+                  </nav>
+                ) : (
+                  <nav aria-label="Breadcrumb" className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/80">
+                    {steps.map((st, idx) => {
+                      const done = idx < step && stepValid(idx)
+                      const active = idx === step
+                      const canJump = idx <= step
+                      return (
+                        <React.Fragment key={st.key}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canJump) return
+                              setStep(idx)
+                            }}
+                            disabled={!canJump}
+                            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 transition ${
+                              active ? "border-white/40 bg-white/10" : "border-white/10 bg-transparent"
+                            } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${done ? "bg-green-400" : active ? "bg-white" : "bg-white/30"}`} />
+                            <span>{st.label}</span>
+                          </button>
+                          {idx < steps.length - 1 && <span className="text-white/30">/</span>}
+                        </React.Fragment>
+                      )
+                    })}
+                  </nav>
+                )}
 
                 {/* Summary */}
-                <div className="mt-4 rounded-md border border-white/10 p-3 text-xs space-y-1">
-                  <div className="font-semibold mb-1">{t("summary")}</div>
-                  <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
-                  <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label}</div>
-                  {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
-                  <div>{t("people")}: {participants}</div>
-                  <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
-                  <div>{t("email")}: {contact.email || "—"}</div>
-                  <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
-                </div>
-
-                {/* Get in touch - solo chat */}
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  <div className="text-sm font-semibold">{t("getInTouch")}</div>
-                  <p className="mt-1 text-xs text-white/80">{t("assistantChatNote")}</p>
-                  <div className="mt-2">
-                    <ChatLauncher className="w-full" />
+                <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
+                  <div className="font-semibold mb-2">{t("summary")}</div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
+                    <div className="space-y-1">
+                      <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                      <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                      {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                      <div>{t("people")}: {participants}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
+                      <div>{t("email")}: {contact.email || "—"}</div>
+                      <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                    </div>
                   </div>
                 </div>
+                <div className="mt-4 sm:hidden">
+                  <details className="rounded-md border border-white/10 p-3 text-xs">
+                    <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="space-y-1">
+                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                        <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                        {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                        <div>{t("people")}: {participants}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
+                        <div>{t("email")}: {contact.email || "—"}</div>
+                        <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+
+                {/* Sin bloque de contacto; el chat vive en el UI global */}
               </>
             )}
           </aside>
 
           {/* Main content */}
-          <section className="md:col-span-8 lg:col-span-9 p-4 sm:p-6">
-            <div className="flex items-center gap-2 mb-3">
-              {step > 0 && (
-                <button
-                  type="button"
-                  aria-label={t("back")}
-                  onClick={() => setStep((s) => Math.max(0, s - 1))}
-                  className="h-8 w-8 rounded-md border border-black/10 flex items-center justify-center"
-                >
-                  ←
-                </button>
-              )}
-              <h3 className="text-xl sm:text-2xl font-semibold">{steps[step]?.label} • {course.title}</h3>
-            </div>
+          <section className={isInline ? "p-4 sm:p-6" : "md:col-span-8 lg:col-span-9 p-3 sm:p-6"}>
+            <div className={isInline ? "" : "mx-auto w-full max-w-2xl"}>
+              <div className="flex items-center gap-2 mb-3">
+                {step > 0 && (
+                  <button
+                    type="button"
+                    aria-label={t("back")}
+                    onClick={() => setStep((s) => Math.max(0, s - 1))}
+                    className="h-8 w-8 rounded-md border border-black/10 flex items-center justify-center"
+                  >
+                    ←
+                  </button>
+                )}
+                <h3 className="text-xl sm:text-2xl font-semibold">{steps[step]?.label} • {course.title}</h3>
+              </div>
 
             {success ? (
               <div className="mt-2">
@@ -705,21 +883,27 @@ export default function EnrollModal({
                 {/* Bottom bar actions */}
                 <div className="mt-6 border-t border-black/10 dark:border-white/10 px-3 py-3 flex items-center justify-between">
                   <Link href="/panel" className="text-sm font-medium">{t("customerPanel")}</Link>
-                  <button onClick={onCloseAction} className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white">{t("finish")}</button>
+                  <button onClick={handleClose} className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white">{t("finish")}</button>
                 </div>
               </div>
             ) : (
               <form
                 onSubmit={async (e)=>{e.preventDefault(); if(step<steps.length-1){ setStep(step+1) } else { await handleSubmit() }}}
-                className="space-y-5"
+                className="space-y-4"
               >
                 {/* Step contents */}
                 {step === 0 && (
                   <div className="space-y-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <fieldset className="space-y-2">
                         <label className="text-sm font-medium">{t("label_service")}</label>
-                        <select value={service} onChange={(e) => setService(e.target.value)} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2">
+                        <select
+                          id="booking-service"
+                          name="booking-service"
+                          value={service}
+                          onChange={(e) => setService(e.target.value)}
+                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2"
+                        >
                           {course.enrollment.services.map((s) => (
                             <option key={s.id} value={s.id}>{s.label}{s.price ? ` — $${s.price}` : ""}</option>
                           ))}
@@ -747,42 +931,41 @@ export default function EnrollModal({
                         <div className="flex items-center justify-between">
                           <h4 className="text-sm font-medium">{t("optionalPackages")}</h4>
                           {pkg && (
-                            <button type="button" onClick={()=>setPkg("")} className="text-xs underline">{t("removeSelection")}</button>
+                            <button type="button" onClick={()=>setPkg("")} className="text-xs underline">
+                              {t("removeSelection")}
+                            </button>
                           )}
                         </div>
                         <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">{t("packagesHint")}</p>
-                        <div className="mt-3 space-y-2">
-                          {course.enrollment.packages.map(p => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={()=>setPkg(p.id)}
-                              className={`w-full text-left rounded-md border px-3 py-2 ${pkg===p.id?"border-[var(--brand,#111)] bg-[var(--brand,#111)]/5":"border-black/10 dark:border-white/10"}`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="text-sm font-medium">{p.label}</div>
-                                  {p.description && <div className="text-xs text-neutral-500">{p.description}</div>}
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {course.enrollment.packages.map((p) => {
+                            const selected = pkg === p.id
+                            const metaLine = formatPackageMeta(p)
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setPkg(p.id)}
+                                className={`rounded-md border px-3 py-3 text-left transition ${
+                                  selected
+                                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] text-white"
+                                    : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 text-neutral-700 dark:text-white/80 hover:border-white/30"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-sm font-medium">{p.label}</span>
+                                  {p.price && <span className="text-sm font-semibold">${p.price}</span>}
                                 </div>
-                                {p.price !== undefined && (
-                                  <span className="text-xs rounded-full bg-black/5 dark:bg-white/10 px-2 py-1">${p.price.toFixed(2)}</span>
+                                {metaLine && (
+                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
                                 )}
-                              </div>
-                            </button>
-                          ))}
+                                {p.description && (
+                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{p.description}</p>
+                                )}
+                              </button>
+                            )
+                          })}
                         </div>
-                        <div className="mt-3 flex items-center gap-2">
-                          <div className="h-px flex-1 bg-black/10 dark:bg-white/10" />
-                          <span className="text-xs text-neutral-500">{t("or")}</span>
-                          <div className="h-px flex-1 bg-black/10 dark:bg-white/10" />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={()=>{ setPkg(""); setStep(1) }}
-                          className="mt-3 w-full rounded-md bg-[var(--brand,#111)] text-white px-4 py-2 text-sm"
-                        >
-                          {t("skipPackages")}
-                        </button>
                       </div>
                     )}
 
@@ -858,14 +1041,14 @@ export default function EnrollModal({
                                 </button>
                               ))}
                               {TIME_SLOTS_24.length === 0 && (
-                                <p className="text-xs text-muted-foreground">No time slots available for this day.</p>
+                                <p className="text-xs text-muted-foreground">No hay horarios disponibles para este día.</p>
                               )}
                             </>
                           )}
                         </div>
                       ) : (
                         <div className="flex flex-col gap-2">
-                          <p className="text-xs text-muted-foreground">Select a date to see available times.</p>
+                          <p className="text-xs text-muted-foreground">Selecciona una fecha para ver horarios disponibles.</p>
                           <div className="h-3 w-32 rounded-full shimmer" />
                           <div className="h-3 w-24 rounded-full shimmer" />
                         </div>
@@ -903,7 +1086,7 @@ export default function EnrollModal({
                     </p>
                   </fieldset>
                   <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">Phone</label>
+                    <label className="text-sm font-medium">Teléfono</label>
                     <div className="flex items-center gap-2">
                       <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
                         US
@@ -945,9 +1128,34 @@ export default function EnrollModal({
                           <div className="flex items-center justify-between text-sm">
                             <span>
                               {course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}
-                              {perPerson ? ` ($${perPerson.toFixed(2)})` : ""} × {participants} {participants===1?t("onePerson"):t("manyPeople")}
+                              {pkgOpt ? " (incluida en paquete)" : perPerson ? ` ($${perPerson.toFixed(2)})` : ""} × {participants} {participants===1?t("onePerson"):t("manyPeople")}
                             </span>
                             <span className="font-medium">${subtotal.toFixed(2)}</span>
+                          </div>
+                          <div className="mt-2 space-y-1 text-xs text-neutral-500">
+                            <div className="flex items-center justify-between">
+                              <span>Servicio: {serviceOpt?.label || "—"}{pkgOpt ? " (incluida)" : ""}</span>
+                              <span>${serviceCharge.toFixed(2)}</span>
+                            </div>
+                            {pkgOpt && (
+                              <div className="flex items-center justify-between">
+                                <span>
+                                  Paquete: {pkgOpt.label}
+                                  {formatPackageMeta(pkgOpt) ? ` (${formatPackageMeta(pkgOpt)})` : ""}
+                                </span>
+                                <span>${packagePrice.toFixed(2)}</span>
+                              </div>
+                            )}
+                            {!!addonsOpts.length && (
+                              <div className="flex items-center justify-between">
+                                <span>Extras: {addonsOpts.map((a)=>a.label).join(", ")}</span>
+                                <span>${addonsTotal.toFixed(2)}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <span>Subtotal por persona</span>
+                              <span>${perPerson.toFixed(2)}</span>
+                            </div>
                           </div>
                         </div>
 
@@ -1028,14 +1236,14 @@ export default function EnrollModal({
                       <div className="text-sm space-y-1">
                         <div className="font-medium">{t("reviewAndConfirm")}</div>
                         <div>{t("course")}: {course.title}</div>
-                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (incluida en paquete)" : ""}</div>
                         <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
                         {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
                         <div>{t("people")}: {participants}</div>
                         <div>{t("dateTime")}: {date} {to12h(time)}</div>
                         <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
                         <div>{t("email")}: {contact.email || "—"}</div>
-                        <div>Phone: {contact.phone || "—"}</div>
+                        <div>Teléfono: {contact.phone || "—"}</div>
                         <div>{t("paymentMethod")}: {paymentMethod || "—"}</div>
                         {contact.note && <div>{t("notes")}: {contact.note}</div>}
                         <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
@@ -1048,7 +1256,7 @@ export default function EnrollModal({
                 <div className="flex items-center justify-between pt-2">
                   <button
                     type="button"
-                    onClick={onCloseAction}
+                    onClick={handleClose}
                     className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10"
                   >
                     {t("cancel")}
@@ -1078,7 +1286,7 @@ export default function EnrollModal({
                         disabled={processing}
                         className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"
                       >
-                        {processing ? "Processing..." : t("confirm")}
+                        {processing ? "Procesando..." : t("confirm")}
                       </button>
                     )}
                   </div>
@@ -1092,6 +1300,7 @@ export default function EnrollModal({
                 )}
               </form>
             )}
+            </div>
           </section>
         </div>
         {showStripeModal && stripeClientSecret && (
@@ -1106,7 +1315,7 @@ export default function EnrollModal({
         )}
       </GlassyCard>
       {requiresSignIn && (
-        <div className="fixed inset-0 z-[10020] flex items-center justify-center px-4">
+        <div className="fixed inset-0 z-[10020] flex items-stretch justify-end px-2 sm:px-4 py-6">
           <button
             type="button"
             aria-label={t("aria_close")}
@@ -1116,7 +1325,7 @@ export default function EnrollModal({
               setPendingAutoPay(false)
             }}
           />
-          <div className="relative z-10 w-full max-w-lg rounded-xl border border-black/10 dark:border-white/10 bg-white/95 dark:bg-neutral-900/95 p-5 shadow-2xl">
+          <div className="relative z-10 w-full sm:max-w-md rounded-2xl border border-black/10 dark:border-white/10 bg-white/95 dark:bg-neutral-900/95 p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold">
@@ -1170,5 +1379,5 @@ export default function EnrollModal({
         </div>
       )}
     </div>
-  ) : null
+  )
 }

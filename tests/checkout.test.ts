@@ -10,8 +10,9 @@ const buildPayload = (overrides: Record<string, unknown> = {}) => {
   const addons = course.enrollment.addons?.slice(0, 1) ?? []
 
   const participants = 1
+  const serviceCharge = pkg ? 0 : service.price || 0
   const perPerson =
-    (service.price || 0) +
+    serviceCharge +
     (pkg?.price || 0) +
     addons.reduce((sum, a) => sum + (a.price || 0), 0)
   const amount = Math.round(perPerson * participants * 100)

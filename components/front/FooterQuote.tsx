@@ -18,7 +18,7 @@ const footerLinks: { label: string; href: string }[] = [
 export default function FooterQuote() {
   const year = new Date().getFullYear()
   return (
-    <footer aria-label="Site footer" className="w-full mt-8 sm:mt-10 lg:mt-12 bg-black text-white">
+    <footer id="site-footer" aria-label="Site footer" className="w-full mt-8 sm:mt-10 lg:mt-12 bg-black text-white">
       <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 min-h-[420px]">
         {/* Quote block */}
         <div className="py-20 sm:py-24 lg:py-28">

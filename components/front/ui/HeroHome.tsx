@@ -18,8 +18,8 @@ const HeroHome = () => {
             <article className='col-span-1 row-span-3'>
                 <VerticalCarousel height={560} className="h-auto" />
             </article>
-            <article className='col-span-1 row-span-2 space-y-3'>
-                <p>
+            <article className='col-span-1 row-span-2 space-y-3 max-w-xl mx-auto md:mx-0 text-center md:text-left'>
+                <p className="mx-auto md:mx-0 max-w-md">
                 {t('hero_question')}
                 </p>
                 <CheckBoxInput/>

@@ -275,32 +275,6 @@ export default function PlansMasonry() {
               ))}
         </div>
 
-        <style jsx>{`
-          .shimmer {
-            position: relative;
-            overflow: hidden;
-            background-color: rgba(255, 255, 255, 0.08);
-            background-image: linear-gradient(
-              90deg,
-              rgba(255, 255, 255, 0.05) 0%,
-              rgba(255, 255, 255, 0.2) 20%,
-              rgba(255, 255, 255, 0.4) 50%,
-              rgba(255, 255, 255, 0.2) 80%,
-              rgba(255, 255, 255, 0.05) 100%
-            );
-            background-size: 250% 100%;
-            animation: shimmer 1.1s ease-in-out infinite;
-            border-radius: 999px;
-          }
-          @keyframes shimmer {
-            0% {
-              background-position: -200% 0;
-            }
-            100% {
-              background-position: 200% 0;
-            }
-          }
-        `}</style>
       </div>
     </section>
   )

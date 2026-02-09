@@ -7,6 +7,9 @@ App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, the
 - `npm run lint` — ESLint.
 - `npm run build` — build/SSR.
 - `npm start` — arranca el build.
+- `npm run prisma:generate` — regenera Prisma Client.
+- `npm run test` — unit tests (Vitest).
+- `npm run test:e2e` — Playwright.
 
 ## Estructura rápida
 - Layout raíz: `app/layout.tsx` (Clerk, I18n, Theme + widget).
@@ -32,6 +35,7 @@ App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, the
 
 ## Documentación
 Consulta `docs/README.md` para un mapa detallado de pantallas y componentes y cómo modificarlos.
+Para tests, ver `docs/TESTS.md`.
 
 ## Ejemplos rápidos
 - Nuevo curso (detalle): agrega a `demoCourses` en `constants/courses.ts`; el route `/cursos/[slug]` se genera solo por `courseRepository`.

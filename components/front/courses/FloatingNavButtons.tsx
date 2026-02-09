@@ -13,12 +13,16 @@ export default function FloatingNavButtons() {
       setShowTop(window.scrollY > 240)
     }
     onScroll()
-    window.addEventListener("scroll", onScroll)
-    return () => window.removeEventListener("scroll", onScroll)
+    window.addEventListener("scroll", onScroll, { passive: true })
+    window.addEventListener("resize", onScroll)
+    return () => {
+      window.removeEventListener("scroll", onScroll)
+      window.removeEventListener("resize", onScroll)
+    }
   }, [])
 
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-50">
+    <div className="pointer-events-none floating-nav fixed bottom-6 right-6 z-50">
       <button
         type="button"
         onClick={() => (showTop ? window.scrollTo({ top: 0, behavior: "smooth" }) : router.back())}
@@ -26,7 +30,7 @@ export default function FloatingNavButtons() {
         aria-label={showTop ? "Back to top" : "Back"}
       >
         {showTop ? <ArrowUp className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}
-        {showTop ? "Back to top" : "Back"}
+        <span>{showTop ? "Back to top" : "Back"}</span>
       </button>
     </div>
   )

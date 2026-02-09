@@ -66,7 +66,7 @@ export default function CheckBoxInput() {
     const anySelected = selected.length > 0
 
     return (
-        <div className="flex flex-col gap-2 pr-14">
+        <div className="flex flex-col gap-2 pr-0 md:pr-14 w-full max-w-[460px] mx-auto">
             {intents.map((intent, idx) => {
                 const rounded =
                     idx === 0 ? "rounded-t-lg" :
@@ -83,7 +83,7 @@ export default function CheckBoxInput() {
                     />
                 )
             })}
-            <div className="pt-2">
+            <div className="pt-3 flex justify-center">
                 <button
                     type="button"
                     disabled={!anySelected}

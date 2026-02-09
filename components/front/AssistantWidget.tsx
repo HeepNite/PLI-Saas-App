@@ -51,6 +51,7 @@ export default function AssistantWidget({
     } catch {}
   }, [minimized])
 
+
   // External open trigger (e.g., ChatLauncher)
   React.useEffect(() => {
     const open = () => setMinimized(false)
@@ -82,7 +83,7 @@ export default function AssistantWidget({
           // Move focus to panel after opening
           setTimeout(() => panelRef.current?.focus(), 0)
         }}
-        className={`fixed bottom-4 ${sidePos} z-[9999] h-14 w-14 rounded-full bg-[var(--brand,#111)] text-white shadow-lg flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-white/60`}
+        className={`assistant-bubble fixed bottom-4 ${sidePos} z-[9999] h-14 w-14 rounded-full bg-[var(--brand,#111)] text-white shadow-lg flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-white/60`}
       >
         {/* Chat bubble icon */}
         <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden>

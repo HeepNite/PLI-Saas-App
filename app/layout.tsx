@@ -15,6 +15,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { I18nProvider } from "@/lib/i18n";
 import { cookies } from "next/headers";
 import FloatingTopHomeButton from "@/components/front/ui/FloatingTopHomeButton";
+import SmoothScroll from "@/components/front/ui/SmoothScroll";
 
 
 export const metadata: Metadata = {
@@ -38,6 +39,7 @@ export default async function RootLayout({children,}: Readonly<{ children: React
                 disableTransitionOnChange
             >
                 {children}
+                <SmoothScroll />
                 <FloatingTopHomeButton />
                 {/* Floating assistant widget mounted globally (client-only wrapper, i18n-aware) */}
                 <AssistantWidgetMountI18n />

@@ -121,15 +121,47 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply overflow-x-hidden;
+  }
   body {
     @apply bg-background text-foreground overflow-x-hidden;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
   }
   main {
     @apply flex flex-col gap-8 bg-background min-h-full w-full;
   }
   h1 {
     @apply text-3xl font-bold;
+  }
+}
+
+@media (max-width: 1024px) {
+  body[data-course-page="true"] {
+    --floating-gap: 120px;
+  }
+  body[data-course-page="true"][data-course-mobile="true"] .assistant-bubble {
+    bottom: calc(var(--floating-offset, 24px) - 1.5rem) !important;
+    left: 8% !important;
+    right: auto !important;
+    transform: none;
+    height: 44px;
+    width: 44px;
+  }
+  body[data-course-page="true"][data-course-mobile="true"] .floating-top {
+    bottom: calc(var(--floating-offset, 24px) - 1.5rem) !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(calc(var(--floating-gap, 84px) + var(--booking-shift, 0px)));
+  }
+  body[data-course-page="true"][data-course-mobile="true"] .floating-top button {
+    position: relative;
+    left: 0;
+    top: -0.3rem;
+    height: 44px;
+    width: 44px;
+    justify-content: center;
+    padding: 0;
   }
 }
 
@@ -199,6 +231,24 @@
     @apply border-2 border-black rounded-lg flex flex-col gap-2 items-center py-8 max-sm:py-2 cursor-pointer w-full;
   }
 
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+    transition: opacity 700ms ease, transform 700ms ease;
+    will-change: opacity, transform;
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+
   .transcript {
     @apply relative flex flex-col gap-4 w-full items-center pt-10 flex-grow overflow-hidden;
   }
@@ -217,6 +267,39 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+}
+
+@layer utilities {
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+    background-color: rgba(255, 255, 255, 0.08);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(255, 255, 255, 0.18) 20%,
+      rgba(255, 255, 255, 0.4) 50%,
+      rgba(255, 255, 255, 0.18) 80%,
+      rgba(255, 255, 255, 0.04) 100%
+    );
+    background-size: 260% 100%;
+    animation: pli-shimmer 1.4s ease-in-out infinite;
+    will-change: background-position;
+  }
+  @keyframes pli-shimmer {
+    0% {
+      background-position: -220% 0;
+    }
+    100% {
+      background-position: 220% 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shimmer {
+      animation: none;
+      background-size: 100% 100%;
+    }
   }
 }
 
