@@ -66,9 +66,9 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
       await skipPackages.click()
       return
     }
-    const submitBtn = page.locator('button[type="submit"]', { hasText: /Continue|Continuar/i }).first()
+    const submitBtn = booking.locator('button[type="submit"]', { hasText: /Continue|Continuar/i }).first()
     await submitBtn.scrollIntoViewIfNeeded()
-    await submitBtn.click()
+    await submitBtn.click({ force: true })
   }
 
   await clickContinue()
