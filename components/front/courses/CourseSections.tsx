@@ -141,6 +141,14 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
     if (target) target.focus()
   }, [])
 
+  const openBooking = React.useCallback(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      window.dispatchEvent(new CustomEvent("pli:open-booking"))
+      return
+    }
+    focusBooking()
+  }, [focusBooking])
+
   React.useEffect(() => {
     const root = containerRef.current
     if (!root) return
@@ -586,13 +594,15 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
               Asegura tu clase y tu horario preferido. Confirmamos todo luego del checkout.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={focusBooking}
-                className="text-sm uppercase tracking-[0.25em] text-white/70 hover:text-white"
-              >
-                Reserva la clase →
-              </button>
+              <div id="booking-dock" className="relative w-full">
+                <button
+                  type="button"
+                  onClick={openBooking}
+                  className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[var(--brand,#b61616)] bg-white/10 px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_35px_-18px_rgba(182,22,22,0.65)] backdrop-blur-md transition hover:translate-y-[-1px] hover:border-[var(--brand,#e31b1b)]"
+                >
+                  Reservar tu clase
+                </button>
+              </div>
             </div>
           </div>
         </section>

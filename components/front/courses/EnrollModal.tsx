@@ -36,6 +36,7 @@ export default function EnrollModal({
   initialStep,
   mode = "modal",
   prefillContact,
+  useDraft = true,
 }: {
   course: CourseEnrollmentData
   open: boolean
@@ -43,6 +44,7 @@ export default function EnrollModal({
   initialStep?: number
   mode?: "modal" | "inline"
   prefillContact?: Partial<EnrollmentContact>
+  useDraft?: boolean
 }) {
   const { t } = useI18n()
   const router = useRouter()
@@ -84,6 +86,7 @@ export default function EnrollModal({
   const [phoneTouched, setPhoneTouched] = React.useState<boolean>(false)
   const [stripeClientSecret, setStripeClientSecret] = React.useState<string>("")
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
+  const prefillContactRef = React.useRef(prefillContact)
   const isNewStudent = service === "new-student"
   const returnTo = `/cursos/${course.slug}?enroll=1&step=2`
   const verifyPhoneUrl = `/verify-phone?return=${encodeURIComponent(returnTo)}`
@@ -101,11 +104,14 @@ export default function EnrollModal({
     payments: CreditCard,
     review: CheckCircle2,
   }
+  React.useEffect(() => {
+    prefillContactRef.current = prefillContact
+  }, [prefillContact])
   const signInReturnTo = `/cursos/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
   useEnrollDraft({
-    open,
+    open: useDraft ? open : false,
     success,
     draftKey,
     stepsCount: steps.length,
@@ -218,16 +224,27 @@ export default function EnrollModal({
   }, [isLoaded, isSignedIn, user, open, isInline])
 
   React.useEffect(() => {
+    if (!open) return
     if (typeof window === "undefined") return
-    const hasDraft = sessionStorage.getItem(draftKey)
-    if (hasDraft) return
+    const hasDraft = useDraft ? sessionStorage.getItem(draftKey) : null
+    if (useDraft && hasDraft) return
+    if (!useDraft) {
+      sessionStorage.removeItem(draftKey)
+    }
     setService(course.enrollment.services[0]?.id ?? "")
     setPkg("")
     setAddons([])
     setParticipants(1)
     setDate("")
     setTime("")
-    setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
+    setContact({
+      firstName: "",
+      lastName: "",
+      email: "",
+      phone: "+1 ",
+      note: "",
+      ...(prefillContactRef.current ?? {}),
+    })
     setCouponInput("")
     setAppliedCoupon(null)
     setPaymentMethod("")
@@ -239,7 +256,7 @@ export default function EnrollModal({
     setStripeClientSecret("")
     setShowStripeModal(false)
     setFormError(null)
-  }, [course.slug, draftKey])
+  }, [open, course.slug, draftKey, useDraft, prefillContactRef])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
@@ -615,7 +632,12 @@ export default function EnrollModal({
           "relative w-full bg-white/70 dark:bg-white/10 p-0",
           isInline
             ? "rounded-3xl overflow-hidden"
-            : "mx-0 sm:mx-4 sm:max-w-5xl lg:max-w-6xl h-full sm:h-auto rounded-none sm:rounded-2xl overflow-y-auto",
+            : [
+              "mx-0 sm:mx-4 sm:max-w-5xl lg:max-w-6xl h-full rounded-none sm:rounded-2xl",
+              showStripeModal
+                ? "sm:h-auto sm:min-h-[50rem] overflow-hidden"
+                : "sm:h-auto overflow-y-auto",
+            ].join(" "),
         ].join(" ")}
       >
         {!isInline && (

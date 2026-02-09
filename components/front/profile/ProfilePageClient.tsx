@@ -67,21 +67,7 @@ const mockProfile = {
   },
 }
 
-const toDateInput = (value?: string | Date | null) => {
-  if (!value) return ""
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  return date.toISOString().slice(0, 10)
-}
-
-const buildProfileFormState = (profile: any, user: any) => ({
-  firstName: profile?.firstName || user?.firstName || user?.first_name || "",
-  lastName: profile?.lastName || user?.lastName || user?.last_name || "",
-  birthDate: toDateInput(profile?.birthDate),
-  emergencyContactName: profile?.emergencyContactName || "",
-  emergencyContactRelation: profile?.emergencyContactRelation || "",
-  emergencyContactPhone: profile?.emergencyContactPhone || "",
-})
+import { buildBookingPrefillContact, buildProfileFormState, getProfileCompletionPercent } from "./profile-utils"
 
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
@@ -121,22 +107,8 @@ export default function ProfilePageClient() {
   const [avatarError, setAvatarError] = React.useState<string | null>(null)
   const [profileForm, setProfileForm] = React.useState(() => buildProfileFormState(null, null))
   const bookingPrefillContact = React.useMemo(
-    () => ({
-      firstName: profileForm.firstName || user?.firstName || "",
-      lastName: profileForm.lastName || user?.lastName || "",
-      email: profileUser.email || user?.primaryEmailAddress?.emailAddress || "",
-      phone: profileUser.phone || user?.primaryPhoneNumber?.phoneNumber || "+1 ",
-    }),
-    [
-      profileForm.firstName,
-      profileForm.lastName,
-      profileUser.email,
-      profileUser.phone,
-      user?.firstName,
-      user?.lastName,
-      user?.primaryEmailAddress?.emailAddress,
-      user?.primaryPhoneNumber?.phoneNumber,
-    ]
+    () => buildBookingPrefillContact(profileForm, profileUser, user),
+    [profileForm, profileUser, user]
   )
 
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
@@ -194,6 +166,21 @@ export default function ProfilePageClient() {
   }, [isLoaded, isSignedIn, user?.firstName, user?.lastName, user?.primaryEmailAddress?.emailAddress, user?.primaryPhoneNumber?.phoneNumber])
 
   React.useEffect(() => {
+    if (typeof document === "undefined") return
+    const update = () => {
+      document.body.dataset.profilePage = "true"
+      document.body.dataset.profileMobile = window.innerWidth < 1024 ? "true" : "false"
+    }
+    update()
+    window.addEventListener("resize", update)
+    return () => {
+      delete document.body.dataset.profilePage
+      delete document.body.dataset.profileMobile
+      window.removeEventListener("resize", update)
+    }
+  }, [])
+
+  React.useEffect(() => {
     if (profileComplete) {
       setShowProfileForm(false)
     }
@@ -218,19 +205,31 @@ export default function ProfilePageClient() {
     }
   }, [])
 
-  const completionPercent = React.useMemo(() => {
-    const completionFields = [
-      profileForm.firstName,
-      profileForm.lastName,
-      profileForm.birthDate,
-      profileForm.emergencyContactName,
-      profileForm.emergencyContactRelation,
-      profileForm.emergencyContactPhone,
-    ]
-    return Math.round(
-      (completionFields.filter((value) => value && value.trim().length > 0).length / completionFields.length) * 100
-    )
-  }, [profileForm])
+  React.useEffect(() => {
+    const footer = document.getElementById("site-footer")
+    if (!footer) return
+    const baseOffset = 24
+    const updateOffset = () => {
+      const rect = footer.getBoundingClientRect()
+      const overlap = Math.max(0, window.innerHeight - rect.top)
+      const next = overlap > 0 ? overlap + baseOffset : baseOffset
+      document.documentElement.style.setProperty("--floating-offset", `${next}px`)
+    }
+    updateOffset()
+    window.addEventListener("scroll", updateOffset, { passive: true })
+    window.addEventListener("resize", updateOffset)
+    return () => {
+      document.documentElement.style.removeProperty("--floating-offset")
+      window.removeEventListener("scroll", updateOffset)
+      window.removeEventListener("resize", updateOffset)
+    }
+  }, [])
+
+
+  const completionPercent = React.useMemo(
+    () => getProfileCompletionPercent(profileForm),
+    [profileForm]
+  )
 
   const avatarSrc =
     profileUser.imageUrl ||
@@ -489,7 +488,7 @@ export default function ProfilePageClient() {
           {/* Left */}
           <aside className="lg:col-span-2 lg:self-start space-y-4">
             <div ref={leftStickyRef}>
-            <GlassyCard className="p-4">
+            <GlassyCard className="p-4 space-y-4">
               <div className="flex items-center gap-3">
                 <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/10">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -573,20 +572,20 @@ export default function ProfilePageClient() {
                   <span className="text-[11px] text-[var(--brand,#b61616)]">Completa tu perfil y gana puntos</span>
                 )}
               </div>
-            </GlassyCard>
 
-            <GlassyCard className="p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Paquetes y promos</p>
-              <div className="mt-3 space-y-3 text-sm">
-                {mockProfile.packages.map((pkg) => (
-                  <div key={pkg.label} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                    <p className="font-semibold">{pkg.label}</p>
-                    <p className="text-xs text-white/60">Restantes: {pkg.remaining}</p>
+              <div className="mt-5 border-t border-white/10 pt-6">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Paquetes y promos</p>
+                <div className="mt-3 space-y-3 text-sm">
+                  {mockProfile.packages.map((pkg) => (
+                    <div key={pkg.label} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="font-semibold">{pkg.label}</p>
+                      <p className="text-xs text-white/60">Restantes: {pkg.remaining}</p>
+                    </div>
+                  ))}
+                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="font-semibold">Promos activas</p>
+                    <p className="text-xs text-white/60">{mockProfile.promos.join(" • ")}</p>
                   </div>
-                ))}
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                  <p className="font-semibold">Promos activas</p>
-                  <p className="text-xs text-white/60">{mockProfile.promos.join(" • ")}</p>
                 </div>
               </div>
             </GlassyCard>
@@ -1250,6 +1249,7 @@ export default function ProfilePageClient() {
           initialStep={1}
           onCloseAction={() => setEnrollOpen(false)}
           prefillContact={bookingPrefillContact}
+          useDraft={false}
         />
       )}
     </main>

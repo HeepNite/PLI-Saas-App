@@ -1,4 +1,5 @@
 import Header from "@/components/front/Header"
+import FooterQuote from "@/components/front/FooterQuote"
 import ProfilePageClient from "@/components/front/profile/ProfilePageClient"
 
 export const metadata = {
@@ -11,6 +12,7 @@ export default function ClientProfilePage() {
     <>
       <Header />
       <ProfilePageClient />
+      <FooterQuote />
     </>
   )
 }

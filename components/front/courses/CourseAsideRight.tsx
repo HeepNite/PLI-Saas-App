@@ -13,7 +13,10 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const initialStep = typeof parsedStep === "number" && Number.isFinite(parsedStep) ? parsedStep : undefined
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const [mobileOffset, setMobileOffset] = React.useState(24)
+  const [dockBooking, setDockBooking] = React.useState(false)
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
   const bookingButtonRef = React.useRef<HTMLDivElement | null>(null)
+  const [dockTarget, setDockTarget] = React.useState<HTMLElement | null>(null)
   const bookingShift = "0px"
   const sideButtonSize = 44
   const sideGapPadding = 64
@@ -40,6 +43,45 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   }, [])
 
   React.useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const updateDock = () => {
+      if (window.matchMedia("(min-width: 1024px)").matches) {
+        setDockBooking(false)
+        return
+      }
+      const target = dockTarget ?? el
+      const rect = target.getBoundingClientRect()
+      const triggerLine = window.innerHeight * 0.7
+      const inView = rect.top <= triggerLine && rect.bottom >= triggerLine
+      setDockBooking(inView && Boolean(dockTarget))
+    }
+    updateDock()
+    window.addEventListener("scroll", updateDock, { passive: true })
+    window.addEventListener("resize", updateDock)
+    return () => {
+      window.removeEventListener("scroll", updateDock)
+      window.removeEventListener("resize", updateDock)
+    }
+  }, [dockTarget])
+
+  React.useEffect(() => {
+    const handler = () => {
+      if (window.matchMedia("(max-width: 1023px)").matches) {
+        setMobileOpen(true)
+      }
+    }
+    window.addEventListener("pli:open-booking", handler)
+    return () => window.removeEventListener("pli:open-booking", handler)
+  }, [])
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return
+    const target = document.getElementById("booking-dock")
+    setDockTarget(target)
+  }, [])
+
+  React.useEffect(() => {
     const el = bookingButtonRef.current
     if (!el) return
     const updateGap = () => {
@@ -60,7 +102,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   }, [mobileOpen])
 
   return (
-    <div className="space-y-4">
+    <div ref={containerRef} className="space-y-4">
       <div className="hidden lg:block">
         <EnrollModal
           course={course}
@@ -79,7 +121,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
         mode="modal"
       />
 
-      {!mobileOpen && (
+      {!mobileOpen && !dockBooking && (
         <div
           ref={bookingButtonRef}
           className="lg:hidden fixed left-1/2 z-[12000] -translate-x-1/2"
@@ -88,12 +130,12 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
           <div style={{ position: "relative", right: "0px" }}>
             <GlassyCard className="rounded-full px-3 py-2 bg-white/15 dark:bg-white/10 border-white/20">
               <button
-              type="button"
-              onClick={() => setMobileOpen(true)}
-              className="px-4 py-2 text-sm font-semibold text-white"
-            >
-              Reservar tu clase
-            </button>
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="px-4 py-2 text-sm font-semibold text-white"
+              >
+                Reservar tu clase
+              </button>
             </GlassyCard>
           </div>
         </div>

@@ -20,7 +20,8 @@ export default function FloatingTopHomeButton() {
       setShowTop(scrollY > 200)
       setShowButton(pathname !== "/" || showAfterHalf)
       const isCourse = typeof document !== "undefined" && document.body.dataset.coursePage === "true"
-      setIsCourseMobile(Boolean(isCourse) && window.innerWidth < 1024)
+      const isProfile = typeof document !== "undefined" && document.body.dataset.profilePage === "true"
+      setIsCourseMobile((Boolean(isCourse) || Boolean(isProfile)) && window.innerWidth < 1024)
     }
     onScroll()
     window.addEventListener("scroll", onScroll)
