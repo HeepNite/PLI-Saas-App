@@ -35,12 +35,14 @@ export default function EnrollModal({
   onCloseAction,
   initialStep,
   mode = "modal",
+  prefillContact,
 }: {
   course: CourseEnrollmentData
   open: boolean
   onCloseAction: () => void
   initialStep?: number
   mode?: "modal" | "inline"
+  prefillContact?: Partial<EnrollmentContact>
 }) {
   const { t } = useI18n()
   const router = useRouter()
@@ -134,6 +136,11 @@ export default function EnrollModal({
       setStep,
     },
   })
+
+  React.useEffect(() => {
+    if (!open || !prefillContact) return
+    setContact((prev) => ({ ...prev, ...prefillContact }))
+  }, [open, prefillContact])
 
   React.useEffect(() => {
     const id = window.setTimeout(() => setInitialLoading(false), 400)

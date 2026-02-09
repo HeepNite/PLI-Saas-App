@@ -120,6 +120,24 @@ export default function ProfilePageClient() {
   const [avatarUploading, setAvatarUploading] = React.useState(false)
   const [avatarError, setAvatarError] = React.useState<string | null>(null)
   const [profileForm, setProfileForm] = React.useState(() => buildProfileFormState(null, null))
+  const bookingPrefillContact = React.useMemo(
+    () => ({
+      firstName: profileForm.firstName || user?.firstName || "",
+      lastName: profileForm.lastName || user?.lastName || "",
+      email: profileUser.email || user?.primaryEmailAddress?.emailAddress || "",
+      phone: profileUser.phone || user?.primaryPhoneNumber?.phoneNumber || "+1 ",
+    }),
+    [
+      profileForm.firstName,
+      profileForm.lastName,
+      profileUser.email,
+      profileUser.phone,
+      user?.firstName,
+      user?.lastName,
+      user?.primaryEmailAddress?.emailAddress,
+      user?.primaryPhoneNumber?.phoneNumber,
+    ]
+  )
 
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
   const orderedCourses = React.useMemo(() => {
@@ -1231,6 +1249,7 @@ export default function ProfilePageClient() {
           open={enrollOpen}
           initialStep={1}
           onCloseAction={() => setEnrollOpen(false)}
+          prefillContact={bookingPrefillContact}
         />
       )}
     </main>
