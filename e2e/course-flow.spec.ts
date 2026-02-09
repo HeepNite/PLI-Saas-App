@@ -14,7 +14,9 @@ const getNextAllowedDate = () => {
 
 test("course page renders", async ({ page }) => {
   await page.goto(`/cursos/${slug}?lang=en`)
-  await expect(page.getByRole("heading", { name: /Salsa feminine style/i })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Salsa feminine style (morning)", exact: true })
+  ).toBeVisible()
 })
 
 test("full enrollment opens Stripe modal", async ({ page }) => {
@@ -53,7 +55,7 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
   })
 
   await page.goto(`/cursos/${slug}?enroll=1&lang=en`)
-  await expect(page.getByRole("dialog")).toBeVisible()
+  await expect(page.getByRole("region", { name: /Booking for/i })).toBeVisible()
 
   const clickContinue = async () => {
     const skipPackages = page.getByRole("button", { name: /Skip packages and continue/i })
