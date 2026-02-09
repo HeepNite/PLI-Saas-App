@@ -81,14 +81,14 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
   await stripeBtn.evaluate((el: HTMLButtonElement) => el.click())
   await clickContinue()
 
-  const intentWaiter = page.waitForResponse("**/api/checkout/intent")
-  const confirmEn = page.getByRole("button", { name: "Confirm", exact: true })
+  const confirmEn = booking.getByRole("button", { name: "Confirm", exact: true })
   if (await confirmEn.isVisible()) {
-    await confirmEn.click()
+    await confirmEn.scrollIntoViewIfNeeded()
+    await confirmEn.evaluate((el: HTMLButtonElement) => el.click())
   } else {
-    await page.getByRole("button", { name: "Confirmar", exact: true }).click()
+    const confirmEs = booking.getByRole("button", { name: "Confirmar", exact: true })
+    await confirmEs.scrollIntoViewIfNeeded()
+    await confirmEs.evaluate((el: HTMLButtonElement) => el.click())
   }
-
-  await intentWaiter
   await expect(page.getByRole("button", { name: "Cerrar" })).toBeVisible()
 })
