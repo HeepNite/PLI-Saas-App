@@ -55,15 +55,20 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
   })
 
   await page.goto(`/cursos/${slug}?enroll=1&lang=en`)
-  await expect(page.getByRole("region", { name: /Booking for/i })).toBeVisible()
+  const booking = page.getByRole("region", { name: /Booking for/i })
+  await expect(booking).toBeVisible()
+  await booking.scrollIntoViewIfNeeded()
 
   const clickContinue = async () => {
     const skipPackages = page.getByRole("button", { name: /Skip packages and continue/i })
     if (await skipPackages.isVisible()) {
+      await skipPackages.scrollIntoViewIfNeeded()
       await skipPackages.click()
       return
     }
-    await page.locator('button[type="submit"]', { hasText: /Continue|Continuar/i }).click()
+    const submitBtn = page.locator('button[type="submit"]', { hasText: /Continue|Continuar/i }).first()
+    await submitBtn.scrollIntoViewIfNeeded()
+    await submitBtn.click()
   }
 
   await clickContinue()
