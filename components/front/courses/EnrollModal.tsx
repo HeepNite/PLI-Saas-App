@@ -223,6 +223,8 @@ export default function EnrollModal({
     }))
   }, [isLoaded, isSignedIn, user, open, isInline])
 
+  const initialServiceId = React.useMemo(() => course.enrollment.services[0]?.id ?? "", [course.enrollment.services])
+
   React.useEffect(() => {
     if (!open) return
     if (typeof window === "undefined") return
@@ -231,7 +233,7 @@ export default function EnrollModal({
     if (!useDraft) {
       sessionStorage.removeItem(draftKey)
     }
-    setService(course.enrollment.services[0]?.id ?? "")
+    setService(initialServiceId)
     setPkg("")
     setAddons([])
     setParticipants(1)
@@ -256,7 +258,7 @@ export default function EnrollModal({
     setStripeClientSecret("")
     setShowStripeModal(false)
     setFormError(null)
-  }, [open, course.slug, draftKey, useDraft, prefillContactRef])
+  }, [open, course.slug, draftKey, useDraft, initialServiceId])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 

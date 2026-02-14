@@ -65,7 +65,9 @@ async function resolveUser(params: {
   phone?: string
   stripeCustomerId?: string
 }) {
-  let { clerkId, email, name, phone, stripeCustomerId } = params
+  const clerkId = params.clerkId
+  const stripeCustomerId = params.stripeCustomerId
+  let { email, name, phone } = params
 
   if ((!email || !name || !phone) && clerkId) {
     try {

@@ -19,6 +19,20 @@ export type ClerkUserSnapshot = {
   primaryPhoneNumber?: { phoneNumber?: string | null } | null
 }
 
+export type ProfileSnapshot = {
+  firstName?: string | null
+  lastName?: string | null
+  birthDate?: string | Date | null
+  emergencyContactName?: string | null
+  emergencyContactRelation?: string | null
+  emergencyContactPhone?: string | null
+}
+
+export type ProfileUserSource = ClerkUserSnapshot & {
+  first_name?: string | null
+  last_name?: string | null
+}
+
 export const toDateInput = (value?: string | Date | null) => {
   if (!value) return ""
   const date = value instanceof Date ? value : new Date(value)
@@ -26,7 +40,10 @@ export const toDateInput = (value?: string | Date | null) => {
   return date.toISOString().slice(0, 10)
 }
 
-export const buildProfileFormState = (profile: any, user: any): ProfileFormState => ({
+export const buildProfileFormState = (
+  profile?: ProfileSnapshot | null,
+  user?: ProfileUserSource | null
+): ProfileFormState => ({
   firstName: profile?.firstName || user?.firstName || user?.first_name || "",
   lastName: profile?.lastName || user?.lastName || user?.last_name || "",
   birthDate: toDateInput(profile?.birthDate),

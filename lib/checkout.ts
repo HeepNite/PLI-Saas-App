@@ -2,7 +2,6 @@ import "server-only"
 
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { verifyToken } from "@clerk/backend"
-import type { EnrollmentOption } from "@/constants/courses"
 import { ensureClerkUser, findClerkUserByIdentifiers, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
 import { prisma } from "@/lib/prisma"
 import { isEmail, normalizePhone, type ApiError, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"

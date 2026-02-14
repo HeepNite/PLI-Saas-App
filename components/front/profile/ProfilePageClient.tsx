@@ -3,10 +3,16 @@
 import React from "react"
 import dynamic from "next/dynamic"
 import GlassyCard from "@/components/front/courses/GlassyCard"
-import { Award, Flame, Medal, Sparkles, Star, Trophy, X, Music2, Camera } from "lucide-react"
+import { Flame, Medal, Star, Trophy, X, Music2, Camera } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import type { CourseData } from "@/constants/courses"
 import { useUser } from "@clerk/nextjs"
+import {
+  buildBookingPrefillContact,
+  buildProfileFormState,
+  getProfileCompletionPercent,
+  type ProfileSnapshot,
+} from "./profile-utils"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -67,7 +73,33 @@ const mockProfile = {
   },
 }
 
-import { buildBookingPrefillContact, buildProfileFormState, getProfileCompletionPercent } from "./profile-utils"
+type ProfileSaveResponse = {
+  error?: string
+  profile?: ProfileSnapshot | null
+  profileComplete?: boolean
+  pointsBalance?: number
+}
+
+type MetricKey = "attendance" | "progress" | "rhythm"
+
+const analyticsMonths = ["Oct", "Nov", "Dic", "Ene"] as const
+const analyticsMetricConfig: Record<MetricKey, { label: string; color: string; values: number[] }> = {
+  attendance: {
+    label: "Asistencia",
+    color: "var(--brand,#b61616)",
+    values: [5, 4, 6, 3],
+  },
+  progress: {
+    label: "Progreso",
+    color: "#ef6b6b",
+    values: [2, 3, 4, 5],
+  },
+  rhythm: {
+    label: "Ritmo",
+    color: "#f59e0b",
+    values: [1, 2, 3, 4],
+  },
+}
 
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
@@ -75,7 +107,7 @@ export default function ProfilePageClient() {
   const gridRef = React.useRef<HTMLDivElement>(null)
   const leftStickyRef = React.useRef<HTMLDivElement>(null)
   const rightStickyRef = React.useRef<HTMLDivElement>(null)
-  const [activeMetric, setActiveMetric] = React.useState<"attendance" | "progress" | "rhythm">("attendance")
+  const [activeMetric, setActiveMetric] = React.useState<MetricKey>("attendance")
   const [hoverPoint, setHoverPoint] = React.useState<{ label: string; value: number; x: number; y: number; idx: number } | null>(null)
   const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
   const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
@@ -163,7 +195,7 @@ export default function ProfilePageClient() {
     return () => {
       active = false
     }
-  }, [isLoaded, isSignedIn, user?.firstName, user?.lastName, user?.primaryEmailAddress?.emailAddress, user?.primaryPhoneNumber?.phoneNumber])
+  }, [isLoaded, isSignedIn, user])
 
   React.useEffect(() => {
     if (typeof document === "undefined") return
@@ -274,7 +306,7 @@ export default function ProfilePageClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(profileForm),
       })
-      let data: any = null
+      let data: ProfileSaveResponse | null = null
       try {
         data = await res.json()
       } catch {
@@ -385,26 +417,7 @@ export default function ProfilePageClient() {
     }
   }, [])
 
-  const metricConfig = {
-    attendance: {
-      label: "Asistencia",
-      color: "var(--brand,#b61616)",
-      values: [5, 4, 6, 3],
-    },
-    progress: {
-      label: "Progreso",
-      color: "#ef6b6b",
-      values: [2, 3, 4, 5],
-    },
-    rhythm: {
-      label: "Ritmo",
-      color: "#f59e0b",
-      values: [1, 2, 3, 4],
-    },
-  }
-
-  const months = ["Oct", "Nov", "Dic", "Ene"]
-  const series = metricConfig[activeMetric]
+  const series = analyticsMetricConfig[activeMetric]
   const maxValue = Math.max(...series.values, 6)
   const chartWidth = 520
   const chartHeight = 170
@@ -417,7 +430,12 @@ export default function ProfilePageClient() {
     const y = chartHeight - paddingY - (value / maxValue) * (chartHeight - paddingY * 2)
     return { x, y }
   }
-  const points = series.values.map((value, index) => ({ value, label: months[index], ...toPoint(value, index), idx: index }))
+  const points = series.values.map((value, index) => ({
+    value,
+    label: analyticsMonths[index],
+    ...toPoint(value, index),
+    idx: index,
+  }))
   const pathD = points
     .map((point, idx) => `${idx === 0 ? "M" : "L"} ${point.x} ${point.y}`)
     .join(" ")
@@ -426,7 +444,11 @@ export default function ProfilePageClient() {
     const next = series.values[idx + 1] ?? value
     return Math.max(1, Math.round((value + prev + next) / 3))
   })
-  const targetPoints = targetValues.map((value, index) => ({ value, label: months[index], ...toPoint(value, index) }))
+  const targetPoints = targetValues.map((value, index) => ({
+    value,
+    label: analyticsMonths[index],
+    ...toPoint(value, index),
+  }))
   const targetPathD = targetPoints.map((point, idx) => `${idx === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")
   const yTicks = Array.from({ length: gridCount }).map((_, idx) => {
     const ratio = idx / (gridCount - 1)
@@ -764,7 +786,7 @@ export default function ProfilePageClient() {
                           : "border-white/10 text-white/70 hover:border-white/30"
                       }`}
                     >
-                      {metricConfig[key].label}
+                      {analyticsMetricConfig[key].label}
                     </button>
                   ))}
                 </div>
@@ -786,7 +808,7 @@ export default function ProfilePageClient() {
 
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 h-full flex flex-col">
                     <div className="flex items-center justify-between text-[11px] text-white/60">
-                      <span>{metricConfig[activeMetric].label}</span>
+                      <span>{analyticsMetricConfig[activeMetric].label}</span>
                       <span>Últimos 4 meses</span>
                     </div>
                     <div className="mt-2 flex flex-col overflow-visible">
@@ -916,7 +938,7 @@ export default function ProfilePageClient() {
                                 </p>
                                 <div className="mt-2 grid grid-cols-2 gap-4 text-xs">
                                   <div>
-                                    <p className="text-white/50">{metricConfig[activeMetric].label}</p>
+                                    <p className="text-white/50">{analyticsMetricConfig[activeMetric].label}</p>
                                     <p className="text-sm font-semibold text-white">{hoverPoint.value}</p>
                                   </div>
                                   <div>

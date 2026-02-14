@@ -12,7 +12,6 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const parsedStep = stepParam ? Number(stepParam) : undefined
   const initialStep = typeof parsedStep === "number" && Number.isFinite(parsedStep) ? parsedStep : undefined
   const [mobileOpen, setMobileOpen] = React.useState(false)
-  const [mobileOffset, setMobileOffset] = React.useState(24)
   const [dockBooking, setDockBooking] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const bookingButtonRef = React.useRef<HTMLDivElement | null>(null)
@@ -29,7 +28,6 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       const rect = footer.getBoundingClientRect()
       const overlap = Math.max(0, window.innerHeight - rect.top)
       const next = overlap > 0 ? overlap + baseOffset : baseOffset
-      setMobileOffset(next)
       document.documentElement.style.setProperty("--floating-offset", `${next}px`)
     }
     updateOffset()
