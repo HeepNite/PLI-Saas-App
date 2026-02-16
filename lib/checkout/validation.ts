@@ -39,6 +39,30 @@ export type CheckoutValidation = {
   pkg?: EnrollmentOption
   addonsOpts: EnrollmentOption[]
   expectedTotal: number
+  packageTotalCredits: number | null
+  packageIsUnlimited: boolean
+  packageCadence: string
+  packageMakeUps: number
+  packageValidDays: number
+}
+
+const getPackageCredits = (pkg?: EnrollmentOption) => {
+  if (!pkg) return { packageTotalCredits: null, packageIsUnlimited: false, packageMakeUps: 0 }
+  const totalClasses = pkg.meta?.totalClasses ?? 0
+  const makeUps = pkg.meta?.makeUps ?? 0
+  const combined = totalClasses + makeUps
+  if (combined <= 0) {
+    return {
+      packageTotalCredits: null,
+      packageIsUnlimited: true,
+      packageMakeUps: makeUps,
+    }
+  }
+  return {
+    packageTotalCredits: combined,
+    packageIsUnlimited: false,
+    packageMakeUps: makeUps,
+  }
 }
 
 export const isEmail = (val: string | undefined): val is string => Boolean(val && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val))
@@ -93,6 +117,7 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
   const discountPercent = coupon?.toUpperCase() === "PLI10" ? 10 : coupon?.toUpperCase() === "PLI20" ? 20 : 0
   const discount = (subtotal * discountPercent) / 100
   const expected = Math.max(0, subtotal - discount)
+  const packageInfo = getPackageCredits(pkg)
 
   if (Math.round(expected * 100) !== amountInt) {
     return { status: 400, error: "Amount mismatch" }
@@ -115,5 +140,10 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
     pkg,
     addonsOpts,
     expectedTotal: expected,
+    packageTotalCredits: packageInfo.packageTotalCredits,
+    packageIsUnlimited: packageInfo.packageIsUnlimited,
+    packageCadence: pkg?.meta?.cadence || "",
+    packageMakeUps: packageInfo.packageMakeUps,
+    packageValidDays: 180,
   }
 }

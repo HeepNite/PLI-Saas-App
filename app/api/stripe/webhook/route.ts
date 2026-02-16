@@ -5,6 +5,7 @@ import type { ClerkClient } from "@clerk/backend"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
+import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 
 export const runtime = "nodejs"
 
@@ -39,6 +40,12 @@ const pickMetadata = (metadata?: Stripe.Metadata) => ({
   date: normalize(metadata?.date),
   time: normalize(metadata?.time),
   packageId: normalize(metadata?.packageId),
+  packageLabel: normalize(metadata?.packageLabel),
+  packageTotalCredits: normalize(metadata?.packageTotalCredits),
+  packageIsUnlimited: normalize(metadata?.packageIsUnlimited),
+  packageCadence: normalize(metadata?.packageCadence),
+  packageMakeUps: normalize(metadata?.packageMakeUps),
+  packageValidDays: normalize(metadata?.packageValidDays),
   serviceId: normalize(metadata?.serviceId),
   userId: normalize(metadata?.userId),
   participants: normalize(metadata?.participants),
@@ -125,7 +132,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
 
-  await prisma.purchase.upsert({
+  const purchase = await prisma.purchase.upsert({
     where: { stripeCheckoutSessionId: session.id },
     update: {
       stripePaymentIntentId: paymentIntentId,
@@ -164,6 +171,24 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
       metadata: session.metadata ?? undefined,
     },
   })
+
+  if (status === "paid") {
+    await syncPackagePurchaseFromPaidPurchase({
+      userId: user.id,
+      purchaseId: purchase.id,
+      purchasedAt: purchase.createdAt,
+      metadata: {
+        courseSlug,
+        packageId: meta.packageId,
+        packageLabel: meta.packageLabel,
+        packageTotalCredits: meta.packageTotalCredits,
+        packageIsUnlimited: meta.packageIsUnlimited,
+        packageCadence: meta.packageCadence,
+        packageMakeUps: meta.packageMakeUps,
+        packageValidDays: meta.packageValidDays,
+      },
+    })
+  }
 }
 
 async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
@@ -193,7 +218,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
 
-  await prisma.purchase.upsert({
+  const purchase = await prisma.purchase.upsert({
     where: { stripePaymentIntentId: intent.id },
     update: {
       status,
@@ -230,6 +255,24 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
       metadata: intent.metadata ?? undefined,
     },
   })
+
+  if (status === "succeeded") {
+    await syncPackagePurchaseFromPaidPurchase({
+      userId: user.id,
+      purchaseId: purchase.id,
+      purchasedAt: purchase.createdAt,
+      metadata: {
+        courseSlug,
+        packageId: meta.packageId,
+        packageLabel: meta.packageLabel,
+        packageTotalCredits: meta.packageTotalCredits,
+        packageIsUnlimited: meta.packageIsUnlimited,
+        packageCadence: meta.packageCadence,
+        packageMakeUps: meta.packageMakeUps,
+        packageValidDays: meta.packageValidDays,
+      },
+    })
+  }
 }
 
 export async function POST(req: Request) {

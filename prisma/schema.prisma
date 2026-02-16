@@ -20,6 +20,7 @@ model User {
   profile          StudentProfile?
   points           PointsLedger[]
   packages         PackagePurchase[]
+  packageUsage     PackageUsageLedger[]
   attendances      Attendance[]
 }
 
@@ -49,6 +50,26 @@ model Purchase {
 
   @@index([userId])
   @@index([courseSlug])
+}
+
+model PackagePlan {
+  id          String            @id @default(cuid())
+  key         String            @unique
+  courseSlug  String?
+  label       String
+  description String?
+  cadence     String?
+  totalCredits Int?
+  makeUps     Int              @default(0)
+  validDays   Int              @default(180)
+  isUnlimited Boolean          @default(false)
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  purchases   PackagePurchase[]
+
+  @@index([courseSlug])
+  @@index([active])
 }
 
 model StudentProfile {
@@ -97,22 +118,31 @@ model PackagePurchase {
   id               String   @id @default(cuid())
   userId           String
   user             User     @relation(fields: [userId], references: [id])
+  packagePlanId    String?
+  packagePlan      PackagePlan? @relation(fields: [packagePlanId], references: [id])
   courseSlug       String?
   packageId        String
   packageLabel     String?
-  totalCredits     Int
-  remainingCredits Int
+  totalCredits     Int?
+  remainingCredits Int?
+  isUnlimited      Boolean  @default(false)
   purchasedAt      DateTime @default(now())
   expiresAt        DateTime?
+  lastUsedAt       DateTime?
   status           String   @default("active")
   purchaseId       String?
   purchase         Purchase? @relation(fields: [purchaseId], references: [id])
+  source           String   @default("stripe")
+  usageEntries     PackageUsageLedger[]
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   @@index([userId])
+  @@index([packagePlanId])
   @@index([packageId])
   @@index([status])
+  @@index([expiresAt])
+  @@unique([purchaseId])
 }
 
 model ClassSession {
@@ -127,6 +157,7 @@ model ClassSession {
   attendances     Attendance[]
 
   @@index([courseSlug, startsAt])
+  @@unique([courseSlug, startsAt])
 }
 
 model Attendance {
@@ -139,7 +170,27 @@ model Attendance {
   checkedInAt DateTime     @default(now())
   qrToken     String?
   metadata    Json?
+  packageUsage PackageUsageLedger?
 
   @@index([userId])
   @@index([sessionId])
+  @@unique([userId, sessionId])
+}
+
+model PackageUsageLedger {
+  id                String          @id @default(cuid())
+  packagePurchaseId String
+  packagePurchase   PackagePurchase @relation(fields: [packagePurchaseId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  attendanceId      String?         @unique
+  attendance        Attendance?     @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  delta             Int
+  reason            String
+  meta              Json?
+  createdAt         DateTime        @default(now())
+
+  @@index([packagePurchaseId])
+  @@index([userId, createdAt])
+  @@index([reason])
 }
