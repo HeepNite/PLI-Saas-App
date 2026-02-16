@@ -79,7 +79,7 @@ describe("profile route", () => {
       birthDate: new Date("2020-01-01"),
       emergencyContactName: "Ana",
       emergencyContactRelation: "Madre",
-      emergencyContactPhone: "123",
+      emergencyContactPhone: "+1 929 555 0000",
     })
     mockPrisma.pointsLedger.aggregate.mockResolvedValue({ _sum: { points: 18 } })
 
@@ -124,7 +124,7 @@ describe("profile route", () => {
         birthDate: "2020-01-01",
         emergencyContactName: "Ana",
         emergencyContactRelation: "Madre",
-        emergencyContactPhone: "123",
+        emergencyContactPhone: "+1 929 555 0000",
       }),
     })
     const res = await PUT(req)
@@ -144,6 +144,21 @@ describe("profile route", () => {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: "{",
+    })
+    const res = await PUT(req)
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 400 on invalid profile payload", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+
+    const { PUT } = await import("@/app/api/profile/route")
+    const req = new Request("http://localhost/api/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        birthDate: "2222-12-12",
+      }),
     })
     const res = await PUT(req)
     expect(res.status).toBe(400)

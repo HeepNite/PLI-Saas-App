@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
+import { validateProfileUpdatePayload } from "@/lib/security/profile-validation"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
 const PROFILE_COMPLETE_POINTS = 10
@@ -26,8 +28,20 @@ const toDate = (value?: string | null) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-export async function GET() {
+export async function GET(req?: Request) {
   try {
+    const rateLimit = consumeRateLimit({
+      key: buildRateLimitKey("profile:get", getClientIp(req)),
+      limit: 90,
+      windowMs: 60_000,
+    })
+    if (!rateLimit.ok) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again in a moment." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+      )
+    }
+
     const authResult = await auth()
     if (!authResult.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -83,27 +97,24 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   try {
+    const rateLimit = consumeRateLimit({
+      key: buildRateLimitKey("profile:put", getClientIp(req)),
+      limit: 25,
+      windowMs: 60_000,
+    })
+    if (!rateLimit.ok) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again in a moment." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+      )
+    }
+
     const authResult = await auth()
     if (!authResult.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    let body: {
-      firstName?: string
-      lastName?: string
-      birthDate?: string
-      emergencyContactName?: string
-      emergencyContactRelation?: string
-      emergencyContactPhone?: string
-      billingAddress?: {
-        line1: string
-        line2?: string | null
-        city: string
-        state: string
-        postalCode: string
-        country: string
-      } | null
-    }
+    let body: unknown
 
     try {
       body = await req.json()
@@ -111,13 +122,18 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
+    const parsedBody = validateProfileUpdatePayload(body)
+    if ("status" in parsedBody) {
+      return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status })
+    }
+
     const client = await clerkClient()
     const clerkUser = await client.users.getUser(authResult.userId)
     const email = clerkUser.primaryEmailAddress?.emailAddress || ""
     const phone = clerkUser.primaryPhoneNumber?.phoneNumber || ""
 
-    const firstName = body.firstName?.trim()
-    const lastName = body.lastName?.trim()
+    const firstName = parsedBody.firstName
+    const lastName = parsedBody.lastName
 
     if ((firstName && firstName !== clerkUser.firstName) || (lastName && lastName !== clerkUser.lastName)) {
       await client.users.updateUser(authResult.userId, {
@@ -143,40 +159,40 @@ export async function PUT(req: Request) {
         userId: dbUser.id,
         firstName,
         lastName,
-        birthDate: toDate(body.birthDate),
-        emergencyContactName: body.emergencyContactName?.trim() || null,
-        emergencyContactRelation: body.emergencyContactRelation?.trim() || null,
-        emergencyContactPhone: body.emergencyContactPhone?.trim() || null,
+        birthDate: toDate(parsedBody.birthDate),
+        emergencyContactName: parsedBody.emergencyContactName || null,
+        emergencyContactRelation: parsedBody.emergencyContactRelation || null,
+        emergencyContactPhone: parsedBody.emergencyContactPhone || null,
       },
       update: {
         firstName,
         lastName,
-        birthDate: toDate(body.birthDate),
-        emergencyContactName: body.emergencyContactName?.trim() || null,
-        emergencyContactRelation: body.emergencyContactRelation?.trim() || null,
-        emergencyContactPhone: body.emergencyContactPhone?.trim() || null,
+        birthDate: toDate(parsedBody.birthDate),
+        emergencyContactName: parsedBody.emergencyContactName || null,
+        emergencyContactRelation: parsedBody.emergencyContactRelation || null,
+        emergencyContactPhone: parsedBody.emergencyContactPhone || null,
       },
     })
 
-    if (body.billingAddress) {
+    if (parsedBody.billingAddress) {
       await prisma.billingAddress.upsert({
         where: { profileId: profile.id },
         create: {
           profileId: profile.id,
-          line1: body.billingAddress.line1,
-          line2: body.billingAddress.line2 || null,
-          city: body.billingAddress.city,
-          state: body.billingAddress.state,
-          postalCode: body.billingAddress.postalCode,
-          country: body.billingAddress.country,
+          line1: parsedBody.billingAddress.line1,
+          line2: parsedBody.billingAddress.line2 || null,
+          city: parsedBody.billingAddress.city,
+          state: parsedBody.billingAddress.state,
+          postalCode: parsedBody.billingAddress.postalCode,
+          country: parsedBody.billingAddress.country,
         },
         update: {
-          line1: body.billingAddress.line1,
-          line2: body.billingAddress.line2 || null,
-          city: body.billingAddress.city,
-          state: body.billingAddress.state,
-          postalCode: body.billingAddress.postalCode,
-          country: body.billingAddress.country,
+          line1: parsedBody.billingAddress.line1,
+          line2: parsedBody.billingAddress.line2 || null,
+          city: parsedBody.billingAddress.city,
+          state: parsedBody.billingAddress.state,
+          postalCode: parsedBody.billingAddress.postalCode,
+          country: parsedBody.billingAddress.country,
         },
       })
     }

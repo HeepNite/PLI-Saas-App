@@ -8,6 +8,7 @@ import {
   type ApiError,
 } from "@/lib/checkout"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -28,6 +29,18 @@ const toErrorResponse = (error: ApiError) =>
 export async function POST(req: Request) {
   if (!stripe) {
     return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
+  }
+
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("checkout:session", getClientIp(req)),
+    limit: 20,
+    windowMs: 60_000,
+  })
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
   }
 
   let body: CheckoutBody
@@ -114,6 +127,12 @@ export async function POST(req: Request) {
         date: validation.date,
         time: validation.time,
         packageId: validation.packageId,
+        packageLabel: validation.pkg?.label || "",
+        packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),
+        packageIsUnlimited: String(validation.packageIsUnlimited),
+        packageCadence: validation.packageCadence,
+        packageMakeUps: String(validation.packageMakeUps),
+        packageValidDays: String(validation.packageValidDays),
         serviceId: validation.serviceId,
         userId: resolvedUserId || "guest",
         participants: String(validation.safeParticipants),
