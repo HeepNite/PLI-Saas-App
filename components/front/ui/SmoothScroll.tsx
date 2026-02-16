@@ -2,8 +2,11 @@
 
 import React from "react"
 import Lenis from "lenis"
+import { usePathname } from "next/navigation"
 
 export default function SmoothScroll() {
+  const pathname = usePathname()
+
   React.useEffect(() => {
     if (typeof window === "undefined") return
     const media = window.matchMedia("(min-width: 1024px)")
@@ -29,7 +32,7 @@ export default function SmoothScroll() {
       if (rafId) window.cancelAnimationFrame(rafId)
       lenis.destroy()
     }
-  }, [])
+  }, [pathname])
 
   return null
 }

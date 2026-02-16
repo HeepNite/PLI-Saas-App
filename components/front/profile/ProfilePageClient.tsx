@@ -80,6 +80,37 @@ type ProfileSaveResponse = {
   pointsBalance?: number
 }
 
+type PackageSummary = {
+  activePackages: number
+  unlimitedPackages: number
+  totalRemainingCredits: number
+  nextExpiration: string | null
+}
+
+type ProfilePackageItem = {
+  id: string
+  packageId: string
+  label: string
+  courseSlug: string | null
+  status: string
+  isUnlimited: boolean
+  totalCredits: number | null
+  remainingCredits: number | null
+  purchasedAt: string | null
+  expiresAt: string | null
+  lastUsedAt: string | null
+  cadence: string | null
+  source: string
+}
+
+type ActivityStats = {
+  classesTaken: number
+  weeklyAverage: number
+  streakWeeks: number
+  recurringLabel: string | null
+  lastClassLabel: string | null
+}
+
 type MetricKey = "attendance" | "progress" | "rhythm"
 
 const analyticsMonths = ["Oct", "Nov", "Dic", "Ene"] as const
@@ -103,10 +134,6 @@ const analyticsMetricConfig: Record<MetricKey, { label: string; color: string; v
 
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
-  const stickyTop = 96
-  const gridRef = React.useRef<HTMLDivElement>(null)
-  const leftStickyRef = React.useRef<HTMLDivElement>(null)
-  const rightStickyRef = React.useRef<HTMLDivElement>(null)
   const [activeMetric, setActiveMetric] = React.useState<MetricKey>("attendance")
   const [hoverPoint, setHoverPoint] = React.useState<{ label: string; value: number; x: number; y: number; idx: number } | null>(null)
   const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
@@ -121,6 +148,23 @@ export default function ProfilePageClient() {
   const [profileFormMounted, setProfileFormMounted] = React.useState(true)
   const [profileFormVisible, setProfileFormVisible] = React.useState(true)
   const [pointsBalance, setPointsBalance] = React.useState(0)
+  const [packagesData, setPackagesData] = React.useState<ProfilePackageItem[]>([])
+  const [packagesSummary, setPackagesSummary] = React.useState<PackageSummary>({
+    activePackages: 0,
+    unlimitedPackages: 0,
+    totalRemainingCredits: 0,
+    nextExpiration: null,
+  })
+  const [activityStats, setActivityStats] = React.useState<ActivityStats>({
+    classesTaken: mockProfile.stats.classesTaken,
+    weeklyAverage: 3.4,
+    streakWeeks: 3,
+    recurringLabel: mockProfile.schedule.recurring,
+    lastClassLabel: mockProfile.stats.lastClass,
+  })
+  const [monthlyAttendance, setMonthlyAttendance] = React.useState<Array<{ label: string; value: number }>>(
+    mockProfile.attendance
+  )
   const profileSavedTimeout = React.useRef<number | null>(null)
   const currentCoins = pointsBalance || mockProfile.coins.current
   const progress = Math.min(100, Math.round((currentCoins / mockProfile.coins.goal) * 100))
@@ -138,6 +182,10 @@ export default function ProfilePageClient() {
   const [avatarUploading, setAvatarUploading] = React.useState(false)
   const [avatarError, setAvatarError] = React.useState<string | null>(null)
   const [profileForm, setProfileForm] = React.useState(() => buildProfileFormState(null, null))
+  const stickyTop = 76
+  const gridRef = React.useRef<HTMLDivElement>(null)
+  const leftRailRef = React.useRef<HTMLDivElement>(null)
+  const rightRailRef = React.useRef<HTMLDivElement>(null)
   const bookingPrefillContact = React.useMemo(
     () => buildBookingPrefillContact(profileForm, profileUser, user),
     [profileForm, profileUser, user]
@@ -149,6 +197,107 @@ export default function ProfilePageClient() {
     const rest = demoCourses.filter((course) => !preferredSet.has(course.slug))
     return [...preferred, ...rest]
   }, [preferredSet])
+
+  React.useEffect(() => {
+    if (typeof document === "undefined") return
+    const update = () => {
+      document.body.dataset.profilePage = "true"
+      document.body.dataset.profileMobile = window.innerWidth < 1024 ? "true" : "false"
+    }
+    update()
+    window.addEventListener("resize", update)
+    return () => {
+      delete document.body.dataset.profilePage
+      delete document.body.dataset.profileMobile
+      window.removeEventListener("resize", update)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    const grid = gridRef.current
+    const left = leftRailRef.current
+    const right = rightRailRef.current
+    if (!grid || !left || !right) return
+
+    let frame = 0
+
+    const reset = (el: HTMLDivElement) => {
+      el.style.position = ""
+      el.style.top = ""
+      el.style.left = ""
+      el.style.width = ""
+      el.style.zIndex = ""
+    }
+
+    const update = () => {
+      if (window.innerWidth < 1024) {
+        reset(left)
+        reset(right)
+        return
+      }
+
+      const scrollY = window.scrollY
+      const gridRect = grid.getBoundingClientRect()
+      const gridTop = gridRect.top + scrollY
+      const gridBottom = gridTop + grid.offsetHeight
+      const gridLeft = gridRect.left + window.scrollX
+      const gridWidth = gridRect.width
+
+      const leftParent = left.parentElement as HTMLElement | null
+      const rightParent = right.parentElement as HTMLElement | null
+      const leftWidth = leftParent?.getBoundingClientRect().width ?? left.getBoundingClientRect().width
+      const rightWidth = rightParent?.getBoundingClientRect().width ?? right.getBoundingClientRect().width
+
+      const apply = (el: HTMLDivElement, leftPos: number, width: number) => {
+        if (scrollY + stickyTop < gridTop) {
+          reset(el)
+          return
+        }
+
+        const reachedBottom = scrollY + stickyTop + el.offsetHeight >= gridBottom
+        if (reachedBottom) {
+          el.style.position = "absolute"
+          el.style.top = `${Math.max(0, grid.offsetHeight - el.offsetHeight)}px`
+          el.style.left = `${Math.round(leftPos - gridLeft)}px`
+          el.style.width = `${Math.round(width)}px`
+          el.style.zIndex = "20"
+          return
+        }
+
+        el.style.position = "fixed"
+        el.style.top = `${stickyTop}px`
+        el.style.left = `${Math.round(leftPos)}px`
+        el.style.width = `${Math.round(width)}px`
+        el.style.zIndex = "20"
+      }
+
+      apply(left, gridLeft, leftWidth)
+      apply(right, gridLeft + gridWidth - rightWidth, rightWidth)
+    }
+
+    const onScroll = () => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(update)
+    }
+
+    const resizeObserver = new ResizeObserver(() => onScroll())
+    resizeObserver.observe(grid)
+    resizeObserver.observe(left)
+    resizeObserver.observe(right)
+
+    window.addEventListener("scroll", onScroll, { passive: true })
+    window.addEventListener("resize", onScroll)
+    update()
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      resizeObserver.disconnect()
+      window.removeEventListener("scroll", onScroll)
+      window.removeEventListener("resize", onScroll)
+      reset(left)
+      reset(right)
+    }
+  }, [stickyTop])
 
   React.useEffect(() => {
     if (!isLoaded || !isSignedIn) return
@@ -196,6 +345,47 @@ export default function ProfilePageClient() {
       active = false
     }
   }, [isLoaded, isSignedIn, user])
+
+  React.useEffect(() => {
+    if (!isLoaded || !isSignedIn) return
+    let active = true
+    Promise.all([
+      fetch("/api/profile/packages").then((res) => (res.ok ? res.json() : null)),
+      fetch("/api/profile/activity").then((res) => (res.ok ? res.json() : null)),
+    ])
+      .then(([packagesPayload, activityPayload]) => {
+        if (!active) return
+        if (packagesPayload?.packages) {
+          setPackagesData(packagesPayload.packages)
+          setPackagesSummary(
+            packagesPayload.summary || {
+              activePackages: 0,
+              unlimitedPackages: 0,
+              totalRemainingCredits: 0,
+              nextExpiration: null,
+            }
+          )
+        }
+        if (activityPayload?.stats) {
+          setActivityStats({
+            classesTaken: activityPayload.stats.classesTaken ?? 0,
+            weeklyAverage: activityPayload.stats.weeklyAverage ?? 0,
+            streakWeeks: activityPayload.stats.streakWeeks ?? 0,
+            recurringLabel: activityPayload.stats.recurringLabel ?? null,
+            lastClassLabel: activityPayload.stats.lastClassLabel ?? null,
+          })
+        }
+        if (Array.isArray(activityPayload?.monthlyAttendance) && activityPayload.monthlyAttendance.length) {
+          setMonthlyAttendance(activityPayload.monthlyAttendance)
+        }
+      })
+      .catch(() => {
+        // keep current fallback UI values if profile activity endpoints fail
+      })
+    return () => {
+      active = false
+    }
+  }, [isLoaded, isSignedIn])
 
   React.useEffect(() => {
     if (typeof document === "undefined") return
@@ -334,90 +524,22 @@ export default function ProfilePageClient() {
     }
   }
 
-  React.useEffect(() => {
-    const grid = gridRef.current
-    const left = leftStickyRef.current
-    const right = rightStickyRef.current
-    if (!grid || !left || !right) return
-
-    let frame = 0
-
-    const reset = (el: HTMLDivElement) => {
-      el.style.position = ""
-      el.style.top = ""
-      el.style.left = ""
-      el.style.width = ""
-      el.style.zIndex = ""
-    }
-
-    const update = () => {
-      if (window.innerWidth < 1024) {
-        reset(left)
-        reset(right)
-        return
-      }
-
-      const scrollY = window.scrollY
-      const gridRect = grid.getBoundingClientRect()
-      const gridTop = gridRect.top + scrollY
-      const gridBottom = gridTop + grid.offsetHeight
-      const gridLeft = gridRect.left + window.scrollX
-      const gridWidth = gridRect.width
-
-      const leftParent = left.parentElement as HTMLElement | null
-      const rightParent = right.parentElement as HTMLElement | null
-      const leftWidth = leftParent?.getBoundingClientRect().width ?? left.getBoundingClientRect().width
-      const rightWidth = rightParent?.getBoundingClientRect().width ?? right.getBoundingClientRect().width
-
-      const apply = (el: HTMLDivElement, leftPos: number, width: number, maxTop: number) => {
-        if (scrollY + stickyTop < gridTop) {
-          reset(el)
-          return
-        }
-        if (scrollY + stickyTop >= maxTop) {
-          el.style.position = "absolute"
-          el.style.top = `${maxTop - gridTop}px`
-          el.style.left = `${leftPos - gridLeft}px`
-          el.style.width = `${width}px`
-          el.style.zIndex = "20"
-          return
-        }
-        el.style.position = "fixed"
-        el.style.top = `${stickyTop}px`
-        el.style.left = `${leftPos}px`
-        el.style.width = `${width}px`
-        el.style.zIndex = "20"
-      }
-
-      apply(left, gridLeft, leftWidth, gridBottom - left.offsetHeight)
-      apply(right, gridLeft + gridWidth - rightWidth, rightWidth, gridBottom - right.offsetHeight)
-    }
-
-    const onScroll = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(update)
-    }
-
-    const resizeObserver = new ResizeObserver(() => onScroll())
-    resizeObserver.observe(grid)
-    resizeObserver.observe(left)
-    resizeObserver.observe(right)
-
-    window.addEventListener("scroll", onScroll, { passive: true })
-    window.addEventListener("resize", onScroll)
-    update()
-
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      resizeObserver.disconnect()
-      window.removeEventListener("scroll", onScroll)
-      window.removeEventListener("resize", onScroll)
-      reset(left)
-      reset(right)
-    }
-  }, [])
-
-  const series = analyticsMetricConfig[activeMetric]
+  const chartLabels = React.useMemo(() => {
+    if (!monthlyAttendance.length) return analyticsMonths
+    return monthlyAttendance.map((item) => item.label.split(" ")[0]).slice(0, 4)
+  }, [monthlyAttendance])
+  const attendanceSeriesValues = React.useMemo(() => {
+    if (!monthlyAttendance.length) return analyticsMetricConfig.attendance.values
+    return monthlyAttendance.map((item) => item.value).slice(0, 4)
+  }, [monthlyAttendance])
+  const activeSeriesValues = React.useMemo(() => {
+    if (activeMetric === "attendance") return attendanceSeriesValues
+    return analyticsMetricConfig[activeMetric].values
+  }, [activeMetric, attendanceSeriesValues])
+  const series = {
+    ...analyticsMetricConfig[activeMetric],
+    values: activeSeriesValues.length > 1 ? activeSeriesValues : [...activeSeriesValues, ...analyticsMetricConfig[activeMetric].values].slice(0, 4),
+  }
   const maxValue = Math.max(...series.values, 6)
   const chartWidth = 520
   const chartHeight = 170
@@ -432,7 +554,7 @@ export default function ProfilePageClient() {
   }
   const points = series.values.map((value, index) => ({
     value,
-    label: analyticsMonths[index],
+    label: chartLabels[index] || analyticsMonths[index],
     ...toPoint(value, index),
     idx: index,
   }))
@@ -446,7 +568,7 @@ export default function ProfilePageClient() {
   })
   const targetPoints = targetValues.map((value, index) => ({
     value,
-    label: analyticsMonths[index],
+    label: chartLabels[index] || analyticsMonths[index],
     ...toPoint(value, index),
   }))
   const targetPathD = targetPoints.map((point, idx) => `${idx === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")
@@ -505,11 +627,11 @@ export default function ProfilePageClient() {
 
   return (
     <main className="min-h-[70vh] bg-background">
-      <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 py-8">
-        <div ref={gridRef} className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-start">
+      <div className="w-full px-[10px] lg:px-[15px] py-8">
+        <div ref={gridRef} className="relative grid grid-cols-1 gap-6 lg:items-start lg:grid-cols-[minmax(250px,290px)_minmax(0,1fr)_15rem]">
           {/* Left */}
-          <aside className="lg:col-span-2 lg:self-start space-y-4">
-            <div ref={leftStickyRef}>
+          <aside className="lg:self-start">
+            <div ref={leftRailRef} className="profile-left-rail space-y-4">
             <GlassyCard className="p-4 space-y-4">
               <div className="flex items-center gap-3">
                 <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/10">
@@ -563,9 +685,9 @@ export default function ProfilePageClient() {
 
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
                 <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Actividad</p>
-                <p className="mt-2">Clases tomadas: <strong>{mockProfile.stats.classesTaken}</strong></p>
-                <p>Racha: <strong>{mockProfile.stats.streak}</strong></p>
-                <p>Última clase: <strong>{mockProfile.stats.lastClass}</strong></p>
+                <p className="mt-2">Clases tomadas: <strong>{activityStats.classesTaken}</strong></p>
+                <p>Racha: <strong>{activityStats.streakWeeks} semanas</strong></p>
+                <p>Última clase: <strong>{activityStats.lastClassLabel || "—"}</strong></p>
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -598,15 +720,29 @@ export default function ProfilePageClient() {
               <div className="mt-5 border-t border-white/10 pt-6">
                 <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Paquetes y promos</p>
                 <div className="mt-3 space-y-3 text-sm">
-                  {mockProfile.packages.map((pkg) => (
-                    <div key={pkg.label} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                      <p className="font-semibold">{pkg.label}</p>
-                      <p className="text-xs text-white/60">Restantes: {pkg.remaining}</p>
+                  {packagesData.length > 0 ? (
+                    packagesData.map((pkg) => (
+                      <div key={pkg.id} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                        <p className="font-semibold">{pkg.label}</p>
+                        <p className="text-xs text-white/60">
+                          {pkg.isUnlimited ? "Ilimitado" : `Restantes: ${pkg.remainingCredits ?? 0}`}
+                        </p>
+                        <p className="text-[11px] text-white/40">
+                          {pkg.expiresAt ? `Vence: ${new Date(pkg.expiresAt).toLocaleDateString()}` : "Sin vencimiento"}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                      No tenés paquetes activos.
                     </div>
-                  ))}
+                  )}
                   <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                    <p className="font-semibold">Promos activas</p>
-                    <p className="text-xs text-white/60">{mockProfile.promos.join(" • ")}</p>
+                    <p className="font-semibold">Resumen</p>
+                    <p className="text-xs text-white/60">
+                      Activos: {packagesSummary.activePackages} · Créditos: {packagesSummary.totalRemainingCredits}
+                      {packagesSummary.unlimitedPackages > 0 ? ` · Ilimitados: ${packagesSummary.unlimitedPackages}` : ""}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -615,7 +751,7 @@ export default function ProfilePageClient() {
           </aside>
 
           {/* Center */}
-          <section className="lg:col-span-7 space-y-6">
+          <section className="space-y-6">
             {profileFormMounted && (
             <div
               className={`transition-all duration-300 ease-out overflow-hidden ${
@@ -796,13 +932,13 @@ export default function ProfilePageClient() {
                     <div className="relative min-h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-[#0b0b0f]/80 px-5 py-4 flex-1 flex flex-col justify-between text-center">
                       <div className="pointer-events-none absolute -left-10 -top-10 h-24 w-24 rounded-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.35),transparent_70%)] blur-2xl" />
                       <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Clases totales</p>
-                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight">{mockProfile.stats.classesTaken}</p>
+                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight">{activityStats.classesTaken}</p>
                       <p className="mt-2 text-[11px] text-white/50">+12% vs mes anterior</p>
                     </div>
                     <div className="min-h-[148px] rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-[#0b0b0f]/80 px-5 py-4 flex-1 flex flex-col justify-between text-center">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Promedio semanal</p>
-                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight">3.4</p>
-                      <p className="mt-2 text-[11px] text-white/50">Racha: {mockProfile.stats.streak}</p>
+                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight">{activityStats.weeklyAverage}</p>
+                      <p className="mt-2 text-[11px] text-white/50">Racha: {activityStats.streakWeeks} semanas</p>
                     </div>
                   </div>
 
@@ -1086,7 +1222,9 @@ export default function ProfilePageClient() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Agenda</p>
-                  <p className="mt-2 text-sm text-white/70">Tu clase recurrente: <strong>{mockProfile.schedule.recurring}</strong></p>
+                  <p className="mt-2 text-sm text-white/70">
+                    Tu clase recurrente: <strong>{activityStats.recurringLabel || mockProfile.schedule.recurring}</strong>
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-white/60">
                   <button className="rounded-full border border-white/10 px-2 py-1">Feb</button>
@@ -1133,7 +1271,7 @@ export default function ProfilePageClient() {
               </div>
 
               <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm">
-                Próxima clase: <strong>{mockProfile.schedule.nextClass}</strong>
+                Próxima clase: <strong>{activityStats.lastClassLabel || mockProfile.schedule.nextClass}</strong>
               </div>
               {!mockProfile.schedule.hasActiveBooking && (
                 <div className="mt-3 rounded-lg border border-[var(--brand,#b61616)]/40 bg-[rgba(182,22,22,0.1)] px-3 py-3 text-sm">
@@ -1166,8 +1304,8 @@ export default function ProfilePageClient() {
           </section>
 
           {/* Right */}
-          <aside className="lg:col-span-3 lg:self-start space-y-4">
-            <div ref={rightStickyRef}>
+          <aside className="lg:w-[15rem] lg:justify-self-end lg:self-start">
+            <div ref={rightRailRef} className="profile-right-rail space-y-4">
             <GlassyCard className="p-4">
               <h3 className="text-base font-semibold">Reservar nueva clase</h3>
               <p className="mt-2 text-sm text-white/60">Agenda una nueva clase disponible en tu horario.</p>
