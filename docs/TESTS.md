@@ -25,6 +25,8 @@ Guía específica de tests (unitarios, API y E2E).
 ### Perfil del alumno
 - `tests/profile-utils.test.ts`
   - Utilidades puras del perfil (fecha, % completado, prefill de booking).
+- `tests/packages.test.ts`
+  - Helpers puros de paquetes (payload finito/ilimitado y vencimiento).
 - `tests/api/profile.test.ts`
   - `GET /api/profile` (auth, fetch de perfil, puntos).
   - `PUT /api/profile` (update, perfil completo, ledger de puntos).
@@ -32,6 +34,12 @@ Guía específica de tests (unitarios, API y E2E).
 - `tests/api/profile-avatar.test.ts`
   - `POST /api/profile/avatar` (auth, file missing, update OK).
   - Usa mock de Clerk `updateUserProfileImage`.
+- `tests/api/profile-packages.test.ts`
+  - `GET /api/profile/packages` (auth, resumen de activos, créditos restantes).
+- `tests/api/profile-activity.test.ts`
+  - `GET /api/profile/activity` (stats de clases, racha, asistencia mensual).
+- `tests/api/staff-checkin.test.ts`
+  - `POST /api/staff/checkin` (token staff, check-in, consumo de créditos o fallback sin paquete).
 
 ## E2E (Playwright)
 
@@ -55,6 +63,10 @@ npm run test
 # Específicos
 npm run test -- tests/api/profile.test.ts
 npm run test -- tests/api/profile-avatar.test.ts
+npm run test -- tests/api/profile-packages.test.ts
+npm run test -- tests/api/profile-activity.test.ts
+npm run test -- tests/api/staff-checkin.test.ts
+npm run test -- tests/packages.test.ts
 
 # E2E
 npm run test:e2e

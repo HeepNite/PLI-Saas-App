@@ -168,6 +168,10 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - `tests/profile-utils.test.ts`: utilidades del perfil (fecha, % de completado, prefill para booking).
 - `tests/api/profile.test.ts`: `/api/profile` (GET/PUT), sincronización con Clerk, puntos y perfil completo.
 - `tests/api/profile-avatar.test.ts`: `/api/profile/avatar`, validación de archivo y guardado del avatar en Clerk.
+- `tests/packages.test.ts`: helpers de paquetes (créditos, ilimitado, vencimiento).
+- `tests/api/profile-packages.test.ts`: `/api/profile/packages`, listado y resumen de paquetes activos.
+- `tests/api/profile-activity.test.ts`: `/api/profile/activity`, stats de asistencia y buckets mensuales.
+- `tests/api/staff-checkin.test.ts`: `/api/staff/checkin`, autorización staff y consumo de créditos.
 - `e2e/course-flow.spec.ts`: flujo completo del modal de inscripción, persistencia de draft, selección de Stripe y apertura del modal de pago.
 - `e2e/profile.spec.ts`: render de perfil del alumno, toggle del formulario y apertura del selector de cursos.
 
@@ -179,6 +183,10 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
   - `npm run test -- tests/api/checkout-session.test.ts`
   - `npm run test -- tests/api/profile.test.ts`
   - `npm run test -- tests/api/profile-avatar.test.ts`
+  - `npm run test -- tests/api/profile-packages.test.ts`
+  - `npm run test -- tests/api/profile-activity.test.ts`
+  - `npm run test -- tests/api/staff-checkin.test.ts`
+  - `npm run test -- tests/packages.test.ts`
 - E2E específico:
   - `npx playwright test e2e/course-flow.spec.ts`
   - `npx playwright test e2e/profile.spec.ts`
@@ -196,6 +204,7 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - **Estilos/theme**: `app/globals.css`, `ThemeProvider` en `app/layout.tsx`.
 - **Asistente/CTA**: `AssistantWidget*`, `ChatLauncher`.
 - **Usuarios y compras**: `app/api/checkout/*`, `app/api/stripe/webhook/route.ts`, `lib/users.ts`, `lib/clerk-users.ts`, `prisma/schema.prisma`.
+- **Paquetes y asistencia (fase 1)**: `lib/packages.ts`, `app/api/profile/packages/route.ts`, `app/api/profile/activity/route.ts`, `app/api/staff/checkin/route.ts`.
 
 ## 11. Backend — usuarios y compras (Clerk + Stripe + Prisma)
 
@@ -208,6 +217,10 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - `prisma/schema.prisma`:
   - `User`: guarda `clerkId`, `email`, `name`, `phone`, `stripeCustomerId`.
   - `Purchase`: guarda `courseSlug`, `amount`, `status`, ids de Stripe y metadata.
+  - `PackagePlan`: catálogo editable de paquetes (vigencia, créditos, ilimitado).
+  - `PackagePurchase`: saldo real por compra de paquete (restantes/estado/vencimiento).
+  - `PackageUsageLedger`: débitos/créditos por check-in y ajustes.
+  - `ClassSession` + `Attendance`: sesiones y asistencia real del alumno.
 - Si agregas nuevos campos, actualiza:
   - `prisma/schema.prisma`
   - `app/api/stripe/webhook/route.ts` (mapeo a DB)
@@ -255,6 +268,7 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
   - En `checkout.session.completed` o `payment_intent.succeeded`:
     - Resuelve el usuario (por `clerkId` o email).
     - Crea/actualiza `Purchase` en Postgres.
+    - Si hay `packageId` en metadata, sincroniza `PackagePlan` y crea `PackagePurchase` (idempotente por `purchaseId`).
     - Si el usuario compra como invitado, queda asociado por email.
   - En local necesitas Stripe CLI:
     - `stripe login`
