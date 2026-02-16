@@ -204,14 +204,14 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
 
   return (
     <div className="min-h-screen bg-background overflow-visible">
-      <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto w-full max-w-[1800px] px-0 sm:px-1 lg:px-2 xl:px-3 py-8">
         {/* Grid shell */}
         <div
           ref={gridRef}
-          className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-start overflow-visible relative"
+          className="grid grid-cols-1 gap-6 overflow-visible relative lg:items-start lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(360px,430px)]"
         >
           {/* Left sticky */}
-          <aside className="lg:col-span-2 lg:self-start lg:h-fit">
+          <aside className="lg:self-start lg:h-fit">
             <div ref={leftStickyRef} className="lg:sticky" style={{ top: stickyTop }}>
               <div className="space-y-4">
                 {showSkeleton ? <LeftSkeleton /> : <CourseAsideLeft course={course} />}
@@ -221,7 +221,7 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
           </aside>
 
           {/* Center content */}
-          <section className="lg:col-span-7">
+          <section>
             <div className="pr-1">
               {showSkeleton ? <CenterSkeleton /> : <CourseSections course={course} />}
             </div>
@@ -229,7 +229,7 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
 
           {/* Right sticky */}
           <aside
-            className="lg:col-span-3 lg:self-start lg:h-fit"
+            className="lg:self-start lg:h-fit"
             id="enroll-cta"
           >
             <div ref={rightStickyRef} className="lg:sticky" style={{ top: stickyTop }}>

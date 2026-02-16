@@ -1,24 +1,51 @@
 "use client"
 import React from "react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import EnrollModal from "./EnrollModal"
 import type { CourseEnrollmentData } from "./types"
 import GlassyCard from "./GlassyCard"
 
 // Right sticky aside: inline booking form.
 export default function CourseAsideRight({ course }: { course: CourseEnrollmentData }) {
+  const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
+  const enrollParam = searchParams.get("enroll")
   const stepParam = searchParams.get("step")
   const parsedStep = stepParam ? Number(stepParam) : undefined
   const initialStep = typeof parsedStep === "number" && Number.isFinite(parsedStep) ? parsedStep : undefined
+  const shouldRestoreDraft = enrollParam === "1" || typeof initialStep === "number"
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const [dockBooking, setDockBooking] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const bookingButtonRef = React.useRef<HTMLDivElement | null>(null)
   const [dockTarget, setDockTarget] = React.useState<HTMLElement | null>(null)
+  const consumedQueryRef = React.useRef(false)
   const bookingShift = "0px"
   const sideButtonSize = 44
   const sideGapPadding = 64
+
+  const clearBookingQuery = React.useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    let changed = false
+    if (params.has("enroll")) {
+      params.delete("enroll")
+      changed = true
+    }
+    if (params.has("step")) {
+      params.delete("step")
+      changed = true
+    }
+    if (!changed) return
+    const next = params.toString()
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
+  }, [pathname, router, searchParams])
+
+  React.useEffect(() => {
+    if (!shouldRestoreDraft || consumedQueryRef.current) return
+    consumedQueryRef.current = true
+    clearBookingQuery()
+  }, [shouldRestoreDraft, clearBookingQuery])
 
   React.useEffect(() => {
     const footer = document.getElementById("site-footer")
@@ -105,8 +132,9 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
         <EnrollModal
           course={course}
           open
-          onCloseAction={() => undefined}
+          onCloseAction={clearBookingQuery}
           initialStep={initialStep}
+          useDraft={shouldRestoreDraft}
           mode="inline"
         />
       </div>
@@ -114,8 +142,12 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       <EnrollModal
         course={course}
         open={mobileOpen}
-        onCloseAction={() => setMobileOpen(false)}
+        onCloseAction={() => {
+          setMobileOpen(false)
+          clearBookingQuery()
+        }}
         initialStep={initialStep}
+        useDraft={shouldRestoreDraft}
         mode="modal"
       />
 

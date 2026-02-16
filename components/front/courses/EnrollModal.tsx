@@ -87,6 +87,13 @@ export default function EnrollModal({
   const [stripeClientSecret, setStripeClientSecret] = React.useState<string>("")
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
   const prefillContactRef = React.useRef(prefillContact)
+  const userContactRef = React.useRef<Partial<EnrollmentContact>>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "+1 ",
+    note: "",
+  })
   const isNewStudent = service === "new-student"
   const returnTo = `/cursos/${course.slug}?enroll=1&step=2`
   const verifyPhoneUrl = `/verify-phone?return=${encodeURIComponent(returnTo)}`
@@ -107,6 +114,23 @@ export default function EnrollModal({
   React.useEffect(() => {
     prefillContactRef.current = prefillContact
   }, [prefillContact])
+
+  React.useEffect(() => {
+    const userPhone = user?.primaryPhoneNumber?.phoneNumber || user?.phoneNumbers?.[0]?.phoneNumber
+    userContactRef.current = {
+      firstName: user?.firstName ?? "",
+      lastName: user?.lastName ?? "",
+      email: user?.primaryEmailAddress?.emailAddress ?? "",
+      phone: userPhone ? formatUSPhone(userPhone) : "+1 ",
+      note: "",
+    }
+  }, [
+    user?.firstName,
+    user?.lastName,
+    user?.phoneNumbers,
+    user?.primaryEmailAddress?.emailAddress,
+    user?.primaryPhoneNumber?.phoneNumber,
+  ])
   const signInReturnTo = `/cursos/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
@@ -174,6 +198,7 @@ export default function EnrollModal({
   const handleClose = React.useCallback(() => {
     if (isInline) {
       resetForm()
+      onCloseAction()
       return
     }
     onCloseAction()
@@ -233,20 +258,21 @@ export default function EnrollModal({
     if (!useDraft) {
       sessionStorage.removeItem(draftKey)
     }
+    const userContact = userContactRef.current
+    const initialContact: EnrollmentContact = {
+      firstName: prefillContactRef.current?.firstName ?? userContact.firstName ?? "",
+      lastName: prefillContactRef.current?.lastName ?? userContact.lastName ?? "",
+      email: prefillContactRef.current?.email ?? userContact.email ?? "",
+      phone: prefillContactRef.current?.phone ?? userContact.phone ?? "+1 ",
+      note: prefillContactRef.current?.note ?? "",
+    }
     setService(initialServiceId)
     setPkg("")
     setAddons([])
     setParticipants(1)
     setDate("")
     setTime("")
-    setContact({
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "+1 ",
-      note: "",
-      ...(prefillContactRef.current ?? {}),
-    })
+    setContact(initialContact)
     setCouponInput("")
     setAppliedCoupon(null)
     setPaymentMethod("")
@@ -856,7 +882,9 @@ export default function EnrollModal({
                     ←
                   </button>
                 )}
-                <h3 className="text-xl sm:text-2xl font-semibold">{steps[step]?.label} • {course.title}</h3>
+                <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
+                  {steps[step]?.label} • {course.title}
+                </h3>
               </div>
 
             {success ? (
@@ -913,7 +941,7 @@ export default function EnrollModal({
 
                 {/* Bottom bar actions */}
                 <div className="mt-6 border-t border-black/10 dark:border-white/10 px-3 py-3 flex items-center justify-between">
-                  <Link href="/panel" className="text-sm font-medium">{t("customerPanel")}</Link>
+                  <Link href="/client-profile" className="text-sm font-medium">{t("customerPanel")}</Link>
                   <button onClick={handleClose} className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white">{t("finish")}</button>
                 </div>
               </div>
@@ -925,7 +953,7 @@ export default function EnrollModal({
                 {/* Step contents */}
                 {step === 0 && (
                   <div className="space-y-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className={`grid gap-3 ${isInline ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
                       <fieldset className="space-y-2">
                         <label className="text-sm font-medium">{t("label_service")}</label>
                         <select
@@ -968,7 +996,7 @@ export default function EnrollModal({
                           )}
                         </div>
                         <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">{t("packagesHint")}</p>
-                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className={`mt-3 grid gap-2 ${isInline ? "grid-cols-2 auto-rows-fr" : "grid-cols-1 sm:grid-cols-2"}`}>
                           {course.enrollment.packages.map((p) => {
                             const selected = pkg === p.id
                             const metaLine = formatPackageMeta(p)
@@ -977,7 +1005,7 @@ export default function EnrollModal({
                                 key={p.id}
                                 type="button"
                                 onClick={() => setPkg(p.id)}
-                                className={`rounded-md border px-3 py-3 text-left transition ${
+                                className={`h-full rounded-md border px-3 py-3 text-left transition ${
                                   selected
                                     ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] text-white"
                                     : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 text-neutral-700 dark:text-white/80 hover:border-white/30"
@@ -1003,11 +1031,14 @@ export default function EnrollModal({
                     {!!course.enrollment.addons?.length && (
                       <fieldset className="space-y-2">
                         <label className="text-sm font-medium">{t("label_extras")}</label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 gap-2">
                           {course.enrollment.addons!.map((a) => (
-                            <label key={a.id} className="flex items-center gap-2 text-sm">
-                              <input type="checkbox" checked={addons.includes(a.id)} onChange={() => toggleAddon(a.id)} className="h-4 w-4" />
+                            <label
+                              key={a.id}
+                              className="flex w-full items-center justify-between gap-3 rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm"
+                            >
                               <span>{a.label}{a.price ? ` — $${a.price}` : ""}</span>
+                              <input type="checkbox" checked={addons.includes(a.id)} onChange={() => toggleAddon(a.id)} className="h-4 w-4 shrink-0" />
                             </label>
                           ))}
                         </div>
@@ -1043,6 +1074,7 @@ export default function EnrollModal({
                             setTimeLoading(true)
                             window.setTimeout(() => setTimeLoading(false), 350)
                           }}
+                          compact={isInline}
                           className="w-full"
                           availableWeekdays={course.schedule.availableWeekdays}
                           allowClear
@@ -1284,21 +1316,21 @@ export default function EnrollModal({
                 )}
 
                 {/* Footer actions */}
-                <div className="flex items-center justify-between pt-2">
+                <div className={isInline ? "flex flex-col gap-2 pt-2" : "flex items-center justify-between pt-2"}>
                   <button
                     type="button"
                     onClick={handleClose}
-                    className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10"
+                    className={isInline ? "w-full px-4 py-2 rounded-md border border-black/10 dark:border-white/10" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10"}
                   >
                     {t("cancel")}
                   </button>
-                  <div className="flex gap-2">
-                    <Link href="/panel" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
+                  <div className={isInline ? "grid w-full grid-cols-3 gap-2" : "flex gap-2"}>
+                    <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
                     <button
                       type="button"
                       onClick={() => setStep((s) => Math.max(0, s - 1))}
                       disabled={step === 0}
-                      className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50"
+                      className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50"}
                     >
                       {t("back")}
                     </button>
@@ -1306,7 +1338,7 @@ export default function EnrollModal({
                       <button
                         type="submit"
                         disabled={!canContinue}
-                        className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"
+                        className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
                         {t("continue")}
                       </button>
@@ -1315,7 +1347,7 @@ export default function EnrollModal({
                         type="button"
                         onClick={() => void handleSubmit()}
                         disabled={processing}
-                        className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"
+                        className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
                         {processing ? "Procesando..." : t("confirm")}
                       </button>
@@ -1338,7 +1370,25 @@ export default function EnrollModal({
           <StripePaymentModal
             clientSecret={stripeClientSecret}
             onClose={() => setShowStripeModal(false)}
-            onSuccess={() => setSuccess(true)}
+            onSuccess={async (paymentIntentId?: string) => {
+              if (paymentIntentId) {
+                try {
+                  const token = isSignedIn ? await getToken({ skipCache: true }) : null
+                  await fetch("/api/checkout/finalize", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                    },
+                    credentials: "include",
+                    body: JSON.stringify({ paymentIntentId }),
+                  })
+                } catch (error) {
+                  console.warn("Unable to finalize purchase sync", error)
+                }
+              }
+              setSuccess(true)
+            }}
             email={contact.email}
             name={`${contact.firstName} ${contact.lastName}`.trim()}
             phone={contact.phone}

@@ -18,12 +18,22 @@ export type CalendarPickerProps = {
   onChange: (value: string) => void
   timezone?: string
   className?: string
+  compact?: boolean
   minDate?: string // YYYY-MM-DD, opcional
   availableWeekdays?: number[] // 0=Mon ... 6=Sun; si se pasa, sólo esos días quedan habilitados
   allowClear?: boolean
 }
 
-export default function CalendarPicker({ value, onChange, timezone, className = "", minDate, availableWeekdays, allowClear = false }: CalendarPickerProps) {
+export default function CalendarPicker({
+  value,
+  onChange,
+  timezone,
+  className = "",
+  compact = false,
+  minDate,
+  availableWeekdays,
+  allowClear = false,
+}: CalendarPickerProps) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
 
   // Mes/año visibles en el encabezado
@@ -67,14 +77,24 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
   }
 
   return (
-    <div className={`rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3 sm:p-5 lg:p-6 ${className}`}>
-      <div className="mx-auto flex w-full max-w-none flex-nowrap items-center justify-between gap-2 md:gap-3">
-        <div className="flex items-center gap-2 min-w-0">
+    <div
+      className={`rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 ${
+        compact ? "p-3" : "p-3 sm:p-5 lg:p-6"
+      } ${className}`}
+    >
+      <div
+        className={`mx-auto flex w-full max-w-none items-center justify-between gap-2 ${
+          compact ? "flex-wrap" : "flex-nowrap md:gap-3"
+        }`}
+      >
+        <div className={`flex items-center gap-2 min-w-0 ${compact ? "grow" : ""}`}>
           <div className="relative">
             <select
               value={month}
               onChange={(e)=>setMonth(parseInt(e.target.value))}
-              className="w-[120px] md:w-[180px] lg:w-[200px] rounded-md border bg-white/80 dark:bg-white/10 px-3 py-1.5 md:py-2 pr-8 text-sm md:text-base"
+              className={`rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+                compact ? "w-[130px] py-1.5" : "w-[120px] md:w-[180px] lg:w-[200px] py-1.5 md:py-2 md:text-base"
+              }`}
             >
               {MONTHS.map((m, i)=> <option key={m} value={i}>{m}</option>)}
             </select>
@@ -83,21 +103,39 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
             <select
               value={year}
               onChange={(e)=>setYear(parseInt(e.target.value))}
-              className="w-[86px] md:w-[130px] rounded-md border bg-white/80 dark:bg-white/10 px-3 py-1.5 md:py-2 pr-8 text-sm md:text-base"
+              className={`rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+                compact ? "w-[95px] py-1.5" : "w-[86px] md:w-[130px] py-1.5 md:py-2 md:text-base"
+              }`}
             >
               {years.map(y=> <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button type="button" aria-label="Mes anterior" onClick={()=>go(-1)} className="h-8 w-8 md:h-10 md:w-10 rounded-md border">‹</button>
-          <button type="button" aria-label="Mes siguiente" onClick={()=>go(1)} className="h-8 w-8 md:h-10 md:w-10 rounded-md border">›</button>
+        <div className={`flex items-center gap-2 shrink-0 ${compact ? "ml-auto" : ""}`}>
+          <button
+            type="button"
+            aria-label="Mes anterior"
+            onClick={()=>go(-1)}
+            className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            aria-label="Mes siguiente"
+            onClick={()=>go(1)}
+            className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
+          >
+            ›
+          </button>
           {allowClear && (
             <button
               type="button"
               aria-label="Clear date"
               onClick={() => onChange("")}
-              className="h-8 md:h-10 px-2.5 md:px-3 rounded-md border text-xs md:text-sm bg-white/70 dark:bg-white/10"
+              className={`rounded-md border text-xs bg-white/70 dark:bg-white/10 ${
+                compact ? "h-8 px-2.5" : "h-8 md:h-10 px-2.5 md:px-3 md:text-sm"
+              }`}
             >
               Clear
             </button>
@@ -105,13 +143,22 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
         </div>
       </div>
 
-      <div className="mt-3 flex justify-center text-xs sm:text-sm">
-        <span className="rounded-full bg-black/5 dark:bg-white/10 px-2 py-1 md:px-3">{tz}</span>
+      <div className={`mt-3 flex justify-center ${compact ? "text-xs" : "text-xs sm:text-sm"}`}>
+        <span className={`rounded-full bg-black/5 dark:bg-white/10 px-2 py-1 ${compact ? "" : "md:px-3"}`}>{tz}</span>
       </div>
 
-      <div className="mx-auto mt-4 grid w-full max-w-none grid-cols-7 gap-1 sm:gap-2 lg:gap-3 text-center text-xs sm:text-sm lg:text-base">
+      <div
+        className={`mx-auto mt-4 grid w-full max-w-none grid-cols-7 text-center ${
+          compact ? "gap-1 text-xs" : "gap-1 sm:gap-2 lg:gap-3 text-xs sm:text-sm lg:text-base"
+        }`}
+      >
         {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((w)=>(
-          <div key={w} className="py-1 sm:py-2 lg:py-3 text-neutral-500 dark:text-neutral-400">{w}</div>
+          <div
+            key={w}
+            className={`text-neutral-500 dark:text-neutral-400 ${compact ? "py-1" : "py-1 sm:py-2 lg:py-3"}`}
+          >
+            {w}
+          </div>
         ))}
         {weeks.flat().map((d, idx)=>{
           if (!d) return <div key={idx} className="py-2" />
@@ -130,7 +177,9 @@ export default function CalendarPicker({ value, onChange, timezone, className = 
               type="button"
               onClick={handleClick}
               disabled={disabled}
-              className={`py-2 sm:py-3 lg:py-4 rounded-md md:rounded-lg border text-sm sm:text-base lg:text-lg transition-colors ${
+              className={`rounded-md md:rounded-lg border transition-colors ${
+                compact ? "py-2 text-sm" : "py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
+              } ${
                 selected
                   ? "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"
                   : isToday

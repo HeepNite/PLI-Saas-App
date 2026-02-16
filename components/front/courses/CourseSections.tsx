@@ -243,30 +243,30 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
               <div className="relative mt-4 overflow-hidden rounded-3xl border border-white/10 bg-black/40">
                 <div
                   className="absolute top-0 h-full"
-                  style={{ right: "calc(var(--spacing) * -146)", width: "130%" }}
+                  style={{ right: "calc(var(--spacing) * 0)", width: "100%" }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={bookingMapImage} alt="" className="h-full w-full object-cover object-center" />
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-r from-[#100606] via-[lab(0_0_0_/_0.7)] to-transparent" />
-                <div className="relative z-10 p-5 md:max-w-[45%]">
+                <div className="absolute inset-0 bg-gradient-to-r from-[#100606] via-[lab(0_0_0_/_0.5)] to-transparent" />
+                <div className="relative z-10 p-4 md:max-w-[42%] lg:max-w-[69%]">
                   <div className="rounded-2xl border border-white/10 bg-black/50 px-4 py-4 space-y-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-white/50">Días</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{formatDays(course.schedule.day)}</p>
+                      <p className="mt-1 text-base font-semibold text-white">{formatDays(course.schedule.day)}</p>
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-white/50">Horario completo</p>
                       {ageNotes.length > 0 && scheduleSlots.length > 1 ? (
                         <div className="mt-2 space-y-2 text-left">
                           {scheduleSlots.slice(0, 2).map((slot, idx) => (
-                            <p key={`${slot}-${idx}`} className="text-base font-semibold text-white">
+                            <p key={`${slot}-${idx}`} className="text-sm font-semibold text-white">
                               <span className="text-[color:var(--brand)]">Grupo {idx === 0 ? "A" : "B"}</span> · {slot}
                             </p>
                           ))}
                         </div>
                       ) : (
-                        <p className="mt-1 text-lg font-semibold text-white">{formatScheduleTime(course.schedule.time)}</p>
+                        <p className="mt-1 text-base font-semibold text-white">{formatScheduleTime(course.schedule.time)}</p>
                       )}
                     </div>
                     <div>
@@ -275,7 +275,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                         href={bookingMapLink}
                         target="_blank"
                         rel="noreferrer"
-                        className="mt-1 text-base font-semibold text-white underline underline-offset-4 decoration-red-400/70"
+                        className="mt-1 text-sm font-semibold text-white underline underline-offset-4 decoration-red-400/70"
                       >
                         {bookingAddress}
                       </a>
@@ -293,7 +293,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                         </div>
                       </div>
                     )}
-                    <p className="text-base font-semibold leading-snug text-[color:var(--brand)]">
+                    <p className="text-sm font-semibold leading-snug text-[color:var(--brand)]">
                       Nota: el ingreso al salón es a la hora indicada.
                       <span className="block">No antes, porque hay otras clases en curso.</span>
                     </p>

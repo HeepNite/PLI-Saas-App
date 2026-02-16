@@ -7,7 +7,7 @@ const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY 
 type StripePaymentModalProps = {
   clientSecret: string
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (paymentIntentId?: string) => void | Promise<void>
   email?: string
   name?: string
   phone?: string
@@ -59,7 +59,7 @@ function PaymentForm({
   phone,
 }: {
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (paymentIntentId?: string) => void | Promise<void>
   email?: string
   name?: string
   phone?: string
@@ -87,7 +87,7 @@ function PaymentForm({
       return
     }
     setProcessing(false)
-    onSuccess()
+    await onSuccess(result.paymentIntent?.id)
     onClose()
   }
 

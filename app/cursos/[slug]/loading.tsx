@@ -1,10 +1,10 @@
 export default function CoursePageLoading() {
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-start">
+      <div className="mx-auto w-full max-w-[1800px] px-0 sm:px-1 lg:px-2 xl:px-3 py-8">
+        <div className="grid grid-cols-1 gap-6 lg:items-start lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(360px,430px)]">
           {/* Left column skeleton */}
-          <aside className="lg:col-span-2 space-y-4">
+          <aside className="space-y-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <div className="h-3 w-28 rounded-full shimmer" />
               <div className="mt-4 aspect-[3/4] w-full rounded-2xl shimmer" />
@@ -33,7 +33,7 @@ export default function CoursePageLoading() {
           </aside>
 
           {/* Center column skeleton */}
-          <section className="lg:col-span-7 space-y-6">
+          <section className="space-y-6">
             <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-white/5 p-4">
               <div className="h-3 w-32 rounded-full shimmer" />
               <div className="mt-4 aspect-[16/9] w-full rounded-2xl shimmer" />
@@ -63,7 +63,7 @@ export default function CoursePageLoading() {
           </section>
 
           {/* Right column skeleton */}
-          <aside className="lg:col-span-3 space-y-4">
+          <aside className="space-y-4">
             <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
               <div className="h-4 w-40 rounded-full shimmer" />
               <div className="mt-3 h-10 w-full rounded-lg shimmer" />
