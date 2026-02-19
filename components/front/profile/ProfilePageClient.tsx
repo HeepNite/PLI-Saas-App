@@ -7,9 +7,12 @@ import { Flame, Medal, Star, Trophy, X, Music2, Camera } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import type { CourseData } from "@/constants/courses"
 import { useUser } from "@clerk/nextjs"
+import CalendarPicker from "@/components/front/ui/CalendarPicker"
+import { getAvailableTimesForCourseDate, isSlotInPastForTimeZone } from "@/lib/class-schedule"
 import {
   buildBookingPrefillContact,
   buildProfileFormState,
+  getPackageAssignmentSummary,
   getProfileCompletionPercent,
   type ProfileSnapshot,
 } from "./profile-utils"
@@ -22,6 +25,14 @@ const statusLabel: Record<ProfileStatus, string> = {
   NEW: "Nuevo",
   ACTIVE: "Activo",
   ALUMNI: "Ex‑alumno",
+}
+
+const NY_TIMEZONE = "America/New_York"
+const AVAILABILITY_CACHE_TTL_MS = 45_000
+
+const toProfileStatus = (value: unknown): ProfileStatus => {
+  if (value === "NEW" || value === "ACTIVE" || value === "ALUMNI") return value
+  return "NEW"
 }
 
 const mockProfile = {
@@ -112,6 +123,61 @@ type ActivityStats = {
 }
 
 type MetricKey = "attendance" | "progress" | "rhythm"
+type ActionRequestType = "CLASS_CHANGE" | "SUSPEND" | "CANCEL"
+
+type BookingItem = {
+  id: string
+  status: string
+  startsAt: string
+  courseSlug: string
+  courseTitle: string
+  sessionId: string
+  packagePurchaseId: string | null
+  packageLabel: string | null
+}
+
+type AssignablePackage = {
+  id: string
+  packageId: string
+  label: string
+  courseSlug: string | null
+  remainingCredits: number | null
+  totalCredits: number | null
+  isUnlimited: boolean
+  expiresAt: string | null
+}
+
+type SlotAvailability = {
+  time: string
+  label: string
+  isFull: boolean
+  spotsLeft: number
+  capacity: number
+  isPast?: boolean
+}
+
+type CachedAvailabilityEntry = {
+  slots: SlotAvailability[]
+  cachedAt: number
+}
+
+type PointsEntry = {
+  id: string
+  type: string
+  points: number
+  createdAt: string
+  meta?: Record<string, unknown> | null
+}
+
+type ActionRequestItem = {
+  id: string
+  type: ActionRequestType
+  status: string
+  message: string | null
+  meta?: Record<string, unknown> | null
+  createdAt: string
+  resolvedAt: string | null
+}
 
 const analyticsMonths = ["Oct", "Nov", "Dic", "Ene"] as const
 const analyticsMetricConfig: Record<MetricKey, { label: string; color: string; values: number[] }> = {
@@ -132,8 +198,160 @@ const analyticsMetricConfig: Record<MetricKey, { label: string; color: string; v
   },
 }
 
+const actionRequestLabels: Record<ActionRequestType, string> = {
+  CLASS_CHANGE: "Cambio de clase",
+  SUSPEND: "Suspensión",
+  CANCEL: "Cancelación",
+}
+
+const actionRequestStatusLabel = (status: string) => {
+  if (status === "PENDING") return "Pendiente"
+  if (status === "PROCESSING") return "En proceso"
+  if (status === "RESOLVED") return "Resuelto"
+  if (status === "REJECTED") return "Rechazado"
+  return status
+}
+
+const formatRequestDate = (value: unknown) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const parsed = new Date(`${value}T12:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toLocaleDateString("es-AR", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
+}
+
+const actionRequestMetaLabel = (request: ActionRequestItem) => {
+  if (request.type === "SUSPEND") {
+    const start = formatRequestDate(request.meta?.startDate)
+    const end = formatRequestDate(request.meta?.endDate)
+    const packageLabel = typeof request.meta?.packageLabel === "string" ? request.meta.packageLabel : ""
+    if (start && end && packageLabel) return `${packageLabel} · desde ${start} hasta ${end}`
+    if (start && end) return `Desde ${start} hasta ${end}`
+  }
+  if (request.type === "CANCEL") {
+    const effective = formatRequestDate(request.meta?.effectiveDate)
+    const courseTitle = typeof request.meta?.courseTitle === "string" ? request.meta.courseTitle : ""
+    if (effective && courseTitle) return `${courseTitle} · efectiva desde ${effective}`
+    if (effective) return `Efectiva desde ${effective}`
+  }
+  return null
+}
+
+const getPendingProcessLabel = (request: ActionRequestItem | undefined) => {
+  if (!request) return "Proceso"
+  const type = actionRequestLabels[request.type] || request.type
+  const status = actionRequestStatusLabel(request.status).toLowerCase()
+  return `${type} (${status})`
+}
+
+const getProcessTypeTone = (type?: ActionRequestType | null) => {
+  if (type === "CANCEL") {
+    return {
+      border: "rgba(239,68,68,0.45)",
+      bg: "rgba(239,68,68,0.16)",
+      text: "#fecaca",
+      dot: "#f87171",
+    }
+  }
+  if (type === "CLASS_CHANGE") {
+    return {
+      border: "rgba(59,130,246,0.45)",
+      bg: "rgba(59,130,246,0.16)",
+      text: "#bfdbfe",
+      dot: "#60a5fa",
+    }
+  }
+  if (type === "SUSPEND") {
+    return {
+      border: "rgba(245,158,11,0.45)",
+      bg: "rgba(245,158,11,0.16)",
+      text: "#fde68a",
+      dot: "#fbbf24",
+    }
+  }
+  return {
+    border: "rgba(255,255,255,0.22)",
+    bg: "rgba(255,255,255,0.08)",
+    text: "rgba(255,255,255,0.82)",
+    dot: "rgba(255,255,255,0.7)",
+  }
+}
+
+const isPendingRequestStatus = (status: string) => status === "PENDING" || status === "PROCESSING"
+
+const addDaysToIsoDate = (isoDate: string, days: number) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate
+  const parsed = new Date(`${isoDate}T00:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime())) return isoDate
+  parsed.setUTCDate(parsed.getUTCDate() + days)
+  return parsed.toISOString().slice(0, 10)
+}
+
+const pointsTypeLabel = (type: string) => {
+  if (type === "PROFILE_COMPLETED") return "Perfil completado"
+  if (type === "REFERRAL_BONUS") return "Referido"
+  if (type === "CLASS_MILESTONE") return "Meta de clases"
+  return type
+}
+
+const formatDateKeyInTimeZone = (value: string | Date, timeZone = NY_TIMEZONE) => {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date)
+  const year = parts.find((item) => item.type === "year")?.value ?? ""
+  const month = parts.find((item) => item.type === "month")?.value ?? ""
+  const day = parts.find((item) => item.type === "day")?.value ?? ""
+  if (!year || !month || !day) return ""
+  return `${year}-${month}-${day}`
+}
+
+const formatTimeKeyInTimeZone = (value: string | Date, timeZone = NY_TIMEZONE) => {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date)
+  const hour = parts.find((item) => item.type === "hour")?.value ?? ""
+  const minute = parts.find((item) => item.type === "minute")?.value ?? ""
+  if (!hour || !minute) return ""
+  return `${hour}:${minute}`
+}
+
+const formatDateTimeInTimeZone = (
+  value: string | Date,
+  options: Intl.DateTimeFormatOptions = {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  },
+  locale = "es-ES",
+  timeZone = NY_TIMEZONE
+) => {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return new Intl.DateTimeFormat(locale, {
+    ...options,
+    timeZone,
+  }).format(date)
+}
+
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
+  const [e2eAuthBypass, setE2eAuthBypass] = React.useState(false)
   const [activeMetric, setActiveMetric] = React.useState<MetricKey>("attendance")
   const [hoverPoint, setHoverPoint] = React.useState<{ label: string; value: number; x: number; y: number; idx: number } | null>(null)
   const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
@@ -165,8 +383,54 @@ export default function ProfilePageClient() {
   const [monthlyAttendance, setMonthlyAttendance] = React.useState<Array<{ label: string; value: number }>>(
     mockProfile.attendance
   )
+  const [pointsEntries, setPointsEntries] = React.useState<PointsEntry[]>([])
+  const [pointsLoading, setPointsLoading] = React.useState(false)
+  const [pointsError, setPointsError] = React.useState<string | null>(null)
+  const [actionRequests, setActionRequests] = React.useState<ActionRequestItem[]>([])
+  const [actionRequestsLoading, setActionRequestsLoading] = React.useState(false)
+  const [actionRequestsError, setActionRequestsError] = React.useState<string | null>(null)
+  const [bookings, setBookings] = React.useState<BookingItem[]>([])
+  const [assignablePackages, setAssignablePackages] = React.useState<AssignablePackage[]>([])
+  const [bookingsLoading, setBookingsLoading] = React.useState(false)
+  const [bookingsError, setBookingsError] = React.useState<string | null>(null)
+  const [changeModalOpen, setChangeModalOpen] = React.useState(false)
+  const [rescheduleStep, setRescheduleStep] = React.useState<1 | 2 | 3>(1)
+  const [selectedBookingId, setSelectedBookingId] = React.useState<string>("")
+  const [rescheduleCourseSlug, setRescheduleCourseSlug] = React.useState("")
+  const [rescheduleDate, setRescheduleDate] = React.useState("")
+  const [rescheduleTime, setRescheduleTime] = React.useState("")
+  const [availability, setAvailability] = React.useState<SlotAvailability[]>([])
+  const [availabilityLoading, setAvailabilityLoading] = React.useState(false)
+  const [rescheduleSaving, setRescheduleSaving] = React.useState(false)
+  const [rescheduleError, setRescheduleError] = React.useState<string | null>(null)
+  const [rescheduleSuccess, setRescheduleSuccess] = React.useState<string | null>(null)
+  const [assignPackageId, setAssignPackageId] = React.useState("")
+  const [assignDate, setAssignDate] = React.useState("")
+  const [assignTime, setAssignTime] = React.useState("")
+  const [assignAvailability, setAssignAvailability] = React.useState<SlotAvailability[]>([])
+  const [assignAvailabilityLoading, setAssignAvailabilityLoading] = React.useState(false)
+  const [assignSlots, setAssignSlots] = React.useState<Array<{ date: string; time: string }>>([])
+  const [assigning, setAssigning] = React.useState(false)
+  const [assignError, setAssignError] = React.useState<string | null>(null)
+  const [assignSuccess, setAssignSuccess] = React.useState<string | null>(null)
+  const [requestModalType, setRequestModalType] = React.useState<ActionRequestType | null>(null)
+  const [requestMessage, setRequestMessage] = React.useState("")
+  const [requestSuspendStart, setRequestSuspendStart] = React.useState("")
+  const [requestSuspendEnd, setRequestSuspendEnd] = React.useState("")
+  const [requestSuspendPackageId, setRequestSuspendPackageId] = React.useState("")
+  const [requestCancelEffectiveDate, setRequestCancelEffectiveDate] = React.useState("")
+  const [requestCancelBookingId, setRequestCancelBookingId] = React.useState("")
+  const [requestCancelDecision, setRequestCancelDecision] = React.useState<"REASSIGN" | "REFUND" | null>(null)
+  const [requestSubmitting, setRequestSubmitting] = React.useState(false)
+  const [requestSubmitError, setRequestSubmitError] = React.useState<string | null>(null)
+  const [requestSubmitSuccess, setRequestSubmitSuccess] = React.useState<string | null>(null)
+  const [mobileAgendaOpenDay, setMobileAgendaOpenDay] = React.useState<number | null>(null)
   const profileSavedTimeout = React.useRef<number | null>(null)
-  const currentCoins = pointsBalance || mockProfile.coins.current
+  const availabilityCacheRef = React.useRef<Map<string, CachedAvailabilityEntry>>(new Map())
+  const availabilityInflightRef = React.useRef<Map<string, Promise<SlotAvailability[] | null>>>(new Map())
+  const rescheduleAvailabilityRequestRef = React.useRef(0)
+  const assignAvailabilityRequestRef = React.useRef(0)
+  const currentCoins = Math.max(0, pointsBalance)
   const progress = Math.min(100, Math.round((currentCoins / mockProfile.coins.goal) * 100))
   const shoeProgress = Math.min(100, Math.round((mockProfile.shoeTracking.km / mockProfile.shoeTracking.maxKm) * 100))
   const [profileUser, setProfileUser] = React.useState({
@@ -182,6 +446,8 @@ export default function ProfilePageClient() {
   const [avatarUploading, setAvatarUploading] = React.useState(false)
   const [avatarError, setAvatarError] = React.useState<string | null>(null)
   const [profileForm, setProfileForm] = React.useState(() => buildProfileFormState(null, null))
+  const [agendaMonth, setAgendaMonth] = React.useState(() => new Date().getMonth())
+  const [agendaYear, setAgendaYear] = React.useState(() => new Date().getFullYear())
   const stickyTop = 76
   const gridRef = React.useRef<HTMLDivElement>(null)
   const leftRailRef = React.useRef<HTMLDivElement>(null)
@@ -190,6 +456,7 @@ export default function ProfilePageClient() {
     () => buildBookingPrefillContact(profileForm, profileUser, user),
     [profileForm, profileUser, user]
   )
+  const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
 
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
   const orderedCourses = React.useMemo(() => {
@@ -198,20 +465,705 @@ export default function ProfilePageClient() {
     return [...preferred, ...rest]
   }, [preferredSet])
 
-  React.useEffect(() => {
-    if (typeof document === "undefined") return
-    const update = () => {
-      document.body.dataset.profilePage = "true"
-      document.body.dataset.profileMobile = window.innerWidth < 1024 ? "true" : "false"
+  const classRequestsByAttendance = React.useMemo(() => {
+    const map = new Map<string, ActionRequestItem>()
+    for (const request of actionRequests) {
+      if (!isPendingRequestStatus(request.status)) continue
+      const attendanceId = typeof request.meta?.attendanceId === "string" ? request.meta.attendanceId.trim() : ""
+      if (!attendanceId) continue
+      if (!map.has(attendanceId)) map.set(attendanceId, request)
     }
-    update()
-    window.addEventListener("resize", update)
-    return () => {
-      delete document.body.dataset.profilePage
-      delete document.body.dataset.profileMobile
-      window.removeEventListener("resize", update)
+    return map
+  }, [actionRequests])
+  const pendingBookings = React.useMemo(
+    () => bookings.filter((item) => classRequestsByAttendance.has(item.id)),
+    [bookings, classRequestsByAttendance]
+  )
+  const visibleBookings = React.useMemo(
+    () => bookings.filter((item) => !classRequestsByAttendance.has(item.id)),
+    [bookings, classRequestsByAttendance]
+  )
+  const selectedBooking = React.useMemo(
+    () => visibleBookings.find((item) => item.id === selectedBookingId) || visibleBookings[0] || null,
+    [visibleBookings, selectedBookingId]
+  )
+  const requestCancelBooking = React.useMemo(
+    () => visibleBookings.find((item) => item.id === requestCancelBookingId) || null,
+    [visibleBookings, requestCancelBookingId]
+  )
+  const suspendablePackages = React.useMemo(() => assignablePackages, [assignablePackages])
+  const selectedBookingDateKey = React.useMemo(
+    () => (selectedBooking ? formatDateKeyInTimeZone(selectedBooking.startsAt, NY_TIMEZONE) : ""),
+    [selectedBooking]
+  )
+  const selectedBookingTimeKey = React.useMemo(
+    () => (selectedBooking ? formatTimeKeyInTimeZone(selectedBooking.startsAt, NY_TIMEZONE) : ""),
+    [selectedBooking]
+  )
+  const isCurrentRescheduleSlot = React.useCallback(
+    (date: string, time: string) => {
+      if (!selectedBookingDateKey || !selectedBookingTimeKey) return false
+      return date === selectedBookingDateKey && time === selectedBookingTimeKey
+    },
+    [selectedBookingDateKey, selectedBookingTimeKey]
+  )
+  const rescheduleCourseOptions = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const booking of visibleBookings) {
+      if (!map.has(booking.courseSlug)) {
+        map.set(booking.courseSlug, booking.courseTitle)
+      }
     }
+    return Array.from(map.entries()).map(([slug, title]) => ({ slug, title }))
+  }, [visibleBookings])
+  const rescheduleScopedBookings = React.useMemo(() => {
+    if (!rescheduleCourseSlug) return visibleBookings
+    return visibleBookings.filter((booking) => booking.courseSlug === rescheduleCourseSlug)
+  }, [rescheduleCourseSlug, visibleBookings])
+  const rescheduleBookedTimesByDate = React.useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const booking of bookings) {
+      if (booking.id === selectedBookingId) continue
+      const dateKey = formatDateKeyInTimeZone(booking.startsAt, NY_TIMEZONE)
+      const timeKey = formatTimeKeyInTimeZone(booking.startsAt, NY_TIMEZONE)
+      if (!dateKey || !timeKey) continue
+      const current = map.get(dateKey) || new Set<string>()
+      current.add(timeKey)
+      map.set(dateKey, current)
+    }
+    return map
+  }, [bookings, selectedBookingId])
+  const rescheduleBookedTimesForSelectedDate = React.useMemo(() => {
+    if (!rescheduleDate) return new Set<string>()
+    return rescheduleBookedTimesByDate.get(rescheduleDate) || new Set<string>()
+  }, [rescheduleBookedTimesByDate, rescheduleDate])
+  const todayNyDateKey = formatDateKeyInTimeZone(new Date(), NY_TIMEZONE)
+  const isRescheduleDateBlocked = React.useCallback(
+    (dateIso: string) => {
+      if (!selectedBooking?.courseSlug) return false
+      const availableTimes = getAvailableTimesForCourseDate(selectedBooking.courseSlug, dateIso)
+      if (!availableTimes.length) return false
+      const futureTimes = availableTimes.filter((time) => !isSlotInPastForTimeZone(dateIso, time, NY_TIMEZONE))
+      if (!futureTimes.length) return true
+      const occupied = rescheduleBookedTimesByDate.get(dateIso)
+      if (!occupied || occupied.size === 0) return false
+      return futureTimes.every((time) => occupied.has(time))
+    },
+    [rescheduleBookedTimesByDate, selectedBooking?.courseSlug]
+  )
+  const getRescheduleDateBlockReason = React.useCallback(
+    (dateIso: string) => {
+      if (!selectedBooking?.courseSlug) return undefined
+      const availableTimes = getAvailableTimesForCourseDate(selectedBooking.courseSlug, dateIso)
+      if (!availableTimes.length) return undefined
+      const futureTimes = availableTimes.filter((time) => !isSlotInPastForTimeZone(dateIso, time, NY_TIMEZONE))
+      if (!futureTimes.length) return "Los horarios de este día ya pasaron."
+      const occupied = rescheduleBookedTimesByDate.get(dateIso)
+      if (occupied && futureTimes.every((time) => occupied.has(time))) {
+        return "Ese horario en ese día ya está tomado por otra clase."
+      }
+      return undefined
+    },
+    [rescheduleBookedTimesByDate, selectedBooking?.courseSlug]
+  )
+  const pendingAssignablePackages = React.useMemo(
+    () => assignablePackages.filter((pkg) => pkg.isUnlimited || (pkg.remainingCredits ?? 0) > 0),
+    [assignablePackages]
+  )
+
+  const selectedBookingCourse = React.useMemo(() => {
+    if (!selectedBooking) return null
+    return demoCourses.find((course) => course.slug === selectedBooking.courseSlug) || null
+  }, [selectedBooking])
+
+  const selectedPackageForAssign = React.useMemo(
+    () => assignablePackages.find((item) => item.id === assignPackageId) || null,
+    [assignPackageId, assignablePackages]
+  )
+  const selectedPackageCourse = React.useMemo(() => {
+    if (!selectedPackageForAssign?.courseSlug) return null
+    return demoCourses.find((course) => course.slug === selectedPackageForAssign.courseSlug) || null
+  }, [selectedPackageForAssign])
+  const selectedPackageAssignmentStats = React.useMemo(() => {
+    if (!selectedPackageForAssign) return null
+    const assignedBookingsCount = bookings.filter(
+      (booking) => booking.packagePurchaseId === selectedPackageForAssign.id
+    ).length
+    return getPackageAssignmentSummary({
+      isUnlimited: selectedPackageForAssign.isUnlimited,
+      totalCredits: selectedPackageForAssign.totalCredits,
+      remainingCredits: selectedPackageForAssign.remainingCredits,
+      queuedCount: assignSlots.length,
+      assignedBookingsCount,
+    })
+  }, [assignSlots.length, bookings, selectedPackageForAssign])
+  const assignBookedTimesByDate = React.useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    if (!selectedPackageForAssign?.courseSlug) return map
+    for (const booking of bookings) {
+      if (booking.courseSlug !== selectedPackageForAssign.courseSlug) continue
+      const dateKey = formatDateKeyInTimeZone(booking.startsAt)
+      const timeKey = formatTimeKeyInTimeZone(booking.startsAt)
+      if (!dateKey || !timeKey) continue
+      const current = map.get(dateKey) || new Set<string>()
+      current.add(timeKey)
+      map.set(dateKey, current)
+    }
+    return map
+  }, [bookings, selectedPackageForAssign?.courseSlug])
+  const assignUnavailableDates = React.useMemo(() => {
+    if (!selectedPackageForAssign?.courseSlug) return [] as string[]
+    const dates: string[] = []
+    for (const [dateKey, bookedTimes] of assignBookedTimesByDate.entries()) {
+      const availableTimes = getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, dateKey)
+      if (!availableTimes.length) continue
+      const futureTimes = availableTimes.filter((time) => !isSlotInPastForTimeZone(dateKey, time, NY_TIMEZONE))
+      if (!futureTimes.length) {
+        dates.push(dateKey)
+        continue
+      }
+      const allTaken = futureTimes.every((slot) => bookedTimes.has(slot))
+      if (allTaken) dates.push(dateKey)
+    }
+    const todayAvailableTimes = getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, todayNyDateKey)
+    if (
+      todayAvailableTimes.length > 0 &&
+      todayAvailableTimes.every((time) => isSlotInPastForTimeZone(todayNyDateKey, time, NY_TIMEZONE)) &&
+      !dates.includes(todayNyDateKey)
+    ) {
+      dates.push(todayNyDateKey)
+    }
+    return dates
+  }, [assignBookedTimesByDate, selectedPackageForAssign?.courseSlug, todayNyDateKey])
+  const assignBookedTimesForSelectedDate = React.useMemo(() => {
+    if (!assignDate) return new Set<string>()
+    return assignBookedTimesByDate.get(assignDate) || new Set<string>()
+  }, [assignBookedTimesByDate, assignDate])
+
+  const loadPointsHistory = React.useCallback(async () => {
+    if (!canLoadProtectedData) return
+    setPointsLoading(true)
+    setPointsError(null)
+    try {
+      const res = await fetch("/api/profile/points")
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setPointsError(data?.error || "No se pudo cargar el historial de puntos.")
+        return
+      }
+      setPointsBalance(typeof data?.balance === "number" ? data.balance : 0)
+      setPointsEntries(Array.isArray(data?.entries) ? data.entries : [])
+    } catch {
+      setPointsError("No se pudo cargar el historial de puntos.")
+    } finally {
+      setPointsLoading(false)
+    }
+  }, [canLoadProtectedData])
+
+  const loadActionRequests = React.useCallback(async () => {
+    if (!canLoadProtectedData) return
+    setActionRequestsLoading(true)
+    setActionRequestsError(null)
+    try {
+      const res = await fetch("/api/profile/requests")
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setActionRequestsError(data?.error || "No se pudo cargar tus solicitudes.")
+        return
+      }
+      setActionRequests(Array.isArray(data?.requests) ? data.requests : [])
+    } catch {
+      setActionRequestsError("No se pudo cargar tus solicitudes.")
+    } finally {
+      setActionRequestsLoading(false)
+    }
+  }, [canLoadProtectedData])
+
+  const clearAvailabilityCache = React.useCallback(() => {
+    availabilityCacheRef.current.clear()
+    availabilityInflightRef.current.clear()
   }, [])
+
+  const fetchAvailability = React.useCallback(
+    async (courseSlug: string, date: string, attendanceId?: string) => {
+      const cacheKey = `${courseSlug}|${date}|${attendanceId || ""}`
+      const now = Date.now()
+
+      const cached = availabilityCacheRef.current.get(cacheKey)
+      if (cached && now - cached.cachedAt <= AVAILABILITY_CACHE_TTL_MS) {
+        return cached.slots
+      }
+
+      const inflight = availabilityInflightRef.current.get(cacheKey)
+      if (inflight) {
+        return inflight
+      }
+
+      const request = (async () => {
+        const query = new URLSearchParams({
+          courseSlug,
+          date,
+          ...(attendanceId ? { excludeAttendanceId: attendanceId } : {}),
+        })
+        const res = await fetch(`/api/profile/bookings/availability?${query.toString()}`)
+        const data = await res.json().catch(() => null)
+        if (!res.ok) return null
+        const slots = Array.isArray(data?.slots) ? (data.slots as SlotAvailability[]) : []
+        availabilityCacheRef.current.set(cacheKey, { slots, cachedAt: Date.now() })
+        return slots
+      })()
+
+      availabilityInflightRef.current.set(cacheKey, request)
+      try {
+        return await request
+      } finally {
+        availabilityInflightRef.current.delete(cacheKey)
+      }
+    },
+    []
+  )
+
+  const loadBookings = React.useCallback(async () => {
+    if (!canLoadProtectedData) return
+    setBookingsLoading(true)
+    setBookingsError(null)
+    try {
+      const res = await fetch("/api/profile/bookings")
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setBookingsError(data?.error || "No se pudieron cargar tus clases agendadas.")
+        return
+      }
+      clearAvailabilityCache()
+      const bookingsData = Array.isArray(data?.bookings) ? (data.bookings as BookingItem[]) : []
+      const packagesData = Array.isArray(data?.packages) ? (data.packages as AssignablePackage[]) : []
+      setBookings(bookingsData)
+      setAssignablePackages(packagesData)
+      if (bookingsData.length > 0) {
+        setSelectedBookingId((prev) => (prev && bookingsData.some((item) => item.id === prev) ? prev : bookingsData[0].id))
+      } else {
+        setSelectedBookingId("")
+      }
+      setAssignPackageId((prev) => (prev && packagesData.some((item) => item.id === prev) ? prev : packagesData[0]?.id || ""))
+      return { bookings: bookingsData, packages: packagesData }
+    } catch {
+      setBookingsError("No se pudieron cargar tus clases agendadas.")
+      return null
+    } finally {
+      setBookingsLoading(false)
+    }
+  }, [canLoadProtectedData, clearAvailabilityCache])
+
+  const loadAvailability = React.useCallback(
+    async (courseSlug: string, date: string, attendanceId?: string) => {
+      if (!courseSlug || !date) {
+        setAvailability([])
+        return
+      }
+      const requestId = ++rescheduleAvailabilityRequestRef.current
+      setAvailabilityLoading(true)
+      try {
+        const slots = await fetchAvailability(courseSlug, date, attendanceId)
+        if (requestId !== rescheduleAvailabilityRequestRef.current) return
+        if (!slots) {
+          setAvailability([])
+          return
+        }
+        setAvailability(slots)
+      } catch {
+        if (requestId !== rescheduleAvailabilityRequestRef.current) return
+        setAvailability([])
+      } finally {
+        if (requestId !== rescheduleAvailabilityRequestRef.current) return
+        setAvailabilityLoading(false)
+      }
+    },
+    [fetchAvailability]
+  )
+
+  const loadAssignAvailability = React.useCallback(
+    async (courseSlug: string, date: string) => {
+      if (!courseSlug || !date) {
+        setAssignAvailability([])
+        return
+      }
+      const requestId = ++assignAvailabilityRequestRef.current
+      setAssignAvailabilityLoading(true)
+      try {
+        const slots = await fetchAvailability(courseSlug, date)
+        if (requestId !== assignAvailabilityRequestRef.current) return
+        if (!slots) {
+          setAssignAvailability([])
+          return
+        }
+        setAssignAvailability(slots)
+      } catch {
+        if (requestId !== assignAvailabilityRequestRef.current) return
+        setAssignAvailability([])
+      } finally {
+        if (requestId !== assignAvailabilityRequestRef.current) return
+        setAssignAvailabilityLoading(false)
+      }
+    },
+    [fetchAvailability]
+  )
+
+  const hydrateRescheduleFromBooking = React.useCallback(
+    (booking: BookingItem | null) => {
+      if (!booking) {
+        setRescheduleDate("")
+        setRescheduleTime("")
+        setAvailability([])
+        return
+      }
+      const startsAt = new Date(booking.startsAt)
+      if (Number.isNaN(startsAt.getTime())) {
+        setRescheduleDate("")
+        setRescheduleTime("")
+        setAvailability([])
+        return
+      }
+      const dateIso = formatDateKeyInTimeZone(startsAt, NY_TIMEZONE)
+      const timeKey = formatTimeKeyInTimeZone(startsAt, NY_TIMEZONE)
+      setRescheduleDate(dateIso)
+      setRescheduleTime(timeKey)
+      if (dateIso) {
+        void loadAvailability(booking.courseSlug, dateIso, booking.id)
+      } else {
+        setAvailability([])
+      }
+    },
+    [loadAvailability]
+  )
+
+  const openChangeClassModalForBooking = React.useCallback(
+    (bookingId: string) => {
+      const booking = visibleBookings.find((item) => item.id === bookingId) || null
+      if (!booking) {
+        setRescheduleError("No tenés una clase agendada para cambiar.")
+        return false
+      }
+      setRescheduleError(null)
+      setRescheduleSuccess(null)
+      setRescheduleStep(1)
+      setSelectedBookingId(booking.id)
+      setRescheduleCourseSlug(booking.courseSlug)
+      hydrateRescheduleFromBooking(booking)
+      setChangeModalOpen(true)
+      return true
+    },
+    [hydrateRescheduleFromBooking, visibleBookings]
+  )
+
+  const openChangeClassModal = () => {
+    if (!selectedBooking) {
+      setRescheduleError("No tenés una clase agendada para cambiar.")
+      return
+    }
+    openChangeClassModalForBooking(selectedBooking.id)
+  }
+
+  const closeChangeClassModal = () => {
+    setChangeModalOpen(false)
+    setRescheduleStep(1)
+    setRescheduleCourseSlug("")
+    setRescheduleError(null)
+    setRescheduleSuccess(null)
+  }
+
+  const openSuspendModal = () => {
+    if (!suspendablePackages.length) {
+      setRequestSubmitError("No tenés paquetes activos para suspender.")
+      return
+    }
+    const today = formatDateKeyInTimeZone(new Date(), NY_TIMEZONE) || new Date().toISOString().slice(0, 10)
+    setRequestModalType("SUSPEND")
+    setRequestMessage("")
+    setRequestSuspendStart(today)
+    setRequestSuspendEnd(addDaysToIsoDate(today, 14))
+    setRequestSuspendPackageId(suspendablePackages[0]?.id || "")
+    setRequestCancelBookingId("")
+    setRequestCancelDecision(null)
+    setRequestCancelEffectiveDate("")
+    setRequestSubmitError(null)
+    setRequestSubmitSuccess(null)
+  }
+
+  const openCancelModal = () => {
+    if (!visibleBookings.length) {
+      setRequestSubmitError("No tenés clases asignadas disponibles para cancelar.")
+      return
+    }
+    const booking = selectedBooking || visibleBookings[0]
+    const effectiveDate = booking ? formatDateKeyInTimeZone(booking.startsAt, NY_TIMEZONE) : ""
+    setRequestModalType("CANCEL")
+    setRequestMessage("")
+    setRequestCancelBookingId(booking?.id || "")
+    setRequestCancelDecision(null)
+    setRequestCancelEffectiveDate(effectiveDate)
+    setRequestSuspendPackageId("")
+    setRequestSuspendStart("")
+    setRequestSuspendEnd("")
+    setRequestSubmitError(null)
+    setRequestSubmitSuccess(null)
+  }
+
+  const closeRequestModal = () => {
+    setRequestModalType(null)
+    setRequestMessage("")
+    setRequestSuspendStart("")
+    setRequestSuspendEnd("")
+    setRequestSuspendPackageId("")
+    setRequestCancelEffectiveDate("")
+    setRequestCancelBookingId("")
+    setRequestCancelDecision(null)
+    setRequestSubmitError(null)
+  }
+
+  const submitActionRequest = async () => {
+    if (!requestModalType) return
+    const message = requestMessage.trim()
+    let meta: Record<string, unknown> | undefined
+
+    if (requestModalType === "SUSPEND") {
+      if (!requestSuspendPackageId) {
+        setRequestSubmitError("Seleccioná un paquete para suspender.")
+        return
+      }
+      if (!requestSuspendStart || !requestSuspendEnd) {
+        setRequestSubmitError("Seleccioná fecha de inicio y fin para la suspensión.")
+        return
+      }
+      if (requestSuspendEnd < requestSuspendStart) {
+        setRequestSubmitError("La fecha de fin no puede ser anterior al inicio.")
+        return
+      }
+      meta = {
+        startDate: requestSuspendStart,
+        endDate: requestSuspendEnd,
+        packagePurchaseId: requestSuspendPackageId,
+      }
+    }
+
+    if (requestModalType === "CANCEL") {
+      if (!requestCancelBookingId) {
+        setRequestSubmitError("Seleccioná la clase que querés cancelar.")
+        return
+      }
+      if (!requestCancelDecision) {
+        setRequestSubmitError("Seleccioná si querés reasignar o solicitar reembolso.")
+        return
+      }
+      if (requestCancelDecision === "REASSIGN") {
+        closeRequestModal()
+        openChangeClassModalForBooking(requestCancelBookingId)
+        return
+      }
+      const booking = visibleBookings.find((item) => item.id === requestCancelBookingId) || null
+      if (!booking) {
+        setRequestSubmitError("No encontramos la clase seleccionada para cancelar.")
+        return
+      }
+      const effectiveDate = requestCancelEffectiveDate || formatDateKeyInTimeZone(booking.startsAt, NY_TIMEZONE)
+      if (!effectiveDate) {
+        setRequestSubmitError("No pudimos resolver la fecha efectiva para la cancelación.")
+        return
+      }
+      meta = {
+        effectiveDate,
+        attendanceId: booking.id,
+        refundRequested: true,
+      }
+    }
+
+    setRequestSubmitting(true)
+    setRequestSubmitError(null)
+    try {
+      const res = await fetch("/api/profile/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: requestModalType,
+          message,
+          meta,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setRequestSubmitError(data?.error || "No se pudo crear la solicitud.")
+        return
+      }
+      setRequestSubmitSuccess(`Solicitud de ${actionRequestLabels[requestModalType].toLowerCase()} enviada.`)
+      closeRequestModal()
+      await loadActionRequests()
+    } catch {
+      setRequestSubmitError("No se pudo crear la solicitud.")
+    } finally {
+      setRequestSubmitting(false)
+    }
+  }
+
+  const openRequestModal = (type: ActionRequestType) => {
+    if (type === "SUSPEND") {
+      openSuspendModal()
+      return
+    }
+    if (type === "CANCEL") {
+      openCancelModal()
+      return
+    }
+    setRequestSubmitError("Este tipo de solicitud se maneja desde 'Cambiar clase'.")
+  }
+
+  const continueRescheduleStep = () => {
+    if (!selectedBooking || !rescheduleDate || !rescheduleTime) {
+      setRescheduleError("Seleccioná fecha y hora.")
+      return
+    }
+    if (isSlotInPastForTimeZone(rescheduleDate, rescheduleTime, NY_TIMEZONE)) {
+      setRescheduleError("Ese horario ya pasó.")
+      return
+    }
+    if (isCurrentRescheduleSlot(rescheduleDate, rescheduleTime)) {
+      setRescheduleError("No podés reasignar al mismo día y horario actual.")
+      return
+    }
+    if (rescheduleBookedTimesForSelectedDate.has(rescheduleTime)) {
+      setRescheduleError("Ese horario en ese día ya está tomado por otra clase.")
+      return
+    }
+    setRescheduleError(null)
+    setRescheduleSuccess(null)
+    setRescheduleStep(2)
+  }
+
+  const postReschedule = async (attendanceId: string, date: string, time: string) => {
+    const res = await fetch("/api/profile/bookings/reschedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attendanceId, date, time }),
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok) {
+      return {
+        ok: false as const,
+        error: data?.error || "No se pudo cambiar la clase.",
+      }
+    }
+    return { ok: true as const }
+  }
+
+  const submitPrimaryReschedule = async () => {
+    if (!selectedBooking || !rescheduleDate || !rescheduleTime) {
+      setRescheduleError("Seleccioná fecha y hora.")
+      return
+    }
+    setRescheduleSaving(true)
+    setRescheduleError(null)
+    setRescheduleSuccess(null)
+    const primaryId = selectedBooking.id
+    try {
+      const result = await postReschedule(primaryId, rescheduleDate, rescheduleTime)
+      if (!result.ok) {
+        setRescheduleError(result.error)
+        return
+      }
+      clearAvailabilityCache()
+
+      const refreshed = await loadBookings()
+      await loadActionRequests()
+
+      const refreshedPackages = refreshed?.packages || []
+      const hasPendingAssignments = refreshedPackages.some((pkg) => pkg.isUnlimited || (pkg.remainingCredits ?? 0) > 0)
+      setRescheduleSuccess("Clase reprogramada correctamente.")
+      if (hasPendingAssignments) {
+        setRescheduleStep(3)
+      } else {
+        window.setTimeout(() => closeChangeClassModal(), 700)
+      }
+    } catch {
+      setRescheduleError("No se pudo cambiar la clase.")
+    } finally {
+      setRescheduleSaving(false)
+    }
+  }
+
+  const addAssignSlot = () => {
+    if (!assignPackageId) {
+      setAssignError("Seleccioná un paquete.")
+      return
+    }
+    if (!assignDate || !assignTime) {
+      setAssignError("Seleccioná fecha y hora para agregar la clase.")
+      return
+    }
+    if (isSlotInPastForTimeZone(assignDate, assignTime, NY_TIMEZONE)) {
+      setAssignError("Ese horario ya pasó.")
+      return
+    }
+    if (assignBookedTimesForSelectedDate.has(assignTime)) {
+      setAssignError("Ese horario ya está reservado por vos.")
+      return
+    }
+    const slotKey = `${assignDate}|${assignTime}`
+    if (assignSlots.some((slot) => `${slot.date}|${slot.time}` === slotKey)) {
+      setAssignError("Ese horario ya está agregado.")
+      return
+    }
+    setAssignError(null)
+    setAssignSuccess(null)
+    setAssignSlots((prev) => [...prev, { date: assignDate, time: assignTime }])
+    setAssignTime("")
+  }
+
+  const removeAssignSlot = (index: number) => {
+    setAssignSlots((prev) => prev.filter((_, idx) => idx !== index))
+  }
+
+  const submitAssignClasses = async () => {
+    if (!assignPackageId) {
+      setAssignError("Seleccioná un paquete.")
+      return
+    }
+    const cleaned = assignSlots
+      .map((slot) => ({ date: slot.date.trim(), time: slot.time.trim() }))
+      .filter((slot) => slot.date && slot.time)
+    if (!cleaned.length) {
+      setAssignError("Agregá al menos una clase para asignar.")
+      return
+    }
+
+    setAssigning(true)
+    setAssignError(null)
+    setAssignSuccess(null)
+    try {
+      const res = await fetch("/api/profile/bookings/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          packagePurchaseId: assignPackageId,
+          assignments: cleaned,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setAssignError(data?.error || "No se pudieron asignar las clases del paquete.")
+        return
+      }
+      setAssignSuccess("Clases del paquete asignadas correctamente.")
+      setAssignSlots([])
+      setAssignDate("")
+      setAssignTime("")
+      setAssignAvailability([])
+      clearAvailabilityCache()
+      await Promise.all([loadBookings(), loadPointsHistory(), loadActionRequests()])
+    } catch {
+      setAssignError("No se pudieron asignar las clases del paquete.")
+    } finally {
+      setAssigning(false)
+    }
+  }
+
 
   React.useEffect(() => {
     const grid = gridRef.current
@@ -300,7 +1252,13 @@ export default function ProfilePageClient() {
   }, [stickyTop])
 
   React.useEffect(() => {
-    if (!isLoaded || !isSignedIn) return
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    setE2eAuthBypass(params.get("e2eAuth") === "1")
+  }, [])
+
+  React.useEffect(() => {
+    if (!canLoadProtectedData) return
     let active = true
     setProfileLoading(true)
     fetch("/api/profile")
@@ -318,7 +1276,7 @@ export default function ProfilePageClient() {
           phoneVerified: Boolean(user?.primaryPhoneNumber?.verification?.status === "verified"),
           imageUrl: user?.imageUrl || "",
           level: mockProfile.level,
-          status: mockProfile.status,
+          status: toProfileStatus(userPayload.status),
         })
         setPointsBalance(data.pointsBalance || 0)
         setProfileComplete(Boolean(data.profileComplete))
@@ -333,7 +1291,7 @@ export default function ProfilePageClient() {
           phoneVerified: Boolean(user?.primaryPhoneNumber?.verification?.status === "verified"),
           imageUrl: user?.imageUrl || "",
           level: mockProfile.level,
-          status: mockProfile.status,
+          status: "NEW",
         })
         setProfileError("No pudimos cargar tu perfil.")
       })
@@ -344,10 +1302,10 @@ export default function ProfilePageClient() {
     return () => {
       active = false
     }
-  }, [isLoaded, isSignedIn, user])
+  }, [canLoadProtectedData, user])
 
   React.useEffect(() => {
-    if (!isLoaded || !isSignedIn) return
+    if (!canLoadProtectedData) return
     let active = true
     Promise.all([
       fetch("/api/profile/packages").then((res) => (res.ok ? res.json() : null)),
@@ -385,7 +1343,27 @@ export default function ProfilePageClient() {
     return () => {
       active = false
     }
-  }, [isLoaded, isSignedIn])
+  }, [canLoadProtectedData])
+
+  React.useEffect(() => {
+    void loadPointsHistory()
+    void loadActionRequests()
+    void loadBookings()
+  }, [loadPointsHistory, loadActionRequests, loadBookings])
+
+  React.useEffect(() => {
+    if (visibleBookings.length === 0) {
+      setSelectedBookingId("")
+      setRequestCancelBookingId("")
+      return
+    }
+    setSelectedBookingId((prev) =>
+      prev && visibleBookings.some((booking) => booking.id === prev) ? prev : visibleBookings[0].id
+    )
+    setRequestCancelBookingId((prev) =>
+      prev && visibleBookings.some((booking) => booking.id === prev) ? prev : visibleBookings[0].id
+    )
+  }, [visibleBookings])
 
   React.useEffect(() => {
     if (typeof document === "undefined") return
@@ -426,6 +1404,139 @@ export default function ProfilePageClient() {
       }
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!requestSubmitSuccess) return
+    const id = window.setTimeout(() => setRequestSubmitSuccess(null), 3500)
+    return () => window.clearTimeout(id)
+  }, [requestSubmitSuccess])
+
+  React.useEffect(() => {
+    if (requestModalType !== "SUSPEND") return
+    if (requestSuspendPackageId) return
+    if (!suspendablePackages.length) return
+    setRequestSuspendPackageId(suspendablePackages[0].id)
+  }, [requestModalType, requestSuspendPackageId, suspendablePackages])
+
+  React.useEffect(() => {
+    if (requestModalType !== "CANCEL") return
+    if (!requestCancelBookingId && visibleBookings.length > 0) {
+      setRequestCancelBookingId(visibleBookings[0].id)
+      return
+    }
+    if (!requestCancelBooking) return
+    const nextEffectiveDate = formatDateKeyInTimeZone(requestCancelBooking.startsAt, NY_TIMEZONE)
+    if (!nextEffectiveDate) return
+    if (nextEffectiveDate !== requestCancelEffectiveDate) {
+      setRequestCancelEffectiveDate(nextEffectiveDate)
+    }
+  }, [requestCancelBooking, requestCancelBookingId, requestCancelEffectiveDate, requestModalType, visibleBookings])
+
+  React.useEffect(() => {
+    if (!changeModalOpen || !selectedBooking || !rescheduleDate) return
+    void loadAvailability(selectedBooking.courseSlug, rescheduleDate, selectedBooking.id)
+  }, [changeModalOpen, selectedBooking, rescheduleDate, loadAvailability])
+
+  React.useEffect(() => {
+    if (!rescheduleTime) return
+    const validSelection = availability.some(
+      (slot) =>
+        slot.time === rescheduleTime &&
+        !slot.isFull &&
+        !slot.isPast &&
+        !rescheduleBookedTimesForSelectedDate.has(slot.time) &&
+        !isCurrentRescheduleSlot(rescheduleDate, slot.time)
+    )
+    if (!validSelection) {
+      setRescheduleTime("")
+    }
+  }, [availability, isCurrentRescheduleSlot, rescheduleBookedTimesForSelectedDate, rescheduleDate, rescheduleTime])
+
+  React.useEffect(() => {
+    if (!rescheduleDate) return
+    if (!isRescheduleDateBlocked(rescheduleDate)) return
+    const blockReason = getRescheduleDateBlockReason(rescheduleDate)
+    setRescheduleDate("")
+    setRescheduleTime("")
+    setAvailability([])
+    setRescheduleError(blockReason || "Ese día ya no tiene horarios disponibles.")
+  }, [getRescheduleDateBlockReason, isRescheduleDateBlocked, rescheduleDate])
+
+  React.useEffect(() => {
+    if (!changeModalOpen || !rescheduleCourseSlug) return
+    const scoped = bookings.filter((booking) => booking.courseSlug === rescheduleCourseSlug)
+    if (!scoped.length) return
+    if (!scoped.some((booking) => booking.id === selectedBookingId)) {
+      const first = scoped[0]
+      setSelectedBookingId(first.id)
+      hydrateRescheduleFromBooking(first)
+    }
+  }, [
+    bookings,
+    changeModalOpen,
+    hydrateRescheduleFromBooking,
+    rescheduleCourseSlug,
+    selectedBookingId,
+  ])
+
+  React.useEffect(() => {
+    setAssignSlots([])
+    setAssignDate("")
+    setAssignTime("")
+    setAssignAvailability([])
+    setAssignError(null)
+    setAssignSuccess(null)
+  }, [assignPackageId])
+
+  React.useEffect(() => {
+    if (!assignDate || !selectedPackageForAssign?.courseSlug) {
+      setAssignAvailability([])
+      return
+    }
+    void loadAssignAvailability(selectedPackageForAssign.courseSlug, assignDate)
+  }, [assignDate, selectedPackageForAssign?.courseSlug, loadAssignAvailability])
+
+  React.useEffect(() => {
+    if (!assignTime) return
+    const validSelection = assignAvailability.some(
+      (slot) => slot.time === assignTime && !slot.isFull && !slot.isPast && !assignBookedTimesForSelectedDate.has(slot.time)
+    )
+    if (!validSelection) {
+      setAssignTime("")
+    }
+  }, [assignAvailability, assignBookedTimesForSelectedDate, assignTime])
+
+  React.useEffect(() => {
+    if (!assignDate) return
+    if (assignUnavailableDates.includes(assignDate)) {
+      const scheduleTimes = selectedPackageForAssign?.courseSlug
+        ? getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, assignDate)
+        : []
+      const allTimesPast =
+        scheduleTimes.length > 0 &&
+        scheduleTimes.every((time) => isSlotInPastForTimeZone(assignDate, time, NY_TIMEZONE))
+      setAssignDate("")
+      setAssignTime("")
+      setAssignAvailability([])
+      setAssignError(allTimesPast ? "Los horarios de ese día ya pasaron." : "Esa fecha ya está completamente reservada por vos.")
+    }
+  }, [assignDate, assignUnavailableDates, selectedPackageForAssign?.courseSlug])
+
+  React.useEffect(() => {
+    if (mobileAgendaOpenDay === null) return
+    const hasEventsForDay = visibleBookings.some((booking) => {
+      const startsAt = new Date(booking.startsAt)
+      if (Number.isNaN(startsAt.getTime())) return false
+      return (
+        startsAt.getFullYear() === agendaYear &&
+        startsAt.getMonth() === agendaMonth &&
+        startsAt.getDate() === mobileAgendaOpenDay
+      )
+    })
+    if (!hasEventsForDay) {
+      setMobileAgendaOpenDay(null)
+    }
+  }, [agendaMonth, agendaYear, mobileAgendaOpenDay, visibleBookings])
 
   React.useEffect(() => {
     const footer = document.getElementById("site-footer")
@@ -491,10 +1602,42 @@ export default function ProfilePageClient() {
     setProfileError(null)
     setProfileSaved(false)
     try {
+      const billingLine1 = profileForm.billingLine1.trim()
+      const billingLine2 = profileForm.billingLine2.trim()
+      const billingCity = profileForm.billingCity.trim()
+      const billingState = profileForm.billingState.trim()
+      const billingPostalCode = profileForm.billingPostalCode.trim()
+      const billingCountry = profileForm.billingCountry.trim()
+      const hasBillingData = [billingLine1, billingLine2, billingCity, billingState, billingPostalCode, billingCountry].some(Boolean)
+
+      if (hasBillingData && (!billingLine1 || !billingCity || !billingState || !billingPostalCode || !billingCountry)) {
+        setProfileError("Completa la dirección de facturación (línea 1, ciudad, estado, ZIP y país).")
+        return
+      }
+
+      const payload = {
+        firstName: profileForm.firstName,
+        lastName: profileForm.lastName,
+        birthDate: profileForm.birthDate,
+        emergencyContactName: profileForm.emergencyContactName,
+        emergencyContactRelation: profileForm.emergencyContactRelation,
+        emergencyContactPhone: profileForm.emergencyContactPhone,
+        billingAddress: hasBillingData
+          ? {
+              line1: billingLine1,
+              line2: billingLine2 || null,
+              city: billingCity,
+              state: billingState,
+              postalCode: billingPostalCode,
+              country: billingCountry,
+            }
+          : null,
+      }
+
       const res = await fetch("/api/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profileForm),
+        body: JSON.stringify(payload),
       })
       let data: ProfileSaveResponse | null = null
       try {
@@ -512,6 +1655,7 @@ export default function ProfilePageClient() {
       if (data?.profile) {
         setProfileForm(buildProfileFormState(data.profile, user))
       }
+      void loadPointsHistory()
       setProfileSaved(true)
       if (profileSavedTimeout.current) {
         window.clearTimeout(profileSavedTimeout.current)
@@ -603,9 +1747,7 @@ export default function ProfilePageClient() {
     { label: "Consistencia", icon: Star },
   ]
 
-  const buildCalendar = () => {
-    const year = 2026
-    const monthIndex = 1 // Febrero
+  const buildCalendar = (year: number, monthIndex: number) => {
     const firstDay = new Date(year, monthIndex, 1)
     const lastDay = new Date(year, monthIndex + 1, 0)
     const startWeekday = firstDay.getDay()
@@ -622,8 +1764,88 @@ export default function ProfilePageClient() {
     }
     return days
   }
-  const calendarDays = buildCalendar()
-  const classDays = new Set([4, 11, 18, 25])
+  const calendarDays = React.useMemo(() => buildCalendar(agendaYear, agendaMonth), [agendaYear, agendaMonth])
+  const agendaMonthLabel = React.useMemo(() => {
+    const monthLabel = new Intl.DateTimeFormat("es-ES", { month: "long" }).format(new Date(agendaYear, agendaMonth, 1))
+    return monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
+  }, [agendaMonth, agendaYear])
+  const agendaYears = React.useMemo(() => {
+    const current = new Date().getFullYear()
+    return Array.from({ length: 7 }, (_, index) => current - 1 + index)
+  }, [])
+  const bookingEventsByDay = React.useMemo(() => {
+    const grouped = new Map<number, Array<{ id: string; time: string; courseTitle: string }>>()
+    for (const booking of visibleBookings) {
+      const startsAt = new Date(booking.startsAt)
+      if (Number.isNaN(startsAt.getTime())) continue
+      if (startsAt.getFullYear() !== agendaYear || startsAt.getMonth() !== agendaMonth) continue
+      const day = startsAt.getDate()
+      const list = grouped.get(day) || []
+      list.push({
+        id: booking.id,
+        time: formatDateTimeInTimeZone(startsAt, { hour: "numeric", minute: "2-digit" }),
+        courseTitle: booking.courseTitle,
+      })
+      grouped.set(day, list)
+    }
+    return grouped
+  }, [agendaMonth, agendaYear, visibleBookings])
+  const pendingBookingEventsByDay = React.useMemo(() => {
+    const grouped = new Map<
+      number,
+      Array<{ id: string; time: string; courseTitle: string; processLabel: string; processType: ActionRequestType | null }>
+    >()
+    for (const booking of pendingBookings) {
+      const startsAt = new Date(booking.startsAt)
+      if (Number.isNaN(startsAt.getTime())) continue
+      if (startsAt.getFullYear() !== agendaYear || startsAt.getMonth() !== agendaMonth) continue
+      const request = classRequestsByAttendance.get(booking.id)
+      const day = startsAt.getDate()
+      const list = grouped.get(day) || []
+      list.push({
+        id: booking.id,
+        time: formatDateTimeInTimeZone(startsAt, { hour: "numeric", minute: "2-digit" }),
+        courseTitle: booking.courseTitle,
+        processLabel: getPendingProcessLabel(request),
+        processType: request?.type || null,
+      })
+      grouped.set(day, list)
+    }
+    return grouped
+  }, [agendaMonth, agendaYear, classRequestsByAttendance, pendingBookings])
+  const nextBookedClass = React.useMemo(() => {
+    if (!visibleBookings.length) {
+      return {
+        scheduleLabel: activityStats.lastClassLabel || mockProfile.schedule.nextClass,
+        courseTitle: "",
+      }
+    }
+    const next = visibleBookings.find((booking) => new Date(booking.startsAt).getTime() >= Date.now()) || visibleBookings[0]
+    const startsAt = new Date(next.startsAt)
+    if (Number.isNaN(startsAt.getTime())) {
+      return {
+        scheduleLabel: activityStats.lastClassLabel || mockProfile.schedule.nextClass,
+        courseTitle: next.courseTitle || "",
+      }
+    }
+    return {
+      scheduleLabel: formatDateTimeInTimeZone(startsAt, {
+        weekday: "long",
+        day: "numeric",
+        month: "short",
+        hour: "numeric",
+        minute: "2-digit",
+      }),
+      courseTitle: next.courseTitle || "",
+    }
+  }, [activityStats.lastClassLabel, visibleBookings])
+  const latestPointEntries = pointsEntries.slice(0, 6)
+  const latestActionRequests = actionRequests.slice(0, 5)
+  const rescheduleStepItems = [
+    { id: 1 as const, label: "Reasignación" },
+    { id: 2 as const, label: "Confirmación" },
+    { id: 3 as const, label: "Asignar pendientes" },
+  ]
 
   return (
     <main className="min-h-[70vh] bg-background">
@@ -635,16 +1857,24 @@ export default function ProfilePageClient() {
             <GlassyCard className="p-4 space-y-4">
               <div className="flex items-center gap-3">
                 <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/10">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={avatarSrc} alt={profileUser.name || mockProfile.name} className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[var(--brand,#b61616)] text-white shadow-[0_6px_16px_-6px_rgba(182,22,22,0.8)]"
+                    className="group relative h-full w-full overflow-hidden"
                     aria-label="Cambiar avatar"
                     title="Cambiar avatar"
+                    disabled={avatarUploading}
+                    data-testid="avatar-upload-trigger"
                   >
-                    <Camera className="h-3.5 w-3.5" />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={avatarSrc} alt={profileUser.name || mockProfile.name} className="h-full w-full object-cover" />
+                    <span
+                      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/60 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+                      data-testid="avatar-edit-overlay"
+                    >
+                      <Camera className="h-3.5 w-3.5" />
+                      <span className="text-[10px] font-semibold tracking-[0.08em] uppercase">Editar foto</span>
+                    </span>
                   </button>
                   <input
                     ref={fileInputRef}
@@ -661,7 +1891,7 @@ export default function ProfilePageClient() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Alumno</p>
                   <h2 className="text-lg font-semibold">{profileUser.name || mockProfile.name}</h2>
-                  <p className="text-xs text-white/60">{mockProfile.level}</p>
+                  <p className="text-xs text-zinc-600 dark:text-white/60">{mockProfile.level}</p>
                 </div>
               </div>
 
@@ -676,12 +1906,12 @@ export default function ProfilePageClient() {
                 </div>
               </div>
 
-              <div className="mt-4 space-y-2 text-sm text-white/70">
+              <div className="mt-4 space-y-2 text-sm text-zinc-700 dark:text-white/70">
                 <p>{profileUser.email || mockProfile.email}</p>
                 <p>{profileUser.phone || mockProfile.phone}</p>
               </div>
               {avatarError && <p className="mt-2 text-xs text-red-400">{avatarError}</p>}
-              {avatarUploading && <p className="mt-2 text-xs text-white/60">Actualizando avatar...</p>}
+              {avatarUploading && <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">Actualizando avatar...</p>}
 
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
                 <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Actividad</p>
@@ -694,7 +1924,7 @@ export default function ProfilePageClient() {
                 <button
                   type="button"
                   onClick={() => setShowProfileForm(true)}
-                  className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:border-white/30"
+                  className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs font-semibold text-zinc-800 hover:border-black/20 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:border-white/30"
                 >
                   Editar perfil
                 </button>
@@ -724,22 +1954,28 @@ export default function ProfilePageClient() {
                     packagesData.map((pkg) => (
                       <div key={pkg.id} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                         <p className="font-semibold">{pkg.label}</p>
-                        <p className="text-xs text-white/60">
+                        <p className="text-xs text-zinc-600 dark:text-white/60">
                           {pkg.isUnlimited ? "Ilimitado" : `Restantes: ${pkg.remainingCredits ?? 0}`}
                         </p>
-                        <p className="text-[11px] text-white/40">
-                          {pkg.expiresAt ? `Vence: ${new Date(pkg.expiresAt).toLocaleDateString()}` : "Sin vencimiento"}
+                        <p className="text-[11px] text-zinc-500 dark:text-white/40">
+                          {pkg.expiresAt
+                            ? `Vence: ${formatDateTimeInTimeZone(pkg.expiresAt, {
+                                year: "numeric",
+                                month: "2-digit",
+                                day: "2-digit",
+                              })}`
+                            : "Sin vencimiento"}
                         </p>
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-600 dark:text-white/60">
                       No tenés paquetes activos.
                     </div>
                   )}
                   <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                     <p className="font-semibold">Resumen</p>
-                    <p className="text-xs text-white/60">
+                    <p className="text-xs text-zinc-600 dark:text-white/60">
                       Activos: {packagesSummary.activePackages} · Créditos: {packagesSummary.totalRemainingCredits}
                       {packagesSummary.unlimitedPackages > 0 ? ` · Ilimitados: ${packagesSummary.unlimitedPackages}` : ""}
                     </p>
@@ -751,10 +1987,10 @@ export default function ProfilePageClient() {
           </aside>
 
           {/* Center */}
-          <section className="space-y-6">
+          <section className="flex flex-col gap-6">
             {profileFormMounted && (
             <div
-              className={`transition-all duration-300 ease-out overflow-hidden ${
+              className={`order-1 transition-all duration-300 ease-out overflow-hidden ${
                 profileFormVisible ? "max-h-[1600px] opacity-100 translate-y-0" : "max-h-0 opacity-0 -translate-y-2"
               }`}
             >
@@ -762,19 +1998,19 @@ export default function ProfilePageClient() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Perfil</p>
-                  <h3 className="mt-2 text-lg font-semibold text-white">Completa tu perfil y gana puntos</h3>
-                  <p className="mt-1 text-sm text-white/60">
+                  <h3 className="mt-2 text-lg font-semibold text-zinc-900 dark:text-white">Completa tu perfil y gana puntos</h3>
+                  <p className="mt-1 text-sm text-zinc-600 dark:text-white/60">
                     Al completar tu perfil sumás puntos para canjear por beneficios.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="rounded-full border border-[var(--brand,#b61616)]/60 bg-[rgba(182,22,22,0.15)] px-4 py-2 text-sm font-semibold text-[var(--brand,#b61616)] shadow-[0_0_20px_rgba(182,22,22,0.25)]">
-                    PLI Coins: <span className="text-white">{pointsBalance}</span>
+                    PLI Coins: <span className="text-zinc-900 dark:text-white">{pointsBalance}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowProfileForm(false)}
-                    className="rounded-full border border-white/10 bg-black/40 p-2 text-white/70 hover:text-white"
+                    className="rounded-full border border-black/10 bg-black/[0.05] p-2 text-zinc-700 hover:text-zinc-900 dark:border-white/10 dark:bg-black/40 dark:text-white/70 dark:hover:text-white"
                     aria-label="Cerrar"
                   >
                     <X className="h-4 w-4" />
@@ -788,7 +2024,7 @@ export default function ProfilePageClient() {
                   <input
                     value={profileForm.firstName}
                     onChange={(e) => setProfileForm((s) => ({ ...s, firstName: e.target.value }))}
-                    className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/90 placeholder:text-white/40"
+                    className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 dark:border-white/15 dark:text-white/90 dark:placeholder:text-white/40"
                     placeholder="Tu nombre"
                   />
                 </fieldset>
@@ -797,7 +2033,7 @@ export default function ProfilePageClient() {
                   <input
                     value={profileForm.lastName}
                     onChange={(e) => setProfileForm((s) => ({ ...s, lastName: e.target.value }))}
-                    className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/90 placeholder:text-white/40"
+                    className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 dark:border-white/15 dark:text-white/90 dark:placeholder:text-white/40"
                     placeholder="Tu apellido"
                   />
                 </fieldset>
@@ -806,7 +2042,7 @@ export default function ProfilePageClient() {
                   <input
                     value={user?.primaryEmailAddress?.emailAddress || ""}
                     readOnly
-                    className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/60"
+                    className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-600 dark:border-white/15 dark:text-white/60"
                   />
                 </fieldset>
                 <fieldset className="space-y-2">
@@ -814,7 +2050,7 @@ export default function ProfilePageClient() {
                   <input
                     value={user?.primaryPhoneNumber?.phoneNumber || ""}
                     readOnly
-                    className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/60"
+                    className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-600 dark:border-white/15 dark:text-white/60"
                   />
                 </fieldset>
                 <fieldset className="space-y-2">
@@ -823,7 +2059,7 @@ export default function ProfilePageClient() {
                     type="date"
                     value={profileForm.birthDate}
                     onChange={(e) => setProfileForm((s) => ({ ...s, birthDate: e.target.value }))}
-                    className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/90"
+                    className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
                   />
                 </fieldset>
               </div>
@@ -836,7 +2072,7 @@ export default function ProfilePageClient() {
                     <input
                       value={profileForm.emergencyContactName}
                       onChange={(e) => setProfileForm((s) => ({ ...s, emergencyContactName: e.target.value }))}
-                      className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/90"
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
                       placeholder="Nombre y apellido"
                     />
                   </fieldset>
@@ -845,7 +2081,7 @@ export default function ProfilePageClient() {
                     <input
                       value={profileForm.emergencyContactRelation}
                       onChange={(e) => setProfileForm((s) => ({ ...s, emergencyContactRelation: e.target.value }))}
-                      className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/90"
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
                       placeholder="Ej: Madre, Padre, Amigo"
                     />
                   </fieldset>
@@ -854,15 +2090,78 @@ export default function ProfilePageClient() {
                     <input
                       value={profileForm.emergencyContactPhone}
                       onChange={(e) => setProfileForm((s) => ({ ...s, emergencyContactPhone: e.target.value }))}
-                      className="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white/90"
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
                       placeholder="Número"
                     />
                   </fieldset>
                 </div>
               </div>
 
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Dirección de facturación</p>
+                <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">
+                  Se usa solo para pagos con tarjeta (Stripe). Podés editarla cuando quieras.
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">Línea 1</label>
+                    <input
+                      value={profileForm.billingLine1}
+                      onChange={(e) => setProfileForm((s) => ({ ...s, billingLine1: e.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="Calle y número"
+                    />
+                  </fieldset>
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">Línea 2 (opcional)</label>
+                    <input
+                      value={profileForm.billingLine2}
+                      onChange={(e) => setProfileForm((s) => ({ ...s, billingLine2: e.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="Apto, piso, unidad"
+                    />
+                  </fieldset>
+                  <fieldset className="space-y-2">
+                    <label className="text-sm font-medium">Ciudad</label>
+                    <input
+                      value={profileForm.billingCity}
+                      onChange={(e) => setProfileForm((s) => ({ ...s, billingCity: e.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="Ciudad"
+                    />
+                  </fieldset>
+                  <fieldset className="space-y-2">
+                    <label className="text-sm font-medium">Estado</label>
+                    <input
+                      value={profileForm.billingState}
+                      onChange={(e) => setProfileForm((s) => ({ ...s, billingState: e.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="Estado"
+                    />
+                  </fieldset>
+                  <fieldset className="space-y-2">
+                    <label className="text-sm font-medium">ZIP / Postal code</label>
+                    <input
+                      value={profileForm.billingPostalCode}
+                      onChange={(e) => setProfileForm((s) => ({ ...s, billingPostalCode: e.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="ZIP"
+                    />
+                  </fieldset>
+                  <fieldset className="space-y-2">
+                    <label className="text-sm font-medium">País</label>
+                    <input
+                      value={profileForm.billingCountry}
+                      onChange={(e) => setProfileForm((s) => ({ ...s, billingCountry: e.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="País"
+                    />
+                  </fieldset>
+                </div>
+              </div>
+
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="text-xs text-white/60">
+                <div className="text-xs text-zinc-600 dark:text-white/60">
                   {profileComplete ? "Perfil completo. ¡Seguís sumando puntos!" : "Completa tu perfil para ganar 10 puntos."}
                 </div>
                 <button
@@ -882,7 +2181,7 @@ export default function ProfilePageClient() {
             </div>
             )}
 
-            <GlassyCard className="p-4">
+            <GlassyCard className="order-2 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Momentos del alumno</p>
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                 {mockProfile.moments.map((src, idx) => (
@@ -894,7 +2193,7 @@ export default function ProfilePageClient() {
               </div>
             </GlassyCard>
 
-            <GlassyCard className="p-4">
+            <GlassyCard className="order-8 p-4">
               <div className="relative overflow-visible rounded-3xl border border-white/10 bg-gradient-to-br from-[#120b14] via-[#0f0b12] to-[#0b0b0f] p-5 shadow-[0_30px_120px_-60px_rgba(182,22,22,0.8)]">
                 <div className="pointer-events-none absolute -left-24 -top-20 h-40 w-40 rounded-full bg-[radial-gradient(circle_at_center,rgba(182,22,22,0.45),transparent_70%)] blur-3xl" />
                 <div className="pointer-events-none absolute right-10 top-6 h-24 w-24 rounded-full bg-[radial-gradient(circle_at_center,rgba(239,107,107,0.4),transparent_70%)] blur-3xl" />
@@ -932,12 +2231,12 @@ export default function ProfilePageClient() {
                     <div className="relative min-h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-[#0b0b0f]/80 px-5 py-4 flex-1 flex flex-col justify-between text-center">
                       <div className="pointer-events-none absolute -left-10 -top-10 h-24 w-24 rounded-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.35),transparent_70%)] blur-2xl" />
                       <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Clases totales</p>
-                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight">{activityStats.classesTaken}</p>
+                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight text-white">{activityStats.classesTaken}</p>
                       <p className="mt-2 text-[11px] text-white/50">+12% vs mes anterior</p>
                     </div>
                     <div className="min-h-[148px] rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-[#0b0b0f]/80 px-5 py-4 flex-1 flex flex-col justify-between text-center">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Promedio semanal</p>
-                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight">{activityStats.weeklyAverage}</p>
+                      <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight text-white">{activityStats.weeklyAverage}</p>
                       <p className="mt-2 text-[11px] text-white/50">Racha: {activityStats.streakWeeks} semanas</p>
                     </div>
                   </div>
@@ -1131,7 +2430,7 @@ export default function ProfilePageClient() {
                           <div className="absolute inset-[10px] rounded-full bg-[#0b0b0f] border border-white/10 flex items-center justify-center">
                             <div className="text-center">
                               <p className="text-[10px] text-white/60">Total</p>
-                              <p className="text-lg font-semibold">100%</p>
+                              <p className="text-lg font-semibold text-white">100%</p>
                             </div>
                           </div>
                           <div className="absolute -bottom-4 left-1/2 h-6 w-16 -translate-x-1/2 rounded-full bg-[var(--brand,#b61616)]/30 blur-xl" />
@@ -1157,15 +2456,15 @@ export default function ProfilePageClient() {
               </div>
             </GlassyCard>
 
-            <GlassyCard className="p-4">
+            <GlassyCard className="order-5 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">PLI Coins</p>
-                  <p className="mt-2 text-sm text-white/70">
+                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
                     Te faltan <strong>{Math.max(0, mockProfile.coins.goal - currentCoins)}</strong> puntos para una clase gratis.
                   </p>
                 </div>
-                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">
+                <div className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/60">
                   Meta: {mockProfile.coins.goal} PLI Coins
                 </div>
               </div>
@@ -1187,16 +2486,63 @@ export default function ProfilePageClient() {
                   />
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                <div className="absolute bottom-3 left-3 text-sm font-semibold">
+                <div className="absolute bottom-3 left-3 text-sm font-semibold text-white">
                   {currentCoins} / {mockProfile.coins.goal} PLI Coins
                 </div>
               </div>
-              <p className="mt-3 text-xs text-white/60">
+              <p className="mt-3 text-xs text-zinc-600 dark:text-white/60">
                 Clases gratis obtenidas: <strong>{mockProfile.coins.freeClassesEarned}</strong>
               </p>
             </GlassyCard>
 
-            <GlassyCard className="p-4">
+            <GlassyCard className="order-6 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Historial de puntos</p>
+                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">Movimientos recientes de tu balance.</p>
+                </div>
+                <div className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs font-semibold text-zinc-800 dark:border-white/10 dark:bg-white/5 dark:text-white/80">
+                  Balance: {pointsBalance}
+                </div>
+              </div>
+              {pointsError && <p className="mt-3 text-xs text-red-400">{pointsError}</p>}
+              {pointsLoading ? (
+                <div className="mt-4 space-y-2">
+                  {Array.from({ length: 3 }).map((_, idx) => (
+                    <div key={`points-skeleton-${idx}`} className="h-10 animate-pulse rounded-lg border border-white/10 bg-white/5" />
+                  ))}
+                </div>
+              ) : latestPointEntries.length > 0 ? (
+                <div className="mt-4 space-y-2">
+                  {latestPointEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-800 dark:text-white/90">{pointsTypeLabel(entry.type)}</p>
+                        <p className="text-xs text-zinc-600 dark:text-white/55">
+                          {formatDateTimeInTimeZone(entry.createdAt)}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          entry.points >= 0
+                            ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                            : "border border-red-500/30 bg-red-500/10 text-red-400"
+                        }`}
+                      >
+                        {entry.points >= 0 ? `+${entry.points}` : entry.points}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-4 text-xs text-zinc-600 dark:text-white/60">Todavía no tenés movimientos de puntos.</p>
+              )}
+            </GlassyCard>
+
+            <GlassyCard className="order-7 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Medallas</p>
               <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {medalItems.map((item) => {
@@ -1211,76 +2557,439 @@ export default function ProfilePageClient() {
                         </div>
                         <div className="absolute -bottom-2 left-1/2 h-4 w-10 -translate-x-1/2 rounded-full bg-[var(--brand,#b61616)]/40 blur-sm" />
                       </div>
-                      <p className="text-xs text-white/80">{item.label}</p>
+                      <p className="text-xs text-zinc-700 dark:text-white/80">{item.label}</p>
                     </div>
                   )
                 })}
               </div>
             </GlassyCard>
 
-            <GlassyCard className="p-4">
+            <GlassyCard className="order-3 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Agenda</p>
-                  <p className="mt-2 text-sm text-white/70">
-                    Tu clase recurrente: <strong>{activityStats.recurringLabel || mockProfile.schedule.recurring}</strong>
+                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
+                    Tus clases programadas y horarios reales.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-white/60">
-                  <button className="rounded-full border border-white/10 px-2 py-1">Feb</button>
-                  <button className="rounded-full border border-white/10 px-2 py-1">Mar</button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextMonth = agendaMonth - 1
+                      if (nextMonth < 0) {
+                        setAgendaMonth(11)
+                        setAgendaYear((prev) => prev - 1)
+                        return
+                      }
+                      setAgendaMonth(nextMonth)
+                    }}
+                    className="rounded-full border border-black/10 px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
+                    aria-label="Mes anterior"
+                  >
+                    ‹
+                  </button>
+                  <select
+                    value={agendaYear}
+                    onChange={(event) => setAgendaYear(Number(event.target.value))}
+                    className="rounded-full border border-black/10 bg-transparent px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
+                  >
+                    {agendaYears.map((year) => (
+                      <option key={`agenda-year-${year}`} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextMonth = agendaMonth + 1
+                      if (nextMonth > 11) {
+                        setAgendaMonth(0)
+                        setAgendaYear((prev) => prev + 1)
+                        return
+                      }
+                      setAgendaMonth(nextMonth)
+                    }}
+                    className="rounded-full border border-black/10 px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
+                    aria-label="Mes siguiente"
+                  >
+                    ›
+                  </button>
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="mt-4 rounded-2xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/5">
                 <div className="flex items-center justify-between text-sm font-semibold">
-                  <span>Febrero 2026</span>
-                  <button className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/60">Hoy</button>
+                  <span>{agendaMonthLabel} {agendaYear}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date()
+                      setAgendaMonth(now.getMonth())
+                      setAgendaYear(now.getFullYear())
+                    }}
+                    className="rounded-full border border-black/10 px-3 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
+                  >
+                    Hoy
+                  </button>
                 </div>
-                <div className="mt-3 grid grid-cols-7 text-[11px] uppercase tracking-[0.18em] text-white/40">
+                <div className="mt-3 grid grid-cols-7 text-[11px] uppercase tracking-[0.18em] text-zinc-500 dark:text-white/40">
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
                     <div key={d} className="py-2 text-center">{d}</div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 gap-px rounded-lg border border-white/10 bg-white/5 text-sm">
-                  {calendarDays.map((day, idx) => (
-                    <div
-                      key={`cal-${idx}`}
-                      className={`min-h-[72px] border border-white/5 px-2 py-2 text-right text-xs ${
-                        day.isCurrent ? "text-white/80" : "text-white/20"
-                      }`}
-                    >
-                      {day.day > 0 && (
-                        <>
-                          <div>{day.day}</div>
-                          {classDays.has(day.day) && (
-                            <div className="mt-2 hidden items-center gap-1 rounded-full bg-[var(--brand,#b61616)]/70 px-2 py-1 text-[10px] text-left text-white sm:inline-flex">
-                              Clase 7:00 PM
-                            </div>
-                          )}
-                          {classDays.has(day.day) && (
-                            <div className="mt-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--brand,#b61616)]/80 text-white sm:hidden">
-                              <Music2 className="h-3.5 w-3.5" aria-hidden />
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
+                <div className="grid grid-cols-7 gap-px rounded-lg border border-black/10 bg-black/[0.03] text-sm dark:border-white/10 dark:bg-white/5">
+                  {calendarDays.map((day, idx) => {
+                    const dayEvents = day.day > 0 ? bookingEventsByDay.get(day.day) || [] : []
+                    const pendingDayEvents = day.day > 0 ? pendingBookingEventsByDay.get(day.day) || [] : []
+                    const pendingTypes = Array.from(
+                      new Set(
+                        pendingDayEvents
+                          .map((entry) => entry.processType)
+                          .filter((type): type is ActionRequestType => Boolean(type))
+                      )
+                    )
+                    const pendingTone = pendingTypes.length === 1 ? getProcessTypeTone(pendingTypes[0]) : getProcessTypeTone(null)
+                    const pendingProcessLabels = Array.from(new Set(pendingDayEvents.map((entry) => entry.processLabel)))
+                    const pendingBadgeText =
+                      pendingProcessLabels.length === 1
+                        ? pendingProcessLabels[0]
+                        : `${pendingDayEvents.length} procesos en curso`
+                    const mobileOpen = mobileAgendaOpenDay === day.day && dayEvents.length > 0
+                    return (
+                      <div
+                        key={`cal-${idx}`}
+                        className={`relative min-h-[72px] border border-black/5 px-2 py-2 text-right text-xs dark:border-white/5 ${
+                          day.isCurrent ? "text-zinc-700 dark:text-white/80" : "text-zinc-300 dark:text-white/20"
+                        }`}
+                      >
+                        {day.day > 0 && (
+                          <>
+                            <div>{day.day}</div>
+                            {dayEvents.slice(0, 2).map((entry) => (
+                              <div
+                                key={`calendar-entry-${entry.id}`}
+                                className="group relative mt-2 hidden items-center gap-1 rounded-full bg-[var(--brand,#b61616)]/70 px-2 py-1 text-[10px] text-left text-white sm:inline-flex"
+                              >
+                                Clase {entry.time}
+                                <div className="pointer-events-none absolute left-1/2 top-0 z-30 w-44 -translate-x-1/2 -translate-y-[108%] rounded-xl border border-white/10 bg-[#16111a]/95 px-3 py-2 text-left text-[11px] opacity-0 shadow-[0_20px_55px_-30px_rgba(0,0,0,0.8)] transition group-hover:opacity-100">
+                                  <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--brand,#b61616)]">Clase</p>
+                                  <p className="mt-1 text-white">{entry.courseTitle}</p>
+                                  <p className="mt-1 text-white/70">{entry.time}</p>
+                                </div>
+                              </div>
+                            ))}
+                            {dayEvents.length > 2 && (
+                              <div className="mt-1 hidden text-[10px] text-[var(--brand,#b61616)] sm:block">
+                                +{dayEvents.length - 2} más
+                              </div>
+                            )}
+                            {pendingDayEvents.length > 0 && (
+                              <div
+                                className="group relative mt-1 hidden sm:inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px]"
+                                style={{
+                                  borderColor: pendingTone.border,
+                                  background: pendingTone.bg,
+                                  color: pendingTone.text,
+                                }}
+                              >
+                                {pendingBadgeText}
+                                <div
+                                  className="pointer-events-none absolute left-1/2 top-0 z-30 w-56 -translate-x-1/2 -translate-y-[108%] rounded-xl border bg-[#16111a]/95 px-3 py-2 text-left text-[11px] opacity-0 shadow-[0_20px_55px_-30px_rgba(0,0,0,0.8)] transition group-hover:opacity-100"
+                                  style={{ borderColor: pendingTone.border }}
+                                >
+                                  {pendingDayEvents.map((entry) => (
+                                    <p
+                                      key={`pending-day-${entry.id}`}
+                                      className="mt-1 first:mt-0"
+                                      style={{ color: getProcessTypeTone(entry.processType).text }}
+                                    >
+                                      {entry.processLabel} · {entry.courseTitle} · {entry.time}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {dayEvents.length > 0 && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setMobileAgendaOpenDay((prev) => (prev === day.day ? null : day.day))}
+                                  className="mt-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--brand,#b61616)]/80 text-white sm:hidden"
+                                  aria-label={`Ver clases del día ${day.day}`}
+                                >
+                                  <Music2 className="h-3.5 w-3.5" aria-hidden />
+                                </button>
+                                {mobileOpen && (
+                                  <div className="absolute left-1/2 top-9 z-30 w-[11rem] -translate-x-1/2 rounded-xl border border-white/10 bg-[#16111a]/95 p-2 text-left shadow-[0_20px_55px_-30px_rgba(0,0,0,0.8)] sm:hidden">
+                                    {dayEvents.map((entry) => (
+                                      <div key={`mobile-agenda-${entry.id}`} className="rounded-md px-2 py-1.5">
+                                        <p className="text-[11px] font-semibold text-white">{entry.courseTitle}</p>
+                                        <p className="text-[10px] text-white/70">{entry.time}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            {pendingDayEvents.length > 0 && (
+                              <div
+                                className="mt-1 sm:hidden text-[10px]"
+                                style={{ color: pendingTone.text }}
+                              >
+                                {pendingBadgeText}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 
               <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm">
-                Próxima clase: <strong>{activityStats.lastClassLabel || mockProfile.schedule.nextClass}</strong>
+                Próxima clase: <strong>{nextBookedClass.scheduleLabel}</strong>
+                {nextBookedClass.courseTitle && (
+                  <span className="ml-2 text-zinc-600 dark:text-white/65">· {nextBookedClass.courseTitle}</span>
+                )}
               </div>
-              {!mockProfile.schedule.hasActiveBooking && (
+              {pendingBookings.length > 0 && (
+                <div className="mt-3 rounded-lg border border-black/10 bg-black/[0.03] px-3 py-3 text-sm dark:border-white/10 dark:bg-white/5">
+                  <p className="font-semibold text-zinc-800 dark:text-white">Procesos sobre clases asignadas</p>
+                  <div className="mt-2 space-y-2 text-xs">
+                    {pendingBookings.slice(0, 3).map((booking) => {
+                      const request = classRequestsByAttendance.get(booking.id)
+                      const tone = getProcessTypeTone(request?.type)
+                      return (
+                        <div
+                          key={`pending-booking-inline-${booking.id}`}
+                          className="rounded-md border px-2 py-1.5"
+                          style={{ borderColor: tone.border, background: tone.bg }}
+                        >
+                          <p style={{ color: tone.text }}>
+                            <span className="font-semibold">{getPendingProcessLabel(request)}</span> · {booking.courseTitle} ·{" "}
+                            {formatDateTimeInTimeZone(booking.startsAt)}
+                          </p>
+                        </div>
+                      )
+                    })}
+                    {pendingBookings.length > 3 && (
+                      <p className="text-zinc-700 dark:text-white/65">+{pendingBookings.length - 3} más en gestión.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {visibleBookings.length === 0 && (
                 <div className="mt-3 rounded-lg border border-[var(--brand,#b61616)]/40 bg-[rgba(182,22,22,0.1)] px-3 py-3 text-sm">
-                  Tu próxima clase es el martes. ¿Deseas agendar?
+                  No tenés clases agendadas. ¿Deseas reservar ahora?
                 </div>
               )}
             </GlassyCard>
 
-            <GlassyCard className="p-4">
+            <GlassyCard id="assign-classes-section" className="order-4 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Asignar clases</p>
+                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
+                    Organiza tus clases restantes con horarios disponibles del paquete.
+                  </p>
+                </div>
+                {selectedPackageForAssign && (
+                  <span className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
+                    {selectedPackageForAssign.isUnlimited
+                      ? "Ilimitado"
+                      : `${selectedPackageForAssign.remainingCredits ?? 0} créditos`}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                  <label className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Paquete</label>
+                  <select
+                    value={assignPackageId}
+                    onChange={(event) => setAssignPackageId(event.target.value)}
+                    className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-zinc-900 dark:text-white"
+                  >
+                    <option value="">Selecciona un paquete</option>
+                    {assignablePackages.map((pkg) => (
+                      <option key={pkg.id} value={pkg.id}>
+                        {pkg.label} {pkg.isUnlimited ? "(Ilimitado)" : `(${pkg.remainingCredits ?? 0} créditos)`}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedPackageForAssign && (
+                    <div className="rounded-lg border border-white/10 bg-black/[0.04] px-3 py-2 text-xs text-zinc-700 dark:bg-white/5 dark:text-white/65">
+                      <p>
+                        Clase:{" "}
+                        <strong className="text-zinc-900 dark:text-white">
+                          {selectedPackageCourse?.title || selectedPackageForAssign.courseSlug || "Sin clase"}
+                        </strong>
+                      </p>
+                      <p className="mt-1">
+                        Horarios: {selectedPackageCourse?.schedule.day || "Según calendario"}
+                      </p>
+                      {selectedPackageAssignmentStats && (
+                        <div className="mt-2 rounded-md border border-black/10 bg-black/[0.03] px-2 py-2 text-[11px] dark:border-white/10 dark:bg-white/5">
+                          <p>
+                            Clases del paquete asignadas:{" "}
+                            <strong className="text-zinc-900 dark:text-white">
+                              {selectedPackageAssignmentStats.assigned}
+                            </strong>
+                          </p>
+                          <p className="mt-1">
+                            Clases del paquete que faltan asignar:{" "}
+                            <strong className="text-zinc-900 dark:text-white">
+                              {selectedPackageAssignmentStats.isUnlimited
+                                ? "Sin límite"
+                                : selectedPackageAssignmentStats.remaining ?? 0}
+                            </strong>
+                          </p>
+                          {selectedPackageAssignmentStats.queued > 0 && (
+                            <p className="mt-1 text-[10px] text-zinc-600 dark:text-white/55">
+                              Incluye {selectedPackageAssignmentStats.queued} clase(s) en “Clases a confirmar”.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Nuevo horario</p>
+                  <div className="mt-3">
+                    <CalendarPicker
+                      value={assignDate}
+                      onChange={(value) => {
+                        setAssignDate(value)
+                        setAssignTime("")
+                        setAssignError(null)
+                        setAssignSuccess(null)
+                      }}
+                      timezone="America/New_York"
+                      minDate={todayNyDateKey}
+                      availableWeekdays={selectedPackageCourse?.schedule.availableWeekdays}
+                      unavailableDates={assignUnavailableDates}
+                      allowClear
+                      compact
+                      className="bg-white/5"
+                    />
+                  </div>
+                  <p className="mt-3 text-xs text-zinc-600 dark:text-white/50">Horarios disponibles</p>
+                  {assignAvailabilityLoading ? (
+                    <div className="mt-2 h-10 animate-pulse rounded-md border border-white/10 bg-white/5" />
+                  ) : assignAvailability.length > 0 ? (
+                    <div className="mt-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {assignAvailability.map((slot) => {
+                          const alreadyBooked = assignBookedTimesForSelectedDate.has(slot.time)
+                          const isPast = Boolean(slot.isPast)
+                          const disabled = slot.isFull || alreadyBooked || isPast
+                          return (
+                            <button
+                              key={`assign-availability-${slot.time}`}
+                              type="button"
+                              onClick={() => setAssignTime(slot.time)}
+                              disabled={disabled}
+                              className={`rounded-md border px-2 py-2 text-xs transition ${
+                                disabled
+                                  ? "cursor-not-allowed border-white/10 bg-white/5 text-zinc-500 dark:text-white/35"
+                                  : assignTime === slot.time
+                                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.22)] text-zinc-900 dark:text-white"
+                                    : "border-white/15 bg-white/10 text-zinc-800 dark:bg-white/5 dark:text-white/80 hover:border-white/35"
+                              }`}
+                            >
+                              <span className="block">{slot.label}</span>
+                              <span className="mt-1 block text-[10px] text-zinc-500 dark:text-white/55">
+                                {alreadyBooked
+                                  ? "Ya reservada"
+                                  : isPast
+                                    ? "Horario pasado"
+                                    : slot.isFull
+                                      ? "Full"
+                                      : `${slot.spotsLeft} cupos`}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {assignAvailability.every(
+                        (slot) => slot.isFull || Boolean(slot.isPast) || assignBookedTimesForSelectedDate.has(slot.time)
+                      ) && (
+                        <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
+                          No hay horarios disponibles para esa fecha.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
+                      Seleccioná un paquete y una fecha para ver horarios.
+                    </p>
+                  )}
+
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={addAssignSlot}
+                      disabled={!assignDate || !assignTime}
+                      className="rounded-md border border-[var(--brand,#b61616)]/60 px-3 py-2 text-xs font-semibold text-[var(--brand,#b61616)] disabled:opacity-50"
+                    >
+                      Agregar clase
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Clases a confirmar</p>
+                {assignSlots.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {assignSlots.map((slot, idx) => (
+                      <div
+                        key={`assign-list-${slot.date}-${slot.time}-${idx}`}
+                        className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-black/[0.04] px-3 py-2 text-sm dark:bg-white/5"
+                      >
+                        <span>
+                          {formatDateTimeInTimeZone(`${slot.date}T${slot.time}:00`)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeAssignSlot(idx)}
+                          className="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold text-zinc-700 dark:text-white/80"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
+                    Aún no agregaste clases para este paquete.
+                  </p>
+                )}
+
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-zinc-600 dark:text-white/60">
+                    Ganas 2.5 puntos por asignar por primera vez este paquete.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={submitAssignClasses}
+                    disabled={assigning || !assignSlots.length || !assignPackageId}
+                    className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {assigning ? "Asignando..." : "Asignar clases"}
+                  </button>
+                </div>
+              </div>
+              {assignError && <p className="mt-3 text-xs text-red-400">{assignError}</p>}
+              {assignSuccess && <p className="mt-3 text-xs text-emerald-300">{assignSuccess}</p>}
+            </GlassyCard>
+
+            <GlassyCard className="order-9 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Equipo</p>
               <div className="mt-4 flex items-center gap-4">
                 <div className="h-20 w-28 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
@@ -1288,15 +2997,15 @@ export default function ProfilePageClient() {
                   <img src="/images/shoes-pli.svg" alt="Calzado" className="h-full w-full object-cover" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-white/80">Calzado: {mockProfile.shoeTracking.model}</p>
+                  <p className="text-sm text-zinc-800 dark:text-white/80">Calzado: {mockProfile.shoeTracking.model}</p>
                   <div className="mt-2 h-3 rounded-full bg-white/10 overflow-hidden">
                     <div className="h-full bg-[var(--brand,#b61616)]" style={{ width: `${shoeProgress}%` }} />
                   </div>
-                  <p className="mt-2 text-xs text-white/60">
+                  <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">
                     {mockProfile.shoeTracking.km} km usados · Recomendado cambiar en {mockProfile.shoeTracking.maxKm} km.
                   </p>
                 </div>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
+                <span className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
                   {shoeProgress}% vida
                 </span>
               </div>
@@ -1308,7 +3017,7 @@ export default function ProfilePageClient() {
             <div ref={rightRailRef} className="profile-right-rail space-y-4">
             <GlassyCard className="p-4">
               <h3 className="text-base font-semibold">Reservar nueva clase</h3>
-              <p className="mt-2 text-sm text-white/60">Agenda una nueva clase disponible en tu horario.</p>
+              <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Agenda una nueva clase disponible en tu horario.</p>
               <button
                 className="mt-4 w-full rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white"
                 onClick={() => setCoursePickerOpen(true)}
@@ -1318,22 +3027,559 @@ export default function ProfilePageClient() {
             </GlassyCard>
             <GlassyCard className="p-4">
               <h3 className="text-base font-semibold">Cambiar clase</h3>
-              <p className="mt-2 text-sm text-white/60">Reprograma tu próxima clase sin perder tu cupo.</p>
-              <button className="mt-4 w-full rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-white/80">
+              {bookingsLoading ? (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Cargando próxima clase...</p>
+              ) : selectedBooking ? (
+                <div className="mt-2 space-y-2 text-sm">
+                  <p className="text-zinc-800 dark:text-white/80">{selectedBooking.courseTitle}</p>
+                  <p className="text-zinc-600 dark:text-white/60">
+                    {formatDateTimeInTimeZone(selectedBooking.startsAt)}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">No tenés una clase agendada para cambiar.</p>
+              )}
+              {bookingsError && <p className="mt-2 text-xs text-red-400">{bookingsError}</p>}
+              <button
+                type="button"
+                className="mt-4 w-full rounded-md border border-black/10 px-4 py-2 text-sm font-semibold text-zinc-700 dark:border-white/10 dark:text-white/80"
+                onClick={openChangeClassModal}
+                disabled={!selectedBooking}
+              >
                 Cambiar
               </button>
             </GlassyCard>
             <GlassyCard className="p-4">
               <h3 className="text-base font-semibold">Suspender / Cancelar</h3>
-              <p className="mt-2 text-sm text-white/60">Pausá o cancelá tu suscripción cuando lo necesites.</p>
-              <button className="mt-4 w-full rounded-md border border-[var(--brand,#b61616)]/50 px-4 py-2 text-sm font-semibold text-white/80">
-                Gestionar
-              </button>
+              <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">
+                Cancelación: elegís clase y definís si reasignar o pedir reembolso.
+                Suspensión: solo para paquetes activos.
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-black/10 px-3 py-2 text-sm font-semibold text-zinc-700 dark:border-white/10 dark:text-white/80"
+                  onClick={() => openRequestModal("SUSPEND")}
+                >
+                  Suspender paquete
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-[var(--brand,#b61616)]/50 px-3 py-2 text-sm font-semibold text-zinc-700 dark:text-white/80"
+                  onClick={() => openRequestModal("CANCEL")}
+                >
+                  Cancelar clase
+                </button>
+              </div>
+              {requestSubmitError && !requestModalType && (
+                <p className="mt-3 text-xs text-red-400">{requestSubmitError}</p>
+              )}
+              {requestSubmitSuccess && (
+                <p className="mt-3 text-xs text-emerald-500 dark:text-emerald-300">{requestSubmitSuccess}</p>
+              )}
+            </GlassyCard>
+            <GlassyCard className="p-4">
+              <h3 className="text-base font-semibold">Solicitudes recientes</h3>
+              {actionRequestsError && <p className="mt-2 text-xs text-red-400">{actionRequestsError}</p>}
+              {actionRequestsLoading ? (
+                <div className="mt-3 space-y-2">
+                  {Array.from({ length: 3 }).map((_, idx) => (
+                    <div key={`request-skeleton-${idx}`} className="h-14 animate-pulse rounded-lg border border-white/10 bg-white/5" />
+                  ))}
+                </div>
+              ) : latestActionRequests.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {latestActionRequests.map((request) => {
+                    const metaLabel = actionRequestMetaLabel(request)
+                    const tone = getProcessTypeTone(request.type)
+                    return (
+                      <div
+                        key={request.id}
+                        className="rounded-lg border px-3 py-2"
+                        style={{ borderColor: tone.border, background: tone.bg }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-zinc-800 dark:text-white/85">
+                            {actionRequestLabels[request.type as ActionRequestType] || request.type}
+                          </p>
+                          <span
+                            className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
+                            style={{ borderColor: tone.border, color: tone.text }}
+                          >
+                            {actionRequestStatusLabel(request.status)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-600 dark:text-white/55">
+                          {formatDateTimeInTimeZone(request.createdAt)}
+                        </p>
+                        {metaLabel && <p className="mt-1 text-xs text-zinc-700 dark:text-white/70">{metaLabel}</p>}
+                        {request.message && (
+                          <p className="mt-1 line-clamp-2 text-xs text-zinc-700 dark:text-white/70">{request.message}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-zinc-600 dark:text-white/60">Sin solicitudes por ahora.</p>
+              )}
             </GlassyCard>
             </div>
           </aside>
         </div>
       </div>
+
+      {changeModalOpen && selectedBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm" data-lenis-prevent>
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-gradient-to-br from-[#151118] via-[#0d0b12] to-[#09090d] p-5 shadow-[0_30px_120px_-50px_rgba(0,0,0,0.85)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Cambiar clase</p>
+                <h3 className="mt-2 text-xl font-semibold text-white">Reprogramación por pasos</h3>
+                <p className="mt-1 text-sm text-white/65">
+                  Reasigná tu clase principal y, si querés, continuá con clases de paquete.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeChangeClassModal}
+                className="rounded-full border border-white/10 bg-black/40 p-2 text-white/70 hover:text-white"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {rescheduleStepItems.map((step) => {
+                  const active = rescheduleStep === step.id
+                  const done = rescheduleStep > step.id
+                  return (
+                    <div
+                      key={`reschedule-step-${step.id}`}
+                      className={`rounded-lg border px-3 py-2 text-[11px] uppercase tracking-[0.14em] transition ${
+                        active
+                          ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.2)] text-white"
+                          : done
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                            : "border-white/10 bg-black/20 text-white/55"
+                      }`}
+                    >
+                      Paso {step.id}
+                      <p className="mt-1 text-[10px] normal-case tracking-normal">{step.label}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {rescheduleStep === 1 && (
+              <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/50">Curso seleccionado</p>
+                    <select
+                      value={rescheduleCourseSlug || selectedBooking.courseSlug}
+                      onChange={(event) => {
+                        const slug = event.target.value
+                        setRescheduleCourseSlug(slug)
+                      const nextBooking = visibleBookings.find((item) => item.courseSlug === slug) || null
+                        if (!nextBooking) return
+                        setSelectedBookingId(nextBooking.id)
+                        hydrateRescheduleFromBooking(nextBooking)
+                      }}
+                      className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
+                    >
+                      {rescheduleCourseOptions.map((course) => (
+                        <option key={`reschedule-course-${course.slug}`} value={course.slug}>
+                          {course.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/50">Clase reservada</p>
+                    <select
+                      value={selectedBooking.id}
+                      onChange={(event) => {
+                        const nextId = event.target.value
+                        setSelectedBookingId(nextId)
+                      const nextBooking = visibleBookings.find((item) => item.id === nextId) || null
+                        hydrateRescheduleFromBooking(nextBooking)
+                      }}
+                      className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
+                    >
+                      {rescheduleScopedBookings.map((item) => (
+                        <option key={`booking-option-${item.id}`} value={item.id}>
+                          Reserva: {formatDateTimeInTimeZone(item.startsAt)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/70">
+                  <p className="font-semibold text-white">{selectedBooking.courseTitle}</p>
+                  <p className="mt-1">Reserva actual: {formatDateTimeInTimeZone(selectedBooking.startsAt)}</p>
+                  {selectedBooking.packageLabel && <p className="mt-1">Paquete: {selectedBooking.packageLabel}</p>}
+                </div>
+
+                <p className="mt-4 text-xs uppercase tracking-[0.2em] text-white/50">Nuevo horario</p>
+                <div className="mt-2">
+                    <CalendarPicker
+                      value={rescheduleDate}
+                    onChange={(value) => {
+                      setRescheduleDate(value)
+                      setRescheduleTime("")
+                      setRescheduleError(null)
+                    }}
+                    timezone={NY_TIMEZONE}
+                    minDate={todayNyDateKey}
+                    availableWeekdays={selectedBookingCourse?.schedule.availableWeekdays}
+                    isDateDisabled={isRescheduleDateBlocked}
+                    getDateDisabledReason={getRescheduleDateBlockReason}
+                    allowClear
+                    className="bg-white/5"
+                  />
+                </div>
+                <div className="mt-3">
+                  <p className="text-xs text-white/50">Hora</p>
+                  {availabilityLoading ? (
+                    <div className="mt-2 h-10 animate-pulse rounded-md border border-white/10 bg-white/5" />
+                  ) : availability.length > 0 ? (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {availability.map((slot) => {
+                        const timeTaken = rescheduleBookedTimesForSelectedDate.has(slot.time)
+                        const sameAsCurrent = isCurrentRescheduleSlot(rescheduleDate, slot.time)
+                        const isPast = Boolean(slot.isPast)
+                        const disabled = slot.isFull || timeTaken || sameAsCurrent || isPast
+                        const disabledReason = sameAsCurrent
+                          ? "Ya es tu reserva actual."
+                          : timeTaken
+                            ? "Ese horario en ese día ya está tomado por otra clase."
+                            : isPast
+                              ? "Ese horario ya pasó."
+                            : undefined
+                        return (
+                          <button
+                            key={`reschedule-slot-${slot.time}`}
+                            type="button"
+                            onClick={() => setRescheduleTime(slot.time)}
+                            disabled={disabled}
+                            title={disabledReason}
+                            className={`rounded-md border px-3 py-2 text-sm transition ${
+                              disabled
+                                ? "cursor-not-allowed border-white/10 bg-white/5 text-white/35"
+                                : rescheduleTime === slot.time
+                                  ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.22)] text-white"
+                                  : "border-white/15 bg-white/5 text-white/80 hover:border-white/35"
+                            }`}
+                          >
+                            <span className="block">{slot.label}</span>
+                            <span className="mt-1 block text-[10px] text-white/50">
+                              {sameAsCurrent
+                                ? "Actual"
+                                : timeTaken
+                                  ? "Tomado"
+                                  : isPast
+                                    ? "Horario pasado"
+                                    : slot.isFull
+                                      ? "Full"
+                                      : `${slot.spotsLeft} cupos`}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-white/55">Seleccioná una fecha para ver horarios.</p>
+                  )}
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={continueRescheduleStep}
+                    className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    disabled={!selectedBooking || !rescheduleDate || !rescheduleTime}
+                  >
+                    Continuar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {rescheduleStep === 2 && (
+              <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Confirmación</p>
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-white/80">
+                  <p>
+                    <span className="text-white/60">Curso:</span> {selectedBooking.courseTitle}
+                  </p>
+                  <p className="mt-1">
+                    <span className="text-white/60">Reserva actual:</span> {formatDateTimeInTimeZone(selectedBooking.startsAt)}
+                  </p>
+                  <p className="mt-1">
+                    <span className="text-white/60">Nuevo horario:</span> {formatDateTimeInTimeZone(`${rescheduleDate}T${rescheduleTime}:00`)}
+                  </p>
+                  {selectedBooking.packageLabel && (
+                    <p className="mt-1">
+                      <span className="text-white/60">Paquete:</span> {selectedBooking.packageLabel}
+                    </p>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRescheduleStep(1)}
+                    className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitPrimaryReschedule}
+                    disabled={rescheduleSaving}
+                    className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {rescheduleSaving ? "Guardando..." : "Confirmar clase principal"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {rescheduleStep === 3 && (
+              <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Clases pendientes</p>
+                <p className="mt-2 text-sm text-white/75">
+                  {pendingAssignablePackages.length > 0
+                    ? "Estas son las clases de paquete que todavía te quedan sin asignar."
+                    : "No tenés créditos pendientes por asignar en paquetes activos."}
+                </p>
+                {pendingAssignablePackages.length > 0 && (
+                  <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-lg border border-white/10 bg-black/20 p-2">
+                    {pendingAssignablePackages.map((pkg) => (
+                      <div key={`pkg-pending-${pkg.id}`} className="rounded-md border border-white/10 px-3 py-2 text-xs text-white/75">
+                        <p className="font-semibold text-white">{pkg.label}</p>
+                        <p className="mt-1">
+                          Pendientes: {pkg.isUnlimited ? "Ilimitado" : `${pkg.remainingCredits ?? 0} créditos`}
+                        </p>
+                        <p className="mt-1 text-white/60">
+                          Curso: {demoCourses.find((course) => course.slug === pkg.courseSlug)?.title || pkg.courseSlug || "Sin curso"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRescheduleStep(1)}
+                    className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeChangeClassModal}
+                    className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
+                  >
+                    Finalizar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeChangeClassModal()
+                      window.setTimeout(() => {
+                        document.getElementById("assign-classes-section")?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        })
+                      }, 120)
+                    }}
+                    disabled={!pendingAssignablePackages.length}
+                    className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    Asignar clases pendientes
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {rescheduleError && <p className="mt-3 text-xs text-red-400">{rescheduleError}</p>}
+            {rescheduleSuccess && <p className="mt-3 text-xs text-emerald-300">{rescheduleSuccess}</p>}
+          </div>
+        </div>
+      )}
+
+      {requestModalType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm" data-lenis-prevent>
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gradient-to-br from-[#16121a] via-[#0e0c13] to-[#09090d] p-5 shadow-[0_30px_120px_-50px_rgba(0,0,0,0.85)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Solicitud</p>
+                <h3 className="mt-2 text-lg font-semibold text-white">
+                  {requestModalType === "SUSPEND" ? "Suspender paquete" : "Cancelar clase"}
+                </h3>
+                <p className="mt-1 text-sm text-white/60">
+                  {requestModalType === "SUSPEND"
+                    ? "La suspensión aplica solo a paquetes activos."
+                    : "Elegí la clase y decidí si querés reasignar o pedir reembolso."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeRequestModal}
+                className="rounded-full border border-white/10 bg-black/40 p-2 text-white/70 hover:text-white"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {requestModalType === "SUSPEND" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-white">Paquete</label>
+                    <select
+                      value={requestSuspendPackageId}
+                      onChange={(event) => setRequestSuspendPackageId(event.target.value)}
+                      className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">Seleccioná un paquete</option>
+                      {suspendablePackages.map((pkg) => (
+                        <option key={`suspend-package-${pkg.id}`} value={pkg.id}>
+                          {pkg.label} {pkg.isUnlimited ? "(Ilimitado)" : `(${pkg.remainingCredits ?? 0} créditos)`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="text-sm font-medium text-white">Inicio de suspensión</label>
+                      <input
+                        type="date"
+                        value={requestSuspendStart}
+                        onChange={(event) => setRequestSuspendStart(event.target.value)}
+                        className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-white">Fin de suspensión</label>
+                      <input
+                        type="date"
+                        value={requestSuspendEnd}
+                        onChange={(event) => setRequestSuspendEnd(event.target.value)}
+                        min={requestSuspendStart || undefined}
+                        className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {requestModalType === "CANCEL" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-white">Clase asignada</label>
+                    <select
+                      value={requestCancelBookingId}
+                      onChange={(event) => {
+                        setRequestCancelBookingId(event.target.value)
+                        setRequestCancelDecision(null)
+                        setRequestSubmitError(null)
+                      }}
+                      className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">Seleccioná una clase</option>
+                      {visibleBookings.map((booking) => (
+                        <option key={`cancel-booking-${booking.id}`} value={booking.id}>
+                          {booking.courseTitle} · {formatDateTimeInTimeZone(booking.startsAt)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {requestCancelBooking && (
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/85">
+                      <p className="font-semibold text-white">{requestCancelBooking.courseTitle}</p>
+                      <p className="mt-1 text-xs text-white/65">{formatDateTimeInTimeZone(requestCancelBooking.startsAt)}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-medium text-white">¿Querés reasignar esta clase?</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRequestCancelDecision("REASSIGN")
+                          setRequestSubmitError(null)
+                        }}
+                        className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                          requestCancelDecision === "REASSIGN"
+                            ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.2)] text-white"
+                            : "border-white/15 text-white/80 hover:border-white/40"
+                        }`}
+                      >
+                        Sí, reasignar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRequestCancelDecision("REFUND")
+                          setRequestSubmitError(null)
+                        }}
+                        className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                          requestCancelDecision === "REFUND"
+                            ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.2)] text-white"
+                            : "border-white/15 text-white/80 hover:border-white/40"
+                        }`}
+                      >
+                        No, reembolso
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <label className="text-sm font-medium text-white">Detalle (opcional)</label>
+              <textarea
+                value={requestMessage}
+                onChange={(event) => setRequestMessage(event.target.value)}
+                rows={4}
+                placeholder={
+                  requestModalType === "SUSPEND"
+                    ? "Ej: viajo dos semanas y retomo luego."
+                    : requestCancelDecision === "REASSIGN"
+                      ? "Podés agregar contexto antes de ir al cambio."
+                      : "Ej: por ahora no voy a continuar."
+                }
+                className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white placeholder:text-white/45"
+              />
+              {requestSubmitError && <p className="text-xs text-red-400">{requestSubmitError}</p>}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeRequestModal}
+                className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={submitActionRequest}
+                disabled={requestSubmitting || (requestModalType === "CANCEL" && !requestCancelDecision)}
+                className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {requestSubmitting ? "Procesando..." : "Continuar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {coursePickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm" data-lenis-prevent>
