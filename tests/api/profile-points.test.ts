@@ -5,8 +5,9 @@ const mockClerkClient = vi.fn()
 const mockUpsertUser = vi.fn()
 
 const mockPrisma = {
-  packagePurchase: {
+  pointsLedger: {
     findMany: vi.fn(),
+    aggregate: vi.fn(),
   },
 }
 
@@ -23,7 +24,7 @@ vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: (...args: unknown[]) => mockClerkClient(...args),
 }))
 
-describe("profile packages route", () => {
+describe("profile points route", () => {
   const usersApi = {
     getUser: vi.fn(),
   }
@@ -33,18 +34,20 @@ describe("profile packages route", () => {
     mockClerkClient.mockReset()
     mockUpsertUser.mockReset()
     usersApi.getUser.mockReset()
-    mockPrisma.packagePurchase.findMany.mockReset()
+    mockPrisma.pointsLedger.findMany.mockReset()
+    mockPrisma.pointsLedger.aggregate.mockReset()
     mockClerkClient.mockResolvedValue({ users: usersApi })
   })
 
   it("returns 401 when unauthenticated", async () => {
     mockAuth.mockResolvedValue({ userId: null })
-    const { GET } = await import("@/app/api/profile/packages/route")
+
+    const { GET } = await import("@/app/api/profile/points/route")
     const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(401)
   })
 
-  it("returns package list and summary", async () => {
+  it("returns points balance and entries", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     usersApi.getUser.mockResolvedValue({
       firstName: "Test",
@@ -53,30 +56,23 @@ describe("profile packages route", () => {
       primaryPhoneNumber: { phoneNumber: "+1 555 555 5555" },
     })
     mockUpsertUser.mockResolvedValue({ id: "db_user" })
-    mockPrisma.packagePurchase.findMany.mockResolvedValue([
+    mockPrisma.pointsLedger.findMany.mockResolvedValue([
       {
-        id: "pkg_1",
-        packageId: "morning-3-week",
-        packageLabel: "Morning 3-week pack",
-        courseSlug: "zumba-matutino",
-        status: "active",
-        isUnlimited: false,
-        totalCredits: 16,
-        remainingCredits: 12,
-        purchasedAt: new Date("2026-02-01T00:00:00.000Z"),
-        expiresAt: new Date("2026-08-01T00:00:00.000Z"),
-        lastUsedAt: null,
-        source: "stripe",
-        packagePlan: { label: "Morning 3-week pack", courseSlug: "zumba-matutino", cadence: "3/semana" },
+        id: "pl_1",
+        type: "PROFILE_COMPLETED",
+        points: 10,
+        meta: { source: "profile" },
+        createdAt: new Date("2026-02-10T00:00:00.000Z"),
       },
     ])
+    mockPrisma.pointsLedger.aggregate.mockResolvedValue({ _sum: { points: 10 } })
 
-    const { GET } = await import("@/app/api/profile/packages/route")
+    const { GET } = await import("@/app/api/profile/points/route")
     const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.packages).toHaveLength(1)
-    expect(data.summary.activePackages).toBe(1)
-    expect(data.summary.totalRemainingCredits).toBe(12)
+    expect(data.balance).toBe(10)
+    expect(data.entries).toHaveLength(1)
+    expect(data.entries[0].type).toBe("PROFILE_COMPLETED")
   })
 })

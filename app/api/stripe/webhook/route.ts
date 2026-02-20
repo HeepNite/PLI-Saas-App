@@ -6,6 +6,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 
 export const runtime = "nodejs"
 
@@ -173,7 +174,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   })
 
   if (status === "paid") {
-    await syncPackagePurchaseFromPaidPurchase({
+    const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
       userId: user.id,
       purchaseId: purchase.id,
       purchasedAt: purchase.createdAt,
@@ -187,6 +188,16 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
         packageMakeUps: meta.packageMakeUps,
         packageValidDays: meta.packageValidDays,
       },
+    })
+
+    await syncScheduledAttendanceFromPurchase({
+      userId: user.id,
+      purchaseId: purchase.id,
+      courseSlug,
+      courseTitle: meta.courseTitle,
+      date: meta.date,
+      time: meta.time,
+      packagePurchaseId: packagePurchase?.id,
     })
   }
 }
@@ -257,7 +268,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   })
 
   if (status === "succeeded") {
-    await syncPackagePurchaseFromPaidPurchase({
+    const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
       userId: user.id,
       purchaseId: purchase.id,
       purchasedAt: purchase.createdAt,
@@ -271,6 +282,16 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
         packageMakeUps: meta.packageMakeUps,
         packageValidDays: meta.packageValidDays,
       },
+    })
+
+    await syncScheduledAttendanceFromPurchase({
+      userId: user.id,
+      purchaseId: purchase.id,
+      courseSlug,
+      courseTitle: meta.courseTitle,
+      date: meta.date,
+      time: meta.time,
+      packagePurchaseId: packagePurchase?.id,
     })
   }
 }

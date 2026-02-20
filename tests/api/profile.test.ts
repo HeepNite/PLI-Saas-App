@@ -11,6 +11,10 @@ const mockPrisma = {
   },
   billingAddress: {
     upsert: vi.fn(),
+    deleteMany: vi.fn(),
+  },
+  purchase: {
+    count: vi.fn(),
   },
   pointsLedger: {
     aggregate: vi.fn(),
@@ -48,18 +52,21 @@ describe("profile route", () => {
     mockPrisma.studentProfile.findUnique.mockReset()
     mockPrisma.studentProfile.upsert.mockReset()
     mockPrisma.billingAddress.upsert.mockReset()
+    mockPrisma.billingAddress.deleteMany.mockReset()
+    mockPrisma.purchase.count.mockReset()
     mockPrisma.pointsLedger.aggregate.mockReset()
     mockPrisma.pointsLedger.findFirst.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
 
     mockClerkClient.mockResolvedValue({ users: usersApi })
+    mockPrisma.purchase.count.mockResolvedValue(0)
   })
 
   it("returns 401 when unauthenticated", async () => {
     mockAuth.mockResolvedValue({ userId: null })
 
     const { GET } = await import("@/app/api/profile/route")
-    const res = await GET()
+    const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(401)
   })
 
@@ -82,9 +89,10 @@ describe("profile route", () => {
       emergencyContactPhone: "+1 929 555 0000",
     })
     mockPrisma.pointsLedger.aggregate.mockResolvedValue({ _sum: { points: 18 } })
+    mockPrisma.purchase.count.mockResolvedValue(1)
 
     const { GET } = await import("@/app/api/profile/route")
-    const res = await GET()
+    const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.pointsBalance).toBe(18)

@@ -22,6 +22,7 @@ model User {
   packages         PackagePurchase[]
   packageUsage     PackageUsageLedger[]
   attendances      Attendance[]
+  actionRequests   ActionRequest[]
 }
 
 model Purchase {
@@ -106,7 +107,8 @@ model PointsLedger {
   userId    String
   user      User     @relation(fields: [userId], references: [id])
   type      String
-  points    Int
+  eventKey  String?  @unique
+  points    Float
   meta      Json?
   createdAt DateTime @default(now())
 
@@ -151,6 +153,7 @@ model ClassSession {
   title           String?
   startsAt        DateTime
   durationMinutes Int?
+  capacity        Int         @default(12)
   location        String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -193,4 +196,21 @@ model PackageUsageLedger {
   @@index([packagePurchaseId])
   @@index([userId, createdAt])
   @@index([reason])
+}
+
+model ActionRequest {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  status     String   @default("PENDING")
+  message    String?
+  meta       Json?
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([type])
 }

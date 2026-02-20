@@ -31,6 +31,8 @@ const addDays = (date: Date, days: number) => new Date(date.getTime() + days * 2
 const isUniqueConstraintError = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
 
+type PrismaTx = Prisma.TransactionClient | typeof prisma
+
 export const buildPackagePurchasePayload = (metadata: PackageMetadataInput, purchasedAt = new Date()) => {
   const packageId = metadata.packageId?.trim()
   if (!packageId) return null
@@ -258,4 +260,118 @@ export const consumePackageCreditForAttendance = async (input: {
   }
 
   return { packagePurchase: null, usage: null, consumed: false }
+}
+
+export const reservePackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
+  packagePurchaseId: string
+  userId: string
+  attendanceId: string
+  courseSlug?: string
+  at?: Date
+  reason?: string
+}) => {
+  const timestamp = input.at || new Date()
+  const reason = input.reason || "PACKAGE_ASSIGNMENT"
+
+  const existingUsage = await tx.packageUsageLedger.findUnique({
+    where: { attendanceId: input.attendanceId },
+  })
+  if (existingUsage) {
+    const linkedPackage = await tx.packagePurchase.findUnique({
+      where: { id: existingUsage.packagePurchaseId },
+    })
+    return {
+      packagePurchase: linkedPackage,
+      usage: existingUsage,
+      consumed: existingUsage.delta < 0,
+    }
+  }
+
+  let selectedPackage = await tx.packagePurchase.findFirst({
+    where: {
+      id: input.packagePurchaseId,
+      userId: input.userId,
+      status: "active",
+      OR: [{ expiresAt: null }, { expiresAt: { gt: timestamp } }],
+    },
+  })
+
+  if (!selectedPackage) {
+    throw new Error("PACKAGE_NOT_AVAILABLE")
+  }
+
+  if (selectedPackage.isUnlimited) {
+    const usage = await tx.packageUsageLedger.create({
+      data: {
+        packagePurchaseId: selectedPackage.id,
+        userId: input.userId,
+        attendanceId: input.attendanceId,
+        delta: 0,
+        reason,
+        meta: { courseSlug: input.courseSlug || null },
+      },
+    })
+    selectedPackage = await tx.packagePurchase.update({
+      where: { id: selectedPackage.id },
+      data: { lastUsedAt: timestamp },
+    })
+    return { packagePurchase: selectedPackage, usage, consumed: false }
+  }
+
+  const decremented = await tx.packagePurchase.updateMany({
+    where: {
+      id: selectedPackage.id,
+      userId: input.userId,
+      status: "active",
+      isUnlimited: false,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: timestamp } }],
+      remainingCredits: { gt: 0 },
+    },
+    data: {
+      remainingCredits: { decrement: 1 },
+      lastUsedAt: timestamp,
+    },
+  })
+
+  if (decremented.count === 0) {
+    throw new Error("PACKAGE_NO_CREDITS")
+  }
+
+  selectedPackage = await tx.packagePurchase.findUnique({
+    where: { id: selectedPackage.id },
+  })
+  if (!selectedPackage) {
+    throw new Error("PACKAGE_NOT_FOUND")
+  }
+
+  if ((selectedPackage.remainingCredits ?? 0) <= 0 && selectedPackage.status !== "exhausted") {
+    selectedPackage = await tx.packagePurchase.update({
+      where: { id: selectedPackage.id },
+      data: { status: "exhausted" },
+    })
+  }
+
+  const usage = await tx.packageUsageLedger.create({
+    data: {
+      packagePurchaseId: selectedPackage.id,
+      userId: input.userId,
+      attendanceId: input.attendanceId,
+      delta: -1,
+      reason,
+      meta: { courseSlug: input.courseSlug || null },
+    },
+  })
+
+  return { packagePurchase: selectedPackage, usage, consumed: true }
+}
+
+export const reservePackageCreditForAttendance = async (input: {
+  packagePurchaseId: string
+  userId: string
+  attendanceId: string
+  courseSlug?: string
+  at?: Date
+  reason?: string
+}) => {
+  return reservePackageCreditForAttendanceTx(prisma, input)
 }

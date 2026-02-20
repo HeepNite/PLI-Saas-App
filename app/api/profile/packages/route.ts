@@ -8,7 +8,7 @@ export const runtime = "nodejs"
 
 const toIso = (value: Date | null | undefined) => (value ? value.toISOString() : null)
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const rateLimit = consumeRateLimit({
       key: buildRateLimitKey("profile:packages:get", getClientIp(req)),

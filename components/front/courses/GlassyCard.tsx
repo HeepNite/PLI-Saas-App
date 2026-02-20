@@ -6,9 +6,15 @@ import React from "react"
 // - img: optional background image path (public). It renders with very low opacity.
 // - className: additional Tailwind classes.
 // - children: card content.
-export default function GlassyCard({ img, className = "", children }: { img?: string; className?: string; children: React.ReactNode }) {
+type GlassyCardProps = React.HTMLAttributes<HTMLDivElement> & {
+  img?: string
+  children: React.ReactNode
+}
+
+export default function GlassyCard({ img, className = "", children, ...rest }: GlassyCardProps) {
   return (
     <div
+      {...rest}
       className={[
         // Base glass look in both light and dark themes
         "relative rounded-2xl border backdrop-blur",

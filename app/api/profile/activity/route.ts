@@ -54,7 +54,7 @@ const getRecurringLabel = (dates: Date[]) => {
   return best ? best[0].replace("|", " ") : null
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const rateLimit = consumeRateLimit({
       key: buildRateLimitKey("profile:activity:get", getClientIp(req)),

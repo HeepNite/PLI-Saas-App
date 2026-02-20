@@ -4,6 +4,7 @@ import {
   buildProfileFormState,
   getProfileCompletionPercent,
   buildBookingPrefillContact,
+  getPackageAssignmentSummary,
 } from "@/components/front/profile/profile-utils"
 
 describe("profile utils", () => {
@@ -30,6 +31,12 @@ describe("profile utils", () => {
       emergencyContactName: "Luis",
       emergencyContactRelation: "Hermano",
       emergencyContactPhone: "123",
+      billingLine1: "",
+      billingLine2: "",
+      billingCity: "",
+      billingState: "",
+      billingPostalCode: "",
+      billingCountry: "",
     })
   })
 
@@ -56,6 +63,12 @@ describe("profile utils", () => {
       emergencyContactName: "",
       emergencyContactRelation: "",
       emergencyContactPhone: "",
+      billingLine1: "",
+      billingLine2: "",
+      billingCity: "",
+      billingState: "",
+      billingPostalCode: "",
+      billingCountry: "",
     }
     const profileUser = { email: "ana@pli.com", phone: "+1 2222222222" }
     const clerkUser = {
@@ -69,6 +82,40 @@ describe("profile utils", () => {
       lastName: "Gomez",
       email: "ana@pli.com",
       phone: "+1 2222222222",
+    })
+  })
+
+  it("builds package assignment summary for limited plans", () => {
+    expect(
+      getPackageAssignmentSummary({
+        isUnlimited: false,
+        totalCredits: 10,
+        remainingCredits: 6,
+        queuedCount: 2,
+        assignedBookingsCount: 0,
+      })
+    ).toEqual({
+      assigned: 6,
+      remaining: 4,
+      queued: 2,
+      isUnlimited: false,
+    })
+  })
+
+  it("builds package assignment summary for unlimited plans", () => {
+    expect(
+      getPackageAssignmentSummary({
+        isUnlimited: true,
+        totalCredits: null,
+        remainingCredits: null,
+        queuedCount: 3,
+        assignedBookingsCount: 7,
+      })
+    ).toEqual({
+      assigned: 10,
+      remaining: null,
+      queued: 3,
+      isUnlimited: true,
     })
   })
 })

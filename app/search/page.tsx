@@ -95,12 +95,13 @@ function SearchResults({ query }: { query: string }) {
     );
 }
 
-export default function SearchPage({
-                                       searchParams,
-                                   }: {
-    searchParams: { q?: string };
+export default async function SearchPage({
+    searchParams,
+}: {
+    searchParams: Promise<{ q?: string }>;
 }) {
-    const query = searchParams.q || '';
+    const params = await searchParams;
+    const query = params.q || '';
 
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">

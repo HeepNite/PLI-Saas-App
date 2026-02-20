@@ -3,8 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockAuth = vi.fn()
 const mockClerkClient = vi.fn()
 const mockUpsertUser = vi.fn()
+const mockSyncScheduled = vi.fn()
 
 const mockPrisma = {
+  purchase: {
+    findMany: vi.fn(),
+  },
+  attendance: {
+    findMany: vi.fn(),
+  },
   packagePurchase: {
     findMany: vi.fn(),
   },
@@ -18,33 +25,38 @@ vi.mock("@/lib/users", () => ({
   upsertUserByIdentifiers: (...args: unknown[]) => mockUpsertUser(...args),
 }))
 
+vi.mock("@/lib/bookings", () => ({
+  syncScheduledAttendanceFromPurchase: (...args: unknown[]) => mockSyncScheduled(...args),
+}))
+
 vi.mock("@clerk/nextjs/server", () => ({
   auth: (...args: unknown[]) => mockAuth(...args),
   clerkClient: (...args: unknown[]) => mockClerkClient(...args),
 }))
 
-describe("profile packages route", () => {
-  const usersApi = {
-    getUser: vi.fn(),
-  }
+describe("profile bookings route", () => {
+  const usersApi = { getUser: vi.fn() }
 
   beforeEach(() => {
     mockAuth.mockReset()
     mockClerkClient.mockReset()
     mockUpsertUser.mockReset()
+    mockSyncScheduled.mockReset()
     usersApi.getUser.mockReset()
+    mockPrisma.purchase.findMany.mockReset()
+    mockPrisma.attendance.findMany.mockReset()
     mockPrisma.packagePurchase.findMany.mockReset()
     mockClerkClient.mockResolvedValue({ users: usersApi })
   })
 
   it("returns 401 when unauthenticated", async () => {
     mockAuth.mockResolvedValue({ userId: null })
-    const { GET } = await import("@/app/api/profile/packages/route")
+    const { GET } = await import("@/app/api/profile/bookings/route")
     const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(401)
   })
 
-  it("returns package list and summary", async () => {
+  it("returns bookings and packages", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     usersApi.getUser.mockResolvedValue({
       firstName: "Test",
@@ -53,30 +65,39 @@ describe("profile packages route", () => {
       primaryPhoneNumber: { phoneNumber: "+1 555 555 5555" },
     })
     mockUpsertUser.mockResolvedValue({ id: "db_user" })
+    mockPrisma.purchase.findMany.mockResolvedValue([])
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "att_1",
+        status: "scheduled",
+        sessionId: "session_1",
+        session: {
+          courseSlug: "musica-bebes",
+          title: "Musical stimulation for babies",
+          startsAt: new Date("2026-03-10T15:00:00.000Z"),
+        },
+        packageUsage: null,
+      },
+    ])
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
       {
         id: "pkg_1",
-        packageId: "morning-3-week",
-        packageLabel: "Morning 3-week pack",
-        courseSlug: "zumba-matutino",
-        status: "active",
+        packageId: "babies-2-week",
+        packageLabel: "Babies 2-week pack",
+        courseSlug: "musica-bebes",
+        remainingCredits: 4,
+        totalCredits: 10,
         isUnlimited: false,
-        totalCredits: 16,
-        remainingCredits: 12,
-        purchasedAt: new Date("2026-02-01T00:00:00.000Z"),
         expiresAt: new Date("2026-08-01T00:00:00.000Z"),
-        lastUsedAt: null,
-        source: "stripe",
-        packagePlan: { label: "Morning 3-week pack", courseSlug: "zumba-matutino", cadence: "3/semana" },
+        packagePlan: { courseSlug: "musica-bebes", label: "Babies 2-week pack" },
       },
     ])
 
-    const { GET } = await import("@/app/api/profile/packages/route")
+    const { GET } = await import("@/app/api/profile/bookings/route")
     const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(200)
     const data = await res.json()
+    expect(data.bookings).toHaveLength(1)
     expect(data.packages).toHaveLength(1)
-    expect(data.summary.activePackages).toBe(1)
-    expect(data.summary.totalRemainingCredits).toBe(12)
   })
 })

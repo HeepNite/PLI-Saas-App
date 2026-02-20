@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth, clerkClient } from "@clerk/nextjs/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { validateProfileUpdatePayload } from "@/lib/security/profile-validation"
@@ -7,6 +8,8 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 
 export const runtime = "nodejs"
 const PROFILE_COMPLETE_POINTS = 10
+const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"]
+const profileCompletedEventKey = (userId: string) => `profile-completed:${userId}`
 
 const isCompleteProfile = (profile: {
   birthDate: Date | null
@@ -28,7 +31,7 @@ const toDate = (value?: string | null) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const rateLimit = consumeRateLimit({
       key: buildRateLimitKey("profile:get", getClientIp(req)),
@@ -68,6 +71,12 @@ export async function GET(req?: Request) {
       where: { userId: dbUser.id },
       include: { billingAddress: true },
     })
+    const completedPurchases = await prisma.purchase.count({
+      where: {
+        userId: dbUser.id,
+        status: { in: COMPLETED_PURCHASE_STATUSES },
+      },
+    })
 
     const pointsBalance = await prisma.pointsLedger.aggregate({
       where: { userId: dbUser.id },
@@ -84,6 +93,7 @@ export async function GET(req?: Request) {
         name: name || dbUser.name || "",
         firstName: clerkUser.firstName || "",
         lastName: clerkUser.lastName || "",
+        status: completedPurchases > 0 ? "ACTIVE" : "NEW",
       },
       profile,
       pointsBalance: pointsBalance._sum.points || 0,
@@ -174,7 +184,11 @@ export async function PUT(req: Request) {
       },
     })
 
-    if (parsedBody.billingAddress) {
+    if (parsedBody.billingAddress === null) {
+      await prisma.billingAddress.deleteMany({
+        where: { profileId: profile.id },
+      })
+    } else if (parsedBody.billingAddress) {
       await prisma.billingAddress.upsert({
         where: { profileId: profile.id },
         create: {
@@ -209,14 +223,22 @@ export async function PUT(req: Request) {
         where: { userId: dbUser.id, type: "PROFILE_COMPLETED" },
       })
       if (!existingReward) {
-        await prisma.pointsLedger.create({
-          data: {
-            userId: dbUser.id,
-            type: "PROFILE_COMPLETED",
-            points: PROFILE_COMPLETE_POINTS,
-            meta: { source: "profile" },
-          },
-        })
+        try {
+          await prisma.pointsLedger.create({
+            data: {
+              userId: dbUser.id,
+              type: "PROFILE_COMPLETED",
+              eventKey: profileCompletedEventKey(dbUser.id),
+              points: PROFILE_COMPLETE_POINTS,
+              meta: { source: "profile" },
+            },
+          })
+        } catch (error) {
+          // Idempotency guard: if another concurrent request already inserted this reward.
+          if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) {
+            throw error
+          }
+        }
       }
     }
 

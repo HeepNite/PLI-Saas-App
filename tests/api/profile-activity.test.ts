@@ -40,7 +40,7 @@ describe("profile activity route", () => {
   it("returns 401 when unauthenticated", async () => {
     mockAuth.mockResolvedValue({ userId: null })
     const { GET } = await import("@/app/api/profile/activity/route")
-    const res = await GET()
+    const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(401)
   })
 
@@ -75,7 +75,7 @@ describe("profile activity route", () => {
     ])
 
     const { GET } = await import("@/app/api/profile/activity/route")
-    const res = await GET()
+    const res = await GET(new Request("http://localhost"))
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.stats.classesTaken).toBe(2)

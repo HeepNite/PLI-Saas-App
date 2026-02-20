@@ -21,6 +21,9 @@ export type CalendarPickerProps = {
   compact?: boolean
   minDate?: string // YYYY-MM-DD, opcional
   availableWeekdays?: number[] // 0=Mon ... 6=Sun; si se pasa, sólo esos días quedan habilitados
+  unavailableDates?: string[] // YYYY-MM-DD list, opcional
+  isDateDisabled?: (isoDate: string) => boolean
+  getDateDisabledReason?: (isoDate: string) => string | undefined
   allowClear?: boolean
 }
 
@@ -32,6 +35,9 @@ export default function CalendarPicker({
   compact = false,
   minDate,
   availableWeekdays,
+  unavailableDates,
+  isDateDisabled,
+  getDateDisabledReason,
   allowClear = false,
 }: CalendarPickerProps) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
@@ -68,11 +74,14 @@ export default function CalendarPicker({
   }
 
   const years = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i) // previous, current, +5
+  const unavailable = React.useMemo(() => new Set(unavailableDates || []), [unavailableDates])
 
   const isDisabled = (d: Date) => {
     const iso = toISODate(d)
     const weekday = (d.getDay() + 6) % 7 // Mon=0
     if (availableWeekdays && availableWeekdays.length && !availableWeekdays.includes(weekday)) return true
+    if (unavailable.has(iso)) return true
+    if (isDateDisabled?.(iso)) return true
     return iso < min
   }
 
@@ -82,36 +91,32 @@ export default function CalendarPicker({
         compact ? "p-3" : "p-3 sm:p-5 lg:p-6"
       } ${className}`}
     >
-      <div
-        className={`mx-auto flex w-full max-w-none items-center justify-between gap-2 ${
-          compact ? "flex-wrap" : "flex-nowrap md:gap-3"
-        }`}
-      >
-        <div className={`flex items-center gap-2 min-w-0 ${compact ? "grow" : ""}`}>
-          <div className="relative">
+      <div className="mx-auto grid w-full max-w-none grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
+        <div className={`grid min-w-0 items-center gap-2 ${compact ? "grid-cols-[minmax(0,1fr)_98px]" : "grid-cols-[minmax(0,1fr)_122px]"}`}>
+          <div className="relative min-w-0">
             <select
               value={month}
               onChange={(e)=>setMonth(parseInt(e.target.value))}
-              className={`rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
-                compact ? "w-[130px] py-1.5" : "w-[120px] md:w-[180px] lg:w-[200px] py-1.5 md:py-2 md:text-base"
+              className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+                compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
               }`}
             >
               {MONTHS.map((m, i)=> <option key={m} value={i}>{m}</option>)}
             </select>
           </div>
-          <div className="relative">
+          <div className="relative min-w-0">
             <select
               value={year}
               onChange={(e)=>setYear(parseInt(e.target.value))}
-              className={`rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
-                compact ? "w-[95px] py-1.5" : "w-[86px] md:w-[130px] py-1.5 md:py-2 md:text-base"
+              className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+                compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
               }`}
             >
               {years.map(y=> <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
         </div>
-        <div className={`flex items-center gap-2 shrink-0 ${compact ? "ml-auto" : ""}`}>
+        <div className="flex items-center justify-end gap-2 shrink-0">
           <button
             type="button"
             aria-label="Mes anterior"
@@ -165,6 +170,7 @@ export default function CalendarPicker({
           const iso = toISODate(d)
           const selected = value === iso
           const disabled = isDisabled(d)
+          const disabledReason = disabled ? getDateDisabledReason?.(iso) : undefined
           const isToday = iso === todayISO
           const handleClick = () => {
             if (disabled) return
@@ -172,23 +178,29 @@ export default function CalendarPicker({
             else onChange(iso)
           }
           return (
-            <button
-              key={idx}
-              type="button"
-              onClick={handleClick}
-              disabled={disabled}
-              className={`rounded-md md:rounded-lg border transition-colors ${
-                compact ? "py-2 text-sm" : "py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
-              } ${
-                selected
-                  ? "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"
-                  : isToday
-                    ? "border-[var(--brand,#b61616)] bg-white/10 text-white shadow-[0_0_0_1px_rgba(182,22,22,0.4)]"
-                    : "border-black/15 dark:border-white/15"
-              } ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-black/10 dark:hover:bg-white/10"}`}
-            >
-              {d.getDate()}
-            </button>
+            <div key={idx} className="relative group">
+              <button
+                type="button"
+                onClick={handleClick}
+                disabled={disabled}
+                className={`w-full rounded-md md:rounded-lg border transition-colors ${
+                  compact ? "py-2 text-sm" : "py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
+                } ${
+                  selected
+                    ? "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"
+                    : isToday
+                      ? "border-[var(--brand,#b61616)] bg-white/10 text-white shadow-[0_0_0_1px_rgba(182,22,22,0.4)]"
+                      : "border-black/15 dark:border-white/15"
+                } ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-black/10 dark:hover:bg-white/10"}`}
+              >
+                {d.getDate()}
+              </button>
+              {disabled && disabledReason && (
+                <div className="pointer-events-none absolute left-1/2 top-0 z-40 min-w-[16rem] -translate-x-1/2 -translate-y-[110%] rounded-lg border border-white/20 bg-[#151017]/95 px-3 py-2 text-[12px] font-medium text-white opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+                  {disabledReason}
+                </div>
+              )}
+            </div>
           )
         })}
       </div>
