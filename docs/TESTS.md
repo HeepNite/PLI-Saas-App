@@ -1,74 +1,73 @@
-# PLI — Tests
+# PLI — Matriz de Tests
 
-Guía específica de tests (unitarios, API y E2E).
+Guía rápida de cobertura actual (unit, API y E2E).
 
-## Unitarios / API (Vitest)
+## 1. Unit/API (Vitest)
 
-### Teléfonos
+### 1.1 Core checkout/profile
 - `tests/phone.test.ts`
-  - Normalización y formato US (E164 y display).
-  - Casos inválidos y bordes.
-
-### Checkout (validación)
 - `tests/checkout.test.ts`
-  - Validaciones puras del payload.
-  - Reglas de participantes, servicio y formato.
-
-### Checkout API
-- `tests/api/checkout-intent.test.ts`
-  - Ruta `/api/checkout/intent`.
-  - Mocks de Stripe y validación del payload.
-- `tests/api/checkout-session.test.ts`
-  - Ruta `/api/checkout/session`.
-  - Respuesta de URL de Stripe.
-
-### Perfil del alumno
 - `tests/profile-utils.test.ts`
-  - Utilidades puras del perfil (fecha, % completado, prefill de booking).
 - `tests/packages.test.ts`
-  - Helpers puros de paquetes (payload finito/ilimitado y vencimiento).
+- `tests/points-service.test.ts`
+- `tests/api/checkout-intent.test.ts`
+- `tests/api/checkout-session.test.ts`
 - `tests/api/profile.test.ts`
-  - `GET /api/profile` (auth, fetch de perfil, puntos).
-  - `PUT /api/profile` (update, perfil completo, ledger de puntos).
-  - JSON inválido.
 - `tests/api/profile-avatar.test.ts`
-  - `POST /api/profile/avatar` (auth, file missing, update OK).
-  - Usa mock de Clerk `updateUserProfileImage`.
 - `tests/api/profile-packages.test.ts`
-  - `GET /api/profile/packages` (auth, resumen de activos, créditos restantes).
 - `tests/api/profile-activity.test.ts`
-  - `GET /api/profile/activity` (stats de clases, racha, asistencia mensual).
+- `tests/api/profile-points.test.ts`
+- `tests/api/profile-bookings.test.ts`
+- `tests/api/profile-bookings-assign.test.ts`
+- `tests/api/profile-bookings-availability.test.ts`
+- `tests/api/profile-bookings-reschedule.test.ts`
+- `tests/api/profile-bookings-checkin.test.ts`
+- `tests/api/profile-requests.test.ts`
+
+### 1.2 QR check-in y puntos
+- `tests/api/checkin-qr-new-student-verify.test.ts`
+- `tests/api/checkin-qr-bootstrap.test.ts`
+- `tests/api/checkin-qr-package.test.ts`
+- `tests/api/checkin-qr-dropin.test.ts`
+
+### 1.3 Staff (nuevo módulo)
+- `tests/staff-role.test.ts`
+- `tests/api/staff-bootstrap.test.ts`
 - `tests/api/staff-checkin.test.ts`
-  - `POST /api/staff/checkin` (token staff, check-in, consumo de créditos o fallback sin paquete).
+- `tests/api/staff-schedule.test.ts`
+- `tests/api/staff-school.test.ts`
+- `tests/api/staff-users.test.ts`
 
-## E2E (Playwright)
-
-### Flujo de inscripción
+## 2. E2E (Playwright)
 - `e2e/course-flow.spec.ts`
-  - Modal de enrolamiento completo.
-  - Selección de Stripe y apertura del modal de pago.
-
-### Perfil alumno
+  - Render curso.
+  - Enroll end-to-end hasta modal de pago.
 - `e2e/profile.spec.ts`
-  - Render de `/client-profile`.
-  - Toggle del formulario de perfil (cerrar y abrir).
-  - Apertura del selector de cursos desde el CTA.
+  - Perfil, acciones sobre clases/paquetes y requests.
+  - Reprogramación y validaciones UI.
 
-## Cómo correr
+## 3. Estado de cobertura de lo nuevo
+- QR check-in: cubierto en API/unit.
+- Staff portal/API: cubierto en API/unit.
+- Staff UI E2E: pendiente (recomendado como siguiente iteración).
+- E2E dedicado de `/checkin`: pendiente (recomendado siguiente iteración).
+
+## 4. Comandos
 
 ```bash
-# Unit/API
+# Suite completa unit/api
 npm run test
 
-# Específicos
-npm run test -- tests/api/profile.test.ts
-npm run test -- tests/api/profile-avatar.test.ts
-npm run test -- tests/api/profile-packages.test.ts
-npm run test -- tests/api/profile-activity.test.ts
-npm run test -- tests/api/staff-checkin.test.ts
-npm run test -- tests/packages.test.ts
-
-# E2E
+# Suite completa e2e
 npm run test:e2e
-npx playwright test e2e/profile.spec.ts
+
+# QR check-in (api)
+npm run test -- tests/api/checkin-qr-new-student-verify.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts
+
+# Staff (api/unit)
+npm run test -- tests/staff-role.test.ts tests/api/staff-bootstrap.test.ts tests/api/staff-checkin.test.ts tests/api/staff-schedule.test.ts tests/api/staff-school.test.ts tests/api/staff-users.test.ts
+
+# E2E puntuales
+npm run test:e2e -- e2e/course-flow.spec.ts
+npm run test:e2e -- e2e/profile.spec.ts
 ```

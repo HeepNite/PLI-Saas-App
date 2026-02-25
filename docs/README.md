@@ -2,6 +2,13 @@
 
 Documento base para entender qué hace cada parte del sitio y cómo modificarla. Rutas relativas al repo.
 
+## 0.1 Mapa de documentación por dominio
+- Core arquitectura y edición general: `docs/README.md` (este archivo).
+- Matriz de tests y cobertura actual: `docs/TESTS.md`.
+- Flujo QR check-in (front + APIs): `docs/CHECKIN_QR.md`.
+- Staff portal (roles, permisos, endpoints): `docs/STAFF_PORTAL.md`.
+- Checklist de smoke para demo en Vercel: `docs/SMOKE_DEMO_VERCEL.md`.
+
 ## 0. Stack y conceptos
 - Next.js 15 (App Router, Turbopack), React 19, TypeScript.
 - Autenticación: Clerk (`app/layout.tsx`).
@@ -19,6 +26,8 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
   - Home: `app/(pages)/page.tsx`.
   - Catálogo demo: `app/(courses)/courses-library/page.tsx`.
   - Detalle de curso: `app/cursos/[slug]/page.tsx` (toma datos desde `courseRepository`). En Next 15 es async y usa `await params` para evitar el warning de “sync dynamic APIs”.
+  - Check-in QR presencial: `app/checkin/page.tsx`.
+  - Staff: `app/staff/*` (`sign-in`, `resolve`, `portal`, `panel`, `checkin`).
   - Chat placeholder: `app/chat/page.tsx`.
   - Auth/panel: `app/(auth)/sign-in/page.tsx` (Clerk), `app/(pages)/customer/page.tsx`, `app/panel/page.tsx`, `app/search/page.tsx`.
 - Verificación SMS: `app/(pages)/verify-phone/page.tsx` (pantalla para verificar teléfono en Clerk).
@@ -171,9 +180,20 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - `tests/packages.test.ts`: helpers de paquetes (créditos, ilimitado, vencimiento).
 - `tests/api/profile-packages.test.ts`: `/api/profile/packages`, listado y resumen de paquetes activos.
 - `tests/api/profile-activity.test.ts`: `/api/profile/activity`, stats de asistencia y buckets mensuales.
+- `tests/api/checkin-qr-new-student-verify.test.ts`: verify de teléfono para flujo “Soy nuevo” en QR.
+- `tests/api/checkin-qr-bootstrap.test.ts`: bootstrap de recompra/compra rápida para usuario logueado.
+- `tests/api/checkin-qr-package.test.ts`: check-in con consumo de paquete activo.
+- `tests/api/checkin-qr-dropin.test.ts`: check-in drop-in con pago confirmado.
+- `tests/api/profile-bookings-checkin.test.ts`: check-in desde perfil y reglas de puntos.
+- `tests/points-service.test.ts`: reglas de puntos y balance.
+- `tests/staff-role.test.ts`: helpers de roles staff (metadata/claims).
+- `tests/api/staff-bootstrap.test.ts`: bootstrap del primer admin/owner.
 - `tests/api/staff-checkin.test.ts`: `/api/staff/checkin`, autorización staff y consumo de créditos.
+- `tests/api/staff-schedule.test.ts`: agregación de eventos de agenda staff.
+- `tests/api/staff-school.test.ts`: CRUD school catalog (courses/packages/points-rules).
+- `tests/api/staff-users.test.ts`: CRUD de usuarios staff y permisos.
 - `e2e/course-flow.spec.ts`: flujo completo del modal de inscripción, persistencia de draft, selección de Stripe y apertura del modal de pago.
-- `e2e/profile.spec.ts`: render de perfil del alumno, toggle del formulario y apertura del selector de cursos.
+- `e2e/profile.spec.ts`: render de perfil del alumno, acciones de cancelación/suspensión/reprogramación.
 
 ### 9.2 Cómo correr tests puntuales
 - Unit test específico:
@@ -186,6 +206,8 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
   - `npm run test -- tests/api/profile-packages.test.ts`
   - `npm run test -- tests/api/profile-activity.test.ts`
   - `npm run test -- tests/api/staff-checkin.test.ts`
+  - `npm run test -- tests/api/checkin-qr-new-student-verify.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts`
+  - `npm run test -- tests/staff-role.test.ts tests/api/staff-bootstrap.test.ts tests/api/staff-schedule.test.ts tests/api/staff-school.test.ts tests/api/staff-users.test.ts`
   - `npm run test -- tests/packages.test.ts`
 - E2E específico:
   - `npx playwright test e2e/course-flow.spec.ts`
@@ -205,6 +227,8 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - **Asistente/CTA**: `AssistantWidget*`, `ChatLauncher`.
 - **Usuarios y compras**: `app/api/checkout/*`, `app/api/stripe/webhook/route.ts`, `lib/users.ts`, `lib/clerk-users.ts`, `prisma/schema.prisma`.
 - **Paquetes y asistencia (fase 1)**: `lib/packages.ts`, `app/api/profile/packages/route.ts`, `app/api/profile/activity/route.ts`, `app/api/staff/checkin/route.ts`.
+- **QR check-in presencial**: `components/front/checkin/CheckInQrClient.tsx`, `app/checkin/page.tsx`, `app/api/checkin/qr/*`, `lib/checkin/qr.ts`.
+- **Staff portal**: `app/staff/*`, `components/front/staff/*`, `app/api/staff/*`, `lib/security/staff-*.ts`.
 
 ## 11. Backend — usuarios y compras (Clerk + Stripe + Prisma)
 

@@ -34,8 +34,11 @@ App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, the
 - CTA/chat: `components/front/ui/ChatLauncher.tsx`, `components/front/AssistantWidget*.tsx`.
 
 ## Documentación
-Consulta `docs/README.md` para un mapa detallado de pantallas y componentes y cómo modificarlos.
-Para tests, ver `docs/TESTS.md`.
+- Guía base de arquitectura y edición: `docs/README.md`
+- Matriz de tests: `docs/TESTS.md`
+- Flujo QR check-in: `docs/CHECKIN_QR.md`
+- Módulo Staff portal: `docs/STAFF_PORTAL.md`
+- Smoke checklist para demo en Vercel: `docs/SMOKE_DEMO_VERCEL.md`
 
 ## Ejemplos rápidos
 - Nuevo curso (detalle): agrega a `demoCourses` en `constants/courses.ts`; el route `/cursos/[slug]` se genera solo por `courseRepository`.
