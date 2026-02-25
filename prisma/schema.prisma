@@ -1,0 +1,257 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String               @id @default(cuid())
+  clerkId          String?              @unique
+  email            String               @unique
+  name             String?
+  phone            String?
+  stripeCustomerId String?              @unique
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  purchases        Purchase[]
+  profile          StudentProfile?
+  points           PointsLedger[]
+  packages         PackagePurchase[]
+  packageUsage     PackageUsageLedger[]
+  attendances      Attendance[]
+  actionRequests   ActionRequest[]
+}
+
+model Purchase {
+  id                      String            @id @default(cuid())
+  userId                  String
+  user                    User              @relation(fields: [userId], references: [id])
+  courseSlug              String
+  courseTitle             String?
+  amount                  Int
+  currency                String            @default("usd")
+  status                  String
+  email                   String?
+  name                    String?
+  phone                   String?
+  participants            Int?
+  coupon                  String?
+  packageId               String?
+  serviceId               String?
+  addonsCsv               String?
+  stripePaymentIntentId   String?           @unique
+  stripeCheckoutSessionId String?           @unique
+  metadata                Json?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  packagePurchases        PackagePurchase[]
+
+  @@index([userId])
+  @@index([courseSlug])
+}
+
+model PackagePlan {
+  id           String            @id @default(cuid())
+  key          String            @unique
+  courseSlug   String?
+  label        String
+  description  String?
+  priceCents   Int?
+  cadence      String?
+  totalCredits Int?
+  makeUps      Int               @default(0)
+  validDays    Int               @default(180)
+  isUnlimited  Boolean           @default(false)
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  purchases    PackagePurchase[]
+
+  @@index([courseSlug])
+  @@index([active])
+}
+
+model CourseCatalog {
+  id                String   @id @default(cuid())
+  slug              String   @unique
+  title             String
+  kind              String   @default("course")
+  category          String?
+  description       String?
+  coverImageUrl     String?
+  previewVideoUrl   String?
+  dropInPriceCents  Int?
+  firstClassPriceCents Int?
+  level             String?
+  durationMinutes   Int?
+  location          String?
+  availableWeekdays Int[]
+  availableTimes    String[]
+  scheduleRules     Json?
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([kind])
+  @@index([active])
+}
+
+model PointsRule {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  description String?
+  eventType   String
+  points      Float
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([eventType])
+  @@index([active])
+}
+
+model StudentProfile {
+  id                       String          @id @default(cuid())
+  userId                   String          @unique
+  user                     User            @relation(fields: [userId], references: [id])
+  firstName                String?
+  lastName                 String?
+  birthDate                DateTime?
+  emergencyContactName     String?
+  emergencyContactRelation String?
+  emergencyContactPhone    String?
+  billingAddress           BillingAddress?
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+}
+
+model BillingAddress {
+  id         String         @id @default(cuid())
+  profileId  String         @unique
+  profile    StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  postalCode String
+  country    String
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model PointsLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  eventKey  String?  @unique
+  points    Float
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+}
+
+model PackagePurchase {
+  id               String               @id @default(cuid())
+  userId           String
+  user             User                 @relation(fields: [userId], references: [id])
+  packagePlanId    String?
+  packagePlan      PackagePlan?         @relation(fields: [packagePlanId], references: [id])
+  courseSlug       String?
+  packageId        String
+  packageLabel     String?
+  totalCredits     Int?
+  remainingCredits Int?
+  isUnlimited      Boolean              @default(false)
+  purchasedAt      DateTime             @default(now())
+  expiresAt        DateTime?
+  lastUsedAt       DateTime?
+  status           String               @default("active")
+  purchaseId       String?
+  purchase         Purchase?            @relation(fields: [purchaseId], references: [id])
+  source           String               @default("stripe")
+  usageEntries     PackageUsageLedger[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@unique([purchaseId])
+  @@index([userId])
+  @@index([packagePlanId])
+  @@index([packageId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model ClassSession {
+  id              String       @id @default(cuid())
+  courseSlug      String
+  title           String?
+  startsAt        DateTime
+  durationMinutes Int?
+  capacity        Int          @default(12)
+  location        String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  attendances     Attendance[]
+
+  @@unique([courseSlug, startsAt])
+  @@index([courseSlug, startsAt])
+}
+
+model Attendance {
+  id           String              @id @default(cuid())
+  userId       String
+  user         User                @relation(fields: [userId], references: [id])
+  sessionId    String
+  session      ClassSession        @relation(fields: [sessionId], references: [id])
+  status       String              @default("checked_in")
+  checkedInAt  DateTime            @default(now())
+  qrToken      String?
+  metadata     Json?
+  packageUsage PackageUsageLedger?
+
+  @@unique([userId, sessionId])
+  @@index([userId])
+  @@index([sessionId])
+}
+
+model PackageUsageLedger {
+  id                String          @id @default(cuid())
+  packagePurchaseId String
+  packagePurchase   PackagePurchase @relation(fields: [packagePurchaseId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  attendanceId      String?         @unique
+  attendance        Attendance?     @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  delta             Int
+  reason            String
+  meta              Json?
+  createdAt         DateTime        @default(now())
+
+  @@index([packagePurchaseId])
+  @@index([userId, createdAt])
+  @@index([reason])
+}
+
+model ActionRequest {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  status     String    @default("PENDING")
+  message    String?
+  meta       Json?
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([type])
+}

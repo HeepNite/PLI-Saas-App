@@ -3,48 +3,24 @@
 import Image from "next/image"
 import React, {useMemo, useRef, useState} from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import type { HomeReviewSlide } from "@/types/home"
 
 // Simple, dependency-free slider to showcase school reviews.
 // Design reference: left image, right dark card with headline, copy and CTAs.
 // Colors: uses CSS variables and Tailwind tokens already present in the project.
 // Content language: English as requested.
 
-export type ReviewSlide = {
-  image: string
-  text: string
-  author: string
-  role?: string
-}
-
-const defaultSlides: ReviewSlide[] = [
-  {
-    image: "/images/carousel/_DSC1079.JPG",
-    text: "The instructors break down every move so clearly. I improved my timing and confidence in just a few classes!",
-    author: "Julia M.",
-    role: "Beginner to Intermediate",
-  },
-  {
-    image: "/images/carousel/_DSC1087.JPG",
-    text: "Amazing community vibe. Practice nights are the highlight of my week and helped me level up fast.",
-    author: "Carlos R.",
-    role: "On2 Enthusiast",
-  },
-  {
-    image: "/images/carousel/_DSC1076.JPG",
-    text: "Professional teaching with a friendly atmosphere. The video reviews after class are a game changer.",
-    author: "Stephanie K.",
-    role: "Advanced Dancer",
-  },
-]
-
 export default function ReviewsSlider({
-  slides = defaultSlides,
+  slides = [],
   className,
-}: { slides?: ReviewSlide[]; className?: string }) {
+}: { slides?: HomeReviewSlide[]; className?: string }) {
   const listRef = useRef<HTMLDivElement | null>(null)
   const [active, setActive] = useState(0)
 
   const ids = useMemo(() => slides.map((_, i) => `review-slide-${i}`), [slides])
+  const hasSlides = slides.length > 0
+
+  if (!hasSlides) return null
 
   const scrollTo = (idx: number) => {
     const el = document.getElementById(ids[idx])
@@ -58,7 +34,7 @@ export default function ReviewsSlider({
   const prev = () => scrollTo((active - 1 + slides.length) % slides.length)
 
   return (
-    <section className={`w-full mt-[200px] mb-[200px] ${className ?? ""}`} aria-label="Student reviews slider">
+    <section className={`w-full mt-16 md:mt-24 mb-16 md:mb-24 ${className ?? ""}`} aria-label="Student reviews slider">
       <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 overflow-x-clip">
         {/* Heading */}
         <header className="text-center mb-6 sm:mb-8">

@@ -29,7 +29,7 @@ function SearchResultsSkeleton() {
     return (
         <div className="space-y-4">
             {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-32 bg-secondary/50 rounded-lg animate-pulse" />
+                <div key={i} className="h-32 rounded-lg shimmer" />
             ))}
         </div>
     );
@@ -95,12 +95,13 @@ function SearchResults({ query }: { query: string }) {
     );
 }
 
-export default function SearchPage({
-                                       searchParams,
-                                   }: {
-    searchParams: { q?: string };
+export default async function SearchPage({
+    searchParams,
+}: {
+    searchParams: Promise<{ q?: string }>;
 }) {
-    const query = searchParams.q || '';
+    const params = await searchParams;
+    const query = params.q || '';
 
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">

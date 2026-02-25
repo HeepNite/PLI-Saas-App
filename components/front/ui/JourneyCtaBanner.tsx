@@ -13,7 +13,7 @@ const bgImage = "/images/carousel/_DSC1087.JPG"
 
 export default function JourneyCtaBanner() {
     return (
-        <section className="w-full mt-[140px] mb-[200px]" aria-label="Get started CTA">
+        <section className="w-full mt-16 md:mt-24 mb-16 md:mb-24" aria-label="Get started CTA">
             <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 overflow-x-clip">
                 <div
                     className="relative overflow-hidden rounded-xl border bg-white/10 border-white/10 shadow-sm dark:bg-transparent dark:border-transparent">

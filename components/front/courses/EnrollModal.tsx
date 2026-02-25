@@ -1,0 +1,2001 @@
+"use client"
+import React from "react"
+import Link from "next/link"
+import CalendarPicker from "../ui/CalendarPicker"
+import { demoCourses, type EnrollmentOption } from "@/constants/courses"
+import GlassyCard from "./GlassyCard"
+import {
+  Calendar as CalendarIcon,
+  CalendarRange,
+  CalendarDays,
+  CalendarCheck,
+  CreditCard,
+  Building2,
+  User,
+  FileText,
+  CheckCircle2,
+} from "lucide-react"
+import { useI18n } from "@/lib/i18n"
+import type { CourseEnrollmentData, Coupon, EnrollmentContact, PaymentMethod } from "./types"
+import { useEnrollDraft } from "./hooks/useEnrollDraft"
+import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
+import { SignIn, useAuth, useUser } from "@clerk/nextjs"
+import { StripePaymentModal } from "../payments/StripePaymentModal"
+import { useRouter } from "next/navigation"
+import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+
+// EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
+// - This is a client-only component. It does not call a backend; instead, it logs the payload
+//   and shows a local success state. Replace the `handleSubmit` implementation with a real API
+//   call when you are ready.
+// - All inputs are controlled in the local state for simplicity.
+
+const CHECKIN_TIME_ZONE = "America/New_York"
+const CHECKIN_LATE_GRACE_MINUTES = 20
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
+const TIME_24_REGEX = /^\d{2}:\d{2}$/
+
+type EnrollFlowVariant = "default" | "checkin-new" | "checkin-existing"
+
+type EnrollCheckInContext = {
+  date?: string
+  time?: string
+}
+
+const normalizeIsoDate = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  const trimmed = value.trim()
+  return ISO_DATE_REGEX.test(trimmed) ? trimmed : ""
+}
+
+const normalizeTime24 = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  const trimmed = value.trim()
+  return TIME_24_REGEX.test(trimmed) ? trimmed : ""
+}
+
+const pad = (value: number) => String(value).padStart(2, "0")
+
+const toMinutes = (time24: string) => {
+  if (!TIME_24_REGEX.test(time24)) return null
+  const [hour, minute] = time24.split(":").map((part) => Number.parseInt(part, 10))
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null
+  return hour * 60 + minute
+}
+
+const to12hLabel = (time24: string) => {
+  const minutes = toMinutes(time24)
+  if (minutes === null) return time24
+  const hour24 = Math.floor(minutes / 60)
+  const minute = minutes % 60
+  const ampm = hour24 >= 12 ? "PM" : "AM"
+  const hour12 = hour24 % 12 || 12
+  return `${hour12}:${pad(minute)} ${ampm}`
+}
+
+const sortTime24 = (values: string[]) =>
+  [...new Set(values.filter((value) => TIME_24_REGEX.test(value)))]
+    .sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0))
+
+const shiftIsoDate = (isoDate: string, days: number) => {
+  const [year, month, day] = isoDate.split("-").map((part) => Number.parseInt(part, 10))
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return isoDate
+  const shifted = new Date(Date.UTC(year, month - 1, day + days))
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`
+}
+
+const pickSlotForNow = (sortedSlots: string[], nowMinutes: number | null) => {
+  if (!sortedSlots.length) return ""
+  if (nowMinutes === null) return sortedSlots[0]
+  for (const slot of sortedSlots) {
+    const slotMinutes = toMinutes(slot)
+    if (slotMinutes === null) continue
+    if (nowMinutes <= slotMinutes + CHECKIN_LATE_GRACE_MINUTES) {
+      return slot
+    }
+  }
+  return ""
+}
+
+const isEligibleForTodayCheckIn = (slot: string, nowMinutes: number | null) => {
+  if (nowMinutes === null) return true
+  const slotMinutes = toMinutes(slot)
+  if (slotMinutes === null) return false
+  return nowMinutes <= slotMinutes + CHECKIN_LATE_GRACE_MINUTES
+}
+
+const findNextCourseSlot = (courseSlug: string, baseDateIso: string, nowMinutes: number | null) => {
+  for (let offset = 0; offset <= 14; offset += 1) {
+    const dateIso = shiftIsoDate(baseDateIso, offset)
+    const daySlots = sortTime24(getAvailableTimesForCourseDate(courseSlug, dateIso))
+    if (!daySlots.length) continue
+    const candidates =
+      offset === 0 ? daySlots.filter((slot) => isEligibleForTodayCheckIn(slot, nowMinutes)) : daySlots
+    if (!candidates.length) continue
+    const selected = offset === 0 ? pickSlotForNow(candidates, nowMinutes) || candidates[0] : candidates[0]
+    if (selected) {
+      return {
+        date: dateIso,
+        time: selected,
+      }
+    }
+  }
+  return null as null | { date: string; time: string }
+}
+
+const findNextDifferentCourseSlot = (courseSlug: string, dateIso: string, nowMinutes: number) => {
+  let candidate: { title: string; time: string; minutes: number } | null = null
+
+  for (const possibleCourse of demoCourses) {
+    if (possibleCourse.slug === courseSlug) continue
+    const slots = sortTime24(getAvailableTimesForCourseDate(possibleCourse.slug, dateIso))
+    for (const slot of slots) {
+      const slotMinutes = toMinutes(slot)
+      if (slotMinutes === null || slotMinutes <= nowMinutes) continue
+      if (!candidate || slotMinutes < candidate.minutes) {
+        candidate = {
+          title: possibleCourse.title,
+          time: slot,
+          minutes: slotMinutes,
+        }
+      }
+    }
+  }
+
+  return candidate
+}
+
+const computeCheckInAutofill = (
+  courseSlug: string,
+  context?: EnrollCheckInContext,
+  referenceDate = new Date()
+) => {
+  const nowDateIso = getDateKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE)
+  const nowTimeKey = getTimeKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE)
+  const nowMinutes = toMinutes(nowTimeKey)
+  const contextDate = normalizeIsoDate(context?.date)
+  const contextTime = normalizeTime24(context?.time)
+
+  const todaySlots = nowDateIso ? sortTime24(getAvailableTimesForCourseDate(courseSlug, nowDateIso)) : []
+  const contextSlots = contextDate ? sortTime24(getAvailableTimesForCourseDate(courseSlug, contextDate)) : []
+
+  const contextIsValid =
+    Boolean(contextDate && contextTime && contextSlots.includes(contextTime)) &&
+    Boolean(
+      !nowDateIso ||
+        contextDate > nowDateIso ||
+        (contextDate === nowDateIso && isEligibleForTodayCheckIn(contextTime, nowMinutes))
+    )
+
+  const nextSlotFromNow = nowDateIso ? findNextCourseSlot(courseSlug, nowDateIso, nowMinutes) : null
+
+  let targetDate = ""
+  let targetTime = ""
+  let notice: string | null = null
+
+  if (contextIsValid && contextDate && contextTime) {
+    targetDate = contextDate
+    targetTime = contextTime
+  } else if (nextSlotFromNow) {
+    targetDate = nextSlotFromNow.date
+    targetTime = nextSlotFromNow.time
+  } else if (contextDate && contextSlots.length > 0) {
+    targetDate = contextDate
+    targetTime = contextTime && contextSlots.includes(contextTime) ? contextTime : contextSlots[0]
+  } else if (todaySlots.length > 0 && nowDateIso) {
+    targetDate = nowDateIso
+    targetTime = pickSlotForNow(todaySlots, nowMinutes) || todaySlots[0]
+  } else {
+    targetDate = contextDate || nowDateIso || ""
+    targetTime = contextTime || ""
+  }
+
+  if (!targetDate || !targetTime) {
+    return {
+      date: targetDate,
+      time: targetTime,
+      notice: null as string | null,
+    }
+  }
+
+  if (nowDateIso && nowMinutes !== null && targetDate !== nowDateIso && todaySlots.length > 0) {
+    const hasAvailableTodaySlot = todaySlots.some((slot) => isEligibleForTodayCheckIn(slot, nowMinutes))
+    if (!hasAvailableTodaySlot) {
+      const nextDifferentCourse = findNextDifferentCourseSlot(courseSlug, nowDateIso, nowMinutes)
+      if (nextDifferentCourse) {
+        notice = `Hay un horario disponible más tarde: ${nextDifferentCourse.title} a las ${to12hLabel(nextDifferentCourse.time)}.`
+      }
+    }
+  }
+
+  return {
+    date: targetDate,
+    time: targetTime,
+    notice,
+  }
+}
+
+export default function EnrollModal({
+  course,
+  open,
+  onCloseAction,
+  onExistingAccountDetectedAction,
+  initialStep,
+  mode = "modal",
+  prefillContact,
+  flowVariant = "default",
+  checkInContext,
+  useDraft = true,
+}: {
+  course: CourseEnrollmentData
+  open: boolean
+  onCloseAction: () => void
+  onExistingAccountDetectedAction?: (context: {
+    phone: string
+    requiresLogin: boolean
+    hasCompletedPurchase: boolean
+  }) => void
+  initialStep?: number
+  mode?: "modal" | "inline"
+  prefillContact?: Partial<EnrollmentContact>
+  flowVariant?: EnrollFlowVariant
+  checkInContext?: EnrollCheckInContext
+  useDraft?: boolean
+}) {
+  const { t } = useI18n()
+  const router = useRouter()
+  const { isLoaded, isSignedIn, user } = useUser()
+  const { getToken } = useAuth()
+  const isInline = mode === "inline"
+  const checkInContextDate = normalizeIsoDate(checkInContext?.date)
+  const checkInContextTime = normalizeTime24(checkInContext?.time)
+  const isCheckInNewFlow = flowVariant === "checkin-new"
+  const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
+  const isCheckInExistingFlow = flowVariant === "checkin-existing"
+  const allowPanelAccess = !isCheckInFlow
+  const availableServices = React.useMemo(
+    () =>
+      isCheckInExistingFlow
+        ? course.enrollment.services.filter((item) => item.id !== "new-student")
+        : course.enrollment.services,
+    [course.enrollment.services, isCheckInExistingFlow]
+  )
+  const hasNewStudentService = React.useMemo(
+    () => course.enrollment.services.some((item) => item.id === "new-student"),
+    [course.enrollment.services]
+  )
+  const courseAvailableWeekdays = React.useMemo(
+    () => demoCourses.find((item) => item.slug === course.slug)?.schedule.availableWeekdays,
+    [course.slug]
+  )
+  const forcedNewStudentServiceId = hasNewStudentService
+    ? "new-student"
+    : (availableServices[0]?.id ?? "")
+  // Paso 0: opciones/servicios
+  const [service, setService] = React.useState<string>(availableServices[0]?.id ?? "")
+  const [pkg, setPkg] = React.useState<string>("")
+  const [addons, setAddons] = React.useState<string[]>([])
+  const [participants, setParticipants] = React.useState<number>(1)
+  // Paso 1: fecha/hora
+  const [date, setDate] = React.useState<string>("") // YYYY-MM-DD
+  const [time, setTime] = React.useState<string>("") // HH:MM
+  // Paso 3: pagos
+  const [couponInput, setCouponInput] = React.useState<string>("")
+  const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
+  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>("")
+  // Paso 2: datos de contacto (modular, sin teléfono)
+  const [contact, setContact] = React.useState<EnrollmentContact>(
+    {
+      firstName: "",
+      lastName: "",
+      email: "",
+      phone: "+1 ",
+      note: "",
+    }
+  )
+  // Flujo multi‑paso + éxito
+  const [step, setStep] = React.useState<number>(0)
+  const [success, setSuccess] = React.useState<boolean>(false)
+  const [processing, setProcessing] = React.useState<boolean>(false)
+  const [timeLoading, setTimeLoading] = React.useState<boolean>(false)
+  const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
+  const [formError, setFormError] = React.useState<string | null>(null)
+  const [requiresPhoneVerification, setRequiresPhoneVerification] = React.useState<boolean>(false)
+  const [requiresSignIn, setRequiresSignIn] = React.useState<boolean>(false)
+  const [existingAccountDetected, setExistingAccountDetected] = React.useState<boolean>(false)
+  const [resumeAfterSignInStep, setResumeAfterSignInStep] = React.useState<number | null>(null)
+  const [pendingAutoPay, setPendingAutoPay] = React.useState<boolean>(false)
+  const [identityCheckBusy, setIdentityCheckBusy] = React.useState<boolean>(false)
+  const [phoneTouched, setPhoneTouched] = React.useState<boolean>(false)
+  const [stripeClientSecret, setStripeClientSecret] = React.useState<string>("")
+  const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
+  const [checkInScheduleNotice, setCheckInScheduleNotice] = React.useState<string | null>(null)
+  const [checkInNow, setCheckInNow] = React.useState<Date>(() => new Date())
+  const prefillContactRef = React.useRef(prefillContact)
+  const userContactRef = React.useRef<Partial<EnrollmentContact>>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "+1 ",
+    note: "",
+  })
+  const isNewStudent = service === "new-student"
+  const returnTo = `/cursos/${course.slug}?enroll=1&step=2`
+  const verifyPhoneUrl = `/verify-phone?return=${encodeURIComponent(returnTo)}`
+  const steps = React.useMemo(
+    () =>
+      [
+        { key: "party", label: t("step_party") },
+        { key: "datetime", label: t("step_datetime") },
+        { key: "info", label: t("step_info") },
+        { key: "payments", label: t("step_payments") },
+        ...(isCheckInFlow ? [] : [{ key: "review", label: t("step_review") }]),
+      ] as const,
+    [isCheckInFlow, t]
+  )
+  const stepIcons: Record<string, typeof User> = {
+    party: User,
+    datetime: CalendarIcon,
+    info: FileText,
+    payments: CreditCard,
+    review: CheckCircle2,
+  }
+  const regularServiceId = React.useMemo(
+    () =>
+      availableServices.find((item) => item.id !== "new-student")?.id ||
+      availableServices[0]?.id ||
+      "",
+    [availableServices]
+  )
+  const paymentsStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "payments"),
+    [steps]
+  )
+  React.useEffect(() => {
+    prefillContactRef.current = prefillContact
+  }, [prefillContact])
+
+  React.useEffect(() => {
+    if (!isCheckInFlow || !open) return
+    setCheckInNow(new Date())
+    const intervalId = window.setInterval(() => setCheckInNow(new Date()), 30_000)
+    return () => window.clearInterval(intervalId)
+  }, [isCheckInFlow, open])
+
+  React.useEffect(() => {
+    const userPhone = user?.primaryPhoneNumber?.phoneNumber || user?.phoneNumbers?.[0]?.phoneNumber
+    userContactRef.current = {
+      firstName: user?.firstName ?? "",
+      lastName: user?.lastName ?? "",
+      email: user?.primaryEmailAddress?.emailAddress ?? "",
+      phone: userPhone ? formatUSPhone(userPhone) : "+1 ",
+      note: "",
+    }
+  }, [
+    user?.firstName,
+    user?.lastName,
+    user?.phoneNumbers,
+    user?.primaryEmailAddress?.emailAddress,
+    user?.primaryPhoneNumber?.phoneNumber,
+  ])
+  const signInReturnTo = `/cursos/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
+  const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
+
+  useEnrollDraft({
+    open: useDraft ? open : false,
+    success,
+    draftKey,
+    stepsCount: steps.length,
+    state: {
+      service,
+      pkg,
+      addons,
+      participants,
+      date,
+      time,
+      contact,
+      couponInput,
+      appliedCoupon,
+      paymentMethod,
+      step,
+    },
+    setters: {
+      setService,
+      setPkg,
+      setAddons,
+      setParticipants,
+      setDate,
+      setTime,
+      setContact,
+      setCouponInput,
+      setAppliedCoupon,
+      setPaymentMethod,
+      setStep,
+    },
+  })
+
+  React.useEffect(() => {
+    if (isCheckInNewFlow) return
+    if (!open || !prefillContact) return
+    setContact((prev) => ({ ...prev, ...prefillContact }))
+  }, [isCheckInNewFlow, open, prefillContact])
+
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setInitialLoading(false), 400)
+    return () => window.clearTimeout(id)
+  }, [])
+
+  const resetForm = React.useCallback(() => {
+    setSuccess(false)
+    setAddons([])
+    setParticipants(1)
+    setDate("")
+    setTime("")
+    setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
+    setStep(0)
+    setCheckInScheduleNotice(null)
+    setRequiresPhoneVerification(false)
+    setRequiresSignIn(false)
+    setExistingAccountDetected(false)
+    setResumeAfterSignInStep(null)
+    setPendingAutoPay(false)
+    setIdentityCheckBusy(false)
+    setPhoneTouched(false)
+    setStripeClientSecret("")
+    setShowStripeModal(false)
+    setFormError(null)
+    setProcessing(false)
+  }, [])
+
+  const handleClose = React.useCallback(() => {
+    if (isInline) {
+      resetForm()
+      onCloseAction()
+      return
+    }
+    onCloseAction()
+  }, [isInline, onCloseAction, resetForm])
+
+  React.useEffect(() => {
+    if (!open && !isInline) {
+      resetForm()
+    }
+  }, [open, isInline, resetForm])
+
+  React.useEffect(() => {
+    if (isInline) return
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open, isInline])
+
+
+  React.useEffect(() => {
+    const serviceIds = availableServices.map((s) => s.id)
+    setService((prev) => {
+      if (isCheckInNewFlow && hasNewStudentService) return "new-student"
+      return serviceIds.includes(prev) ? prev : serviceIds[0] ?? ""
+    })
+    setPkg((prev) => (course.enrollment.packages.some((p) => p.id === prev) ? prev : ""))
+    setAddons((prev) => prev.filter((id) => course.enrollment.addons?.some((a) => a.id === id)))
+  }, [
+    course.slug,
+    availableServices,
+    course.enrollment.packages,
+    course.enrollment.addons,
+    isCheckInNewFlow,
+    hasNewStudentService,
+  ])
+
+  React.useEffect(() => {
+    if (isNewStudent && participants !== 1) {
+      setParticipants(1)
+    }
+  }, [isNewStudent, participants])
+
+  React.useEffect(() => {
+    if (!isCheckInNewFlow || !open || !hasNewStudentService) return
+    if (service !== "new-student") {
+      setService("new-student")
+    }
+  }, [isCheckInNewFlow, open, hasNewStudentService, service])
+
+  React.useEffect(() => {
+    if (isCheckInNewFlow) return
+    if (!isLoaded || !isSignedIn || !user) return
+    if (!open && !isInline) return
+    const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
+    const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
+    setContact((prev) => ({
+      ...prev,
+      firstName: prev.firstName || user.firstName || "",
+      lastName: prev.lastName || user.lastName || "",
+      email: prev.email || user.primaryEmailAddress?.emailAddress || "",
+      phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
+    }))
+  }, [isCheckInNewFlow, isLoaded, isSignedIn, user, open, isInline])
+
+  const initialServiceId = React.useMemo(() => {
+    if (isCheckInNewFlow) return forcedNewStudentServiceId
+    if (isCheckInExistingFlow) return regularServiceId
+    return availableServices[0]?.id ?? ""
+  }, [availableServices, forcedNewStudentServiceId, isCheckInExistingFlow, isCheckInNewFlow, regularServiceId])
+
+  React.useEffect(() => {
+    if (!open) return
+    if (typeof window === "undefined") return
+    const hasDraft = useDraft ? sessionStorage.getItem(draftKey) : null
+    if (useDraft && hasDraft) return
+    if (!useDraft) {
+      sessionStorage.removeItem(draftKey)
+    }
+    const userContact = userContactRef.current
+    const initialContact: EnrollmentContact = isCheckInNewFlow
+      ? {
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "+1 ",
+          note: "",
+        }
+      : {
+          firstName: prefillContactRef.current?.firstName ?? userContact.firstName ?? "",
+          lastName: prefillContactRef.current?.lastName ?? userContact.lastName ?? "",
+          email: prefillContactRef.current?.email ?? userContact.email ?? "",
+          phone: prefillContactRef.current?.phone ?? userContact.phone ?? "+1 ",
+          note: prefillContactRef.current?.note ?? "",
+        }
+    const checkInAutofill = isCheckInFlow
+      ? computeCheckInAutofill(course.slug, {
+          date: checkInContextDate,
+          time: checkInContextTime,
+        })
+      : { date: "", time: "", notice: null as string | null }
+    setService(initialServiceId)
+    setPkg("")
+    setAddons([])
+    setParticipants(1)
+    setDate(checkInAutofill.date)
+    setTime(checkInAutofill.time)
+    setContact(initialContact)
+    setCouponInput("")
+    setAppliedCoupon(null)
+    setPaymentMethod("")
+    setStep(0)
+    setCheckInScheduleNotice(checkInAutofill.notice)
+    setRequiresPhoneVerification(false)
+    setRequiresSignIn(false)
+    setExistingAccountDetected(false)
+    setResumeAfterSignInStep(null)
+    setPendingAutoPay(false)
+    setIdentityCheckBusy(false)
+    setPhoneTouched(false)
+    setStripeClientSecret("")
+    setShowStripeModal(false)
+    setFormError(null)
+  }, [
+    open,
+    course.slug,
+    draftKey,
+    useDraft,
+    initialServiceId,
+    isCheckInNewFlow,
+    isCheckInFlow,
+    checkInContextDate,
+    checkInContextTime,
+  ])
+
+  // No early returns before hooks complete. We will conditionally render at the final return
+
+  const findOpt = (arr: EnrollmentOption[], id: string) => arr.find((o) => o.id === id)
+  const serviceOpt = findOpt(availableServices, service)
+  const pkgOpt = findOpt(course.enrollment.packages, pkg)
+  const addonsOpts = (course.enrollment.addons || []).filter((a) => addons.includes(a.id))
+  const serviceBase = serviceOpt?.price || 0
+  const packagePrice = pkgOpt?.price || 0
+  const addonsTotal = addonsOpts.reduce((s, a) => s + (a.price || 0), 0)
+  const serviceCharge = pkgOpt ? 0 : serviceBase
+  const perPerson = serviceCharge + packagePrice + addonsTotal
+  const subtotal = perPerson * Math.max(1, participants)
+  const discount = appliedCoupon
+    ? appliedCoupon.type === "percent"
+      ? (subtotal * appliedCoupon.value) / 100
+      : appliedCoupon.value
+    : 0
+  const total = Math.max(0, subtotal - discount)
+  const paymentMethodLabel =
+    paymentMethod === "stripe"
+      ? t("payments_stripe")
+      : paymentMethod === "onsite"
+        ? t("payments_onSite")
+        : "—"
+
+  const formatPackageMeta = React.useCallback((option?: EnrollmentOption | null) => {
+    if (!option?.meta) return option?.description
+    const parts: string[] = []
+    if (option.meta.cadence) parts.push(option.meta.cadence)
+    if (option.meta.totalClasses && option.meta.totalClasses > 0) parts.push(`${option.meta.totalClasses} clases`)
+    if (option.meta.makeUps && option.meta.makeUps > 0) parts.push(`+${option.meta.makeUps} make-ups`)
+    return parts.join(" • ") || option.description
+  }, [])
+
+  // Helpers
+  const to12h = (value: string) => to12hLabel(value)
+  const checkInTodayIso = React.useMemo(
+    () => getDateKeyInTimeZone(checkInNow, CHECKIN_TIME_ZONE),
+    [checkInNow]
+  )
+  const checkInNowMinutes = React.useMemo(
+    () => toMinutes(getTimeKeyInTimeZone(checkInNow, CHECKIN_TIME_ZONE)),
+    [checkInNow]
+  )
+  const TIME_SLOTS_24 = React.useMemo(() => {
+    if (!date) return [] as readonly string[]
+    return sortTime24(getAvailableTimesForCourseDate(course.slug, date))
+  }, [course.slug, date])
+  const visibleTimeSlots = React.useMemo(() => {
+    if (!isCheckInFlow) return TIME_SLOTS_24 as readonly string[]
+    if (time) return [time] as const
+    if (TIME_SLOTS_24.length > 0) return [TIME_SLOTS_24[0]] as const
+    return [] as const
+  }, [isCheckInFlow, time, TIME_SLOTS_24])
+
+  const isSlotExpiredForCheckIn = React.useCallback((slot: string) => {
+    if (!isCheckInFlow || !date || date !== checkInTodayIso) return false
+    if (checkInNowMinutes === null) return false
+    const slotMinutes = toMinutes(slot)
+    if (slotMinutes === null) return false
+    return checkInNowMinutes > slotMinutes + CHECKIN_LATE_GRACE_MINUTES
+  }, [isCheckInFlow, date, checkInTodayIso, checkInNowMinutes])
+
+  React.useEffect(() => {
+    if (!isCheckInFlow || !open) return
+    const recommended = computeCheckInAutofill(
+      course.slug,
+      {
+        date: checkInContextDate,
+        time: checkInContextTime,
+      },
+      checkInNow
+    )
+    if (recommended.date && recommended.date !== date) {
+      setDate(recommended.date)
+    }
+    if (recommended.time !== time) {
+      setTime(recommended.time)
+    }
+    if (recommended.notice !== checkInScheduleNotice) {
+      setCheckInScheduleNotice(recommended.notice)
+    }
+  }, [
+    isCheckInFlow,
+    open,
+    course.slug,
+    checkInContextDate,
+    checkInContextTime,
+    checkInNow,
+    date,
+    time,
+    checkInScheduleNotice,
+  ])
+
+  // Calendar helpers (Google URL + ICS data URI)
+  const eventDates = React.useMemo(() => {
+    if (!date || !time) return null as null | { start: Date; end: Date }
+    const start = new Date(`${date}T${time}:00`)
+    const end = new Date(start.getTime() + 60 * 60 * 1000) // 60 min default
+    return { start, end }
+  }, [date, time])
+
+  const toUTCStamp = (d: Date) =>
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}T${String(
+      d.getUTCHours()
+    ).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}${String(d.getUTCSeconds()).padStart(2, "0")}Z`
+
+  const googleCalHref = React.useMemo(() => {
+    if (!eventDates) return "#"
+    const { start, end } = eventDates
+    const text = `${course.title} — ${course.enrollment.services.find((s) => s.id === service)?.label || t("classWord")}`
+    const details = t("googleCal_details", { participants, total: total.toFixed(2) })
+    const location = course.location?.address || "Palladium Latin Institute"
+    const dates = `${toUTCStamp(start)}/${toUTCStamp(end)}`
+    const url = new URL("https://calendar.google.com/calendar/r/eventedit")
+    url.searchParams.set("text", text)
+    url.searchParams.set("details", details)
+    url.searchParams.set("location", location)
+    url.searchParams.set("dates", dates)
+    return url.toString()
+  }, [eventDates, course, service, participants, total, t])
+
+  const icsDataUri = React.useMemo(() => {
+    if (!eventDates) return "#"
+    const { start, end } = eventDates
+    const summary = `${course.title} — ${course.enrollment.services.find((s) => s.id === service)?.label || t("classWord")}`
+    const description = t("ics_description", { participants, total: total.toFixed(2) })
+    const location = course.location?.address || "Palladium Latin Institute"
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//PLI//Booking Demo//EN",
+      "BEGIN:VEVENT",
+      `UID:${Date.now()}@pli.local`,
+      `DTSTAMP:${toUTCStamp(new Date())}`,
+      `DTSTART:${toUTCStamp(start)}`,
+      `DTEND:${toUTCStamp(end)}`,
+      `SUMMARY:${summary}`,
+      `DESCRIPTION:${description}`,
+      `LOCATION:${location}`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ]
+    const content = lines.join("\n")
+    return `data:text/calendar;charset=utf-8,${encodeURIComponent(content)}`
+  }, [eventDates, course, service, participants, total, t])
+
+  const toggleAddon = (id: string) => {
+    setAddons((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const emailIsValid = React.useCallback((value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()), [])
+
+  const validateBeforeSubmit = () => {
+    if (!service || !availableServices.some((s) => s.id === service)) {
+      return { step: 0, message: "Selecciona un servicio válido." }
+    }
+    if (pkg && !course.enrollment.packages.some((p) => p.id === pkg)) {
+      return { step: 0, message: "El paquete elegido no es válido." }
+    }
+    if (participants < 1 || participants > 10) {
+      return { step: 0, message: "El número de participantes no es válido." }
+    }
+    if (!date || !time) {
+      return { step: 1, message: "Selecciona fecha y hora." }
+    }
+    if (!contact.firstName.trim() || !contact.lastName.trim()) {
+      return { step: 2, message: "Completa tu nombre y apellido." }
+    }
+    if (!emailIsValid(contact.email)) {
+      return { step: 2, message: "Ingresa un email válido." }
+    }
+    if (!isCompleteUSPhone(contact.phone)) {
+      return { step: 2, message: "Ingresa un teléfono válido de EE. UU." }
+    }
+    if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {
+      return { step: 3, message: "Selecciona un método de pago." }
+    }
+    const addonsValid = addons.every((id) => course.enrollment.addons?.some((a) => a.id === id))
+    if (!addonsValid) {
+      return { step: 0, message: "Extras inválidos." }
+    }
+    if (!Number.isFinite(total) || total <= 0) {
+      return { step: 0, message: "El monto calculado es inválido." }
+    }
+    return null
+  }
+
+  const verifyIdentityBeforePayments = React.useCallback(async () => {
+    if (!isCheckInNewFlow && service !== "new-student") return true
+    if (!isCompleteUSPhone(contact.phone)) return true
+
+    setIdentityCheckBusy(true)
+    setFormError(null)
+    try {
+      const res = await fetch("/api/checkin/qr/new-student/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          phone: contact.phone,
+        }),
+      })
+      const contentType = res.headers.get("content-type") || ""
+      const data = contentType.includes("application/json") ? await res.json().catch(() => null) : null
+      const hasValidPayload = Boolean(data && typeof data.exists === "boolean")
+      if (!res.ok || !hasValidPayload) {
+        setFormError(
+          typeof data?.error === "string" && data.error.trim().length > 0
+            ? data.error
+            : t("identity_check_failed")
+        )
+        return false
+      }
+
+      const hasCompletedPurchase = Boolean(data?.hasCompletedPurchase ?? data?.sources?.completedPurchase)
+
+      if (!hasCompletedPurchase) {
+        setExistingAccountDetected(false)
+        setResumeAfterSignInStep(null)
+        return true
+      }
+
+      const requiresLogin = Boolean(data?.requiresLogin || !data?.sessionOwnsPhone || !isSignedIn)
+      onExistingAccountDetectedAction?.({
+        phone: contact.phone,
+        requiresLogin,
+        hasCompletedPurchase: true,
+      })
+
+      if (onExistingAccountDetectedAction) {
+        return false
+      }
+
+      if (requiresLogin) {
+        setExistingAccountDetected(true)
+        setResumeAfterSignInStep(paymentsStepIndex >= 0 ? paymentsStepIndex : 3)
+        setRequiresSignIn(true)
+        setPendingAutoPay(false)
+        setFormError(t("existing_customer_signin_required"))
+        return false
+      }
+
+      // Even when the same account is already signed in, do not continue through "new student".
+      // The caller can redirect to the registered-customer flow.
+      setExistingAccountDetected(true)
+      setResumeAfterSignInStep(null)
+      setRequiresSignIn(false)
+      setPendingAutoPay(false)
+      setFormError(t("account_exists_error"))
+      return false
+    } catch {
+      setFormError(t("identity_check_failed"))
+      return false
+    } finally {
+      setIdentityCheckBusy(false)
+    }
+  }, [
+    contact.phone,
+    isCheckInNewFlow,
+    isSignedIn,
+    paymentsStepIndex,
+    onExistingAccountDetectedAction,
+    service,
+    t,
+  ])
+
+  const requestStripeIntent = async (token?: string | null) => {
+    const res = await fetch("/api/checkout/intent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        courseSlug: course.slug,
+        courseTitle: course.title,
+        amount: Math.round(total * 100),
+        currency: "usd",
+        date,
+        time,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        name: `${contact.firstName} ${contact.lastName}`.trim(),
+        email: contact.email,
+        participants,
+        addons,
+        coupon: appliedCoupon?.code || undefined,
+        packageId: pkg,
+        serviceId: service,
+        phone: contact.phone,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    return { res, data }
+  }
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (processing) return
+    setFormError(null)
+    const validationIssue = validateBeforeSubmit()
+    if (validationIssue) {
+      setFormError(validationIssue.message)
+      setStep(validationIssue.step)
+      return
+    }
+    setProcessing(true)
+    // DEMO: log payload; replace with POST /api/enroll when ready
+    const payload = {
+      course: course.slug,
+      service,
+      package: pkg,
+      addons,
+      date,
+      time,
+      name: `${contact.firstName} ${contact.lastName}`.trim(),
+      email: contact.email,
+      phone: contact.phone,
+      note: contact.note,
+      participants,
+      coupon: appliedCoupon?.code || null,
+      paymentMethod,
+      total,
+    }
+    console.log("[EnrollModal] demo submit", payload)
+
+    if (paymentMethod === "stripe") {
+      try {
+        let token = isSignedIn ? await getToken({ skipCache: true }) : null
+        let result = await requestStripeIntent(token)
+
+        const code = typeof result.data?.code === "string" ? result.data.code : undefined
+        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
+          await new Promise((resolve) => window.setTimeout(resolve, 350))
+          const refreshed = await getToken({ skipCache: true })
+          if (refreshed) {
+            token = refreshed
+            result = await requestStripeIntent(token)
+          }
+        }
+
+        if (!result.res.ok) {
+          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
+          const needsSignIn = finalCode === "ACCOUNT_EXISTS"
+          const isNewStudentBlocked =
+            finalCode === "NEW_STUDENT_ALREADY" ||
+            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
+          if (needsSignIn && isSignedIn) {
+            setFormError(t("account_exists_signed_in"))
+            setRequiresSignIn(false)
+            setExistingAccountDetected(false)
+            setResumeAfterSignInStep(null)
+            setPendingAutoPay(false)
+            setProcessing(false)
+            return
+          }
+          if (isNewStudentBlocked) {
+            setFormError(t("new_student_existing_error"))
+            setRequiresPhoneVerification(false)
+            setRequiresSignIn(false)
+            setExistingAccountDetected(false)
+            setResumeAfterSignInStep(null)
+            setPendingAutoPay(false)
+            setProcessing(false)
+            setStep(0)
+            return
+          }
+          const message =
+            needsSignIn
+              ? t("account_exists_error")
+              : typeof result.data?.error === "string"
+                ? result.data.error
+                : "Error al iniciar el pago con tarjeta."
+          const needsPhoneVerification = message.toLowerCase().includes("phone verification")
+          setFormError(needsSignIn ? null : message)
+          setRequiresPhoneVerification(needsPhoneVerification)
+          setRequiresSignIn(needsSignIn)
+          setExistingAccountDetected(needsSignIn)
+          setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
+          setPendingAutoPay(needsSignIn)
+          if (needsPhoneVerification) {
+            router.push(verifyPhoneUrl)
+          }
+          setProcessing(false)
+          return
+        }
+        if (!result.data.clientSecret) throw new Error("Missing client secret")
+        setStripeClientSecret(result.data.clientSecret)
+        setShowStripeModal(true)
+        setRequiresPhoneVerification(false)
+        setRequiresSignIn(false)
+        setExistingAccountDetected(false)
+        setResumeAfterSignInStep(null)
+        setPendingAutoPay(false)
+      } catch (err) {
+        console.error(err)
+        alert("No pudimos iniciar el pago. Intenta nuevamente.")
+      } finally {
+        setProcessing(false)
+      }
+      return
+    }
+
+    setSuccess(true)
+    setProcessing(false)
+  }
+
+  const handleFormStepSubmit = async () => {
+    if (step < steps.length - 1) {
+      if (step === 2) {
+        const allowedToContinue = await verifyIdentityBeforePayments()
+        if (!allowedToContinue) return
+      }
+      setStep(step + 1)
+      return
+    }
+    await handleSubmit()
+  }
+
+  const handleSubmitRef = React.useRef(handleSubmit)
+  handleSubmitRef.current = handleSubmit
+
+  React.useEffect(() => {
+    if (!pendingAutoPay || !isSignedIn || processing) return
+    let cancelled = false
+    let attempts = 0
+    const run = async () => {
+      const token = await getToken({ skipCache: true })
+      if (cancelled) return
+      if (!token) {
+        attempts += 1
+        if (attempts < 6) {
+          window.setTimeout(run, 350)
+        }
+        return
+      }
+      setRequiresSignIn(false)
+      setPendingAutoPay(false)
+      void handleSubmitRef.current()
+    }
+    const timeout = window.setTimeout(run, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [pendingAutoPay, isSignedIn, processing, getToken])
+
+  React.useEffect(() => {
+    if (!isSignedIn) return
+
+    if (requiresSignIn) {
+      setRequiresSignIn(false)
+    }
+
+    if (existingAccountDetected) {
+      setExistingAccountDetected(false)
+    }
+
+    if (resumeAfterSignInStep !== null) {
+      if (service === "new-student" && regularServiceId && regularServiceId !== service) {
+        setService(regularServiceId)
+      }
+      const safeStep = Math.max(0, Math.min(steps.length - 1, resumeAfterSignInStep))
+      setStep(safeStep)
+      setResumeAfterSignInStep(null)
+      setFormError(null)
+    }
+  }, [
+    existingAccountDetected,
+    isSignedIn,
+    regularServiceId,
+    requiresSignIn,
+    resumeAfterSignInStep,
+    service,
+    steps.length,
+  ])
+
+  React.useEffect(() => {
+    if (open && typeof initialStep === "number") {
+      const safeStep = Math.max(0, Math.min(steps.length - 1, Math.floor(initialStep)))
+      setStep(safeStep)
+    }
+  }, [open, initialStep, steps.length])
+
+  const stepValid = (s: number) => {
+    switch (s) {
+      case 0:
+        // Paquete ahora es opcional según pedido; solo servicio y participantes
+        return participants >= 1 && availableServices.some((opt) => opt.id === service)
+      case 1:
+        return Boolean(date) && Boolean(time)
+      case 2:
+        return contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
+      case 3:
+        return paymentMethod !== ""
+      case 4:
+        return true
+      default:
+        return false
+    }
+  }
+
+  const canContinue = stepValid(step)
+  const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
+
+  if (!open && !isInline) return null
+
+  return (
+    <div
+      role={isInline ? "region" : "dialog"}
+      aria-modal={isInline ? undefined : true}
+      aria-label={t("aria_dialog_bookingFor", { title: course.title })}
+      className={
+        isInline
+          ? "w-full"
+          : "fixed inset-0 z-[10000] flex items-stretch sm:items-center justify-center"
+      }
+    >
+      {!isInline && (
+        <button
+          aria-label={t("aria_close")}
+          onClick={handleClose}
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        />
+      )}
+
+      <GlassyCard
+        data-lenis-prevent
+        className={[
+          "relative w-full bg-white/70 dark:bg-white/10 p-0",
+          isInline
+            ? "rounded-3xl overflow-hidden"
+            : [
+              "mx-0 sm:mx-4 sm:max-w-5xl lg:max-w-6xl h-full rounded-none sm:rounded-2xl",
+              showStripeModal
+                ? "sm:h-auto sm:min-h-[50rem] overflow-hidden"
+                : "sm:h-auto overflow-y-auto",
+            ].join(" "),
+        ].join(" ")}
+      >
+        {!isInline && (
+          <button
+            type="button"
+            onClick={handleClose}
+            className="absolute right-3 top-3 h-9 w-9 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+            aria-label={t("aria_close")}
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/></svg>
+          </button>
+        )}
+
+        <div className={isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12"}>
+          {/* Sidebar: stepper (form) OR calendar panel (success) */}
+          <aside
+            className={[
+              "bg-neutral-900/90 text-white p-3 sm:p-4 space-y-3 sm:space-y-4",
+              isInline ? "md:col-span-1" : "md:col-span-4 lg:col-span-3",
+            ].join(" ")}
+          >
+            {success ? (
+              <div className="flex flex-col gap-4">
+                <h4 className="text-sm font-semibold">{t("addToCalendar")}</h4>
+                {eventDates ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <a
+                      href={googleCalHref}
+                      target="_blank"
+                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                    >
+                      <CalendarIcon className="h-4 w-4" aria-hidden />
+                      Google
+                    </a>
+                    <a
+                      href={icsDataUri}
+                      download={`pli-${course.slug}-${date}-${time}.ics`}
+                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                    >
+                      <CalendarRange className="h-4 w-4" aria-hidden />
+                      Outlook
+                    </a>
+                    <a
+                      href={icsDataUri}
+                      download={`pli-${course.slug}-${date}-${time}.ics`}
+                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                    >
+                      <CalendarDays className="h-4 w-4" aria-hidden />
+                      Yahoo
+                    </a>
+                    <a
+                      href={icsDataUri}
+                      download={`pli-${course.slug}-${date}-${time}.ics`}
+                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                    >
+                      <CalendarCheck className="h-4 w-4" aria-hidden />
+                      Apple
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-xs text-white/70">{t("calendarsHint")}</p>
+                )}
+
+                {/* Collapse menu eliminado por requerimiento */}
+              </div>
+            ) : (
+              <>
+                <h4 className="text-sm font-semibold">{t("booking")}</h4>
+                {isInline ? (
+                  <nav aria-label="Breadcrumb" className="mt-3">
+                    {(() => {
+                      const start = step <= 2 ? 0 : Math.max(steps.length - 3, 0)
+                      const visible = steps.slice(start, start + 3)
+                      const progressIndex = Math.max(0, Math.min(visible.length - 1, step - start))
+                      const progressPct =
+                        visible.length > 1 ? (progressIndex / (visible.length - 1)) * 100 : 0
+                      const insetPct = 100 / (visible.length * 2)
+                      return (
+                        <div className="relative">
+                          <div
+                            className="absolute top-[18px] h-px bg-white/15"
+                            style={{ left: `${insetPct}%`, right: `${insetPct}%` }}
+                          />
+                          <div
+                            className="absolute top-[18px] h-px bg-[color:var(--brand)] transition-[width] duration-500 ease-out"
+                            style={{
+                              left: `${insetPct}%`,
+                              width: `calc((100% - ${insetPct * 2}%) * ${progressPct / 100})`,
+                            }}
+                          />
+                          <div className="relative z-10 grid grid-cols-3 gap-3">
+                            {visible.map((st, idx) => {
+                              const realIndex = start + idx
+                              const done = realIndex < step && stepValid(realIndex)
+                              const active = realIndex === step
+                              const canJump = realIndex <= step
+                              const Icon = stepIcons[st.key]
+                              return (
+                                <button
+                                  key={st.key}
+                                  type="button"
+                                  onClick={() => {
+                                    if (!canJump) return
+                                    setStep(realIndex)
+                                  }}
+                                  disabled={!canJump}
+                                  className={`flex flex-col items-center gap-2 text-[11px] transition ${
+                                    canJump ? "hover:text-white" : "cursor-not-allowed opacity-60"
+                                  }`}
+                                  aria-label={st.label}
+                                >
+                                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900/95">
+                                    <span
+                                      className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                                        done
+                                          ? "border-green-400/70 bg-green-500/20 text-green-200"
+                                          : active
+                                            ? "border-[color:var(--brand)] bg-[color:var(--brand)]/25 text-white"
+                                            : "border-white/15 bg-white/5 text-white/50"
+                                      }`}
+                                    >
+                                      <Icon className="h-4 w-4" aria-hidden />
+                                    </span>
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </nav>
+                ) : (
+                  <nav aria-label="Breadcrumb" className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/80">
+                    {steps.map((st, idx) => {
+                      const done = idx < step && stepValid(idx)
+                      const active = idx === step
+                      const canJump = idx <= step
+                      return (
+                        <React.Fragment key={st.key}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canJump) return
+                              setStep(idx)
+                            }}
+                            disabled={!canJump}
+                            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 transition ${
+                              active ? "border-white/40 bg-white/10" : "border-white/10 bg-transparent"
+                            } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${done ? "bg-green-400" : active ? "bg-white" : "bg-white/30"}`} />
+                            <span>{st.label}</span>
+                          </button>
+                          {idx < steps.length - 1 && <span className="text-white/30">/</span>}
+                        </React.Fragment>
+                      )
+                    })}
+                  </nav>
+                )}
+
+                {/* Summary */}
+                <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
+                  <div className="font-semibold mb-2">{t("summary")}</div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
+                    <div className="space-y-1">
+                      <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                      <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                      {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                      <div>{t("people")}: {participants}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
+                      <div>{t("email")}: {contact.email || "—"}</div>
+                      <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 sm:hidden">
+                  <details className="rounded-md border border-white/10 p-3 text-xs">
+                    <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="space-y-1">
+                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                        <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                        {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                        <div>{t("people")}: {participants}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
+                        <div>{t("email")}: {contact.email || "—"}</div>
+                        <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+
+                {/* Sin bloque de contacto; el chat vive en el UI global */}
+              </>
+            )}
+          </aside>
+
+          {/* Main content */}
+          <section className={isInline ? "p-4 sm:p-6" : "md:col-span-8 lg:col-span-9 p-3 sm:p-6"}>
+            <div className={isInline ? "" : "mx-auto w-full max-w-2xl"}>
+              <div className="flex items-center gap-2 mb-3">
+                {step > 0 && (
+                  <button
+                    type="button"
+                    aria-label={t("back")}
+                    onClick={() => setStep((s) => Math.max(0, s - 1))}
+                    className="h-8 w-8 rounded-md border border-black/10 flex items-center justify-center"
+                  >
+                    ←
+                  </button>
+                )}
+                <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
+                  {steps[step]?.label} • {course.title}
+                </h3>
+              </div>
+
+            {success ? (
+              <div className="mt-2">
+                {/* Success header */}
+                <div className="flex flex-col items-center py-4">
+                  <div className="mb-2" aria-hidden>
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">🎉</span>
+                  </div>
+                  <h3 className="text-xl font-semibold">{t("congratulations")}</h3>
+                  <p className="text-xs text-neutral-500">{t("appointmentId")} {Math.abs((date+time).split("").reduce((a,c)=>a+c.charCodeAt(0),0)%1000) || 56}</p>
+                </div>
+
+                {/* Details table */}
+                <div className="divide-y divide-black/10 dark:divide-white/10">
+                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
+                    <div className="text-neutral-500">{t("date")}</div>
+                    <div className="text-right">{date}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
+                    <div className="text-neutral-500">{t("localTime")}</div>
+                    <div className="text-right">{to12h(time)}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
+                    <div className="text-neutral-500">{t("classWord")}:</div>
+                    <div className="text-right">{course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
+                    <div className="text-neutral-500">{t("teacher")}</div>
+                    <div className="text-right">{course.instructors?.[0]?.name || "—"}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
+                    <div className="text-neutral-500">{t("location")}</div>
+                    <div className="text-right">{course.location?.address}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
+                    <div className="text-neutral-500">{t("payment")}</div>
+                    <div className="text-right">${total.toFixed(2)} — {paymentMethodLabel}</div>
+                  </div>
+                </div>
+
+                <hr className="my-3 border-black/10 dark:border-white/10" />
+
+                <div className="space-y-2 text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="text-neutral-500">{t("name")}:</div>
+                    <div className="text-right">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="text-neutral-500">{t("email")}</div>
+                    <div className="text-right">{contact.email}</div>
+                  </div>
+                </div>
+
+                {/* Bottom bar actions */}
+                <div className={`mt-6 border-t border-black/10 dark:border-white/10 px-3 py-3 flex items-center ${allowPanelAccess ? "justify-between" : "justify-end"}`}>
+                  {allowPanelAccess && (
+                    <Link href="/client-profile" className="text-sm font-medium">{t("customerPanel")}</Link>
+                  )}
+                  <button onClick={handleClose} className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white">{t("finish")}</button>
+                </div>
+              </div>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  await handleFormStepSubmit()
+                }}
+                className="space-y-4"
+              >
+                {/* Step contents */}
+                {step === 0 && (
+                  <div className="space-y-5">
+                    <div className={`grid gap-3 ${isInline ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
+                      <fieldset className="space-y-2">
+                        <label className="text-sm font-medium">{t("label_service")}</label>
+                        <select
+                          id="booking-service"
+                          name="booking-service"
+                          value={service}
+                          onChange={(e) => {
+                            if (isCheckInNewFlow && hasNewStudentService) return
+                            setService(e.target.value)
+                          }}
+                          disabled={isCheckInNewFlow && hasNewStudentService}
+                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 disabled:opacity-70"
+                        >
+                          {availableServices.map((s) => (
+                            <option key={s.id} value={s.id}>{s.label}{s.price ? ` — $${s.price}` : ""}</option>
+                          ))}
+                        </select>
+                        {isCheckInNewFlow && hasNewStudentService && (
+                          <p className="text-xs text-neutral-500">Servicio preseleccionado para alumnos nuevos.</p>
+                        )}
+                      </fieldset>
+                      <fieldset className="space-y-2">
+                        <label className="text-sm font-medium">{t("label_companion")}</label>
+                        <select
+                          value={participants}
+                          onChange={(e)=>setParticipants(parseInt(e.target.value)||1)}
+                          disabled={isNewStudent}
+                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 disabled:opacity-60"
+                        >
+                          {[1,2,3,4].map(n=> <option key={n} value={n}>{n} {n===1?t("onePerson"):t("manyPeople")}</option>)}
+                        </select>
+                        {isNewStudent && (
+                          <p className="text-xs text-neutral-500">{t("new_student_single_notice")}</p>
+                        )}
+                      </fieldset>
+                    </div>
+
+                    {/* Ofertas de paquetes (OPCIONAL) */}
+                    {!!course.enrollment.packages.length && (
+                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium">{t("optionalPackages")}</h4>
+                          {pkg && (
+                            <button type="button" onClick={()=>setPkg("")} className="text-xs underline">
+                              {t("removeSelection")}
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">{t("packagesHint")}</p>
+                        <div className={`mt-3 grid gap-2 ${isInline ? "grid-cols-2 auto-rows-fr" : "grid-cols-1 sm:grid-cols-2"}`}>
+                          {course.enrollment.packages.map((p) => {
+                            const selected = pkg === p.id
+                            const metaLine = formatPackageMeta(p)
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setPkg(p.id)}
+                                className={`h-full rounded-md border px-3 py-3 text-left transition ${
+                                  selected
+                                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] text-white"
+                                    : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 text-neutral-700 dark:text-white/80 hover:border-white/30"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-sm font-medium">{p.label}</span>
+                                  {p.price && <span className="text-sm font-semibold">${p.price}</span>}
+                                </div>
+                                {metaLine && (
+                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
+                                )}
+                                {p.description && (
+                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{p.description}</p>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {!!course.enrollment.addons?.length && (
+                      <fieldset className="space-y-2">
+                        <label className="text-sm font-medium">{t("label_extras")}</label>
+                        <div className="grid grid-cols-1 gap-2">
+                          {course.enrollment.addons!.map((a) => (
+                            <label
+                              key={a.id}
+                              className="flex w-full items-center justify-between gap-3 rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm"
+                            >
+                              <span>{a.label}{a.price ? ` — $${a.price}` : ""}</span>
+                              <input type="checkbox" checked={addons.includes(a.id)} onChange={() => toggleAddon(a.id)} className="h-4 w-4 shrink-0" />
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    )}
+                  </div>
+                )}
+
+                {step === 1 && (
+                  <div className="grid grid-cols-1 gap-4">
+                    <fieldset className="space-y-2">
+                      <label className="text-sm font-medium">{t("step_datetime")}</label>
+                      {initialLoading ? (
+                        <div className="space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
+                          <div className="h-4 w-24 rounded-full shimmer" />
+                          <div className="grid grid-cols-7 gap-1">
+                            {Array.from({ length: 21 }).map((_, idx) => (
+                              <div key={idx} className="h-8 rounded-md shimmer" />
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <CalendarPicker
+                          value={date}
+                          onChange={(d) => {
+                            if (isCheckInFlow) return
+                            setDate(d)
+                            if (!d) {
+                              setTime("")
+                              setTimeLoading(false)
+                              setCheckInScheduleNotice(null)
+                              return
+                            }
+                            const nextSlots = sortTime24(getAvailableTimesForCourseDate(course.slug, d))
+                            setTime(nextSlots[0] || "")
+                            setCheckInScheduleNotice(null)
+                            setTimeLoading(true)
+                            window.setTimeout(() => setTimeLoading(false), 350)
+                          }}
+                          compact={isInline}
+                          className="w-full"
+                          timezone={isCheckInFlow ? CHECKIN_TIME_ZONE : undefined}
+                          availableWeekdays={courseAvailableWeekdays}
+                          allowClear={!isCheckInFlow}
+                          locked={isCheckInFlow}
+                        />
+                      )}
+                    </fieldset>
+                    <fieldset className="space-y-2">
+                      <label className="text-sm font-medium">{t("label_selectTime")}</label>
+                      {date ? (
+                        <div className="flex flex-wrap gap-2">
+                          {timeLoading ? (
+                            <>
+                              <div className="h-9 w-24 rounded-md shimmer" />
+                              <div className="h-9 w-24 rounded-md shimmer" />
+                              <div className="h-9 w-24 rounded-md shimmer" />
+                            </>
+                          ) : (
+                            <>
+                              {visibleTimeSlots.map((tSlot) => {
+                                const slotExpired = isSlotExpiredForCheckIn(tSlot)
+                                const isLocked = isCheckInFlow
+                                return (
+                                  <button
+                                    type="button"
+                                    key={tSlot}
+                                    onClick={() => {
+                                      if (isLocked) return
+                                      setTime(tSlot)
+                                    }}
+                                    disabled={slotExpired}
+                                    className={`px-3 py-1.5 rounded-md border text-sm ${
+                                      time === tSlot
+                                        ? "bg-[var(--brand,#111)] text-white border-transparent"
+                                        : "border-black/10 dark:border-white/10"
+                                    } ${
+                                      slotExpired
+                                        ? "opacity-40 cursor-not-allowed"
+                                        : isLocked
+                                          ? "cursor-default"
+                                          : ""
+                                    }`}
+                                  >
+                                    {to12h(tSlot)}
+                                  </button>
+                                )
+                              })}
+                              {visibleTimeSlots.length === 0 && (
+                                <p className="text-xs text-muted-foreground">No hay horarios disponibles para este día.</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-muted-foreground">Selecciona una fecha para ver horarios disponibles.</p>
+                          <div className="h-3 w-32 rounded-full shimmer" />
+                          <div className="h-3 w-24 rounded-full shimmer" />
+                        </div>
+                      )}
+                      {isCheckInFlow && checkInScheduleNotice && (
+                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                          {checkInScheduleNotice}
+                        </div>
+                      )}
+                    </fieldset>
+                  </div>
+                )}
+
+                {step === 2 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <fieldset className="space-y-2">
+                      <label className="text-sm font-medium">{t("label_firstName")}</label>
+                      <input value={contact.firstName} onChange={(e)=>setContact((c)=>({...c, firstName: e.target.value}))} placeholder={t("placeholder_firstName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                    </fieldset>
+                    <fieldset className="space-y-2">
+                      <label className="text-sm font-medium">{t("label_lastName")}</label>
+                      <input value={contact.lastName} onChange={(e)=>setContact((c)=>({...c, lastName: e.target.value}))} placeholder={t("placeholder_lastName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                    </fieldset>
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">{t("label_email")}</label>
+                    <input type="email" value={contact.email} onChange={(e)=>setContact((c)=>({...c, email: e.target.value}))} placeholder={t("placeholder_email")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                    {!isCheckInFlow && (
+                      <p className="text-xs text-neutral-500">
+                        ¿Ya tienes cuenta?{" "}
+                        <button
+                          type="button"
+                          onClick={() => {
+                          setRequiresSignIn(true)
+                          setExistingAccountDetected(false)
+                          setResumeAfterSignInStep(null)
+                          setPendingAutoPay(false)
+                        }}
+                          className="underline font-medium"
+                        >
+                          Inicia sesión
+                        </button>{" "}
+                        y se completan tus datos automáticamente.
+                      </p>
+                    )}
+                  </fieldset>
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">Teléfono</label>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
+                        US
+                      </span>
+                      <input
+                        type="tel"
+                        value={contact.phone}
+                        onChange={(e) => {
+                          setPhoneTouched(true)
+                          setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
+                        }}
+                        onBlur={() => setPhoneTouched(true)}
+                        placeholder="(929) 387-6584"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
+                        className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2"
+                      />
+                    </div>
+                    {phoneTouched && !isCompleteUSPhone(contact.phone) && (
+                      <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
+                    )}
+                  </fieldset>
+                  <fieldset className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">{t("label_notes")}</label>
+                    <textarea value={contact.note} onChange={(e)=>setContact((c)=>({...c, note: e.target.value}))} rows={3} placeholder={t("placeholder_notes")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                  </fieldset>
+                </div>
+                )}
+
+                {step === 3 && (
+                  <div className="space-y-4">
+                    {/* Payments step */}
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2">{t("payments_summary")}</h4>
+                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 space-y-3">
+                        <div className="rounded-md border border-black/10 dark:border-white/10 p-3 bg-white/70 dark:bg-white/10">
+                          <div className="text-xs text-neutral-500 mb-1">{t("payments_classes")}</div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span>
+                              {course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}
+                              {pkgOpt ? " (incluida en paquete)" : perPerson ? ` ($${perPerson.toFixed(2)})` : ""} × {participants} {participants===1?t("onePerson"):t("manyPeople")}
+                            </span>
+                            <span className="font-medium">${subtotal.toFixed(2)}</span>
+                          </div>
+                          <div className="mt-2 space-y-1 text-xs text-neutral-500">
+                            <div className="flex items-center justify-between">
+                              <span>Servicio: {serviceOpt?.label || "—"}{pkgOpt ? " (incluida)" : ""}</span>
+                              <span>${serviceCharge.toFixed(2)}</span>
+                            </div>
+                            {pkgOpt && (
+                              <div className="flex items-center justify-between">
+                                <span>
+                                  Paquete: {pkgOpt.label}
+                                  {formatPackageMeta(pkgOpt) ? ` (${formatPackageMeta(pkgOpt)})` : ""}
+                                </span>
+                                <span>${packagePrice.toFixed(2)}</span>
+                              </div>
+                            )}
+                            {!!addonsOpts.length && (
+                              <div className="flex items-center justify-between">
+                                <span>Extras: {addonsOpts.map((a)=>a.label).join(", ")}</span>
+                                <span>${addonsTotal.toFixed(2)}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <span>Subtotal por persona</span>
+                              <span>${perPerson.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm font-medium" htmlFor="coupon">{t("payments_coupon")}</label>
+                          <input
+                            id="coupon"
+                            value={couponInput}
+                            onChange={(e)=>setCouponInput(e.target.value)}
+                            placeholder={t("payments_coupon_placeholder")}
+                            className="flex-1 rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                          />
+                          {appliedCoupon ? (
+                            <button
+                              type="button"
+                              onClick={()=>{ setAppliedCoupon(null); setCouponInput("") }}
+                              className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2 text-sm"
+                            >
+                              {t("payments_remove")}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={()=>{
+                                const code = couponInput.trim().toUpperCase()
+                                if (code === "PLI10") setAppliedCoupon({ code, type: "percent", value: 10 })
+                                else if (code === "PLI20") setAppliedCoupon({ code, type: "percent", value: 20 })
+                                else if (!code) return
+                                else alert(t("payments_invalidCoupon"))
+                              }}
+                              className="rounded-md bg-[var(--brand,#111)] text-white px-3 py-2 text-sm"
+                            >
+                              {t("payments_add")}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between text-sm pt-1">
+                          <span className="font-medium">{t("payments_totalAmount")}</span>
+                          <span className="font-semibold">${total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {isCheckInFlow && (
+                      <GlassyCard className="p-4">
+                        <div className="text-sm space-y-1">
+                          <div className="font-medium">{t("reviewAndConfirm")}</div>
+                          <div>{t("course")}: {course.title}</div>
+                          <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (incluida en paquete)" : ""}</div>
+                          <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                          {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                          <div>{t("people")}: {participants}</div>
+                          <div>{t("dateTime")}: {date} {to12h(time)}</div>
+                          <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
+                          <div>{t("email")}: {contact.email || "—"}</div>
+                          <div>Teléfono: {contact.phone || "—"}</div>
+                          <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
+                          {contact.note && <div>{t("notes")}: {contact.note}</div>}
+                          <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                        </div>
+                      </GlassyCard>
+                    )}
+
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2">{t("payments_method")}</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={()=>setPaymentMethod("onsite")}
+                          className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod==="onsite"?"border-[var(--brand,#111)] bg-[var(--brand,#111)]/5":"border-black/10 dark:border-white/10"}`}
+                        >
+                          <div className="flex items-center gap-2 font-medium">
+                            <Building2 className="h-4 w-4" aria-hidden />
+                            {t("payments_onSite")}
+                          </div>
+                          <div className="mt-1 text-xs text-neutral-500">{t("payments_onSite_desc")}</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={()=>setPaymentMethod("stripe")}
+                          className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod==="stripe"?"border-[var(--brand,#111)] bg-[var(--brand,#111)]/5":"border-black/10 dark:border-white/10"}`}
+                        >
+                          <div className="flex items-center gap-2 font-medium">
+                            <CreditCard className="h-4 w-4" aria-hidden />
+                            {t("payments_stripe")}
+                          </div>
+                          <div className="mt-1 text-xs text-neutral-500">{t("payments_stripe_desc")}</div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!isCheckInFlow && step === 4 && (
+                  <div className="space-y-4">
+                    <GlassyCard className="p-4">
+                      <div className="text-sm space-y-1">
+                        <div className="font-medium">{t("reviewAndConfirm")}</div>
+                        <div>{t("course")}: {course.title}</div>
+                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (incluida en paquete)" : ""}</div>
+                        <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                        {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                        <div>{t("people")}: {participants}</div>
+                        <div>{t("dateTime")}: {date} {to12h(time)}</div>
+                        <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
+                        <div>{t("email")}: {contact.email || "—"}</div>
+                        <div>Teléfono: {contact.phone || "—"}</div>
+                        <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
+                        {contact.note && <div>{t("notes")}: {contact.note}</div>}
+                        <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                      </div>
+                    </GlassyCard>
+                  </div>
+                )}
+
+                {/* Footer actions */}
+                <div className={isInline ? "flex flex-col gap-2 pt-2" : "flex items-center justify-between pt-2"}>
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    className={isInline ? "w-full px-4 py-2 rounded-md border border-black/10 dark:border-white/10" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10"}
+                  >
+                    {t("cancel")}
+                  </button>
+                  <div className={isInline ? `grid w-full ${allowPanelAccess ? "grid-cols-3" : "grid-cols-2"} gap-2` : "flex gap-2"}>
+                    {allowPanelAccess && (
+                      <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setStep((s) => Math.max(0, s - 1))}
+                      disabled={step === 0}
+                      className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50"}
+                    >
+                      {t("back")}
+                    </button>
+                    {step < steps.length - 1 ? (
+                      <button
+                        type="submit"
+                        disabled={!canContinue || identityCheckBusy}
+                        className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
+                      >
+                        {identityCheckBusy ? t("verifyingAccount") : t("continue")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleSubmit()}
+                        disabled={processing || identityCheckBusy}
+                        className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
+                      >
+                        {processing ? "Procesando..." : t("confirm")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {formError && <p className="text-sm text-red-600 mt-2" role="alert" aria-live="polite">{formError}</p>}
+                {requiresPhoneVerification && (
+                  <div className="mt-2 text-sm text-neutral-700 dark:text-neutral-200">
+                    <p>{t("new_student_verify_phone")}</p>
+                    <Link href={verifyPhoneUrl} className="underline font-medium">{t("verify_phone_cta")}</Link>
+                  </div>
+                )}
+              </form>
+            )}
+            </div>
+          </section>
+        </div>
+        {showStripeModal && stripeClientSecret && (
+          <StripePaymentModal
+            clientSecret={stripeClientSecret}
+            onClose={() => setShowStripeModal(false)}
+            onSuccess={async (paymentIntentId?: string) => {
+              if (paymentIntentId) {
+                try {
+                  const token = isSignedIn ? await getToken({ skipCache: true }) : null
+                  await fetch("/api/checkout/finalize", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                    },
+                    credentials: "include",
+                    body: JSON.stringify({ paymentIntentId }),
+                  })
+                } catch (error) {
+                  console.warn("Unable to finalize purchase sync", error)
+                }
+              }
+              setSuccess(true)
+            }}
+            email={contact.email}
+            name={`${contact.firstName} ${contact.lastName}`.trim()}
+            phone={contact.phone}
+          />
+        )}
+      </GlassyCard>
+      {requiresSignIn && (
+        <div className="fixed inset-0 z-[10020] flex items-stretch justify-end px-2 sm:px-4 py-6">
+          <button
+            type="button"
+            aria-label={t("aria_close")}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => {
+              setRequiresSignIn(false)
+              setExistingAccountDetected(false)
+              setResumeAfterSignInStep(null)
+              setPendingAutoPay(false)
+            }}
+          />
+          <div className="relative z-10 w-full sm:max-w-md rounded-2xl border border-black/10 dark:border-white/10 bg-white/95 dark:bg-neutral-900/95 p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold">
+                  {showAccountExistsSignInCopy ? t("account_exists_title") : t("sign_in_modal_title")}
+                </h3>
+                <p className="text-sm text-neutral-600 dark:text-neutral-300">
+                  {showAccountExistsSignInCopy ? t("existing_customer_signin_required") : t("sign_in_modal_subtitle")}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-black/10 dark:border-white/10 px-2 py-1 text-xs"
+                onClick={() => {
+                  setRequiresSignIn(false)
+                  setExistingAccountDetected(false)
+                  setResumeAfterSignInStep(null)
+                  setPendingAutoPay(false)
+                }}
+              >
+                {t("cancel")}
+              </button>
+            </div>
+            <div className="mt-4">
+              <SignIn
+                routing="virtual"
+                forceRedirectUrl={signInReturnTo}
+                initialValues={{
+                  phoneNumber: toE164Phone(contact.phone),
+                }}
+                appearance={{
+                  elements: {
+                    card: "shadow-none bg-transparent p-0 w-full",
+                    headerTitle: "hidden",
+                    headerSubtitle: "hidden",
+                    footer: "hidden",
+                  },
+                }}
+              />
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                className="text-sm font-medium underline"
+                onClick={() => {
+                  setRequiresSignIn(false)
+                  setExistingAccountDetected(false)
+                  setResumeAfterSignInStep(null)
+                  setPendingAutoPay(false)
+                }}
+              >
+                {t("account_exists_back")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

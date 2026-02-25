@@ -1,0 +1,5 @@
+ALTER TABLE "CourseCatalog"
+  ADD COLUMN IF NOT EXISTS "coverImageUrl" TEXT,
+  ADD COLUMN IF NOT EXISTS "previewVideoUrl" TEXT,
+  ADD COLUMN IF NOT EXISTS "dropInPriceCents" INTEGER,
+  ADD COLUMN IF NOT EXISTS "firstClassPriceCents" INTEGER;

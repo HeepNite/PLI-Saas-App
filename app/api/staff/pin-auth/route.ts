@@ -1,0 +1,106 @@
+import { createHash, timingSafeEqual } from "crypto"
+import { NextResponse } from "next/server"
+import { clerkClient } from "@clerk/nextjs/server"
+import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
+import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
+
+export const runtime = "nodejs"
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const isValidPinHash = (pin: string, pinHash: string) => {
+  const parts = pinHash.split(":")
+  if (parts.length !== 2) return false
+  const [salt, expectedHash] = parts
+  if (!salt || !expectedHash) return false
+
+  const nextHash = createHash("sha256")
+    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
+    .digest("hex")
+
+  try {
+    const expectedBuffer = Buffer.from(expectedHash, "hex")
+    const nextBuffer = Buffer.from(nextHash, "hex")
+    if (expectedBuffer.length === 0 || nextBuffer.length === 0) return false
+    if (expectedBuffer.length !== nextBuffer.length) return false
+    return timingSafeEqual(expectedBuffer, nextBuffer)
+  } catch {
+    return false
+  }
+}
+
+export async function POST(req: Request) {
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:pin-auth:post", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
+  })
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
+
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  const payload = body as Record<string, unknown>
+  const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : ""
+  const pin = typeof payload.pin === "string" ? payload.pin.trim() : ""
+
+  if (!email || !EMAIL_REGEX.test(email)) {
+    return NextResponse.json({ error: "Invalid email" }, { status: 400 })
+  }
+  if (!/^\d{4,8}$/.test(pin)) {
+    return NextResponse.json({ error: "PIN must be 4 to 8 digits." }, { status: 400 })
+  }
+
+  const client = await clerkClient()
+  const list = await client.users.getUserList({
+    emailAddress: [email],
+    limit: 1,
+  })
+  const user = list.data[0]
+  if (!user) {
+    return NextResponse.json({ error: "Staff user not found." }, { status: 404 })
+  }
+
+  const role = extractStaffRoleFromUserMetadata(user)
+  if (!role) {
+    return NextResponse.json({ error: "User does not have staff access." }, { status: 403 })
+  }
+  const category = extractStaffCategoryFromUserMetadata(user) || "guest_staff"
+  const privateMetadata =
+    user.privateMetadata && typeof user.privateMetadata === "object"
+      ? (user.privateMetadata as Record<string, unknown>)
+      : {}
+  const pinHash = typeof privateMetadata.staffPinHash === "string" ? privateMetadata.staffPinHash : ""
+  if (!pinHash || !isValidPinHash(pin, pinHash)) {
+    return NextResponse.json({ error: "Invalid PIN for this staff account." }, { status: 401 })
+  }
+
+  return NextResponse.json({
+    ok: true,
+    staff: {
+      id: user.id,
+      name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || email,
+      email,
+      role,
+      category,
+      hasPin: true,
+      validatedAt: new Date().toISOString(),
+    },
+  })
+}

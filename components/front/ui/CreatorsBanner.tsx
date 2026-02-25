@@ -6,11 +6,13 @@ import React from "react"
 // Light applies a subtle glass look; dark keeps current site aesthetic.
 
 const carouselImages: string[] = [
-    "/images/carousel/_DSC0998.JPG",
+    "/images/Kids/Artboard 1.jpg",
     "/images/carousel/_DSC1076.JPG",
-    "/images/carousel/_DSC1079.JPG",
+    "/images/social-program/Background.jpg",
     "/images/carousel/_DSC1087.JPG",
+    "/images/social-program/Background-1.jpg",
     "/images/carousel/_DSC1090.JPG",
+    "/images/Kids/Artboard 3.jpg",
 ]
 
 function CardImage({src, alt}: { src: string; alt: string }) {
@@ -37,7 +39,7 @@ export default function CreatorsBanner() {
     const imgs = [...carouselImages, ...carouselImages] // if we need more tiles
 
     return (
-        <section className="w-full mt-[200px] mb-6 md:mb-10">
+        <section className="w-full mt-16 md:mt-24 mb-8 md:mb-12">
             <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 overflow-x-clip">
                 {/* Mobile heading (top) */}
                 <div className="md:hidden text-center py-2">

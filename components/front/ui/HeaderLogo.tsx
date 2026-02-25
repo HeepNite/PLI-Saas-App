@@ -21,7 +21,7 @@ const HeaderLogo = () => {
 
   return (
     <div className="shrink-0" aria-label="Brand">
-      <Link href="/public" aria-label="Home" className="shrink-0">
+      <Link href="/" aria-label="Home" className="shrink-0">
         <Image src={logoSrc} alt="PLI Logo" width={120} height={120} priority />
       </Link>
     </div>

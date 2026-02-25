@@ -2,6 +2,8 @@
 
 import Image from "next/image"
 import React from "react"
+import { useMediaQuery } from "@/lib/hooks/useMediaQuery"
+import { useThemeObserver } from "@/lib/hooks/useThemeObserver"
 
 type VerticalCarouselProps = {
   images?: string[]
@@ -14,11 +16,13 @@ type VerticalCarouselProps = {
 }
 
 const defaultImages = [
-  "/images/carousel/_DSC0998.JPG",
+  "/images/Kids/Artboard 1.jpg",
   "/images/carousel/_DSC1076.JPG",
-  "/images/carousel/_DSC1079.JPG",
-  "/images/carousel/_DSC1087.JPG",
+  "/images/social-program/Background.jpg",
+  "/images/Kids/Artboard 2.jpg",
+  "/images/social-program/Background-1.jpg",
   "/images/carousel/_DSC1090.JPG",
+  "/images/social-program/Background-3.jpg",
 ]
 
 export default function VerticalCarousel({
@@ -30,40 +34,9 @@ export default function VerticalCarousel({
   columns = 2,
   className,
 }: VerticalCarouselProps) {
-  // Responsive columns: 1 column on small screens, otherwise use provided `columns`
-  const [effectiveCols, setEffectiveCols] = React.useState(Math.max(1, columns))
-  const [isSmall, setIsSmall] = React.useState(false)
-  const [isDark, setIsDark] = React.useState(false)
-  React.useEffect(() => {
-    const mq = window.matchMedia("(max-width: 768px)")
-    const apply = () => {
-      const small = mq.matches
-      setIsSmall(small)
-      setEffectiveCols(small ? 1 : Math.max(1, columns))
-    }
-    apply()
-    // Theme detection
-    const root = document.documentElement
-    const updateTheme = () => setIsDark(root.classList.contains("dark"))
-    updateTheme()
-    // Add/remove listener with cross-browser support
-    if (mq.addEventListener) {
-      mq.addEventListener("change", apply)
-    } else {
-
-      mq.addListener(apply)
-    }
-    const obs = new MutationObserver(updateTheme)
-    obs.observe(root, { attributes: true, attributeFilter: ["class"] })
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", apply)
-      else {
-
-        mq.removeListener(apply)
-      }
-      obs.disconnect()
-    }
-  }, [columns])
+  const isSmall = useMediaQuery("(max-width: 768px)")
+  const isDark = useThemeObserver()
+  const effectiveCols = React.useMemo(() => (isSmall ? 1 : Math.max(1, columns)), [isSmall, columns])
   // Duplicate the array to make the loop seamless
   const loopImages = [...images, ...images]
 

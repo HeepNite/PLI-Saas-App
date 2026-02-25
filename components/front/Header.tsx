@@ -5,6 +5,15 @@ import SearchInput from "@/components/front/ui/SearchInput";
 import HeaderLogo from "@/components/front/ui/HeaderLogo";
 import HeaderActions from "@/components/front/ui/HeaderActions";
 import ButtonForm from "@/components/ui/ButtonForm";
+import Link from "next/link";
+import { Menu } from "lucide-react";
+import {
+    DropDownMenu,
+    DropdownMenuContent,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/DropDownMenu";
 
 const Header = () => {
     return (
@@ -15,15 +24,50 @@ const Header = () => {
                     <HeaderLogo />
 
                     {/* Explore mega menu */}
-                    <ButtonForm />
+                    <div className="hidden lg:block">
+                        <ButtonForm />
+                    </div>
 
                     {/* Center: Search */}
-                    <div className="flex-1 mx-auto max-w-xl">
+                    <div className="flex-1 mx-auto max-w-[220px] sm:max-w-sm md:max-w-md lg:max-w-xl">
                         <SearchInput />
                     </div>
 
                     {/* Right: Actions */}
-                    <HeaderActions />
+                    <div className="hidden lg:flex">
+                        <HeaderActions />
+                    </div>
+
+                    {/* Mobile hamburger */}
+                    <div className="ml-auto lg:hidden">
+                        <DropDownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <button
+                                    type="button"
+                                    aria-label="Open menu"
+                                    className="h-9 w-9 rounded-md border border-white/10 bg-black/40 text-white flex items-center justify-center"
+                                >
+                                    <Menu className="h-5 w-5" />
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" sideOffset={10} className="w-[280px] p-3">
+                                <DropdownMenuLabel className="text-xs uppercase tracking-wider text-white/60">
+                                    Menu
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator className="my-2" />
+                                <div className="grid gap-2 text-sm">
+                                    <Link href="/cursos" className="rounded-md border border-white/10 px-3 py-2 hover:bg-white/5">
+                                        Cursos
+                                    </Link>
+                                    <Link href="/programas" className="rounded-md border border-white/10 px-3 py-2 hover:bg-white/5">
+                                        Programas
+                                    </Link>
+                                </div>
+                                <DropdownMenuSeparator className="my-3" />
+                                <HeaderActions className="flex-col items-start gap-2" />
+                            </DropdownMenuContent>
+                        </DropDownMenu>
+                    </div>
                 </div>
             </div>
         </header>
