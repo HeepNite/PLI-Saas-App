@@ -114,9 +114,14 @@ const extractScheduleSlots = (raw: string) => {
     const cleaned = stripAgeNotes(segment)
     const matches = cleaned.match(/\d{1,2}:\d{2}/g) ?? []
     if (matches.length >= 2) {
-      slots.push(`${to12h(matches[0])} – ${to12h(matches[1])}`)
+      const start = matches[0]
+      const end = matches[1]
+      if (start && end) {
+        slots.push(`${to12h(start)} – ${to12h(end)}`)
+      }
     } else if (matches.length === 1) {
-      slots.push(to12h(matches[0]))
+      const only = matches[0]
+      if (only) slots.push(to12h(only))
     }
   })
   if (!slots.length) {

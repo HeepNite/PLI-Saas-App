@@ -2,17 +2,18 @@
 
 import React from "react"
 import type { CourseData } from "@/constants/courses"
+import type { Variants } from "framer-motion"
 import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion"
 import Link from "next/link"
 import Image from "next/image"
 import { Sparkles, PlayCircle, Users, Clock, CheckCircle2 } from "lucide-react"
 
-const fadeUp = {
+const fadeUp: Variants = {
   hidden: { opacity: 0, y: 24 },
   show: (i = 0) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: 0.08 * i, duration: 0.35, ease: "easeOut" },
+    transition: { delay: 0.08 * i, duration: 0.35, ease: "easeOut" as const },
   }),
 }
 

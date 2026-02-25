@@ -145,7 +145,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
     }
 
-    let requestMeta: Record<string, unknown> | null = null
+    let requestMeta: Prisma.InputJsonObject | undefined
+    let requestMetaPackagePurchaseId = ""
+    let requestMetaAttendanceId = ""
     if (type === "SUSPEND") {
       const startDate = sanitizeIsoDate(metaInput?.startDate)
       const endDate = sanitizeIsoDate(metaInput?.endDate)
@@ -176,10 +178,11 @@ export async function POST(req: Request) {
       if (!targetPackage) {
         return NextResponse.json({ error: "Selected package was not found for this user" }, { status: 404 })
       }
+      requestMetaPackagePurchaseId = targetPackage.id
       requestMeta = {
         startDate,
         endDate,
-        packagePurchaseId: targetPackage.id,
+        packagePurchaseId: requestMetaPackagePurchaseId,
         packageLabel: targetPackage.packageLabel || targetPackage.packageId,
         courseSlug: targetPackage.courseSlug,
         packageExpiresAt: targetPackage.expiresAt ? targetPackage.expiresAt.toISOString() : null,
@@ -218,9 +221,10 @@ export async function POST(req: Request) {
       if (!attendance) {
         return NextResponse.json({ error: "Selected class was not found for this user" }, { status: 404 })
       }
+      requestMetaAttendanceId = attendance.id
       requestMeta = {
         effectiveDate,
-        attendanceId: attendance.id,
+        attendanceId: requestMetaAttendanceId,
         sessionId: attendance.sessionId,
         courseSlug: attendance.session.courseSlug,
         courseTitle: attendance.session.title || attendance.session.courseSlug,
@@ -234,16 +238,16 @@ export async function POST(req: Request) {
       type,
       status: { in: PENDING_STATUSES },
     }
-    if (type === "SUSPEND" && requestMeta?.packagePurchaseId) {
+    if (type === "SUSPEND" && requestMetaPackagePurchaseId) {
       pendingWhere.meta = {
         path: ["packagePurchaseId"],
-        equals: requestMeta.packagePurchaseId,
+        equals: requestMetaPackagePurchaseId,
       }
     }
-    if (type === "CANCEL" && requestMeta?.attendanceId) {
+    if (type === "CANCEL" && requestMetaAttendanceId) {
       pendingWhere.meta = {
         path: ["attendanceId"],
-        equals: requestMeta.attendanceId,
+        equals: requestMetaAttendanceId,
       }
     }
 

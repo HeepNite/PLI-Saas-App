@@ -216,7 +216,9 @@ export default function CoursesMasonry({
               {c.slug && !comingSoon ? (
                 <button
                   type="button"
-                  onClick={() => onBook && onBook(c.slug)}
+                  onClick={() => {
+                    if (c.slug && onBook) onBook(c.slug)
+                  }}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[var(--brand,#b61616)] to-[var(--brand-dark,#7d0000)] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_15px_55px_-28px_rgba(182,22,22,0.65)] transition hover:-translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--brand,#b61616)]"
                   aria-label={`Book class for ${c.title}`}
                 >

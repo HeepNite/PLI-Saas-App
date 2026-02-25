@@ -45,9 +45,10 @@ export function I18nProvider({
   }, [sp, initialLocale, locale])
 
   const t = useMemo(() => {
-    const dict = translations[locale]
+    const dict = translations[locale] as Record<string, string>
+    const fallback = translations.en as Record<string, string>
     return (key: I18nKey, vars?: I18nVars) => {
-      let val = dict[key] ?? translations.en[key] ?? key
+      let val = dict[key] ?? fallback[key] ?? key
       if (vars) {
         Object.entries(vars).forEach(([k, v]) => {
           // Support both {var} and ${var} placeholders in templates

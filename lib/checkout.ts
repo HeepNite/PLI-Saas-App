@@ -27,8 +27,9 @@ export const resolveAuthUser = async (
     const bearer = req.headers.get("authorization")?.replace("Bearer ", "")
     if (bearer && process.env.CLERK_SECRET_KEY) {
       const verified = await verifyToken(bearer, { secretKey: process.env.CLERK_SECRET_KEY })
-      if (verified.data?.sub) {
-        userId = verified.data.sub
+      const tokenSub = (verified as { data?: { sub?: unknown } }).data?.sub
+      if (typeof tokenSub === "string" && tokenSub) {
+        userId = tokenSub
       }
     }
   }
@@ -52,7 +53,9 @@ export const resolveAuthUser = async (
   return { userId, clerkUser }
 }
 
-export const resolveContactIdentity = (input: { clerkUser: ClerkUser | null; email?: string; phone?: string }) => {
+export const resolveContactIdentity = (
+  input: { clerkUser: ClerkUser | null; email?: string; phone?: string }
+): ApiError | { resolvedEmail: string; phoneRaw: string; phoneNormalized: string } => {
   const resolvedEmail = input.clerkUser?.primaryEmailAddress?.emailAddress || (isEmail(input.email) ? input.email : undefined)
   const phoneRaw = input.clerkUser?.primaryPhoneNumber?.phoneNumber || input.phone || ""
   const phoneNormalized = normalizePhone(phoneRaw)

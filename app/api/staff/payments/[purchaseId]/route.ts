@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -7,9 +8,9 @@ export const runtime = "nodejs"
 
 type SettlementAction = "mark_paid" | "mark_pending"
 
-const asObject = (value: unknown): Record<string, unknown> => {
+const asObject = (value: Prisma.JsonValue | null): Prisma.JsonObject => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
+    return value as Prisma.JsonObject
   }
   return {}
 }
@@ -58,12 +59,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
 
   const metadata = asObject(purchase.metadata)
   const settlementStatus = action === "mark_paid" ? "paid" : "pending"
-  const nextMetadata: Record<string, unknown> = {
+  const previousSettlementNote = typeof metadata.settlementNote === "string" ? metadata.settlementNote : ""
+  const nextMetadata: Prisma.InputJsonObject = {
     ...metadata,
     settlementStatus,
     settledAt: settlementStatus === "paid" ? new Date().toISOString() : null,
     settlementUpdatedBy: authResult.userId,
-    settlementNote: note || metadata.settlementNote || "",
+    settlementNote: note || previousSettlementNote,
   }
 
   const updated = await prisma.purchase.update({

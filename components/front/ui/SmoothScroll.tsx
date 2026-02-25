@@ -15,7 +15,6 @@ export default function SmoothScroll() {
 
     const lenis = new Lenis({
       smoothWheel: true,
-      smoothTouch: false,
       lerp: 0.2,
       wheelMultiplier: 1,
       prevent: (node) => !!node?.closest("[data-lenis-prevent]"),

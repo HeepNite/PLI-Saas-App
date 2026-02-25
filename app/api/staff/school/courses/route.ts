@@ -199,6 +199,9 @@ export async function POST(req: Request) {
   const availableWeekdays = toWeekdays(body.availableWeekdays)
   const availableTimes = toTimes(body.availableTimes)
   const scheduleRules = toScheduleRules(body.scheduleRules)
+  const scheduleRulesInput: Prisma.InputJsonValue | Prisma.NullTypes.JsonNull = scheduleRules
+    ? (scheduleRules as Prisma.InputJsonValue)
+    : Prisma.JsonNull
   const active = typeof body.active === "boolean" ? body.active : true
 
   if (!slug || slug.length < 3) {
@@ -226,7 +229,7 @@ export async function POST(req: Request) {
         location,
         availableWeekdays,
         availableTimes,
-        scheduleRules,
+        scheduleRules: scheduleRulesInput,
         active,
       },
       update: {
@@ -243,7 +246,7 @@ export async function POST(req: Request) {
         location,
         availableWeekdays,
         availableTimes,
-        scheduleRules,
+        scheduleRules: scheduleRulesInput,
         active,
       },
     })

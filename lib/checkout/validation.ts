@@ -87,7 +87,8 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
     coupon = "",
   } = body || {}
 
-  const amountInt = Number.isFinite(amount) ? Math.round(amount) : 0
+  const rawAmount = typeof amount === "number" ? amount : Number.NaN
+  const amountInt = Number.isFinite(rawAmount) ? Math.round(rawAmount) : 0
   if (!courseSlug || amountInt <= 0) {
     return { status: 400, error: "Missing course slug or amount" }
   }
@@ -110,7 +111,8 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
     return { status: 400, error: "Invalid add-ons" }
   }
 
-  const safeParticipants = Math.min(10, Math.max(1, Math.floor(participants)))
+  const participantsCount = typeof participants === "number" && Number.isFinite(participants) ? participants : 1
+  const safeParticipants = Math.min(10, Math.max(1, Math.floor(participantsCount)))
   const serviceCharge = pkg ? 0 : service.price || 0
   const perPerson = serviceCharge + (pkg?.price || 0) + addonsOpts.reduce((sum, a) => sum + (a.price || 0), 0)
   const subtotal = perPerson * safeParticipants

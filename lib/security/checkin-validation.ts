@@ -49,33 +49,43 @@ const parseDuration = (value: unknown) => {
   return rounded
 }
 
-export const validateCheckInBody = (body: CheckInBody): CheckInPayload | ValidationError => {
-  const courseSlug = sanitizeString(body.courseSlug, 120)?.toLowerCase()
+const toCheckInBody = (body: unknown): CheckInBody | null => {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null
+  return body as CheckInBody
+}
+
+export const validateCheckInBody = (body: unknown): CheckInPayload | ValidationError => {
+  const checkInBody = toCheckInBody(body)
+  if (!checkInBody) {
+    return { status: 400, error: "Invalid request body" }
+  }
+
+  const courseSlug = sanitizeString(checkInBody.courseSlug, 120)?.toLowerCase()
   if (!courseSlug || !SLUG_REGEX.test(courseSlug)) {
     return { status: 400, error: "Invalid courseSlug" }
   }
 
-  const emailRaw = sanitizeString(body.email, 254)?.toLowerCase()
+  const emailRaw = sanitizeString(checkInBody.email, 254)?.toLowerCase()
   const email = emailRaw && EMAIL_REGEX.test(emailRaw) ? emailRaw : undefined
-  const userClerkId = sanitizeString(body.userClerkId, 128)
+  const userClerkId = sanitizeString(checkInBody.userClerkId, 128)
 
   if (!userClerkId && !email) {
     return { status: 400, error: "Missing userClerkId or valid email" }
   }
 
-  const durationMinutes = parseDuration(body.durationMinutes)
+  const durationMinutes = parseDuration(checkInBody.durationMinutes)
   if (durationMinutes === null) {
     return { status: 400, error: "Invalid durationMinutes" }
   }
 
-  const startsAt = parseDate(body.startsAt)
-  if (body.startsAt !== undefined && !startsAt) {
+  const startsAt = parseDate(checkInBody.startsAt)
+  if (checkInBody.startsAt !== undefined && !startsAt) {
     return { status: 400, error: "Invalid startsAt date" }
   }
 
-  const sessionTitle = sanitizeString(body.sessionTitle, 140)
-  const location = sanitizeString(body.location, 180)
-  const notes = sanitizeString(body.notes, 500)
+  const sessionTitle = sanitizeString(checkInBody.sessionTitle, 140)
+  const location = sanitizeString(checkInBody.location, 180)
+  const notes = sanitizeString(checkInBody.notes, 500)
 
   return {
     userClerkId,

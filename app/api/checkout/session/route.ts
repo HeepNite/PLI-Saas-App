@@ -13,7 +13,7 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
   ? new Stripe(secret, {
-      apiVersion: "2024-06-20",
+      apiVersion: "2026-01-28.clover",
     })
   : null
 
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   }
 
   const guestResult = await ensureGuestClerkUser({
-    userId,
+    userId: userId || undefined,
     resolvedEmail: identity.resolvedEmail,
     phoneRaw: identity.phoneRaw,
     firstName,

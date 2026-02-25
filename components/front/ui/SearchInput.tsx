@@ -90,7 +90,6 @@ const SearchInput = () => {
           align="center"
           sideOffset={10}
           className="w-[90vw] max-w-[760px] max-h-[80vh] overflow-x-hidden p-0 shadow-2xl border-2 border-border/40"
-          onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
           onInteractOutside={(event) => {
             const target = event.target as Node | null

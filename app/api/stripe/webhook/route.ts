@@ -17,7 +17,7 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
 const stripe = stripeSecret
   ? new Stripe(stripeSecret, {
-      apiVersion: "2024-06-20",
+      apiVersion: "2026-01-28.clover",
     })
   : null
 
@@ -39,7 +39,7 @@ const normalizePhone = (value?: string | null) => {
 
 const packagePurchaseEventKey = (packagePurchaseId: string) => `package-purchase:${packagePurchaseId}`
 
-const pickMetadata = (metadata?: Stripe.Metadata) => ({
+const pickMetadata = (metadata?: Stripe.Metadata | null) => ({
   courseSlug: normalize(metadata?.courseSlug),
   courseTitle: normalize(metadata?.courseTitle),
   date: normalize(metadata?.date),
@@ -335,7 +335,7 @@ export async function POST(req: Request) {
     return new NextResponse("Stripe not configured", { status: 500 })
   }
 
-  const signature = headers().get("stripe-signature")
+  const signature = (await headers()).get("stripe-signature")
   if (!signature) {
     return new NextResponse("Missing Stripe signature", { status: 400 })
   }

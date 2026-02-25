@@ -34,14 +34,6 @@ export function StripePaymentModal({ clientSecret, onClose, onSuccess, email, na
             appearance: {
               theme: "stripe",
             },
-            paymentMethodOrder: ["apple_pay", "google_pay", "card"],
-            defaultValues: {
-              billingDetails: {
-                email,
-                name,
-                phone,
-              },
-            },
           }}
         >
           <PaymentForm onClose={onClose} onSuccess={onSuccess} email={email} name={name} phone={phone} />

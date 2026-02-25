@@ -118,7 +118,7 @@ export const validateProfileUpdatePayload = (input: unknown): ProfileUpdatePaylo
   return {
     firstName,
     lastName,
-    birthDate,
+    birthDate: birthDate ?? undefined,
     emergencyContactName,
     emergencyContactRelation,
     emergencyContactPhone,

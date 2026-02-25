@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalBaseRequest, authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -7,16 +8,15 @@ import {
   parseStaffRequestType,
   STAFF_REQUEST_TYPES,
   type StaffRequestStatus,
-  type StaffRequestType,
 } from "@/lib/security/staff-request"
 
 export const runtime = "nodejs"
 
 const STAFF_REQUEST_STATUS_DEFAULT: StaffRequestStatus = "PENDING"
 
-const asObject = (value: unknown): Record<string, unknown> => {
+const asObject = (value: unknown): Prisma.JsonObject => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
+    return value as Prisma.JsonObject
   }
   return {}
 }
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
       type,
       status,
       message,
-      meta,
+      meta: meta as Prisma.InputJsonObject,
     },
   })
 

@@ -11,7 +11,7 @@ export const runtime = "nodejs"
 const stripeSecret = process.env.STRIPE_SECRET_KEY
 const stripe = stripeSecret
   ? new Stripe(stripeSecret, {
-      apiVersion: "2024-06-20",
+      apiVersion: "2026-01-28.clover",
     })
   : null
 

@@ -756,8 +756,8 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   const searchParams = useSearchParams()
   const stickyTop = 0
   const gridRef = React.useRef<HTMLDivElement>(null)
-  const leftRailRef = React.useRef<HTMLElement>(null)
-  const rightRailRef = React.useRef<HTMLElement>(null)
+  const leftRailRef = React.useRef<HTMLDivElement>(null)
+  const rightRailRef = React.useRef<HTMLDivElement>(null)
 
   const [rows, setRows] = React.useState<StaffUserRow[]>([])
   const [nowTs, setNowTs] = React.useState(() => Date.now())
@@ -1406,7 +1406,6 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       setProfileCanEditRole(Boolean(data?.canEditRole))
       setProfileHasPin(Boolean(user.hasPin))
       setProfileAvatarError(null)
-      setProfileGalleryInput("")
       setProfileTarget((prev) => (prev ? { ...prev, avatarUrl: profileImageUrl } : prev))
       const resolvedRole: StaffRole =
         user?.role === "owner" || user?.role === "admin" || user?.role === "staff" ? user.role : row.role
@@ -4626,9 +4625,9 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                           {(() => {
                             const sourceRow = rowById[item.userId]
                             const liveMinutes = sourceRow ? getLiveSessionMinutes(sourceRow) : null
-                            const hasStoredHours = typeof item.hoursWorked === "number"
-                            if (hasStoredHours && liveMinutes !== null) {
-                              const totalHours = item.hoursWorked + liveMinutes / 60
+                            const storedHours = typeof item.hoursWorked === "number" ? item.hoursWorked : null
+                            if (storedHours !== null && liveMinutes !== null) {
+                              const totalHours = storedHours + liveMinutes / 60
                               return (
                                 <>
                                   <p>{`${totalHours.toFixed(1)}h`}</p>
@@ -4638,8 +4637,8 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                 </>
                               )
                             }
-                            if (hasStoredHours) {
-                              return <p>{`${item.hoursWorked!.toFixed(1)}h`}</p>
+                            if (storedHours !== null) {
+                              return <p>{`${storedHours.toFixed(1)}h`}</p>
                             }
                             if (liveMinutes !== null) {
                               return (
