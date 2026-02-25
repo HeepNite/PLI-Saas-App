@@ -80,7 +80,8 @@ Guía funcional y técnica del flujo de check-in presencial por QR.
 - `tests/api/checkin-qr-package.test.ts`
 - `tests/api/checkin-qr-dropin.test.ts`
 - `tests/api/profile-bookings-checkin.test.ts`
+- `e2e/checkin.spec.ts`
 
 ## 9. Estado de cobertura
 - Cobertura API/negocio: implementada.
-- Cobertura E2E dedicada de `/checkin`: pendiente (recomendado para siguiente iteración).
+- Cobertura E2E dedicada de `/checkin`: implementada (smoke inicial UI).

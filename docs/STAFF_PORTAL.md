@@ -83,7 +83,9 @@ Guía de arquitectura, permisos y rutas del nuevo módulo Staff.
 - `tests/api/staff-schedule.test.ts`
 - `tests/api/staff-school.test.ts`
 - `tests/api/staff-users.test.ts`
+- `e2e/staff.spec.ts` (terminal PIN)
 
 ## 7. Estado de cobertura
 - API/servicios staff: cubiertos por Vitest.
-- E2E visual del portal staff: pendiente (recomendado siguiente iteración).
+- E2E del terminal PIN: implementado.
+- E2E visual del portal staff completo (`/staff/portal`): pendiente (recomendado siguiente iteración).

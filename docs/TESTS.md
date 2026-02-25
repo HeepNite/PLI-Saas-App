@@ -45,12 +45,21 @@ Guía rápida de cobertura actual (unit, API y E2E).
 - `e2e/profile.spec.ts`
   - Perfil, acciones sobre clases/paquetes y requests.
   - Reprogramación y validaciones UI.
+- `e2e/checkin.spec.ts`
+  - Render del flujo `/checkin`.
+  - Apertura de login popup en “Ya soy cliente”.
+  - Apertura de booking modal en “Soy nuevo”.
+- `e2e/staff.spec.ts`
+  - Render del terminal `/staff/checkin`.
+  - Error de PIN inválido.
+  - Redirect al aceptar PIN.
 
 ## 3. Estado de cobertura de lo nuevo
 - QR check-in: cubierto en API/unit.
 - Staff portal/API: cubierto en API/unit.
-- Staff UI E2E: pendiente (recomendado como siguiente iteración).
-- E2E dedicado de `/checkin`: pendiente (recomendado siguiente iteración).
+- Staff UI E2E: cobertura inicial del terminal PIN implementada.
+- E2E dedicado de `/checkin`: cobertura inicial implementada.
+- Pendiente E2E: panel completo `/staff/portal` (roles, school CRUD, requests, payments).
 
 ## 4. Comandos
 
@@ -70,4 +79,6 @@ npm run test -- tests/staff-role.test.ts tests/api/staff-bootstrap.test.ts tests
 # E2E puntuales
 npm run test:e2e -- e2e/course-flow.spec.ts
 npm run test:e2e -- e2e/profile.spec.ts
+npm run test:e2e -- e2e/checkin.spec.ts
+npm run test:e2e -- e2e/staff.spec.ts
 ```
