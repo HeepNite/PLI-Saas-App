@@ -29,6 +29,8 @@ const statusLabel: Record<ProfileStatus, string> = {
 
 const NY_TIMEZONE = "America/New_York"
 const AVAILABILITY_CACHE_TTL_MS = 45_000
+const CHECK_IN_OPEN_WINDOW_HOURS = 2
+const CHECK_IN_OPEN_WINDOW_MS = CHECK_IN_OPEN_WINDOW_HOURS * 60 * 60 * 1000
 
 const toProfileStatus = (value: unknown): ProfileStatus => {
   if (value === "NEW" || value === "ACTIVE" || value === "ALUMNI") return value
@@ -293,6 +295,9 @@ const addDaysToIsoDate = (isoDate: string, days: number) => {
 
 const pointsTypeLabel = (type: string) => {
   if (type === "PROFILE_COMPLETED") return "Perfil completado"
+  if (type === "PACKAGE_PURCHASE") return "Compra de paquete"
+  if (type === "PACKAGE_ASSIGNMENT") return "Asignación de clases"
+  if (type === "CONSECUTIVE_ATTENDANCE") return "Asistencia consecutiva"
   if (type === "REFERRAL_BONUS") return "Referido"
   if (type === "CLASS_MILESTONE") return "Meta de clases"
   return type
@@ -386,6 +391,9 @@ export default function ProfilePageClient() {
   const [pointsEntries, setPointsEntries] = React.useState<PointsEntry[]>([])
   const [pointsLoading, setPointsLoading] = React.useState(false)
   const [pointsError, setPointsError] = React.useState<string | null>(null)
+  const [freeClassThreshold, setFreeClassThreshold] = React.useState(500)
+  const [freeClassesAvailable, setFreeClassesAvailable] = React.useState(0)
+  const [pointsToNextFreeClass, setPointsToNextFreeClass] = React.useState(500)
   const [actionRequests, setActionRequests] = React.useState<ActionRequestItem[]>([])
   const [actionRequestsLoading, setActionRequestsLoading] = React.useState(false)
   const [actionRequestsError, setActionRequestsError] = React.useState<string | null>(null)
@@ -393,6 +401,9 @@ export default function ProfilePageClient() {
   const [assignablePackages, setAssignablePackages] = React.useState<AssignablePackage[]>([])
   const [bookingsLoading, setBookingsLoading] = React.useState(false)
   const [bookingsError, setBookingsError] = React.useState<string | null>(null)
+  const [checkInSubmittingId, setCheckInSubmittingId] = React.useState<string | null>(null)
+  const [checkInError, setCheckInError] = React.useState<string | null>(null)
+  const [checkInSuccess, setCheckInSuccess] = React.useState<string | null>(null)
   const [changeModalOpen, setChangeModalOpen] = React.useState(false)
   const [rescheduleStep, setRescheduleStep] = React.useState<1 | 2 | 3>(1)
   const [selectedBookingId, setSelectedBookingId] = React.useState<string>("")
@@ -431,7 +442,7 @@ export default function ProfilePageClient() {
   const rescheduleAvailabilityRequestRef = React.useRef(0)
   const assignAvailabilityRequestRef = React.useRef(0)
   const currentCoins = Math.max(0, pointsBalance)
-  const progress = Math.min(100, Math.round((currentCoins / mockProfile.coins.goal) * 100))
+  const progress = Math.min(100, Math.round((currentCoins / Math.max(1, freeClassThreshold)) * 100))
   const shoeProgress = Math.min(100, Math.round((mockProfile.shoeTracking.km / mockProfile.shoeTracking.maxKm) * 100))
   const [profileUser, setProfileUser] = React.useState({
     name: "",
@@ -487,6 +498,32 @@ export default function ProfilePageClient() {
     () => visibleBookings.find((item) => item.id === selectedBookingId) || visibleBookings[0] || null,
     [visibleBookings, selectedBookingId]
   )
+  const nextCheckInBooking = React.useMemo(() => {
+    const now = Date.now()
+    return (
+      visibleBookings.find((booking) => {
+        const startsAtMs = new Date(booking.startsAt).getTime()
+        if (Number.isNaN(startsAtMs)) return false
+        return startsAtMs <= now + CHECK_IN_OPEN_WINDOW_MS
+      }) || null
+    )
+  }, [visibleBookings])
+  const pendingCheckInBooking = React.useMemo(() => {
+    if (nextCheckInBooking) return null
+    return visibleBookings[0] || null
+  }, [nextCheckInBooking, visibleBookings])
+  const checkInOpensAtLabel = React.useMemo(() => {
+    if (!pendingCheckInBooking) return ""
+    const startsAtMs = new Date(pendingCheckInBooking.startsAt).getTime()
+    if (Number.isNaN(startsAtMs)) return ""
+    return formatDateTimeInTimeZone(new Date(startsAtMs - CHECK_IN_OPEN_WINDOW_MS), {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+  }, [pendingCheckInBooking])
   const requestCancelBooking = React.useMemo(
     () => visibleBookings.find((item) => item.id === requestCancelBookingId) || null,
     [visibleBookings, requestCancelBookingId]
@@ -652,6 +689,17 @@ export default function ProfilePageClient() {
         return
       }
       setPointsBalance(typeof data?.balance === "number" ? data.balance : 0)
+      setFreeClassThreshold(
+        typeof data?.freeClassThreshold === "number" && data.freeClassThreshold > 0 ? data.freeClassThreshold : 500
+      )
+      setFreeClassesAvailable(
+        typeof data?.freeClassesAvailable === "number" ? Math.max(0, data.freeClassesAvailable) : 0
+      )
+      setPointsToNextFreeClass(
+        typeof data?.pointsToNextFreeClass === "number"
+          ? Math.max(0, data.pointsToNextFreeClass)
+          : Math.max(0, 500 - (typeof data?.balance === "number" ? data.balance : 0))
+      )
       setPointsEntries(Array.isArray(data?.entries) ? data.entries : [])
     } catch {
       setPointsError("No se pudo cargar el historial de puntos.")
@@ -1164,6 +1212,43 @@ export default function ProfilePageClient() {
     }
   }
 
+  const submitBookingCheckIn = async (attendanceId: string) => {
+    if (!attendanceId) return
+    setCheckInSubmittingId(attendanceId)
+    setCheckInError(null)
+    setCheckInSuccess(null)
+    try {
+      const res = await fetch("/api/profile/bookings/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendanceId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setCheckInError(data?.error || "No se pudo registrar tu check-in.")
+        return
+      }
+
+      const alreadyCheckedIn = Boolean(data?.alreadyCheckedIn)
+      const pointsAwarded = typeof data?.points?.awarded === "number" ? data.points.awarded : 0
+      const milestone = typeof data?.points?.milestone === "number" ? data.points.milestone : null
+      let message = alreadyCheckedIn
+        ? "Esta clase ya estaba marcada con check-in."
+        : "Check-in registrado correctamente."
+      if (!alreadyCheckedIn && pointsAwarded > 0) {
+        message += ` +${pointsAwarded} puntos`
+        if (milestone) message += ` (hito ${milestone})`
+        message += "."
+      }
+      setCheckInSuccess(message)
+      await Promise.all([loadBookings(), loadPointsHistory()])
+    } catch {
+      setCheckInError("No se pudo registrar tu check-in.")
+    } finally {
+      setCheckInSubmittingId(null)
+    }
+  }
+
 
   React.useEffect(() => {
     const grid = gridRef.current
@@ -1412,6 +1497,12 @@ export default function ProfilePageClient() {
   }, [requestSubmitSuccess])
 
   React.useEffect(() => {
+    if (!checkInSuccess) return
+    const id = window.setTimeout(() => setCheckInSuccess(null), 4000)
+    return () => window.clearTimeout(id)
+  }, [checkInSuccess])
+
+  React.useEffect(() => {
     if (requestModalType !== "SUSPEND") return
     if (requestSuspendPackageId) return
     if (!suspendablePackages.length) return
@@ -1650,8 +1741,8 @@ export default function ProfilePageClient() {
         setProfileError(data?.error || fallback)
         return
       }
-      setProfileComplete(Boolean(data.profileComplete))
-      setPointsBalance(data.pointsBalance || 0)
+      setProfileComplete(Boolean(data?.profileComplete))
+      setPointsBalance(typeof data?.pointsBalance === "number" ? data.pointsBalance : 0)
       if (data?.profile) {
         setProfileForm(buildProfileFormState(data.profile, user))
       }
@@ -2461,11 +2552,11 @@ export default function ProfilePageClient() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">PLI Coins</p>
                   <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
-                    Te faltan <strong>{Math.max(0, mockProfile.coins.goal - currentCoins)}</strong> puntos para una clase gratis.
+                    Te faltan <strong>{pointsToNextFreeClass}</strong> puntos para una clase gratis.
                   </p>
                 </div>
                 <div className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/60">
-                  Meta: {mockProfile.coins.goal} PLI Coins
+                  Meta: {freeClassThreshold} PLI Coins
                 </div>
               </div>
               <div className="relative mt-4 h-28 overflow-hidden rounded-2xl border border-white/10">
@@ -2487,11 +2578,11 @@ export default function ProfilePageClient() {
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
                 <div className="absolute bottom-3 left-3 text-sm font-semibold text-white">
-                  {currentCoins} / {mockProfile.coins.goal} PLI Coins
+                  {currentCoins} / {freeClassThreshold} PLI Coins
                 </div>
               </div>
               <p className="mt-3 text-xs text-zinc-600 dark:text-white/60">
-                Clases gratis obtenidas: <strong>{mockProfile.coins.freeClassesEarned}</strong>
+                Clases gratis disponibles: <strong>{freeClassesAvailable}</strong>
               </p>
             </GlassyCard>
 
@@ -3048,6 +3139,41 @@ export default function ProfilePageClient() {
               >
                 Cambiar
               </button>
+            </GlassyCard>
+            <GlassyCard className="p-4">
+              <h3 className="text-base font-semibold">Check-in</h3>
+              {bookingsLoading ? (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Cargando clases...</p>
+              ) : nextCheckInBooking ? (
+                <div className="mt-2 space-y-2 text-sm">
+                  <p className="text-zinc-800 dark:text-white/80">{nextCheckInBooking.courseTitle}</p>
+                  <p className="text-zinc-600 dark:text-white/60">
+                    {formatDateTimeInTimeZone(nextCheckInBooking.startsAt)}
+                  </p>
+                </div>
+              ) : pendingCheckInBooking ? (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">
+                  El check-in se habilita {CHECK_IN_OPEN_WINDOW_HOURS} horas antes.
+                  {checkInOpensAtLabel ? ` Disponible desde ${checkInOpensAtLabel}.` : ""}
+                </p>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">
+                  No tenés clases pendientes para hacer check-in.
+                </p>
+              )}
+              <button
+                type="button"
+                className="mt-4 w-full rounded-md border border-[var(--brand,#b61616)]/50 px-4 py-2 text-sm font-semibold text-zinc-700 disabled:opacity-60 dark:text-white/80"
+                onClick={() => {
+                  if (!nextCheckInBooking) return
+                  void submitBookingCheckIn(nextCheckInBooking.id)
+                }}
+                disabled={!nextCheckInBooking || Boolean(checkInSubmittingId)}
+              >
+                {checkInSubmittingId === nextCheckInBooking?.id ? "Registrando..." : "Marcar check-in"}
+              </button>
+              {checkInError && <p className="mt-2 text-xs text-red-400">{checkInError}</p>}
+              {checkInSuccess && <p className="mt-2 text-xs text-emerald-500 dark:text-emerald-300">{checkInSuccess}</p>}
             </GlassyCard>
             <GlassyCard className="p-4">
               <h3 className="text-base font-semibold">Suspender / Cancelar</h3>

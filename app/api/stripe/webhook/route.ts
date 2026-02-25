@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
+import { awardPointsFromRule } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 
 export const runtime = "nodejs"
 
@@ -34,6 +36,8 @@ const normalizePhone = (value?: string | null) => {
   const digits = value?.replace(/\D/g, "")
   return digits && digits.length >= 6 ? digits : undefined
 }
+
+const packagePurchaseEventKey = (packagePurchaseId: string) => `package-purchase:${packagePurchaseId}`
 
 const pickMetadata = (metadata?: Stripe.Metadata) => ({
   courseSlug: normalize(metadata?.courseSlug),
@@ -199,6 +203,21 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
       time: meta.time,
       packagePurchaseId: packagePurchase?.id,
     })
+
+    if (packagePurchase?.id) {
+      await awardPointsFromRule({
+        userId: user.id,
+        ruleKey: POINTS_RULE_KEYS.PACKAGE_PURCHASE,
+        eventKey: packagePurchaseEventKey(packagePurchase.id),
+        fallbackType: "PACKAGE_PURCHASE",
+        meta: {
+          purchaseId: purchase.id,
+          packagePurchaseId: packagePurchase.id,
+          packageId: packagePurchase.packageId,
+          source: "stripe_webhook_checkout",
+        },
+      })
+    }
   }
 }
 
@@ -293,6 +312,21 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
       time: meta.time,
       packagePurchaseId: packagePurchase?.id,
     })
+
+    if (packagePurchase?.id) {
+      await awardPointsFromRule({
+        userId: user.id,
+        ruleKey: POINTS_RULE_KEYS.PACKAGE_PURCHASE,
+        eventKey: packagePurchaseEventKey(packagePurchase.id),
+        fallbackType: "PACKAGE_PURCHASE",
+        meta: {
+          purchaseId: purchase.id,
+          packagePurchaseId: packagePurchase.id,
+          packageId: packagePurchase.packageId,
+          source: "stripe_webhook_intent",
+        },
+      })
+    }
   }
 }
 

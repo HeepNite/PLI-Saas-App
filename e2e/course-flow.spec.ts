@@ -173,9 +173,9 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
   await clickContinue() // Step 3 -> Step 4
 
   await expect(booking.getByRole("heading", { name: /Payments|Pagos/i })).toBeVisible({ timeout: 15_000 })
-  const stripeBtn = booking.getByRole("button", { name: /Stripe/i })
-  await expect(stripeBtn).toBeVisible({ timeout: 15_000 })
-  await stripeBtn.evaluate((el: HTMLButtonElement) => {
+  const cardBtn = booking.getByRole("button", { name: /Card|Stripe/i })
+  await expect(cardBtn).toBeVisible({ timeout: 15_000 })
+  await cardBtn.evaluate((el: HTMLButtonElement) => {
     el.scrollIntoView({ block: "center", inline: "center" })
     el.click()
   })

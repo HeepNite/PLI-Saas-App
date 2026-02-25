@@ -261,6 +261,46 @@
   }
 }
 
+[data-staff-auth="true"] .cl-socialButtonsProviderIcon,
+[data-staff-auth="true"] .cl-socialButtonsProviderIcon svg,
+[data-staff-auth="true"] .cl-socialButtonsProviderIcon img,
+[data-auth-page="true"] .cl-socialButtonsProviderIcon,
+[data-auth-page="true"] .cl-socialButtonsProviderIcon svg,
+[data-auth-page="true"] .cl-socialButtonsProviderIcon img {
+  width: 1.35rem !important;
+  height: 1.35rem !important;
+}
+
+[data-staff-auth="true"] button[aria-label*="Apple"] .cl-socialButtonsProviderIcon,
+[data-staff-auth="true"] button[aria-label*="Apple"] .cl-socialButtonsProviderIcon svg,
+[data-staff-auth="true"] button[aria-label*="Apple"] .cl-socialButtonsProviderIcon img,
+[data-staff-auth="true"] [data-social-provider="apple"] .cl-socialButtonsProviderIcon,
+[data-staff-auth="true"] [data-social-provider="apple"] .cl-socialButtonsProviderIcon svg,
+[data-staff-auth="true"] [data-social-provider="apple"] .cl-socialButtonsProviderIcon img,
+[data-staff-auth="true"] .cl-socialButtonsIconButton:first-child .cl-socialButtonsProviderIcon,
+[data-staff-auth="true"] .cl-socialButtonsIconButton:first-child .cl-socialButtonsProviderIcon svg,
+[data-staff-auth="true"] .cl-socialButtonsIconButton:first-child .cl-socialButtonsProviderIcon img,
+[data-auth-page="true"] button[aria-label*="Apple"] .cl-socialButtonsProviderIcon,
+[data-auth-page="true"] button[aria-label*="Apple"] .cl-socialButtonsProviderIcon svg,
+[data-auth-page="true"] button[aria-label*="Apple"] .cl-socialButtonsProviderIcon img,
+[data-auth-page="true"] [data-social-provider="apple"] .cl-socialButtonsProviderIcon,
+[data-auth-page="true"] [data-social-provider="apple"] .cl-socialButtonsProviderIcon svg,
+[data-auth-page="true"] [data-social-provider="apple"] .cl-socialButtonsProviderIcon img,
+[data-auth-page="true"] .cl-socialButtonsIconButton:first-child .cl-socialButtonsProviderIcon,
+[data-auth-page="true"] .cl-socialButtonsIconButton:first-child .cl-socialButtonsProviderIcon svg,
+[data-auth-page="true"] .cl-socialButtonsIconButton:first-child .cl-socialButtonsProviderIcon img {
+  color: #fff !important;
+  fill: #fff !important;
+  stroke: #fff !important;
+  filter: brightness(0) invert(1) !important;
+}
+
+[data-staff-auth="true"] .cl-footerAction,
+[data-staff-auth="true"] .cl-footerActionText,
+[data-staff-auth="true"] .cl-footerActionLink {
+  display: none !important;
+}
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;

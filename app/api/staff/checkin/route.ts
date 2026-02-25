@@ -4,8 +4,13 @@ import { consumePackageCreditForAttendance } from "@/lib/packages"
 import { authorizeStaffRequest } from "@/lib/security/staff-auth"
 import { validateCheckInBody } from "@/lib/security/checkin-validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { awardPointsFromRule } from "@/lib/points/service"
+import { ATTENDANCE_STREAK_MILESTONE, POINTS_RULE_KEYS } from "@/lib/points/constants"
 
 export const runtime = "nodejs"
+const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"]
+const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
+  `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
 export async function POST(req: Request) {
   const rateLimit = consumeRateLimit({
@@ -102,6 +107,7 @@ export async function POST(req: Request) {
     checkedInAt: attendance.checkedInAt,
   })
 
+  const attendanceStatus = packageResult.packagePurchase ? "checked_in" : "checked_in_no_package"
   if (!packageResult.packagePurchase) {
     await prisma.attendance.update({
       where: { id: attendance.id },
@@ -109,10 +115,40 @@ export async function POST(req: Request) {
     })
   }
 
+  const checkedInCount = await prisma.attendance.count({
+    where: {
+      userId: user.id,
+      status: { in: ATTENDANCE_POINT_STATUSES },
+      session: { courseSlug: parsed.courseSlug },
+    },
+  })
+
+  let pointsAwarded = 0
+  let attendanceMilestone = 0
+  if (checkedInCount > 0 && checkedInCount % ATTENDANCE_STREAK_MILESTONE === 0) {
+    attendanceMilestone = Math.floor(checkedInCount / ATTENDANCE_STREAK_MILESTONE)
+    const pointsResult = await awardPointsFromRule({
+      userId: user.id,
+      ruleKey: POINTS_RULE_KEYS.CONSECUTIVE_ATTENDANCE,
+      eventKey: attendanceMilestoneEventKey(user.id, parsed.courseSlug, attendanceMilestone),
+      fallbackType: "CONSECUTIVE_ATTENDANCE",
+      meta: {
+        source: "staff_checkin",
+        courseSlug: parsed.courseSlug,
+        milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+        milestone: attendanceMilestone,
+        attendanceCount: checkedInCount,
+      },
+    })
+    if (pointsResult.awarded) {
+      pointsAwarded = pointsResult.points
+    }
+  }
+
   return NextResponse.json({
     attendance: {
       id: attendance.id,
-      status: packageResult.packagePurchase ? "checked_in" : "checked_in_no_package",
+      status: attendanceStatus,
       checkedInAt: attendance.checkedInAt.toISOString(),
       courseSlug: parsed.courseSlug,
       sessionTitle,
@@ -128,5 +164,11 @@ export async function POST(req: Request) {
         }
       : null,
     consumed: packageResult.consumed,
+    points: {
+      awarded: pointsAwarded,
+      milestone: attendanceMilestone > 0 ? attendanceMilestone : null,
+      attendanceCount: checkedInCount,
+      milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+    },
   })
 }

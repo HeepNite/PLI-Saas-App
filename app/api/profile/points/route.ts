@@ -3,6 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { getFreeClassThresholdPoints, getPointsBalance } from "@/lib/points/service"
 
 export const runtime = "nodejs"
 
@@ -42,20 +43,26 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
     }
 
-    const [entries, balance] = await Promise.all([
+    const [entries, balance, freeClassThreshold] = await Promise.all([
       prisma.pointsLedger.findMany({
         where: { userId: dbUser.id },
         orderBy: { createdAt: "desc" },
         take: 30,
       }),
-      prisma.pointsLedger.aggregate({
-        where: { userId: dbUser.id },
-        _sum: { points: true },
-      }),
+      getPointsBalance(dbUser.id),
+      getFreeClassThresholdPoints(),
     ])
+    const normalizedBalance = Math.max(0, balance)
+    const safeThreshold = Math.max(1, freeClassThreshold)
+    const freeClassesAvailable = Math.floor(normalizedBalance / safeThreshold)
+    const pointsToNextFreeClass =
+      normalizedBalance === 0 ? safeThreshold : safeThreshold - (normalizedBalance % safeThreshold || safeThreshold)
 
     return NextResponse.json({
-      balance: balance._sum.points || 0,
+      balance,
+      freeClassThreshold: safeThreshold,
+      freeClassesAvailable,
+      pointsToNextFreeClass,
       entries: entries.map((entry) => ({
         id: entry.id,
         type: entry.type,

@@ -1,30 +1,5 @@
 import { auth, clerkClient } from "@clerk/nextjs/server"
-
-const STAFF_ROLES = new Set(["admin", "staff", "owner"])
-
-const toStringArray = (value: unknown): string[] => {
-  if (typeof value === "string") return [value]
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string")
-  }
-  return []
-}
-
-const hasStaffRoleInMetadata = (metadata: unknown) => {
-  if (!metadata || typeof metadata !== "object") return false
-  const record = metadata as Record<string, unknown>
-  const candidates = [
-    ...toStringArray(record.role),
-    ...toStringArray(record.roles),
-  ]
-  return candidates.some((role) => STAFF_ROLES.has(role.toLowerCase()))
-}
-
-const hasStaffRoleInClaims = (claims: unknown) => {
-  if (!claims || typeof claims !== "object") return false
-  const record = claims as Record<string, unknown>
-  return hasStaffRoleInMetadata(record.metadata) || hasStaffRoleInMetadata(record.public_metadata)
-}
+import { hasStaffRoleInClaims, hasStaffRoleInUserMetadata } from "@/lib/security/staff-role"
 
 const hasValidServiceToken = (req: Request) => {
   const expected = process.env.STAFF_CHECKIN_TOKEN
@@ -59,10 +34,7 @@ export const authorizeStaffRequest = async (req: Request): Promise<StaffAuthResu
 
   const client = await clerkClient()
   const user = await client.users.getUser(authResult.userId)
-  const hasRole =
-    hasStaffRoleInMetadata(user.publicMetadata) ||
-    hasStaffRoleInMetadata(user.privateMetadata) ||
-    hasStaffRoleInMetadata(user.unsafeMetadata)
+  const hasRole = hasStaffRoleInUserMetadata(user)
 
   if (!hasRole) {
     return { ok: false, status: 403, error: "Insufficient staff role" }

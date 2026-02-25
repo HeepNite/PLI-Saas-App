@@ -16,6 +16,9 @@ function toISODate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-
 export type CalendarPickerProps = {
   value?: string // YYYY-MM-DD
   onChange: (value: string) => void
+  values?: string[] // selección múltiple (YYYY-MM-DD[])
+  onValuesChange?: (values: string[]) => void
+  multiple?: boolean
   timezone?: string
   className?: string
   compact?: boolean
@@ -24,12 +27,29 @@ export type CalendarPickerProps = {
   unavailableDates?: string[] // YYYY-MM-DD list, opcional
   isDateDisabled?: (isoDate: string) => boolean
   getDateDisabledReason?: (isoDate: string) => string | undefined
+  getDateTooltip?: (isoDate: string) => string | undefined
+  getDateTone?:
+    | ((
+        isoDate: string
+      ) =>
+        | "event"
+        | "warning"
+        | "course"
+        | "program"
+        | "workshop"
+        | "convention"
+        | "bootcamp"
+        | undefined)
   allowClear?: boolean
+  locked?: boolean
 }
 
 export default function CalendarPicker({
   value,
   onChange,
+  values,
+  onValuesChange,
+  multiple = false,
   timezone,
   className = "",
   compact = false,
@@ -38,9 +58,13 @@ export default function CalendarPicker({
   unavailableDates,
   isDateDisabled,
   getDateDisabledReason,
+  getDateTooltip,
+  getDateTone,
   allowClear = false,
+  locked = false,
 }: CalendarPickerProps) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  const fieldId = React.useId()
 
   // Mes/año visibles en el encabezado
   const initial = value ? new Date(value + "T00:00:00") : new Date()
@@ -75,6 +99,28 @@ export default function CalendarPicker({
 
   const years = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i) // previous, current, +5
   const unavailable = React.useMemo(() => new Set(unavailableDates || []), [unavailableDates])
+  const selectedValues = React.useMemo(() => new Set((values || []).filter(Boolean)), [values])
+
+  const getToneClasses = React.useCallback((tone?: string) => {
+    switch (tone) {
+      case "course":
+        return "border-[var(--brand,#b61616)]/65 bg-[var(--brand,#b61616)]/18 text-[var(--brand,#ffd1d1)] shadow-[0_0_0_1px_rgba(182,22,22,0.45)]"
+      case "program":
+        return "border-orange-400/65 bg-orange-400/15 text-orange-100 shadow-[0_0_0_1px_rgba(251,146,60,0.45)]"
+      case "workshop":
+        return "border-violet-400/65 bg-violet-500/18 text-violet-100 shadow-[0_0_0_1px_rgba(167,139,250,0.45)]"
+      case "convention":
+        return "border-fuchsia-400/65 bg-fuchsia-500/18 text-fuchsia-100 shadow-[0_0_0_1px_rgba(232,121,249,0.45)]"
+      case "bootcamp":
+        return "border-cyan-400/65 bg-cyan-500/18 text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.45)]"
+      case "event":
+        return "border-amber-500/65 bg-amber-500/15 text-amber-100 shadow-[0_0_0_1px_rgba(245,158,11,0.45)]"
+      case "warning":
+        return "border-amber-500/60 bg-amber-500/12 text-amber-200 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]"
+      default:
+        return ""
+    }
+  }, [])
 
   const isDisabled = (d: Date) => {
     const iso = toISODate(d)
@@ -93,59 +139,89 @@ export default function CalendarPicker({
     >
       <div className="mx-auto grid w-full max-w-none grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
         <div className={`grid min-w-0 items-center gap-2 ${compact ? "grid-cols-[minmax(0,1fr)_98px]" : "grid-cols-[minmax(0,1fr)_122px]"}`}>
-          <div className="relative min-w-0">
-            <select
-              value={month}
-              onChange={(e)=>setMonth(parseInt(e.target.value))}
-              className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+          {locked ? (
+            <>
+              <div className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 text-sm ${
                 compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
-              }`}
-            >
-              {MONTHS.map((m, i)=> <option key={m} value={i}>{m}</option>)}
-            </select>
-          </div>
-          <div className="relative min-w-0">
-            <select
-              value={year}
-              onChange={(e)=>setYear(parseInt(e.target.value))}
-              className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+              }`}>
+                {MONTHS[month]}
+              </div>
+              <div className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 text-sm ${
                 compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
-              }`}
-            >
-              {years.map(y=> <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="flex items-center justify-end gap-2 shrink-0">
-          <button
-            type="button"
-            aria-label="Mes anterior"
-            onClick={()=>go(-1)}
-            className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            aria-label="Mes siguiente"
-            onClick={()=>go(1)}
-            className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
-          >
-            ›
-          </button>
-          {allowClear && (
-            <button
-              type="button"
-              aria-label="Clear date"
-              onClick={() => onChange("")}
-              className={`rounded-md border text-xs bg-white/70 dark:bg-white/10 ${
-                compact ? "h-8 px-2.5" : "h-8 md:h-10 px-2.5 md:px-3 md:text-sm"
-              }`}
-            >
-              Clear
-            </button>
+              }`}>
+                {year}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="relative min-w-0">
+                <select
+                  id={`${fieldId}-month`}
+                  name="calendarMonth"
+                  aria-label="Month"
+                  value={month}
+                  onChange={(e)=>setMonth(parseInt(e.target.value))}
+                  className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+                    compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
+                  }`}
+                >
+                  {MONTHS.map((m, i)=> <option key={m} value={i}>{m}</option>)}
+                </select>
+              </div>
+              <div className="relative min-w-0">
+                <select
+                  id={`${fieldId}-year`}
+                  name="calendarYear"
+                  aria-label="Year"
+                  value={year}
+                  onChange={(e)=>setYear(parseInt(e.target.value))}
+                  className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 pr-8 text-sm ${
+                    compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
+                  }`}
+                >
+                  {years.map(y=> <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </>
           )}
         </div>
+        {!locked && (
+          <div className="flex items-center justify-end gap-2 shrink-0">
+            <button
+              type="button"
+              aria-label="Mes anterior"
+              onClick={()=>go(-1)}
+              className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              aria-label="Mes siguiente"
+              onClick={()=>go(1)}
+              className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
+            >
+              ›
+            </button>
+            {allowClear && (
+              <button
+                type="button"
+                aria-label="Clear date"
+                onClick={() => {
+                  if (multiple) {
+                    onValuesChange?.([])
+                  }
+                  onChange("")
+                }}
+                className={`rounded-md border text-xs bg-white/70 dark:bg-white/10 ${
+                  compact ? "h-8 px-2.5" : "h-8 md:h-10 px-2.5 md:px-3 md:text-sm"
+                }`}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className={`mt-3 flex justify-center ${compact ? "text-xs" : "text-xs sm:text-sm"}`}>
@@ -168,12 +244,26 @@ export default function CalendarPicker({
         {weeks.flat().map((d, idx)=>{
           if (!d) return <div key={idx} className="py-2" />
           const iso = toISODate(d)
-          const selected = value === iso
+          const selected = multiple ? selectedValues.has(iso) : value === iso
           const disabled = isDisabled(d)
           const disabledReason = disabled ? getDateDisabledReason?.(iso) : undefined
+          const dateTooltip = getDateTooltip?.(iso)
+          const dateTone = getDateTone?.(iso)
           const isToday = iso === todayISO
+          const interactive = !locked
+          const toneClasses = getToneClasses(dateTone)
           const handleClick = () => {
+            if (!interactive) return
             if (disabled) return
+            if (multiple) {
+              const nextSet = new Set(selectedValues)
+              if (nextSet.has(iso)) nextSet.delete(iso)
+              else nextSet.add(iso)
+              const nextValues = [...nextSet].sort()
+              onValuesChange?.(nextValues)
+              onChange(iso)
+              return
+            }
             if (selected && allowClear) onChange("")
             else onChange(iso)
           }
@@ -182,24 +272,34 @@ export default function CalendarPicker({
               <button
                 type="button"
                 onClick={handleClick}
-                disabled={disabled}
+                disabled={interactive ? disabled : false}
                 className={`w-full rounded-md md:rounded-lg border transition-colors ${
                   compact ? "py-2 text-sm" : "py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
                 } ${
                   selected
-                    ? "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"
+                    ? toneClasses || "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"
+                    : toneClasses
+                      ? toneClasses
+                    : dateTooltip
+                      ? "border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/10 text-[var(--brand,#ff4b4b)] shadow-[0_0_0_1px_rgba(182,22,22,0.3)]"
                     : isToday
                       ? "border-[var(--brand,#b61616)] bg-white/10 text-white shadow-[0_0_0_1px_rgba(182,22,22,0.4)]"
                       : "border-black/15 dark:border-white/15"
-                } ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-black/10 dark:hover:bg-white/10"}`}
+                } ${
+                  !interactive
+                    ? "cursor-default"
+                    : disabled
+                      ? "opacity-40 cursor-not-allowed"
+                      : "hover:bg-black/10 dark:hover:bg-white/10"
+                }`}
               >
                 {d.getDate()}
               </button>
-              {disabled && disabledReason && (
+              {(disabled && disabledReason) || (!disabled && dateTooltip) ? (
                 <div className="pointer-events-none absolute left-1/2 top-0 z-40 min-w-[16rem] -translate-x-1/2 -translate-y-[110%] rounded-lg border border-white/20 bg-[#151017]/95 px-3 py-2 text-[12px] font-medium text-white opacity-0 transition-opacity duration-100 group-hover:opacity-100">
-                  {disabledReason}
+                  {disabled ? disabledReason : dateTooltip}
                 </div>
-              )}
+              ) : null}
             </div>
           )
         })}

@@ -16,10 +16,10 @@ import {
 } from "@/lib/class-schedule"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { awardPointsFromRule } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 
 export const runtime = "nodejs"
-
-const ASSIGNMENT_POINTS = 2.5
 
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
@@ -227,22 +227,19 @@ export async function POST(req: Request) {
         })
       }
 
-      try {
-        await tx.pointsLedger.create({
-          data: {
-            userId: dbUser.id,
-            type: "PACKAGE_ASSIGNMENT",
-            eventKey: assignmentEventKey(packagePurchaseId),
-            points: ASSIGNMENT_POINTS,
-            meta: {
-              packagePurchaseId,
-              assignedCount: assignments.length,
-            },
-          },
-        })
-        pointsAwarded = ASSIGNMENT_POINTS
-      } catch (error) {
-        if (!isUniqueError(error)) throw error
+      const pointsResult = await awardPointsFromRule({
+        db: tx,
+        userId: dbUser.id,
+        ruleKey: POINTS_RULE_KEYS.PACKAGE_ASSIGNMENT,
+        eventKey: assignmentEventKey(packagePurchaseId),
+        fallbackType: "PACKAGE_ASSIGNMENT",
+        meta: {
+          packagePurchaseId,
+          assignedCount: assignments.length,
+        },
+      })
+      if (pointsResult.awarded) {
+        pointsAwarded = pointsResult.points
       }
 
       const updatedPackage = await tx.packagePurchase.findUnique({

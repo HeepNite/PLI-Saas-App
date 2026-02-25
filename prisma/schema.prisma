@@ -8,14 +8,14 @@ datasource db {
 }
 
 model User {
-  id               String     @id @default(cuid())
-  clerkId          String?    @unique
-  email            String     @unique
+  id               String               @id @default(cuid())
+  clerkId          String?              @unique
+  email            String               @unique
   name             String?
   phone            String?
-  stripeCustomerId String?    @unique
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  stripeCustomerId String?              @unique
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
   purchases        Purchase[]
   profile          StudentProfile?
   points           PointsLedger[]
@@ -26,13 +26,13 @@ model User {
 }
 
 model Purchase {
-  id                      String   @id @default(cuid())
+  id                      String            @id @default(cuid())
   userId                  String
-  user                    User     @relation(fields: [userId], references: [id])
+  user                    User              @relation(fields: [userId], references: [id])
   courseSlug              String
   courseTitle             String?
   amount                  Int
-  currency                String   @default("usd")
+  currency                String            @default("usd")
   status                  String
   email                   String?
   name                    String?
@@ -42,11 +42,11 @@ model Purchase {
   packageId               String?
   serviceId               String?
   addonsCsv               String?
-  stripePaymentIntentId   String?  @unique
-  stripeCheckoutSessionId String?  @unique
+  stripePaymentIntentId   String?           @unique
+  stripeCheckoutSessionId String?           @unique
   metadata                Json?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
   packagePurchases        PackagePurchase[]
 
   @@index([userId])
@@ -54,29 +54,70 @@ model Purchase {
 }
 
 model PackagePlan {
-  id          String            @id @default(cuid())
-  key         String            @unique
-  courseSlug  String?
-  label       String
-  description String?
-  cadence     String?
+  id           String            @id @default(cuid())
+  key          String            @unique
+  courseSlug   String?
+  label        String
+  description  String?
+  priceCents   Int?
+  cadence      String?
   totalCredits Int?
-  makeUps     Int              @default(0)
-  validDays   Int              @default(180)
-  isUnlimited Boolean          @default(false)
-  active      Boolean          @default(true)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  purchases   PackagePurchase[]
+  makeUps      Int               @default(0)
+  validDays    Int               @default(180)
+  isUnlimited  Boolean           @default(false)
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  purchases    PackagePurchase[]
 
   @@index([courseSlug])
   @@index([active])
 }
 
+model CourseCatalog {
+  id                String   @id @default(cuid())
+  slug              String   @unique
+  title             String
+  kind              String   @default("course")
+  category          String?
+  description       String?
+  coverImageUrl     String?
+  previewVideoUrl   String?
+  dropInPriceCents  Int?
+  firstClassPriceCents Int?
+  level             String?
+  durationMinutes   Int?
+  location          String?
+  availableWeekdays Int[]
+  availableTimes    String[]
+  scheduleRules     Json?
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([kind])
+  @@index([active])
+}
+
+model PointsRule {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  description String?
+  eventType   String
+  points      Float
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([eventType])
+  @@index([active])
+}
+
 model StudentProfile {
-  id                       String         @id @default(cuid())
-  userId                   String         @unique
-  user                     User           @relation(fields: [userId], references: [id])
+  id                       String          @id @default(cuid())
+  userId                   String          @unique
+  user                     User            @relation(fields: [userId], references: [id])
   firstName                String?
   lastName                 String?
   birthDate                DateTime?
@@ -84,8 +125,8 @@ model StudentProfile {
   emergencyContactRelation String?
   emergencyContactPhone    String?
   billingAddress           BillingAddress?
-  createdAt                DateTime       @default(now())
-  updatedAt                DateTime       @updatedAt
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
 }
 
 model BillingAddress {
@@ -117,67 +158,67 @@ model PointsLedger {
 }
 
 model PackagePurchase {
-  id               String   @id @default(cuid())
+  id               String               @id @default(cuid())
   userId           String
-  user             User     @relation(fields: [userId], references: [id])
+  user             User                 @relation(fields: [userId], references: [id])
   packagePlanId    String?
-  packagePlan      PackagePlan? @relation(fields: [packagePlanId], references: [id])
+  packagePlan      PackagePlan?         @relation(fields: [packagePlanId], references: [id])
   courseSlug       String?
   packageId        String
   packageLabel     String?
   totalCredits     Int?
   remainingCredits Int?
-  isUnlimited      Boolean  @default(false)
-  purchasedAt      DateTime @default(now())
+  isUnlimited      Boolean              @default(false)
+  purchasedAt      DateTime             @default(now())
   expiresAt        DateTime?
   lastUsedAt       DateTime?
-  status           String   @default("active")
+  status           String               @default("active")
   purchaseId       String?
-  purchase         Purchase? @relation(fields: [purchaseId], references: [id])
-  source           String   @default("stripe")
+  purchase         Purchase?            @relation(fields: [purchaseId], references: [id])
+  source           String               @default("stripe")
   usageEntries     PackageUsageLedger[]
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
+  @@unique([purchaseId])
   @@index([userId])
   @@index([packagePlanId])
   @@index([packageId])
   @@index([status])
   @@index([expiresAt])
-  @@unique([purchaseId])
 }
 
 model ClassSession {
-  id              String      @id @default(cuid())
+  id              String       @id @default(cuid())
   courseSlug      String
   title           String?
   startsAt        DateTime
   durationMinutes Int?
-  capacity        Int         @default(12)
+  capacity        Int          @default(12)
   location        String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
   attendances     Attendance[]
 
-  @@index([courseSlug, startsAt])
   @@unique([courseSlug, startsAt])
+  @@index([courseSlug, startsAt])
 }
 
 model Attendance {
-  id          String       @id @default(cuid())
-  userId      String
-  user        User         @relation(fields: [userId], references: [id])
-  sessionId   String
-  session     ClassSession @relation(fields: [sessionId], references: [id])
-  status      String       @default("checked_in")
-  checkedInAt DateTime     @default(now())
-  qrToken     String?
-  metadata    Json?
+  id           String              @id @default(cuid())
+  userId       String
+  user         User                @relation(fields: [userId], references: [id])
+  sessionId    String
+  session      ClassSession        @relation(fields: [sessionId], references: [id])
+  status       String              @default("checked_in")
+  checkedInAt  DateTime            @default(now())
+  qrToken      String?
+  metadata     Json?
   packageUsage PackageUsageLedger?
 
+  @@unique([userId, sessionId])
   @@index([userId])
   @@index([sessionId])
-  @@unique([userId, sessionId])
 }
 
 model PackageUsageLedger {
@@ -199,16 +240,16 @@ model PackageUsageLedger {
 }
 
 model ActionRequest {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   type       String
-  status     String   @default("PENDING")
+  status     String    @default("PENDING")
   message    String?
   meta       Json?
   resolvedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([userId, createdAt])
   @@index([status])

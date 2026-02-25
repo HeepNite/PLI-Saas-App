@@ -9,6 +9,9 @@ const mockPrisma = {
     findMany: vi.fn(),
     aggregate: vi.fn(),
   },
+  pointsRule: {
+    findUnique: vi.fn(),
+  },
 }
 
 vi.mock("@/lib/prisma", () => ({
@@ -36,7 +39,9 @@ describe("profile points route", () => {
     usersApi.getUser.mockReset()
     mockPrisma.pointsLedger.findMany.mockReset()
     mockPrisma.pointsLedger.aggregate.mockReset()
+    mockPrisma.pointsRule.findUnique.mockReset()
     mockClerkClient.mockResolvedValue({ users: usersApi })
+    mockPrisma.pointsRule.findUnique.mockResolvedValue(null)
   })
 
   it("returns 401 when unauthenticated", async () => {
@@ -72,6 +77,9 @@ describe("profile points route", () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.balance).toBe(10)
+    expect(data.freeClassThreshold).toBe(500)
+    expect(data.pointsToNextFreeClass).toBe(490)
+    expect(data.freeClassesAvailable).toBe(0)
     expect(data.entries).toHaveLength(1)
     expect(data.entries[0].type).toBe("PROFILE_COMPLETED")
   })

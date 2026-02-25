@@ -18,8 +18,10 @@ const mockPrisma = {
   },
   pointsLedger: {
     aggregate: vi.fn(),
-    findFirst: vi.fn(),
     create: vi.fn(),
+  },
+  pointsRule: {
+    findUnique: vi.fn(),
   },
 }
 
@@ -55,11 +57,12 @@ describe("profile route", () => {
     mockPrisma.billingAddress.deleteMany.mockReset()
     mockPrisma.purchase.count.mockReset()
     mockPrisma.pointsLedger.aggregate.mockReset()
-    mockPrisma.pointsLedger.findFirst.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
+    mockPrisma.pointsRule.findUnique.mockReset()
 
     mockClerkClient.mockResolvedValue({ users: usersApi })
     mockPrisma.purchase.count.mockResolvedValue(0)
+    mockPrisma.pointsRule.findUnique.mockResolvedValue(null)
   })
 
   it("returns 401 when unauthenticated", async () => {
@@ -119,7 +122,6 @@ describe("profile route", () => {
       emergencyContactRelation: "Madre",
       emergencyContactPhone: "123",
     })
-    mockPrisma.pointsLedger.findFirst.mockResolvedValue(null)
     mockPrisma.pointsLedger.aggregate.mockResolvedValue({ _sum: { points: 10 } })
 
     const { PUT } = await import("@/app/api/profile/route")

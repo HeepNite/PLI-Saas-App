@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 import { auth, clerkClient } from "@clerk/nextjs/server"
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { validateProfileUpdatePayload } from "@/lib/security/profile-validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { awardPointsFromRule, getPointsBalance } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 
 export const runtime = "nodejs"
-const PROFILE_COMPLETE_POINTS = 10
 const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"]
 const profileCompletedEventKey = (userId: string) => `profile-completed:${userId}`
 
@@ -78,10 +78,7 @@ export async function GET(req: Request) {
       },
     })
 
-    const pointsBalance = await prisma.pointsLedger.aggregate({
-      where: { userId: dbUser.id },
-      _sum: { points: true },
-    })
+    const pointsBalance = await getPointsBalance(dbUser.id)
 
     const completion = profile ? isCompleteProfile(profile) : false
 
@@ -96,7 +93,7 @@ export async function GET(req: Request) {
         status: completedPurchases > 0 ? "ACTIVE" : "NEW",
       },
       profile,
-      pointsBalance: pointsBalance._sum.points || 0,
+      pointsBalance,
       profileComplete: completion,
     })
   } catch (error) {
@@ -219,37 +216,19 @@ export async function PUT(req: Request) {
     const complete = updatedProfile ? isCompleteProfile(updatedProfile) : false
 
     if (complete) {
-      const existingReward = await prisma.pointsLedger.findFirst({
-        where: { userId: dbUser.id, type: "PROFILE_COMPLETED" },
+      await awardPointsFromRule({
+        userId: dbUser.id,
+        ruleKey: POINTS_RULE_KEYS.PROFILE_COMPLETED,
+        eventKey: profileCompletedEventKey(dbUser.id),
+        meta: { source: "profile" },
       })
-      if (!existingReward) {
-        try {
-          await prisma.pointsLedger.create({
-            data: {
-              userId: dbUser.id,
-              type: "PROFILE_COMPLETED",
-              eventKey: profileCompletedEventKey(dbUser.id),
-              points: PROFILE_COMPLETE_POINTS,
-              meta: { source: "profile" },
-            },
-          })
-        } catch (error) {
-          // Idempotency guard: if another concurrent request already inserted this reward.
-          if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) {
-            throw error
-          }
-        }
-      }
     }
 
-    const pointsBalance = await prisma.pointsLedger.aggregate({
-      where: { userId: dbUser.id },
-      _sum: { points: true },
-    })
+    const pointsBalance = await getPointsBalance(dbUser.id)
 
     return NextResponse.json({
       profile: updatedProfile,
-      pointsBalance: pointsBalance._sum.points || 0,
+      pointsBalance,
       profileComplete: complete,
     })
   } catch (error) {

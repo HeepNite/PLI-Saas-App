@@ -12,6 +12,13 @@ const mockPrisma = {
   attendance: {
     upsert: vi.fn(),
     update: vi.fn(),
+    count: vi.fn(),
+  },
+  pointsRule: {
+    findUnique: vi.fn(),
+  },
+  pointsLedger: {
+    create: vi.fn(),
   },
 }
 
@@ -29,6 +36,9 @@ describe("staff checkin route", () => {
     mockPrisma.classSession.upsert.mockReset()
     mockPrisma.attendance.upsert.mockReset()
     mockPrisma.attendance.update.mockReset()
+    mockPrisma.attendance.count.mockReset()
+    mockPrisma.pointsRule.findUnique.mockReset()
+    mockPrisma.pointsLedger.create.mockReset()
     mockConsumePackageCredit.mockReset()
     process.env.STAFF_CHECKIN_TOKEN = "test-token"
   })
@@ -51,6 +61,7 @@ describe("staff checkin route", () => {
       id: "att_1",
       checkedInAt: new Date("2026-02-14T12:00:00.000Z"),
     })
+    mockPrisma.attendance.count.mockResolvedValue(1)
     mockConsumePackageCredit.mockResolvedValue({
       packagePurchase: {
         id: "pkg_1",
@@ -94,6 +105,7 @@ describe("staff checkin route", () => {
       id: "att_1",
       checkedInAt: new Date("2026-02-14T12:00:00.000Z"),
     })
+    mockPrisma.attendance.count.mockResolvedValue(1)
     mockConsumePackageCredit.mockResolvedValue({
       packagePurchase: null,
       consumed: false,
