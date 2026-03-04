@@ -78,6 +78,20 @@ const hashPin = (pin: string) => {
   return `${salt}:${hash}`
 }
 
+const isValidPinHash = (pin: string, pinHash: string) => {
+  const parts = pinHash.split(":")
+  if (parts.length !== 2) return false
+  const [salt, expectedHash] = parts
+  if (!salt || !expectedHash) return false
+  const nextHash = createHash("sha256")
+    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
+    .digest("hex")
+  return nextHash === expectedHash
+}
+
+const STAFF_SCAN_PAGE_SIZE = 100
+const STAFF_SCAN_MAX_USERS = 5000
+
 const parseRole = (value: unknown): StaffRole | null => {
   if (typeof value !== "string") return null
   const normalized = value.trim().toLowerCase()
@@ -249,6 +263,33 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     delete nextPrivateMetadata.staffPinHash
     delete nextPrivateMetadata.staffPinUpdatedAt
   } else if (pin) {
+    for (let offset = 0; offset < STAFF_SCAN_MAX_USERS; offset += STAFF_SCAN_PAGE_SIZE) {
+      const page = await client.users.getUserList({
+        limit: STAFF_SCAN_PAGE_SIZE,
+        offset,
+      })
+
+      const duplicate = page.data.find((candidate) => {
+        if (candidate.id === userId) return false
+        const candidatePrivateMetadata = asObject(candidate.privateMetadata)
+        const candidateHash =
+          typeof candidatePrivateMetadata.staffPinHash === "string" ? candidatePrivateMetadata.staffPinHash : ""
+        if (!candidateHash) return false
+        return isValidPinHash(pin, candidateHash)
+      })
+
+      if (duplicate) {
+        return NextResponse.json(
+          { error: "PIN already in use by another staff user. Choose a unique 4-digit PIN." },
+          { status: 409 }
+        )
+      }
+
+      if (page.data.length < STAFF_SCAN_PAGE_SIZE) {
+        break
+      }
+    }
+
     nextPrivateMetadata.staffPinHash = hashPin(pin)
     nextPrivateMetadata.staffPinUpdatedAt = new Date().toISOString()
   }

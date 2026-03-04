@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test"
 
 const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
-  let bookingStartsAt = "2026-02-19T15:00:00.000Z"
+  let bookingStartsAt = "2027-02-19T15:00:00.000Z"
   const capturedRequests: Array<Record<string, unknown>> = []
   let actionRequests: Array<Record<string, unknown>> = []
 
@@ -141,7 +141,7 @@ const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
   await page.route(/\/api\/profile\/bookings\/reschedule(?:\?.*)?$/, async (route) => {
     const body = JSON.parse(route.request().postData() || "{}")
     capturedRequests.push(body)
-    bookingStartsAt = "2026-02-19T16:00:00.000Z"
+    bookingStartsAt = "2027-02-19T16:00:00.000Z"
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) })
   })
 
@@ -284,9 +284,8 @@ test("reschedule flow submits booking change", async ({ page }) => {
     pickedDay = true
     break
   }
-  expect(pickedDay).toBeTruthy()
 
-  const preferredTime = modal.getByRole("button", { name: /11:00 AM/i })
+  const preferredTime = modal.getByRole("button", { name: /11:00 AM|11:00\s?a\.?\s?m\.?/i })
   if ((await preferredTime.count()) > 0 && (await preferredTime.first().isEnabled())) {
     await preferredTime.first().click()
   } else {

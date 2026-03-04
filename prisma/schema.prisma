@@ -255,3 +255,35 @@ model ActionRequest {
   @@index([status])
   @@index([type])
 }
+
+model StaffTerminal {
+  id                String                 @id @default(cuid())
+  slug              String                 @unique
+  name              String
+  location          String?
+  defaultCourseSlug String?
+  pinHash           String
+  active            Boolean                @default(true)
+  createdByUserId   String?
+  lastSeenAt        DateTime?
+  lastUsedAt        DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  sessions          StaffTerminalSession[]
+
+  @@index([active])
+  @@index([defaultCourseSlug])
+}
+
+model StaffTerminalSession {
+  id         String        @id @default(cuid())
+  terminalId String
+  terminal   StaffTerminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+  tokenHash  String        @unique
+  expiresAt  DateTime
+  lastSeenAt DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+
+  @@index([terminalId])
+  @@index([expiresAt])
+}

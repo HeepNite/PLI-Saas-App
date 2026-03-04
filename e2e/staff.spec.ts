@@ -4,12 +4,13 @@ const STAFF_CHECKIN_URL = "/staff/checkin"
 
 const enterPin = async (page: import("@playwright/test").Page, pin: string) => {
   await page.waitForTimeout(150)
+  await page.locator("body").click({ position: { x: 10, y: 10 } })
   for (const digit of pin.split("")) {
     const digitButton = page.getByRole("button", { name: digit, exact: true }).first()
-    await digitButton.scrollIntoViewIfNeeded()
-    await digitButton.evaluate((el) => {
-      ;(el as HTMLButtonElement).click()
-    })
+    await digitButton.click({ force: true })
+  }
+  for (const digit of pin.split("")) {
+    await page.keyboard.press(digit)
   }
 }
 

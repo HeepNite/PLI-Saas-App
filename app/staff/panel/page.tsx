@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
-import { auth, clerkClient } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
-import { extractStaffRoleFromClaims, extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
+import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 
 export const metadata: Metadata = {
   title: "Staff panel — PLI",
@@ -9,17 +8,16 @@ export const metadata: Metadata = {
 }
 
 export default async function StaffPanelPage() {
-  const authResult = await auth()
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) {
+    redirect("/staff/sign-in")
+  }
+
   if (!authResult.userId) {
     redirect("/staff/sign-in")
   }
 
-  let role = extractStaffRoleFromClaims(authResult.sessionClaims)
-  if (!role) {
-    const client = await clerkClient()
-    const user = await client.users.getUser(authResult.userId)
-    role = extractStaffRoleFromUserMetadata(user)
-  }
+  const role = authResult.role
 
   if (!role) {
     redirect("/staff/sign-in")
@@ -40,7 +38,7 @@ export default async function StaffPanelPage() {
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <a
-            href="/staff/checkin"
+            href="/staff/checkin?mode=terminal"
             className="rounded-xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm font-medium text-black transition hover:border-[var(--brand,#b61616)] dark:border-white/10 dark:bg-white/[0.03] dark:text-white"
           >
             Abrir terminal de check-in

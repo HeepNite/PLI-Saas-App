@@ -59,6 +59,7 @@ export async function POST(req: Request) {
   const payload = body as Record<string, unknown>
   const pin = typeof payload.pin === "string" ? payload.pin.trim() : ""
   const requestedUserId = typeof payload.userId === "string" ? payload.userId.trim() : ""
+  const preferredUserId = typeof payload.preferUserId === "string" ? payload.preferUserId.trim() : ""
   if (!/^\d{4}$/.test(pin)) {
     return NextResponse.json({ error: "PIN must be exactly 4 digits." }, { status: 400 })
   }
@@ -93,6 +94,26 @@ export async function POST(req: Request) {
     matchedUser = selectedUser
     matchedRole = role
   } else {
+    if (preferredUserId) {
+      try {
+        const preferredUser = await client.users.getUser(preferredUserId)
+        const preferredRole = extractStaffRoleFromUserMetadata(preferredUser)
+        const privateMetadata = asObject(preferredUser.privateMetadata)
+        const pinHash = typeof privateMetadata.staffPinHash === "string" ? privateMetadata.staffPinHash : ""
+        if (preferredRole && pinHash && isValidPinHash(pin, pinHash)) {
+          matchedUser = preferredUser
+          matchedRole = preferredRole
+        }
+      } catch {
+        // ignore and fall back to global scan
+      }
+    }
+
+    const pinMatches: Array<{
+      user: Awaited<ReturnType<typeof client.users.getUser>>
+      role: string
+    }> = []
+
     for (let offset = 0; offset < STAFF_SCAN_MAX_USERS; offset += STAFF_SCAN_PAGE_SIZE) {
       const page = await client.users.getUserList({
         limit: STAFF_SCAN_PAGE_SIZE,
@@ -108,13 +129,26 @@ export async function POST(req: Request) {
         if (!pinHash) continue
 
         if (!isValidPinHash(pin, pinHash)) continue
-        matchedUser = user
-        matchedRole = role
-        break
+        if (!pinMatches.some((entry) => entry.user.id === user.id)) {
+          pinMatches.push({ user, role })
+        }
       }
 
-      if (matchedUser) break
       if (page.data.length < STAFF_SCAN_PAGE_SIZE) break
+    }
+
+    if (!matchedUser) {
+      if (pinMatches.length === 1) {
+        matchedUser = pinMatches[0]!.user
+        matchedRole = pinMatches[0]!.role
+      } else if (pinMatches.length > 1) {
+        return NextResponse.json(
+          {
+            error: "This PIN is assigned to multiple staff users. Set unique PINs before using PIN sign-in.",
+          },
+          { status: 409 }
+        )
+      }
     }
   }
 
@@ -155,6 +189,14 @@ export async function POST(req: Request) {
 
   const name = `${matchedUser.firstName || ""} ${matchedUser.lastName || ""}`.trim() || matchedUser.primaryEmailAddress?.emailAddress || matchedUser.id
   const category = extractStaffCategoryFromUserMetadata(matchedUser)
+
+  console.info("staff/checkin/pin matched user", {
+    userId: matchedUser.id,
+    role: matchedRole,
+    category,
+    requestedUserId: requestedUserId || null,
+    preferredUserId: preferredUserId || null,
+  })
 
   return NextResponse.json({
     ok: true,

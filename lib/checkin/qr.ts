@@ -7,6 +7,7 @@ const DEFAULT_DURATION_MINUTES = 60
 const MIN_DURATION_MINUTES = 15
 const MAX_DURATION_MINUTES = 240
 const COURSE_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const isDevCheckInBypassEnabled = () => process.env.NODE_ENV !== "production"
 
 export type QrCheckInContext = {
   courseSlug: string
@@ -82,6 +83,12 @@ export const parseQrCheckInContext = (
 }
 
 export const isQrCheckInWindowOpen = (context: QrCheckInContext, now = new Date()) => {
+  if (isDevCheckInBypassEnabled()) return true
   const nowMs = now.getTime()
   return nowMs >= context.opensAt.getTime() && nowMs <= context.closesAt.getTime()
+}
+
+export const isQrCheckInWindowAllowed = (context: QrCheckInContext, now = new Date()) => {
+  if (isDevCheckInBypassEnabled()) return true
+  return isQrCheckInWindowOpen(context, now)
 }

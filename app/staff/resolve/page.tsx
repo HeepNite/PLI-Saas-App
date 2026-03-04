@@ -29,10 +29,9 @@ export default async function StaffResolvePage() {
   const client = await clerkClient()
   const currentUser = await client.users.getUser(authResult.userId)
 
-  let role: StaffRole | null = extractStaffRoleFromClaims(authResult.sessionClaims)
-  let category = extractStaffCategoryFromClaims(authResult.sessionClaims)
-  if (!role) role = extractStaffRoleFromUserMetadata(currentUser)
-  if (!category) category = extractStaffCategoryFromUserMetadata(currentUser)
+  let role: StaffRole | null = extractStaffRoleFromUserMetadata(currentUser) || extractStaffRoleFromClaims(authResult.sessionClaims)
+  let category =
+    extractStaffCategoryFromUserMetadata(currentUser) || extractStaffCategoryFromClaims(authResult.sessionClaims)
 
   if (!role) {
     const hasAdmin = await hasAnyStaffAdmin()

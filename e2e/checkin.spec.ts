@@ -38,12 +38,11 @@ test("new customer opens booking modal from checkin", async ({ page }) => {
   await page.waitForTimeout(250)
   const newButton = page.getByRole("button", { name: /Soy nuevo/i }).first()
   await newButton.scrollIntoViewIfNeeded()
-  await newButton.evaluate((el) => {
-    ;(el as HTMLButtonElement).click()
-  })
+  await newButton.click({ force: true })
 
-  await expect(page.getByText("Booking").first()).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText(/Date & Time|Fecha y hora/i).first()).toBeVisible({ timeout: 15_000 })
+  const modal = page.locator("div[data-lenis-prevent]").first()
+  await expect(modal).toBeVisible({ timeout: 15_000 })
+  await expect(modal.locator("#booking-service")).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole("button", { name: /Continue|Continuar/i }).first()).toBeVisible({
     timeout: 15_000,
   })

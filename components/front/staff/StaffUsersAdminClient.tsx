@@ -1131,7 +1131,8 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
         rulesRes.json().catch(() => ({})),
       ])
       if (!coursesRes.ok || !packagesRes.ok || !rulesRes.ok) {
-        if (handleStaffAuthFailure(coursesRes.status) || handleStaffAuthFailure(packagesRes.status) || handleStaffAuthFailure(rulesRes.status)) {
+        const authStatuses = [coursesRes.status, packagesRes.status, rulesRes.status]
+        if (authStatuses.some((status) => status === 401) && authStatuses.some((status) => handleStaffAuthFailure(status))) {
           return
         }
         const nextError =

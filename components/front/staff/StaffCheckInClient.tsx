@@ -2,7 +2,8 @@
 
 import React from "react"
 import { ArrowLeft, CheckCircle2, Clock3, Loader2 } from "lucide-react"
-import { useSignIn } from "@clerk/nextjs"
+import { useSearchParams } from "next/navigation"
+import { useAuth, useClerk, useSignIn } from "@clerk/nextjs"
 
 type PinCheckInResponse = {
   ok: boolean
@@ -21,25 +22,34 @@ const PIN_LENGTH = 4
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
 
 export default function StaffCheckInClient() {
+  const searchParams = useSearchParams()
+  const { userId: activeUserId, sessionId: activeSessionId } = useAuth()
+  const { signOut } = useClerk()
   const { isLoaded, signIn, setActive } = useSignIn()
   const [pin, setPin] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
-  const [now, setNow] = React.useState(() => new Date())
+  const [now, setNow] = React.useState<Date | null>(null)
+  const terminalMode =
+    (searchParams.get("mode") || "").trim().toLowerCase() === "terminal" ||
+    (searchParams.get("terminal") || "").trim() === "1"
 
   React.useEffect(() => {
+    setNow(new Date())
     const timer = window.setInterval(() => setNow(new Date()), 1000)
     return () => window.clearInterval(timer)
   }, [])
 
   const nowLabel = React.useMemo(
-    () =>
-      new Intl.DateTimeFormat("en-US", {
+    () => {
+      if (!now) return "—:—:—"
+      return new Intl.DateTimeFormat("en-US", {
         hour: "numeric",
         minute: "2-digit",
         second: "2-digit",
-      }).format(now),
+      }).format(now)
+    },
     [now]
   )
 
@@ -49,6 +59,7 @@ export default function StaffCheckInClient() {
       return `${prev}${digit}`
     })
     setError(null)
+    setSuccess(null)
   }, [])
 
   const clearPin = React.useCallback(() => {
@@ -60,6 +71,7 @@ export default function StaffCheckInClient() {
   const removeDigit = React.useCallback(() => {
     setPin((prev) => prev.slice(0, -1))
     setError(null)
+    setSuccess(null)
   }, [])
 
   const submitPin = React.useCallback(async () => {
@@ -76,40 +88,54 @@ export default function StaffCheckInClient() {
       const res = await fetch("/api/staff/checkin/pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({
+          pin,
+          preferUserId: terminalMode ? "" : activeUserId || "",
+        }),
       })
       const data = (await res.json().catch(() => ({}))) as Partial<PinCheckInResponse> & { error?: string }
-      if (!res.ok || !data?.signInUrl) {
+      if (!res.ok || (!terminalMode && !data?.signInUrl)) {
         setError(typeof data?.error === "string" ? data.error : "PIN inválido.")
         setPin("")
         return
       }
 
       const name = data?.staff?.name || "staff"
-      setSuccess(`Check-in registrado para ${name}. Redirigiendo...`)
+      setSuccess(terminalMode ? `Check-in registrado para ${name}.` : `Check-in registrado para ${name}. Redirigiendo...`)
       setPin("")
+      if (terminalMode) return
 
-      const ticket = typeof data.ticket === "string" ? data.ticket.trim() : ""
-      if (!isLoaded || !signIn || !setActive || !ticket) {
-        window.location.assign(data.signInUrl)
+      if (activeUserId && data?.staff?.id === activeUserId) {
+        window.location.assign("/staff/resolve")
         return
       }
 
-      try {
-        const attempt = (await signIn.create({
-          strategy: "ticket",
-          ticket,
-        })) as { status?: string; createdSessionId?: string | null }
-        if (attempt.status === "complete" && attempt.createdSessionId) {
-          await setActive({ session: attempt.createdSessionId })
-          window.location.assign("/staff/resolve")
-          return
+      if (activeSessionId && activeUserId && data?.staff?.id && data.staff.id !== activeUserId) {
+        try {
+          await signOut({ sessionId: activeSessionId })
+        } catch {
+          // continue with the new sign-in attempt even if the previous session could not be cleared.
         }
-      } catch {
-        // Fallback to direct sign-in token URL if Clerk client ticket flow fails.
       }
 
-      window.location.assign(data.signInUrl)
+      const ticket = typeof data.ticket === "string" ? data.ticket.trim() : ""
+      if (isLoaded && signIn && setActive && ticket) {
+        try {
+          const attempt = (await signIn.create({
+            strategy: "ticket",
+            ticket,
+          })) as { status?: string; createdSessionId?: string | null }
+          if (attempt.status === "complete" && attempt.createdSessionId) {
+            await setActive({ session: attempt.createdSessionId })
+            window.location.assign("/staff/resolve")
+            return
+          }
+        } catch {
+          // fallback below
+        }
+      }
+
+      window.location.assign(data.signInUrl!)
     } catch {
       setError("No se pudo validar el PIN. Intentá nuevamente.")
       setPin("")
@@ -117,7 +143,7 @@ export default function StaffCheckInClient() {
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, pin, setActive, signIn])
+  }, [activeSessionId, activeUserId, isLoaded, pin, setActive, signIn, signOut, terminalMode])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -153,7 +179,9 @@ export default function StaffCheckInClient() {
         <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Check-in</p>
         <h2 className="mt-2 text-2xl font-semibold text-black dark:text-white">Ingreso por PIN</h2>
         <p className="mt-2 text-sm text-black/65 dark:text-white/65">
-          Ingresá tu PIN para marcar entrada. Al validar, entrás directo a tu panel según tu rol.
+          {terminalMode
+            ? "Ingresá tu PIN para marcar entrada. Al validar, el terminal registra tu ingreso sin cambiar la sesión activa."
+            : "Ingresá tu PIN para marcar entrada y entrar directo a tu panel según tu rol."}
         </p>
       </header>
 

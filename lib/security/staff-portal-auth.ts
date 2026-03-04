@@ -50,17 +50,20 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
     return { ok: false, status: 401, error: "Unauthorized" }
   }
 
-  const claimRole = extractStaffRoleFromClaims(authResult.sessionClaims)
-  const claimCategory = extractStaffCategoryFromClaims(authResult.sessionClaims)
-  if (isStaffAdminRole(claimRole)) {
-    return { ok: true, userId: authResult.userId, role: claimRole, category: claimCategory }
-  }
-
   const client = await clerkClient()
   const user = await client.users.getUser(authResult.userId)
+
+  const claimRole = extractStaffRoleFromClaims(authResult.sessionClaims)
+  const claimCategory = extractStaffCategoryFromClaims(authResult.sessionClaims)
   const metadataRole = extractStaffRoleFromUserMetadata(user)
   const metadataCategory = extractStaffCategoryFromUserMetadata(user)
-  return { ok: true, userId: authResult.userId, role: metadataRole, category: metadataCategory }
+
+  return {
+    ok: true,
+    userId: authResult.userId,
+    role: metadataRole || claimRole,
+    category: metadataCategory || claimCategory,
+  }
 }
 
 export const authorizeStaffPortalRequest = async (): Promise<StaffPortalAuthResult> => {

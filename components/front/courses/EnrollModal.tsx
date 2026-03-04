@@ -19,10 +19,11 @@ import { useI18n } from "@/lib/i18n"
 import type { CourseEnrollmentData, Coupon, EnrollmentContact, PaymentMethod } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
 import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
-import { SignIn, useAuth, useUser } from "@clerk/nextjs"
+import { useAuth, useUser } from "@clerk/nextjs"
 import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
 import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -36,10 +37,20 @@ const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_24_REGEX = /^\d{2}:\d{2}$/
 
 type EnrollFlowVariant = "default" | "checkin-new" | "checkin-existing"
+type EnrollCompletionMode = "default" | "personal" | "station"
 
 type EnrollCheckInContext = {
   date?: string
   time?: string
+  durationMinutes?: number
+}
+
+type EnrollPrefillSelection = {
+  service?: string
+  packageId?: string
+  addons?: string[]
+  participants?: number
+  paymentMethod?: PaymentMethod
 }
 
 const normalizeIsoDate = (value: unknown) => {
@@ -52,6 +63,14 @@ const normalizeTime24 = (value: unknown) => {
   if (typeof value !== "string") return ""
   const trimmed = value.trim()
   return TIME_24_REGEX.test(trimmed) ? trimmed : ""
+}
+
+const normalizeDurationMinutes = (value: unknown) => {
+  const parsed = Number(value)
+  if (Number.isFinite(parsed)) {
+    return Math.max(15, Math.min(240, Math.round(parsed)))
+  }
+  return 60
 }
 
 const pad = (value: number) => String(value).padStart(2, "0")
@@ -219,17 +238,21 @@ export default function EnrollModal({
   course,
   open,
   onCloseAction,
+  onCompletedAction,
   onExistingAccountDetectedAction,
   initialStep,
   mode = "modal",
   prefillContact,
+  prefillSelection,
   flowVariant = "default",
+  completionMode = "default",
   checkInContext,
   useDraft = true,
 }: {
   course: CourseEnrollmentData
   open: boolean
   onCloseAction: () => void
+  onCompletedAction?: () => void | Promise<void>
   onExistingAccountDetectedAction?: (context: {
     phone: string
     requiresLogin: boolean
@@ -238,7 +261,9 @@ export default function EnrollModal({
   initialStep?: number
   mode?: "modal" | "inline"
   prefillContact?: Partial<EnrollmentContact>
+  prefillSelection?: EnrollPrefillSelection
   flowVariant?: EnrollFlowVariant
+  completionMode?: EnrollCompletionMode
   checkInContext?: EnrollCheckInContext
   useDraft?: boolean
 }) {
@@ -249,9 +274,12 @@ export default function EnrollModal({
   const isInline = mode === "inline"
   const checkInContextDate = normalizeIsoDate(checkInContext?.date)
   const checkInContextTime = normalizeTime24(checkInContext?.time)
+  const checkInContextDuration = normalizeDurationMinutes(checkInContext?.durationMinutes)
   const isCheckInNewFlow = flowVariant === "checkin-new"
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
+  const isStationCompletion = isCheckInFlow && completionMode === "station"
+  const isPersonalCompletion = isCheckInFlow && completionMode === "personal"
   const allowPanelAccess = !isCheckInFlow
   const availableServices = React.useMemo(
     () =>
@@ -296,6 +324,7 @@ export default function EnrollModal({
   // Flujo multi‑paso + éxito
   const [step, setStep] = React.useState<number>(0)
   const [success, setSuccess] = React.useState<boolean>(false)
+  const [successMessage, setSuccessMessage] = React.useState<string | null>(null)
   const [processing, setProcessing] = React.useState<boolean>(false)
   const [timeLoading, setTimeLoading] = React.useState<boolean>(false)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
@@ -311,7 +340,9 @@ export default function EnrollModal({
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
   const [checkInScheduleNotice, setCheckInScheduleNotice] = React.useState<string | null>(null)
   const [checkInNow, setCheckInNow] = React.useState<Date>(() => new Date())
+  const stationCompletionTimeoutRef = React.useRef<number | null>(null)
   const prefillContactRef = React.useRef(prefillContact)
+  const prefillSelectionRef = React.useRef(prefillSelection)
   const userContactRef = React.useRef<Partial<EnrollmentContact>>({
     firstName: "",
     lastName: "",
@@ -354,6 +385,10 @@ export default function EnrollModal({
   React.useEffect(() => {
     prefillContactRef.current = prefillContact
   }, [prefillContact])
+
+  React.useEffect(() => {
+    prefillSelectionRef.current = prefillSelection
+  }, [prefillSelection])
 
   React.useEffect(() => {
     if (!isCheckInFlow || !open) return
@@ -427,6 +462,7 @@ export default function EnrollModal({
 
   const resetForm = React.useCallback(() => {
     setSuccess(false)
+    setSuccessMessage(null)
     setAddons([])
     setParticipants(1)
     setDate("")
@@ -457,10 +493,36 @@ export default function EnrollModal({
   }, [isInline, onCloseAction, resetForm])
 
   React.useEffect(() => {
+    return () => {
+      if (stationCompletionTimeoutRef.current !== null) {
+        window.clearTimeout(stationCompletionTimeoutRef.current)
+        stationCompletionTimeoutRef.current = null
+      }
+    }
+  }, [])
+
+  React.useEffect(() => {
     if (!open && !isInline) {
       resetForm()
     }
   }, [open, isInline, resetForm])
+
+  React.useEffect(() => {
+    if (!success || !isStationCompletion || !onCompletedAction) return
+    if (stationCompletionTimeoutRef.current !== null) {
+      window.clearTimeout(stationCompletionTimeoutRef.current)
+    }
+    stationCompletionTimeoutRef.current = window.setTimeout(() => {
+      stationCompletionTimeoutRef.current = null
+      void onCompletedAction()
+    }, 10_000)
+    return () => {
+      if (stationCompletionTimeoutRef.current !== null) {
+        window.clearTimeout(stationCompletionTimeoutRef.current)
+        stationCompletionTimeoutRef.current = null
+      }
+    }
+  }, [isStationCompletion, onCompletedAction, success])
 
   React.useEffect(() => {
     if (isInline) return
@@ -554,16 +616,34 @@ export default function EnrollModal({
           time: checkInContextTime,
         })
       : { date: "", time: "", notice: null as string | null }
-    setService(initialServiceId)
-    setPkg("")
-    setAddons([])
-    setParticipants(1)
+    const nextService =
+      prefillSelectionRef.current?.service &&
+      availableServices.some((item) => item.id === prefillSelectionRef.current?.service)
+        ? prefillSelectionRef.current.service
+        : initialServiceId
+    const nextPackage =
+      prefillSelectionRef.current?.packageId &&
+      course.enrollment.packages.some((item) => item.id === prefillSelectionRef.current?.packageId)
+        ? prefillSelectionRef.current.packageId
+        : ""
+    const nextAddons = (prefillSelectionRef.current?.addons || []).filter((id) =>
+      course.enrollment.addons?.some((item) => item.id === id)
+    )
+    const nextParticipants =
+      typeof prefillSelectionRef.current?.participants === "number" &&
+      Number.isFinite(prefillSelectionRef.current.participants)
+        ? Math.max(1, Math.min(10, Math.round(prefillSelectionRef.current.participants)))
+        : 1
+    setService(nextService)
+    setPkg(nextPackage)
+    setAddons(nextAddons)
+    setParticipants(nextParticipants)
     setDate(checkInAutofill.date)
     setTime(checkInAutofill.time)
     setContact(initialContact)
     setCouponInput("")
     setAppliedCoupon(null)
-    setPaymentMethod("")
+    setPaymentMethod(prefillSelectionRef.current?.paymentMethod || "")
     setStep(0)
     setCheckInScheduleNotice(checkInAutofill.notice)
     setRequiresPhoneVerification(false)
@@ -582,6 +662,9 @@ export default function EnrollModal({
     draftKey,
     useDraft,
     initialServiceId,
+    availableServices,
+    course.enrollment.addons,
+    course.enrollment.packages,
     isCheckInNewFlow,
     isCheckInFlow,
     checkInContextDate,
@@ -606,6 +689,7 @@ export default function EnrollModal({
       : appliedCoupon.value
     : 0
   const total = Math.max(0, subtotal - discount)
+  const hideCalendarSidebar = Boolean(success && isCheckInFlow)
   const paymentMethodLabel =
     paymentMethod === "stripe"
       ? t("payments_stripe")
@@ -995,6 +1079,7 @@ export default function EnrollModal({
       return
     }
 
+    setSuccessMessage(isCheckInFlow ? "Compra registrada. El check-in automático queda pendiente para este método de pago." : null)
     setSuccess(true)
     setProcessing(false)
   }
@@ -1145,59 +1230,60 @@ export default function EnrollModal({
 
         <div className={isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12"}>
           {/* Sidebar: stepper (form) OR calendar panel (success) */}
-          <aside
-            className={[
-              "bg-neutral-900/90 text-white p-3 sm:p-4 space-y-3 sm:space-y-4",
-              isInline ? "md:col-span-1" : "md:col-span-4 lg:col-span-3",
-            ].join(" ")}
-          >
-            {success ? (
-              <div className="flex flex-col gap-4">
-                <h4 className="text-sm font-semibold">{t("addToCalendar")}</h4>
-                {eventDates ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <a
-                      href={googleCalHref}
-                      target="_blank"
-                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                    >
-                      <CalendarIcon className="h-4 w-4" aria-hidden />
-                      Google
-                    </a>
-                    <a
-                      href={icsDataUri}
-                      download={`pli-${course.slug}-${date}-${time}.ics`}
-                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                    >
-                      <CalendarRange className="h-4 w-4" aria-hidden />
-                      Outlook
-                    </a>
-                    <a
-                      href={icsDataUri}
-                      download={`pli-${course.slug}-${date}-${time}.ics`}
-                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                    >
-                      <CalendarDays className="h-4 w-4" aria-hidden />
-                      Yahoo
-                    </a>
-                    <a
-                      href={icsDataUri}
-                      download={`pli-${course.slug}-${date}-${time}.ics`}
-                      className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                    >
-                      <CalendarCheck className="h-4 w-4" aria-hidden />
-                      Apple
-                    </a>
-                  </div>
-                ) : (
-                  <p className="text-xs text-white/70">{t("calendarsHint")}</p>
-                )}
+          {!hideCalendarSidebar && (
+            <aside
+              className={[
+                "bg-neutral-900/90 text-white p-3 sm:p-4 space-y-3 sm:space-y-4",
+                isInline ? "md:col-span-1" : "md:col-span-4 lg:col-span-3",
+              ].join(" ")}
+            >
+              {success ? (
+                <div className="flex flex-col gap-4">
+                  <h4 className="text-sm font-semibold">{t("addToCalendar")}</h4>
+                  {eventDates ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <a
+                        href={googleCalHref}
+                        target="_blank"
+                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                      >
+                        <CalendarIcon className="h-4 w-4" aria-hidden />
+                        Google
+                      </a>
+                      <a
+                        href={icsDataUri}
+                        download={`pli-${course.slug}-${date}-${time}.ics`}
+                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                      >
+                        <CalendarRange className="h-4 w-4" aria-hidden />
+                        Outlook
+                      </a>
+                      <a
+                        href={icsDataUri}
+                        download={`pli-${course.slug}-${date}-${time}.ics`}
+                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                      >
+                        <CalendarDays className="h-4 w-4" aria-hidden />
+                        Yahoo
+                      </a>
+                      <a
+                        href={icsDataUri}
+                        download={`pli-${course.slug}-${date}-${time}.ics`}
+                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
+                      >
+                        <CalendarCheck className="h-4 w-4" aria-hidden />
+                        Apple
+                      </a>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-white/70">{t("calendarsHint")}</p>
+                  )}
 
-                {/* Collapse menu eliminado por requerimiento */}
-              </div>
-            ) : (
-              <>
-                <h4 className="text-sm font-semibold">{t("booking")}</h4>
+                  {/* Collapse menu eliminado por requerimiento */}
+                </div>
+              ) : (
+                <>
+                  <h4 className="text-sm font-semibold">{t("booking")}</h4>
                 {isInline ? (
                   <nav aria-label="Breadcrumb" className="mt-3">
                     {(() => {
@@ -1292,64 +1378,79 @@ export default function EnrollModal({
                 )}
 
                 {/* Summary */}
-                <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
-                  <div className="font-semibold mb-2">{t("summary")}</div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
-                    <div className="space-y-1">
-                      <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
-                      <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                      {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
-                      <div>{t("people")}: {participants}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
-                      <div>{t("email")}: {contact.email || "—"}</div>
-                      <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 sm:hidden">
-                  <details className="rounded-md border border-white/10 p-3 text-xs">
-                    <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
-                    <div className="mt-2 flex flex-col gap-2">
-                      <div className="space-y-1">
-                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
-                        <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                        {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
-                        <div>{t("people")}: {participants}</div>
-                      </div>
-                      <div className="space-y-1">
-                        <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
-                        <div>{t("email")}: {contact.email || "—"}</div>
-                        <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                {step !== 3 && (
+                  <>
+                    <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
+                      <div className="font-semibold mb-2">{t("summary")}</div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
+                        <div className="space-y-1">
+                          <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                          <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                          {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                          <div>{t("people")}: {participants}</div>
+                        </div>
+                        <div className="space-y-1">
+                          <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
+                          <div>{t("email")}: {contact.email || "—"}</div>
+                          <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                        </div>
                       </div>
                     </div>
-                  </details>
-                </div>
+                    <div className="mt-4 sm:hidden">
+                      <details className="rounded-md border border-white/10 p-3 text-xs">
+                        <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
+                        <div className="mt-2 flex flex-col gap-2">
+                          <div className="space-y-1">
+                            <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
+                            <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                            {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
+                            <div>{t("people")}: {participants}</div>
+                          </div>
+                          <div className="space-y-1">
+                            <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
+                            <div>{t("email")}: {contact.email || "—"}</div>
+                            <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  </>
+                )}
 
                 {/* Sin bloque de contacto; el chat vive en el UI global */}
-              </>
-            )}
-          </aside>
+                </>
+              )}
+            </aside>
+          )}
 
           {/* Main content */}
-          <section className={isInline ? "p-4 sm:p-6" : "md:col-span-8 lg:col-span-9 p-3 sm:p-6"}>
+          <section
+            className={
+              isInline
+                ? "p-4 sm:p-6"
+                : hideCalendarSidebar
+                  ? "md:col-span-12 p-3 sm:p-6"
+                  : "md:col-span-8 lg:col-span-9 p-3 sm:p-6"
+            }
+          >
             <div className={isInline ? "" : "mx-auto w-full max-w-2xl"}>
-              <div className="flex items-center gap-2 mb-3">
-                {step > 0 && (
-                  <button
-                    type="button"
-                    aria-label={t("back")}
-                    onClick={() => setStep((s) => Math.max(0, s - 1))}
-                    className="h-8 w-8 rounded-md border border-black/10 flex items-center justify-center"
-                  >
-                    ←
-                  </button>
-                )}
-                <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
-                  {steps[step]?.label} • {course.title}
-                </h3>
-              </div>
+              {!(success && isCheckInFlow) && (
+                <div className="mb-3 flex items-center gap-2">
+                  {step > 0 && (
+                    <button
+                      type="button"
+                      aria-label={t("back")}
+                      onClick={() => setStep((s) => Math.max(0, s - 1))}
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-black/10"
+                    >
+                      ←
+                    </button>
+                  )}
+                  <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
+                    {steps[step]?.label} • {course.title}
+                  </h3>
+                </div>
+              )}
 
             {success ? (
               <div className="mt-2">
@@ -1360,6 +1461,11 @@ export default function EnrollModal({
                   </div>
                   <h3 className="text-xl font-semibold">{t("congratulations")}</h3>
                   <p className="text-xs text-neutral-500">{t("appointmentId")} {Math.abs((date+time).split("").reduce((a,c)=>a+c.charCodeAt(0),0)%1000) || 56}</p>
+                  {successMessage && (
+                    <p className="mt-3 max-w-md text-center text-sm text-neutral-600 dark:text-neutral-300">
+                      {successMessage}
+                    </p>
+                  )}
                 </div>
 
                 {/* Details table */}
@@ -1404,11 +1510,36 @@ export default function EnrollModal({
                 </div>
 
                 {/* Bottom bar actions */}
-                <div className={`mt-6 border-t border-black/10 dark:border-white/10 px-3 py-3 flex items-center ${allowPanelAccess ? "justify-between" : "justify-end"}`}>
+                <div className={`mt-6 border-t border-black/10 dark:border-white/10 px-3 py-3 flex items-center ${(allowPanelAccess || isPersonalCompletion) ? "justify-between" : "justify-end"}`}>
                   {allowPanelAccess && (
                     <Link href="/client-profile" className="text-sm font-medium">{t("customerPanel")}</Link>
                   )}
-                  <button onClick={handleClose} className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white">{t("finish")}</button>
+                  {isPersonalCompletion && (
+                    <button
+                      type="button"
+                      onClick={() => router.push("/client-profile")}
+                      className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10"
+                    >
+                      Ir a mi cuenta
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isStationCompletion && onCompletedAction) {
+                        if (stationCompletionTimeoutRef.current !== null) {
+                          window.clearTimeout(stationCompletionTimeoutRef.current)
+                          stationCompletionTimeoutRef.current = null
+                        }
+                        void onCompletedAction()
+                        return
+                      }
+                      handleClose()
+                    }}
+                    className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white"
+                  >
+                    {isStationCompletion ? t("finish") : isPersonalCompletion ? "Cerrar" : t("finish")}
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1693,41 +1824,44 @@ export default function EnrollModal({
                   <div className="space-y-4">
                     {/* Payments step */}
                     <div>
-                      <h4 className="text-sm font-semibold mb-2">{t("payments_summary")}</h4>
-                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 space-y-3">
-                        <div className="rounded-md border border-black/10 dark:border-white/10 p-3 bg-white/70 dark:bg-white/10">
-                          <div className="text-xs text-neutral-500 mb-1">{t("payments_classes")}</div>
-                          <div className="flex items-center justify-between text-sm">
-                            <span>
-                              {course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}
-                              {pkgOpt ? " (incluida en paquete)" : perPerson ? ` ($${perPerson.toFixed(2)})` : ""} × {participants} {participants===1?t("onePerson"):t("manyPeople")}
-                            </span>
-                            <span className="font-medium">${subtotal.toFixed(2)}</span>
+                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 space-y-2.5">
+                        {isCheckInFlow && (
+                          <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3">
+                            <div className="text-sm font-semibold">{t("reviewAndConfirm")}</div>
+                            <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-neutral-600 dark:text-white/70 sm:grid-cols-2">
+                              <div>{t("course")}: <span className="text-neutral-900 dark:text-white">{course.title}</span></div>
+                              <div>{t("service")}: <span className="text-neutral-900 dark:text-white">{course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (incluida en paquete)" : ""}</span></div>
+                              <div>{t("dateTime")}: <span className="text-neutral-900 dark:text-white">{date} {to12h(time)}</span></div>
+                              <div>{t("people")}: <span className="text-neutral-900 dark:text-white">{participants}</span></div>
+                              <div>{t("name")}: <span className="text-neutral-900 dark:text-white">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</span></div>
+                              <div>{t("email")}: <span className="text-neutral-900 dark:text-white">{contact.email || "—"}</span></div>
+                              <div>Teléfono: <span className="text-neutral-900 dark:text-white">{contact.phone || "—"}</span></div>
+                              {!!addons.length && (
+                                <div>{t("extras")}: <span className="text-neutral-900 dark:text-white">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</span></div>
+                              )}
+                              {pkg && (
+                                <div>{t("package")}: <span className="text-neutral-900 dark:text-white">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</span></div>
+                              )}
+                              {contact.note && <div className="sm:col-span-2">{t("notes")}: <span className="text-neutral-900 dark:text-white">{contact.note}</span></div>}
+                            </div>
                           </div>
-                          <div className="mt-2 space-y-1 text-xs text-neutral-500">
-                            <div className="flex items-center justify-between">
-                              <span>Servicio: {serviceOpt?.label || "—"}{pkgOpt ? " (incluida)" : ""}</span>
-                              <span>${serviceCharge.toFixed(2)}</span>
-                            </div>
-                            {pkgOpt && (
-                              <div className="flex items-center justify-between">
-                                <span>
-                                  Paquete: {pkgOpt.label}
-                                  {formatPackageMeta(pkgOpt) ? ` (${formatPackageMeta(pkgOpt)})` : ""}
-                                </span>
-                                <span>${packagePrice.toFixed(2)}</span>
+                        )}
+
+                        <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/70 p-2.5 dark:bg-white/10">
+                          <div className="text-[11px] uppercase tracking-[0.14em] text-neutral-500">{t("payments_classes")}</div>
+                          <div className="mt-1 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium leading-snug">
+                                {course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}
                               </div>
-                            )}
-                            {!!addonsOpts.length && (
-                              <div className="flex items-center justify-between">
-                                <span>Extras: {addonsOpts.map((a)=>a.label).join(", ")}</span>
-                                <span>${addonsTotal.toFixed(2)}</span>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-neutral-500 dark:text-white/60">
+                                <span>{participants} {participants===1?t("onePerson"):t("manyPeople")}</span>
+                                <span>Servicio: {serviceOpt?.label || "—"}{pkgOpt ? " (incluida)" : ""}</span>
+                                {pkgOpt && <span>Paquete: {pkgOpt.label}</span>}
+                                {!!addonsOpts.length && <span>Extras: {addonsOpts.map((a)=>a.label).join(", ")}</span>}
                               </div>
-                            )}
-                            <div className="flex items-center justify-between">
-                              <span>Subtotal por persona</span>
-                              <span>${perPerson.toFixed(2)}</span>
                             </div>
+                            <span className="shrink-0 text-sm font-semibold">${subtotal.toFixed(2)}</span>
                           </div>
                         </div>
 
@@ -1771,26 +1905,6 @@ export default function EnrollModal({
                         </div>
                       </div>
                     </div>
-
-                    {isCheckInFlow && (
-                      <GlassyCard className="p-4">
-                        <div className="text-sm space-y-1">
-                          <div className="font-medium">{t("reviewAndConfirm")}</div>
-                          <div>{t("course")}: {course.title}</div>
-                          <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (incluida en paquete)" : ""}</div>
-                          <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                          {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
-                          <div>{t("people")}: {participants}</div>
-                          <div>{t("dateTime")}: {date} {to12h(time)}</div>
-                          <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
-                          <div>{t("email")}: {contact.email || "—"}</div>
-                          <div>Teléfono: {contact.phone || "—"}</div>
-                          <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
-                          {contact.note && <div>{t("notes")}: {contact.note}</div>}
-                          <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
-                        </div>
-                      </GlassyCard>
-                    )}
 
                     <div>
                       <h4 className="text-sm font-semibold mb-2">{t("payments_method")}</h4>
@@ -1902,10 +2016,13 @@ export default function EnrollModal({
             clientSecret={stripeClientSecret}
             onClose={() => setShowStripeModal(false)}
             onSuccess={async (paymentIntentId?: string) => {
+              let completionMessage: string | null = null
+              let purchaseFinalized = false
+
               if (paymentIntentId) {
                 try {
                   const token = isSignedIn ? await getToken({ skipCache: true }) : null
-                  await fetch("/api/checkout/finalize", {
+                  const finalizeRes = await fetch("/api/checkout/finalize", {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",
@@ -1914,10 +2031,48 @@ export default function EnrollModal({
                     credentials: "include",
                     body: JSON.stringify({ paymentIntentId }),
                   })
+                  purchaseFinalized = finalizeRes.ok
+
+                  if (isCheckInFlow && !pkg && date && time && finalizeRes.ok) {
+                    const dropInRes = await fetch("/api/checkin/qr/dropin", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                      },
+                      credentials: "include",
+                      body: JSON.stringify({
+                        paymentIntentId,
+                        courseSlug: course.slug,
+                        date,
+                        time,
+                        durationMinutes: checkInContextDuration,
+                      }),
+                    })
+                    const dropInData = await dropInRes.json().catch(() => null)
+                    completionMessage = dropInRes.ok
+                      ? "Compra y check-in registrados correctamente."
+                      : typeof dropInData?.error === "string"
+                        ? `Compra registrada. El check-in automático no se pudo completar: ${dropInData.error}`
+                        : "Compra registrada. El check-in automático no se pudo completar."
+                  } else if (finalizeRes.ok) {
+                    completionMessage = isCheckInFlow
+                      ? "Compra registrada correctamente."
+                      : null
+                  }
                 } catch (error) {
                   console.warn("Unable to finalize purchase sync", error)
+                  completionMessage = isCheckInFlow
+                    ? "El pago se completó, pero no pudimos confirmar el check-in automático."
+                    : null
                 }
               }
+              if (isCheckInFlow && !completionMessage) {
+                completionMessage = purchaseFinalized
+                  ? "Compra registrada correctamente."
+                  : "El pago se completó, pero la sincronización del check-in quedó pendiente."
+              }
+              setSuccessMessage(completionMessage)
               setSuccess(true)
             }}
             email={contact.email}
@@ -1939,19 +2094,19 @@ export default function EnrollModal({
               setPendingAutoPay(false)
             }}
           />
-          <div className="relative z-10 w-full sm:max-w-md rounded-2xl border border-black/10 dark:border-white/10 bg-white/95 dark:bg-neutral-900/95 p-5 shadow-2xl">
+          <div className="relative z-10 w-full sm:max-w-md rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold">
+                <h3 className="text-lg font-semibold text-white">
                   {showAccountExistsSignInCopy ? t("account_exists_title") : t("sign_in_modal_title")}
                 </h3>
-                <p className="text-sm text-neutral-600 dark:text-neutral-300">
+                <p className="text-sm text-white/68">
                   {showAccountExistsSignInCopy ? t("existing_customer_signin_required") : t("sign_in_modal_subtitle")}
                 </p>
               </div>
               <button
                 type="button"
-                className="rounded-md border border-black/10 dark:border-white/10 px-2 py-1 text-xs"
+                className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
                 onClick={() => {
                   setRequiresSignIn(false)
                   setExistingAccountDetected(false)
@@ -1962,27 +2117,16 @@ export default function EnrollModal({
                 {t("cancel")}
               </button>
             </div>
-            <div className="mt-4">
-              <SignIn
-                routing="virtual"
-                forceRedirectUrl={signInReturnTo}
-                initialValues={{
-                  phoneNumber: toE164Phone(contact.phone),
-                }}
-                appearance={{
-                  elements: {
-                    card: "shadow-none bg-transparent p-0 w-full",
-                    headerTitle: "hidden",
-                    headerSubtitle: "hidden",
-                    footer: "hidden",
-                  },
-                }}
+            <div className="mt-4 flex justify-center">
+              <EmbeddedSignIn
+                redirectUrl={signInReturnTo}
+                phoneNumber={toE164Phone(contact.phone)}
               />
             </div>
             <div className="mt-4 flex justify-end">
               <button
                 type="button"
-                className="text-sm font-medium underline"
+                className="text-sm font-medium text-white/72 underline decoration-white/25 underline-offset-4"
                 onClick={() => {
                   setRequiresSignIn(false)
                   setExistingAccountDetected(false)

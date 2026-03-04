@@ -3,7 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
+import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
 import { courseRepository } from "@/lib/courses-repository"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { ATTENDANCE_STREAK_MILESTONE, POINTS_RULE_KEYS } from "@/lib/points/constants"
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     }
 
     const now = new Date()
-    if (!isQrCheckInWindowOpen(context, now)) {
+    if (!isQrCheckInWindowAllowed(context, now)) {
       return NextResponse.json(
         {
           error: "Check-in is closed for this class.",

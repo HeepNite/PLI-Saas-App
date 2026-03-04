@@ -1,0 +1,294 @@
+"use client"
+
+import React from "react"
+import { Loader2 } from "lucide-react"
+import { useSignIn } from "@clerk/nextjs"
+import { formatUSPhone, isCompleteUSPhone, toE164Phone } from "@/components/front/courses/utils/phone"
+
+type PhoneCodeFactor = {
+  strategy: "phone_code"
+  phoneNumberId: string
+}
+
+const CODE_LENGTH = 6
+const PHONE_CODE_RATE_LIMIT_RE = /too many verification code requests|wait at least\s+\d+\s+seconds?/i
+
+const getPhoneCodeFactor = (factors: unknown): PhoneCodeFactor | null => {
+  if (!Array.isArray(factors)) return null
+  const factor = factors.find(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      "strategy" in item &&
+      "phoneNumberId" in item &&
+      (item as { strategy?: string }).strategy === "phone_code"
+  )
+  if (!factor) return null
+  return factor as PhoneCodeFactor
+}
+
+const getClerkErrorMessage = (err: unknown) => {
+  if (!err || typeof err !== "object" || !("errors" in err)) return null
+  return (
+    (err as { errors?: Array<{ longMessage?: string; message?: string }> }).errors?.[0]?.longMessage ||
+    (err as { errors?: Array<{ longMessage?: string; message?: string }> }).errors?.[0]?.message ||
+    null
+  )
+}
+
+export default function EmbeddedSignIn({
+  redirectUrl,
+  phoneNumber,
+}: {
+  redirectUrl: string
+  phoneNumber?: string
+}) {
+  const { isLoaded, signIn, setActive } = useSignIn()
+  const [phone, setPhone] = React.useState(() => formatUSPhone(phoneNumber || ""))
+  const [code, setCode] = React.useState("")
+  const [step, setStep] = React.useState<"phone" | "code">("phone")
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [phoneNumberId, setPhoneNumberId] = React.useState<string>("")
+
+  React.useEffect(() => {
+    setPhone(formatUSPhone(phoneNumber || ""))
+  }, [phoneNumber])
+
+  const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
+
+  const moveToCodeStepFromCurrentAttempt = React.useCallback(() => {
+    if (!signIn) return false
+    const factor = getPhoneCodeFactor(signIn.supportedFirstFactors)
+    if (!factor?.phoneNumberId) return false
+    setPhoneNumberId(factor.phoneNumberId)
+    setCode("")
+    setStep("code")
+    return true
+  }, [signIn])
+
+  const resetToPhoneStep = React.useCallback(() => {
+    setStep("phone")
+    setCode("")
+    setPhoneNumberId("")
+    setError(null)
+  }, [])
+
+  React.useEffect(() => {
+    if (!isLoaded || !signIn || step === "code" || !normalizedPhone) return
+    if (signIn.status !== "needs_first_factor") return
+    if (signIn.identifier !== normalizedPhone) return
+    moveToCodeStepFromCurrentAttempt()
+  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, signIn, step])
+
+  const sendCode = React.useCallback(async () => {
+    if (!normalizedPhone || !isCompleteUSPhone(phone)) {
+      setError("Ingresa un número válido de EE. UU.")
+      return
+    }
+    if (!isLoaded || !signIn) {
+      setError("El acceso todavía se está cargando. Intenta de nuevo.")
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    try {
+      if (
+        signIn.identifier === normalizedPhone &&
+        signIn.status === "needs_first_factor" &&
+        moveToCodeStepFromCurrentAttempt()
+      ) {
+        return
+      }
+
+      const created = await signIn.create({
+        strategy: "phone_code",
+        identifier: normalizedPhone,
+      })
+
+      const factor = getPhoneCodeFactor(created.supportedFirstFactors)
+      if (!factor?.phoneNumberId) {
+        setError("No pudimos preparar el ingreso por teléfono.")
+        return
+      }
+
+      await created.prepareFirstFactor({
+        strategy: "phone_code",
+        phoneNumberId: factor.phoneNumberId,
+      })
+
+      setPhoneNumberId(factor.phoneNumberId)
+      setCode("")
+      setStep("code")
+    } catch (err) {
+      const message = getClerkErrorMessage(err)
+      if (moveToCodeStepFromCurrentAttempt() || (message && PHONE_CODE_RATE_LIMIT_RE.test(message))) {
+        setStep("code")
+        setError("Ya enviamos un código. Ingresa el que recibiste o espera 30 segundos para reenviar.")
+        return
+      }
+      setError(message || "No pudimos enviar el código al teléfono.")
+    } finally {
+      setBusy(false)
+    }
+  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, phone, signIn])
+
+  const verifyCode = React.useCallback(async () => {
+    if (!isLoaded || !signIn || !setActive) {
+      setError("El acceso todavía se está cargando. Intenta de nuevo.")
+      return
+    }
+    if (code.trim().length !== CODE_LENGTH) {
+      setError("Ingresa el código de 6 dígitos.")
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    try {
+      const attempt = await signIn.attemptFirstFactor({
+        strategy: "phone_code",
+        code: code.trim(),
+      })
+
+      if (attempt.status === "complete" && attempt.createdSessionId) {
+        await setActive({ session: attempt.createdSessionId })
+        window.location.assign(redirectUrl)
+        return
+      }
+
+      setError("No pudimos completar el ingreso. Intenta de nuevo.")
+    } catch (err) {
+      const message = getClerkErrorMessage(err)
+      setError(message || "El código no es válido.")
+    } finally {
+      setBusy(false)
+    }
+  }, [code, isLoaded, redirectUrl, setActive, signIn])
+
+  const resendCode = React.useCallback(async () => {
+    if (!isLoaded || !signIn || !phoneNumberId) return
+    setBusy(true)
+    setError(null)
+    try {
+      await signIn.prepareFirstFactor({
+        strategy: "phone_code",
+        phoneNumberId,
+      })
+    } catch (err) {
+      const message = getClerkErrorMessage(err)
+      if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
+        setError("Ya enviamos un código. Usa el que recibiste o espera 30 segundos para reenviar.")
+        return
+      }
+      setError(message || "No pudimos reenviar el código.")
+    } finally {
+      setBusy(false)
+    }
+  }, [isLoaded, phoneNumberId, signIn])
+
+  if (!isLoaded) {
+    return (
+      <div className="w-[20rem] max-w-full rounded-2xl border border-white/10 bg-[#171922]/95 p-4 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]">
+        <div className="space-y-3">
+          <div className="h-4 w-28 animate-pulse rounded-full bg-white/10" />
+          <div className="h-11 w-full animate-pulse rounded-xl bg-white/[0.06]" />
+          <div className="h-11 w-full animate-pulse rounded-xl bg-white/[0.06]" />
+          <div className="grid grid-cols-6 gap-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="h-10 animate-pulse rounded-lg bg-white/[0.06]" />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-[20rem] max-w-full rounded-2xl border border-white/10 bg-[#171922]/95 p-4 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]">
+      {step === "phone" ? (
+        <div className="space-y-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Acceso por teléfono</p>
+            <p className="mt-1 text-sm text-white/82">Ingresa tu número y te enviamos un código por SMS.</p>
+          </div>
+          <label className="block space-y-2">
+            <span className="text-xs font-medium text-white/85">Teléfono</span>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(event) => {
+                setPhone(formatUSPhone(event.target.value))
+                setError(null)
+              }}
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder="+1 (929) 387-6584"
+              className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition focus:border-[var(--brand,#c71818)]"
+            />
+          </label>
+          {error && <p className="text-xs text-red-200">{error}</p>}
+          <button
+            type="button"
+            onClick={() => void sendCode()}
+            disabled={busy}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Enviar código
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verifica tu acceso</p>
+            <p className="mt-1 text-sm text-white/82">Escribe el código que enviamos a {formatUSPhone(phone)}.</p>
+          </div>
+          <label className="block space-y-2">
+            <span className="text-xs font-medium text-white/85">Código</span>
+            <input
+              type="text"
+              value={code}
+              onChange={(event) => {
+                setCode(event.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))
+                setError(null)
+              }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition focus:border-[var(--brand,#c71818)]"
+            />
+          </label>
+          {error && <p className="text-xs text-red-200">{error}</p>}
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <button
+              type="button"
+              onClick={resetToPhoneStep}
+              className="text-white/65 underline decoration-white/20 underline-offset-4"
+            >
+              Cambiar número
+            </button>
+            <button
+              type="button"
+              onClick={() => void resendCode()}
+              disabled={busy}
+              className="text-[var(--brand,#e31b1b)] underline decoration-[var(--brand,#e31b1b)]/30 underline-offset-4 disabled:opacity-60"
+            >
+              Reenviar código
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => void verifyCode()}
+            disabled={busy || code.length !== CODE_LENGTH}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Continuar
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
