@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "crypto"
+import { createHash, randomBytes, timingSafeEqual } from "crypto"
 import { cookies } from "next/headers"
 import type { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -6,7 +6,26 @@ import { prisma } from "@/lib/prisma"
 const TERMINAL_COOKIE_NAME = "pli_terminal_session"
 const TERMINAL_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 
-const getTerminalSecret = () => process.env.STAFF_CHECKIN_TOKEN || process.env.CLERK_SECRET_KEY || "staff-terminal"
+const getTerminalSecret = () => {
+  const secret =
+    process.env.STAFF_TERMINAL_SECRET ||
+    process.env.STAFF_CHECKIN_TOKEN ||
+    process.env.CLERK_SECRET_KEY
+  if (secret) return secret
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Missing STAFF_TERMINAL_SECRET (or STAFF_CHECKIN_TOKEN/CLERK_SECRET_KEY) for staff terminal security."
+    )
+  }
+  return "dev-terminal-secret-local-only"
+}
+
+const timingSafeStringEqual = (left: string, right: string) => {
+  const leftBuffer = Buffer.from(left, "utf8")
+  const rightBuffer = Buffer.from(right, "utf8")
+  if (leftBuffer.length !== rightBuffer.length) return false
+  return timingSafeEqual(leftBuffer, rightBuffer)
+}
 
 const hashWithSecret = (value: string) =>
   createHash("sha256")
@@ -36,7 +55,7 @@ export const verifyStaffTerminalPin = (pin: string, pinHash: string) => {
   const nextHash = createHash("sha256")
     .update(`${pin}:${salt}:${getTerminalSecret()}`)
     .digest("hex")
-  return nextHash === expectedHash
+  return timingSafeStringEqual(nextHash, expectedHash)
 }
 
 export const createStaffTerminalSessionToken = () => randomBytes(32).toString("base64url")
@@ -48,10 +67,11 @@ export const setStaffTerminalSessionCookie = (response: NextResponse, token: str
     name: TERMINAL_COOKIE_NAME,
     value: token,
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: TERMINAL_SESSION_TTL_SECONDS,
+    priority: "high",
   })
 }
 
@@ -60,10 +80,11 @@ export const clearStaffTerminalSessionCookie = (response: NextResponse) => {
     name: TERMINAL_COOKIE_NAME,
     value: "",
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 0,
+    priority: "high",
   })
 }
 

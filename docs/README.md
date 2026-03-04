@@ -318,6 +318,9 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - `STRIPE_WEBHOOK_SECRET` (para validar webhooks).
   - Se obtiene con Stripe CLI (`stripe listen`) o desde el Dashboard al crear el webhook.
 - `CLERK_SECRET_KEY` y `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`.
+- `STAFF_CHECKIN_TOKEN` (token de backend para endpoints internos staff).
+- `STAFF_TERMINAL_SECRET` (recomendado para hash de PIN y sesiones de terminal).
+  - En producción es obligatorio definir `STAFF_TERMINAL_SECRET` o, como fallback, `STAFF_CHECKIN_TOKEN`/`CLERK_SECRET_KEY`.
 - `NEXT_PUBLIC_SITE_URL` (para URLs de éxito/cancelación en Checkout).
 
 ### 11.8 Seguridad y anti‑abuso (recomendaciones)

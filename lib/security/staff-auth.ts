@@ -1,11 +1,19 @@
 import { auth, clerkClient } from "@clerk/nextjs/server"
+import { timingSafeEqual } from "crypto"
 import { hasStaffRoleInClaims, hasStaffRoleInUserMetadata } from "@/lib/security/staff-role"
+
+const timingSafeTokenEqual = (left: string, right: string) => {
+  const leftBuffer = Buffer.from(left, "utf8")
+  const rightBuffer = Buffer.from(right, "utf8")
+  if (leftBuffer.length !== rightBuffer.length) return false
+  return timingSafeEqual(leftBuffer, rightBuffer)
+}
 
 const hasValidServiceToken = (req: Request) => {
   const expected = process.env.STAFF_CHECKIN_TOKEN
   if (!expected) return false
   const incoming = req.headers.get("x-staff-token")
-  return incoming === expected
+  return incoming ? timingSafeTokenEqual(incoming, expected) : false
 }
 
 export type StaffAuthResult =
@@ -19,7 +27,7 @@ export const authorizeStaffRequest = async (req: Request): Promise<StaffAuthResu
   if (hasValidServiceToken(req)) {
     return { ok: true, source: "token" }
   }
-  if (expectedToken && incomingToken && incomingToken !== expectedToken) {
+  if (expectedToken && incomingToken && !timingSafeTokenEqual(incomingToken, expectedToken)) {
     return { ok: false, status: 401, error: "Unauthorized staff request" }
   }
 

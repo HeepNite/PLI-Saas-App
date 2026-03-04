@@ -8,5 +8,7 @@ declare namespace NodeJS {
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?: string
     CLERK_SECRET_KEY?: string
     DATABASE_URL?: string
+    STAFF_CHECKIN_TOKEN?: string
+    STAFF_TERMINAL_SECRET?: string
   }
 }
