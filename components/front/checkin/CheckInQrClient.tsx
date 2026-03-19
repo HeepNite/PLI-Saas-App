@@ -12,6 +12,7 @@ import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { buildSessionStartsAt, getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { toE164Phone } from "@/components/front/courses/utils/phone"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
+import { getExistingCustomerInitialStep, shouldShowCheckInQrPanel } from "@/lib/checkin/existing-customer-flow"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 
@@ -352,12 +353,6 @@ export default function CheckInQrClient({
     const query = params.toString()
     return query ? `${pathname}?${query}` : pathname
   }, [pathname, searchParams])
-  const existingEntryRedirectUrl = React.useMemo(() => {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set("entry", "existing")
-    const query = params.toString()
-    return query ? `${pathname}?${query}` : pathname
-  }, [pathname, searchParams])
   const entryMode = (searchParams.get("entry") || "").trim().toLowerCase()
 
   const [mode, setMode] = React.useState<EntryMode>("idle")
@@ -485,7 +480,13 @@ export default function CheckInQrClient({
       signOut: clerk.signOut,
     })
   }, [clerk, isKioskTerminalFlow, isSignedIn, resetCustomerFlowState, stationRedirectUrl])
-  const showQrPanel = !hideQrPanel && Boolean(checkInQrImage) && !isCompactViewport && !isQrEntry
+  const showQrPanel = shouldShowCheckInQrPanel({
+    hideQrPanel,
+    hasQrImage: Boolean(checkInQrImage),
+    isCompactViewport,
+    isQrEntry,
+    shellVariant,
+  })
   const currentHomeCourse = React.useMemo(
     () =>
       homeCourses.find((course) => course.slug === (checkInDisplayCourse?.slug || "")) ||
@@ -542,7 +543,7 @@ export default function CheckInQrClient({
     bootstrapHomeCourse?.description || bootstrapCourse?.description || "Class activa en el establecimiento."
   const legacyContextMissing = !qrCourseSlug || !qrDate || !qrTime
   const showContextWarning = !contextIsValid && legacyContextMissing
-  const showSignedInBootstrapPanel = !isKioskTerminalFlow && mode === "existing" && isSignedIn
+  const showSignedInBootstrapPanel = mode === "existing" && isSignedIn
   const hideEntrySelection = showSignedInBootstrapPanel
   const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const effectiveCheckInWindowOpen = Boolean(bootstrap?.context.checkInWindow.isOpen)
@@ -724,14 +725,12 @@ export default function CheckInQrClient({
   ])
 
   React.useEffect(() => {
-    if (isKioskTerminalFlow) return
     if (mode !== "existing") return
     if (!isLoaded || !isSignedIn) return
     void loadBootstrap()
-  }, [isKioskTerminalFlow, isLoaded, isSignedIn, loadBootstrap, mode])
+  }, [isLoaded, isSignedIn, loadBootstrap, mode])
 
   React.useEffect(() => {
-    if (isKioskTerminalFlow) return
     if (entryMode === "existing" && mode !== "existing") {
       setMode("existing")
       return
@@ -739,15 +738,14 @@ export default function CheckInQrClient({
     if (isSignedIn && mode === "idle") {
       setMode("existing")
     }
-  }, [entryMode, isKioskTerminalFlow, isSignedIn, mode])
+  }, [entryMode, isSignedIn, mode])
 
   React.useEffect(() => {
-    if (isKioskTerminalFlow) return
     if (!isSignedIn) return
     if (showPhoneSignIn) {
       setShowPhoneSignIn(false)
     }
-  }, [isKioskTerminalFlow, isSignedIn, showPhoneSignIn])
+  }, [isSignedIn, showPhoneSignIn])
 
   React.useEffect(() => {
     if (!fixedContextRecommendation) return
@@ -801,6 +799,42 @@ export default function CheckInQrClient({
     setExistingRegularBookingKey((prev) => prev + 1)
     setExistingRegularBookingOverride(context)
   }, [])
+
+  const handleExistingCustomerDismiss = React.useCallback(() => {
+    if (isKioskTerminalFlow) {
+      void handleStationCompletion()
+      return
+    }
+    setShowPhoneSignIn(false)
+    setPendingLoginPhone("")
+    setMode("idle")
+    setBootstrap(null)
+    setError(null)
+    setSuccess(null)
+  }, [handleStationCompletion, isKioskTerminalFlow])
+
+  React.useEffect(() => {
+    if (!isKioskTerminalFlow) return
+    if (mode !== "existing" || !isSignedIn || loadingBootstrap || !bootstrap) return
+    if (existingRegularBookingOverride || openNewBooking || processingPackageCheckIn) return
+    if (bootstrap.package) return
+
+    openExistingPurchaseFlow({
+      courseSlug: bootstrap.context.courseSlug,
+      date: bootstrap.context.date,
+      time: bootstrap.context.time,
+    })
+  }, [
+    bootstrap,
+    existingRegularBookingOverride,
+    isKioskTerminalFlow,
+    isSignedIn,
+    loadingBootstrap,
+    mode,
+    openExistingPurchaseFlow,
+    openNewBooking,
+    processingPackageCheckIn,
+  ])
 
   return (
     <main className={`relative min-h-screen overflow-hidden bg-[#13141d] px-3 ${mainSpacingClass} sm:px-4`}>
@@ -1061,16 +1095,9 @@ export default function CheckInQrClient({
                   setMode("existing")
                   setError(null)
                   setSuccess(null)
-                  if (isKioskTerminalFlow) {
-                    if (!selectedCourse || !contextIsValid) {
-                      setError("We couldn't open the purchase because QR data is missing.")
-                      return
-                    }
-                    openExistingPurchaseFlow({
-                      courseSlug: selectedCourse.slug,
-                      date: activeDate,
-                      time: activeTime,
-                    })
+                  setBootstrap(null)
+                  if (!selectedCourse || !contextIsValid) {
+                    setError("We couldn't open the purchase because QR data is missing.")
                     return
                   }
                   if (!isSignedIn) {
@@ -1243,12 +1270,11 @@ export default function CheckInQrClient({
                                 })
                                 return
                               }
-                              setNewBookingOverride({
+                              openExistingPurchaseFlow({
                                 courseSlug: bootstrap.context.courseSlug,
                                 date: bootstrap.context.date,
                                 time: bootstrap.context.time,
                               })
-                              setOpenNewBooking(true)
                             }}
                             className={`rounded-md px-4 py-2 text-sm font-semibold text-white ${
                               effectiveCheckInWindowOpen
@@ -1318,7 +1344,7 @@ export default function CheckInQrClient({
         />
       )}
 
-      {showPhoneSignIn && !isSignedIn && !isKioskTerminalFlow && (
+      {showPhoneSignIn && !isSignedIn && (
         <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-[23rem] rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-4 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] sm:p-5">
             <div className="flex items-start justify-between gap-3">
@@ -1329,7 +1355,7 @@ export default function CheckInQrClient({
               </div>
               <button
                 type="button"
-                onClick={() => setShowPhoneSignIn(false)}
+                onClick={handleExistingCustomerDismiss}
                 className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
               >
                 Close
@@ -1337,8 +1363,15 @@ export default function CheckInQrClient({
             </div>
             <div className="mt-4 flex justify-center">
               <EmbeddedSignIn
-                redirectUrl={existingEntryRedirectUrl}
+                redirectUrl={forceRedirectUrl}
                 phoneNumber={toE164Phone(pendingLoginPhone)}
+                onSuccessAction={async () => {
+                  setShowPhoneSignIn(false)
+                  setPendingLoginPhone("")
+                  setError(null)
+                  setSuccess(null)
+                  setBootstrap(null)
+                }}
               />
             </div>
           </div>
@@ -1357,7 +1390,7 @@ export default function CheckInQrClient({
             }
             setExistingRegularBookingOverride(null)
           }}
-          initialStep={bootstrap?.quickCheckout ? 3 : 0}
+          initialStep={getExistingCustomerInitialStep(Boolean(bootstrap?.quickCheckout))}
           prefillSelection={
             bootstrap?.quickCheckout
               ? {
