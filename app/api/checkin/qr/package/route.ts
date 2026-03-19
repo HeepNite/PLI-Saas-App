@@ -4,10 +4,10 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
-import { courseRepository } from "@/lib/courses-repository"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
-import { awardPointsFromRule } from "@/lib/points/service"
-import { ATTENDANCE_STREAK_MILESTONE, POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 
 export const runtime = "nodejs"
 
@@ -81,8 +81,7 @@ export async function POST(req: Request) {
         date: payload?.date,
         time: payload?.time,
         durationMinutes: payload?.durationMinutes,
-      },
-      { requireKnownCourse: true }
+      }
     )
     if ("status" in context) {
       return NextResponse.json({ error: context.error }, { status: context.status })
@@ -100,7 +99,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const course = courseRepository.getCourseBySlug(context.courseSlug)
+    const course = await getCatalogCourseBySlug(context.courseSlug)
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
@@ -233,10 +232,11 @@ export async function POST(req: Request) {
         },
       })
 
+      const attendanceMilestoneEvery = await getAttendanceMilestoneClasses(tx)
       let pointsAwarded = 0
       let attendanceMilestone = 0
-      if (checkedInCount > 0 && checkedInCount % ATTENDANCE_STREAK_MILESTONE === 0) {
-        attendanceMilestone = Math.floor(checkedInCount / ATTENDANCE_STREAK_MILESTONE)
+      if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {
+        attendanceMilestone = Math.floor(checkedInCount / attendanceMilestoneEvery)
         const pointsResult = await awardPointsFromRule({
           db: tx,
           userId: dbUser.id,
@@ -246,7 +246,7 @@ export async function POST(req: Request) {
           meta: {
             source: "qr_package_checkin",
             courseSlug: context.courseSlug,
-            milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+            milestoneEvery: attendanceMilestoneEvery,
             milestone: attendanceMilestone,
             attendanceCount: checkedInCount,
           },
@@ -260,6 +260,7 @@ export async function POST(req: Request) {
         attendance,
         packagePurchase: reserveResult.packagePurchase,
         checkedInCount,
+        attendanceMilestoneEvery,
         pointsAwarded,
         attendanceMilestone,
       }
@@ -289,7 +290,7 @@ export async function POST(req: Request) {
         awarded: result.pointsAwarded,
         milestone: result.attendanceMilestone > 0 ? result.attendanceMilestone : null,
         attendanceCount: result.checkedInCount,
-        milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+        milestoneEvery: result.attendanceMilestoneEvery,
       },
     })
   } catch (error) {

@@ -28,11 +28,11 @@ export default function StaffTerminalSignInClient({
 
   const submit = React.useCallback(async () => {
     if (!slug) {
-      setError("Selecciona una terminal.")
+      setError("Select a terminal.")
       return
     }
     if (!/^\d{4}$/.test(pin.trim())) {
-      setError("El PIN debe tener 4 dígitos.")
+      setError("PIN must be 4 digits.")
       return
     }
 
@@ -46,12 +46,12 @@ export default function StaffTerminalSignInClient({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(typeof data?.error === "string" ? data.error : "No se pudo iniciar la terminal.")
+        setError(typeof data?.error === "string" ? data.error : "Unable to start the terminal.")
         return
       }
       window.location.assign("/staff/terminal")
     } catch {
-      setError("No se pudo iniciar la terminal.")
+      setError("Unable to start the terminal.")
     } finally {
       setBusy(false)
       setPin("")
@@ -61,9 +61,9 @@ export default function StaffTerminalSignInClient({
   return (
     <section className="rounded-2xl border border-white/15 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.22),transparent_55%),linear-gradient(145deg,rgba(15,19,35,0.97),rgba(20,25,45,0.97))] p-5 shadow-[0_16px_48px_-18px_rgba(0,0,0,0.6)] backdrop-blur sm:p-6">
       <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Staff terminal</p>
-      <h1 className="mt-2 text-2xl font-semibold text-white">Acceso de tablet</h1>
+      <h1 className="mt-2 text-2xl font-semibold text-white">Tablet access</h1>
       <p className="mt-2 text-sm text-white/70">
-        Esta sesión queda fija en el dispositivo y mantiene separado el kiosco de las sesiones de staff y clientes.
+        This session stays fixed on the device and keeps the kiosk separate from staff and customer sessions.
       </p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
@@ -107,7 +107,7 @@ export default function StaffTerminalSignInClient({
             className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
-            {busy ? "Abriendo terminal..." : "Entrar a la terminal"}
+            {busy ? "Opening terminal..." : "Enter terminal"}
           </button>
 
           {error ? (
@@ -118,7 +118,7 @@ export default function StaffTerminalSignInClient({
         </div>
 
         <div className="rounded-2xl border border-white/12 bg-white/[0.03] p-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/55">Terminal seleccionada</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-white/55">Selected terminal</p>
           {selectedTerminal ? (
             <div className="mt-3 space-y-3 text-sm text-white/75">
               <div>
@@ -126,16 +126,16 @@ export default function StaffTerminalSignInClient({
                 <p className="text-white/55">{selectedTerminal.slug}</p>
               </div>
               <div>
-                <p className="text-white/55">Ubicación</p>
-                <p>{selectedTerminal.location || "Sin ubicación asignada"}</p>
+                <p className="text-white/55">Location</p>
+                <p>{selectedTerminal.location || "No location assigned"}</p>
               </div>
               <div>
-                <p className="text-white/55">Curso por defecto</p>
-                <p>{selectedTerminal.defaultCourseSlug || "Detectar próxima clase automáticamente"}</p>
+                <p className="text-white/55">Default course</p>
+                <p>{selectedTerminal.defaultCourseSlug || "Detect next class automatically"}</p>
               </div>
             </div>
           ) : (
-            <p className="mt-3 text-sm text-white/55">No hay terminal seleccionada.</p>
+            <p className="mt-3 text-sm text-white/55">No terminal selected.</p>
           )}
         </div>
       </div>

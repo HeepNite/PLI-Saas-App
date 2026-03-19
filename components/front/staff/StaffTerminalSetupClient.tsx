@@ -3,6 +3,7 @@
 import React from "react"
 import { Loader2, RefreshCcw, TabletSmartphone } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
+import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 
 type TerminalRow = {
   id: string
@@ -55,9 +56,12 @@ const formatDateTime = (value: string | null) => {
 }
 
 export default function StaffTerminalSetupClient() {
+  const { courses: catalogCourses } = useCatalogCourses()
+  const sourceCourses = catalogCourses.length ? catalogCourses : demoCourses
   const [items, setItems] = React.useState<TerminalRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
+  const [deletingId, setDeletingId] = React.useState<string | null>(null)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [form, setForm] = React.useState<FormState>(emptyForm)
   const [error, setError] = React.useState<string | null>(null)
@@ -70,13 +74,13 @@ export default function StaffTerminalSetupClient() {
       const res = await fetch("/api/staff/terminals", { headers: { "Content-Type": "application/json" } })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(typeof data?.error === "string" ? data.error : "No se pudieron cargar las terminals.")
+        setError(typeof data?.error === "string" ? data.error : "Could not load terminals.")
         setItems([])
         return
       }
       setItems(Array.isArray(data?.items) ? data.items : [])
     } catch {
-      setError("No se pudieron cargar las terminals.")
+      setError("Could not load terminals.")
       setItems([])
     } finally {
       setLoading(false)
@@ -110,15 +114,15 @@ export default function StaffTerminalSetupClient() {
 
   const submit = React.useCallback(async () => {
     if (!form.name.trim()) {
-      setError("El nombre es requerido.")
+      setError("Name is required.")
       return
     }
     if (form.pin && !/^\d{4}$/.test(form.pin.trim())) {
-      setError("El PIN debe tener 4 dígitos.")
+      setError("PIN must be 4 digits.")
       return
     }
     if (!editingId && !/^\d{4}$/.test(form.pin.trim())) {
-      setError("Debes definir un PIN inicial de 4 dígitos.")
+      setError("You must define an initial 4-digit PIN.")
       return
     }
 
@@ -142,19 +146,51 @@ export default function StaffTerminalSetupClient() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(typeof data?.error === "string" ? data.error : "No se pudo guardar la terminal.")
+        setError(typeof data?.error === "string" ? data.error : "Unable to save terminal.")
         return
       }
-      setSuccess(typeof data?.message === "string" ? data.message : "Terminal guardada.")
+      setSuccess(typeof data?.message === "string" ? data.message : "Terminal saved.")
       setEditingId(null)
       setForm(emptyForm)
       await loadItems()
     } catch {
-      setError("No se pudo guardar la terminal.")
+      setError("Unable to save terminal.")
     } finally {
       setBusy(false)
     }
   }, [editingId, form, loadItems])
+
+  const removeTerminal = React.useCallback(
+    async (item: TerminalRow) => {
+      const confirmDelete = window.confirm(`Delete terminal "${item.name}"?`)
+      if (!confirmDelete) return
+      setDeletingId(item.id)
+      setError(null)
+      setSuccess(null)
+      try {
+        const res = await fetch(`/api/staff/terminals/${item.id}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setError(typeof data?.error === "string" ? data.error : "Unable to delete terminal.")
+          return
+        }
+        if (editingId === item.id) {
+          setEditingId(null)
+          setForm(emptyForm)
+        }
+        setSuccess(typeof data?.message === "string" ? data.message : "Terminal deleted.")
+        await loadItems()
+      } catch {
+        setError("Unable to delete terminal.")
+      } finally {
+        setDeletingId(null)
+      }
+    },
+    [editingId, loadItems]
+  )
 
   return (
     <div className="space-y-5">
@@ -162,9 +198,9 @@ export default function StaffTerminalSetupClient() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Staff terminal</p>
-            <h1 className="mt-2 text-2xl font-semibold text-white">Gestión de tablets</h1>
+            <h1 className="mt-2 text-2xl font-semibold text-white">Tablet management</h1>
             <p className="mt-2 max-w-2xl text-sm text-white/70">
-              Cada tablet queda autenticada como terminal. El kiosco no comparte ni reemplaza sesiones de staff o clientes.
+              Each tablet is authenticated as a terminal. The kiosk does not share or replace staff or customer sessions.
             </p>
           </div>
           <button
@@ -181,21 +217,21 @@ export default function StaffTerminalSetupClient() {
         <div className="mt-5 grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-2xl border border-white/12 bg-black/20 p-4">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-white">{editingId ? "Editar terminal" : "Nueva terminal"}</p>
+              <p className="text-sm font-semibold text-white">{editingId ? "Edit terminal" : "New terminal"}</p>
               {editingId ? (
                 <button
                   type="button"
                   onClick={startCreate}
                   className="text-xs text-white/65 underline"
                 >
-                  Crear nueva
+                  Create new
                 </button>
               ) : null}
             </div>
 
             <div className="mt-4 grid gap-3">
               <label className="grid gap-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-white/55">Nombre</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-white/55">Name</span>
                 <input
                   value={form.name}
                   onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
@@ -213,23 +249,23 @@ export default function StaffTerminalSetupClient() {
                 />
               </label>
               <label className="grid gap-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-white/55">Ubicación</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-white/55">Location</span>
                 <input
                   value={form.location}
                   onChange={(event) => setForm((prev) => ({ ...prev, location: event.target.value }))}
                   className="rounded-xl border border-white/12 bg-white/[0.04] px-3 py-3 text-sm text-white outline-none"
-                  placeholder="Recepción"
+                  placeholder="Front desk"
                 />
               </label>
               <label className="grid gap-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-white/55">Curso por defecto</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-white/55">Default course</span>
                 <select
                   value={form.defaultCourseSlug}
                   onChange={(event) => setForm((prev) => ({ ...prev, defaultCourseSlug: event.target.value }))}
                   className="rounded-xl border border-white/12 bg-white/[0.04] px-3 py-3 text-sm text-white outline-none"
                 >
-                  <option value="" className="bg-[#11131a] text-white">Detectar próxima clase automáticamente</option>
-                  {demoCourses.map((course) => (
+                  <option value="" className="bg-[#11131a] text-white">Detect next class automatically</option>
+                  {sourceCourses.map((course) => (
                     <option key={course.slug} value={course.slug} className="bg-[#11131a] text-white">
                       {course.title}
                     </option>
@@ -238,7 +274,7 @@ export default function StaffTerminalSetupClient() {
               </label>
               <label className="grid gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-white/55">
-                  {editingId ? "Nuevo PIN (opcional)" : "PIN"}
+                  {editingId ? "New PIN (optional)" : "PIN"}
                 </span>
                 <input
                   type="password"
@@ -258,7 +294,7 @@ export default function StaffTerminalSetupClient() {
                   checked={form.active}
                   onChange={(event) => setForm((prev) => ({ ...prev, active: event.target.checked }))}
                 />
-                Terminal activa
+                Active terminal
               </label>
             </div>
 
@@ -269,7 +305,7 @@ export default function StaffTerminalSetupClient() {
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <TabletSmartphone className="h-4 w-4" />}
-              {editingId ? "Guardar cambios" : "Crear terminal"}
+              {editingId ? "Save changes" : "Create terminal"}
             </button>
 
             {error ? (
@@ -285,12 +321,12 @@ export default function StaffTerminalSetupClient() {
           </div>
 
           <div className="rounded-2xl border border-white/12 bg-black/20 p-4">
-            <p className="text-sm font-semibold text-white">Terminals registradas</p>
+            <p className="text-sm font-semibold text-white">Registered terminals</p>
             <div className="mt-4 space-y-3">
               {loading ? (
                 <div className="flex items-center gap-2 text-sm text-white/65">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Cargando terminals...
+                  Loading terminals...
                 </div>
               ) : items.length ? (
                 items.map((item) => (
@@ -307,24 +343,24 @@ export default function StaffTerminalSetupClient() {
                             : "bg-white/8 text-white/55"
                         }`}
                       >
-                        {item.active ? "Activa" : "Inactiva"}
+                        {item.active ? "Active" : "Inactive"}
                       </span>
                     </div>
                     <dl className="mt-3 grid gap-2 text-sm text-white/72">
                       <div>
-                        <dt className="text-white/45">Ubicación</dt>
+                        <dt className="text-white/45">Location</dt>
                         <dd>{item.location || "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-white/45">Curso por defecto</dt>
-                        <dd>{item.defaultCourseSlug || "Automático"}</dd>
+                        <dt className="text-white/45">Default course</dt>
+                        <dd>{item.defaultCourseSlug || "Automatic"}</dd>
                       </div>
                       <div>
-                        <dt className="text-white/45">Último seen</dt>
+                        <dt className="text-white/45">Last seen</dt>
                         <dd>{formatDateTime(item.lastSeenAt)}</dd>
                       </div>
                       <div>
-                        <dt className="text-white/45">Último uso</dt>
+                        <dt className="text-white/45">Last used</dt>
                         <dd>{formatDateTime(item.lastUsedAt)}</dd>
                       </div>
                     </dl>
@@ -334,7 +370,15 @@ export default function StaffTerminalSetupClient() {
                         onClick={() => startEdit(item)}
                         className="rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white"
                       >
-                        Editar
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingId === item.id}
+                        onClick={() => void removeTerminal(item)}
+                        className="rounded-xl border border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-xs font-semibold text-[var(--brand,#ff4b4b)] disabled:opacity-50"
+                      >
+                        {deletingId === item.id ? "Deleting..." : "Delete"}
                       </button>
                       <a
                         href="/staff/terminal"
@@ -342,13 +386,13 @@ export default function StaffTerminalSetupClient() {
                         rel="noreferrer"
                         className="rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white"
                       >
-                        Abrir terminal
+                        Open terminal
                       </a>
                     </div>
                   </article>
                 ))
               ) : (
-                <p className="text-sm text-white/55">Todavía no hay terminals creadas.</p>
+                <p className="text-sm text-white/55">No terminals created yet.</p>
               )}
             </div>
           </div>

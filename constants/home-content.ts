@@ -60,7 +60,7 @@ export const homeCourses: HomeCourse[] = [
     previewVideo: "/videos/Kids.mp4",
   },
   {
-    id: "programas-asilos",
+    id: "programs-nursing-homes",
     title: "Programs for nursing homes",
     teacher: "PLI Team",
     image: "/images/social-program/Background.jpg",
@@ -70,11 +70,11 @@ export const homeCourses: HomeCourse[] = [
     category: "Social Programs",
     size: "md",
     description: "Salsa and Zumba adapted for senior residences.",
-    slug: "programas-asilos",
+    slug: "programs-nursing-homes",
     previewVideo: "/videos/DayCare.mp4",
   },
   {
-    id: "programas-discapacidad",
+    id: "programs-care-centers",
     title: "Programs for care centers",
     teacher: "PLI Team",
     image: "/images/social-program/Background-1.jpg",
@@ -84,7 +84,7 @@ export const homeCourses: HomeCourse[] = [
     category: "Social Programs",
     size: "md",
     description: "Inclusive Salsa, Zumba and more for specialized care centers.",
-    slug: "programas-discapacidad",
+    slug: "programs-care-centers",
     previewVideo: "/videos/DayCare.mp4",
   },
 ]

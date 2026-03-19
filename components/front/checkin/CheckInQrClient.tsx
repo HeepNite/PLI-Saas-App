@@ -5,11 +5,15 @@ import { usePathname, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { useAuth, useClerk, useUser } from "@clerk/nextjs"
 import { demoCourses } from "@/constants/courses"
+import type { CourseData } from "@/constants/courses"
 import { homeCourses } from "@/constants/home-content"
 import EnrollModal from "@/components/front/courses/EnrollModal"
 import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { buildSessionStartsAt, getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { toE164Phone } from "@/components/front/courses/utils/phone"
+import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
+import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
+import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 
 type EntryMode = "idle" | "existing" | "new"
 
@@ -30,11 +34,13 @@ type BootstrapResponse = {
   }
   customer: {
     userId: string
+    clerkUserId: string
     firstName: string
     lastName: string
     name: string
     email: string
     phone: string
+    hasAvatar: boolean
   }
   package: {
     id: string
@@ -123,19 +129,19 @@ const getCourseFamilyKey = (courseSlug: string) => {
 
 const toCategoryLabel = (courseSlug: string) => {
   const key = getCourseFamilyKey(courseSlug)
-  if (!key) return "Programa"
+  if (!key) return "Program"
   return key.charAt(0).toUpperCase() + key.slice(1)
 }
 
-const getCourseDurationMinutes = (courseSlug: string, fallbackMinutes = 60) => {
-  const course = demoCourses.find((item) => item.slug === courseSlug)
+const getCourseDurationMinutes = (courseSlug: string, courses: CourseData[], fallbackMinutes = 60) => {
+  const course = courses.find((item) => item.slug === courseSlug)
   const match = course?.duration?.match(/(\d+)/)
   const parsed = match ? Number.parseInt(match[1], 10) : Number.NaN
   if (!Number.isFinite(parsed)) return fallbackMinutes
   return Math.max(15, Math.min(240, parsed))
 }
 
-const pickWalkInRecommendation = (referenceDate = new Date(), preferredCourseSlug = "") => {
+const pickWalkInRecommendation = (courses: CourseData[], referenceDate = new Date(), preferredCourseSlug = "") => {
   const todayIso = getDateKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE)
   if (!todayIso) return null as null | { courseSlug: string; date: string; time: string }
   const nowMinutes = toMinutes(getTimeKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE))
@@ -146,8 +152,8 @@ const pickWalkInRecommendation = (referenceDate = new Date(), preferredCourseSlu
     const dateIso = shiftIsoDate(todayIso, dayOffset)
     let bestForDay: null | { courseSlug: string; date: string; time: string; minutes: number; preferred: boolean } = null
 
-    for (const course of demoCourses) {
-      const slots = sortTimes(getAvailableTimesForCourseDate(course.slug, dateIso))
+    for (const course of courses) {
+      const slots = sortTimes(getAvailableTimesForCourseDate(course.slug, dateIso, courses))
       for (const slot of slots) {
         const slotMinutes = toMinutes(slot)
         if (slotMinutes === null) continue
@@ -187,16 +193,16 @@ const pickWalkInRecommendation = (referenceDate = new Date(), preferredCourseSlu
   return null
 }
 
-const pickLatePaymentRecommendation = (referenceDate = new Date()) => {
+const pickLatePaymentRecommendation = (courses: CourseData[], referenceDate = new Date()) => {
   const todayIso = getDateKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE)
   if (!todayIso) return null as null | { courseSlug: string; date: string; time: string }
   const nowMs = referenceDate.getTime()
   let bestMatch: null | { courseSlug: string; date: string; time: string; startsAtMs: number } = null
   const todaySlots: Array<{ courseSlug: string; time: string; startsAtMs: number; endsAtMs: number }> = []
 
-  for (const course of demoCourses) {
-    const slots = sortTimes(getAvailableTimesForCourseDate(course.slug, todayIso))
-    const durationMinutes = getCourseDurationMinutes(course.slug)
+  for (const course of courses) {
+    const slots = sortTimes(getAvailableTimesForCourseDate(course.slug, todayIso, courses))
+    const durationMinutes = getCourseDurationMinutes(course.slug, courses)
     for (const slot of slots) {
       const startsAt = buildSessionStartsAt(todayIso, slot)
       if (!startsAt) continue
@@ -248,7 +254,7 @@ const pickLatePaymentRecommendation = (referenceDate = new Date()) => {
 const toEsDateTime = (value: string, options?: Intl.DateTimeFormatOptions) => {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat("es-ES", {
+  return new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     weekday: "short",
     day: "2-digit",
@@ -274,6 +280,11 @@ export default function CheckInQrClient({
   terminalName?: string
   qrPathOverride?: string
 }) {
+  const { courses: catalogCourses } = useCatalogCourses()
+  const sourceCourses = React.useMemo(
+    () => (catalogCourses.length ? catalogCourses : demoCourses),
+    [catalogCourses]
+  )
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { isLoaded, isSignedIn } = useUser()
@@ -293,16 +304,16 @@ export default function CheckInQrClient({
   const durationMinutes = parseDuration(searchParams.get("durationMinutes"))
   const hasExplicitContext = Boolean(qrCourseSlug && qrDate && qrTime)
   const qrCourse = React.useMemo(
-    () => demoCourses.find((course) => course.slug === baseCourseSlug) || null,
-    [baseCourseSlug]
+    () => sourceCourses.find((course) => course.slug === baseCourseSlug) || null,
+    [baseCourseSlug, sourceCourses]
   )
   const latePaymentRecommendation = React.useMemo(
-    () => (shellVariant === "terminal" && !hasExplicitContext ? pickLatePaymentRecommendation(nowTick) : null),
-    [hasExplicitContext, nowTick, shellVariant]
+    () => (shellVariant === "terminal" && !hasExplicitContext ? pickLatePaymentRecommendation(sourceCourses, nowTick) : null),
+    [hasExplicitContext, nowTick, shellVariant, sourceCourses]
   )
   const walkInRecommendation = React.useMemo(
-    () => pickWalkInRecommendation(nowTick, baseCourseSlug),
-    [baseCourseSlug, nowTick]
+    () => pickWalkInRecommendation(sourceCourses, nowTick, baseCourseSlug),
+    [baseCourseSlug, nowTick, sourceCourses]
   )
   const fixedContextRecommendation = React.useMemo(
     () =>
@@ -325,8 +336,8 @@ export default function CheckInQrClient({
   const activeDate = activeRecommendation?.date || qrDate
   const activeTime = activeRecommendation?.time || qrTime
   const selectedCourse = React.useMemo(
-    () => demoCourses.find((course) => course.slug === activeCourseSlug) || null,
-    [activeCourseSlug]
+    () => sourceCourses.find((course) => course.slug === activeCourseSlug) || null,
+    [activeCourseSlug, sourceCourses]
   )
   const contextIsValid = Boolean(activeCourseSlug && activeDate && activeTime)
   const forceRedirectUrl = React.useMemo(() => {
@@ -366,22 +377,23 @@ export default function CheckInQrClient({
     time: string
   } | null>(null)
   const [existingRegularBookingKey, setExistingRegularBookingKey] = React.useState(0)
+  const [processingPackageCheckIn, setProcessingPackageCheckIn] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
   const visibleError = React.useMemo(() => {
     if (!error) return null
     const normalized = error.trim().toLowerCase()
     if (
-      normalized.includes("no pudimos preparar el flujo rápido") ||
-      normalized.includes("no pudimos cargar el flujo rápido")
+      normalized.includes("we couldn't prepare the fast flow") ||
+      normalized.includes("we couldn't load the fast flow")
     ) {
       return null
     }
     return error
   }, [error])
   const newBookingCourse = React.useMemo(
-    () => demoCourses.find((course) => course.slug === (newBookingOverride?.courseSlug || "")) || selectedCourse || qrCourse,
-    [newBookingOverride?.courseSlug, qrCourse, selectedCourse]
+    () => sourceCourses.find((course) => course.slug === (newBookingOverride?.courseSlug || "")) || selectedCourse || qrCourse,
+    [newBookingOverride?.courseSlug, qrCourse, selectedCourse, sourceCourses]
   )
   const newBookingContext = React.useMemo(
     () => ({
@@ -397,7 +409,7 @@ export default function CheckInQrClient({
   )
   const existingRegularBookingCourse = React.useMemo(() => {
     const baseCourse =
-      demoCourses.find((course) => course.slug === (existingRegularBookingOverride?.courseSlug || "")) ||
+      sourceCourses.find((course) => course.slug === (existingRegularBookingOverride?.courseSlug || "")) ||
       selectedCourse ||
       qrCourse
     if (!baseCourse) return null
@@ -410,7 +422,7 @@ export default function CheckInQrClient({
         services: regularServices,
       },
     }
-  }, [existingRegularBookingOverride?.courseSlug, qrCourse, selectedCourse])
+  }, [existingRegularBookingOverride?.courseSlug, qrCourse, selectedCourse, sourceCourses])
   const existingRegularBookingContext = React.useMemo(
     () => ({
       date: existingRegularBookingOverride?.date || activeDate,
@@ -440,6 +452,11 @@ export default function CheckInQrClient({
     return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=png&data=${encodeURIComponent(checkInQrLink)}`
   }, [checkInQrLink])
   const isQrEntry = qrView === "1" || qrView === "true"
+  const photoFlowContext = React.useMemo(
+    () => resolvePhotoFlowContext({ shellVariant, isQrEntry }),
+    [isQrEntry, shellVariant]
+  )
+  const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
   const isExplicitStationDevice =
     forcedDeviceMode === "station" ||
     deviceMode === "station" ||
@@ -448,7 +465,7 @@ export default function CheckInQrClient({
   const isPersonalForced = forcedDeviceMode === "personal"
   const isStationDeviceFlow = isPersonalForced ? false : isExplicitStationDevice || (!isQrEntry && !isCompactViewport)
   const completionMode = isStationDeviceFlow ? "station" : "personal"
-  const handleStationCompletion = React.useCallback(async () => {
+  const resetCustomerFlowState = React.useCallback(() => {
     setOpenNewBooking(false)
     setNewBookingOverride(null)
     setExistingRegularBookingOverride(null)
@@ -458,8 +475,16 @@ export default function CheckInQrClient({
     setPendingLoginPhone("")
     setError(null)
     setSuccess(null)
-    await clerk.signOut({ redirectUrl: stationRedirectUrl })
-  }, [clerk, stationRedirectUrl])
+  }, [])
+  const handleStationCompletion = React.useCallback(async () => {
+    await completeKioskCustomerFlow({
+      resetCustomerState: resetCustomerFlowState,
+      isKioskTerminalFlow,
+      isCustomerSignedIn: Boolean(isSignedIn),
+      redirectUrl: stationRedirectUrl,
+      signOut: clerk.signOut,
+    })
+  }, [clerk, isKioskTerminalFlow, isSignedIn, resetCustomerFlowState, stationRedirectUrl])
   const showQrPanel = !hideQrPanel && Boolean(checkInQrImage) && !isCompactViewport && !isQrEntry
   const currentHomeCourse = React.useMemo(
     () =>
@@ -481,16 +506,16 @@ export default function CheckInQrClient({
   const checkInCardStudents =
     (typeof currentHomeCourse?.students === "string" && currentHomeCourse.students) ||
     (typeof currentHomeCourse?.students === "number" ? `${currentHomeCourse.students}` : "") ||
-    "Grupos reducidos"
+    "Groups reducidos"
   const checkInCardBadge = currentHomeCourse?.badge || "Check-in presencial"
   const checkInCardCategory = currentHomeCourse?.category || toCategoryLabel(checkInDisplayCourse?.slug || activeCourseSlug)
   const checkInCardDescription =
     currentHomeCourse?.description ||
     checkInDisplayCourse?.description ||
-    "Clase activa en el establecimiento."
+    "Class activa en el establecimiento."
   const bootstrapCourse = React.useMemo(
-    () => demoCourses.find((course) => course.slug === (bootstrap?.context.courseSlug || "")) || selectedCourse || qrCourse || null,
-    [bootstrap?.context.courseSlug, qrCourse, selectedCourse]
+    () => sourceCourses.find((course) => course.slug === (bootstrap?.context.courseSlug || "")) || selectedCourse || qrCourse || null,
+    [bootstrap?.context.courseSlug, qrCourse, selectedCourse, sourceCourses]
   )
   const bootstrapHomeCourse = React.useMemo(
     () => homeCourses.find((course) => course.slug === (bootstrap?.context.courseSlug || "")) || currentHomeCourse || null,
@@ -508,19 +533,20 @@ export default function CheckInQrClient({
   const bootstrapCardStudents =
     (typeof bootstrapHomeCourse?.students === "string" && bootstrapHomeCourse.students) ||
     (typeof bootstrapHomeCourse?.students === "number" ? `${bootstrapHomeCourse.students}` : "") ||
-    "Grupos reducidos"
+    "Groups reducidos"
   const bootstrapCardTeacher =
     bootstrapHomeCourse?.teacher ||
     bootstrapCourse?.instructors?.map((item) => item.name).filter(Boolean).join(" / ") ||
     "PLI Team"
   const bootstrapCardDescription =
-    bootstrapHomeCourse?.description || bootstrapCourse?.description || "Clase activa en el establecimiento."
+    bootstrapHomeCourse?.description || bootstrapCourse?.description || "Class activa en el establecimiento."
   const legacyContextMissing = !qrCourseSlug || !qrDate || !qrTime
   const showContextWarning = !contextIsValid && legacyContextMissing
-  const hideEntrySelection = mode === "existing" && isSignedIn
-  const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !(mode === "existing" && isSignedIn)
+  const showSignedInBootstrapPanel = !isKioskTerminalFlow && mode === "existing" && isSignedIn
+  const hideEntrySelection = showSignedInBootstrapPanel
+  const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const effectiveCheckInWindowOpen = Boolean(bootstrap?.context.checkInWindow.isOpen)
-  const welcomeLabel = bootstrap?.customer.firstName || bootstrap?.customer.name || "alumno"
+  const welcomeLabel = bootstrap?.customer.firstName || bootstrap?.customer.name || "student"
   const shellEyebrow = "QR Check-in"
   const isLatePaymentContext = Boolean(
     latePaymentRecommendation &&
@@ -531,9 +557,9 @@ export default function CheckInQrClient({
   const latePaymentCourse = React.useMemo(
     () =>
       latePaymentRecommendation
-        ? demoCourses.find((course) => course.slug === latePaymentRecommendation.courseSlug) || null
+        ? sourceCourses.find((course) => course.slug === latePaymentRecommendation.courseSlug) || null
         : null,
-    [latePaymentRecommendation]
+    [latePaymentRecommendation, sourceCourses]
   )
   const latePaymentQrLink = React.useMemo(() => {
     if (!origin || !latePaymentRecommendation) return ""
@@ -543,11 +569,11 @@ export default function CheckInQrClient({
     params.set("time", latePaymentRecommendation.time)
     params.set(
       "durationMinutes",
-      String(getCourseDurationMinutes(latePaymentRecommendation.courseSlug, durationMinutes))
+      String(getCourseDurationMinutes(latePaymentRecommendation.courseSlug, sourceCourses, durationMinutes))
     )
     params.set("fromQr", "1")
     return `${origin}${qrPath}?${params.toString()}`
-  }, [durationMinutes, latePaymentRecommendation, origin, qrPath])
+  }, [durationMinutes, latePaymentRecommendation, origin, qrPath, sourceCourses])
   const latePaymentQrImage = React.useMemo(() => {
     if (!latePaymentQrLink) return ""
     return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&format=png&data=${encodeURIComponent(latePaymentQrLink)}`
@@ -563,25 +589,25 @@ export default function CheckInQrClient({
   const breadcrumbItems = React.useMemo(() => {
     const items = [shellVariant === "terminal" ? "Terminal" : "QR check-in"]
     if (mode === "new") {
-      items.push("Soy nuevo")
-      if (openNewBooking) items.push("Compra")
+      items.push("I am new")
+      if (openNewBooking) items.push("Purchase")
       return items
     }
     if (mode === "existing") {
-      items.push("Ya soy cliente")
+      items.push("Existing customer")
       if (!isSignedIn) {
-        items.push("Login")
+        items.push("Sign in")
         return items
       }
       if (loadingBootstrap) {
-        items.push("Cargando")
+        items.push("Loading")
         return items
       }
-      items.push("Curso actual")
+      items.push("Current course")
       if (bootstrap?.quickCheckout) {
-        items.push("Recomprar")
+        items.push("Repurchase")
       } else if (existingRegularBookingOverride) {
-        items.push("Compra regular")
+        items.push("Regular purchase")
       }
     }
     return items
@@ -617,13 +643,95 @@ export default function CheckInQrClient({
     }
   }, [contextIsValid, contextPayload, getToken, isSignedIn])
 
+  const handlePackageCheckIn = React.useCallback(async () => {
+    if (!bootstrap) return
+    if (!isSignedIn) {
+      setError("Sign in first to complete package check-in.")
+      return
+    }
+    if (!bootstrap.package) {
+      setError("No active package available for this class.")
+      return
+    }
+    if (!effectiveCheckInWindowOpen) {
+      setError("The check-in window for this class is closed.")
+      return
+    }
+
+    setProcessingPackageCheckIn(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const token = await getToken({ skipCache: true })
+      const res = await fetch("/api/checkin/qr/package", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          courseSlug: bootstrap.context.courseSlug,
+          date: bootstrap.context.date,
+          time: bootstrap.context.time,
+          durationMinutes: bootstrap.context.durationMinutes,
+        }),
+      })
+
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setError(typeof data?.error === "string" ? data.error : "Unable to check in with package.")
+        return
+      }
+
+      const remainingCredits =
+        data?.package && typeof data.package.remainingCredits === "number"
+          ? data.package.remainingCredits
+          : null
+      const awardedPoints = typeof data?.points?.awarded === "number" ? data.points.awarded : 0
+      const successParts = ["Package check-in completed."]
+      if (remainingCredits !== null) {
+        successParts.push(`Remaining credits: ${remainingCredits}.`)
+      }
+      if (awardedPoints > 0) {
+        successParts.push(`Points earned: +${awardedPoints}.`)
+      }
+
+      if (isStationDeviceFlow) {
+        setSuccess(`${successParts.join(" ")} Preparing terminal for the next student...`)
+        window.setTimeout(() => {
+          void handleStationCompletion()
+        }, 1100)
+        return
+      }
+
+      setSuccess(successParts.join(" "))
+      await loadBootstrap()
+    } catch {
+      setError("Unable to check in with package.")
+    } finally {
+      setProcessingPackageCheckIn(false)
+    }
+  }, [
+    bootstrap,
+    effectiveCheckInWindowOpen,
+    getToken,
+    handleStationCompletion,
+    isSignedIn,
+    isStationDeviceFlow,
+    loadBootstrap,
+  ])
+
   React.useEffect(() => {
+    if (isKioskTerminalFlow) return
     if (mode !== "existing") return
     if (!isLoaded || !isSignedIn) return
     void loadBootstrap()
-  }, [isLoaded, isSignedIn, loadBootstrap, mode])
+  }, [isKioskTerminalFlow, isLoaded, isSignedIn, loadBootstrap, mode])
 
   React.useEffect(() => {
+    if (isKioskTerminalFlow) return
     if (entryMode === "existing" && mode !== "existing") {
       setMode("existing")
       return
@@ -631,14 +739,15 @@ export default function CheckInQrClient({
     if (isSignedIn && mode === "idle") {
       setMode("existing")
     }
-  }, [entryMode, isSignedIn, mode])
+  }, [entryMode, isKioskTerminalFlow, isSignedIn, mode])
 
   React.useEffect(() => {
+    if (isKioskTerminalFlow) return
     if (!isSignedIn) return
     if (showPhoneSignIn) {
       setShowPhoneSignIn(false)
     }
-  }, [isSignedIn, showPhoneSignIn])
+  }, [isKioskTerminalFlow, isSignedIn, showPhoneSignIn])
 
   React.useEffect(() => {
     if (!fixedContextRecommendation) return
@@ -712,8 +821,8 @@ export default function CheckInQrClient({
                 </div>
                 <div className="text-center md:justify-self-center">
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">{shellEyebrow}</p>
-                  <h1 className="text-2xl font-semibold text-white">Ingreso de alumnos</h1>
-                  <p className="mt-1 text-sm text-white/72">{mode === "existing" && isSignedIn && bootstrap ? `Welcome, ${welcomeLabel}` : "Welcome"}</p>
+                  <h1 className="text-2xl font-semibold text-white">Student check-in</h1>
+                  <p className="mt-1 text-sm text-white/72">{showSignedInBootstrapPanel && bootstrap ? `Welcome, ${welcomeLabel}` : "Welcome"}</p>
                 </div>
                 <nav
                   className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-white/55 md:justify-self-end md:justify-end"
@@ -740,9 +849,9 @@ export default function CheckInQrClient({
                   className="h-auto w-[calc(var(--spacing)*20)] object-contain"
                 />
               </div>
-              <h1 className="mt-3 text-2xl font-semibold text-white">Ingreso de alumnos</h1>
+              <h1 className="mt-3 text-2xl font-semibold text-white">Student check-in</h1>
               <p className="text-sm text-white/70">
-                {mode === "existing" && isSignedIn && bootstrap ? `Welcome, ${welcomeLabel}` : "Welcome"}
+                {showSignedInBootstrapPanel && bootstrap ? `Welcome, ${welcomeLabel}` : "Welcome"}
               </p>
               {breadcrumbItems.length > 1 && (
                 <nav className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-white/55" aria-label="Breadcrumb">
@@ -767,7 +876,7 @@ export default function CheckInQrClient({
                       <div className="relative min-h-[220px] sm:h-full sm:min-h-0">
                         <Image
                           src={checkInCardImage}
-                          alt={checkInDisplayCourse?.title || "Curso actual"}
+                          alt={checkInDisplayCourse?.title || "Current course"}
                           fill
                           sizes="(max-width: 1024px) 100vw, 32vw"
                           className="object-cover"
@@ -792,7 +901,7 @@ export default function CheckInQrClient({
                         <div>
                           <p className="text-[11px] uppercase tracking-[0.24em] text-[var(--brand,#ff4b4b)]">{checkInCardCategory}</p>
                           <h3 className="mt-2 text-2xl font-semibold leading-tight text-white">
-                            {checkInDisplayCourse?.title || "Curso actual"}
+                            {checkInDisplayCourse?.title || "Current course"}
                           </h3>
                           <p className="mt-2 text-sm text-white/75">{checkInDisplayDate} {checkInDisplayTime}</p>
                           <p className="mt-4 text-sm leading-relaxed text-white/76">{checkInCardDescription}</p>
@@ -808,15 +917,15 @@ export default function CheckInQrClient({
                 <div className="hidden h-full w-px bg-white/15 lg:block" aria-hidden />
 
                 <div className="flex h-full flex-col items-center justify-center text-center lg:pt-6">
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/60">Código QR</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-white/60">QR Code</p>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={checkInQrImage}
-                    alt="QR de check-in"
+                    alt="Check-in QR"
                     className="mt-4 h-52 w-52 rounded-2xl border border-white/15 bg-white object-contain sm:h-56 sm:w-56"
                   />
                   <p className="mt-4 max-w-[17rem] text-base font-medium leading-relaxed text-white/82">
-                    escanea este codigo para continuar con el proceso de check in
+                    scan this code to continue the check-in process
                   </p>
                 </div>
               </div>
@@ -829,7 +938,7 @@ export default function CheckInQrClient({
                   <div className="relative min-h-[18rem] sm:h-full sm:min-h-0">
                     <Image
                       src={checkInCardImage}
-                      alt={checkInDisplayCourse?.title || "Curso actual"}
+                      alt={checkInDisplayCourse?.title || "Current course"}
                       fill
                       sizes="(max-width: 640px) 42vw, 32vw"
                       className="object-cover"
@@ -854,7 +963,7 @@ export default function CheckInQrClient({
                     <div>
                       <p className="text-[11px] uppercase tracking-[0.24em] text-[var(--brand,#ff4b4b)]">{checkInCardCategory}</p>
                       <h3 className="mt-2 text-xl font-semibold leading-tight text-white sm:text-2xl">
-                        {checkInDisplayCourse?.title || "Curso actual"}
+                        {checkInDisplayCourse?.title || "Current course"}
                       </h3>
                       <p className="mt-2 text-xs text-white/75 sm:text-sm">{checkInDisplayDate} {checkInDisplayTime}</p>
                       <p className="mt-4 text-sm leading-relaxed text-white/76">{checkInCardDescription}</p>
@@ -874,16 +983,16 @@ export default function CheckInQrClient({
                   ? "mt-7 text-center text-base font-medium tracking-[0.02em] text-white/78"
                   : "mt-7 text-center text-lg font-semibold tracking-[0.14em] text-[var(--brand,#ff3f3f)]"
               }
-            >
+          >
               {shellVariant === "terminal"
-                ? "puedes hacer tu check-in en esta tablet"
-                : "o completa el proceso desde aqui mismo"}
+                ? "you can complete your check-in on this tablet"
+                : "or complete the process right here"}
             </p>
           )}
 
           {showContextWarning && (
             <div className="mt-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              El QR no tiene los datos completos. Usa un enlace con `courseSlug`, `date` y `time`.
+              The QR code is missing required data. Use a link with `courseSlug`, `date`, and `time`.
             </div>
           )}
 
@@ -891,16 +1000,16 @@ export default function CheckInQrClient({
             <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-400/5 px-4 py-4">
               <div className="grid items-center gap-4 lg:grid-cols-[1fr_auto]">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-amber-100/80">Clase anterior pendiente</p>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-amber-100/80">Previous class pending</p>
                   <h3 className="mt-2 text-lg font-semibold text-white">
-                    {latePaymentCourse?.title || "Clase anterior"}
+                    {latePaymentCourse?.title || "Previous class"}
                   </h3>
                   <p className="mt-2 text-sm text-white/72">
                     {latePaymentRecommendation?.date} {latePaymentRecommendation?.time}
                   </p>
                   <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/68">
-                    El check-in normal ya cerró para esta clase. Si el alumno llegó tarde o prefiere pagar al final,
-                    puede escanear este QR o usar esta misma tablet.
+                    Regular check-in has already closed for this class. If the student arrived late or prefers to pay at the end,
+                    they can scan this QR or use this same tablet.
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
@@ -915,7 +1024,7 @@ export default function CheckInQrClient({
                       }}
                       className="rounded-xl border border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.18)] px-4 py-2 text-sm font-semibold text-white"
                     >
-                      Pagar en esta tablet
+                      Pay on this tablet
                     </button>
                     <button
                       type="button"
@@ -925,7 +1034,7 @@ export default function CheckInQrClient({
                       }}
                       className="rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white/82"
                     >
-                      Abrir en teléfono
+                      Open on phone
                     </button>
                   </div>
                 </div>
@@ -933,11 +1042,11 @@ export default function CheckInQrClient({
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={latePaymentQrImage}
-                    alt="QR de pago tardío"
+                    alt="Late payment QR"
                     className="h-40 w-40 rounded-2xl border border-white/15 bg-white object-contain"
                   />
                   <p className="mt-3 max-w-[11rem] text-sm text-white/72">
-                    Escanea este QR para pagar la clase anterior desde el celular.
+                    Scan this QR to pay for the previous class from your phone.
                   </p>
                 </div>
               </div>
@@ -952,6 +1061,18 @@ export default function CheckInQrClient({
                   setMode("existing")
                   setError(null)
                   setSuccess(null)
+                  if (isKioskTerminalFlow) {
+                    if (!selectedCourse || !contextIsValid) {
+                      setError("We couldn't open the purchase because QR data is missing.")
+                      return
+                    }
+                    openExistingPurchaseFlow({
+                      courseSlug: selectedCourse.slug,
+                      date: activeDate,
+                      time: activeTime,
+                    })
+                    return
+                  }
                   if (!isSignedIn) {
                     setShowPhoneSignIn(true)
                     return
@@ -964,8 +1085,8 @@ export default function CheckInQrClient({
                     : "border-white/15 bg-black/20 text-white/80"
                 }`}
               >
-                <p className="text-sm font-semibold">Ya soy cliente</p>
-                <p className="mt-1 text-xs text-white/60">Login y recompra del curso actual.</p>
+                <p className="text-sm font-semibold">I am already a customer</p>
+                <p className="mt-1 text-xs text-white/60">Sign in and repurchase the current course.</p>
               </button>
               <button
                 type="button"
@@ -976,7 +1097,7 @@ export default function CheckInQrClient({
                   const fallbackCourse = selectedCourse
                   const resolvedCourse = fallbackCourse
                   if (!resolvedCourse || !contextIsValid) {
-                    setError("No pudimos abrir la compra porque faltan datos del QR.")
+                    setError("We couldn't open the purchase because QR data is missing.")
                     return
                   }
                   setNewBookingOverride({
@@ -992,27 +1113,27 @@ export default function CheckInQrClient({
                     : "border-white/15 bg-black/20 text-white/80"
                 }`}
               >
-                <p className="text-sm font-semibold">Soy nuevo</p>
-                <p className="mt-1 text-xs text-white/60">Abrir compra regular con creación de cuenta incluida.</p>
+                <p className="text-sm font-semibold">I am new</p>
+                <p className="mt-1 text-xs text-white/60">Open regular purchase with account creation included.</p>
               </button>
             </div>
           )}
 
-          {mode === "existing" && isSignedIn && (
+          {showSignedInBootstrapPanel && (
             <div className="mt-5 rounded-xl border border-white/15 bg-black/20 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-white/80">Sesión activa para flujo rápido.</p>
+                <p className="text-sm text-white/80">Active session for fast flow.</p>
                 <button
                   type="button"
                   onClick={() => void clerk.signOut({ redirectUrl: forceRedirectUrl })}
                   className="text-xs text-white/70 underline"
                 >
-                  Cambiar cuenta
+                  Switch account
                 </button>
               </div>
               {loadingBootstrap ? (
                 <div className="mt-3 space-y-2">
-                  <p className="text-xs text-white/65">Verificando compras del curso actual...</p>
+                  <p className="text-xs text-white/65">Checking purchases for the current course...</p>
                   <div className="h-10 animate-pulse rounded-md border border-white/10 bg-white/5" />
                 </div>
               ) : bootstrap ? (
@@ -1045,7 +1166,7 @@ export default function CheckInQrClient({
                       </div>
                       <div className="flex flex-col justify-between p-4 text-white/85">
                         <div>
-                          <p className="text-[11px] uppercase tracking-[0.24em] text-[var(--brand,#ff4b4b)]">Curso actual</p>
+                          <p className="text-[11px] uppercase tracking-[0.24em] text-[var(--brand,#ff4b4b)]">Current course</p>
                           <h3 className="mt-2 text-lg font-semibold leading-tight text-white sm:text-2xl">
                             {bootstrap.context.courseTitle}
                           </h3>
@@ -1054,15 +1175,33 @@ export default function CheckInQrClient({
                           </p>
                           <p className="mt-4 text-sm leading-relaxed text-white/76">{bootstrapCardDescription}</p>
                           <p className="mt-4 text-xs text-white/65">
-                            Ventana check-in: {toEsDateTime(bootstrap.context.checkInWindow.opensAt)} a{" "}
+                            Check-in window: {toEsDateTime(bootstrap.context.checkInWindow.opensAt)} to{" "}
                             {toEsDateTime(bootstrap.context.checkInWindow.closesAt)}
                           </p>
                           {bootstrap.quickCheckout && (
                             <div className="mt-3 space-y-1 text-xs text-white/65">
-                              <p>Servicio: {quickCheckoutDetails?.serviceLabel || bootstrap.quickCheckout.serviceId}</p>
-                              {quickCheckoutDetails?.packageLabel && <p>Paquete: {quickCheckoutDetails.packageLabel}</p>}
+                              <p>Service: {quickCheckoutDetails?.serviceLabel || bootstrap.quickCheckout.serviceId}</p>
+                              {quickCheckoutDetails?.packageLabel && <p>Package: {quickCheckoutDetails.packageLabel}</p>}
                               {quickCheckoutDetails?.addonLabels && quickCheckoutDetails.addonLabels.length > 0 && (
                                 <p>Extras: {quickCheckoutDetails.addonLabels.join(", ")}</p>
+                              )}
+                            </div>
+                          )}
+                          {bootstrap.package && (
+                            <div className="mt-3 space-y-1 text-xs text-white/65">
+                              <p>
+                                Active package: {bootstrap.package.packageLabel || bootstrap.package.packageId}
+                              </p>
+                              <p>
+                                Credits:{" "}
+                                {bootstrap.package.isUnlimited
+                                  ? "Unlimited"
+                                  : typeof bootstrap.package.remainingCredits === "number"
+                                    ? bootstrap.package.remainingCredits
+                                    : "0"}
+                              </p>
+                              {bootstrap.package.expiresAt && (
+                                <p>Expires: {toEsDateTime(bootstrap.package.expiresAt)}</p>
                               )}
                             </div>
                           )}
@@ -1073,14 +1212,19 @@ export default function CheckInQrClient({
                           </span>
                           {isLatePaymentContext && (
                             <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1 text-xs text-amber-100/92">
-                              Pago tardío de clase anterior
+                              Late payment for previous class
                             </span>
                           )}
                           <button
                             type="button"
                             onClick={() => {
+                              if (processingPackageCheckIn) return
                               if (!effectiveCheckInWindowOpen) {
-                                setError("La ventana de check-in para esta clase está cerrada.")
+                                setError("The check-in window for this class is closed.")
+                                return
+                              }
+                              if (bootstrap.package) {
+                                void handlePackageCheckIn()
                                 return
                               }
                               if (bootstrap.quickCheckout) {
@@ -1112,7 +1256,13 @@ export default function CheckInQrClient({
                                 : "bg-white/15"
                             }`}
                           >
-                            {bootstrap.quickCheckout ? "Recompra" : "Comprar"}
+                            {processingPackageCheckIn
+                              ? "Checking in..."
+                              : bootstrap.package
+                                ? "Check in with package"
+                                : bootstrap.quickCheckout
+                                  ? "Repurchase"
+                                  : "Buy"}
                           </button>
                           {isLatePaymentContext && !fixedContextRecommendation && (
                             <button
@@ -1126,7 +1276,7 @@ export default function CheckInQrClient({
                               }}
                               className="text-xs text-white/70 underline"
                             >
-                              Volver a la clase actual
+                              Back to current class
                             </button>
                           )}
                         </div>
@@ -1150,48 +1300,39 @@ export default function CheckInQrClient({
           course={newBookingCourse}
           open={openNewBooking}
           onCloseAction={() => {
-            setOpenNewBooking(false)
-            setNewBookingOverride(null)
-          }}
-          onExistingAccountDetectedAction={({ requiresLogin, phone, hasCompletedPurchase }) => {
-            if (!hasCompletedPurchase) return
-            setOpenNewBooking(false)
-            setNewBookingOverride(null)
-            setMode("existing")
-            setError(null)
-            setSuccess(null)
-            setPendingLoginPhone(phone || "")
-            if (requiresLogin || !isSignedIn) {
-              setShowPhoneSignIn(true)
+            if (isKioskTerminalFlow) {
+              void handleStationCompletion()
               return
             }
-            void loadBootstrap()
+            setOpenNewBooking(false)
+            setNewBookingOverride(null)
           }}
           initialStep={0}
           flowVariant="checkin-new"
           completionMode={completionMode}
           checkInContext={newBookingContext}
+          photoFlowContext={photoFlowContext}
           useDraft={false}
           mode="modal"
           onCompletedAction={isStationDeviceFlow ? handleStationCompletion : undefined}
         />
       )}
 
-      {showPhoneSignIn && !isSignedIn && (
+      {showPhoneSignIn && !isSignedIn && !isKioskTerminalFlow && (
         <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-[23rem] rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-4 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Login rápido</p>
-                <h2 className="mt-1 text-lg font-semibold text-white">Ingresa con tu cuenta</h2>
-                <p className="mt-1 text-sm text-white/68">Usa tu acceso para continuar con la recompra del curso actual.</p>
+                <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Quick sign-in</p>
+                <h2 className="mt-1 text-lg font-semibold text-white">Sign in with your account</h2>
+                <p className="mt-1 text-sm text-white/68">Use your access to continue with repurchasing the current course.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowPhoneSignIn(false)}
                 className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
               >
-                Cerrar
+                Close
               </button>
             </div>
             <div className="mt-4 flex justify-center">
@@ -1210,6 +1351,10 @@ export default function CheckInQrClient({
           course={existingRegularBookingCourse}
           open={Boolean(existingRegularBookingOverride)}
           onCloseAction={() => {
+            if (isKioskTerminalFlow) {
+              void handleStationCompletion()
+              return
+            }
             setExistingRegularBookingOverride(null)
           }}
           initialStep={bootstrap?.quickCheckout ? 3 : 0}
@@ -1227,6 +1372,7 @@ export default function CheckInQrClient({
           flowVariant="checkin-existing"
           completionMode={completionMode}
           checkInContext={existingRegularBookingContext}
+          photoFlowContext={photoFlowContext}
           useDraft={false}
           mode="modal"
           onCompletedAction={isStationDeviceFlow ? handleStationCompletion : undefined}

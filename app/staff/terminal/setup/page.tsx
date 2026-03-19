@@ -12,7 +12,7 @@ export default async function StaffTerminalSetupPage() {
   const authResult = await authorizeStaffPortalRequest()
   if (!authResult.ok) {
     if (authResult.status === 401) {
-      redirect("/staff/sign-in")
+      redirect("/staff/checkin")
     }
     redirect("/staff/resolve")
   }

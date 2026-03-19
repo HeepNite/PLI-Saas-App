@@ -6,13 +6,12 @@ const COURSE_PAGE_TIMEOUT_MS = 90_000
 test.describe.configure({ timeout: 90_000 })
 
 test("course page renders", async ({ page }) => {
-  await page.goto(`/cursos/${slug}?lang=en`, {
+  await page.goto(`/courses/${slug}?lang=en`, {
     waitUntil: "domcontentloaded",
     timeout: COURSE_PAGE_TIMEOUT_MS,
   })
-  await expect(
-    page.getByRole("heading", { name: "Salsa feminine style (morning)", exact: true })
-  ).toBeVisible()
+  await expect(page.getByRole("heading", { name: /Salsa/i }).first()).toBeVisible()
+  await expect(page.locator("#booking-service")).toBeVisible()
 })
 
 test("full enrollment opens Stripe modal", async ({ page }) => {
@@ -24,7 +23,7 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
     })
   })
 
-  await page.goto(`/cursos/${slug}?enroll=1&lang=en`, {
+  await page.goto(`/courses/${slug}?enroll=1&step=0&lang=en`, {
     waitUntil: "domcontentloaded",
     timeout: COURSE_PAGE_TIMEOUT_MS,
   })
@@ -62,14 +61,14 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
           const button = buttons.nth(i)
           if (!(await button.isVisible())) continue
           const text = (await button.innerText()).trim()
-          if (!/Continue|Continuar/i.test(text)) continue
+          if (!/Continue/i.test(text)) continue
           return await button.isEnabled()
         }
         return false
       }, { timeout: 10_000 })
       .toBeTruthy()
 
-    const clicked = await clickButtonByName(/Continue|Continuar/i)
+    const clicked = await clickButtonByName(/Continue/i)
     if (!clicked) {
       throw new Error("Could not find enabled Continue button")
     }
@@ -156,15 +155,15 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
   await pickFirstAvailableSlot()
   await clickContinue() // Step 2 -> Step 3
 
-  await expect(booking.getByRole("heading", { name: /Your Information|Tu información/i })).toBeVisible({
+  await expect(booking.getByRole("heading", { name: /Your Information/i })).toBeVisible({
     timeout: 15_000,
   })
 
-  const firstName = booking.getByPlaceholder(/Enter first name|Tu nombre/i).first()
+  const firstName = booking.getByPlaceholder(/Enter first name/i).first()
   if (await firstName.isVisible()) await firstName.fill("Test")
-  const lastName = booking.getByPlaceholder(/Enter last name|Tu apellido/i).first()
+  const lastName = booking.getByPlaceholder(/Enter last name/i).first()
   if (await lastName.isVisible()) await lastName.fill("User")
-  const email = booking.getByPlaceholder(/Enter email|Tu email/i).first()
+  const email = booking.getByPlaceholder(/Enter email/i).first()
   const uniqueEmail = `e2e+${Date.now()}@example.com`
   if (await email.isVisible()) await email.fill(uniqueEmail)
   const phone = booking.locator('input[type="tel"]').first()
@@ -172,7 +171,7 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
 
   await clickContinue() // Step 3 -> Step 4
 
-  await expect(booking.getByRole("heading", { name: /Payments|Pagos/i })).toBeVisible({ timeout: 15_000 })
+  await expect(booking.getByRole("heading", { name: /Payments/i })).toBeVisible({ timeout: 15_000 })
   const cardBtn = booking.getByRole("button", { name: /Card|Stripe/i })
   await expect(cardBtn).toBeVisible({ timeout: 15_000 })
   await cardBtn.evaluate((el: HTMLButtonElement) => {
@@ -182,13 +181,8 @@ test("full enrollment opens Stripe modal", async ({ page }) => {
   await clickContinue() // Step 4 -> Step 5
 
   const confirmEn = booking.getByRole("button", { name: "Confirm", exact: true })
-  if (await confirmEn.isVisible()) {
-    await confirmEn.scrollIntoViewIfNeeded()
-    await confirmEn.evaluate((el: HTMLButtonElement) => el.click())
-  } else {
-    const confirmEs = booking.getByRole("button", { name: "Confirmar", exact: true })
-    await confirmEs.scrollIntoViewIfNeeded()
-    await confirmEs.evaluate((el: HTMLButtonElement) => el.click())
-  }
-  await expect(page.getByRole("button", { name: "Cerrar" })).toBeVisible()
+  await confirmEn.scrollIntoViewIfNeeded()
+  await confirmEn.evaluate((el: HTMLButtonElement) => el.click())
+  await expect(page.getByRole("heading", { name: /Secure payment/i })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeVisible()
 })

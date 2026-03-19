@@ -63,6 +63,7 @@ Guía de arquitectura, permisos y rutas del nuevo módulo Staff.
 - `PATCH /api/staff/requests/[requestId]`
 - `GET /api/staff/payments`
 - `PATCH /api/staff/payments/[purchaseId]`
+- `POST /api/staff/reports/suggestions`
 
 ### 4.5 Check-in operativo
 - `POST /api/staff/checkin`
@@ -89,3 +90,19 @@ Guía de arquitectura, permisos y rutas del nuevo módulo Staff.
 - API/servicios staff: cubiertos por Vitest.
 - E2E del terminal PIN: implementado.
 - E2E visual del portal staff completo (`/staff/portal`): pendiente (recomendado siguiente iteración).
+
+## 8. Integración IA para Reports (preparada)
+- Frontend reports usa sugerencias locales por defecto.
+- Botón `Generate AI suggestions` consulta `POST /api/staff/reports/suggestions`.
+- Proveedores disponibles:
+  - `mock` (default): devuelve estrategia local, útil en dev/demo.
+  - `custom-http`: reenvía payload a un endpoint externo para conectar cualquier agente.
+- Variables de entorno:
+  - `AI_REPORTS_PROVIDER=mock|custom-http`
+  - `AI_REPORTS_AGENT_URL=https://tu-endpoint`
+  - `AI_REPORTS_AGENT_TOKEN=...` (opcional, bearer).
+- Si el proveedor externo falla o devuelve vacío, el sistema hace fallback automático a sugerencias locales.
+- Contrato esperado del endpoint externo (`custom-http`):
+  - Request JSON: `{ objectiveFilter, metrics, suggestions }`
+  - Response JSON mínima: `{ "suggestions": [ { id, objective, title, priority, insight, proposal, actions[], aiBrief } ] }`
+  - Campos opcionales: `warning` (string)

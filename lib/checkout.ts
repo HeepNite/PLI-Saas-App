@@ -3,7 +3,9 @@ import "server-only"
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { verifyToken } from "@clerk/backend"
 import { ensureClerkUser, findClerkUserByIdentifiers, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
+import type { PhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { prisma } from "@/lib/prisma"
+import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import { isEmail, normalizePhone, type ApiError, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
 
 const NEW_STUDENT_SERVICE_IDS = new Set(["new-student"])
@@ -16,6 +18,23 @@ const hasVerifiedPhone = (user: ClerkUser | null) => {
 }
 
 export type { ApiError, CheckoutBody, CheckoutValidation }
+
+export type PreparedCheckoutAccount = {
+  userId: string | null
+  clerkUser: ClerkUser | null
+  resolvedUserId: string | null
+  identity: {
+    resolvedEmail: string
+    phoneRaw: string
+    phoneNormalized: string
+  }
+  account: {
+    clerkUserId: string | null
+    created: boolean
+    requiresSignIn: boolean
+    hasAvatar: boolean
+  }
+}
 
 export const resolveAuthUser = async (
   req: Request,
@@ -107,6 +126,96 @@ export const ensureGuestClerkUser = async (input: {
   } catch (err) {
     console.warn("Clerk user creation failed", err)
     return { status: 502, error: "Unable to create user" } satisfies ApiError
+  }
+}
+
+export const prepareCheckoutAccount = async (
+  req: Request,
+  input: {
+    email?: string
+    firstName?: string
+    lastName?: string
+    name?: string
+    phone?: string
+  },
+  options: {
+    photoContext?: PhotoFlowContext
+    allowExistingAccountLookup?: boolean
+  } = {}
+): Promise<ApiError | PreparedCheckoutAccount> => {
+  const { userId, clerkUser } = await resolveAuthUser(req, input)
+  const identity = resolveContactIdentity({ clerkUser, email: input.email, phone: input.phone })
+  if ("status" in identity) {
+    return identity
+  }
+
+  const allowExistingAccountLookup = Boolean(options.allowExistingAccountLookup)
+  if (allowExistingAccountLookup && !userId && options.photoContext === "kiosk_terminal") {
+    const terminalAuth = await authorizeStaffTerminalSession()
+    if (!terminalAuth.ok) {
+      return {
+        status: 401,
+        error: "Terminal session required for kiosk checkout preparation.",
+      } satisfies ApiError
+    }
+  }
+
+  let resolvedClerkUser = clerkUser
+  let created = false
+
+  if (!resolvedClerkUser && allowExistingAccountLookup) {
+    const existing = await findClerkUserByIdentifiers({
+      email: identity.resolvedEmail,
+      phone: identity.phoneRaw || input.phone,
+    })
+
+    if (existing) {
+      resolvedClerkUser = existing
+    } else {
+      try {
+        resolvedClerkUser = await ensureClerkUser({
+          email: identity.resolvedEmail,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          name: input.name,
+          phone: input.phone,
+        })
+        created = Boolean(resolvedClerkUser)
+      } catch (err) {
+        console.warn("Clerk user creation failed", err)
+        return { status: 502, error: "Unable to create user" } satisfies ApiError
+      }
+    }
+  } else {
+    const guestResult = await ensureGuestClerkUser({
+      userId: userId || undefined,
+      resolvedEmail: identity.resolvedEmail,
+      phoneRaw: identity.phoneRaw,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      name: input.name,
+      phone: input.phone,
+    })
+    if ("status" in guestResult && typeof guestResult.status === "number") {
+      return guestResult
+    }
+    resolvedClerkUser = resolvedClerkUser || guestResult.ensuredClerkUser
+    created = Boolean(guestResult.ensuredClerkUser && !userId)
+  }
+
+  const resolvedUserId = userId || resolvedClerkUser?.id || null
+
+  return {
+    userId: userId || null,
+    clerkUser: resolvedClerkUser || null,
+    resolvedUserId,
+    identity,
+    account: {
+      clerkUserId: resolvedUserId,
+      created,
+      requiresSignIn: Boolean(!userId && options.photoContext === "qr_phone"),
+      hasAvatar: Boolean(resolvedClerkUser?.hasImage || clerkUser?.hasImage),
+    },
   }
 }
 

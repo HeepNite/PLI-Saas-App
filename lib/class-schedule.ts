@@ -1,9 +1,10 @@
-import { demoCourses } from "@/constants/courses"
+import { demoCourses, type CourseData } from "@/constants/courses"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_REGEX = /^\d{2}:\d{2}$/
 
 const toMonBasedWeekday = (date: Date) => (date.getDay() + 6) % 7 // Mon=0...Sun=6
+type ScheduleCourseLike = Pick<CourseData, "slug" | "schedule" | "title">
 
 export const parseIsoDate = (value: string) => {
   if (!DATE_REGEX.test(value)) return null
@@ -37,32 +38,52 @@ export const formatTime12h = (time24: string) => {
   return `${h}:${mm} ${ampm}`
 }
 
-export const getCourseBySlug = (courseSlug: string) => demoCourses.find((course) => course.slug === courseSlug) || null
-
-export const getAvailableTimesForCourseDate = (courseSlug: string, dateIso: string) => {
-  const date = parseIsoDate(dateIso)
-  if (!date) return [] as string[]
-  const course = getCourseBySlug(courseSlug)
-  if (!course) return [] as string[]
-
-  const weekday = toMonBasedWeekday(date)
-
-  if (course.slug === "salsa-nocturno") {
+const getLegacyFallbackTimes = (courseSlug: string, weekday: number) => {
+  if (courseSlug === "salsa-nocturno") {
     if (weekday === 0 || weekday === 3) return ["21:10"]
     if (weekday === 1 || weekday === 4) return ["20:10"]
     if (weekday === 6) return ["17:00"]
-    return []
+  }
+  return [] as string[]
+}
+
+export const getCourseBySlug = (
+  courseSlug: string,
+  courses: ScheduleCourseLike[] = demoCourses
+) => courses.find((course) => course.slug === courseSlug) || null
+
+export const getAvailableTimesForCourseDateFromCourse = (course: ScheduleCourseLike, dateIso: string) => {
+  const date = parseIsoDate(dateIso)
+  if (!date) return [] as string[]
+  const weekday = toMonBasedWeekday(date)
+  const schedule = course.schedule
+
+  if (
+    (!Array.isArray(schedule.availableWeekdays) || !schedule.availableWeekdays.length) &&
+    (!Array.isArray(schedule.availableTimes) || !schedule.availableTimes.length)
+  ) {
+    return getLegacyFallbackTimes(course.slug, weekday)
   }
 
-  if (Array.isArray(course.schedule.availableWeekdays) && course.schedule.availableWeekdays.length > 0) {
-    if (!course.schedule.availableWeekdays.includes(weekday)) return []
+  if (Array.isArray(schedule.availableWeekdays) && schedule.availableWeekdays.length > 0) {
+    if (!schedule.availableWeekdays.includes(weekday)) return []
   }
 
-  if (Array.isArray(course.schedule.availableTimes) && course.schedule.availableTimes.length > 0) {
-    return course.schedule.availableTimes.filter((value) => Boolean(parseTime24(value)))
+  if (Array.isArray(schedule.availableTimes) && schedule.availableTimes.length > 0) {
+    return schedule.availableTimes.filter((value) => Boolean(parseTime24(value)))
   }
 
   return [] as string[]
+}
+
+export const getAvailableTimesForCourseDate = (
+  courseSlug: string,
+  dateIso: string,
+  courses: ScheduleCourseLike[] = demoCourses
+) => {
+  const course = getCourseBySlug(courseSlug, courses)
+  if (!course) return [] as string[]
+  return getAvailableTimesForCourseDateFromCourse(course, dateIso)
 }
 
 export const isTimeAllowedForCourseDate = (courseSlug: string, dateIso: string, time24: string) => {

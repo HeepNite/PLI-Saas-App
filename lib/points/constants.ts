@@ -3,6 +3,7 @@ export const POINTS_RULE_KEYS = {
   PACKAGE_PURCHASE: "package-purchase",
   PACKAGE_ASSIGNMENT: "package-assignment",
   CONSECUTIVE_ATTENDANCE: "consecutive-attendance",
+  ATTENDANCE_MILESTONE_CLASSES: "attendance-milestone-classes",
   FREE_CLASS_THRESHOLD: "free-class-threshold",
 } as const
 
@@ -16,43 +17,50 @@ export type PointsRuleDefinition = {
   defaultPoints: number
 }
 
-export const ATTENDANCE_STREAK_MILESTONE = 3
+export const DEFAULT_ATTENDANCE_MILESTONE_CLASSES = 3
 export const DEFAULT_FREE_CLASS_THRESHOLD = 500
 
 export const POINTS_RULE_DEFINITIONS: PointsRuleDefinition[] = [
   {
     key: POINTS_RULE_KEYS.PROFILE_COMPLETED,
-    label: "Perfil completado",
+    label: "Profile completed",
     eventType: "PROFILE_COMPLETED",
-    description: "Premio único cuando el alumno completa su perfil.",
+    description: "One-time reward when the student completes their profile.",
     defaultPoints: 10,
   },
   {
     key: POINTS_RULE_KEYS.PACKAGE_PURCHASE,
-    label: "Compra de paquete",
+    label: "Package purchase",
     eventType: "PACKAGE_PURCHASE",
-    description: "Puntos por compra de paquete confirmada.",
+    description: "Points for confirmed package purchase.",
     defaultPoints: 5,
   },
   {
     key: POINTS_RULE_KEYS.PACKAGE_ASSIGNMENT,
-    label: "Asignación de clases de paquete",
+    label: "Package class assignment",
     eventType: "PACKAGE_ASSIGNMENT",
-    description: "Puntos por asignar clases del paquete (una vez por paquete).",
+    description: "Points for assigning package classes (once per package).",
     defaultPoints: 2.5,
   },
   {
     key: POINTS_RULE_KEYS.CONSECUTIVE_ATTENDANCE,
-    label: "Asistencia consecutiva",
+    label: "Consecutive attendance",
     eventType: "CONSECUTIVE_ATTENDANCE",
-    description: "Puntos por completar hitos de asistencias consecutivas.",
+    description: "Points for completing consecutive attendance milestones.",
     defaultPoints: 3,
   },
   {
+    key: POINTS_RULE_KEYS.ATTENDANCE_MILESTONE_CLASSES,
+    label: "Attendance milestone (every X classes)",
+    eventType: "ATTENDANCE_MILESTONE_CLASSES",
+    description: "Number of classes required to trigger the attendance reward.",
+    defaultPoints: DEFAULT_ATTENDANCE_MILESTONE_CLASSES,
+  },
+  {
     key: POINTS_RULE_KEYS.FREE_CLASS_THRESHOLD,
-    label: "Meta clase gratis",
+    label: "Free class goal",
     eventType: "FREE_CLASS_THRESHOLD",
-    description: "Puntos necesarios para habilitar 1 clase gratis.",
+    description: "Points required to unlock 1 free class.",
     defaultPoints: DEFAULT_FREE_CLASS_THRESHOLD,
   },
 ]
@@ -60,4 +68,3 @@ export const POINTS_RULE_DEFINITIONS: PointsRuleDefinition[] = [
 const pointsRuleDefinitionByKey = new Map(POINTS_RULE_DEFINITIONS.map((item) => [item.key, item] as const))
 
 export const getPointsRuleDefinition = (key: string) => pointsRuleDefinitionByKey.get(key as PointsRuleKey)
-

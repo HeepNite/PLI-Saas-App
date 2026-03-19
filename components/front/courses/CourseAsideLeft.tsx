@@ -13,15 +13,6 @@ const fullDayMap: Record<string, string> = {
   Friday: "Fri",
   Saturday: "Sat",
   Sunday: "Sun",
-  Lunes: "Mon",
-  Martes: "Tue",
-  Miércoles: "Wed",
-  Miercoles: "Wed",
-  Jueves: "Thu",
-  Viernes: "Fri",
-  Sábado: "Sat",
-  Sabado: "Sat",
-  Domingo: "Sun",
 }
 
 const normalizeWeekdays = (raw: string) => {
@@ -30,7 +21,7 @@ const normalizeWeekdays = (raw: string) => {
     return Array.from(new Set(abbreviations.map((day) => day[0].toUpperCase() + day.slice(1).toLowerCase())))
   }
   const matches = raw.match(
-    /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Lunes|Martes|Mi[eé]rcoles|Jueves|Viernes|S[áa]bado|Domingo)\b/gi
+    /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/gi
   )
   if (!matches?.length) return []
   return Array.from(
@@ -82,13 +73,13 @@ export default function CourseAsideLeft({ course }: { course: CourseOverviewData
     <div className="space-y-4">
       <GlassyCard className="p-4">
         <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">
-          {isKidsCourse ? "Clase para bebés" : "Instructor principal"}
+          {isKidsCourse ? "Class for babies" : "Main instructor"}
         </p>
         <div className="mt-3 overflow-hidden rounded-2xl border border-black/10 bg-black/30 dark:border-white/10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={isKidsCourse ? course.heroMedia?.image || "/images/Kids/Artboard 1.jpg" : mainInstructor?.photo || course.heroMedia?.image || "/images/Teaches/Mariano.jpg"}
-            alt={isKidsCourse ? course.title : mainInstructor?.name || "Instructor/a"}
+            alt={isKidsCourse ? course.title : mainInstructor?.name || "Instructor"}
             className="w-full object-contain"
             style={{ height: "calc(var(--spacing) * 92)" }}
           />
@@ -96,41 +87,41 @@ export default function CourseAsideLeft({ course }: { course: CourseOverviewData
         {isKidsCourse ? (
           <>
             <h3 className="mt-4 text-lg font-semibold">{course.title}</h3>
-            <p className="text-xs text-neutral-500">Programa sensorial y musical</p>
+            <p className="text-xs text-neutral-500">Sensory and musical program</p>
           </>
         ) : (
           <>
             <h3 className="mt-4 text-lg font-semibold">{mainInstructor?.name || "Instructor PLI"}</h3>
-            <p className="text-xs text-neutral-500">{mainInstructor?.role || "Instructor/a"}</p>
+            <p className="text-xs text-neutral-500">{mainInstructor?.role || "Instructor"}</p>
           </>
         )}
         <p className="mt-3 text-sm text-neutral-700 dark:text-neutral-300">
           Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore
-          magna aliqua. Enfocado en técnica, musicalidad y progreso real.
+          magna aliqua. Focused on technique, musicality, and real progress.
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
-            <p className="text-[color:var(--brand)]">Clase</p>
+            <p className="text-[color:var(--brand)]">Class</p>
             <p className="font-semibold">{course.title}</p>
           </div>
           <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
-            <p className="text-[color:var(--brand)]">Horario</p>
+            <p className="text-[color:var(--brand)]">Schedule</p>
             <p className="font-semibold">{stripAgeNotes(course.schedule.time).replace(/\s*\/\s*/g, " · ")}</p>
           </div>
           <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
-            <p className="text-[color:var(--brand)]">Días</p>
+            <p className="text-[color:var(--brand)]">Days</p>
             <p className="font-semibold">{course.schedule.day}</p>
           </div>
           <div className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2">
-            <p className="text-[color:var(--brand)]">Nivel</p>
+            <p className="text-[color:var(--brand)]">Level</p>
             <p className="font-semibold">{course.level}</p>
           </div>
         </div>
 
         {!!focusItems.length && (
           <div className="mt-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Enfoque</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Focus</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {focusItems.map((item) => (
                 <span
@@ -146,7 +137,7 @@ export default function CourseAsideLeft({ course }: { course: CourseOverviewData
 
         {!!otherCourses.length && (
           <div className="mt-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Clases con este instructor</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Classs con este instructor</p>
             <div className="mt-3 space-y-3">
               {otherCourses.map((item) => {
                 const days =
@@ -211,7 +202,7 @@ export default function CourseAsideLeft({ course }: { course: CourseOverviewData
 
       {!!(isKidsCourse ? course.instructors?.length : otherInstructors.length) && (
         <GlassyCard className="p-4">
-          <h4 className="text-sm font-semibold text-[color:var(--brand)]">Profesores</h4>
+          <h4 className="text-sm font-semibold text-[color:var(--brand)]">Instructors</h4>
           <ul className="mt-3 space-y-2">
             {(isKidsCourse ? course.instructors : otherInstructors).map((ins, idx) => (
               <li key={`${ins.name}-${idx}`} className="flex items-center gap-3">
@@ -223,7 +214,7 @@ export default function CourseAsideLeft({ course }: { course: CourseOverviewData
                 />
                 <div>
                   <p className="text-sm font-semibold">{ins.name}</p>
-                  <p className="text-xs text-neutral-500">{ins.role || "Instructor/a"}</p>
+                  <p className="text-xs text-neutral-500">{ins.role || "Instructor"}</p>
                 </div>
               </li>
             ))}

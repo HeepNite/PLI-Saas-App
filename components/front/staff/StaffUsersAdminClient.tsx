@@ -4,35 +4,44 @@ import React from "react"
 import { useSearchParams } from "next/navigation"
 import {
   Bot,
+  CalendarPlus,
+  ChevronDown,
   CircleDollarSign,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Download,
+  ExternalLink,
   GraduationCap,
   ImagePlus,
-  KeyRound,
-  LayoutDashboard,
   Loader2,
   Mail,
   MapPin,
   MoreHorizontal,
+  Monitor,
   Phone,
   RefreshCw,
   Search,
   School,
   Settings,
-  ShieldCheck,
   Sparkles,
   Star,
   Trash2,
+  User,
   Users,
   X,
 } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
+import StaffTerminalSetupClient from "@/components/front/staff/StaffTerminalSetupClient"
 import type { StaffRole } from "@/lib/security/staff-role"
 import { type StaffCategory } from "@/lib/security/staff-category"
 import type { StaffRequestStatus, StaffRequestType } from "@/lib/security/staff-request"
+import {
+  getDefaultStaffPortalSection,
+  resolveStaffPortalSections,
+  type StaffPortalSection,
+} from "@/lib/security/staff-access"
 import { POINTS_RULE_DEFINITIONS } from "@/lib/points/constants"
 
 type StaffUserRow = {
@@ -94,6 +103,11 @@ type PaymentRow = {
   customerName: string
   customerEmail: string
   customerPhone: string
+  customerAvatarUrl: string | null
+  packageId: string | null
+  serviceId: string | null
+  paymentChannel: "cash" | "card" | "unknown"
+  purchaseCategory: "package" | "dropin" | "other"
   amount: number
   currency: string
   paymentStatus: string
@@ -102,13 +116,60 @@ type PaymentRow = {
   settledAt: string | null
   createdAt: string
   updatedAt: string
+  classDate: string | null
+  classTime: string | null
+  classStartsAt: string | null
+  location: string | null
+  pointsBalance: number
+  pointsHistory: Array<{
+    id: string
+    type: string
+    points: number
+    createdAt: string
+    source: string | null
+    courseSlug: string | null
+    milestone: number | null
+  }>
+  classPaid: boolean
+  checkInStatus: "checked_in" | "checked_in_no_package" | "scheduled" | "none"
+  checkInAt: string | null
+  activePackage: {
+    id: string
+    label: string
+    remainingCredits: number | null
+    isUnlimited: boolean
+    expiresAt: string | null
+    status: string
+  } | null
 }
 
-type PaymentSummary = {
-  totalItems: number
-  totalCollected: number
-  pendingSettlement: number
-  paidSettlement: number
+type PaymentCategoryFilter = "cash" | "card" | "packages" | "dropin"
+type ReportsObjectiveFilter =
+  | "all"
+  | "monday_sales"
+  | "class_quality"
+  | "retention"
+  | "package_mix"
+  | "pending_recovery"
+
+type ReportsSuggestion = {
+  id: string
+  objective: Exclude<ReportsObjectiveFilter, "all">
+  title: string
+  priority: "High" | "Medium" | "Low"
+  insight: string
+  proposal: string
+  actions: string[]
+  aiBrief: string
+}
+
+type ReportsSuggestionsApiResponse = {
+  ok?: boolean
+  provider?: "mock" | "custom-http"
+  usedFallback?: boolean
+  warning?: string | null
+  suggestions?: ReportsSuggestion[]
+  error?: string
 }
 
 type StaffRequestRow = {
@@ -134,6 +195,47 @@ type StaffRequestSummary = {
   inReview: number
   approved: number
   rejected: number
+}
+
+type SelfProfileMetrics = {
+  performanceRating: number | null
+  performanceReviewsCount: number | null
+  performanceReviewCycleDays: number | null
+  payrollHoursWorked: number | null
+  payrollHourlyRate: number | null
+  payrollStatus: "paid" | "pending" | null
+  payrollPaydayWeekday: number | null
+}
+
+type SelfProfileSnapshot = {
+  firstName: string
+  lastName: string
+  imageUrl: string
+  location: string
+  role: StaffRole
+  category: StaffCategory
+  metrics: SelfProfileMetrics
+  presence: {
+    online: boolean
+    lastSignInAt: number | null
+    staffLastCheckInAt: number | null
+    status: "online" | "offline" | null
+  }
+  teaching: {
+    teacherCourseSlugs: string[]
+    teacherWeekdays: number[]
+    teacherShiftStart: string
+    teacherShiftEnd: string
+  }
+}
+
+type ProfileRequestFormState = {
+  type: StaffRequestType
+  message: string
+  startDate: string
+  endDate: string
+  preferredShift: string
+  consultTopic: string
 }
 
 type PayrollStaffRow = {
@@ -247,6 +349,11 @@ type CourseFormState = {
   level: string
   durationMinutes: string
   location: string
+  publicationMode: CoursePublicationMode
+  launchDate: string
+  specialDiscountType: CourseSpecialDiscountType
+  specialDiscountCustomLabel: string
+  specialDiscountPrice: string
   availableTimesCsv: string
   active: boolean
 }
@@ -269,6 +376,20 @@ type CourseSpecialEventEntry = {
   label: string | null
 }
 
+type CoursePublicationMode = "publish_now" | "coming_soon" | "launch_date"
+type CourseSpecialDiscountType = "none" | "valentines_desc" | "christmas_desc" | "custom"
+
+type CoursePublicationSettings = {
+  mode: CoursePublicationMode
+  launchDate: string | null
+}
+
+type CourseSpecialDiscountSettings = {
+  type: CourseSpecialDiscountType
+  label: string | null
+  priceCents: number | null
+}
+
 type CourseScheduleRulesPayload = {
   mode: "regular" | "special_event"
   weeklyDaysTarget: number
@@ -277,6 +398,8 @@ type CourseScheduleRulesPayload = {
   recurrenceEndsAt: string | null
   rules: CourseScheduleRuleEntry[]
   specialEvents: CourseSpecialEventEntry[]
+  publication?: CoursePublicationSettings
+  specialDiscount?: CourseSpecialDiscountSettings
 }
 
 type PackageFormState = {
@@ -308,7 +431,7 @@ type PointsAssignFormState = {
 }
 
 type NavItem = {
-  key: string
+  key: StaffPortalSection
   label: string
   icon: React.ComponentType<{ className?: string }>
 }
@@ -316,14 +439,38 @@ type NavItem = {
 const CATEGORY_OPTIONS: StaffCategory[] = ["front_desk", "manager", "teacher", "guest_staff"]
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 const NAV_ITEMS: NavItem[] = [
-  { key: "overview", label: "Overview", icon: LayoutDashboard },
   { key: "users", label: "User Management", icon: Users },
   { key: "students", label: "Students", icon: GraduationCap },
-  { key: "security", label: "Security", icon: ShieldCheck },
   { key: "schedule", label: "School", icon: School },
+  { key: "terminals", label: "Terminal Manager", icon: Monitor },
+  { key: "reports", label: "Reports", icon: CircleDollarSign },
   { key: "assistant", label: "AI Assistant", icon: Bot },
   { key: "settings", label: "Settings", icon: Settings },
+  { key: "profile", label: "My profile", icon: User },
 ]
+
+const REPORT_OBJECTIVE_OPTIONS: Array<{ key: ReportsObjectiveFilter; label: string }> = [
+  { key: "all", label: "All goals" },
+  { key: "monday_sales", label: "Increase Monday sales" },
+  { key: "class_quality", label: "Improve class quality" },
+  { key: "retention", label: "Improve retention" },
+  { key: "package_mix", label: "Grow package conversion" },
+  { key: "pending_recovery", label: "Recover pending payments" },
+]
+
+const REPORT_OBJECTIVE_LABELS: Record<Exclude<ReportsObjectiveFilter, "all">, string> = {
+  monday_sales: "Monday sales",
+  class_quality: "Class quality",
+  retention: "Retention",
+  package_mix: "Package conversion",
+  pending_recovery: "Pending recovery",
+}
+
+const REPORT_SUGGESTIONS_SOURCE_LABELS: Record<"local" | "mock" | "custom-http", string> = {
+  local: "Local rules",
+  mock: "Mock provider",
+  "custom-http": "External API",
+}
 
 const CATEGORY_LABELS: Record<StaffCategory, string> = {
   front_desk: "Front desk",
@@ -359,34 +506,65 @@ const REQUEST_TYPE_LABELS: Record<StaffRequestType, string> = {
   STAFF_SCHEDULE_CHANGE: "Schedule change",
   STAFF_PAY_ADVANCE: "Pay advance",
   STAFF_SHIFT_COVER: "Shift cover",
+  STAFF_GENERAL_QUERY: "General query",
 }
 
+const PROFILE_REQUEST_TYPE_OPTIONS: Array<{ value: StaffRequestType; label: string; hint: string }> = [
+  { value: "STAFF_SCHEDULE_CHANGE", label: "Schedule change", hint: "Request a shift/time update." },
+  { value: "STAFF_DAY_OFF", label: "Vacation / day off", hint: "Ask for day off or vacation range." },
+  { value: "STAFF_PAY_ADVANCE", label: "Payment request", hint: "Ask payroll/pay advance support." },
+  { value: "STAFF_SHIFT_SWAP", label: "Shift swap", hint: "Swap shift with another teammate." },
+  { value: "STAFF_GENERAL_QUERY", label: "Consultation", hint: "General question or support request." },
+]
+
 const REQUEST_STATUS_OPTIONS: StaffRequestStatus[] = ["PENDING", "IN_REVIEW", "APPROVED", "REJECTED"]
+const PROFILE_REQUEST_STATUS_OPTIONS: Array<StaffRequestStatus | "all"> = [
+  "all",
+  "PENDING",
+  "IN_REVIEW",
+  "APPROVED",
+  "REJECTED",
+]
 const WEEKDAY_LABELS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-const SCHOOL_COURSE_KINDS = ["course", "program", "bootcamp", "workshop", "convention"]
-const SPECIAL_EVENT_COURSE_KINDS = new Set(["bootcamp", "workshop", "convention"])
-const COURSE_KIND_DATE_TONE: Record<string, "course" | "program" | "bootcamp" | "workshop" | "convention"> = {
+const SCHOOL_COURSE_KINDS = ["course", "program", "bootcamp", "workshop", "convention", "congress"]
+const SPECIAL_EVENT_COURSE_KINDS = new Set(["bootcamp", "workshop", "convention", "congress"])
+const COURSE_KIND_DATE_TONE: Record<string, "course" | "program" | "bootcamp" | "workshop" | "convention" | "event" | "warning"> = {
   course: "course",
   program: "program",
   bootcamp: "bootcamp",
   workshop: "workshop",
   convention: "convention",
+  congress: "event",
 }
 const COURSE_KIND_LABELS: Record<string, string> = {
-  course: "Curso",
-  program: "Programa",
+  course: "Course",
+  program: "Program",
   bootcamp: "Bootcamp",
   workshop: "Workshop",
-  convention: "Convención",
+  convention: "Convention",
+  congress: "Congress",
 }
 const COURSE_KIND_REVIEW_HINTS: Record<string, string> = {
-  course: "Formato base semanal.",
-  program: "Ruta de clases por módulo.",
-  bootcamp: "Intensivo con cupos limitados.",
-  workshop: "Sesión especial temática.",
-  convention: "Evento único de alto impacto.",
+  course: "Base weekly format.",
+  program: "Class path by module.",
+  bootcamp: "Intensive with limited spots.",
+  workshop: "Themed special session.",
+  convention: "Single high-impact event.",
+  congress: "Congress-style event with full program blocks.",
 }
-const DEFAULT_QUICK_SCHEDULE_TIMES = ["09:00", "10:00", "11:00", "18:00", "19:00", "20:00"]
+const COURSE_PUBLICATION_MODE_OPTIONS: Array<{ value: CoursePublicationMode; label: string }> = [
+  { value: "publish_now", label: "Publish now" },
+  { value: "coming_soon", label: "Coming soon" },
+  { value: "launch_date", label: "Launch date" },
+]
+const COURSE_SPECIAL_DISCOUNT_OPTIONS: Array<{ value: CourseSpecialDiscountType; label: string }> = [
+  { value: "none", label: "No special discount" },
+  { value: "valentines_desc", label: "San Valentin desc" },
+  { value: "christmas_desc", label: "Navidad desc" },
+  { value: "custom", label: "Custom discount" },
+]
+const QUICK_SCHEDULE_SLOT_COUNT = 12
+const DEFAULT_QUICK_SCHEDULE_TIMES = ["08:00", "09:00", "10:00", "11:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"]
 const SCHOOL_SCHEDULE_SHORTCUTS_STORAGE_KEY = "pli:staff:school:schedule-shortcuts:v1"
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const SCHEDULE_SHORTCUT_TONES = [
@@ -399,6 +577,41 @@ const statusLabel = (row: StaffUserRow) => {
   if (row.banned) return "Banned"
   if (row.locked) return "Locked"
   return row.online ? "Online" : "Offline"
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+const computeSelfPerformanceScore = (metrics: SelfProfileMetrics) => {
+  const ratingBase = metrics.performanceRating ? clamp((metrics.performanceRating / 5) * 70, 0, 70) : 35
+  const reviewBase = metrics.performanceReviewsCount
+    ? clamp(metrics.performanceReviewsCount * 5, 0, 20)
+    : 6
+  const cadencePenalty =
+    typeof metrics.performanceReviewCycleDays === "number" && metrics.performanceReviewCycleDays > 45
+      ? clamp((metrics.performanceReviewCycleDays - 45) * 0.35, 0, 12)
+      : 0
+  return clamp(Math.round(ratingBase + reviewBase - cadencePenalty), 0, 100)
+}
+
+const buildSelfRecommendations = (metrics: SelfProfileMetrics) => {
+  const tips: string[] = []
+  if (typeof metrics.performanceRating !== "number") {
+    tips.push("Request your first performance review to establish a baseline score.")
+  } else if (metrics.performanceRating < 4.2) {
+    tips.push("Improve class delivery consistency to raise rating above 4.2.")
+  } else {
+    tips.push("Keep teaching consistency high and document repeatable class structure.")
+  }
+  if (!metrics.performanceReviewCycleDays || metrics.performanceReviewCycleDays > 45) {
+    tips.push("Ask for a shorter review cycle (every 30-45 days) to get faster feedback loops.")
+  }
+  if (metrics.payrollStatus === "pending") {
+    tips.push("Track pending payroll status and confirm payout date with management.")
+  }
+  if (tips.length < 3) {
+    tips.push("Log schedule or vacation requests early to avoid last-minute conflicts.")
+  }
+  return tips.slice(0, 3)
 }
 
 const formatDate = (value: number | null) => {
@@ -434,6 +647,22 @@ const toEmbedVideoUrl = (input: string) => {
   return value
 }
 
+const isEmbedVideoUrl = (value: string) =>
+  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
+
+const toAutoplayEmbedUrl = (value: string) => {
+  const base = value.trim()
+  if (!base) return ""
+  const hasQuery = base.includes("?")
+  if (base.includes("youtube.com/embed/")) {
+    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=0&rel=0&playsinline=1`
+  }
+  if (base.includes("player.vimeo.com/video/")) {
+    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1&background=1`
+  }
+  return base
+}
+
 const normalizeClockTime = (value: string) => {
   const [hours, minutes] = value.split(":")
   const h = Number(hours)
@@ -441,6 +670,22 @@ const normalizeClockTime = (value: string) => {
   if (!Number.isInteger(h) || !Number.isInteger(m)) return ""
   if (h < 0 || h > 23 || m < 0 || m > 59) return ""
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+}
+
+const normalizeQuickScheduleTimes = (values: string[]) => {
+  const normalized = [...new Set(values.map((item) => normalizeClockTime(String(item))).filter((item): item is string => Boolean(item)))]
+    .sort((a, b) => a.localeCompare(b))
+
+  if (normalized.length < QUICK_SCHEDULE_SLOT_COUNT) {
+    for (const fallback of DEFAULT_QUICK_SCHEDULE_TIMES) {
+      const value = normalizeClockTime(fallback)
+      if (!value || normalized.includes(value)) continue
+      normalized.push(value)
+      if (normalized.length >= QUICK_SCHEDULE_SLOT_COUNT) break
+    }
+  }
+
+  return normalized.sort((a, b) => a.localeCompare(b)).slice(0, QUICK_SCHEDULE_SLOT_COUNT)
 }
 
 const formatClockLabel = (value: string) => {
@@ -558,7 +803,51 @@ const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRulesPayloa
       label: "Special event",
     }))
 
-  if (rules.length === 0 && specialEvents.length === 0) return null
+  const publicationSource =
+    source.publication && typeof source.publication === "object"
+      ? (source.publication as Record<string, unknown>)
+      : null
+  const publicationModeRaw = publicationSource?.mode
+  const publicationMode: CoursePublicationMode =
+    publicationModeRaw === "coming_soon" || publicationModeRaw === "launch_date" || publicationModeRaw === "publish_now"
+      ? publicationModeRaw
+      : "publish_now"
+  const launchDateRaw = typeof publicationSource?.launchDate === "string" ? publicationSource.launchDate.trim() : ""
+  const launchDate = publicationMode === "launch_date" && ISO_DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
+  const publication: CoursePublicationSettings = {
+    mode: publicationMode,
+    launchDate,
+  }
+
+  const specialDiscountSource =
+    source.specialDiscount && typeof source.specialDiscount === "object"
+      ? (source.specialDiscount as Record<string, unknown>)
+      : null
+  const specialDiscountTypeRaw = specialDiscountSource?.type
+  const specialDiscountType: CourseSpecialDiscountType =
+    specialDiscountTypeRaw === "valentines_desc" ||
+    specialDiscountTypeRaw === "christmas_desc" ||
+    specialDiscountTypeRaw === "custom" ||
+    specialDiscountTypeRaw === "none"
+      ? specialDiscountTypeRaw
+      : "none"
+  const specialDiscountLabelRaw = typeof specialDiscountSource?.label === "string" ? specialDiscountSource.label.trim() : ""
+  const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
+  const specialDiscountPriceRaw = Number(specialDiscountSource?.priceCents)
+  const specialDiscountPrice =
+    Number.isFinite(specialDiscountPriceRaw) && specialDiscountPriceRaw >= 0
+      ? Math.round(specialDiscountPriceRaw)
+      : null
+  const specialDiscount: CourseSpecialDiscountSettings = {
+    type: specialDiscountType,
+    label: specialDiscountLabel,
+    priceCents: specialDiscountPrice,
+  }
+
+  const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
+  const hasSpecialDiscount =
+    specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
+  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
 
   const target = Number(source.weeklyDaysTarget)
   const weeklyDaysTarget = Number.isFinite(target) ? Math.max(1, Math.min(7, Math.round(target))) : Math.max(1, Math.min(7, rules.length))
@@ -576,6 +865,8 @@ const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRulesPayloa
     recurrenceEndsAt,
     rules,
     specialEvents,
+    publication,
+    specialDiscount,
   }
 }
 
@@ -646,6 +937,74 @@ const formatIsoDate = (value: string | null) => {
   }).format(new Date(time))
 }
 
+const formatIsoDateTimePrecise = (value: string | null) => {
+  if (!value) return "—"
+  const time = Date.parse(value)
+  if (Number.isNaN(time)) return "—"
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(time))
+}
+
+const parseDateInputStart = (value: string) => {
+  if (!value) return null
+  const ts = Date.parse(`${value}T00:00:00`)
+  if (!Number.isFinite(ts)) return null
+  return ts
+}
+
+const parseDateInputEnd = (value: string) => {
+  if (!value) return null
+  const ts = Date.parse(`${value}T23:59:59.999`)
+  if (!Number.isFinite(ts)) return null
+  return ts
+}
+
+const getWeekStartTs = (input: Date) => {
+  const value = new Date(input)
+  value.setHours(0, 0, 0, 0)
+  const weekdayMondayZero = (value.getDay() + 6) % 7
+  value.setDate(value.getDate() - weekdayMondayZero)
+  return value.getTime()
+}
+
+const formatWeekRangeLabel = (weekStartTs: number) => {
+  const start = new Date(weekStartTs)
+  const end = new Date(weekStartTs)
+  end.setDate(end.getDate() + 6)
+  const startLabel = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(start)
+  const endLabel = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(end)
+  return `${startLabel} – ${endLabel}`
+}
+
+const parseMinutesFromClassTime = (classTime: string | null) => {
+  if (!classTime) return null
+  const value = classTime.trim().toUpperCase()
+  if (!value) return null
+  const match = value.match(/(\d{1,2})[:h](\d{2})(?:\s*([AP]M))?/)
+  if (!match) return null
+  let hour = Number(match[1])
+  const minute = Number(match[2])
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) return null
+  const meridiem = match[3]
+  if (meridiem === "PM" && hour < 12) hour += 12
+  if (meridiem === "AM" && hour === 12) hour = 0
+  if (hour < 0 || hour > 23) return null
+  return hour * 60 + minute
+}
+
+const resolveTimeWindowByMinute = (minutes: number) => {
+  if (minutes >= 300 && minutes < 720) return "Morning"
+  if (minutes >= 720 && minutes < 1020) return "Afternoon"
+  if (minutes >= 1020 && minutes < 1320) return "Evening"
+  return "Night"
+}
+
 const formatMoney = (amount: number, currency = "usd") =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -682,6 +1041,42 @@ const formatMinutesLabel = (minutes: number) => {
   return `${hours}h ${restMinutes}m`
 }
 
+const formatDurationLabel = (minutes: number) => {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "0m"
+  const hours = Math.floor(minutes / 60)
+  const restMinutes = minutes % 60
+  if (hours <= 0) return `${restMinutes}m`
+  if (restMinutes <= 0) return `${hours}h`
+  return `${hours}h ${restMinutes}m`
+}
+
+const toUtcCalendarStamp = (value: Date) =>
+  `${value.getUTCFullYear()}${String(value.getUTCMonth() + 1).padStart(2, "0")}${String(value.getUTCDate()).padStart(2, "0")}T${String(
+    value.getUTCHours()
+  ).padStart(2, "0")}${String(value.getUTCMinutes()).padStart(2, "0")}${String(value.getUTCSeconds()).padStart(2, "0")}Z`
+
+const sanitizeWeekdays = (value: unknown): number[] => {
+  if (!Array.isArray(value)) return []
+  const out = value
+    .map((day) => (typeof day === "number" && Number.isInteger(day) && day >= 0 && day <= 6 ? day : null))
+    .filter((day): day is number => day !== null)
+  return Array.from(new Set(out)).sort((a, b) => a - b)
+}
+
+const sanitizeCourseSlugs = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+  const out = value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0)
+  return Array.from(new Set(out)).slice(0, 12)
+}
+
+const sanitizeTimeValue = (value: unknown): string => {
+  if (typeof value !== "string") return ""
+  const trimmed = value.trim()
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(trimmed) ? trimmed : ""
+}
+
 const getInitials = (firstName: string, lastName: string, email: string) => {
   const a = firstName?.trim()?.[0] || ""
   const b = lastName?.trim()?.[0] || ""
@@ -695,6 +1090,65 @@ const getStatusTone = (row: StaffUserRow) => {
   if (row.locked) return "text-amber-300 border-amber-500/40 bg-amber-500/10"
   if (row.online) return "text-emerald-300 border-emerald-500/40 bg-emerald-500/10"
   return "text-zinc-300 border-zinc-500/40 bg-zinc-500/10"
+}
+
+const isCheckedInStatus = (value: PaymentRow["checkInStatus"]) => value === "checked_in" || value === "checked_in_no_package"
+
+const paymentStateLabel = (row: PaymentRow) => {
+  if (row.paymentChannel === "cash") {
+    return row.settlementStatus === "paid" ? "Cash paid" : "Cash pending"
+  }
+  if (row.paymentChannel === "card") {
+    return row.classPaid ? "Card paid" : "Card pending"
+  }
+  if (row.purchaseCategory === "package") {
+    return row.classPaid ? "Package paid" : "Package pending"
+  }
+  return row.classPaid ? "Paid" : "Pending"
+}
+
+const paymentStateTone = (row: PaymentRow) => {
+  if (row.paymentChannel === "cash") {
+    if (row.settlementStatus === "paid") return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
+    return "border-amber-500/45 bg-amber-500/10 text-amber-300"
+  }
+  if (row.classPaid) return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
+  return "border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)]"
+}
+
+const checkInStateLabel = (row: PaymentRow) => {
+  if (row.checkInStatus === "checked_in") return "Check-in"
+  if (row.checkInStatus === "checked_in_no_package") return "Check-in (drop-in)"
+  if (row.checkInStatus === "scheduled") return "Scheduled"
+  return "No check-in"
+}
+
+const checkInStateTone = (row: PaymentRow) => {
+  if (isCheckedInStatus(row.checkInStatus)) return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+  if (row.checkInStatus === "scheduled") return "border-amber-500/45 bg-amber-500/10 text-amber-300"
+  return "border-white/20 bg-white/[0.03] text-white/70"
+}
+
+const matchesPaymentCategory = (row: PaymentRow, category: PaymentCategoryFilter) => {
+  if (category === "cash") return row.paymentChannel === "cash"
+  if (category === "card") return row.paymentChannel === "card" || row.paymentChannel === "unknown"
+  if (category === "packages") return row.purchaseCategory === "package"
+  if (category === "dropin") return row.purchaseCategory === "dropin"
+  return true
+}
+
+const matchesStripeStatus = (row: PaymentRow, filter: "all" | "pending" | "paid") => {
+  if (filter === "all") return true
+  if (filter === "paid") return row.classPaid
+  return !row.classPaid
+}
+
+const splitCustomerName = (name: string, email: string) => {
+  const source = name.trim() || email.trim()
+  const parts = source.split(/\s+/).filter(Boolean)
+  const firstName = parts[0] || ""
+  const lastName = parts.slice(1).join(" ")
+  return { firstName, lastName, fullName: source || "Student" }
 }
 
 const monthKey = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`
@@ -745,15 +1199,20 @@ const previousWeekday = (base: Date, weekday: number) => {
 }
 
 const MIN_LOADING_DELAY_MS = 3000
+const STAFF_PRESENCE_REFRESH_MS = 5_000
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 type StaffUsersAdminClientProps = {
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   currentUserId: string
 }
 
-export default function StaffUsersAdminClient({ currentRole, currentUserId }: StaffUsersAdminClientProps) {
+export default function StaffUsersAdminClient({ currentRole, currentCategory, currentUserId }: StaffUsersAdminClientProps) {
   const searchParams = useSearchParams()
+  const resolvedCurrentCategory: StaffCategory =
+    currentCategory || (currentRole === "owner" ? "partner" : currentRole === "admin" ? "manager" : "guest_staff")
+  const defaultNav = getDefaultStaffPortalSection(currentRole, resolvedCurrentCategory) || "profile"
   const stickyTop = 0
   const gridRef = React.useRef<HTMLDivElement>(null)
   const leftRailRef = React.useRef<HTMLDivElement>(null)
@@ -765,8 +1224,25 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   const [error, setError] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState("")
   const [busyUserId, setBusyUserId] = React.useState<string | null>(null)
-  const [activeNav, setActiveNav] = React.useState("users")
+  const [activeNav, setActiveNav] = React.useState<StaffPortalSection>(defaultNav)
   const [categoryFilter, setCategoryFilter] = React.useState<StaffCategory | "all">("all")
+  const [assistantConfig, setAssistantConfig] = React.useState({
+    tone: "balanced",
+    searchMode: "hybrid",
+    workflow: "operations",
+    includeSources: true,
+    suggestActions: true,
+    requireConfirmation: true,
+  })
+  const [assistantConfigMessage, setAssistantConfigMessage] = React.useState<string | null>(null)
+  const [assistantChatMessages, setAssistantChatMessages] = React.useState<Array<{ id: string; role: "assistant" | "user"; text: string }>>([
+    {
+      id: "assistant-welcome",
+      role: "assistant",
+      text: "Puedo ayudarte con staff, reportes, cursos y terminales. Decime qué necesitás revisar.",
+    },
+  ])
+  const [assistantChatInput, setAssistantChatInput] = React.useState("")
 
   const [email, setEmail] = React.useState("")
   const [firstName, setFirstName] = React.useState("")
@@ -775,26 +1251,28 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   const [newCategory, setNewCategory] = React.useState<StaffCategory>("guest_staff")
   const [createBusy, setCreateBusy] = React.useState(false)
   const [createMessage, setCreateMessage] = React.useState<string | null>(null)
-  const [pinStaffUserId, setPinStaffUserId] = React.useState("")
-  const [pinCode, setPinCode] = React.useState("")
-  const [pinBusy, setPinBusy] = React.useState(false)
-  const [pinMessage, setPinMessage] = React.useState<string | null>(null)
-  const [pinError, setPinError] = React.useState<string | null>(null)
 
   const [scheduleMonth, setScheduleMonth] = React.useState(() => new Date())
+  const [profileScheduleMonth, setProfileScheduleMonth] = React.useState(() => new Date())
   const [scheduleLoading, setScheduleLoading] = React.useState(false)
   const [scheduleEventsByDay, setScheduleEventsByDay] = React.useState<Record<string, ScheduleEvent[]>>({})
 
   const [payments, setPayments] = React.useState<PaymentRow[]>([])
-  const [paymentsSummary, setPaymentsSummary] = React.useState<PaymentSummary>({
-    totalItems: 0,
-    totalCollected: 0,
-    pendingSettlement: 0,
-    paidSettlement: 0,
-  })
   const [paymentsLoading, setPaymentsLoading] = React.useState(false)
   const [paymentsFilter, setPaymentsFilter] = React.useState<"all" | "pending" | "paid">("all")
-  const [paymentBusyId, setPaymentBusyId] = React.useState<string | null>(null)
+  const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("card")
+  const [studentSearchQuery, setStudentSearchQuery] = React.useState("")
+  const [reportsDateFrom, setReportsDateFrom] = React.useState("")
+  const [reportsDateTo, setReportsDateTo] = React.useState("")
+  const [reportsObjectiveFilter, setReportsObjectiveFilter] = React.useState<ReportsObjectiveFilter>("all")
+  const [expandedSuggestionId, setExpandedSuggestionId] = React.useState<string | null>(null)
+  const [doneSuggestionIds, setDoneSuggestionIds] = React.useState<string[]>([])
+  const [remoteReportSuggestions, setRemoteReportSuggestions] = React.useState<ReportsSuggestion[] | null>(null)
+  const [reportSuggestionsProvider, setReportSuggestionsProvider] = React.useState<"local" | "mock" | "custom-http">("local")
+  const [reportSuggestionsLoading, setReportSuggestionsLoading] = React.useState(false)
+  const [reportSuggestionsError, setReportSuggestionsError] = React.useState<string | null>(null)
+  const [selectedPaymentIds, setSelectedPaymentIds] = React.useState<string[]>([])
+  const [paymentsBulkBusyAction, setPaymentsBulkBusyAction] = React.useState<"mark_paid" | "mark_pending" | null>(null)
 
   const [staffRequests, setStaffRequests] = React.useState<StaffRequestRow[]>([])
   const [requestsSummary, setRequestsSummary] = React.useState<StaffRequestSummary>({
@@ -806,7 +1284,21 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   })
   const [requestsLoading, setRequestsLoading] = React.useState(false)
   const [requestStatusFilter, setRequestStatusFilter] = React.useState<StaffRequestStatus | "all">("PENDING")
+  const [profileRequestStatusFilter, setProfileRequestStatusFilter] = React.useState<StaffRequestStatus | "all">("all")
   const [requestBusyId, setRequestBusyId] = React.useState<string | null>(null)
+  const [selfProfileLoading, setSelfProfileLoading] = React.useState(false)
+  const [selfProfileSnapshot, setSelfProfileSnapshot] = React.useState<SelfProfileSnapshot | null>(null)
+  const [profileRequestSubmitting, setProfileRequestSubmitting] = React.useState(false)
+  const [profileRequestSuccess, setProfileRequestSuccess] = React.useState<string | null>(null)
+  const [profileRequestError, setProfileRequestError] = React.useState<string | null>(null)
+  const [profileRequestForm, setProfileRequestForm] = React.useState<ProfileRequestFormState>({
+    type: "STAFF_SCHEDULE_CHANGE",
+    message: "",
+    startDate: "",
+    endDate: "",
+    preferredShift: "",
+    consultTopic: "",
+  })
 
   const [profileModalOpen, setProfileModalOpen] = React.useState(false)
   const [profileTarget, setProfileTarget] = React.useState<StaffUserRow | null>(null)
@@ -854,6 +1346,11 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     level: "Beginner",
     durationMinutes: "55",
     location: "54 Coles St, Jersey City, NJ",
+    publicationMode: "publish_now",
+    launchDate: "",
+    specialDiscountType: "none",
+    specialDiscountCustomLabel: "",
+    specialDiscountPrice: "",
     availableTimesCsv: "",
     active: true,
   })
@@ -868,18 +1365,21 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   const [courseRecurrenceEndsAt, setCourseRecurrenceEndsAt] = React.useState("")
   const [courseScheduleTime, setCourseScheduleTime] = React.useState("10:00")
   const [courseScheduleSlots, setCourseScheduleSlots] = React.useState<CourseScheduleSlot[]>([])
-  const [quickScheduleTimes, setQuickScheduleTimes] = React.useState<string[]>(DEFAULT_QUICK_SCHEDULE_TIMES)
+  const [quickScheduleTimes, setQuickScheduleTimes] = React.useState<string[]>(() => normalizeQuickScheduleTimes(DEFAULT_QUICK_SCHEDULE_TIMES))
   const [editingQuickTimeIndex, setEditingQuickTimeIndex] = React.useState<number | null>(null)
   const [quickTimeDraft, setQuickTimeDraft] = React.useState("")
   const [scheduleTimePickerOpen, setScheduleTimePickerOpen] = React.useState(false)
+  const [reviewPreviewHover, setReviewPreviewHover] = React.useState<"home" | "single" | null>(null)
   const [courseLocalImagePreview, setCourseLocalImagePreview] = React.useState("")
   const [courseLocalVideoPreview, setCourseLocalVideoPreview] = React.useState("")
   const [courseLocalImageName, setCourseLocalImageName] = React.useState("")
   const [courseLocalVideoName, setCourseLocalVideoName] = React.useState("")
+  const [courseMediaUploading, setCourseMediaUploading] = React.useState<null | "image" | "video">(null)
   const [courseHydratedFromQuery, setCourseHydratedFromQuery] = React.useState(false)
   const courseImageInputRef = React.useRef<HTMLInputElement>(null)
   const courseVideoInputRef = React.useRef<HTMLInputElement>(null)
   const scheduleTimePickerRef = React.useRef<HTMLDivElement>(null)
+  const courseFormFieldsRef = React.useRef<HTMLDivElement>(null)
   const [packageForm, setPackageForm] = React.useState<PackageFormState>({
     key: "",
     courseSlug: "",
@@ -934,7 +1434,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
         const nextQuick = parsed.quick
           .map((item) => normalizeClockTime(String(item)))
           .filter((item): item is string => Boolean(item))
-        if (nextQuick.length > 0) setQuickScheduleTimes([...nextQuick].sort((a, b) => a.localeCompare(b)))
+        if (nextQuick.length > 0) setQuickScheduleTimes(normalizeQuickScheduleTimes(nextQuick))
       }
     } catch {
       // ignore corrupted local storage
@@ -955,10 +1455,44 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     }
   }, [quickScheduleTimes])
 
-  const isStudentsView = activeNav === "students"
-  const isSchoolView = activeNav === "schedule"
+  const allowedNavSections = React.useMemo(
+    () => resolveStaffPortalSections(currentRole, resolvedCurrentCategory),
+    [currentRole, resolvedCurrentCategory]
+  )
+  const visibleNavItems = React.useMemo(
+    () => NAV_ITEMS.filter((item) => allowedNavSections.includes(item.key)),
+    [allowedNavSections]
+  )
+  const canAccessUsersNav = allowedNavSections.includes("users")
+  const canAccessStudentsNav = allowedNavSections.includes("students")
+  const canAccessSchoolNav = allowedNavSections.includes("schedule")
+  const canAccessTerminalsNav = allowedNavSections.includes("terminals")
+  const canManageTerminalSetup = currentRole === "owner" || currentRole === "admin"
+  const canAccessReportsNav = allowedNavSections.includes("reports")
+  const canAccessAssistantNav = allowedNavSections.includes("assistant")
+  const canAccessSettingsNav = allowedNavSections.includes("settings")
+  const canAccessProfileNav = allowedNavSections.includes("profile")
+  const isStudentsView = activeNav === "students" && canAccessStudentsNav
+  const isReportsView = activeNav === "reports" && canAccessReportsNav
+  const isSchoolView = activeNav === "schedule" && canAccessSchoolNav
+  const isTerminalView = activeNav === "terminals" && canAccessTerminalsNav
+  const isAssistantView = activeNav === "assistant" && canAccessAssistantNav
+  const isSettingsView = activeNav === "settings" && canAccessSettingsNav
+  const isProfileView = activeNav === "profile" && canAccessProfileNav
   const isSpecialEventCourse = SPECIAL_EVENT_COURSE_KINDS.has(courseForm.kind)
-  const showStaffOps = !isStudentsView && !isSchoolView
+  const showStaffOps = activeNav === "users" && canAccessUsersNav
+  const showRightRail = true
+  const activeNavLabel = React.useMemo(
+    () => visibleNavItems.find((item) => item.key === activeNav)?.label ?? "Current section",
+    [activeNav, visibleNavItems]
+  )
+  React.useEffect(() => {
+    if (allowedNavSections.length === 0) return
+    if (!allowedNavSections.includes(activeNav)) {
+      const next = getDefaultStaffPortalSection(currentRole, resolvedCurrentCategory) || allowedNavSections[0]
+      setActiveNav(next)
+    }
+  }, [activeNav, allowedNavSections, currentRole, resolvedCurrentCategory])
   const assignableRoles = React.useMemo<StaffRole[]>(() => {
     return currentRole === "owner" ? ["owner", "admin", "staff"] : ["admin", "staff"]
   }, [currentRole])
@@ -970,6 +1504,90 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     },
     [currentRole]
   )
+  const selfProfileRow = React.useMemo<StaffUserRow>(
+    () => ({
+      id: currentUserId,
+      email: "",
+      phone: "",
+      avatarUrl: "",
+      location: "",
+      hasPin: false,
+      firstName: profileForm.firstName || "Staff",
+      lastName: profileForm.lastName || "Member",
+      role: currentRole,
+      category: resolvedCurrentCategory,
+      payrollHoursWorked: null,
+      payrollHourlyRate: null,
+      payrollStatus: null,
+      payrollPaydayWeekday: null,
+      payrollDelayEntries: [],
+      performanceRating: null,
+      performanceReviewsCount: null,
+      performanceReviewCycleDays: null,
+      teacherType: "full_time",
+      teacherAssignedUserId: "",
+      teacherRecurrenceUnit: "month",
+      teacherRecurrenceInterval: null,
+      teacherCourseSlugs: [],
+      teacherWeekdays: [],
+      teacherShiftStart: "",
+      teacherShiftEnd: "",
+      teacherWeeklyHours: null,
+      teacherBonusTargetHours: null,
+      banned: false,
+      locked: false,
+      online: false,
+      lastActiveAt: null,
+      staffLastCheckInAt: null,
+      createdAt: Date.now(),
+      lastSignInAt: null,
+    }),
+    [currentRole, currentUserId, profileForm.firstName, profileForm.lastName, resolvedCurrentCategory]
+  )
+  const resolvedSelfProfile = React.useMemo<SelfProfileSnapshot>(() => {
+    if (selfProfileSnapshot) return selfProfileSnapshot
+    return {
+      firstName: profileForm.firstName || "Staff",
+      lastName: profileForm.lastName || "Member",
+      imageUrl: "",
+      location: profileForm.location || "",
+      role: currentRole,
+      category: resolvedCurrentCategory,
+      metrics: {
+        performanceRating: null,
+        performanceReviewsCount: null,
+        performanceReviewCycleDays: null,
+        payrollHoursWorked: null,
+        payrollHourlyRate: null,
+        payrollStatus: null,
+        payrollPaydayWeekday: null,
+      },
+      presence: {
+        online: false,
+        lastSignInAt: null,
+        staffLastCheckInAt: null,
+        status: null,
+      },
+      teaching: {
+        teacherCourseSlugs: [],
+        teacherWeekdays: [],
+        teacherShiftStart: "",
+        teacherShiftEnd: "",
+      },
+    }
+  }, [currentRole, profileForm.firstName, profileForm.lastName, profileForm.location, resolvedCurrentCategory, selfProfileSnapshot])
+  const selfPerformanceScore = React.useMemo(
+    () => computeSelfPerformanceScore(resolvedSelfProfile.metrics),
+    [resolvedSelfProfile.metrics]
+  )
+  const selfRecommendations = React.useMemo(
+    () => buildSelfRecommendations(resolvedSelfProfile.metrics),
+    [resolvedSelfProfile.metrics]
+  )
+  const selectedProfileRequestType = React.useMemo(
+    () => PROFILE_REQUEST_TYPE_OPTIONS.find((item) => item.value === profileRequestForm.type) || PROFILE_REQUEST_TYPE_OPTIONS[0],
+    [profileRequestForm.type]
+  )
   const ensureMinimumLoadingTime = React.useCallback(async (startedAt: number) => {
     const elapsed = Date.now() - startedAt
     if (elapsed < MIN_LOADING_DELAY_MS) {
@@ -980,8 +1598,8 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   const handleStaffAuthFailure = React.useCallback((status: number) => {
     if (typeof window === "undefined") return false
     if (status === 401) {
-      setError("Staff session expired. Please sign in again.")
-      window.location.href = "/staff/sign-in?next=/staff/portal"
+      setError("Staff session expired. Please validate your PIN again.")
+      window.location.href = "/staff/checkin"
       return true
     }
     if (status === 403) {
@@ -1006,7 +1624,10 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       const url = new URL("/api/staff/users", window.location.origin)
       if (search?.trim()) url.searchParams.set("q", search.trim())
       if (category && category !== "all") url.searchParams.set("category", category)
-      const res = await fetch(url.toString(), { headers: { "Content-Type": "application/json" } })
+      const res = await fetch(url.toString(), {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+      })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
@@ -1045,14 +1666,11 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
-  const fetchPayments = React.useCallback(async (settlementFilter: "all" | "pending" | "paid" = "all") => {
+  const fetchPayments = React.useCallback(async () => {
     const startedAt = Date.now()
     setPaymentsLoading(true)
     try {
       const url = new URL("/api/staff/payments", window.location.origin)
-      if (settlementFilter !== "all") {
-        url.searchParams.set("settlement", settlementFilter)
-      }
       const res = await fetch(url.toString(), { headers: { "Content-Type": "application/json" } })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -1062,14 +1680,6 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
         return
       }
       setPayments(Array.isArray(data?.items) ? data.items : [])
-      setPaymentsSummary(
-        data?.summary || {
-          totalItems: 0,
-          totalCollected: 0,
-          pendingSettlement: 0,
-          paidSettlement: 0,
-        }
-      )
     } catch {
       setError("Network error while loading payments")
       setPayments([])
@@ -1079,13 +1689,23 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
-  const fetchStaffRequests = React.useCallback(async (status: StaffRequestStatus | "all" = "PENDING") => {
+  const fetchStaffRequests = React.useCallback(
+    async (
+      status: StaffRequestStatus | "all" = "PENDING",
+      options?: {
+        scope?: "all" | "mine"
+      }
+    ) => {
     const startedAt = Date.now()
     setRequestsLoading(true)
     try {
       const url = new URL("/api/staff/requests", window.location.origin)
+      const scope = options?.scope || "all"
       if (status !== "all") {
         url.searchParams.set("status", status)
+      }
+      if (scope === "mine") {
+        url.searchParams.set("scope", "mine")
       }
       const res = await fetch(url.toString(), { headers: { "Content-Type": "application/json" } })
       const data = await res.json().catch(() => ({}))
@@ -1113,6 +1733,164 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       setRequestsLoading(false)
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
+
+  const fetchSelfProfile = React.useCallback(async () => {
+    const startedAt = Date.now()
+    setSelfProfileLoading(true)
+    try {
+      const res = await fetch(`/api/staff/users/${currentUserId}/profile`, {
+        headers: { "Content-Type": "application/json" },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setProfileRequestError(typeof data?.error === "string" ? data.error : "Failed to load your profile.")
+        return
+      }
+      const user = (data?.user || {}) as Record<string, unknown>
+      const profile = (user.profile || {}) as Record<string, unknown>
+      const metrics = (user.metrics || {}) as Record<string, unknown>
+      const presence = (user.presence || {}) as Record<string, unknown>
+      const teaching = (user.teaching || {}) as Record<string, unknown>
+      const firstName = typeof user.firstName === "string" ? user.firstName : ""
+      const lastName = typeof user.lastName === "string" ? user.lastName : ""
+      const imageUrl = typeof user.imageUrl === "string" ? user.imageUrl : ""
+      const location = typeof profile.location === "string" ? profile.location : ""
+      const lastCheckInIso = typeof presence.staffLastCheckInAt === "string" ? presence.staffLastCheckInAt : ""
+      const parsedLastCheckIn = lastCheckInIso ? Date.parse(lastCheckInIso) : Number.NaN
+      const statusValue = presence.status === "online" || presence.status === "offline" ? presence.status : null
+      const nextRole: StaffRole =
+        user?.role === "owner" || user?.role === "admin" || user?.role === "staff" ? user.role : currentRole
+      const nextCategory: StaffCategory =
+        user?.category === "front_desk" ||
+        user?.category === "manager" ||
+        user?.category === "teacher" ||
+        user?.category === "guest_staff" ||
+        user?.category === "partner"
+          ? user.category
+          : resolvedCurrentCategory
+
+      setSelfProfileSnapshot({
+        firstName,
+        lastName,
+        imageUrl,
+        location,
+        role: nextRole,
+        category: nextCategory,
+        metrics: {
+          performanceRating:
+            typeof metrics.performanceRating === "number" && Number.isFinite(metrics.performanceRating)
+              ? metrics.performanceRating
+              : null,
+          performanceReviewsCount:
+            typeof metrics.performanceReviewsCount === "number" && Number.isFinite(metrics.performanceReviewsCount)
+              ? metrics.performanceReviewsCount
+              : null,
+          performanceReviewCycleDays:
+            typeof metrics.performanceReviewCycleDays === "number" && Number.isFinite(metrics.performanceReviewCycleDays)
+              ? metrics.performanceReviewCycleDays
+              : null,
+          payrollHoursWorked:
+            typeof metrics.payrollHoursWorked === "number" && Number.isFinite(metrics.payrollHoursWorked)
+              ? metrics.payrollHoursWorked
+              : null,
+          payrollHourlyRate:
+            typeof metrics.payrollHourlyRate === "number" && Number.isFinite(metrics.payrollHourlyRate)
+              ? metrics.payrollHourlyRate
+              : null,
+          payrollStatus: metrics.payrollStatus === "paid" || metrics.payrollStatus === "pending" ? metrics.payrollStatus : null,
+          payrollPaydayWeekday:
+            typeof metrics.payrollPaydayWeekday === "number" &&
+            Number.isInteger(metrics.payrollPaydayWeekday) &&
+            metrics.payrollPaydayWeekday >= 0 &&
+            metrics.payrollPaydayWeekday <= 6
+              ? metrics.payrollPaydayWeekday
+              : null,
+        },
+        presence: {
+          online: Boolean(presence.online),
+          lastSignInAt:
+            typeof presence.lastSignInAt === "number" && Number.isFinite(presence.lastSignInAt)
+              ? presence.lastSignInAt
+              : null,
+          staffLastCheckInAt: Number.isFinite(parsedLastCheckIn) ? parsedLastCheckIn : null,
+          status: statusValue,
+        },
+        teaching: {
+          teacherCourseSlugs: sanitizeCourseSlugs(teaching.teacherCourseSlugs),
+          teacherWeekdays: sanitizeWeekdays(teaching.teacherWeekdays),
+          teacherShiftStart: sanitizeTimeValue(teaching.teacherShiftStart),
+          teacherShiftEnd: sanitizeTimeValue(teaching.teacherShiftEnd),
+        },
+      })
+
+      setProfileForm((prev) => ({
+        ...prev,
+        firstName: firstName || prev.firstName,
+        lastName: lastName || prev.lastName,
+        location: location || prev.location,
+        role: nextRole,
+        category: normalizeCategoryForRole(nextRole, nextCategory),
+      }))
+    } catch {
+      setProfileRequestError("Network error while loading your profile.")
+    } finally {
+      await ensureMinimumLoadingTime(startedAt)
+      setSelfProfileLoading(false)
+    }
+  }, [currentRole, currentUserId, ensureMinimumLoadingTime, handleStaffAuthFailure, resolvedCurrentCategory])
+
+  const submitProfileRequest = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setProfileRequestSubmitting(true)
+    setProfileRequestError(null)
+    setProfileRequestSuccess(null)
+
+    const message = profileRequestForm.message.trim()
+    if (message.length < 6) {
+      setProfileRequestError("Add more detail in the request message.")
+      setProfileRequestSubmitting(false)
+      return
+    }
+
+    const meta: Record<string, unknown> = {}
+    if (profileRequestForm.startDate) meta.startDate = profileRequestForm.startDate
+    if (profileRequestForm.endDate) meta.endDate = profileRequestForm.endDate
+    if (profileRequestForm.preferredShift.trim()) meta.preferredShift = profileRequestForm.preferredShift.trim()
+    if (profileRequestForm.consultTopic.trim()) meta.consultTopic = profileRequestForm.consultTopic.trim()
+
+    try {
+      const res = await fetch("/api/staff/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: profileRequestForm.type,
+          message,
+          meta,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setProfileRequestError(typeof data?.error === "string" ? data.error : "Unable to submit request.")
+        return
+      }
+      setProfileRequestSuccess("Request submitted. Staff management will review it shortly.")
+      setProfileRequestForm((prev) => ({
+        ...prev,
+        message: "",
+        startDate: "",
+        endDate: "",
+        preferredShift: "",
+        consultTopic: "",
+      }))
+      await fetchStaffRequests(profileRequestStatusFilter, { scope: "mine" })
+    } catch {
+      setProfileRequestError("Network error while submitting request.")
+    } finally {
+      setProfileRequestSubmitting(false)
+    }
+  }, [fetchStaffRequests, handleStaffAuthFailure, profileRequestForm, profileRequestStatusFilter])
 
   const fetchSchoolData = React.useCallback(async (options?: { showLoader?: boolean }) => {
     const showLoader = options?.showLoader ?? true
@@ -1156,6 +1934,55 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
+  const resetCourseBuilder = React.useCallback(() => {
+    setCourseForm({
+      slug: "",
+      title: "",
+      kind: "course",
+      category: "",
+      description: "",
+      previewImageUrl: "",
+      previewVideoUrl: "",
+      dropInPriceCents: "",
+      firstClassPriceCents: "",
+      level: "Beginner",
+      durationMinutes: "55",
+      location: "54 Coles St, Jersey City, NJ",
+      publicationMode: "publish_now",
+      launchDate: "",
+      specialDiscountType: "none",
+      specialDiscountCustomLabel: "",
+      specialDiscountPrice: "",
+      availableTimesCsv: "",
+      active: true,
+    })
+    setCourseWeekdays([])
+    setCourseScheduleDate("")
+    setCourseScheduleDates([])
+    setCourseRecurringWeekdays([])
+    setCourseMirrorEnabled(false)
+    setCourseMirrorWeekdays([])
+    setCourseRepeatAllMonth(true)
+    setCourseRecurrenceMode("indefinite")
+    setCourseRecurrenceEndsAt("")
+    setCourseScheduleTime(normalizeClockTime(quickScheduleTimes[0] || "") || "10:00")
+    setCourseScheduleSlots([])
+    setEditingQuickTimeIndex(null)
+    setQuickTimeDraft("")
+    setScheduleTimePickerOpen(false)
+    setCourseHydratedFromQuery(false)
+    setCourseLocalImagePreview((prev) => {
+      if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
+      return ""
+    })
+    setCourseLocalVideoPreview((prev) => {
+      if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
+      return ""
+    })
+    setCourseLocalImageName("")
+    setCourseLocalVideoName("")
+  }, [quickScheduleTimes])
+
   const saveCourseCatalog = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
     setSchoolError(null)
@@ -1171,6 +1998,14 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
         .filter(Boolean)
       const times = derivedSchedule.times.length > 0 ? derivedSchedule.times : fallbackTimes
       const weekdays = derivedSchedule.weekdays.length > 0 ? derivedSchedule.weekdays : courseWeekdays
+      if (courseForm.publicationMode === "launch_date" && !ISO_DATE_REGEX.test(courseForm.launchDate.trim())) {
+        setSchoolError("Select a valid launch date for Launch date mode.")
+        return
+      }
+      if (courseForm.specialDiscountType === "custom" && !courseForm.specialDiscountCustomLabel.trim()) {
+        setSchoolError("Write a custom discount label.")
+        return
+      }
       const scheduleRulesPayload: CourseScheduleRulesPayload | null = (() => {
         const rules =
           isSpecialEventCourse
@@ -1181,7 +2016,39 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
               ? weekdays.map((weekday) => ({ weekday, times }))
               : []
         const specialEvents = derivedSpecialEvents
-        if (rules.length === 0 && specialEvents.length === 0) return null
+        const publicationMode: CoursePublicationMode =
+          courseForm.publicationMode === "coming_soon" || courseForm.publicationMode === "launch_date"
+            ? courseForm.publicationMode
+            : "publish_now"
+        const launchDateRaw = courseForm.launchDate.trim()
+        const launchDate =
+          publicationMode === "launch_date" && ISO_DATE_REGEX.test(launchDateRaw)
+            ? launchDateRaw
+            : null
+        const publication: CoursePublicationSettings = {
+          mode: publicationMode,
+          launchDate,
+        }
+
+        const specialDiscountType: CourseSpecialDiscountType =
+          courseForm.specialDiscountType === "valentines_desc" ||
+          courseForm.specialDiscountType === "christmas_desc" ||
+          courseForm.specialDiscountType === "custom"
+            ? courseForm.specialDiscountType
+            : "none"
+        const specialDiscountLabelRaw = courseForm.specialDiscountCustomLabel.trim()
+        const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
+        const specialDiscountPriceCents = usdInputToCents(courseForm.specialDiscountPrice)
+        const specialDiscount: CourseSpecialDiscountSettings = {
+          type: specialDiscountType,
+          label: specialDiscountLabel,
+          priceCents: specialDiscountType === "none" ? null : specialDiscountPriceCents,
+        }
+
+        const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
+        const hasSpecialDiscount =
+          specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
+        if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
         const derivedWeeklyTarget = [...new Set(rules.map((rule) => rule.weekday))].length
         return {
           mode: isSpecialEventCourse ? "special_event" : "regular",
@@ -1192,6 +2059,8 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
             courseRecurrenceMode === "until_date" && courseRecurrenceEndsAt.trim() ? courseRecurrenceEndsAt.trim() : null,
           rules,
           specialEvents,
+          publication,
+          specialDiscount,
         }
       })()
       const res = await fetch("/api/staff/school/courses", {
@@ -1223,41 +2092,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       }
       setSchoolSuccess(typeof data?.message === "string" ? data.message : "Course saved.")
       await fetchSchoolData({ showLoader: false })
-      setCourseForm((prev) => ({
-        ...prev,
-        slug: "",
-        title: "",
-        description: "",
-        previewImageUrl: "",
-        previewVideoUrl: "",
-        dropInPriceCents: "",
-        firstClassPriceCents: "",
-        availableTimesCsv: "",
-      }))
-      setCourseWeekdays([])
-      setCourseScheduleDate("")
-      setCourseScheduleDates([])
-      setCourseRecurringWeekdays([])
-      setCourseMirrorEnabled(false)
-      setCourseMirrorWeekdays([])
-      setCourseRepeatAllMonth(true)
-      setCourseRecurrenceMode("indefinite")
-      setCourseRecurrenceEndsAt("")
-      setCourseScheduleSlots([])
-      setEditingQuickTimeIndex(null)
-      setQuickTimeDraft("")
-      setScheduleTimePickerOpen(false)
-      setCourseHydratedFromQuery(false)
-      setCourseLocalImagePreview((prev) => {
-        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-        return ""
-      })
-      setCourseLocalVideoPreview((prev) => {
-        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-        return ""
-      })
-      setCourseLocalImageName("")
-      setCourseLocalVideoName("")
+      resetCourseBuilder()
     } catch {
       setSchoolError("Network error while saving course.")
     } finally {
@@ -1273,6 +2108,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     courseWeekdays,
     fetchSchoolData,
     isSpecialEventCourse,
+    resetCourseBuilder,
   ])
 
   const savePackagePlan = React.useCallback(async (event: React.FormEvent) => {
@@ -1446,20 +2282,26 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   }, [ensureMinimumLoadingTime])
 
   React.useEffect(() => {
+    if (!canAccessUsersNav) {
+      setLoading(false)
+      setRows([])
+      return
+    }
     fetchRows(undefined, categoryFilter)
-  }, [fetchRows, categoryFilter])
+  }, [canAccessUsersNav, fetchRows, categoryFilter])
 
   React.useEffect(() => {
+    if (!canAccessUsersNav) return
     const interval = window.setInterval(() => {
       void fetchRows(query, categoryFilter, { showLoader: false, enforceMinDelay: false })
-    }, 60_000)
+    }, STAFF_PRESENCE_REFRESH_MS)
     return () => window.clearInterval(interval)
-  }, [fetchRows, query, categoryFilter])
+  }, [canAccessUsersNav, fetchRows, query, categoryFilter])
 
   React.useEffect(() => {
     const interval = window.setInterval(() => {
       setNowTs(Date.now())
-    }, 60_000)
+    }, STAFF_PRESENCE_REFRESH_MS)
     return () => window.clearInterval(interval)
   }, [])
 
@@ -1475,45 +2317,42 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     return () => document.removeEventListener("mousedown", onPointerDown)
   }, [presenceMenuUserId])
 
-  const selectedPinStaff = React.useMemo(
-    () => rows.find((row) => row.id === pinStaffUserId) || null,
-    [rows, pinStaffUserId]
-  )
-
   React.useEffect(() => {
-    if (rows.length === 0) {
-      setPinStaffUserId("")
-      return
-    }
-    const stillExists = rows.some((row) => row.id === pinStaffUserId)
-    if (stillExists) return
-    const firstWithPin = rows.find((row) => row.hasPin)
-    setPinStaffUserId((firstWithPin || rows[0]).id)
-  }, [rows, pinStaffUserId])
-
-  React.useEffect(() => {
+    if (!canAccessSchoolNav) return
     fetchSchedule(scheduleMonth)
-  }, [fetchSchedule, scheduleMonth])
+  }, [canAccessSchoolNav, fetchSchedule, scheduleMonth])
 
   React.useEffect(() => {
-    fetchPayments(paymentsFilter)
-  }, [fetchPayments, paymentsFilter])
+    if (!canAccessStudentsNav) return
+    fetchPayments()
+  }, [canAccessStudentsNav, fetchPayments])
 
   React.useEffect(() => {
-    fetchStaffRequests(requestStatusFilter)
-  }, [fetchStaffRequests, requestStatusFilter])
+    if (!canAccessUsersNav) return
+    fetchStaffRequests(requestStatusFilter, { scope: "all" })
+  }, [canAccessUsersNav, fetchStaffRequests, requestStatusFilter])
 
   React.useEffect(() => {
-    if (!isSchoolView) return
+    if (!isProfileView || !canAccessProfileNav) return
+    void fetchSelfProfile()
+  }, [canAccessProfileNav, fetchSelfProfile, isProfileView])
+
+  React.useEffect(() => {
+    if (!isProfileView || !canAccessProfileNav) return
+    void fetchStaffRequests(profileRequestStatusFilter, { scope: "mine" })
+  }, [canAccessProfileNav, fetchStaffRequests, isProfileView, profileRequestStatusFilter])
+
+  React.useEffect(() => {
+    if (!canAccessSchoolNav || !isSchoolView) return
     void fetchSchoolData({ showLoader: true })
-  }, [fetchSchoolData, isSchoolView])
+  }, [canAccessSchoolNav, fetchSchoolData, isSchoolView])
 
   React.useEffect(() => {
     const nav = searchParams.get("nav")
     if (!nav) return
-    if (!NAV_ITEMS.some((item) => item.key === nav)) return
-    setActiveNav(nav)
-  }, [searchParams])
+    if (!allowedNavSections.includes(nav as StaffPortalSection)) return
+    setActiveNav(nav as StaffPortalSection)
+  }, [allowedNavSections, searchParams])
 
   React.useEffect(() => {
     const selectedSlug = searchParams.get("course")
@@ -1532,6 +2371,14 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     const defaultTimes = parsedRules
       ? [...new Set(parsedRules.rules.flatMap((rule) => rule.times).map((time) => normalizeClockTime(time)).filter(Boolean))].sort()
       : selected.availableTimes.map((time) => normalizeClockTime(time)).filter(Boolean)
+    const publicationMode = parsedRules?.publication?.mode || "publish_now"
+    const launchDate = publicationMode === "launch_date" ? parsedRules?.publication?.launchDate || "" : ""
+    const specialDiscountType = parsedRules?.specialDiscount?.type || "none"
+    const specialDiscountCustomLabel = specialDiscountType === "custom" ? parsedRules?.specialDiscount?.label || "" : ""
+    const specialDiscountPrice =
+      parsedRules?.specialDiscount?.priceCents !== null && parsedRules?.specialDiscount?.priceCents !== undefined
+        ? centsToUsdInput(parsedRules.specialDiscount.priceCents)
+        : ""
     setCourseForm((prev) => ({
       ...prev,
       slug: selected.slug,
@@ -1546,6 +2393,11 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       level: selected.level || "",
       durationMinutes: selected.durationMinutes?.toString() || "",
       location: selected.location || "",
+      publicationMode,
+      launchDate,
+      specialDiscountType,
+      specialDiscountCustomLabel,
+      specialDiscountPrice,
       availableTimesCsv: selected.availableTimes.join(","),
       active: selected.active,
     }))
@@ -1557,10 +2409,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     setCourseRecurrenceEndsAt(parsedRules?.recurrenceEndsAt || "")
     setCourseMirrorEnabled(false)
     setCourseMirrorWeekdays([])
-    setQuickScheduleTimes((prev) => {
-      const merged = [...new Set([...defaultTimes, ...prev])].sort((a, b) => a.localeCompare(b))
-      return merged.slice(0, Math.max(prev.length, DEFAULT_QUICK_SCHEDULE_TIMES.length))
-    })
+    setQuickScheduleTimes((prev) => normalizeQuickScheduleTimes([...defaultTimes, ...prev]))
     setEditingQuickTimeIndex(null)
     setQuickTimeDraft("")
     setScheduleTimePickerOpen(false)
@@ -1627,7 +2476,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     (isoDate: string) => {
       const times = scheduleCalendarMap.get(isoDate)
       if (!times || times.length === 0) return undefined
-      return `${courseForm.title || "Curso"} · ${times.map((time) => formatClockLabel(time)).join(", ")}`
+      return `${courseForm.title || "Course"} · ${times.map((time) => formatClockLabel(time)).join(", ")}`
     },
     [courseForm.title, scheduleCalendarMap]
   )
@@ -1641,7 +2490,11 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   )
 
   const previewMediaUrl = courseLocalImagePreview || courseForm.previewImageUrl.trim()
-  const selectedCourseKindLabel = COURSE_KIND_LABELS[courseForm.kind] || "Curso"
+  const previewVideoUrl = courseLocalVideoPreview || courseForm.previewVideoUrl.trim()
+  const embedPreviewVideoUrl = toEmbedVideoUrl(previewVideoUrl)
+  const isEmbedPreviewVideo = isEmbedVideoUrl(embedPreviewVideoUrl)
+  const previewVideoSource = isEmbedPreviewVideo ? toAutoplayEmbedUrl(embedPreviewVideoUrl) : previewVideoUrl
+  const selectedCourseKindLabel = COURSE_KIND_LABELS[courseForm.kind] || "Course"
   const selectedCourseKindReviewLabel = `Review del ${selectedCourseKindLabel.toLowerCase()}`
   const courseReviewVariants = React.useMemo(
     () =>
@@ -1656,7 +2509,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   const previewEditorHref = courseForm.slug.trim()
     ? `/staff/school/course/${courseForm.slug.trim()}`
     : "/staff/portal?nav=schedule"
-  const previewPublicHref = courseForm.slug.trim() ? `/cursos/${courseForm.slug.trim()}` : ""
+  const previewPublicHref = courseForm.slug.trim() ? `/courses/${courseForm.slug.trim()}` : ""
 
   const getCourseShareUrl = React.useCallback(() => {
     if (!previewPublicHref) return ""
@@ -1669,10 +2522,10 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     if (!link) return
     try {
       await navigator.clipboard.writeText(link)
-      setSchoolSuccess("Link del curso copiado.")
+      setSchoolSuccess("Course link copied.")
       setSchoolError(null)
     } catch {
-      setSchoolError("No se pudo copiar el link del curso.")
+      setSchoolError("Could not copy the course link.")
     }
   }, [getCourseShareUrl])
 
@@ -1681,17 +2534,17 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       const link = getCourseShareUrl()
       if (!link || typeof window === "undefined") return
       const encodedUrl = encodeURIComponent(link)
-      const text = encodeURIComponent(`Mirá este curso: ${courseForm.title || "Nuevo curso PLI"}`)
+      const text = encodeURIComponent(`Check out this course: ${courseForm.title || "New PLI course"}`)
       if (platform === "instagram" || platform === "tiktok") {
         if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
           void navigator.clipboard
             .writeText(link)
             .then(() => {
-              setSchoolSuccess("Link copiado. Pegalo en la publicación de la red social.")
+              setSchoolSuccess("Link copied. Paste it into your social media post.")
               setSchoolError(null)
             })
             .catch(() => {
-              setSchoolError("No se pudo copiar el link del curso.")
+              setSchoolError("Could not copy the course link.")
             })
         }
         const socialHref = platform === "instagram" ? "https://www.instagram.com/" : "https://www.tiktok.com/"
@@ -1716,12 +2569,12 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     if (isSpecialEventCourse) {
       const dates = courseScheduleDates.length > 0 ? courseScheduleDates : []
       if (dates.length === 0) {
-        setSchoolError("Seleccioná al menos una fecha en el calendario para conectar el horario del evento.")
+        setSchoolError("Select at least one date in the calendar to connect the event time slot.")
         return
       }
       const blockedDate = dates.find((date) => getSpecialEventConflictReason(date, time))
       if (blockedDate) {
-        setSchoolError(getSpecialEventConflictReason(blockedDate, time) || "Ese horario ya está ocupado.")
+        setSchoolError(getSpecialEventConflictReason(blockedDate, time) || "That time slot is already occupied.")
         return
       }
       setCourseScheduleSlots((prev) => {
@@ -1749,9 +2602,9 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     const recurringWeekdays = [...new Set([...recurringBase, ...mirrorWeekdays])].sort((a, b) => a - b)
     if (recurringWeekdays.length === 0) return
     if (!quickScheduleTimes.includes(time) && typeof window !== "undefined") {
-      const shouldAddShortcut = window.confirm("¿Querés agregar este horario a tus atajos?")
+      const shouldAddShortcut = window.confirm("Do you want to add this time slot to your shortcuts?")
       if (shouldAddShortcut) {
-        setQuickScheduleTimes((prev) => [...new Set([...prev, time])].sort((a, b) => a.localeCompare(b)))
+        setQuickScheduleTimes((prev) => normalizeQuickScheduleTimes([...prev, time]))
       }
     }
     setCourseScheduleSlots((prev) => {
@@ -1801,29 +2654,108 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     })
   }, [])
 
-  const handleCourseLocalImage = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith("image/")) return
-    const nextUrl = URL.createObjectURL(file)
-    setCourseLocalImagePreview((prev) => {
-      if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-      return nextUrl
-    })
-    setCourseLocalImageName(file.name)
-  }, [])
+  const uploadCourseMedia = React.useCallback(
+    async (file: File, kind: "image" | "video"): Promise<string | null> => {
+      const payload = new FormData()
+      payload.set("file", file)
+      payload.set("kind", kind)
 
-  const handleCourseLocalVideo = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith("video/")) return
-    const nextUrl = URL.createObjectURL(file)
-    setCourseLocalVideoPreview((prev) => {
-      if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-      return nextUrl
-    })
-    setCourseLocalVideoName(file.name)
-  }, [])
+      try {
+        const res = await fetch("/api/staff/school/courses/upload", {
+          method: "POST",
+          body: payload,
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          if (handleStaffAuthFailure(res.status)) return null
+          setSchoolError(typeof data?.error === "string" ? data.error : `Unable to upload ${kind}.`)
+          return null
+        }
+        const uploadedUrl = typeof data?.url === "string" ? data.url.trim() : ""
+        if (!uploadedUrl) {
+          setSchoolError(`Upload completed but ${kind} URL was empty.`)
+          return null
+        }
+        return uploadedUrl
+      } catch {
+        setSchoolError(`Network error while uploading ${kind}.`)
+        return null
+      }
+    },
+    [handleStaffAuthFailure]
+  )
+
+  const handleCourseLocalImage = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (!file) return
+      if (!file.type.startsWith("image/")) {
+        setSchoolError("Please choose a valid image file.")
+        event.target.value = ""
+        return
+      }
+
+      setSchoolError(null)
+      setSchoolSuccess(null)
+      const localPreviewUrl = URL.createObjectURL(file)
+      setCourseLocalImagePreview((prev) => {
+        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
+        return localPreviewUrl
+      })
+      setCourseMediaUploading("image")
+      try {
+        const uploadedUrl = await uploadCourseMedia(file, "image")
+        if (!uploadedUrl) return
+        setCourseForm((prev) => ({ ...prev, previewImageUrl: uploadedUrl }))
+        setCourseLocalImagePreview((prev) => {
+          if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
+          return uploadedUrl
+        })
+        setCourseLocalImageName(file.name)
+        setSchoolSuccess("Course image uploaded and linked. Save course to publish.")
+      } finally {
+        setCourseMediaUploading((prev) => (prev === "image" ? null : prev))
+        event.target.value = ""
+      }
+    },
+    [uploadCourseMedia]
+  )
+
+  const handleCourseLocalVideo = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (!file) return
+      if (!file.type.startsWith("video/")) {
+        setSchoolError("Please choose a valid video file.")
+        event.target.value = ""
+        return
+      }
+
+      setSchoolError(null)
+      setSchoolSuccess(null)
+      const localPreviewUrl = URL.createObjectURL(file)
+      setCourseLocalVideoPreview((prev) => {
+        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
+        return localPreviewUrl
+      })
+      setCourseMediaUploading("video")
+      try {
+        const uploadedUrl = await uploadCourseMedia(file, "video")
+        if (!uploadedUrl) return
+        setCourseForm((prev) => ({ ...prev, previewVideoUrl: uploadedUrl }))
+        setCourseLocalVideoPreview((prev) => {
+          if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
+          return uploadedUrl
+        })
+        setCourseLocalVideoName(file.name)
+        setSchoolSuccess("Course video uploaded and linked. Save course to publish.")
+      } finally {
+        setCourseMediaUploading((prev) => (prev === "video" ? null : prev))
+        event.target.value = ""
+      }
+    },
+    [uploadCourseMedia]
+  )
 
   const runAction = async (userId: string, action: string, payload?: Record<string, unknown>) => {
     setBusyUserId(userId)
@@ -1868,25 +2800,27 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     }
   }
 
-  const updateSettlementStatus = async (purchaseId: string, action: "mark_paid" | "mark_pending") => {
-    setPaymentBusyId(purchaseId)
+  const updateSettlementBulk = async (action: "mark_paid" | "mark_pending", ids: string[]) => {
+    if (ids.length === 0) return
+    setPaymentsBulkBusyAction(action)
     setError(null)
     try {
-      const res = await fetch(`/api/staff/payments/${purchaseId}`, {
-        method: "PATCH",
+      const res = await fetch("/api/staff/payments/bulk", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, ids }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(typeof data?.error === "string" ? data.error : "Failed to update settlement")
+        setError(typeof data?.error === "string" ? data.error : "Failed to update settlement in bulk")
         return
       }
-      await fetchPayments(paymentsFilter)
+      await fetchPayments()
+      setSelectedPaymentIds((prev) => prev.filter((id) => !ids.includes(id)))
     } catch {
-      setError("Network error while updating settlement")
+      setError("Network error while updating settlement in bulk")
     } finally {
-      setPaymentBusyId(null)
+      setPaymentsBulkBusyAction(null)
     }
   }
 
@@ -1904,7 +2838,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
         setError(typeof data?.error === "string" ? data.error : "Failed to update request")
         return
       }
-      await fetchStaffRequests(requestStatusFilter)
+      await fetchStaffRequests(requestStatusFilter, { scope: "all" })
     } catch {
       setError("Network error while updating request")
     } finally {
@@ -1943,7 +2877,12 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       }
       setProfileHasPin(Boolean(data?.user?.hasPin))
       setProfileForm((prev) => ({ ...prev, pin: "", clearPin: false }))
-      await fetchRows(query, categoryFilter)
+      if (canAccessUsersNav) {
+        await fetchRows(query, categoryFilter)
+      }
+      if (profileTarget.id === currentUserId) {
+        await fetchSelfProfile()
+      }
       closeProfileModal()
     } catch {
       setProfileError("Network error while saving profile")
@@ -2064,72 +3003,6 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       setError("Network error while creating staff user")
     } finally {
       setCreateBusy(false)
-    }
-  }
-
-  const verifyStaffPin = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setPinError(null)
-    setPinMessage(null)
-    if (!selectedPinStaff) {
-      setPinError("Select staff user.")
-      return
-    }
-    if (!selectedPinStaff.hasPin) {
-      setPinError("Selected user does not have a PIN configured yet.")
-      return
-    }
-    const safeEmail = selectedPinStaff.email.trim().toLowerCase()
-    const safePin = pinCode.trim()
-    if (!/^\d{4}$/.test(safePin)) {
-      setPinError("PIN must be exactly 4 digits.")
-      return
-    }
-    setPinBusy(true)
-    try {
-      const res = await fetch("/api/staff/checkin/pin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: selectedPinStaff.id, pin: safePin }),
-      })
-      const data = await res.json().catch(() => ({} as Record<string, unknown>))
-      if (!res.ok) {
-        setPinError(typeof data?.error === "string" ? data.error : "Invalid PIN")
-        return
-      }
-      const name =
-        typeof data?.staff?.name === "string" && data.staff.name.trim()
-          ? data.staff.name.trim()
-          : `${selectedPinStaff.firstName} ${selectedPinStaff.lastName}`.trim() || safeEmail
-      const checkedInAtMs =
-        typeof data?.checkedInAt === "string" && Number.isFinite(Date.parse(data.checkedInAt))
-          ? Date.parse(data.checkedInAt)
-          : Date.now()
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === selectedPinStaff.id
-            ? {
-                ...row,
-                online: true,
-                lastActiveAt: checkedInAtMs,
-                lastSignInAt: checkedInAtMs,
-                staffLastCheckInAt: checkedInAtMs,
-              }
-            : row
-        )
-      )
-      setPinMessage(`Check-in registrado para ${name}. Abriendo panel...`)
-      setPinCode("")
-      const signInUrl = typeof data?.signInUrl === "string" ? data.signInUrl : ""
-      if (signInUrl) {
-        window.setTimeout(() => {
-          window.location.assign(signInUrl)
-        }, 450)
-      }
-    } catch {
-      setPinError("Network error while verifying PIN")
-    } finally {
-      setPinBusy(false)
     }
   }
 
@@ -2337,8 +3210,8 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
   const regularScheduleWarningMessage = React.useMemo(() => {
     if (regularSlotsBlockedByEvents.length === 0) return null
     const first = regularSlotsBlockedByEvents[0]
-    const next = regularSlotsBlockedByEvents.length > 1 ? ` +${regularSlotsBlockedByEvents.length - 1} más` : ""
-    return `Warning: hay eventos especiales que chocan con este horario (${first.date} · ${formatClockLabel(first.time)} · ${first.title}${next}). Ese día se salta la clase regular y continúa en el próximo día disponible.`
+    const next = regularSlotsBlockedByEvents.length > 1 ? ` +${regularSlotsBlockedByEvents.length - 1} more` : ""
+    return `Warning: there are special events that conflict with this time slot (${first.date} · ${formatClockLabel(first.time)} · ${first.title}${next}). That day skips the regular class and continues on the next available day.`
   }, [regularSlotsBlockedByEvents])
 
   const getSpecialEventConflictReason = React.useCallback(
@@ -2347,13 +3220,13 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       if (!time || !ISO_DATE_REGEX.test(isoDate)) return undefined
       const existingDateSlot = externalSpecialEventSlotMap.get(`${isoDate}|${time}`)
       if (existingDateSlot && existingDateSlot.length > 0) {
-        return `Bloqueado: ${existingDateSlot[0].title} ya usa ${formatClockLabel(time)} ese día.`
+        return `Blocked: ${existingDateSlot[0].title} already uses ${formatClockLabel(time)} that day.`
       }
       const weekday = toCourseScheduleWeekday(isoDate)
       if (weekday !== null) {
         const recurring = externalRecurringSlotsMap.get(`${weekday}|${time}`)
         if (recurring && recurring.length > 0) {
-          return `Bloqueado: ${recurring[0].title} tiene clase regular a ${formatClockLabel(time)}.`
+          return `Blocked: ${recurring[0].title} has a regular class at ${formatClockLabel(time)}.`
         }
       }
       return undefined
@@ -2399,7 +3272,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       if (!prev[editingQuickTimeIndex]) return prev
       const next = [...prev]
       next[editingQuickTimeIndex] = normalized
-      return next.sort((a, b) => a.localeCompare(b))
+      return normalizeQuickScheduleTimes(next)
     })
     setEditingQuickTimeIndex(null)
     setQuickTimeDraft("")
@@ -2414,6 +3287,14 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     const defaultTimes = parsedRules
       ? [...new Set(parsedRules.rules.flatMap((rule) => rule.times).map((time) => normalizeClockTime(time)).filter(Boolean))].sort()
       : item.availableTimes.map((time) => normalizeClockTime(time)).filter(Boolean)
+    const publicationMode = parsedRules?.publication?.mode || "publish_now"
+    const launchDate = publicationMode === "launch_date" ? parsedRules?.publication?.launchDate || "" : ""
+    const specialDiscountType = parsedRules?.specialDiscount?.type || "none"
+    const specialDiscountCustomLabel = specialDiscountType === "custom" ? parsedRules?.specialDiscount?.label || "" : ""
+    const specialDiscountPrice =
+      parsedRules?.specialDiscount?.priceCents !== null && parsedRules?.specialDiscount?.priceCents !== undefined
+        ? centsToUsdInput(parsedRules.specialDiscount.priceCents)
+        : ""
     setCourseForm({
       slug: item.slug,
       title: item.title,
@@ -2427,6 +3308,11 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       level: item.level || "",
       durationMinutes: item.durationMinutes?.toString() || "",
       location: item.location || "",
+      publicationMode,
+      launchDate,
+      specialDiscountType,
+      specialDiscountCustomLabel,
+      specialDiscountPrice,
       availableTimesCsv: item.availableTimes.join(","),
       active: item.active,
     })
@@ -2440,14 +3326,14 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     setCourseRecurrenceEndsAt(parsedRules?.recurrenceEndsAt || "")
     setCourseMirrorEnabled(false)
     setCourseMirrorWeekdays([])
-    setQuickScheduleTimes((prev) => {
-      const merged = [...new Set([...defaultTimes, ...prev])].sort((a, b) => a.localeCompare(b))
-      return merged.slice(0, Math.max(prev.length, DEFAULT_QUICK_SCHEDULE_TIMES.length))
-    })
+    setQuickScheduleTimes((prev) => normalizeQuickScheduleTimes([...defaultTimes, ...prev]))
     setEditingQuickTimeIndex(null)
     setQuickTimeDraft("")
     setScheduleTimePickerOpen(false)
     setCourseHydratedFromQuery(true)
+    requestAnimationFrame(() => {
+      courseFormFieldsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
   }, [])
 
   const rowById = React.useMemo(() => {
@@ -2467,6 +3353,139 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     },
     [nowTs]
   )
+
+  const selfRowFromDirectory = rowById[currentUserId] || null
+  const selfIsOnline = selfRowFromDirectory ? selfRowFromDirectory.online : resolvedSelfProfile.presence.online
+  const selfLastCheckInAt = selfRowFromDirectory?.staffLastCheckInAt ?? resolvedSelfProfile.presence.staffLastCheckInAt
+  const selfLiveSessionMinutes = React.useMemo(() => {
+    if (!selfIsOnline || !selfLastCheckInAt) return null
+    const diff = nowTs - selfLastCheckInAt
+    if (!Number.isFinite(diff) || diff < 0) return null
+    return Math.floor(diff / 60_000)
+  }, [nowTs, selfIsOnline, selfLastCheckInAt])
+
+  const profileCalendarCells = React.useMemo(
+    () => buildCalendar(profileScheduleMonth.getFullYear(), profileScheduleMonth.getMonth()),
+    [profileScheduleMonth]
+  )
+  const profileScheduleMonthLabel = React.useMemo(
+    () =>
+      new Intl.DateTimeFormat("en-US", {
+        month: "long",
+        year: "numeric",
+      }).format(profileScheduleMonth),
+    [profileScheduleMonth]
+  )
+
+  const profileCourseTitleBySlug = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of courseOptions) {
+      map.set(item.slug, item.title)
+    }
+    return map
+  }, [courseOptions])
+
+  const selfScheduleEntries = React.useMemo(() => {
+    const weekdays = resolvedSelfProfile.teaching.teacherWeekdays
+    const startTime = resolvedSelfProfile.teaching.teacherShiftStart
+    if (!Array.isArray(weekdays) || weekdays.length === 0 || !startTime) return [] as Array<{
+      id: string
+      dateKey: string
+      title: string
+      startAt: Date
+      endAt: Date
+      timeLabel: string
+    }>
+
+    const [startHour, startMinute] = startTime.split(":").map((value) => Number.parseInt(value, 10))
+    if (!Number.isFinite(startHour) || !Number.isFinite(startMinute)) return []
+    const endTime = resolvedSelfProfile.teaching.teacherShiftEnd
+    const [endHourRaw, endMinuteRaw] = endTime ? endTime.split(":").map((value) => Number.parseInt(value, 10)) : [NaN, NaN]
+    const fallbackTitle =
+      resolvedSelfProfile.teaching.teacherCourseSlugs
+        .map((slug) => profileCourseTitleBySlug.get(slug) || slug)
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(" / ") || "Staff shift"
+    const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" })
+
+    return profileCalendarCells
+      .filter((cell) => cell.inMonth)
+      .flatMap((cell, index) => {
+        const baseDate = new Date(`${cell.dateKey}T00:00:00`)
+        if (!Number.isFinite(baseDate.getTime())) return []
+        if (!weekdays.includes(baseDate.getDay())) return []
+
+        const startAt = new Date(baseDate)
+        startAt.setHours(startHour, startMinute, 0, 0)
+
+        const endAt = new Date(baseDate)
+        if (Number.isFinite(endHourRaw) && Number.isFinite(endMinuteRaw)) {
+          endAt.setHours(endHourRaw, endMinuteRaw, 0, 0)
+        } else {
+          endAt.setTime(startAt.getTime() + 60 * 60 * 1000)
+        }
+        if (endAt.getTime() <= startAt.getTime()) {
+          endAt.setTime(startAt.getTime() + 60 * 60 * 1000)
+        }
+
+        return [
+          {
+            id: `profile-schedule-${cell.dateKey}-${index}`,
+            dateKey: cell.dateKey,
+            title: fallbackTitle,
+            startAt,
+            endAt,
+            timeLabel: `${timeFormatter.format(startAt)} - ${timeFormatter.format(endAt)}`,
+          },
+        ]
+      })
+      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
+  }, [profileCalendarCells, profileCourseTitleBySlug, resolvedSelfProfile.teaching.teacherCourseSlugs, resolvedSelfProfile.teaching.teacherShiftEnd, resolvedSelfProfile.teaching.teacherShiftStart, resolvedSelfProfile.teaching.teacherWeekdays])
+
+  const selfScheduleByDay = React.useMemo(() => {
+    return selfScheduleEntries.reduce<Record<string, Array<(typeof selfScheduleEntries)[number]>>>((acc, item) => {
+      if (!acc[item.dateKey]) acc[item.dateKey] = []
+      acc[item.dateKey].push(item)
+      return acc
+    }, {})
+  }, [selfScheduleEntries])
+
+  const selfCalendarGoogleHref = React.useMemo(() => {
+    if (selfScheduleEntries.length === 0) return "#"
+    const first = selfScheduleEntries[0]
+    if (!first) return "#"
+    const text = `${first.title} — Staff schedule`
+    const details = `Staff schedule for ${resolvedSelfProfile.firstName || "team member"} (${profileScheduleMonthLabel}).`
+    const location = resolvedSelfProfile.location || "Palladium Latin Institute"
+    const dates = `${toUtcCalendarStamp(first.startAt)}/${toUtcCalendarStamp(first.endAt)}`
+    const url = new URL("https://calendar.google.com/calendar/r/eventedit")
+    url.searchParams.set("text", text)
+    url.searchParams.set("details", details)
+    url.searchParams.set("location", location)
+    url.searchParams.set("dates", dates)
+    return url.toString()
+  }, [profileScheduleMonthLabel, resolvedSelfProfile.firstName, resolvedSelfProfile.location, selfScheduleEntries])
+
+  const selfCalendarIcsDataUri = React.useMemo(() => {
+    if (selfScheduleEntries.length === 0) return "#"
+    const location = resolvedSelfProfile.location || "Palladium Latin Institute"
+    const ownerName = `${resolvedSelfProfile.firstName} ${resolvedSelfProfile.lastName}`.trim() || "Staff member"
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//PLI//Staff Calendar//EN"]
+    selfScheduleEntries.slice(0, 80).forEach((entry, index) => {
+      lines.push("BEGIN:VEVENT")
+      lines.push(`UID:staff-${entry.dateKey}-${index}@pli.local`)
+      lines.push(`DTSTAMP:${toUtcCalendarStamp(new Date())}`)
+      lines.push(`DTSTART:${toUtcCalendarStamp(entry.startAt)}`)
+      lines.push(`DTEND:${toUtcCalendarStamp(entry.endAt)}`)
+      lines.push(`SUMMARY:${entry.title}`)
+      lines.push(`DESCRIPTION:Staff schedule for ${ownerName}`)
+      lines.push(`LOCATION:${location}`)
+      lines.push("END:VEVENT")
+    })
+    lines.push("END:VCALENDAR")
+    return `data:text/calendar;charset=utf-8,${encodeURIComponent(lines.join("\n"))}`
+  }, [resolvedSelfProfile.firstName, resolvedSelfProfile.lastName, resolvedSelfProfile.location, selfScheduleEntries])
 
   const teacherRows = React.useMemo(
     () => rows.filter((row) => row.category === "teacher" || row.role === "owner" || row.role === "admin"),
@@ -2611,19 +3630,19 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     if (!selectedTeacher) return []
     const tips: string[] = []
     if (teacherPunctualityScore < 85) {
-      tips.push("Puntualidad baja: reforzar check-in 10 minutos antes del inicio.")
+      tips.push("Low punctuality: reinforce check-in 10 minutes before start time.")
     }
     if (teacherRating < 4) {
-      tips.push("Rating menor a 4.0: sugerir clase observada + feedback dirigido por IA.")
+      tips.push("Rating below 4.0: suggest an observed class + AI-guided feedback.")
     }
     if (teacherBonusProgress < 70) {
-      tips.push("Horas por debajo de meta de bono: ofrecer cobertura de turnos en días disponibles.")
+      tips.push("Hours below bonus target: offer shift coverage on available days.")
     }
     if (teacherWeekdaysCount <= 2) {
-      tips.push("Disponibilidad corta: abrir al menos 1 día extra para mejorar continuidad de agenda.")
+      tips.push("Short availability: open at least 1 extra day to improve schedule continuity.")
     }
     if (tips.length === 0) {
-      tips.push("Rendimiento estable: mantener ciclo de evaluación y subir objetivo de bono de forma gradual.")
+      tips.push("Stable performance: maintain evaluation cycle and gradually raise bonus target.")
     }
     return tips.slice(0, 3)
   }, [selectedTeacher, teacherPunctualityScore, teacherRating, teacherBonusProgress, teacherWeekdaysCount])
@@ -2772,6 +3791,842 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     return { ...totals, fridayCount, exceptions }
   }, [payrollRows])
 
+  const studentCards = React.useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        key: string
+        allPayments: PaymentRow[]
+        latestPayment: PaymentRow
+        totalPayments: number
+        totalCollectedCents: number
+        paidPayments: number
+        checkedInPayments: number
+        courseKeys: Set<string>
+      }
+    >()
+
+    for (const payment of payments) {
+      const key = payment.userId || payment.customerEmail || payment.id
+      const existing = grouped.get(key)
+      const paymentIsPaid = payment.classPaid
+      const paymentIsCheckedIn = isCheckedInStatus(payment.checkInStatus)
+      const courseKey = payment.courseSlug || payment.courseTitle || payment.id
+      if (!existing) {
+        grouped.set(key, {
+          key,
+          allPayments: [payment],
+          latestPayment: payment,
+          totalPayments: 1,
+          totalCollectedCents: paymentIsPaid ? payment.amount : 0,
+          paidPayments: paymentIsPaid ? 1 : 0,
+          checkedInPayments: paymentIsCheckedIn ? 1 : 0,
+          courseKeys: new Set([courseKey]),
+        })
+        continue
+      }
+
+      const existingCreated = Date.parse(existing.latestPayment.createdAt)
+      const nextCreated = Date.parse(payment.createdAt)
+      if (Number.isFinite(nextCreated) && (!Number.isFinite(existingCreated) || nextCreated > existingCreated)) {
+        existing.latestPayment = payment
+      }
+      existing.allPayments.push(payment)
+      existing.totalPayments += 1
+      existing.courseKeys.add(courseKey)
+      if (paymentIsPaid) {
+        existing.totalCollectedCents += payment.amount
+        existing.paidPayments += 1
+      }
+      if (paymentIsCheckedIn) {
+        existing.checkedInPayments += 1
+      }
+    }
+
+    return [...grouped.values()]
+      .map((item) => {
+        const sortedPayments = [...item.allPayments].sort((a, b) => {
+          const aTime = Date.parse(a.createdAt)
+          const bTime = Date.parse(b.createdAt)
+          if (!Number.isFinite(aTime) && !Number.isFinite(bTime)) return 0
+          if (!Number.isFinite(aTime)) return 1
+          if (!Number.isFinite(bTime)) return -1
+          return bTime - aTime
+        })
+        return {
+          ...item,
+          allPayments: sortedPayments,
+          latestPayment: sortedPayments[0] || item.latestPayment,
+          coursesPurchasedCount: item.courseKeys.size,
+        }
+      })
+      .sort((a, b) => {
+      const aTime = Date.parse(a.latestPayment.createdAt)
+      const bTime = Date.parse(b.latestPayment.createdAt)
+      if (!Number.isFinite(aTime) && !Number.isFinite(bTime)) return 0
+      if (!Number.isFinite(aTime)) return 1
+      if (!Number.isFinite(bTime)) return -1
+      return bTime - aTime
+      })
+  }, [payments])
+
+  const filteredStudentCards = React.useMemo(() => {
+    const searchTerm = studentSearchQuery.trim().toLowerCase()
+    return studentCards
+      .map((item) => {
+        const matchingPayments = item.allPayments.filter(
+          (payment) => matchesPaymentCategory(payment, paymentCategoryFilter) && matchesStripeStatus(payment, paymentsFilter)
+        )
+        if (matchingPayments.length === 0) return null
+
+        if (searchTerm) {
+          const hasMatch = matchingPayments.some((payment) => {
+            const haystack = [
+              payment.customerName,
+              payment.customerEmail,
+              payment.customerPhone,
+              payment.courseTitle,
+              payment.courseSlug,
+              payment.location || "",
+              payment.activePackage?.label || "",
+            ]
+              .join(" ")
+              .toLowerCase()
+            return haystack.includes(searchTerm)
+          })
+          if (!hasMatch) return null
+        }
+
+        return {
+          ...item,
+          latestPayment: matchingPayments[0],
+        }
+      })
+      .filter((item): item is (typeof studentCards)[number] => Boolean(item))
+  }, [paymentCategoryFilter, paymentsFilter, studentCards, studentSearchQuery])
+
+  const visiblePaymentIds = React.useMemo(
+    () => [...new Set(filteredStudentCards.map((item) => item.latestPayment.id).filter(Boolean))],
+    [filteredStudentCards]
+  )
+
+  const selectedVisiblePaymentIds = React.useMemo(
+    () => selectedPaymentIds.filter((id) => visiblePaymentIds.includes(id)),
+    [selectedPaymentIds, visiblePaymentIds]
+  )
+
+  React.useEffect(() => {
+    setSelectedPaymentIds((prev) => prev.filter((id) => visiblePaymentIds.includes(id)))
+  }, [visiblePaymentIds])
+
+  const studentsSummary = React.useMemo(() => {
+    const totalRevenueCents = filteredStudentCards.reduce((sum, item) => sum + item.totalCollectedCents, 0)
+    const pendingByContext = filteredStudentCards.filter((item) => {
+      if (paymentCategoryFilter === "cash") return item.latestPayment.settlementStatus === "pending"
+      return !item.latestPayment.classPaid
+    }).length
+    return {
+      totalStudents: filteredStudentCards.length,
+      paidStudents: filteredStudentCards.filter((item) => item.latestPayment.classPaid).length,
+      checkedInStudents: filteredStudentCards.filter((item) => isCheckedInStatus(item.latestPayment.checkInStatus)).length,
+      totalRevenueCents,
+      pendingByContext,
+    }
+  }, [filteredStudentCards, paymentCategoryFilter])
+
+  const reportFilteredPayments = React.useMemo(() => {
+    const rawStartTs = parseDateInputStart(reportsDateFrom)
+    const rawEndTs = parseDateInputEnd(reportsDateTo)
+    let startTs = rawStartTs
+    let endTs = rawEndTs
+
+    if (startTs !== null && endTs !== null && startTs > endTs) {
+      ;[startTs, endTs] = [endTs, startTs]
+    }
+
+    return payments.filter((item) => {
+      const createdTs = Date.parse(item.createdAt)
+      if (!Number.isFinite(createdTs)) return false
+      if (startTs !== null && createdTs < startTs) return false
+      if (endTs !== null && createdTs > endTs) return false
+      return true
+    })
+  }, [payments, reportsDateFrom, reportsDateTo])
+
+  const reportsRangeLabel = React.useMemo(() => {
+    if (!reportsDateFrom && !reportsDateTo) return "All time"
+    if (reportsDateFrom && reportsDateTo) return `${reportsDateFrom} to ${reportsDateTo}`
+    if (reportsDateFrom) return `From ${reportsDateFrom}`
+    return `Until ${reportsDateTo}`
+  }, [reportsDateFrom, reportsDateTo])
+
+  const reportsData = React.useMemo(() => {
+    const paidPayments = reportFilteredPayments.filter((item) => item.classPaid)
+    const totalRevenueCents = paidPayments.reduce((sum, item) => sum + item.amount, 0)
+    const totalPaidSales = paidPayments.length
+    const avgTicketCents = totalPaidSales > 0 ? Math.round(totalRevenueCents / totalPaidSales) : 0
+    const uniqueStudents = new Set(
+      paidPayments.map((item) => item.userId || item.customerEmail || item.customerPhone || item.id).filter(Boolean)
+    ).size
+    const checkedInPaid = paidPayments.filter((item) => isCheckedInStatus(item.checkInStatus)).length
+    const checkInRate = totalPaidSales > 0 ? Math.round((checkedInPaid / totalPaidSales) * 100) : 0
+
+    const courseAgg = new Map<
+      string,
+      {
+        courseTitle: string
+        paidSales: number
+        paidRevenueCents: number
+        checkIns: number
+      }
+    >()
+    const monthAgg = new Map<
+      string,
+      {
+        monthKey: string
+        monthLabel: string
+        paidSales: number
+        pendingSales: number
+        paidRevenueCents: number
+      }
+    >()
+    const channelAgg = new Map<
+      string,
+      {
+        key: string
+        sales: number
+        paidRevenueCents: number
+      }
+    >()
+    const weekdayAgg = new Map<
+      number,
+      {
+        weekday: number
+        label: string
+        paidSales: number
+        paidRevenueCents: number
+      }
+    >()
+    const timeWindowAgg = new Map<
+      string,
+      {
+        window: string
+        paidSales: number
+        paidRevenueCents: number
+      }
+    >()
+    const paidWeeksByUser = new Map<string, Set<number>>()
+    const firstPaidWeekByUser = new Map<string, number>()
+    let paidPackageSales = 0
+    let paidDropInSales = 0
+
+    for (const payment of reportFilteredPayments) {
+      const isPaid = payment.classPaid
+      const courseKey = payment.courseSlug || payment.courseTitle || "unknown-course"
+      const courseRow = courseAgg.get(courseKey) || {
+        courseTitle: payment.courseTitle || payment.courseSlug || "Untitled course",
+        paidSales: 0,
+        paidRevenueCents: 0,
+        checkIns: 0,
+      }
+      if (isPaid) {
+        courseRow.paidSales += 1
+        courseRow.paidRevenueCents += payment.amount
+      }
+      if (isCheckedInStatus(payment.checkInStatus)) {
+        courseRow.checkIns += 1
+      }
+      courseAgg.set(courseKey, courseRow)
+
+      const created = Date.parse(payment.createdAt)
+      if (Number.isFinite(created)) {
+        const date = new Date(created)
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+        const monthLabel = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(date)
+        const monthRow = monthAgg.get(monthKey) || {
+          monthKey,
+          monthLabel,
+          paidSales: 0,
+          pendingSales: 0,
+          paidRevenueCents: 0,
+        }
+        if (isPaid) {
+          monthRow.paidSales += 1
+          monthRow.paidRevenueCents += payment.amount
+        } else {
+          monthRow.pendingSales += 1
+        }
+        monthAgg.set(monthKey, monthRow)
+
+        if (isPaid) {
+          const userKey = payment.userId || payment.customerEmail || payment.customerPhone || payment.id
+          const weekStartTs = getWeekStartTs(date)
+          if (!paidWeeksByUser.has(userKey)) {
+            paidWeeksByUser.set(userKey, new Set<number>())
+          }
+          paidWeeksByUser.get(userKey)!.add(weekStartTs)
+          const firstWeek = firstPaidWeekByUser.get(userKey)
+          if (typeof firstWeek !== "number" || weekStartTs < firstWeek) {
+            firstPaidWeekByUser.set(userKey, weekStartTs)
+          }
+        }
+      }
+
+      const channelKey = payment.paymentChannel === "unknown" ? "other" : payment.paymentChannel
+      const channelRow = channelAgg.get(channelKey) || { key: channelKey, sales: 0, paidRevenueCents: 0 }
+      channelRow.sales += 1
+      if (isPaid) {
+        channelRow.paidRevenueCents += payment.amount
+      }
+      channelAgg.set(channelKey, channelRow)
+
+      if (isPaid) {
+        if (payment.purchaseCategory === "package") paidPackageSales += 1
+        if (payment.purchaseCategory === "dropin") paidDropInSales += 1
+
+        let weekdaySourceDate: Date | null = null
+        const startsAtTs = payment.classStartsAt ? Date.parse(payment.classStartsAt) : NaN
+        if (Number.isFinite(startsAtTs)) {
+          weekdaySourceDate = new Date(startsAtTs)
+        } else if (Number.isFinite(created)) {
+          weekdaySourceDate = new Date(created)
+        }
+        if (weekdaySourceDate) {
+          const weekday = weekdaySourceDate.getDay()
+          const weekdayRow = weekdayAgg.get(weekday) || {
+            weekday,
+            label: WEEKDAY_LABELS[weekday] || String(weekday),
+            paidSales: 0,
+            paidRevenueCents: 0,
+          }
+          weekdayRow.paidSales += 1
+          weekdayRow.paidRevenueCents += payment.amount
+          weekdayAgg.set(weekday, weekdayRow)
+        }
+
+        let minutesFromMidnight: number | null = null
+        if (Number.isFinite(startsAtTs)) {
+          const startsAtDate = new Date(startsAtTs)
+          minutesFromMidnight = startsAtDate.getHours() * 60 + startsAtDate.getMinutes()
+        } else {
+          minutesFromMidnight = parseMinutesFromClassTime(payment.classTime)
+        }
+
+        if (typeof minutesFromMidnight === "number") {
+          const windowLabel = resolveTimeWindowByMinute(minutesFromMidnight)
+          const windowRow = timeWindowAgg.get(windowLabel) || {
+            window: windowLabel,
+            paidSales: 0,
+            paidRevenueCents: 0,
+          }
+          windowRow.paidSales += 1
+          windowRow.paidRevenueCents += payment.amount
+          timeWindowAgg.set(windowLabel, windowRow)
+        }
+      }
+    }
+
+    const topCourses = [...courseAgg.values()].sort((a, b) => {
+      if (b.paidRevenueCents !== a.paidRevenueCents) return b.paidRevenueCents - a.paidRevenueCents
+      return b.paidSales - a.paidSales
+    })
+
+    const monthlyPerformance = [...monthAgg.values()].sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+    const channelBreakdown = [...channelAgg.values()].sort((a, b) => b.paidRevenueCents - a.paidRevenueCents)
+    const weekdayPerformance = [...weekdayAgg.values()].sort((a, b) => a.weekday - b.weekday)
+    const timeWindowRanking = [...timeWindowAgg.values()].sort((a, b) => b.paidRevenueCents - a.paidRevenueCents)
+    const monthlyRevenueSeries = [...monthlyPerformance].sort((a, b) => a.monthKey.localeCompare(b.monthKey))
+
+    const cohortUsersByWeek = new Map<number, string[]>()
+    for (const [userKey, weekTs] of firstPaidWeekByUser.entries()) {
+      const users = cohortUsersByWeek.get(weekTs) || []
+      users.push(userKey)
+      cohortUsersByWeek.set(weekTs, users)
+    }
+    const cohortRetention = [...cohortUsersByWeek.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .slice(0, 8)
+      .map(([cohortWeekTs, users]) => {
+        const students = users.length
+        const rates = [0, 1, 2, 3, 4].map((offset) => {
+          const activeWeekTs = cohortWeekTs + offset * 7 * 24 * 60 * 60 * 1000
+          const active = users.reduce((sum, userKey) => {
+            const weeks = paidWeeksByUser.get(userKey)
+            if (weeks?.has(activeWeekTs)) return sum + 1
+            return sum
+          }, 0)
+          const percentage = students > 0 ? Math.round((active / students) * 100) : 0
+          return { offset, active, percentage }
+        })
+        return {
+          weekStartTs: cohortWeekTs,
+          weekLabel: formatWeekRangeLabel(cohortWeekTs),
+          students,
+          rates,
+        }
+      })
+
+    return {
+      totalRevenueCents,
+      totalPaidSales,
+      avgTicketCents,
+      uniqueStudents,
+      checkInRate,
+      topCourses,
+      monthlyPerformance,
+      monthlyRevenueSeries,
+      channelBreakdown,
+      weekdayPerformance,
+      timeWindowRanking,
+      cohortRetention,
+      paidPackageSales,
+      paidDropInSales,
+      pendingStripeSales: reportFilteredPayments.filter((item) => !item.classPaid).length,
+      totalRows: reportFilteredPayments.length,
+    }
+  }, [reportFilteredPayments])
+
+  const reportsChartMeta = React.useMemo(() => {
+    const maxMonthlyRevenue = Math.max(1, ...reportsData.monthlyRevenueSeries.map((item) => item.paidRevenueCents))
+    const maxTopCourseRevenue = Math.max(1, ...reportsData.topCourses.slice(0, 8).map((item) => item.paidRevenueCents))
+    const maxWindowRevenue = Math.max(1, ...reportsData.timeWindowRanking.map((item) => item.paidRevenueCents))
+    return {
+      maxMonthlyRevenue,
+      maxTopCourseRevenue,
+      maxWindowRevenue,
+    }
+  }, [reportsData])
+
+  const localReportSuggestions = React.useMemo<ReportsSuggestion[]>(() => {
+    const suggestions: ReportsSuggestion[] = []
+    const monday = reportsData.weekdayPerformance.find((item) => item.weekday === 1)
+    const avgPaidSalesPerDay =
+      reportsData.weekdayPerformance.length > 0
+        ? reportsData.weekdayPerformance.reduce((sum, item) => sum + item.paidSales, 0) / reportsData.weekdayPerformance.length
+        : 0
+    const mondayGap = Math.max(0, Math.round(avgPaidSalesPerDay - (monday?.paidSales || 0)))
+    const mondayPriority: ReportsSuggestion["priority"] =
+      mondayGap >= 3 ? "High" : mondayGap >= 1 ? "Medium" : "Low"
+
+    suggestions.push({
+      id: "monday-demand",
+      objective: "monday_sales",
+      title: "Increase Monday demand",
+      priority: mondayPriority,
+      insight: `Monday paid sales: ${monday?.paidSales || 0} (daily average: ${avgPaidSalesPerDay.toFixed(1)}).`,
+      proposal:
+        mondayGap > 0
+          ? "Launch a Monday-only offer, push reminders on Sunday evening, and test one trial-friendly time slot."
+          : "Monday is healthy. Keep momentum with a referral mini-campaign focused on repeat students.",
+      actions: [
+        "Run a Monday promo code for first-time and returning students.",
+        "Send segmented reminders Sunday 6-9 PM with one-click booking links.",
+        "A/B test class title copy emphasizing outcomes and class vibe.",
+      ],
+      aiBrief: `Goal: increase Monday class sales. Context: Monday paid sales ${monday?.paidSales || 0}, average daily ${avgPaidSalesPerDay.toFixed(1)}. Generate a 4-week experiment plan with offers, messaging, and KPI targets.`,
+    })
+
+    const qualityPriority: ReportsSuggestion["priority"] =
+      reportsData.checkInRate < 60 ? "High" : reportsData.checkInRate < 75 ? "Medium" : "Low"
+    suggestions.push({
+      id: "class-quality",
+      objective: "class_quality",
+      title: "Improve class quality signal",
+      priority: qualityPriority,
+      insight: `Current check-in rate: ${reportsData.checkInRate}%.`,
+      proposal:
+        reportsData.checkInRate < 75
+          ? "Standardize pre-class reminders and post-class feedback loops to reduce no-show behavior and improve perceived quality."
+          : "Keep current quality baseline and add structured feedback to protect consistency at scale.",
+      actions: [
+        "Send reminders 24h + 2h before class with a clear class value statement.",
+        "Collect a 2-question pulse after class (energy + clarity).",
+        "Flag classes below target check-in rate for instructor review.",
+      ],
+      aiBrief: `Goal: improve class quality and attendance consistency. Current check-in rate is ${reportsData.checkInRate}%. Propose process, messaging templates, and instructor feedback loops.`,
+    })
+
+    const lastCohort = reportsData.cohortRetention[0]
+    const w1 = lastCohort?.rates[1]?.percentage || 0
+    const retentionPriority: ReportsSuggestion["priority"] = w1 < 40 ? "High" : w1 < 60 ? "Medium" : "Low"
+    suggestions.push({
+      id: "retention-cohort",
+      objective: "retention",
+      title: "Raise week-1 retention",
+      priority: retentionPriority,
+      insight: `Latest cohort W1 retention: ${w1}%${lastCohort ? ` (${lastCohort.weekLabel})` : ""}.`,
+      proposal:
+        w1 < 60
+          ? "Introduce a structured second-visit trigger within 72h after first class, with clear next-step recommendation."
+          : "Retention is stable. Expand retention playbook to W2 and W3 progression milestones.",
+      actions: [
+        "Send a personalized follow-up after first class with the best next slot.",
+        "Offer a second-class guarantee coupon valid 7 days.",
+        "Track W1 conversion by course and instructor to identify friction points.",
+      ],
+      aiBrief: `Goal: improve cohort retention. Latest W1 is ${w1}%. Build a retention workflow from first class to second booking with messaging and incentives.`,
+    })
+
+    const packageShare =
+      reportsData.totalPaidSales > 0 ? Math.round((reportsData.paidPackageSales / reportsData.totalPaidSales) * 100) : 0
+    const packagePriority: ReportsSuggestion["priority"] = packageShare < 25 ? "High" : packageShare < 45 ? "Medium" : "Low"
+    suggestions.push({
+      id: "package-conversion",
+      objective: "package_mix",
+      title: "Increase package conversion",
+      priority: packagePriority,
+      insight: `Package share on paid sales: ${packageShare}% (packages: ${reportsData.paidPackageSales}, drop-in: ${reportsData.paidDropInSales}).`,
+      proposal:
+        packageShare < 45
+          ? "Move frequent drop-in students to package plans with clear savings and progression benefits."
+          : "Package mix is healthy; improve package upsell timing during peak demand windows.",
+      actions: [
+        "Show package savings directly in checkout for repeat drop-in users.",
+        "Offer a limited-time upgrade after second paid class.",
+        "Highlight package benefits in teacher scripts and post-class follow-up.",
+      ],
+      aiBrief: `Goal: increase package conversion. Current package share is ${packageShare}% with ${reportsData.paidPackageSales} package sales and ${reportsData.paidDropInSales} drop-in sales. Create upsell strategy and trigger points.`,
+    })
+
+    const pendingPriority: ReportsSuggestion["priority"] =
+      reportsData.pendingStripeSales >= 8 ? "High" : reportsData.pendingStripeSales >= 3 ? "Medium" : "Low"
+    suggestions.push({
+      id: "pending-recovery",
+      objective: "pending_recovery",
+      title: "Recover pending payments",
+      priority: pendingPriority,
+      insight: `Pending Stripe payments in range: ${reportsData.pendingStripeSales}.`,
+      proposal:
+        reportsData.pendingStripeSales > 0
+          ? "Automate recovery touchpoints for pending checkouts to reduce lost demand."
+          : "Pending volume is controlled. Keep alerts active and monitor anomalies weekly.",
+      actions: [
+        "Send automated payment recovery reminders at 30m and 24h.",
+        "Prioritize manual follow-up for high-intent students (repeat profile or package interest).",
+        "Track recovery rate by payment channel and time window.",
+      ],
+      aiBrief: `Goal: recover pending payments. Current pending Stripe count: ${reportsData.pendingStripeSales}. Propose automation and manual follow-up playbook with measurable KPIs.`,
+    })
+
+    return suggestions
+  }, [reportsData])
+
+  const reportSuggestionsMetrics = React.useMemo(() => {
+    const monday = reportsData.weekdayPerformance.find((item) => item.weekday === 1)
+    const avgPaidSalesPerDay =
+      reportsData.weekdayPerformance.length > 0
+        ? Number(
+            (
+              reportsData.weekdayPerformance.reduce((sum, item) => sum + item.paidSales, 0) /
+              reportsData.weekdayPerformance.length
+            ).toFixed(2)
+          )
+        : 0
+    const latestCohort = reportsData.cohortRetention[0]
+    const packageSharePct =
+      reportsData.totalPaidSales > 0 ? Math.round((reportsData.paidPackageSales / reportsData.totalPaidSales) * 100) : 0
+
+    return {
+      rangeLabel: reportsRangeLabel,
+      totalRows: reportsData.totalRows,
+      totalPaidSales: reportsData.totalPaidSales,
+      totalRevenueCents: reportsData.totalRevenueCents,
+      avgTicketCents: reportsData.avgTicketCents,
+      uniqueStudents: reportsData.uniqueStudents,
+      checkInRate: reportsData.checkInRate,
+      pendingStripeSales: reportsData.pendingStripeSales,
+      mondayPaidSales: monday?.paidSales || 0,
+      avgPaidSalesPerDay,
+      paidPackageSales: reportsData.paidPackageSales,
+      paidDropInSales: reportsData.paidDropInSales,
+      packageSharePct,
+      latestCohortWeek: latestCohort?.weekLabel || null,
+      latestCohortW1RetentionPct: latestCohort?.rates?.[1]?.percentage || 0,
+      topCourses: reportsData.topCourses.slice(0, 6).map((course) => ({
+        title: course.courseTitle,
+        paidSales: course.paidSales,
+        paidRevenueCents: course.paidRevenueCents,
+        checkIns: course.checkIns,
+      })),
+      timeWindowRanking: reportsData.timeWindowRanking.map((window) => ({
+        window: window.window,
+        paidSales: window.paidSales,
+        paidRevenueCents: window.paidRevenueCents,
+      })),
+      channelBreakdown: reportsData.channelBreakdown.map((channel) => ({
+        key: channel.key,
+        sales: channel.sales,
+        paidRevenueCents: channel.paidRevenueCents,
+      })),
+    }
+  }, [reportsData, reportsRangeLabel])
+
+  const refreshAiSuggestions = React.useCallback(async () => {
+    setReportSuggestionsLoading(true)
+    setReportSuggestionsError(null)
+    try {
+      const response = await fetch("/api/staff/reports/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          objectiveFilter: reportsObjectiveFilter,
+          metrics: reportSuggestionsMetrics,
+          suggestions: localReportSuggestions,
+        }),
+      })
+      const payload = (await response.json()) as ReportsSuggestionsApiResponse
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to fetch AI suggestions.")
+      }
+
+      const remoteSuggestions = Array.isArray(payload.suggestions) ? payload.suggestions : []
+      if (remoteSuggestions.length > 0) {
+        setRemoteReportSuggestions(remoteSuggestions)
+      } else {
+        setRemoteReportSuggestions(null)
+      }
+      setReportSuggestionsProvider(payload.provider || "mock")
+      setReportSuggestionsError(payload.warning || null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load AI suggestions."
+      setRemoteReportSuggestions(null)
+      setReportSuggestionsProvider("local")
+      setReportSuggestionsError(message)
+    } finally {
+      setReportSuggestionsLoading(false)
+    }
+  }, [localReportSuggestions, reportSuggestionsMetrics, reportsObjectiveFilter])
+
+  const reportSuggestions = React.useMemo(
+    () => remoteReportSuggestions ?? localReportSuggestions,
+    [localReportSuggestions, remoteReportSuggestions]
+  )
+
+  const filteredReportSuggestions = React.useMemo(() => {
+    if (reportsObjectiveFilter === "all") return reportSuggestions
+    return reportSuggestions.filter((item) => item.objective === reportsObjectiveFilter)
+  }, [reportSuggestions, reportsObjectiveFilter])
+
+  React.useEffect(() => {
+    if (filteredReportSuggestions.length === 0) {
+      setExpandedSuggestionId(null)
+      return
+    }
+    setExpandedSuggestionId((prev) => {
+      if (prev && filteredReportSuggestions.some((item) => item.id === prev)) return prev
+      return filteredReportSuggestions[0]?.id || null
+    })
+  }, [filteredReportSuggestions])
+
+  const exportReportsCsv = React.useCallback(() => {
+    if (typeof window === "undefined") return
+    const quote = (value: string | number) => `"${String(value ?? "").replace(/"/g, '""')}"`
+    const lines: string[] = []
+
+    lines.push("Summary")
+    lines.push(`${quote("Range")},${quote(reportsRangeLabel)}`)
+    lines.push(`${quote("Paid revenue")},${quote(formatMoney(reportsData.totalRevenueCents))}`)
+    lines.push(`${quote("Paid sales")},${quote(reportsData.totalPaidSales)}`)
+    lines.push(`${quote("Avg ticket")},${quote(formatMoney(reportsData.avgTicketCents))}`)
+    lines.push(`${quote("Unique students")},${quote(reportsData.uniqueStudents)}`)
+    lines.push(`${quote("Check-in rate")},${quote(`${reportsData.checkInRate}%`)}`)
+    lines.push(`${quote("Stripe pending")},${quote(reportsData.pendingStripeSales)}`)
+    lines.push("")
+
+    lines.push("Top courses")
+    lines.push([quote("Course"), quote("Paid sales"), quote("Revenue"), quote("Check-ins")].join(","))
+    for (const row of reportsData.topCourses) {
+      lines.push([quote(row.courseTitle), quote(row.paidSales), quote(formatMoney(row.paidRevenueCents)), quote(row.checkIns)].join(","))
+    }
+    lines.push("")
+
+    lines.push("Monthly performance")
+    lines.push([quote("Month"), quote("Paid sales"), quote("Pending"), quote("Revenue")].join(","))
+    for (const row of reportsData.monthlyPerformance) {
+      lines.push([quote(row.monthLabel), quote(row.paidSales), quote(row.pendingSales), quote(formatMoney(row.paidRevenueCents))].join(","))
+    }
+    lines.push("")
+
+    lines.push("Payment channels")
+    lines.push([quote("Channel"), quote("Sales"), quote("Revenue")].join(","))
+    for (const row of reportsData.channelBreakdown) {
+      lines.push([quote(row.key), quote(row.sales), quote(formatMoney(row.paidRevenueCents))].join(","))
+    }
+    lines.push("")
+
+    lines.push("Time windows")
+    lines.push([quote("Window"), quote("Paid sales"), quote("Revenue")].join(","))
+    for (const row of reportsData.timeWindowRanking) {
+      lines.push([quote(row.window), quote(row.paidSales), quote(formatMoney(row.paidRevenueCents))].join(","))
+    }
+    lines.push("")
+
+    lines.push("Cohort retention")
+    lines.push([quote("Cohort week"), quote("Students"), quote("W0"), quote("W1"), quote("W2"), quote("W3"), quote("W4")].join(","))
+    for (const cohort of reportsData.cohortRetention) {
+      const [w0, w1, w2, w3, w4] = cohort.rates
+      lines.push(
+        [
+          quote(cohort.weekLabel),
+          quote(cohort.students),
+          quote(`${w0.percentage}%`),
+          quote(`${w1.percentage}%`),
+          quote(`${w2.percentage}%`),
+          quote(`${w3.percentage}%`),
+          quote(`${w4.percentage}%`),
+        ].join(",")
+      )
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" })
+    const url = window.URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    const stamp = new Date().toISOString().slice(0, 10)
+    anchor.href = url
+    anchor.download = `staff-reports-${stamp}.csv`
+    anchor.click()
+    window.URL.revokeObjectURL(url)
+  }, [reportsData, reportsRangeLabel])
+
+  const exportReportsPdf = React.useCallback(() => {
+    if (typeof window === "undefined") return
+    const escapeHtml = (value: string | number) =>
+      String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;")
+
+    const popup = window.open("", "_blank", "noopener,noreferrer,width=980,height=740")
+    if (!popup) {
+      setError("Popup blocked. Allow popups to export PDF.")
+      return
+    }
+
+    const topCoursesRows =
+      reportsData.topCourses.length > 0
+        ? reportsData.topCourses
+            .map(
+              (row) =>
+                `<tr><td>${escapeHtml(row.courseTitle)}</td><td>${escapeHtml(row.paidSales)}</td><td>${escapeHtml(formatMoney(row.paidRevenueCents))}</td><td>${escapeHtml(row.checkIns)}</td></tr>`
+            )
+            .join("")
+        : `<tr><td colspan="4">No paid sales yet.</td></tr>`
+
+    const monthlyRows =
+      reportsData.monthlyPerformance.length > 0
+        ? reportsData.monthlyPerformance
+            .map(
+              (row) =>
+                `<tr><td>${escapeHtml(row.monthLabel)}</td><td>${escapeHtml(row.paidSales)}</td><td>${escapeHtml(row.pendingSales)}</td><td>${escapeHtml(formatMoney(row.paidRevenueCents))}</td></tr>`
+            )
+            .join("")
+        : `<tr><td colspan="4">No monthly data available.</td></tr>`
+
+    const channelRows =
+      reportsData.channelBreakdown.length > 0
+        ? reportsData.channelBreakdown
+            .map(
+              (row) =>
+                `<tr><td>${escapeHtml(row.key)}</td><td>${escapeHtml(row.sales)}</td><td>${escapeHtml(formatMoney(row.paidRevenueCents))}</td></tr>`
+            )
+            .join("")
+        : `<tr><td colspan="3">No channel data available.</td></tr>`
+
+    const timeWindowRows =
+      reportsData.timeWindowRanking.length > 0
+        ? reportsData.timeWindowRanking
+            .map(
+              (row) =>
+                `<tr><td>${escapeHtml(row.window)}</td><td>${escapeHtml(row.paidSales)}</td><td>${escapeHtml(formatMoney(row.paidRevenueCents))}</td></tr>`
+            )
+            .join("")
+        : `<tr><td colspan="3">No time-window data available.</td></tr>`
+
+    const cohortRows =
+      reportsData.cohortRetention.length > 0
+        ? reportsData.cohortRetention
+            .map((row) => {
+              const [w0, w1, w2, w3, w4] = row.rates
+              return `<tr><td>${escapeHtml(row.weekLabel)}</td><td>${escapeHtml(row.students)}</td><td>${escapeHtml(`${w0.percentage}%`)}</td><td>${escapeHtml(`${w1.percentage}%`)}</td><td>${escapeHtml(`${w2.percentage}%`)}</td><td>${escapeHtml(`${w3.percentage}%`)}</td><td>${escapeHtml(`${w4.percentage}%`)}</td></tr>`
+            })
+            .join("")
+        : `<tr><td colspan="7">No cohort retention data available.</td></tr>`
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Staff Reports</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #111827; }
+      h1 { margin: 0 0 8px 0; font-size: 24px; }
+      h2 { margin: 24px 0 8px 0; font-size: 16px; }
+      p { margin: 4px 0; }
+      .meta { color: #4b5563; font-size: 12px; }
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+      .card { border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+      th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: left; }
+      th { background: #f3f4f6; }
+    </style>
+  </head>
+  <body>
+    <h1>Staff reports</h1>
+    <p class="meta">Range: ${escapeHtml(reportsRangeLabel)}</p>
+    <p class="meta">Generated: ${escapeHtml(new Date().toLocaleString("en-US"))}</p>
+
+    <div class="grid">
+      <div class="card"><strong>Paid revenue</strong><p>${escapeHtml(formatMoney(reportsData.totalRevenueCents))}</p></div>
+      <div class="card"><strong>Paid sales</strong><p>${escapeHtml(reportsData.totalPaidSales)}</p></div>
+      <div class="card"><strong>Avg ticket</strong><p>${escapeHtml(formatMoney(reportsData.avgTicketCents))}</p></div>
+      <div class="card"><strong>Unique students</strong><p>${escapeHtml(reportsData.uniqueStudents)}</p></div>
+      <div class="card"><strong>Check-in rate</strong><p>${escapeHtml(reportsData.checkInRate)}%</p></div>
+      <div class="card"><strong>Stripe pending</strong><p>${escapeHtml(reportsData.pendingStripeSales)}</p></div>
+    </div>
+
+    <h2>Top courses</h2>
+    <table>
+      <thead><tr><th>Course</th><th>Paid sales</th><th>Revenue</th><th>Check-ins</th></tr></thead>
+      <tbody>${topCoursesRows}</tbody>
+    </table>
+
+    <h2>Monthly performance</h2>
+    <table>
+      <thead><tr><th>Month</th><th>Paid sales</th><th>Pending</th><th>Revenue</th></tr></thead>
+      <tbody>${monthlyRows}</tbody>
+    </table>
+
+    <h2>Payment channels</h2>
+    <table>
+      <thead><tr><th>Channel</th><th>Sales</th><th>Revenue</th></tr></thead>
+      <tbody>${channelRows}</tbody>
+    </table>
+
+    <h2>Time windows</h2>
+    <table>
+      <thead><tr><th>Window</th><th>Paid sales</th><th>Revenue</th></tr></thead>
+      <tbody>${timeWindowRows}</tbody>
+    </table>
+
+    <h2>Cohort retention</h2>
+    <table>
+      <thead><tr><th>Cohort week</th><th>Students</th><th>W0</th><th>W1</th><th>W2</th><th>W3</th><th>W4</th></tr></thead>
+      <tbody>${cohortRows}</tbody>
+    </table>
+  </body>
+</html>`
+
+    popup.document.open()
+    popup.document.write(html)
+    popup.document.close()
+    popup.focus()
+    window.setTimeout(() => {
+      popup.print()
+    }, 250)
+  }, [reportsData, reportsRangeLabel])
+
   const openDelayDetails = React.useCallback((row: PayrollStaffRow) => {
     const entries = row.delayEntries
     const totalDelayMinutes = entries.reduce((sum, item) => sum + item.delayMinutes, 0)
@@ -2788,11 +4643,33 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     setDelayModal(null)
   }, [])
 
+  const saveAssistantConfig = React.useCallback((event: React.FormEvent) => {
+    event.preventDefault()
+    setAssistantConfigMessage("Assistant settings updated.")
+    window.setTimeout(() => {
+      setAssistantConfigMessage(null)
+    }, 2200)
+  }, [])
+
+  const sendAssistantChatMessage = React.useCallback((event: React.FormEvent) => {
+    event.preventDefault()
+    const prompt = assistantChatInput.trim()
+    if (!prompt) return
+    const userMessage = { id: `user-${Date.now()}`, role: "user" as const, text: prompt }
+    const assistantMessage = {
+      id: `assistant-${Date.now()}`,
+      role: "assistant" as const,
+      text: `Recibido. Estoy en ${activeNavLabel}. Si querés, preparo acciones y checklist para este flujo.`,
+    }
+    setAssistantChatMessages((prev) => [...prev, userMessage, assistantMessage])
+    setAssistantChatInput("")
+  }, [activeNavLabel, assistantChatInput])
+
   React.useEffect(() => {
     const grid = gridRef.current
     const left = leftRailRef.current
     const right = rightRailRef.current
-    if (!grid || !left || !right) return
+    if (!grid || !left) return
 
     let frame = 0
 
@@ -2807,7 +4684,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     const update = () => {
       if (window.innerWidth < 1024) {
         reset(left)
-        reset(right)
+        if (right) reset(right)
         return
       }
 
@@ -2819,9 +4696,9 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       const gridWidth = gridRect.width
 
       const leftParent = left.parentElement as HTMLElement | null
-      const rightParent = right.parentElement as HTMLElement | null
+      const rightParent = right?.parentElement as HTMLElement | null
       const leftWidth = leftParent?.getBoundingClientRect().width ?? left.getBoundingClientRect().width
-      const rightWidth = rightParent?.getBoundingClientRect().width ?? right.getBoundingClientRect().width
+      const rightWidth = right ? rightParent?.getBoundingClientRect().width ?? right.getBoundingClientRect().width : 0
 
       const apply = (el: HTMLElement, leftPos: number, width: number) => {
         if (scrollY + stickyTop < gridTop) {
@@ -2847,7 +4724,9 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       }
 
       apply(left, gridLeft, leftWidth)
-      apply(right, gridLeft + gridWidth - rightWidth, rightWidth)
+      if (right) {
+        apply(right, gridLeft + gridWidth - rightWidth, rightWidth)
+      }
     }
 
     const onScroll = () => {
@@ -2856,9 +4735,9 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
     }
 
     const observer = new ResizeObserver(() => onScroll())
-    observer.observe(grid)
-    observer.observe(left)
-    observer.observe(right)
+      observer.observe(grid)
+      observer.observe(left)
+      if (right) observer.observe(right)
 
     window.addEventListener("scroll", onScroll, { passive: true })
     window.addEventListener("resize", onScroll)
@@ -2870,20 +4749,27 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("resize", onScroll)
       reset(left)
-      reset(right)
+      if (right) reset(right)
     }
   }, [stickyTop])
 
   return (
     <>
-      <div ref={gridRef} className="relative grid gap-4 lg:items-start lg:grid-cols-[86px_minmax(0,1fr)_330px] xl:grid-cols-[90px_minmax(0,1fr)_360px]">
+      <div
+        ref={gridRef}
+        className={`relative grid gap-4 lg:items-start ${
+          showRightRail
+            ? "lg:grid-cols-[86px_minmax(0,1fr)_330px] xl:grid-cols-[90px_minmax(0,1fr)_360px]"
+            : "lg:grid-cols-[86px_minmax(0,1fr)] xl:grid-cols-[90px_minmax(0,1fr)]"
+        }`}
+      >
       <aside className="lg:self-start">
         <div
           ref={leftRailRef}
-          className="relative z-40 rounded-2xl border border-black/10 bg-white/80 p-3 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90 lg:h-fit"
+          className="relative z-40 rounded-2xl border border-black/10 bg-white/80 p-3 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90 lg:h-fit lg:sticky lg:top-0"
         >
           <div className="flex flex-col items-center gap-2">
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon
             const active = activeNav === item.key
             return (
@@ -2910,6 +4796,432 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
       </aside>
 
       <section className="space-y-4">
+        {isProfileView ? (
+          <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <header className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-4">
+                {resolvedSelfProfile.imageUrl ? (
+                  <img
+                    src={resolvedSelfProfile.imageUrl}
+                    alt="Staff avatar"
+                    className="h-20 w-20 rounded-2xl border border-black/15 object-cover dark:border-white/15"
+                  />
+                ) : (
+                  <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-black/15 bg-black/[0.05] text-2xl font-semibold text-black/80 dark:border-white/15 dark:bg-white/[0.05] dark:text-white/85">
+                    {getInitials(resolvedSelfProfile.firstName, resolvedSelfProfile.lastName, "")}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Employee profile</p>
+                  <h3 className="mt-2 text-2xl font-semibold text-black dark:text-white">
+                    {resolvedSelfProfile.firstName || resolvedSelfProfile.lastName
+                      ? `${resolvedSelfProfile.firstName} ${resolvedSelfProfile.lastName}`.trim()
+                      : "My staff profile"}
+                  </h3>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                        selfIsOnline
+                          ? "border-emerald-500/45 bg-emerald-500/12 text-emerald-300"
+                          : "border-zinc-500/35 bg-zinc-500/10 text-zinc-300"
+                      }`}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {selfIsOnline ? "Online" : "Offline"}
+                    </span>
+                    <span className="inline-flex rounded-full border border-sky-500/35 bg-sky-500/10 px-2.5 py-1 text-xs font-semibold text-sky-300">
+                      {selfLiveSessionMinutes !== null
+                        ? `Logged in ${formatDurationLabel(selfLiveSessionMinutes)}`
+                        : "No active session"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                    Access level: <span className="font-semibold">{ROLE_LABELS[resolvedSelfProfile.role]}</span> ·{" "}
+                    <span className="font-semibold">{CATEGORY_LABELS[resolvedSelfProfile.category]}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                {selfProfileLoading ? (
+                  <span className="inline-flex items-center gap-1 text-xs text-black/65 dark:text-white/65">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading profile...
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void openProfileModal(selfProfileRow)}
+                  className="cursor-pointer rounded-xl border border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/15 px-4 py-2 text-sm font-medium text-[var(--brand,#ff4b4b)]"
+                >
+                  Edit my profile
+                </button>
+              </div>
+            </header>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl border border-[var(--brand,#b61616)]/40 bg-gradient-to-br from-[var(--brand,#b61616)]/24 via-[#5f1737]/16 to-[#1b1330]/18 p-3 dark:border-[var(--brand,#b61616)]/40 dark:bg-gradient-to-br dark:from-[var(--brand,#b61616)]/32 dark:via-[#28163b]/26 dark:to-[#12192f]/24">
+                <p className="text-xs uppercase tracking-[0.22em] text-black/70 dark:text-white/70">Performance score</p>
+                <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{selfPerformanceScore}</p>
+                <p className="text-xs text-black/70 dark:text-white/70">Based on rating, cadence and reviews.</p>
+              </div>
+              <div className="rounded-xl border border-sky-500/40 bg-gradient-to-br from-sky-500/20 via-[#1a395b]/16 to-[#12263f]/20 p-3 dark:border-sky-500/40 dark:bg-gradient-to-br dark:from-sky-500/26 dark:via-[#142840]/26 dark:to-[#0f1a2e]/24">
+                <p className="text-xs uppercase tracking-[0.22em] text-black/70 dark:text-white/70">Rating</p>
+                <p className="mt-1 text-2xl font-semibold text-black dark:text-white">
+                  {typeof resolvedSelfProfile.metrics.performanceRating === "number"
+                    ? `${Math.round(resolvedSelfProfile.metrics.performanceRating * 10) / 10}/5`
+                    : "—"}
+                </p>
+                <p className="text-xs text-black/70 dark:text-white/70">
+                  {resolvedSelfProfile.metrics.performanceReviewsCount || 0} reviews
+                </p>
+              </div>
+              <div className="rounded-xl border border-emerald-500/40 bg-gradient-to-br from-emerald-500/20 via-[#164438]/16 to-[#132a25]/20 p-3 dark:border-emerald-500/40 dark:bg-gradient-to-br dark:from-emerald-500/24 dark:via-[#12362d]/26 dark:to-[#102521]/24">
+                <p className="text-xs uppercase tracking-[0.22em] text-black/70 dark:text-white/70">Payroll status</p>
+                <p className="mt-1 text-2xl font-semibold text-black dark:text-white">
+                  {resolvedSelfProfile.metrics.payrollStatus === "paid"
+                    ? "Paid"
+                    : resolvedSelfProfile.metrics.payrollStatus === "pending"
+                      ? "Pending"
+                      : "—"}
+                </p>
+                <p className="text-xs text-black/70 dark:text-white/70">
+                  Hours: {typeof resolvedSelfProfile.metrics.payrollHoursWorked === "number"
+                    ? resolvedSelfProfile.metrics.payrollHoursWorked.toFixed(1)
+                    : "—"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-amber-500/40 bg-gradient-to-br from-amber-500/22 via-[#4d3618]/16 to-[#2c2214]/20 p-3 dark:border-amber-500/40 dark:bg-gradient-to-br dark:from-amber-500/28 dark:via-[#3a2b19]/24 dark:to-[#1d1815]/24">
+                <p className="text-xs uppercase tracking-[0.22em] text-black/70 dark:text-white/70">Review cycle</p>
+                <p className="mt-1 text-2xl font-semibold text-black dark:text-white">
+                  {typeof resolvedSelfProfile.metrics.performanceReviewCycleDays === "number"
+                    ? `${Math.round(resolvedSelfProfile.metrics.performanceReviewCycleDays)}d`
+                    : "—"}
+                </p>
+                <p className="text-xs text-black/70 dark:text-white/70">
+                  Location: {resolvedSelfProfile.location || "Not set"}
+                </p>
+              </div>
+            </div>
+
+            <section className="mt-5 rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-[var(--brand,#b61616)]">My schedule</p>
+                  <h4 className="mt-1 text-base font-semibold text-black dark:text-white">Current calendar</h4>
+                  <p className="text-xs text-black/60 dark:text-white/60">
+                    Connect this monthly schedule to your preferred calendar provider.
+                  </p>
+                </div>
+                <div className="inline-flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProfileScheduleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                    className="rounded-md border border-black/20 p-1.5 dark:border-white/20"
+                    aria-label="Previous month"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="text-sm font-medium text-black dark:text-white">{profileScheduleMonthLabel}</span>
+                  <button
+                    type="button"
+                    onClick={() => setProfileScheduleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                    className="rounded-md border border-black/20 p-1.5 dark:border-white/20"
+                    aria-label="Next month"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href={selfCalendarGoogleHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                    selfScheduleEntries.length > 0
+                      ? "cursor-pointer border-black/20 bg-white/70 text-black hover:border-[var(--brand,#b61616)]/45 dark:border-white/20 dark:bg-white/[0.05] dark:text-white"
+                      : "pointer-events-none border-black/10 bg-black/[0.04] text-black/45 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/45"
+                  }`}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Google
+                </a>
+                <a
+                  href={selfCalendarIcsDataUri}
+                  download={`pli-staff-schedule-${monthKey(profileScheduleMonth)}.ics`}
+                  className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                    selfScheduleEntries.length > 0
+                      ? "cursor-pointer border-black/20 bg-white/70 text-black hover:border-[var(--brand,#b61616)]/45 dark:border-white/20 dark:bg-white/[0.05] dark:text-white"
+                      : "pointer-events-none border-black/10 bg-black/[0.04] text-black/45 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/45"
+                  }`}
+                >
+                  <CalendarPlus className="h-3.5 w-3.5" />
+                  Outlook
+                </a>
+                <a
+                  href={selfCalendarIcsDataUri}
+                  download={`pli-staff-schedule-${monthKey(profileScheduleMonth)}.ics`}
+                  className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                    selfScheduleEntries.length > 0
+                      ? "cursor-pointer border-black/20 bg-white/70 text-black hover:border-[var(--brand,#b61616)]/45 dark:border-white/20 dark:bg-white/[0.05] dark:text-white"
+                      : "pointer-events-none border-black/10 bg-black/[0.04] text-black/45 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/45"
+                  }`}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Yahoo
+                </a>
+                <a
+                  href={selfCalendarIcsDataUri}
+                  download={`pli-staff-schedule-${monthKey(profileScheduleMonth)}.ics`}
+                  className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                    selfScheduleEntries.length > 0
+                      ? "cursor-pointer border-black/20 bg-white/70 text-black hover:border-[var(--brand,#b61616)]/45 dark:border-white/20 dark:bg-white/[0.05] dark:text-white"
+                      : "pointer-events-none border-black/10 bg-black/[0.04] text-black/45 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/45"
+                  }`}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Apple
+                </a>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="grid grid-cols-7 gap-2 text-center text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">
+                  {WEEKDAY_LABELS.map((label) => (
+                    <span key={`profile-weekday-${label}`}>{label}</span>
+                  ))}
+                </div>
+                <div className="mt-2 grid grid-cols-7 gap-2">
+                  {profileCalendarCells.map((cell, idx) => {
+                    const events = selfScheduleByDay[cell.dateKey] || []
+                    return (
+                      <div
+                        key={`profile-calendar-cell-${cell.dateKey}-${idx}`}
+                        className={`min-h-[84px] rounded-md border p-1.5 ${
+                          cell.inMonth
+                            ? "border-black/10 bg-white/70 dark:border-white/10 dark:bg-white/[0.02]"
+                            : "border-black/5 bg-black/[0.02] opacity-60 dark:border-white/5 dark:bg-white/[0.01]"
+                        }`}
+                      >
+                        <p className="mb-1 text-right text-xs text-black/70 dark:text-white/70">{cell.day}</p>
+                        <div className="space-y-1">
+                          {events.slice(0, 2).map((event) => (
+                            <p
+                              key={`profile-calendar-event-${event.id}`}
+                              className="truncate rounded-full bg-[var(--brand,#b61616)]/85 px-2 py-0.5 text-[11px] text-white"
+                              title={`${event.title} · ${event.timeLabel}`}
+                            >
+                              {event.timeLabel}
+                            </p>
+                          ))}
+                          {events.length > 2 ? (
+                            <p className="text-[11px] text-black/60 dark:text-white/60">+{events.length - 2} more</p>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              {selfScheduleEntries.length === 0 ? (
+                <p className="mt-2 text-xs text-black/60 dark:text-white/60">
+                  No recurring schedule configured yet. Set weekdays and shift times in your profile.
+                </p>
+              ) : null}
+            </section>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <section className="rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+                <p className="text-xs uppercase tracking-[0.22em] text-[var(--brand,#b61616)]">Requests</p>
+                <h4 className="mt-1 text-base font-semibold text-black dark:text-white">Create request</h4>
+                <p className="text-xs text-black/60 dark:text-white/60">
+                  Ask for schedule changes, vacation/day off, payment review or leave a consultation.
+                </p>
+                <form onSubmit={submitProfileRequest} className="mt-3 space-y-2.5">
+                  <label className="space-y-1">
+                    <span className="text-xs text-black/65 dark:text-white/65">Request type</span>
+                    <select
+                      value={profileRequestForm.type}
+                      onChange={(event) => setProfileRequestForm((prev) => ({ ...prev, type: event.target.value as StaffRequestType }))}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      {PROFILE_REQUEST_TYPE_OPTIONS.map((option) => (
+                        <option key={`profile-request-type-${option.value}`} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="rounded-md border border-black/10 bg-black/[0.03] px-2.5 py-1.5 text-xs text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
+                    {selectedProfileRequestType.hint}
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="space-y-1">
+                      <span className="text-xs text-black/65 dark:text-white/65">Start date</span>
+                      <input
+                        type="date"
+                        value={profileRequestForm.startDate}
+                        onChange={(event) => setProfileRequestForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs text-black/65 dark:text-white/65">End date</span>
+                      <input
+                        type="date"
+                        value={profileRequestForm.endDate}
+                        onChange={(event) => setProfileRequestForm((prev) => ({ ...prev, endDate: event.target.value }))}
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      />
+                    </label>
+                  </div>
+                  <label className="space-y-1">
+                    <span className="text-xs text-black/65 dark:text-white/65">Preferred shift / time (optional)</span>
+                    <input
+                      value={profileRequestForm.preferredShift}
+                      onChange={(event) => setProfileRequestForm((prev) => ({ ...prev, preferredShift: event.target.value }))}
+                      placeholder="e.g. Tue/Thu evening after 6:00 PM"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs text-black/65 dark:text-white/65">Consultation topic (optional)</span>
+                    <input
+                      value={profileRequestForm.consultTopic}
+                      onChange={(event) => setProfileRequestForm((prev) => ({ ...prev, consultTopic: event.target.value }))}
+                      placeholder="Payroll, class support, shift coverage..."
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs text-black/65 dark:text-white/65">Details</span>
+                    <textarea
+                      value={profileRequestForm.message}
+                      onChange={(event) => setProfileRequestForm((prev) => ({ ...prev, message: event.target.value }))}
+                      placeholder="Explain your request with context, date and expected outcome."
+                      rows={4}
+                      className="w-full resize-none rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
+                  </label>
+                  {profileRequestError ? (
+                    <p className="rounded-md border border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 px-2.5 py-1.5 text-xs text-[var(--brand,#ff4b4b)]">
+                      {profileRequestError}
+                    </p>
+                  ) : null}
+                  {profileRequestSuccess ? (
+                    <p className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-300">
+                      {profileRequestSuccess}
+                    </p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={profileRequestSubmitting}
+                    className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {profileRequestSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {profileRequestSubmitting ? "Submitting..." : "Send request"}
+                  </button>
+                </form>
+              </section>
+
+              <section className="rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--brand,#b61616)]">My history</p>
+                    <h4 className="mt-1 text-base font-semibold text-black dark:text-white">Request status</h4>
+                  </div>
+                  <div className="inline-flex flex-wrap gap-1">
+                    {PROFILE_REQUEST_STATUS_OPTIONS.map((status) => (
+                      <button
+                        key={`profile-request-status-${status}`}
+                        type="button"
+                        onClick={() => setProfileRequestStatusFilter(status)}
+                        className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] ${
+                          profileRequestStatusFilter === status
+                            ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#b61616)]"
+                            : "border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
+                        }`}
+                      >
+                        {status === "all" ? "All" : status.replaceAll("_", " ")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border border-black/10 bg-white/70 px-2.5 py-2 dark:border-white/10 dark:bg-white/[0.05]">
+                    <p className="text-[11px] text-black/60 dark:text-white/60">Total</p>
+                    <p className="text-base font-semibold text-black dark:text-white">{requestsSummary.total}</p>
+                  </div>
+                  <div className="rounded-lg border border-black/10 bg-white/70 px-2.5 py-2 dark:border-white/10 dark:bg-white/[0.05]">
+                    <p className="text-[11px] text-black/60 dark:text-white/60">Pending</p>
+                    <p className="text-base font-semibold text-black dark:text-white">{requestsSummary.pending}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 max-h-[360px] space-y-2 overflow-y-auto pr-1">
+                  {requestsLoading ? (
+                    Array.from({ length: 3 }).map((_, index) => (
+                      <div
+                        key={`self-requests-skeleton-${index}`}
+                        className="h-[74px] rounded-lg border border-black/10 bg-black/[0.03] shimmer dark:border-white/10 dark:bg-white/[0.03]"
+                      />
+                    ))
+                  ) : staffRequests.length === 0 ? (
+                    <p className="rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
+                      No requests yet.
+                    </p>
+                  ) : (
+                    staffRequests.slice(0, 10).map((request) => (
+                      <div
+                        key={`self-request-${request.id}`}
+                        className="rounded-lg border border-black/10 bg-white/70 p-2.5 dark:border-white/10 dark:bg-white/[0.03]"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-semibold text-black dark:text-white">
+                            {REQUEST_TYPE_LABELS[request.type]}
+                          </p>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                              request.status === "APPROVED"
+                                ? "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
+                                : request.status === "REJECTED"
+                                  ? "border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)]"
+                                  : request.status === "IN_REVIEW"
+                                    ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                                    : "border-amber-500/45 bg-amber-500/10 text-amber-300"
+                            }`}
+                          >
+                            {request.status.replaceAll("_", " ")}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-black/75 dark:text-white/75">{request.message || "No details provided."}</p>
+                        <p className="mt-1 text-[11px] text-black/60 dark:text-white/60">
+                          Created: {formatIsoDate(request.createdAt)}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-black/10 bg-gradient-to-br from-[#1a1830]/70 via-[#1f1730]/60 to-[#102040]/50 p-3 dark:border-white/10 dark:bg-gradient-to-br dark:from-[#181c31]/70 dark:via-[#251632]/65 dark:to-[#102040]/55">
+              <p className="text-xs uppercase tracking-[0.22em] text-black/60 dark:text-white/60">Improvement recommendations</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {selfRecommendations.map((tip, index) => (
+                  <p
+                    key={`self-recommendation-${index}`}
+                    className="rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-xs text-black/75 dark:border-white/10 dark:bg-white/[0.05] dark:text-white/75"
+                  >
+                    {tip}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </article>
+        ) : null}
+
         {showStaffOps ? (
           <article
             id="staff-create"
@@ -2997,68 +5309,166 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
           </article>
         ) : null}
 
-        {showStaffOps ? (
-          <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
-            <header className="mb-3">
-              <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Check-in</p>
-              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">PIN terminal access</h3>
+        {isTerminalView ? (
+          canManageTerminalSetup ? (
+            <StaffTerminalSetupClient />
+          ) : (
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+              <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Terminal access</p>
+              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Reception terminal</h3>
               <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                Select an employee and validate PIN to register check-in and open that staff panel.
+                Front desk users can open the terminal flow but cannot change terminal configuration.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <a
+                  href="/staff/terminal"
+                  className="rounded-xl border border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/15 px-4 py-2 text-sm font-medium text-[var(--brand,#ff4b4b)]"
+                >
+                  Open terminal
+                </a>
+                <a
+                  href="/staff/checkin"
+                  className="rounded-xl border border-black/15 bg-black/[0.03] px-4 py-2 text-sm text-black/75 dark:border-white/15 dark:bg-white/[0.03] dark:text-white/75"
+                >
+                  Switch user
+                </a>
+              </div>
+            </article>
+          )
+        ) : null}
+
+        {isAssistantView ? (
+          <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">AI Assistant</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Agent configuration</h3>
+                <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                  Configure response style, search behavior and workflow gates. The live chat stays in the right rail.
+                </p>
+              </div>
+            </header>
+
+            <form
+              onSubmit={saveAssistantConfig}
+              className="grid gap-3 rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02] lg:grid-cols-2"
+            >
+              <label className="space-y-1.5">
+                <span className="text-xs uppercase tracking-[0.22em] text-black/60 dark:text-white/60">Response tone</span>
+                <select
+                  value={assistantConfig.tone}
+                  onChange={(event) => setAssistantConfig((prev) => ({ ...prev, tone: event.target.value }))}
+                  className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                >
+                  <option value="concise">Concise</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="detailed">Detailed</option>
+                </select>
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-xs uppercase tracking-[0.22em] text-black/60 dark:text-white/60">Search mode</span>
+                <select
+                  value={assistantConfig.searchMode}
+                  onChange={(event) => setAssistantConfig((prev) => ({ ...prev, searchMode: event.target.value }))}
+                  className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                >
+                  <option value="hybrid">Hybrid (local + web)</option>
+                  <option value="local_only">Local only</option>
+                  <option value="web_first">Web first</option>
+                </select>
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-xs uppercase tracking-[0.22em] text-black/60 dark:text-white/60">Workflow preset</span>
+                <select
+                  value={assistantConfig.workflow}
+                  onChange={(event) => setAssistantConfig((prev) => ({ ...prev, workflow: event.target.value }))}
+                  className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                >
+                  <option value="operations">Operations</option>
+                  <option value="sales">Sales</option>
+                  <option value="quality">Teaching quality</option>
+                </select>
+              </label>
+
+              <div className="space-y-2 rounded-md border border-black/10 bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-white/[0.04]">
+                <label className="flex items-center gap-2 text-black/80 dark:text-white/80">
+                  <input
+                    type="checkbox"
+                    checked={assistantConfig.includeSources}
+                    onChange={(event) =>
+                      setAssistantConfig((prev) => ({ ...prev, includeSources: event.target.checked }))
+                    }
+                  />
+                  Include source links in answers
+                </label>
+                <label className="flex items-center gap-2 text-black/80 dark:text-white/80">
+                  <input
+                    type="checkbox"
+                    checked={assistantConfig.suggestActions}
+                    onChange={(event) =>
+                      setAssistantConfig((prev) => ({ ...prev, suggestActions: event.target.checked }))
+                    }
+                  />
+                  Suggest next actions automatically
+                </label>
+                <label className="flex items-center gap-2 text-black/80 dark:text-white/80">
+                  <input
+                    type="checkbox"
+                    checked={assistantConfig.requireConfirmation}
+                    onChange={(event) =>
+                      setAssistantConfig((prev) => ({ ...prev, requireConfirmation: event.target.checked }))
+                    }
+                  />
+                  Require confirmation for sensitive operations
+                </label>
+              </div>
+
+              <div className="lg:col-span-2 flex items-center justify-end gap-2 border-t border-black/10 pt-3 dark:border-white/10">
+                {assistantConfigMessage ? (
+                  <p className="mr-auto rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-200">
+                    {assistantConfigMessage}
+                  </p>
+                ) : (
+                  <span className="mr-auto text-xs text-black/55 dark:text-white/55">Applied to admin copilot and chat rail.</span>
+                )}
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white"
+                >
+                  <Settings className="h-4 w-4" />
+                  Save assistant config
+                </button>
+              </div>
+            </form>
+          </article>
+        ) : null}
+
+        {isSettingsView ? (
+          <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <header className="mb-4">
+              <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Settings</p>
+              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Portal configuration</h3>
+              <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                Centralized settings area for staff portal behavior and system controls.
               </p>
             </header>
 
-            <form onSubmit={verifyStaffPin} className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_170px_auto]">
-              <select
-                name="pinStaffUserId"
-                value={pinStaffUserId}
-                onChange={(event) => setPinStaffUserId(event.target.value)}
-                className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-              >
-                {rows.length === 0 ? (
-                  <option value="">No staff users</option>
-                ) : (
-                  rows.map((row) => {
-                    const name = `${row.firstName} ${row.lastName}`.trim() || row.email
-                    return (
-                      <option key={`pin-user-${row.id}`} value={row.id}>
-                        {name}
-                        {row.hasPin ? "" : " (PIN not configured)"}
-                      </option>
-                    )
-                  })
-                )}
-              </select>
-              <input
-                name="pinCode"
-                value={pinCode}
-                onChange={(event) => setPinCode(event.target.value.replace(/[^\d]/g, "").slice(0, 8))}
-                placeholder="PIN"
-                inputMode="numeric"
-                className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm tracking-[0.2em] text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-              />
-              <button
-                type="submit"
-                disabled={pinBusy}
-                className="inline-flex items-center justify-center gap-2 rounded-md border border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 px-4 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-60"
-              >
-                <KeyRound className="h-4 w-4" />
-                {pinBusy ? "Checking..." : "Check-in + login"}
-              </button>
-            </form>
-            <p className="mt-3 text-xs text-black/55 dark:text-white/55">
-              Seleccioná empleado + PIN para loguearlo y registrar su entrada.
-            </p>
-
-            {pinMessage ? (
-              <p className="mt-3 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-                {pinMessage}
-              </p>
-            ) : null}
-            {pinError ? (
-              <p className="mt-3 rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
-                {pinError}
-              </p>
-            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-black/10 bg-white/70 p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                <p className="text-sm font-semibold text-black dark:text-white">Security defaults</p>
+                <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                  Session timeout, PIN retries and protected routes.
+                </p>
+              </div>
+              <div className="rounded-xl border border-black/10 bg-white/70 p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                <p className="text-sm font-semibold text-black dark:text-white">Notifications</p>
+                <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                  Staff alerts, payroll reminders and incident notifications.
+                </p>
+              </div>
+            </div>
           </article>
         ) : null}
 
@@ -3464,14 +5874,14 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
         ) : null}
 
         {isSchoolView ? (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">School builder</p>
-                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Cursos, paquetes y asignación de puntos</h3>
+                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Courses, packages, and point assignment</h3>
                   <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                    School está separado de staff users. Acá gestionás solo catálogo académico.
+                    School is separate from staff users. Manage only the academic catalog here.
                   </p>
                 </div>
                 <button
@@ -3483,7 +5893,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                 </button>
               </header>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="mt-5 grid gap-4 sm:grid-cols-3">
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Courses</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolCourses.length}</p>
@@ -3511,119 +5921,168 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
             </article>
 
             <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
-              <header className="mb-4">
+              <header className="mb-6">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Course studio</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Constructor + preview visual</h3>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create and publish courses</h3>
                 <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                  Definí datos del curso y previsualizá en tiempo real como un canvas.
+                  Define course data, schedule, and publish links for social channels.
                 </p>
               </header>
 
-              <div className="grid grid-cols-1 gap-4">
-                <form onSubmit={saveCourseCatalog} className="rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
-                  <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Curso</p>
-                  <h4 className="mt-2 text-lg font-semibold text-black dark:text-white">Crear o actualizar curso</h4>
+              <div className="grid grid-cols-1 gap-6">
+                <form onSubmit={saveCourseCatalog}>
                   <input ref={courseImageInputRef} name="courseLocalImage" type="file" accept="image/*" className="hidden" onChange={handleCourseLocalImage} />
                   <input ref={courseVideoInputRef} name="courseLocalVideo" type="file" accept="video/*" className="hidden" onChange={handleCourseLocalVideo} />
-                  <div className="mt-3 space-y-2">
-                    <input
-                      name="courseSlug"
-                      value={courseForm.slug}
-                      onChange={(event) => setCourseForm((prev) => ({ ...prev, slug: event.target.value }))}
-                      placeholder="slug (ej: salsa-femenina-matutina)"
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      required
-                    />
-                    <input
-                      name="courseTitle"
-                      value={courseForm.title}
-                      onChange={(event) => setCourseForm((prev) => ({ ...prev, title: event.target.value }))}
-                      placeholder="Título"
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      required
-                    />
-                    <textarea
-                      name="courseDescription"
-                      value={courseForm.description}
-                      onChange={(event) => setCourseForm((prev) => ({ ...prev, description: event.target.value }))}
-                      placeholder="Descripción corta del curso"
-                      rows={3}
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <select
-                        name="courseKind"
-                        value={courseForm.kind}
-                        onChange={(event) => setCourseForm((prev) => ({ ...prev, kind: event.target.value }))}
+                  <div ref={courseFormFieldsRef} className="mt-4 space-y-4">
+                    <div className="space-y-3">
+                      <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Course main information</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          name="courseSlug"
+                          value={courseForm.slug}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, slug: event.target.value }))}
+                          placeholder="slug (e.g., salsa-feminine-morning)"
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          required
+                        />
+                        <input
+                          name="courseTitle"
+                          value={courseForm.title}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, title: event.target.value }))}
+                          placeholder="Title"
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          required
+                        />
+                      </div>
+                      <textarea
+                        name="courseDescription"
+                        value={courseForm.description}
+                        onChange={(event) => setCourseForm((prev) => ({ ...prev, description: event.target.value }))}
+                        placeholder="Short course description"
+                        rows={3}
                         className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      >
-                        {SCHOOL_COURSE_KINDS.map((kind) => (
-                          <option key={`course-kind-${kind}`} value={kind}>
-                            {kind}
-                          </option>
-                        ))}
-                      </select>
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <select
+                          name="courseKind"
+                          value={courseForm.kind}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, kind: event.target.value }))}
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        >
+                          {SCHOOL_COURSE_KINDS.map((kind) => (
+                            <option key={`course-kind-${kind}`} value={kind}>
+                              {kind}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          name="courseCategory"
+                          value={courseForm.category}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, category: event.target.value }))}
+                          placeholder="Category"
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          name="courseLevel"
+                          value={courseForm.level}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, level: event.target.value }))}
+                          placeholder="Level"
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        />
+                        <input
+                          name="courseDurationMinutes"
+                          type="number"
+                          min={0}
+                          max={600}
+                          value={courseForm.durationMinutes}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, durationMinutes: event.target.value }))}
+                          placeholder="Duration (min)"
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        />
+                      </div>
                       <input
-                        name="courseCategory"
-                        value={courseForm.category}
-                        onChange={(event) => setCourseForm((prev) => ({ ...prev, category: event.target.value }))}
-                        placeholder="Categoría"
+                        name="courseLocation"
+                        value={courseForm.location}
+                        onChange={(event) => setCourseForm((prev) => ({ ...prev, location: event.target.value }))}
+                        placeholder="Location"
                         className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        name="courseLevel"
-                        value={courseForm.level}
-                        onChange={(event) => setCourseForm((prev) => ({ ...prev, level: event.target.value }))}
-                        placeholder="Nivel"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
-                      <input
-                        name="courseDurationMinutes"
-                        type="number"
-                        min={0}
-                        max={600}
-                        value={courseForm.durationMinutes}
-                        onChange={(event) => setCourseForm((prev) => ({ ...prev, durationMinutes: event.target.value }))}
-                        placeholder="Duración (min)"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        name="courseDropInPrice"
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        value={courseForm.dropInPriceCents}
-                        onChange={(event) => setCourseForm((prev) => ({ ...prev, dropInPriceCents: event.target.value }))}
-                        placeholder="Drop-in USD (ej: 20)"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
-                      <input
-                        name="courseFirstClassPrice"
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        value={courseForm.firstClassPriceCents}
-                        onChange={(event) => setCourseForm((prev) => ({ ...prev, firstClassPriceCents: event.target.value }))}
-                        placeholder="First class USD (ej: 15)"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
-                    </div>
-                    <input
-                      name="courseLocation"
-                      value={courseForm.location}
-                      onChange={(event) => setCourseForm((prev) => ({ ...prev, location: event.target.value }))}
-                      placeholder="Ubicación"
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    />
 
-                    <div className="rounded-lg border border-black/10 bg-white/75 p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
-                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Media assets</p>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="space-y-2">
+                    <div className="space-y-2">
+                      <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Prices and special discounts</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          name="courseDropInPrice"
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={courseForm.dropInPriceCents}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, dropInPriceCents: event.target.value }))}
+                          placeholder="Drop-in USD (e.g., 20)"
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        />
+                        <input
+                          name="courseFirstClassPrice"
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={courseForm.firstClassPriceCents}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, firstClassPriceCents: event.target.value }))}
+                          placeholder="First class USD (e.g., 15)"
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        />
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <select
+                          name="courseSpecialDiscountType"
+                          value={courseForm.specialDiscountType}
+                          onChange={(event) =>
+                            setCourseForm((prev) => ({
+                              ...prev,
+                              specialDiscountType: event.target.value as CourseSpecialDiscountType,
+                              specialDiscountCustomLabel:
+                                event.target.value === "custom" ? prev.specialDiscountCustomLabel : "",
+                            }))
+                          }
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        >
+                          {COURSE_SPECIAL_DISCOUNT_OPTIONS.map((option) => (
+                            <option key={`course-special-discount-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          name="courseSpecialDiscountPrice"
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={courseForm.specialDiscountPrice}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, specialDiscountPrice: event.target.value }))}
+                          placeholder="Discounted price USD"
+                          disabled={courseForm.specialDiscountType === "none"}
+                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-45 dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        />
+                      </div>
+                      {courseForm.specialDiscountType === "custom" ? (
+                        <input
+                          name="courseSpecialDiscountCustomLabel"
+                          value={courseForm.specialDiscountCustomLabel}
+                          onChange={(event) => setCourseForm((prev) => ({ ...prev, specialDiscountCustomLabel: event.target.value }))}
+                          placeholder="Custom discount label (e.g., Anniversary Week)"
+                          className="mt-2 w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        />
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Media assets</p>
+                      <div className="rounded-lg border border-black/10 bg-white/75 p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-3">
                           <p className="text-[11px] uppercase tracking-[0.22em] text-black/60 dark:text-white/60">Video</p>
                           <input
                             name="coursePreviewVideoUrl"
@@ -3635,13 +6094,14 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                           <button
                             type="button"
                             onClick={() => courseVideoInputRef.current?.click()}
-                            className="inline-flex w-full items-center justify-center rounded-md border border-black/15 bg-white px-3 py-2 text-xs font-semibold text-black/80 transition hover:bg-white/80 dark:border-white/15 dark:bg-white/[0.04] dark:text-white/80"
+                            disabled={courseMediaUploading !== null}
+                            className="inline-flex w-full items-center justify-center rounded-md border border-black/15 bg-white px-3 py-2 text-xs font-semibold text-black/80 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/15 dark:bg-white/[0.04] dark:text-white/80"
                           >
-                            Cargar video local
+                            {courseMediaUploading === "video" ? "Uploading video..." : "Upload local video"}
                           </button>
                           {courseLocalVideoName ? <p className="text-xs text-black/60 dark:text-white/60">Local video: {courseLocalVideoName}</p> : null}
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           <p className="text-[11px] uppercase tracking-[0.22em] text-black/60 dark:text-white/60">Imagen</p>
                           <input
                             name="coursePreviewImageUrl"
@@ -3653,32 +6113,34 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                           <button
                             type="button"
                             onClick={() => courseImageInputRef.current?.click()}
-                            className="inline-flex w-full items-center justify-center rounded-md border border-black/15 bg-white px-3 py-2 text-xs font-semibold text-black/80 transition hover:bg-white/80 dark:border-white/15 dark:bg-white/[0.04] dark:text-white/80"
+                            disabled={courseMediaUploading !== null}
+                            className="inline-flex w-full items-center justify-center rounded-md border border-black/15 bg-white px-3 py-2 text-xs font-semibold text-black/80 transition hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/15 dark:bg-white/[0.04] dark:text-white/80"
                           >
-                            Cargar imagen local
+                            {courseMediaUploading === "image" ? "Uploading image..." : "Upload local image"}
                           </button>
                           {courseLocalImageName ? <p className="text-xs text-black/60 dark:text-white/60">Local image: {courseLocalImageName}</p> : null}
                         </div>
                       </div>
                     </div>
+                    </div>
 
-                    <div className="rounded-lg border border-black/10 bg-white/75 p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
+                    <div className="space-y-2">
                       <p className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
-                        {isSpecialEventCourse ? "Eventos especiales (calendar builder)" : "Horarios (builder guiado)"}
+                        {isSpecialEventCourse ? "Special events (calendar builder)" : "Schedules (guided builder)"}
                       </p>
-                      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-                        <div className="space-y-3">
+                      <div className="space-y-5">
+                        <div className="space-y-5">
                           {isSpecialEventCourse ? (
                             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 dark:border-amber-400/35 dark:bg-amber-500/10">
-                              <p className="text-[11px] uppercase tracking-[0.2em] text-amber-300">Modo evento especial</p>
+                              <p className="text-[11px] uppercase tracking-[0.2em] text-amber-300">Special event mode</p>
                               <p className="mt-1 text-xs text-amber-100/90">
-                                Este curso usa fechas únicas. El builder semanal queda deshabilitado y los slots se cargan desde el calendario.
+                                This course uses unique dates. The weekly builder is disabled and slots are loaded from the calendar.
                               </p>
                             </div>
                           ) : (
-                            <>
-                              <div className="rounded-lg border border-black/10 bg-white/65 p-2.5 dark:border-white/10 dark:bg-white/[0.03]">
-                                <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">1) Seleccioná los días</p>
+                            <div className={`grid items-start gap-5 ${courseRecurringWeekdays.length === 1 ? "xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]" : ""}`}>
+                              <div className="px-1 py-1.5">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">1) Select days</p>
                                 <div className="mt-1 grid grid-cols-7 gap-1.5">
                                   {WEEKDAY_LABELS.map((label, weekday) => {
                                     const active = courseRecurringWeekdays.includes(weekday)
@@ -3699,26 +6161,26 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                   })}
                                 </div>
                                 <p className="mt-1 text-xs text-black/55 dark:text-white/55">
-                                  Seleccionados: {courseRecurringWeekdays.length}
+                                  Selected: {courseRecurringWeekdays.length}
                                 </p>
                               </div>
 
                               {courseRecurringWeekdays.length === 1 ? (
-                                <div className="rounded-lg border border-black/10 bg-white/65 p-2.5 dark:border-white/10 dark:bg-white/[0.03]">
-                                  <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
-                                    2) ¿Este horario se repite en otro día?
+                                <div className="px-1 py-1.5 xl:border-l xl:border-black/10 xl:pl-3 dark:xl:border-white/10">
+                                  <p className="text-[10px] uppercase tracking-[0.16em] text-black/60 dark:text-white/60">
+                                    2) Repeat this slot on other days?
                                   </p>
                                   <div className="mt-1 flex flex-wrap gap-1.5">
                                     <button
                                       type="button"
                                       onClick={() => setCourseMirrorEnabled(true)}
-                                      className={`rounded-md border px-3 py-1 text-xs font-semibold ${
+                                      className={`h-11 rounded-md border px-3 text-sm font-semibold ${
                                         courseMirrorEnabled
                                           ? "border-[var(--brand,#b61616)]/70 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
                                           : "border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
                                       }`}
                                     >
-                                      Sí, repetir
+                                      Yes, repeat
                                     </button>
                                     <button
                                       type="button"
@@ -3726,7 +6188,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                         setCourseMirrorEnabled(false)
                                         setCourseMirrorWeekdays([])
                                       }}
-                                      className={`rounded-md border px-3 py-1 text-xs font-semibold ${
+                                      className={`h-11 rounded-md border px-3 text-sm font-semibold ${
                                         !courseMirrorEnabled
                                           ? "border-[var(--brand,#b61616)]/70 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
                                           : "border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
@@ -3760,16 +6222,18 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                   ) : null}
                                 </div>
                               ) : null}
-                            </>
+                            </div>
                           )}
 
-                          <div className="rounded-lg border border-black/10 bg-white/65 p-2.5 dark:border-white/10 dark:bg-white/[0.03]">
+                          <div className="space-y-4">
                             <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
-                              {isSpecialEventCourse ? "2) Horario para fechas del evento" : "3) Horario para los días elegidos"}
+                              {isSpecialEventCourse
+                                ? "2) Time slot for event dates · Shortcuts (editable)"
+                                : "3) Time slot for selected days · Shortcuts (editable)"}
                             </p>
                             {isSpecialEventCourse ? (
-                              <div className="mt-2 rounded-md border border-black/10 bg-black/[0.02] p-2 dark:border-white/10 dark:bg-white/[0.02]">
-                                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Fechas del evento</p>
+                              <div className="mt-3 rounded-md border border-black/10 bg-black/[0.02] p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
+                                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Event dates</p>
                                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                                   <input
                                     type="date"
@@ -3787,12 +6251,12 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                     }}
                                     className="rounded-md border border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)]"
                                   >
-                                    Agregar fecha
+                                    Add date
                                   </button>
                                 </div>
                                 <div className="mt-2 flex flex-wrap gap-1.5">
                                   {courseScheduleDates.length === 0 ? (
-                                    <span className="text-xs text-black/55 dark:text-white/55">Sin fechas seleccionadas.</span>
+                                    <span className="text-xs text-black/55 dark:text-white/55">No dates selected.</span>
                                   ) : (
                                     courseScheduleDates.map((date) => (
                                       <button
@@ -3808,16 +6272,15 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                 </div>
                               </div>
                             ) : null}
-                            <div className="mt-2 rounded-md border border-black/10 bg-black/[0.02] p-2 dark:border-white/10 dark:bg-white/[0.02]">
-                              <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Atajos (editable)</p>
-                              <div className="grid grid-cols-3 gap-2">
-                                {quickScheduleTimes.map((time, index) => {
+                            <div className="mt-4">
+                              <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                                {quickScheduleTimes.slice(0, QUICK_SCHEDULE_SLOT_COUNT).map((time, index) => {
                                   const isEditing = editingQuickTimeIndex === index
                                   if (isEditing) {
                                     return (
                                       <div
                                         key={`quick-time-edit-${index}`}
-                                        className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 p-2"
+                                        className="h-[6.5rem] w-full rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 p-2"
                                       >
                                         <input
                                           id={`quick-time-edit-${index}`}
@@ -3825,13 +6288,13 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                           type="time"
                                           value={quickTimeDraft}
                                           onChange={(event) => setQuickTimeDraft(event.target.value)}
-                                          className="h-8 w-full rounded border border-black/20 bg-white/85 px-2 text-xs text-black outline-none dark:border-white/20 dark:bg-white/10 dark:text-white"
+                                          className="h-7 w-full rounded border border-black/20 bg-white/85 px-1.5 text-[11px] text-black outline-none dark:border-white/20 dark:bg-white/10 dark:text-white"
                                         />
                                         <div className="mt-2 grid grid-cols-2 gap-1.5">
                                           <button
                                             type="button"
                                             onClick={commitQuickTimeEdit}
-                                            className="rounded border border-black/20 px-2 py-1 text-[11px] font-semibold text-black/80 dark:border-white/20 dark:text-white/80"
+                                            className="rounded border border-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-black/80 dark:border-white/20 dark:text-white/80"
                                           >
                                             Save
                                           </button>
@@ -3841,7 +6304,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                               setEditingQuickTimeIndex(null)
                                               setQuickTimeDraft("")
                                             }}
-                                            className="rounded border border-black/20 px-2 py-1 text-[11px] text-black/70 dark:border-white/20 dark:text-white/70"
+                                            className="rounded border border-black/20 px-1.5 py-0.5 text-[10px] text-black/70 dark:border-white/20 dark:text-white/70"
                                           >
                                             Cancel
                                           </button>
@@ -3856,10 +6319,10 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                   const isMostUsed = usageCount > 3 || usageCourseCount > 3
                                   const usageBadgeLabel =
                                     usageCourseCount > 0
-                                      ? `${usageCourseCount} curso${usageCourseCount === 1 ? "" : "s"}`
+                                      ? `${usageCourseCount} course${usageCourseCount === 1 ? "" : "s"}`
                                       : usageCount > 0
                                         ? `${usageCount} uso${usageCount === 1 ? "" : "s"}`
-                                        : "Sin uso"
+                                        : "No usage"
                                   const usageBadgeTone =
                                     usageCourseCount > 0
                                       ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
@@ -3879,43 +6342,47 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                           setCourseScheduleTime(normalizedTime)
                                         }
                                       }}
-                                      className={`min-h-[144px] cursor-pointer rounded-md border p-3 transition ${SCHEDULE_SHORTCUT_TONES[index % SCHEDULE_SHORTCUT_TONES.length]} ${
+                                      className={`h-[6.5rem] w-full cursor-pointer rounded-md border p-2 transition ${SCHEDULE_SHORTCUT_TONES[index % SCHEDULE_SHORTCUT_TONES.length]} ${
                                         isActive
                                           ? "border-[var(--brand,#b61616)]/70 shadow-[0_0_0_1px_rgba(182,22,22,0.35)]"
                                           : "border-black/20 dark:border-white/20"
                                       }`}
                                     >
-                                      <div className="flex items-center justify-center gap-1.5">
-                                        <Star
-                                          className={`h-3 w-3 ${isMostUsed ? "text-[#f59e0b]" : "text-black/35 dark:text-white/35"}`}
-                                          fill={isMostUsed ? "currentColor" : "none"}
-                                        />
-                                        <span
-                                          className={`inline-flex max-w-[88px] items-center justify-center truncate rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none ${usageBadgeTone}`}
-                                          title={usageBadgeLabel}
-                                        >
-                                          {usageBadgeLabel}
-                                        </span>
-                                        <Star
-                                          className={`h-3 w-3 ${isMostUsed ? "text-[#f59e0b]" : "text-black/35 dark:text-white/35"}`}
-                                          fill={isMostUsed ? "currentColor" : "none"}
-                                        />
-                                      </div>
-                                      <div className="mt-2 border-t border-black/15 pt-2 dark:border-white/15">
-                                        <div className="flex items-center justify-center">
-                                          <span className="text-xl font-bold text-black dark:text-white">{formatClockLabel(time)}</span>
+                                      <div className="flex h-full flex-col text-center">
+                                        <div className="flex items-center justify-center gap-2.5">
+                                          <Star
+                                            className={`h-3 w-3 ${
+                                              isMostUsed
+                                                ? "fill-current text-[var(--brand,#ff4b4b)]"
+                                                : "text-black/35 dark:text-white/35"
+                                            }`}
+                                          />
+                                          <span
+                                            className={`inline-flex max-w-[82px] items-center justify-center truncate rounded-full border px-1.5 py-0.5 text-[9px] font-medium leading-none ${usageBadgeTone}`}
+                                            title={usageBadgeLabel}
+                                          >
+                                            {usageBadgeLabel}
+                                          </span>
+                                          <Star
+                                            className={`h-3 w-3 ${
+                                              isMostUsed
+                                                ? "fill-current text-[var(--brand,#ff4b4b)]"
+                                                : "text-black/35 dark:text-white/35"
+                                            }`}
+                                          />
                                         </div>
-                                      </div>
-                                      <div className="mt-2 border-t border-black/15 pt-2 dark:border-white/15">
+                                        <div className="my-auto flex items-center justify-center">
+                                          <span className="text-[1.12rem] font-bold leading-none text-black dark:text-white">{formatClockLabel(time)}</span>
+                                        </div>
                                         <button
                                           type="button"
                                           onClick={(event) => {
                                             event.stopPropagation()
                                             startEditingQuickTime(index)
                                           }}
-                                          className="w-full rounded-md border border-black/20 bg-black/5 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.12em] text-black/70 transition hover:border-[var(--brand,#b61616)]/50 hover:bg-[var(--brand,#b61616)]/10 hover:text-black dark:border-white/20 dark:bg-white/[0.04] dark:text-white/70 dark:hover:text-white"
-                                          title="Editar horario"
-                                          aria-label="Editar horario"
+                                          className="w-full rounded-md border border-black/20 bg-black/5 px-1.5 py-0.5 text-center text-[9px] font-semibold uppercase tracking-[0.09em] text-black/70 transition hover:border-[var(--brand,#b61616)]/50 hover:bg-[var(--brand,#b61616)]/10 hover:text-black dark:border-white/20 dark:bg-white/[0.04] dark:text-white/70 dark:hover:text-white"
+                                          title="Edit time slot"
+                                          aria-label="Edit time slot"
                                         >
                                           Edit
                                         </button>
@@ -3925,137 +6392,180 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                 })}
                               </div>
                             </div>
-                            <div ref={scheduleTimePickerRef} className="relative mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setScheduleTimePickerOpen((prev) => !prev)}
-                                className="flex w-full items-center justify-between rounded-md border border-black/15 bg-white px-3 py-2 text-left text-sm text-black outline-none transition hover:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                              >
-                                <span>{formatClockLabel(courseScheduleTime)}</span>
-                                <Clock3 className="h-4 w-4 text-black/55 dark:text-white/55" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={addCourseScheduleSlot}
-                                className="rounded-md border border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)]"
-                              >
-                                {isSpecialEventCourse
-                                  ? courseScheduleDates.length > 1
-                                    ? "Add event slots"
-                                    : "Add event slot"
-                                  : courseRecurringWeekdays.length > 0 || courseScheduleDates.length > 1
-                                    ? "Add slots"
-                                    : "Add slot"}
-                              </button>
-                              {scheduleTimePickerOpen ? (
-                                <div className="absolute left-0 top-[calc(100%+0.45rem)] z-30 w-full rounded-md border border-black/10 bg-white/95 p-2 shadow-xl dark:border-white/10 dark:bg-[#141821]/95">
-                                  <div className="grid max-h-48 grid-cols-3 gap-1 overflow-y-auto sm:grid-cols-4">
-                                    {scheduleTimeOptions.map((option) => {
-                                      const active = normalizeClockTime(courseScheduleTime) === option
-                                      return (
-                                        <button
-                                          key={`schedule-time-option-${option}`}
-                                          type="button"
-                                          onClick={() => {
-                                            setCourseScheduleTime(option)
-                                            setScheduleTimePickerOpen(false)
-                                          }}
-                                          className={`rounded-md border px-2 py-1 text-xs font-semibold transition ${
-                                            active
-                                              ? "border-[var(--brand,#b61616)]/70 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
-                                              : "border-black/15 text-black/80 hover:border-[var(--brand,#b61616)]/50 dark:border-white/15 dark:text-white/80"
-                                          }`}
-                                        >
-                                          {formatClockLabel(option)}
-                                        </button>
-                                      )
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-                            </div>
-                            {!isSpecialEventCourse && regularScheduleWarningMessage ? (
-                              <div className="mt-2 rounded-md border border-amber-500/35 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-200">
-                                {regularScheduleWarningMessage}
-                              </div>
-                            ) : null}
                           </div>
                         </div>
 
-                        <div className="space-y-3">
-                          {isSpecialEventCourse ? (
-                            <div className="rounded-lg border border-[var(--brand,#b61616)]/25 bg-[var(--brand,#b61616)]/8 p-2.5">
-                              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#ff8a8a)]">Regla de prioridad</p>
-                              <p className="mt-1 text-xs text-[var(--brand,#ffd0d0)]">
-                                Los eventos especiales tienen prioridad sobre clases regulares. Si hay choque, el horario regular continúa en el siguiente día disponible.
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="rounded-lg border border-black/10 bg-white/65 p-2.5 dark:border-white/10 dark:bg-white/[0.03]">
-                              <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">4) Repetición y vigencia</p>
-                              <label className="mt-1 inline-flex items-center gap-2 text-xs text-black/75 dark:text-white/75">
-                                <input
-                                  type="checkbox"
-                                  checked={courseRepeatAllMonth}
-                                  onChange={(event) => setCourseRepeatAllMonth(event.target.checked)}
-                                />
-                                Repetir durante todo el mes visible
-                              </label>
-                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                <select
-                                  name="courseRecurrenceMode"
-                                  value={courseRecurrenceMode}
-                                  onChange={(event) => setCourseRecurrenceMode(event.target.value === "until_date" ? "until_date" : "indefinite")}
-                                  className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        <div className="space-y-5">
+                          <div className="grid gap-5 xl:grid-cols-2">
+                            <div>
+                              <div ref={scheduleTimePickerRef} className="relative grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setScheduleTimePickerOpen((prev) => !prev)}
+                                  className="flex w-full items-center justify-between border-b border-black/15 px-1 py-2 text-left text-sm text-black outline-none transition hover:border-[var(--brand,#b61616)] dark:border-white/15 dark:text-white"
                                 >
-                                  <option value="indefinite">Indefinido</option>
-                                  <option value="until_date">Con fecha de expiración</option>
-                                </select>
-                                <input
-                                  name="courseRecurrenceEndsAt"
-                                  type="date"
-                                  value={courseRecurrenceEndsAt}
-                                  onChange={(event) => setCourseRecurrenceEndsAt(event.target.value)}
-                                  disabled={courseRecurrenceMode !== "until_date"}
-                                  className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-45 dark:border-white/15 dark:bg-white/5 dark:text-white"
-                                />
+                                  <span>{formatClockLabel(courseScheduleTime)}</span>
+                                  <Clock3 className="h-4 w-4 text-black/55 dark:text-white/55" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={addCourseScheduleSlot}
+                                  className="rounded-md border border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)]"
+                                >
+                                  {isSpecialEventCourse
+                                    ? courseScheduleDates.length > 1
+                                      ? "Add event slots"
+                                      : "Add event slot"
+                                    : courseRecurringWeekdays.length > 0 || courseScheduleDates.length > 1
+                                      ? "Add slots"
+                                      : "Add slot"}
+                                </button>
+                                {scheduleTimePickerOpen ? (
+                                  <div className="absolute left-0 top-[calc(100%+0.45rem)] z-30 w-full rounded-md border border-black/10 bg-white/95 p-2 shadow-xl dark:border-white/10 dark:bg-[#141821]/95">
+                                    <div className="grid max-h-48 grid-cols-3 gap-1 overflow-y-auto sm:grid-cols-4">
+                                      {scheduleTimeOptions.map((option) => {
+                                        const active = normalizeClockTime(courseScheduleTime) === option
+                                        return (
+                                          <button
+                                            key={`schedule-time-option-${option}`}
+                                            type="button"
+                                            onClick={() => {
+                                              setCourseScheduleTime(option)
+                                              setScheduleTimePickerOpen(false)
+                                            }}
+                                            className={`rounded-md border px-2 py-1 text-xs font-semibold transition ${
+                                              active
+                                                ? "border-[var(--brand,#b61616)]/70 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
+                                                : "border-black/15 text-black/80 hover:border-[var(--brand,#b61616)]/50 dark:border-white/15 dark:text-white/80"
+                                            }`}
+                                          >
+                                            {formatClockLabel(option)}
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                              {!isSpecialEventCourse && regularScheduleWarningMessage ? (
+                                <div className="mt-2 rounded-md border border-amber-500/35 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-200">
+                                  {regularScheduleWarningMessage}
+                                </div>
+                              ) : null}
+                              <div className="mt-3 max-h-52 space-y-1.5 overflow-y-auto text-xs">
+                                {schoolLoading ? (
+                                  <div className="space-y-1.5 animate-pulse">
+                                    <div className="h-7 rounded-md bg-black/10 dark:bg-white/10" />
+                                    <div className="h-7 rounded-md bg-black/10 dark:bg-white/10" />
+                                    <div className="h-7 rounded-md bg-black/10 dark:bg-white/10" />
+                                  </div>
+                                ) : courseScheduleSlots.length === 0 ? (
+                                  <p className="text-black/60 dark:text-white/60">No slots selected yet.</p>
+                                ) : (
+                                  courseScheduleSlots.map((slot) => {
+                                    const slotKey = getCourseSlotKey(slot)
+                                    return (
+                                      <div
+                                        key={`course-slot-${slotKey}`}
+                                        className={`flex items-center justify-between gap-2 px-1 py-1 ${
+                                          slot.date
+                                            ? "text-amber-100"
+                                            : "text-black/80 dark:text-white/80"
+                                        }`}
+                                      >
+                                        <span>{formatCourseSlotLabel(slot)}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => removeCourseScheduleSlot(slotKey)}
+                                          className="rounded px-1.5 py-0.5 text-[11px] text-black/65 transition hover:text-[var(--brand,#ff4b4b)] dark:text-white/65"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    )
+                                  })
+                                )}
                               </div>
                             </div>
-                          )}
-
-                          <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-black/10 bg-white/70 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
-                            {schoolLoading ? (
-                              <div className="space-y-1.5 animate-pulse">
-                                <div className="h-7 rounded-md bg-black/10 dark:bg-white/10" />
-                                <div className="h-7 rounded-md bg-black/10 dark:bg-white/10" />
-                                <div className="h-7 rounded-md bg-black/10 dark:bg-white/10" />
-                              </div>
-                            ) : courseScheduleSlots.length === 0 ? (
-                              <p className="text-black/60 dark:text-white/60">No slots selected yet.</p>
-                            ) : (
-                              courseScheduleSlots.map((slot) => {
-                                const slotKey = getCourseSlotKey(slot)
-                                return (
-                                  <div
-                                    key={`course-slot-${slotKey}`}
-                                    className={`flex items-center justify-between gap-2 rounded-md border px-2 py-1 ${
-                                      slot.date
-                                        ? "border-amber-500/35 bg-amber-500/10 text-amber-100"
-                                        : "border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.02]"
-                                    }`}
-                                  >
-                                    <span>{formatCourseSlotLabel(slot)}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeCourseScheduleSlot(slotKey)}
-                                      className="rounded-md border border-black/15 px-2 py-0.5 text-[11px] dark:border-white/20"
+                            <div>
+                              {isSpecialEventCourse ? (
+                                <div className="rounded-lg border border-[var(--brand,#b61616)]/25 bg-[var(--brand,#b61616)]/8 p-2.5">
+                                  <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#ff8a8a)]">Priority rule</p>
+                                  <p className="mt-1 text-xs text-[var(--brand,#ffd0d0)]">
+                                    Special events have priority over regular classes. If there is a conflict, the regular schedule continues on the next available day.
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="rounded-lg border border-black/10 bg-white/65 p-2.5 dark:border-white/10 dark:bg-white/[0.03]">
+                                  <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">4) Repetition and validity</p>
+                                  <label className="mt-1 inline-flex items-center gap-2 text-xs text-black/75 dark:text-white/75">
+                                    <input
+                                      type="checkbox"
+                                      checked={courseRepeatAllMonth}
+                                      onChange={(event) => setCourseRepeatAllMonth(event.target.checked)}
+                                    />
+                                    Repeat for the entire visible month
+                                  </label>
+                                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                    <select
+                                      name="courseRecurrenceMode"
+                                      value={courseRecurrenceMode}
+                                      onChange={(event) => setCourseRecurrenceMode(event.target.value === "until_date" ? "until_date" : "indefinite")}
+                                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                                     >
-                                      Remove
-                                    </button>
+                                      <option value="indefinite">Indefinite</option>
+                                      <option value="until_date">With expiration date</option>
+                                    </select>
+                                    <input
+                                      name="courseRecurrenceEndsAt"
+                                      type="date"
+                                      value={courseRecurrenceEndsAt}
+                                      onChange={(event) => setCourseRecurrenceEndsAt(event.target.value)}
+                                      disabled={courseRecurrenceMode !== "until_date"}
+                                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-45 dark:border-white/15 dark:bg-white/5 dark:text-white"
+                                    />
                                   </div>
-                                )
-                              })
-                            )}
+                                  <div className="mt-4 border-t border-black/10 pt-4 dark:border-white/10">
+                                    <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">5) Publication status</p>
+                                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                      <select
+                                        name="coursePublicationMode"
+                                        value={courseForm.publicationMode}
+                                        onChange={(event) =>
+                                          setCourseForm((prev) => ({
+                                            ...prev,
+                                            publicationMode: event.target.value as CoursePublicationMode,
+                                            launchDate: event.target.value === "launch_date" ? prev.launchDate : "",
+                                          }))
+                                        }
+                                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                                      >
+                                        {COURSE_PUBLICATION_MODE_OPTIONS.map((option) => (
+                                          <option key={`course-publication-mode-${option.value}`} value={option.value}>
+                                            {option.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {courseForm.publicationMode === "launch_date" ? (
+                                        <input
+                                          name="courseLaunchDate"
+                                          type="date"
+                                          value={courseForm.launchDate}
+                                          onChange={(event) => setCourseForm((prev) => ({ ...prev, launchDate: event.target.value }))}
+                                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                                        />
+                                      ) : (
+                                        <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs text-black/60 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/60">
+                                          {courseForm.publicationMode === "coming_soon"
+                                            ? "Course will appear as coming soon."
+                                            : "Course will publish immediately after save."}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           <div className="rounded-md border border-black/10 bg-white/70 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
@@ -4067,252 +6577,320 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                                 <div className="h-4 rounded bg-black/10 dark:bg-white/10" />
                               </div>
                             ) : (
-                              <div className="mt-2 grid grid-cols-[64px_minmax(0,1fr)] gap-2">
-                                <div className="h-16 w-16 overflow-hidden rounded-md border border-black/10 bg-black/10 dark:border-white/10 dark:bg-white/10">
-                                  {previewMediaUrl ? (
-                                    <img src={previewMediaUrl} alt="Course thumbnail" className="h-full w-full object-cover" />
-                                  ) : (
-                                    <div className="flex h-full items-center justify-center text-[10px] uppercase tracking-[0.2em] text-black/45 dark:text-white/45">
-                                      No img
+                              <div className="mt-3 space-y-3">
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div
+                                    className="rounded-md border border-black/10 bg-black/[0.02] p-1.5 dark:border-white/10 dark:bg-white/[0.03]"
+                                    onMouseEnter={() => setReviewPreviewHover("home")}
+                                    onMouseLeave={() => setReviewPreviewHover((prev) => (prev === "home" ? null : prev))}
+                                  >
+                                    <p className="text-[10px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Home card</p>
+                                    <div className="relative mt-1 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
+                                      {reviewPreviewHover === "home" && previewVideoSource ? (
+                                        isEmbedPreviewVideo ? (
+                                          <iframe
+                                            src={previewVideoSource}
+                                            title="Home card mini preview"
+                                            className="h-48 w-full"
+                                            allow="autoplay; encrypted-media; picture-in-picture"
+                                            allowFullScreen
+                                          />
+                                        ) : (
+                                          <video
+                                            src={previewVideoSource}
+                                            poster={previewMediaUrl || undefined}
+                                            className="h-48 w-full object-cover"
+                                            autoPlay
+                                            loop
+                                            muted
+                                            playsInline
+                                            preload="metadata"
+                                          />
+                                        )
+                                      ) : previewMediaUrl ? (
+                                        <img src={previewMediaUrl} alt="Home card mini preview" className="h-48 w-full object-cover" />
+                                      ) : (
+                                        <div className="flex h-48 items-center justify-center bg-black/35 text-[10px] uppercase tracking-[0.2em] text-white/55">Course image</div>
+                                      )}
+                                      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.1),rgba(0,0,0,0.72))]" />
+                                      <a
+                                        href={previewEditorHref}
+                                        className={`absolute bottom-3 right-3 z-10 inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold backdrop-blur ${
+                                          courseForm.slug.trim()
+                                            ? "border-white/40 bg-black/55 text-white hover:border-[var(--brand,#ff4b4b)]/75 hover:text-[var(--brand,#ffb3b3)]"
+                                            : "pointer-events-none border-white/20 bg-black/35 text-white/45"
+                                        }`}
+                                      >
+                                        Edit home card
+                                      </a>
                                     </div>
-                                  )}
+                                  </div>
+                                  <div
+                                    className="rounded-md border border-black/10 bg-black/[0.02] p-1.5 dark:border-white/10 dark:bg-white/[0.03]"
+                                    onMouseEnter={() => setReviewPreviewHover("single")}
+                                    onMouseLeave={() => setReviewPreviewHover((prev) => (prev === "single" ? null : prev))}
+                                  >
+                                    <p className="text-[10px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Single page</p>
+                                    <div className="relative mt-1 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
+                                      {reviewPreviewHover === "single" && previewVideoSource ? (
+                                        isEmbedPreviewVideo ? (
+                                          <iframe
+                                            src={previewVideoSource}
+                                            title="Single page mini preview"
+                                            className="h-48 w-full"
+                                            allow="autoplay; encrypted-media; picture-in-picture"
+                                            allowFullScreen
+                                          />
+                                        ) : (
+                                          <video
+                                            src={previewVideoSource}
+                                            poster={previewMediaUrl || undefined}
+                                            className="h-48 w-full object-cover"
+                                            autoPlay
+                                            loop
+                                            muted
+                                            playsInline
+                                            preload="metadata"
+                                          />
+                                        )
+                                      ) : previewMediaUrl ? (
+                                        <img src={previewMediaUrl} alt="Single page mini preview" className="h-48 w-full object-cover" />
+                                      ) : (
+                                        <div className="flex h-48 items-center justify-center bg-black/35 text-[10px] uppercase tracking-[0.2em] text-white/55">Single image</div>
+                                      )}
+                                      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.2),rgba(0,0,0,0.78))]" />
+                                      <a
+                                        href={previewEditorHref}
+                                        className={`absolute bottom-3 right-3 z-10 inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold backdrop-blur ${
+                                          courseForm.slug.trim()
+                                            ? "border-white/40 bg-black/55 text-white hover:border-[var(--brand,#ff4b4b)]/75 hover:text-[var(--brand,#ffb3b3)]"
+                                            : "pointer-events-none border-white/20 bg-black/35 text-white/45"
+                                        }`}
+                                      >
+                                        Edit single page
+                                      </a>
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="min-w-0 space-y-1">
-                                  <p className="truncate text-sm font-semibold text-black dark:text-white">{courseForm.title || "Sin título"}</p>
-                                  <p className="truncate text-black/65 dark:text-white/65">Tipo: {selectedCourseKindLabel}</p>
-                                  <p className="truncate text-black/65 dark:text-white/65">Slug: {courseForm.slug || "—"}</p>
-                                  <p className="text-black/75 dark:text-white/75">
-                                    Drop-in: {formatUsdInputLabel(courseForm.dropInPriceCents)} · First class: {formatUsdInputLabel(courseForm.firstClassPriceCents)}
-                                  </p>
-                                  <p className="truncate text-black/75 dark:text-white/75">Dirección: {courseForm.location || "—"}</p>
+                                <div className="grid gap-4 border-t border-black/10 pt-3 dark:border-white/10 lg:grid-cols-2">
+                                  <div className="min-w-0 space-y-1 lg:pr-2">
+                                    <p className="truncate text-sm font-semibold text-black dark:text-white">{courseForm.title || "Untitled"}</p>
+                                    <p className="text-black/70 dark:text-white/70">{courseForm.description || "No course description yet."}</p>
+                                    <p className="truncate text-black/65 dark:text-white/65">Type: {selectedCourseKindLabel}</p>
+                                    <p className="truncate text-black/65 dark:text-white/65">Slug: {courseForm.slug || "—"}</p>
+                                    <p className="text-black/75 dark:text-white/75">
+                                      Drop-in: {formatUsdInputLabel(courseForm.dropInPriceCents)} · First class: {formatUsdInputLabel(courseForm.firstClassPriceCents)}
+                                    </p>
+                                    {courseForm.specialDiscountType !== "none" ? (
+                                      <p className="text-black/75 dark:text-white/75">
+                                        Discount:{" "}
+                                        {courseForm.specialDiscountType === "custom"
+                                          ? courseForm.specialDiscountCustomLabel || "Custom"
+                                          : courseForm.specialDiscountType === "valentines_desc"
+                                            ? "San Valentin desc"
+                                            : "Navidad desc"}{" "}
+                                        · Price {formatUsdInputLabel(courseForm.specialDiscountPrice)}
+                                      </p>
+                                    ) : null}
+                                    <p className="text-black/75 dark:text-white/75">
+                                      Publication:{" "}
+                                      {courseForm.publicationMode === "coming_soon"
+                                        ? "Coming soon"
+                                        : courseForm.publicationMode === "launch_date"
+                                          ? `Launch ${courseForm.launchDate || "—"}`
+                                          : "Publish now"}
+                                    </p>
+                                    <p className="truncate text-black/75 dark:text-white/75">Address: {courseForm.location || "—"}</p>
+                                    <p className="text-black/65 dark:text-white/65">
+                                      {scheduleDerivedData.times.length > 0
+                                        ? `Times: ${scheduleDerivedData.times.map((time) => formatClockLabel(time)).join(", ")}`
+                                        : "Times: schedule to be defined"}
+                                    </p>
+                                  </div>
+                                  <div className="min-w-0 space-y-1 lg:border-l lg:border-black/10 lg:pl-3 dark:lg:border-white/10">
+                                    <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Reviews by type</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {courseReviewVariants.map((variant) => (
+                                        <div
+                                          key={`course-review-variant-${variant.kind}`}
+                                          className="rounded-md border border-black/10 bg-white/50 px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]"
+                                        >
+                                          <div className="min-w-0 space-y-0.5">
+                                            <p className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${variant.active ? "text-[var(--brand,#b61616)] dark:text-[var(--brand,#ff6b6b)]" : "text-black dark:text-white"}`}>
+                                              {variant.label}
+                                            </p>
+                                            <p className="text-[11px] text-black/70 dark:text-white/70">{variant.hint}</p>
+                                            <p className="text-[11px] text-black/65 dark:text-white/65">
+                                              {courseForm.title || "Untitled"} · {formatUsdInputLabel(courseForm.dropInPriceCents)}
+                                            </p>
+                                          </div>
+                                          {variant.active ? (
+                                            <span className="rounded-full border border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 px-1.5 py-0.5 text-[10px] text-[var(--brand,#ff4b4b)]">
+                                              Active
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             )}
-                            <div className="mt-3 border-t border-black/10 pt-2 dark:border-white/10">
-                              <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Reviews por tipo</p>
-                              <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-                                {courseReviewVariants.map((variant) => (
-                                  <div
-                                    key={`course-review-variant-${variant.kind}`}
-                                    className={`rounded-md border px-2 py-1.5 ${
-                                      variant.active
-                                        ? "border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/10"
-                                        : "border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02]"
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-black dark:text-white">{variant.label}</span>
-                                      {variant.active ? (
-                                        <span className="rounded-full border border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 px-1.5 py-0.5 text-[10px] text-[var(--brand,#ff4b4b)]">
-                                          Activo
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    <p className="mt-1 text-[11px] text-black/70 dark:text-white/70">{variant.hint}</p>
-                                    <p className="mt-1 text-[11px] text-black/65 dark:text-white/65">
-                                      {courseForm.title || "Sin título"} · {formatUsdInputLabel(courseForm.dropInPriceCents)}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
                           </div>
                         </div>
 
-                        <div className="rounded-md border border-black/10 bg-white/70 p-2 dark:border-white/10 dark:bg-white/[0.02] xl:col-span-2">
-                          <p className="mb-1 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Calendario mensual (solo preview)</p>
-                          {schoolLoading ? (
-                            <div className="space-y-2 animate-pulse">
-                              <div className="h-8 rounded bg-black/10 dark:bg-white/10" />
-                              <div className="h-56 rounded bg-black/10 dark:bg-white/10" />
+                        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.5fr)_minmax(0,0.9fr)]">
+                          <div className="min-w-0 p-2 text-xs">
+                            <p className="uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Saved courses</p>
+                            <div className="mt-3 max-h-60 overflow-y-auto pr-1 space-y-3">
+                              {schoolLoading ? (
+                                <div className="grid grid-cols-1 gap-2">
+                                  <div className="h-20 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                                  <div className="h-20 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                                  <div className="h-20 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                                  <div className="h-20 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                                </div>
+                              ) : schoolCourses.length === 0 ? (
+                                <p className="text-black/60 dark:text-white/60">No courses created yet.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 gap-2">
+                                  {schoolCourses.map((item) => (
+                                    <div
+                                      key={`course-row-${item.id}`}
+                                      className="rounded-md bg-black/[0.03] p-2 dark:bg-white/[0.02]"
+                                    >
+                                      <div className="flex items-start gap-2">
+                                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                                          <img
+                                            src={item.coverImageUrl || "/images/carousel/_DSC1076.JPG"}
+                                            alt={item.title}
+                                            className="h-full w-full object-cover"
+                                          />
+                                        </div>
+                                        <div className="min-w-0">
+                                          <p className="truncate font-semibold text-black dark:text-white">{item.title}</p>
+                                          <p className="truncate text-black/65 dark:text-white/65">
+                                            {item.slug} · {item.kind}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => loadCourseIntoForm(item)}
+                                          className="rounded border border-[var(--brand,#b61616)]/60 px-2 py-0.5 text-[11px] font-semibold text-[var(--brand,#ff4b4b)]"
+                                        >
+                                          Edit from form
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          ) : (
-                            <CalendarPicker
-                              value=""
-                              onChange={() => {}}
-                              values={[...scheduleCalendarMap.keys()].sort()}
-                              multiple
-                              onValuesChange={() => {}}
-                              timezone="America/New_York"
-                              className="!rounded-lg"
-                              locked
-                              getDateTooltip={getCourseScheduleDateTooltip}
-                              getDateTone={getCourseScheduleDateTone}
-                            />
-                          )}
+                          </div>
+
+                          <div className="min-w-0 p-2 text-xs">
+                            <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Monthly calendar (preview only)</p>
+                            {schoolLoading ? (
+                              <div className="space-y-2 animate-pulse">
+                                <div className="h-8 rounded bg-black/10 dark:bg-white/10" />
+                                <div className="h-44 rounded bg-black/10 dark:bg-white/10" />
+                              </div>
+                            ) : (
+                              <div className="w-full min-w-0">
+                                <CalendarPicker
+                                  value=""
+                                  onChange={() => {}}
+                                  values={[...scheduleCalendarMap.keys()].sort()}
+                                  multiple
+                                  onValuesChange={() => {}}
+                                  timezone="America/New_York"
+                                  className="!w-full !rounded-md !bg-white/60 dark:!bg-white/[0.06]"
+                                  compact
+                                  locked
+                                  getDateTooltip={getCourseScheduleDateTooltip}
+                                  getDateTone={getCourseScheduleDateTone}
+                                />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={schoolBusy !== null}
-                    className="mt-4 inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                  >
-                    {schoolBusy === "course" ? "Guardando..." : "Guardar curso"}
-                  </button>
-
-                  <div className="mt-3 rounded-lg border border-black/10 bg-white/70 p-3 text-xs dark:border-white/10 dark:bg-white/[0.02]">
-                    <p className="uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Saved courses</p>
-                    <div className="mt-2 max-h-44 space-y-2 overflow-y-auto">
-                      {schoolLoading ? (
-                        <div className="space-y-2 animate-pulse">
-                          <div className="h-12 rounded-md bg-black/10 dark:bg-white/10" />
-                          <div className="h-12 rounded-md bg-black/10 dark:bg-white/10" />
-                          <div className="h-12 rounded-md bg-black/10 dark:bg-white/10" />
-                        </div>
-                      ) : schoolCourses.length === 0 ? (
-                        <p className="text-black/60 dark:text-white/60">Sin cursos creados todavía.</p>
-                      ) : (
-                        schoolCourses.map((item) => (
-                          <div key={`course-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]">
-                            <p className="font-semibold text-black dark:text-white">{item.title}</p>
-                            <p className="text-black/65 dark:text-white/65">
-                              {item.slug} · {item.kind}
-                            </p>
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => loadCourseIntoForm(item)}
-                                className="rounded border border-black/20 px-2 py-0.5 text-[11px] text-black/80 dark:border-white/20 dark:text-white/80"
-                              >
-                                Cargar en form
-                              </button>
-                              <a
-                                href={`/staff/school/course/${item.slug}`}
-                                className="rounded border border-[var(--brand,#b61616)]/60 px-2 py-0.5 text-[11px] text-[var(--brand,#ff4b4b)]"
-                              >
-                                Editar curso
-                              </a>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
+                  <div className="mt-5 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={resetCourseBuilder}
+                      disabled={schoolBusy !== null || courseMediaUploading !== null}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-black/20 bg-white px-4 py-2 text-sm font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-60 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={schoolBusy !== null || courseMediaUploading !== null}
+                      className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                    >
+                      {schoolBusy === "course" ? "Saving..." : "Save course"}
+                    </button>
                   </div>
                 </form>
 
-                <div className="rounded-xl border border-black/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.3),transparent_55%),linear-gradient(145deg,rgba(15,19,35,0.97),rgba(20,25,45,0.97))] p-4 dark:border-white/10">
-                  <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Canvas preview</p>
-                  <h4 className="mt-2 text-lg font-semibold text-white">Vista previa del curso</h4>
-
-                  <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                    <div className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                      <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Home card preview</p>
-                      <div className="relative mt-2 overflow-hidden rounded-2xl border border-black/10 bg-[#050810] dark:border-white/10">
-                        {previewMediaUrl ? (
-                          <img src={previewMediaUrl} alt="Home card preview" className="h-72 w-full object-cover" />
-                        ) : (
-                          <div className="flex h-72 items-center justify-center bg-black/35 text-xs uppercase tracking-[0.2em] text-white/55">Imagen del curso</div>
-                        )}
-                        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.15),rgba(0,0,0,0.75))]" />
-                        <div className="absolute inset-x-0 bottom-0 p-3">
-                          <div className="rounded-xl border border-white/20 bg-black/55 px-3 py-2">
-                            <p className="text-[11px] uppercase tracking-[0.3em] text-[var(--brand,#ff4b4b)]">HOME CARD</p>
-                            <p className="mt-1 text-sm font-semibold text-white">{courseForm.title || "Course title"}</p>
-                          </div>
-                        </div>
-                      </div>
-                      <a
-                        href={previewEditorHref}
-                        className={`mt-2 inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${
-                          courseForm.slug.trim()
-                            ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)]"
-                            : "pointer-events-none border-black/15 text-black/40 dark:border-white/15 dark:text-white/40"
-                        }`}
-                      >
-                        Editar home card
-                      </a>
-                    </div>
-
-                    <div className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                      <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Single page preview</p>
-                      <div className="relative mt-2 overflow-hidden rounded-2xl border border-black/10 bg-[#050810] dark:border-white/10">
-                        {previewMediaUrl ? (
-                          <img src={previewMediaUrl} alt="Single page preview" className="h-72 w-full object-cover" />
-                        ) : (
-                          <div className="flex h-72 items-center justify-center bg-black/35 text-xs uppercase tracking-[0.2em] text-white/55">Imagen del single page</div>
-                        )}
-                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.4),transparent_55%),linear-gradient(180deg,rgba(0,0,0,0.3),rgba(0,0,0,0.78))]" />
-                        <div className="absolute inset-x-0 bottom-0 p-3">
-                          <div className="rounded-xl border border-white/20 bg-black/60 px-3 py-2">
-                            <p className="text-[11px] uppercase tracking-[0.3em] text-[var(--brand,#ff4b4b)]">SINGLE PAGE</p>
-                            <p className="mt-1 text-sm font-semibold text-white">{courseForm.title || "Course title"}</p>
-                            <p className="mt-1 text-xs text-white/80">
-                              {scheduleDerivedData.times.length > 0
-                                ? scheduleDerivedData.times.map((time) => formatClockLabel(time)).join(", ")
-                                : "Horario por definir"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                      <a
-                        href={previewEditorHref}
-                        className={`mt-2 inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${
-                          courseForm.slug.trim()
-                            ? "border-[var(--brand,#b61616)]/70 bg-[var(--brand,#b61616)]/14 text-[var(--brand,#ff6b6b)]"
-                            : "pointer-events-none border-black/15 text-black/40 dark:border-white/15 dark:text-white/40"
-                        }`}
-                      >
-                        Editar single page
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/70">Publicar en redes</p>
-                    <p className="mt-1 text-xs text-white/60">Publicá este curso directo desde el editor visual.</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      <button
-                        type="button"
-                        onClick={() => void copyCourseLink()}
-                        disabled={!previewPublicHref}
-                        className="rounded-md border border-white/20 bg-white/5 px-2 py-1.5 text-xs font-semibold text-white transition disabled:opacity-40"
-                      >
-                        Copy link
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => shareCourse("facebook")}
-                        disabled={!previewPublicHref}
-                        className="rounded-md border border-white/20 bg-white/5 px-2 py-1.5 text-xs font-semibold text-white transition disabled:opacity-40"
-                      >
-                        Facebook
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => shareCourse("x")}
-                        disabled={!previewPublicHref}
-                        className="rounded-md border border-white/20 bg-white/5 px-2 py-1.5 text-xs font-semibold text-white transition disabled:opacity-40"
-                      >
-                        X
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => shareCourse("whatsapp")}
-                        disabled={!previewPublicHref}
-                        className="rounded-md border border-white/20 bg-white/5 px-2 py-1.5 text-xs font-semibold text-white transition disabled:opacity-40"
-                      >
-                        WhatsApp
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => shareCourse("instagram")}
-                        disabled={!previewPublicHref}
-                        className="rounded-md border border-white/20 bg-white/5 px-2 py-1.5 text-xs font-semibold text-white transition disabled:opacity-40"
-                      >
-                        Instagram
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => shareCourse("tiktok")}
-                        disabled={!previewPublicHref}
-                        className="rounded-md border border-white/20 bg-white/5 px-2 py-1.5 text-xs font-semibold text-white transition disabled:opacity-40"
-                      >
-                        TikTok
-                      </button>
-                    </div>
+                <div className="rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/65 dark:text-white/65">Publish on social</p>
+                  <p className="mt-1 text-xs text-black/60 dark:text-white/60">Share this course directly from the dashboard.</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={() => void copyCourseLink()}
+                      disabled={!previewPublicHref}
+                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      Copy link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shareCourse("facebook")}
+                      disabled={!previewPublicHref}
+                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      Facebook
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shareCourse("x")}
+                      disabled={!previewPublicHref}
+                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      X
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shareCourse("whatsapp")}
+                      disabled={!previewPublicHref}
+                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shareCourse("instagram")}
+                      disabled={!previewPublicHref}
+                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      Instagram
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shareCourse("tiktok")}
+                      disabled={!previewPublicHref}
+                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      TikTok
+                    </button>
                   </div>
                 </div>
               </div>
@@ -4321,14 +6899,14 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
             <div className="grid gap-4 xl:grid-cols-2">
               <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Package builder</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Crear o actualizar paquete</h3>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create or update package</h3>
 
                 <form onSubmit={savePackagePlan} className="mt-3 space-y-2">
                   <input
                     name="packageKey"
                     value={packageForm.key}
                     onChange={(event) => setPackageForm((prev) => ({ ...prev, key: event.target.value }))}
-                    placeholder="Key (ej: morning-3-week)"
+                    placeholder="Key (e.g., morning-3-week)"
                     className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     required
                   />
@@ -4356,7 +6934,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                     name="packageDescription"
                     value={packageForm.description}
                     onChange={(event) => setPackageForm((prev) => ({ ...prev, description: event.target.value }))}
-                    placeholder="Descripción"
+                    placeholder="Description"
                     className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                   />
                   <div className="grid grid-cols-2 gap-2">
@@ -4366,7 +6944,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                       min={0}
                       value={packageForm.priceCents}
                       onChange={(event) => setPackageForm((prev) => ({ ...prev, priceCents: event.target.value }))}
-                      placeholder="Precio en centavos"
+                      placeholder="Price in cents"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
                     <input
@@ -4375,7 +6953,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                       min={0}
                       value={packageForm.totalCredits}
                       onChange={(event) => setPackageForm((prev) => ({ ...prev, totalCredits: event.target.value }))}
-                      placeholder="Créditos"
+                      placeholder="Credits"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       disabled={packageForm.isUnlimited}
                     />
@@ -4396,7 +6974,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                       min={1}
                       value={packageForm.validDays}
                       onChange={(event) => setPackageForm((prev) => ({ ...prev, validDays: event.target.value }))}
-                      placeholder="Validez días"
+                      placeholder="Validity days"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
                     <input
@@ -4432,21 +7010,21 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                     disabled={schoolBusy !== null}
                     className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
                   >
-                    {schoolBusy === "package" ? "Guardando..." : "Guardar paquete"}
+                    {schoolBusy === "package" ? "Saving..." : "Save package"}
                   </button>
                 </form>
 
                 <div className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                   {schoolLoading ? (
-                    <p className="text-black/60 dark:text-white/60">Cargando paquetes...</p>
+                    <p className="text-black/60 dark:text-white/60">Loading packages...</p>
                   ) : schoolPackages.length === 0 ? (
-                    <p className="text-black/60 dark:text-white/60">Sin paquetes creados todavía.</p>
+                    <p className="text-black/60 dark:text-white/60">No packages created yet.</p>
                   ) : (
                     schoolPackages.map((item) => (
                       <div key={`package-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]">
                         <p className="font-semibold text-black dark:text-white">{item.label}</p>
                         <p className="text-black/65 dark:text-white/65">
-                          {item.key} · {item.courseSlug || "global"} · {item.totalCredits ?? "∞"} créditos
+                          {item.key} · {item.courseSlug || "global"} · {item.totalCredits ?? "∞"} credits
                         </p>
                       </div>
                     ))
@@ -4456,7 +7034,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
 
               <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Points builder</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Reglas + asignación manual</h3>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Rules + manual assignment</h3>
 
                 <form onSubmit={savePointsRule} className="mt-3 space-y-2">
                   <select
@@ -4490,7 +7068,7 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                     />
                   </div>
                   <p className="rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
-                    {selectedPointsRuleTemplate?.description || "Seleccioná una regla para configurar puntos."}
+                    {selectedPointsRuleTemplate?.description || "Select a rule to configure points."}
                   </p>
                   <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                     <input
@@ -4499,19 +7077,19 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                       checked={pointsRuleForm.active}
                       onChange={(event) => setPointsRuleForm((prev) => ({ ...prev, active: event.target.checked }))}
                     />
-                    Regla activa
+                    Active rule
                   </label>
                   <button
                     type="submit"
                     disabled={schoolBusy !== null}
                     className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
                   >
-                    {schoolBusy === "rule" ? "Guardando..." : "Guardar regla"}
+                    {schoolBusy === "rule" ? "Saving..." : "Save rule"}
                   </button>
                 </form>
 
                 <form onSubmit={assignPointsManually} className="mt-4 space-y-2 rounded-md border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/65 dark:text-white/65">Asignación manual</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/65 dark:text-white/65">Manual assignment</p>
                   <input
                     name="pointsAssignUserEmail"
                     type="email"
@@ -4559,15 +7137,15 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                     disabled={schoolBusy !== null}
                     className="inline-flex w-full items-center justify-center rounded-md border border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 px-4 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-60"
                   >
-                    {schoolBusy === "assign" ? "Asignando..." : "Asignar puntos"}
+                    {schoolBusy === "assign" ? "Assigning..." : "Assign points"}
                   </button>
                 </form>
 
                 <div className="mt-3 max-h-44 space-y-2 overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                   {schoolLoading ? (
-                    <p className="text-black/60 dark:text-white/60">Cargando reglas...</p>
+                    <p className="text-black/60 dark:text-white/60">Loading rules...</p>
                   ) : schoolPointsRules.length === 0 ? (
-                    <p className="text-black/60 dark:text-white/60">Sin reglas definidas.</p>
+                    <p className="text-black/60 dark:text-white/60">No rules defined.</p>
                   ) : (
                     schoolPointsRules.map((item) => (
                       <div key={`points-rule-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]">
@@ -4588,9 +7166,9 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
           <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
             <header className="mb-4">
               <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Payroll</p>
-              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Control de pagos del staff</h3>
+              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Staff payment control</h3>
               <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                Horas trabajadas, pagos enviados y demora de pago por usuario.
+                Hours worked, payments sent, and payment delay per user.
               </p>
             </header>
 
@@ -4788,104 +7366,839 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
             id="students-payments"
             className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5"
           >
-          <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Payments</p>
-              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Settlement control</h3>
-              <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                Track who is pending settlement and who was already paid.
+          <header className="mb-4">
+            <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Students</p>
+            <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Student payment board</h3>
+            <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+              Grid view by student with class payment status, check-in and active package.
+            </p>
+          </header>
+
+          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-5">
+            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(120,143,255,0.28),rgba(22,30,56,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
+              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">Students</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.totalStudents}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(16,185,129,0.25),rgba(20,38,53,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
+              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">Total revenue</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">
+                {formatMoney(studentsSummary.totalRevenueCents)}
               </p>
             </div>
-            <div className="inline-flex flex-wrap items-center gap-2">
-              {(["all", "pending", "paid"] as const).map((status) => (
+            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(245,158,11,0.22),rgba(49,30,15,0.9))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
+              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">
+                {paymentCategoryFilter === "cash" ? "Cash pending" : "Stripe pending"}
+              </p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.pendingByContext}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(99,102,241,0.28),rgba(24,22,54,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
+              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">Paid classes</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.paidStudents}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(6,182,212,0.22),rgba(14,36,48,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
+              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">With check-in</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.checkedInStudents}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2 lg:flex-nowrap lg:items-center lg:gap-3">
+            <div className="inline-flex w-full flex-wrap items-center gap-1.5 lg:w-auto lg:shrink-0 lg:flex-nowrap">
+              {([
+                ["cash", "Cash"],
+                ["card", "Card"],
+                ["packages", "Packages"],
+                ["dropin", "Drop-in"],
+              ] as const).map(([category, label]) => (
                 <button
-                  key={`settlement-filter-${status}`}
+                  key={`category-filter-${category}`}
                   type="button"
-                  onClick={() => setPaymentsFilter(status)}
-                  className={`rounded-full border px-3 py-1 text-xs ${
-                    paymentsFilter === status
+                  onClick={() => setPaymentCategoryFilter(category)}
+                  className={`h-10 cursor-pointer whitespace-nowrap rounded-full border px-4 text-sm font-medium ${
+                    paymentCategoryFilter === category
                       ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#b61616)]"
                       : "border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
                   }`}
                 >
-                  {status === "all" ? "All" : status === "pending" ? "Pending" : "Paid"}
+                  {label}
                 </button>
               ))}
             </div>
-          </header>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-              <p className="text-xs text-black/60 dark:text-white/60">Collected</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">
-                {formatMoney(paymentsSummary.totalCollected)}
-              </p>
-            </div>
-            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-              <p className="text-xs text-black/60 dark:text-white/60">Pending settle</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{paymentsSummary.pendingSettlement}</p>
-            </div>
-            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-              <p className="text-xs text-black/60 dark:text-white/60">Settled</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{paymentsSummary.paidSettlement}</p>
-            </div>
-            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-              <p className="text-xs text-black/60 dark:text-white/60">Records</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{paymentsSummary.totalItems}</p>
-            </div>
+            <label className="relative block w-full lg:min-w-[18rem] lg:max-w-[22rem] lg:flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/45 dark:text-white/45" />
+              <input
+                type="search"
+                value={studentSearchQuery}
+                onChange={(event) => setStudentSearchQuery(event.target.value)}
+                placeholder="Search student, email, phone or course"
+                className="h-10 w-full rounded-full border border-black/20 bg-white/80 pl-12 pr-3 text-[15px] text-black placeholder:text-black/45 focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-white/[0.06] dark:text-white dark:placeholder:text-white/45"
+              />
+            </label>
+
+            <label className="inline-flex h-10 shrink-0 items-center gap-2 text-xs text-black/70 dark:text-white/70">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-black/55 dark:text-white/55">Status</span>
+              <div className="relative shrink-0">
+                <select
+                  value={paymentsFilter}
+                  onChange={(event) => setPaymentsFilter(event.target.value as "all" | "pending" | "paid")}
+                  className="h-10 cursor-pointer appearance-none rounded-full border border-black/20 bg-[linear-gradient(145deg,rgba(255,255,255,0.9),rgba(241,241,252,0.76))] px-3.5 pr-8 text-xs font-medium text-black shadow-[0_10px_22px_-18px_rgba(0,0,0,0.85)] focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-[linear-gradient(145deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:text-white"
+                >
+                  <option value="all">All status</option>
+                  <option value="pending">Pending</option>
+                  <option value="paid">Paid</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/55 dark:text-white/55" />
+              </div>
+            </label>
           </div>
 
-          <div className="mt-4 space-y-2">
+          {paymentCategoryFilter === "cash" ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
+              <p className="min-w-0 flex-1 rounded-lg border border-emerald-500/30 bg-[linear-gradient(145deg,rgba(16,185,129,0.2),rgba(7,45,39,0.48))] px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300 lg:truncate">
+                Confirm payment / Mark pending only changes the internal cash status (does not modify Stripe).
+              </p>
+              <div className="ml-auto inline-flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPaymentIds(visiblePaymentIds)}
+                  className="rounded-full border border-black/20 px-3 py-1 text-xs text-black/75 dark:border-white/20 dark:text-white/75"
+                >
+                  Select visible
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPaymentIds([])}
+                  className="rounded-full border border-black/20 px-3 py-1 text-xs text-black/75 dark:border-white/20 dark:text-white/75"
+                >
+                  Clear selection
+                </button>
+                <span className="text-xs text-black/60 dark:text-white/60">Selected: {selectedVisiblePaymentIds.length}</span>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {paymentsLoading ? (
-              Array.from({ length: 5 }).map((_, index) => (
+              Array.from({ length: 6 }).map((_, index) => (
                 <div
-                  key={`payments-skeleton-${index}`}
-                  className="h-[74px] rounded-lg border border-black/10 bg-black/[0.03] shimmer dark:border-white/10 dark:bg-white/[0.03]"
+                  key={`students-skeleton-${index}`}
+                  className="h-[190px] rounded-xl border border-black/10 bg-black/[0.03] shimmer dark:border-white/10 dark:bg-white/[0.03]"
                 />
               ))
-            ) : payments.length === 0 ? (
+            ) : filteredStudentCards.length === 0 ? (
               <p className="rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
-                No payments found.
+                No student payments found.
               </p>
             ) : (
-              payments.slice(0, 12).map((payment) => {
-                const busy = paymentBusyId === payment.id
+              filteredStudentCards.map((student) => {
+                const payment = student.latestPayment
+                const identity = splitCustomerName(payment.customerName, payment.customerEmail)
+                const initials = getInitials(identity.firstName, identity.lastName, payment.customerEmail)
+                const packageLabel = payment.activePackage?.label || "No active package"
+                const packageValue = payment.activePackage
+                  ? payment.activePackage.isUnlimited
+                    ? "Unlimited"
+                    : `${Math.max(0, payment.activePackage.remainingCredits || 0)} credits`
+                  : "—"
+                const totalSpentLabel = formatMoney(student.totalCollectedCents, payment.currency)
+                const lastPaymentAtPreciseLabel = formatIsoDateTimePrecise(payment.createdAt)
+                const isSelected = selectedPaymentIds.includes(payment.id)
+                const checkInHistory = student.allPayments
+                  .filter((entry) => isCheckedInStatus(entry.checkInStatus))
+                  .slice(0, 10)
+                const purchasedCourseEntries = student.allPayments.slice(0, 12)
+                const pointsHistoryEntries = payment.pointsHistory.slice(0, 10)
+
                 return (
-                  <div
-                    key={payment.id}
-                    className="grid gap-2 rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03] lg:grid-cols-[minmax(0,1fr)_auto_auto]"
+                  <article
+                    key={`student-card-${student.key}`}
+                    className={`relative rounded-[16px] border border-white/10 bg-[linear-gradient(155deg,rgba(182,22,22,0.36)_0%,rgba(56,20,67,0.84)_48%,rgba(18,24,46,0.95)_100%)] p-4 text-white shadow-[0_20px_36px_-22px_rgba(0,0,0,0.75)] ${
+                      paymentCategoryFilter === "cash" ? "pt-9" : ""
+                    }`}
                   >
-                    <div>
-                      <p className="text-sm font-semibold text-black dark:text-white">{payment.courseTitle}</p>
-                      <p className="text-xs text-black/60 dark:text-white/60">
-                        {payment.customerName} · {payment.customerEmail}
+                    {paymentCategoryFilter === "cash" ? (
+                      <label className="absolute right-3 top-3 z-10 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-black/30 px-2 py-1 text-[10px] text-white/80 backdrop-blur-sm">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-[var(--brand,#b61616)]"
+                          checked={isSelected}
+                          onChange={(event) => {
+                            const checked = event.target.checked
+                            setSelectedPaymentIds((prev) => {
+                              if (checked) {
+                                if (prev.includes(payment.id)) return prev
+                                return [...prev, payment.id]
+                              }
+                              return prev.filter((id) => id !== payment.id)
+                            })
+                          }}
+                        />
+                        Select
+                      </label>
+                    ) : null}
+                    <header className="flex items-center gap-3">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
+                        {payment.customerAvatarUrl ? (
+                          <img src={payment.customerAvatarUrl} alt={identity.fullName} className="h-full w-full object-cover" />
+                        ) : (
+                          initials
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="truncate text-lg font-semibold leading-tight">{identity.fullName}</h4>
+                        <span className="group relative block cursor-help">
+                          <p
+                            className="mt-1 truncate text-[12px] text-white/70"
+                            title={`${payment.courseTitle} · ${
+                              payment.classDate && payment.classTime ? `${payment.classDate} ${payment.classTime}` : "No class slot"
+                            }`}
+                          >
+                            {payment.courseTitle} · {payment.classDate && payment.classTime ? `${payment.classDate} ${payment.classTime}` : "No class slot"}
+                          </p>
+                          <span className="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-1 w-max max-w-[18rem] rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100">
+                            {payment.courseTitle} ·{" "}
+                            {payment.classDate && payment.classTime ? `${payment.classDate} ${payment.classTime}` : "No class slot"}
+                          </span>
+                        </span>
+                      </div>
+                    </header>
+
+                    <div className="mt-4 grid grid-cols-2 gap-2.5">
+                      <span className="group relative inline-flex cursor-help items-center justify-center rounded-full border border-amber-400/35 bg-amber-400/10 px-1.5 py-0.5 text-[11px] font-semibold text-amber-200">
+                        Points: {payment.pointsBalance}
+                        <span className="pointer-events-auto invisible absolute bottom-full left-0 z-[200] max-h-44 w-[16rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                          <span className="font-semibold text-white">Points history</span>
+                          <span className="mt-1 block border-t border-white/10" />
+                          {pointsHistoryEntries.length === 0 ? (
+                            <span className="mt-1 block text-white/70">No points events yet.</span>
+                          ) : (
+                            pointsHistoryEntries.map((entry, index) => (
+                              <span
+                                key={`points-history-${entry.id}`}
+                                className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
+                              >
+                                <span className="font-semibold text-amber-200">{entry.points > 0 ? `+${entry.points}` : entry.points}</span>
+                                <span className="ml-1 capitalize">{entry.type.replaceAll("_", " ").toLowerCase()}</span>
+                                <span className="mt-0.5 block text-white/65">{formatIsoDateTimePrecise(entry.createdAt)}</span>
+                              </span>
+                            ))
+                          )}
+                        </span>
+                      </span>
+                      <span className={`group relative inline-flex cursor-help items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${checkInStateTone(payment)}`}>
+                        {checkInStateLabel(payment)}
+                        <span className="pointer-events-auto invisible absolute bottom-full left-1/2 z-[200] max-h-44 w-[16rem] -translate-x-1/2 overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                          <span className="font-semibold text-white">Check-in history</span>
+                          <span className="mt-1 block border-t border-white/10" />
+                          {checkInHistory.length === 0 ? (
+                            <span className="mt-1 block text-white/70">No check-ins recorded yet.</span>
+                          ) : (
+                            checkInHistory.map((entry, index) => (
+                              <span
+                                key={`checkin-history-${entry.id}`}
+                                className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
+                              >
+                                <span className="block">{entry.courseTitle}</span>
+                                <span className="mt-0.5 block text-white/65">
+                                  {entry.classDate && entry.classTime
+                                    ? `${entry.classDate} ${entry.classTime}`
+                                    : formatIsoDateTimePrecise(entry.createdAt)}
+                                </span>
+                              </span>
+                            ))
+                          )}
+                        </span>
+                      </span>
+                      <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${paymentStateTone(payment)}`}>
+                        {paymentStateLabel(payment)}
+                      </span>
+                      <span className="group relative inline-flex cursor-help items-center justify-center rounded-full border border-cyan-400/35 bg-cyan-400/10 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-200">
+                        Spent: {totalSpentLabel}
+                        <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-44 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                          <span className="font-semibold text-white">Purchased classes</span>
+                          <span className="mt-1 block border-t border-white/10" />
+                          {purchasedCourseEntries.length === 0 ? (
+                            <span className="mt-1 block text-white/70">No purchases registered.</span>
+                          ) : (
+                            purchasedCourseEntries.map((entry, index) => (
+                              <span
+                                key={`spent-history-${entry.id}`}
+                                className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
+                              >
+                                <span className="block">{entry.courseTitle}</span>
+                                <span className="mt-0.5 block text-white/65">
+                                  {formatMoney(entry.amount, entry.currency)} · {formatIsoDateTimePrecise(entry.createdAt)}
+                                </span>
+                              </span>
+                            ))
+                          )}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="mt-4 space-y-2.5 border-t border-white/10 pt-3.5 text-xs text-white/85">
+                      <p className="inline-flex w-full items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1 text-white/70">
+                          <MapPin className="h-3 w-3" />
+                          Location
+                        </span>
+                        <span className="truncate text-right">{payment.location || "—"}</span>
                       </p>
-                      <p className="text-xs text-black/55 dark:text-white/55">
-                        {formatIsoDate(payment.createdAt)} · status {payment.paymentStatus}
+                      <p className="inline-flex w-full items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1 text-white/70">
+                          <Mail className="h-3 w-3" />
+                          Email
+                        </span>
+                        <span className="truncate text-right">{payment.customerEmail || "—"}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1 text-white/70">
+                          <Phone className="h-3 w-3" />
+                          Phone
+                        </span>
+                        <span className="truncate text-right">{payment.customerPhone || "—"}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>Package</span>
+                        <span className="truncate text-right">{packageLabel}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>Credits</span>
+                        <span>{packageValue}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>Purchased courses</span>
+                        <span>{student.coursesPurchasedCount}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>Completed classes</span>
+                        <span>{student.checkedInPayments}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>Last payment</span>
+                        <span className="group relative max-w-[62%] cursor-help text-right">
+                          <span
+                            className="truncate text-right"
+                            title={`${lastPaymentAtPreciseLabel} · ${formatMoney(payment.amount, payment.currency)}`}
+                          >
+                            {formatMoney(payment.amount, payment.currency)}
+                          </span>
+                          <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] min-w-[14rem] max-w-[18rem] rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                            <span className="font-semibold text-white">Last payment details</span>
+                            <span className="mt-1 block border-t border-white/10" />
+                            <span className="mt-1 block">
+                              <span className="text-white/75">Date / time:</span> {lastPaymentAtPreciseLabel}
+                            </span>
+                            <span className="mt-1 block border-t border-white/10 pt-1">
+                              <span className="text-white/75">Amount:</span> {formatMoney(payment.amount, payment.currency)}
+                            </span>
+                            <span className="mt-1 block border-t border-white/10 pt-1">
+                              <span className="text-white/75">Status:</span> {paymentStateLabel(payment)}
+                            </span>
+                          </span>
+                        </span>
                       </p>
                     </div>
-                    <div className="text-sm font-semibold text-black dark:text-white">{formatMoney(payment.amount, payment.currency)}</div>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        updateSettlementStatus(payment.id, payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid")
-                      }
-                      className={`inline-flex items-center justify-center rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
-                        payment.settlementStatus === "paid"
-                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                          : "border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 text-[var(--brand,#ff4b4b)]"
-                      }`}
-                    >
-                      {busy ? "Saving..." : payment.settlementStatus === "paid" ? "Mark pending" : "Mark paid"}
-                    </button>
-                  </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window === "undefined" || !payment.customerEmail || payment.customerEmail === "—") return
+                          const subject = encodeURIComponent(`Class payment update · ${payment.courseTitle}`)
+                          window.location.href = `mailto:${encodeURIComponent(payment.customerEmail)}?subject=${subject}`
+                        }}
+                        className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
+                      >
+                        Notify
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return
+                          try {
+                            await navigator.clipboard.writeText(payment.customerEmail || "")
+                          } catch {
+                            setError("Unable to copy student email.")
+                          }
+                        }}
+                        className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
+                      >
+                        Copy email
+                      </button>
+                    </div>
+                  </article>
                 )
               })
             )}
           </div>
-          </article>
-        ) : null}
+          {paymentCategoryFilter === "cash" && filteredStudentCards.length > 0 ? (
+            <div className="pointer-events-none fixed bottom-6 right-6 z-40">
+              <div className="pointer-events-auto flex flex-col gap-2 rounded-xl border border-white/20 bg-[#131622]/95 p-2 shadow-[0_22px_40px_-20px_rgba(0,0,0,0.8)] backdrop-blur">
+                <button
+                  type="button"
+                  disabled={paymentsBulkBusyAction !== null || selectedVisiblePaymentIds.length === 0}
+                  onClick={() => updateSettlementBulk("mark_paid", selectedVisiblePaymentIds)}
+                  className="rounded-lg border border-[var(--brand,#b61616)]/70 bg-[var(--brand,#b61616)]/15 px-3 py-2 text-xs font-semibold text-[var(--brand,#ff4b4b)] disabled:opacity-60"
+                >
+                  {paymentsBulkBusyAction === "mark_paid" ? "Processing..." : "Confirm payment"}
+                </button>
+                <button
+                  type="button"
+                  disabled={paymentsBulkBusyAction !== null || selectedVisiblePaymentIds.length === 0}
+                  onClick={() => updateSettlementBulk("mark_pending", selectedVisiblePaymentIds)}
+                  className="rounded-lg border border-white/20 bg-black/20 px-3 py-2 text-xs font-semibold text-white/85 disabled:opacity-60"
+                >
+                  {paymentsBulkBusyAction === "mark_pending" ? "Processing..." : "Mark as pending"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </article>
+      ) : null}
+
+      {isReportsView ? (
+        <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+          <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Reports</p>
+              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Sales and student analytics</h3>
+              <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                Base metrics for strategy: top courses, monthly performance, payment behavior and attendance conversion.
+              </p>
+              <p className="mt-1 text-xs text-black/55 dark:text-white/60">
+                Range: <span className="font-semibold text-black/75 dark:text-white/80">{reportsRangeLabel}</span> · Rows:{" "}
+                <span className="font-semibold text-black/75 dark:text-white/80">{reportsData.totalRows}</span>
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex min-w-[140px] flex-col gap-1 text-[11px] text-black/70 dark:text-white/70">
+                From
+                <input
+                  type="date"
+                  value={reportsDateFrom}
+                  onChange={(event) => setReportsDateFrom(event.target.value)}
+                  className="rounded-md border border-black/15 bg-white/70 px-2 py-1.5 text-xs text-black focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/40 dark:border-white/20 dark:bg-white/[0.06] dark:text-white"
+                />
+              </label>
+              <label className="flex min-w-[140px] flex-col gap-1 text-[11px] text-black/70 dark:text-white/70">
+                To
+                <input
+                  type="date"
+                  value={reportsDateTo}
+                  onChange={(event) => setReportsDateTo(event.target.value)}
+                  className="rounded-md border border-black/15 bg-white/70 px-2 py-1.5 text-xs text-black focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/40 dark:border-white/20 dark:bg-white/[0.06] dark:text-white"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportsDateFrom("")
+                  setReportsDateTo("")
+                }}
+                className="cursor-pointer rounded-md border border-black/20 px-3 py-2 text-xs text-black/75 dark:border-white/20 dark:text-white/75"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={exportReportsCsv}
+                className="cursor-pointer rounded-md border border-[var(--brand,#b61616)]/65 bg-[var(--brand,#b61616)]/15 px-3 py-2 text-xs font-semibold text-[var(--brand,#ff4b4b)]"
+              >
+                Export CSV
+              </button>
+              <button
+                type="button"
+                onClick={exportReportsPdf}
+                className="cursor-pointer rounded-md border border-white/20 bg-black/20 px-3 py-2 text-xs font-semibold text-white/85"
+              >
+                Export PDF
+              </button>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <p className="text-xs text-black/60 dark:text-white/60">Paid revenue</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{formatMoney(reportsData.totalRevenueCents)}</p>
+            </div>
+            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <p className="text-xs text-black/60 dark:text-white/60">Paid sales</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{reportsData.totalPaidSales}</p>
+            </div>
+            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <p className="text-xs text-black/60 dark:text-white/60">Avg ticket</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{formatMoney(reportsData.avgTicketCents)}</p>
+            </div>
+            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <p className="text-xs text-black/60 dark:text-white/60">Unique students</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{reportsData.uniqueStudents}</p>
+            </div>
+            <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <p className="text-xs text-black/60 dark:text-white/60">Check-in rate</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{reportsData.checkInRate}%</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <section className="rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <h4 className="text-sm font-semibold text-black dark:text-white">Monthly paid revenue trend</h4>
+              <div className="mt-3">
+                {reportsData.monthlyRevenueSeries.length === 0 ? (
+                  <p className="text-xs text-black/60 dark:text-white/60">No monthly revenue yet.</p>
+                ) : (
+                  <div className="flex h-44 items-end gap-2">
+                    {reportsData.monthlyRevenueSeries.slice(-10).map((row) => {
+                      const heightPct = Math.max(
+                        8,
+                        Math.round((row.paidRevenueCents / reportsChartMeta.maxMonthlyRevenue) * 100)
+                      )
+                      return (
+                        <div key={`monthly-chart-${row.monthKey}`} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                          <div className="relative flex h-36 w-full items-end">
+                            <div
+                              className="w-full rounded-t-md bg-[linear-gradient(180deg,rgba(182,22,22,0.9)_0%,rgba(125,15,69,0.95)_100%)]"
+                              style={{ height: `${heightPct}%` }}
+                              title={`${row.monthLabel}: ${formatMoney(row.paidRevenueCents)}`}
+                            />
+                          </div>
+                          <p className="truncate text-[10px] text-black/65 dark:text-white/65">{row.monthLabel}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <h4 className="text-sm font-semibold text-black dark:text-white">Top courses by revenue</h4>
+              <div className="mt-3 space-y-2">
+                {reportsData.topCourses.slice(0, 6).map((row) => {
+                  const widthPct = Math.max(8, Math.round((row.paidRevenueCents / reportsChartMeta.maxTopCourseRevenue) * 100))
+                  return (
+                    <div key={`top-course-bar-${row.courseTitle}`} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-xs text-black/80 dark:text-white/80">
+                        <p className="truncate">{row.courseTitle}</p>
+                        <p className="shrink-0">{formatMoney(row.paidRevenueCents)}</p>
+                      </div>
+                      <div className="h-2 rounded-full bg-black/10 dark:bg-white/10">
+                        <div
+                          className="h-2 rounded-full bg-[linear-gradient(90deg,rgba(182,22,22,0.9)_0%,rgba(249,115,22,0.85)_100%)]"
+                          style={{ width: `${widthPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+                {reportsData.topCourses.length === 0 ? (
+                  <p className="text-xs text-black/60 dark:text-white/60">No paid course sales yet.</p>
+                ) : null}
+              </div>
+            </section>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-3">
+            <section className="rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03] xl:col-span-2">
+              <h4 className="text-sm font-semibold text-black dark:text-white">Top courses (paid)</h4>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full min-w-[520px] text-left text-xs">
+                  <thead>
+                    <tr className="text-black/60 dark:text-white/60">
+                      <th className="px-2 py-1">Course</th>
+                      <th className="px-2 py-1">Paid sales</th>
+                      <th className="px-2 py-1">Revenue</th>
+                      <th className="px-2 py-1">Check-ins</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportsData.topCourses.slice(0, 8).map((row) => (
+                      <tr key={`report-course-${row.courseTitle}`} className="border-t border-black/10 dark:border-white/10">
+                        <td className="px-2 py-2 text-black/90 dark:text-white/90">{row.courseTitle}</td>
+                        <td className="px-2 py-2 text-black/80 dark:text-white/80">{row.paidSales}</td>
+                        <td className="px-2 py-2 text-black/80 dark:text-white/80">{formatMoney(row.paidRevenueCents)}</td>
+                        <td className="px-2 py-2 text-black/80 dark:text-white/80">{row.checkIns}</td>
+                      </tr>
+                    ))}
+                    {reportsData.topCourses.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-2 py-3 text-black/60 dark:text-white/60">
+                          No paid sales yet.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <h4 className="text-sm font-semibold text-black dark:text-white">Payment channels</h4>
+              <div className="mt-2 space-y-2">
+                {reportsData.channelBreakdown.map((row) => (
+                  <div key={`report-channel-${row.key}`} className="rounded-lg border border-black/10 bg-white/70 p-2 dark:border-white/10 dark:bg-white/[0.05]">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/60">{row.key}</p>
+                    <p className="mt-1 text-sm font-semibold text-black dark:text-white">
+                      {row.sales} sales · {formatMoney(row.paidRevenueCents)}
+                    </p>
+                  </div>
+                ))}
+                <div className="rounded-lg border border-black/10 bg-white/70 p-2 dark:border-white/10 dark:bg-white/[0.05]">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/60">stripe pending</p>
+                  <p className="mt-1 text-sm font-semibold text-black dark:text-white">{reportsData.pendingStripeSales}</p>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <section className="rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <h4 className="text-sm font-semibold text-black dark:text-white">Time-window ranking</h4>
+              <div className="mt-3 space-y-2">
+                {reportsData.timeWindowRanking.map((row) => {
+                  const widthPct = Math.max(8, Math.round((row.paidRevenueCents / reportsChartMeta.maxWindowRevenue) * 100))
+                  return (
+                    <div key={`window-rank-${row.window}`} className="rounded-lg border border-black/10 bg-white/70 p-2 dark:border-white/10 dark:bg-white/[0.05]">
+                      <div className="flex items-center justify-between gap-2 text-xs text-black/80 dark:text-white/80">
+                        <span>{row.window}</span>
+                        <span>{row.paidSales} sales</span>
+                      </div>
+                      <div className="mt-1 h-2 rounded-full bg-black/10 dark:bg-white/10">
+                        <div
+                          className="h-2 rounded-full bg-[linear-gradient(90deg,rgba(14,165,233,0.9)_0%,rgba(59,130,246,0.85)_100%)]"
+                          style={{ width: `${widthPct}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs font-semibold text-black dark:text-white">{formatMoney(row.paidRevenueCents)}</p>
+                    </div>
+                  )
+                })}
+                {reportsData.timeWindowRanking.length === 0 ? (
+                  <p className="text-xs text-black/60 dark:text-white/60">No paid class times available in this range.</p>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <h4 className="text-sm font-semibold text-black dark:text-white">Cohort retention (weekly)</h4>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full min-w-[520px] text-left text-xs">
+                  <thead>
+                    <tr className="text-black/60 dark:text-white/60">
+                      <th className="px-2 py-1">Cohort week</th>
+                      <th className="px-2 py-1">Students</th>
+                      <th className="px-2 py-1">W0</th>
+                      <th className="px-2 py-1">W1</th>
+                      <th className="px-2 py-1">W2</th>
+                      <th className="px-2 py-1">W3</th>
+                      <th className="px-2 py-1">W4</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportsData.cohortRetention.map((cohort) => {
+                      const [w0, w1, w2, w3, w4] = cohort.rates
+                      return (
+                        <tr key={`cohort-row-${cohort.weekStartTs}`} className="border-t border-black/10 dark:border-white/10">
+                          <td className="px-2 py-2 text-black/90 dark:text-white/90">{cohort.weekLabel}</td>
+                          <td className="px-2 py-2 text-black/80 dark:text-white/80">{cohort.students}</td>
+                          <td className="px-2 py-2 text-black/80 dark:text-white/80">{w0.percentage}%</td>
+                          <td className="px-2 py-2 text-black/80 dark:text-white/80">{w1.percentage}%</td>
+                          <td className="px-2 py-2 text-black/80 dark:text-white/80">{w2.percentage}%</td>
+                          <td className="px-2 py-2 text-black/80 dark:text-white/80">{w3.percentage}%</td>
+                          <td className="px-2 py-2 text-black/80 dark:text-white/80">{w4.percentage}%</td>
+                        </tr>
+                      )
+                    })}
+                    {reportsData.cohortRetention.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-2 py-3 text-black/60 dark:text-white/60">
+                          No cohort data available.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <section className="mt-4 rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+            <h4 className="text-sm font-semibold text-black dark:text-white">Monthly performance</h4>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-xs">
+                <thead>
+                  <tr className="text-black/60 dark:text-white/60">
+                    <th className="px-2 py-1">Month</th>
+                    <th className="px-2 py-1">Paid sales</th>
+                    <th className="px-2 py-1">Pending</th>
+                    <th className="px-2 py-1">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportsData.monthlyPerformance.map((row) => (
+                    <tr key={`report-month-${row.monthKey}`} className="border-t border-black/10 dark:border-white/10">
+                      <td className="px-2 py-2 text-black/90 dark:text-white/90">{row.monthLabel}</td>
+                      <td className="px-2 py-2 text-black/80 dark:text-white/80">{row.paidSales}</td>
+                      <td className="px-2 py-2 text-black/80 dark:text-white/80">{row.pendingSales}</td>
+                      <td className="px-2 py-2 text-black/80 dark:text-white/80">{formatMoney(row.paidRevenueCents)}</td>
+                    </tr>
+                  ))}
+                  {reportsData.monthlyPerformance.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-3 text-black/60 dark:text-white/60">
+                        No monthly data available.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-xl border border-black/10 bg-white/55 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+            <header className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-semibold text-black dark:text-white">Suggestions & proposals</h4>
+                <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                  Dynamic recommendations based on your live metrics. Use filters by objective and copy AI briefs for your assistant workflow.
+                </p>
+              </div>
+              <div className="flex flex-col items-start gap-2 sm:items-end">
+                <div className="inline-flex flex-wrap items-center gap-2">
+                  {REPORT_OBJECTIVE_OPTIONS.map((option) => (
+                    <button
+                      key={`reports-objective-${option.key}`}
+                      type="button"
+                      onClick={() => setReportsObjectiveFilter(option.key)}
+                      className={`cursor-pointer rounded-full border px-3 py-1 text-xs ${
+                        reportsObjectiveFilter === option.key
+                          ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#b61616)]"
+                          : "border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="inline-flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="rounded-full border border-black/15 bg-white/65 px-2 py-1 text-black/70 dark:border-white/15 dark:bg-white/[0.05] dark:text-white/70">
+                    Source: {REPORT_SUGGESTIONS_SOURCE_LABELS[reportSuggestionsProvider]}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void refreshAiSuggestions()}
+                    disabled={reportSuggestionsLoading}
+                    className="cursor-pointer rounded-md border border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 px-2.5 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {reportSuggestionsLoading ? "Generating..." : "Generate AI suggestions"}
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            {reportSuggestionsError ? (
+              <p className="mt-2 rounded-md border border-amber-500/35 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
+                {reportSuggestionsError}
+              </p>
+            ) : null}
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {filteredReportSuggestions.map((suggestion) => {
+                const isExpanded = expandedSuggestionId === suggestion.id
+                const done = doneSuggestionIds.includes(suggestion.id)
+                return (
+                  <article
+                    key={`suggestion-${suggestion.id}`}
+                    className={`rounded-xl border p-3 ${
+                      done
+                        ? "border-emerald-400/40 bg-emerald-500/10"
+                        : "border-black/10 bg-white/70 dark:border-white/10 dark:bg-white/[0.05]"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="inline-flex items-center gap-2 text-[11px]">
+                        <span className="rounded-full border border-white/25 bg-white/10 px-2 py-0.5 uppercase tracking-[0.2em] text-black/70 dark:text-white/80">
+                          {REPORT_OBJECTIVE_LABELS[suggestion.objective]}
+                        </span>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 font-semibold ${
+                            suggestion.priority === "High"
+                              ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)]"
+                              : suggestion.priority === "Medium"
+                                ? "border-amber-500/45 bg-amber-500/10 text-amber-300"
+                                : "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
+                          }`}
+                        >
+                          {suggestion.priority}
+                        </span>
+                      </div>
+                      {done ? (
+                        <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                          Done
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <h5 className="mt-2 text-sm font-semibold text-black dark:text-white">{suggestion.title}</h5>
+                    <p className="mt-1 text-xs text-black/70 dark:text-white/70">{suggestion.insight}</p>
+                    <p className="mt-1 text-xs text-black/75 dark:text-white/75">{suggestion.proposal}</p>
+
+                    {isExpanded ? (
+                      <div className="mt-2 space-y-1 text-xs text-black/80 dark:text-white/80">
+                        {suggestion.actions.map((item) => (
+                          <p key={`${suggestion.id}-${item}`} className="rounded-md border border-black/10 bg-white/65 px-2 py-1 dark:border-white/10 dark:bg-white/[0.05]">
+                            {item}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedSuggestionId((prev) => (prev === suggestion.id ? null : suggestion.id))}
+                        className="cursor-pointer rounded-md border border-white/20 bg-black/10 px-2 py-1 text-[11px] text-black/80 dark:text-white/85"
+                      >
+                        {isExpanded ? "Hide steps" : "View steps"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return
+                          try {
+                            await navigator.clipboard.writeText(suggestion.aiBrief)
+                          } catch {
+                            setError("Unable to copy AI brief.")
+                          }
+                        }}
+                        className="cursor-pointer rounded-md border border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 px-2 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)]"
+                      >
+                        Copy AI brief
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDoneSuggestionIds((prev) =>
+                            prev.includes(suggestion.id) ? prev.filter((id) => id !== suggestion.id) : [...prev, suggestion.id]
+                          )
+                        }
+                        className="cursor-pointer rounded-md border border-black/20 px-2 py-1 text-[11px] text-black/80 dark:border-white/20 dark:text-white/80"
+                      >
+                        {done ? "Mark open" : "Mark done"}
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+              {filteredReportSuggestions.length === 0 ? (
+                <p className="rounded-md border border-black/10 bg-white/70 px-2 py-2 text-xs text-black/65 dark:border-white/10 dark:bg-white/[0.05] dark:text-white/65">
+                  No suggestions available for this objective yet.
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </article>
+      ) : null}
 
         {showStaffOps ? (
           <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
@@ -5279,46 +8592,65 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
         ) : null}
       </section>
 
-      <aside className="lg:self-start">
-        <div
-          ref={rightRailRef}
-          className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/95 lg:h-[calc(100vh-3.75rem)]"
-        >
-          <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">AI Assistant</p>
-          <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Admin copilot</h3>
-          <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-            Use this panel to query staff workload and recommended actions.
-          </p>
-
-          <div className="mt-4 flex h-[calc(100%-8rem)] flex-col overflow-hidden rounded-xl border border-black/10 bg-white/60 dark:border-white/10 dark:bg-white/[0.02]">
-            <div className="flex-1 space-y-3 overflow-y-auto p-3 text-sm">
-              <div className="rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-black/80 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/80">
-                Puedo filtrar quién está online, quién está bloqueado y preparar acciones en lote.
+      {showRightRail ? (
+        <aside className="lg:self-start">
+          <div
+            ref={rightRailRef}
+            className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/95 lg:h-[calc(100vh-3.75rem)] lg:sticky lg:top-0"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">AI Assistant</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Admin copilot</h3>
+                <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                  Live chat for operations. Configure behavior from the AI icon in the left menu.
+                </p>
               </div>
-              <div className="ml-auto max-w-[92%] rounded-lg border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/12 px-3 py-2 text-black dark:text-white">
-                Show me today schedule with users.
-              </div>
-              <div className="rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-black/80 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/80">
-                Listo. Revisá el calendario central: cada horario tiene tooltip con usuario, email y estado.
-              </div>
+              <button
+                type="button"
+                onClick={() => setActiveNav("assistant")}
+                className="inline-flex items-center gap-1.5 rounded-md border border-black/20 bg-white/70 px-2.5 py-1.5 text-xs font-semibold text-black transition hover:border-[var(--brand,#b61616)] dark:border-white/20 dark:bg-white/5 dark:text-white"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Config
+              </button>
             </div>
 
-            <form
-              onSubmit={(e) => e.preventDefault()}
-              className="flex items-center gap-2 border-t border-black/10 p-3 dark:border-white/10"
-            >
-              <input
-                name="assistantPrompt"
-                placeholder="Ask assistant..."
-                className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-              />
-              <button type="submit" className="rounded-md bg-[var(--brand,#b61616)] px-3 py-2 text-sm font-semibold text-white">
-                Send
-              </button>
-            </form>
+            <div className="mt-4 flex h-[calc(100%-8rem)] flex-col rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+              <div className="flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
+                {assistantChatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`max-w-[92%] rounded-lg border px-3 py-2 ${
+                      message.role === "user"
+                        ? "ml-auto border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/12 text-black dark:text-white"
+                        : "border-black/10 bg-black/[0.03] text-black/80 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/80"
+                    }`}
+                  >
+                    {message.text}
+                  </div>
+                ))}
+              </div>
+
+              <form
+                onSubmit={sendAssistantChatMessage}
+                className="mt-3 flex items-center gap-2 border-t border-black/10 pt-3 dark:border-white/10"
+              >
+                <input
+                  name="assistantPromptRight"
+                  value={assistantChatInput}
+                  onChange={(event) => setAssistantChatInput(event.target.value)}
+                  placeholder={`Message about ${activeNavLabel.toLowerCase()}...`}
+                  className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                />
+                <button type="submit" className="rounded-md bg-[var(--brand,#b61616)] px-3 py-2 text-sm font-semibold text-white">
+                  Send
+                </button>
+              </form>
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
+      ) : null}
       </div>
 
       {delayModal ? (
@@ -5388,10 +8720,10 @@ export default function StaffUsersAdminClient({ currentRole, currentUserId }: St
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Staff profile</p>
                   <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">
-                    Editar {profileTarget ? `${profileTarget.firstName} ${profileTarget.lastName}`.trim() : "usuario"}
+                    Edit {profileTarget ? `${profileTarget.firstName} ${profileTarget.lastName}`.trim() : "user"}
                   </h3>
                   <p className="mt-1 text-xs text-black/65 dark:text-white/65">
-                    Podés cambiar datos personales y configurar PIN de acceso rápido.
+                    You can change personal data and set up a quick-access PIN.
                   </p>
                 </div>
               )}

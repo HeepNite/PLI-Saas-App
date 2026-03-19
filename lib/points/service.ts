@@ -1,6 +1,12 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { DEFAULT_FREE_CLASS_THRESHOLD, getPointsRuleDefinition, POINTS_RULE_KEYS, type PointsRuleKey } from "@/lib/points/constants"
+import {
+  DEFAULT_ATTENDANCE_MILESTONE_CLASSES,
+  DEFAULT_FREE_CLASS_THRESHOLD,
+  getPointsRuleDefinition,
+  POINTS_RULE_KEYS,
+  type PointsRuleKey,
+} from "@/lib/points/constants"
 
 type PointsDbClient = typeof prisma | Prisma.TransactionClient
 
@@ -147,3 +153,15 @@ export async function getFreeClassThresholdPoints(db?: PointsDbClient) {
   return safeThreshold
 }
 
+export async function getAttendanceMilestoneClasses(db?: PointsDbClient) {
+  const resolved = await resolvePointsRuleValue({
+    ruleKey: POINTS_RULE_KEYS.ATTENDANCE_MILESTONE_CLASSES,
+    fallbackPoints: DEFAULT_ATTENDANCE_MILESTONE_CLASSES,
+    db,
+    allowInactiveRuleFallback: true,
+  })
+
+  const parsed = Math.round(resolved.points)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_ATTENDANCE_MILESTONE_CLASSES
+  return Math.max(1, Math.min(500, parsed))
+}

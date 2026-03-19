@@ -29,13 +29,13 @@ export async function POST(req: Request) {
     const file = formData.get("file")
 
     if (!file || !(file instanceof File)) {
-      return NextResponse.json({ error: "Archivo inválido." }, { status: 400 })
+      return NextResponse.json({ error: "Invalid file." }, { status: 400 })
     }
     if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
-      return NextResponse.json({ error: "Formato de imagen no permitido." }, { status: 400 })
+      return NextResponse.json({ error: "Unsupported image format." }, { status: 400 })
     }
     if (file.size > MAX_AVATAR_SIZE) {
-      return NextResponse.json({ error: "La imagen supera el tamaño permitido (5MB)." }, { status: 400 })
+      return NextResponse.json({ error: "Image exceeds the allowed size (5MB)." }, { status: 400 })
     }
 
     const client = await clerkClient()
@@ -44,6 +44,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ imageUrl: updated.imageUrl })
   } catch (error) {
     console.error("Avatar update failed", error)
-    return NextResponse.json({ error: "No se pudo actualizar el avatar." }, { status: 500 })
+    return NextResponse.json({ error: "Unable to update avatar." }, { status: 500 })
   }
 }

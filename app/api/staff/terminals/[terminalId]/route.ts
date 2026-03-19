@@ -137,3 +137,44 @@ export async function PATCH(req: Request, context: { params: Promise<{ terminalI
     return NextResponse.json({ error: "Unable to update terminal. Check slug uniqueness." }, { status: 409 })
   }
 }
+
+export async function DELETE(req: Request, context: { params: Promise<{ terminalId: string }> }) {
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:terminals:delete", getClientIp(req)),
+    limit: 30,
+    windowMs: 60_000,
+  })
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
+
+  const { terminalId } = await context.params
+  if (!terminalId) {
+    return NextResponse.json({ error: "Missing terminalId." }, { status: 400 })
+  }
+
+  const current = await prisma.staffTerminal.findUnique({
+    where: { id: terminalId },
+    select: { id: true, name: true },
+  })
+  if (!current) {
+    return NextResponse.json({ error: "Terminal not found." }, { status: 404 })
+  }
+
+  await prisma.staffTerminal.delete({
+    where: { id: terminalId },
+  })
+
+  return NextResponse.json({
+    ok: true,
+    message: `Terminal "${current.name}" deleted.`,
+  })
+}

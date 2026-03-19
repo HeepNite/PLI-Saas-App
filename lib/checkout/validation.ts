@@ -1,5 +1,5 @@
 import type { CourseData, EnrollmentOption } from "@/constants/courses"
-import { courseRepository } from "@/lib/courses-repository"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 
 export type ApiError = { status: number; error: string; code?: string }
 
@@ -20,6 +20,8 @@ export type CheckoutBody = {
   lastName?: string
   name?: string
   phone?: string
+  prepareOnly?: boolean
+  photoContext?: string
 }
 
 export type CheckoutValidation = {
@@ -72,7 +74,7 @@ export const normalizePhone = (val?: string | null) => {
   return digits && digits.length >= 6 ? digits : undefined
 }
 
-export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation | ApiError => {
+export const validateCheckoutPayload = async (body: CheckoutBody): Promise<CheckoutValidation | ApiError> => {
   const {
     courseSlug,
     courseTitle = "Course booking",
@@ -93,7 +95,7 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
     return { status: 400, error: "Missing course slug or amount" }
   }
 
-  const course = courseRepository.getCourseBySlug(courseSlug)
+  const course = await getCatalogCourseBySlug(courseSlug)
   if (!course) {
     return { status: 404, error: "Course not found" }
   }

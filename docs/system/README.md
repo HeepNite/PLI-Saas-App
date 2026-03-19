@@ -1,5 +1,21 @@
 # PLI — Guía completa de pantallas, componentes y edición
 
+## Important usage note
+
+This document is a broad technical reference.
+
+It is not the source of truth for feature behavior when an active spec exists in `docs/specs/`.
+
+When working on a specific feature, follow this order:
+
+1. active spec `requirements.md`
+2. active spec `resolve.md`
+3. active spec `design.md`
+4. existing code contracts
+5. this reference document
+
+Use this file only as supporting context when the active spec needs targeted technical background.
+
 Documento base para entender qué hace cada parte del sitio y cómo modificarla. Rutas relativas al repo.
 
 ## 0.1 Mapa de documentación por dominio

@@ -90,7 +90,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
       },
       packageUsage: {
@@ -112,7 +112,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
       },
       packageUsage: {
@@ -165,7 +165,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
       },
       packageUsage: null,
@@ -201,7 +201,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
         durationMinutes: 60,
       },

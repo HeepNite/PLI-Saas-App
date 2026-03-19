@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import {
-  ensureGuestClerkUser,
   enforceNewStudentRules,
-  resolveAuthUser,
-  resolveContactIdentity,
+  prepareCheckoutAccount,
   type ApiError,
 } from "@/lib/checkout"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
+import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 const secret = process.env.STRIPE_SECRET_KEY
@@ -23,10 +22,6 @@ const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
 
 export async function POST(req: Request) {
-  if (!stripe) {
-    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
-  }
-
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("checkout:intent", getClientIp(req)),
     limit: 30,
@@ -52,39 +47,52 @@ export async function POST(req: Request) {
     lastName,
     name,
     phone = "",
+    prepareOnly = false,
   } = body || {}
+  const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
-  const validation = validateCheckoutPayload(body)
+  const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
 
-  const { userId, clerkUser } = await resolveAuthUser(req, { firstName, lastName, name, phone })
-  const identity = resolveContactIdentity({ clerkUser, email, phone })
-  if (isApiError(identity)) {
-    return toErrorResponse(identity)
+  const preparedAccount = await prepareCheckoutAccount(
+    req,
+    {
+      email,
+      firstName,
+      lastName,
+      name,
+      phone,
+    },
+    {
+      photoContext,
+      allowExistingAccountLookup: prepareOnly || photoContext === "kiosk_terminal",
+    }
+  )
+  if (isApiError(preparedAccount)) {
+    return toErrorResponse(preparedAccount)
   }
 
-  const guestResult = await ensureGuestClerkUser({
-    userId: userId || undefined,
-    resolvedEmail: identity.resolvedEmail,
-    phoneRaw: identity.phoneRaw,
-    firstName,
-    lastName,
-    name,
-    phone,
-  })
-  if (isApiError(guestResult)) {
-    return toErrorResponse(guestResult)
+  const { clerkUser, resolvedUserId, identity, account } = preparedAccount
+
+  if (prepareOnly) {
+    return NextResponse.json({
+      ok: true,
+      prepareOnly: true,
+      account,
+    })
   }
 
-  const ensuredClerkUser = guestResult.ensuredClerkUser
-  const resolvedUserId = userId || ensuredClerkUser?.id
+  if (!stripe) {
+    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
+  }
+
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
-    clerkUserForVerification: clerkUser || ensuredClerkUser,
-    resolvedUserId,
+    clerkUserForVerification: clerkUser,
+    resolvedUserId: resolvedUserId || undefined,
     resolvedEmail: identity.resolvedEmail,
     phoneNormalized: identity.phoneNormalized,
   })
@@ -122,7 +130,10 @@ export async function POST(req: Request) {
       },
     })
 
-    return NextResponse.json({ clientSecret: intent.client_secret })
+    return NextResponse.json({
+      clientSecret: intent.client_secret,
+      account,
+    })
   } catch (err) {
     console.error("Stripe intent error", err)
     return NextResponse.json({ error: "Unable to create payment intent" }, { status: 500 })

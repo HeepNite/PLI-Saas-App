@@ -41,11 +41,13 @@ describe("qr new-student verify route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone: "abc" }),
     })
+
     const res = await POST(req)
+
     expect(res.status).toBe(400)
   })
 
-  it("returns exists=true when clerk user already exists", async () => {
+  it("requires sms verification when the phone exists but there is no completed purchase", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
     mockUserFindFirst.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue(null)
@@ -56,17 +58,25 @@ describe("qr new-student verify route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
     })
+
     const res = await POST(req)
-    expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.exists).toBe(true)
-    expect(data.hasCompletedPurchase).toBe(false)
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "requires_sms_verification",
+      reason: "phone_verification_required",
+      exists: true,
+      hasCompletedPurchase: false,
+      eligibleForNewStudent: false,
+      requiresSmsVerification: true,
+      shouldFallbackToRegular: false,
+      requiresLogin: false,
+    })
     expect(data.sources.clerk).toBe(true)
-    expect(data.requiresLogin).toBe(false)
-    expect(data.sessionOwnsPhone).toBe(false)
   })
 
-  it("returns exists=true when there is a completed purchase", async () => {
+  it("falls back to regular price when there is a completed purchase", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockUserFindFirst.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue({ id: "pur_123" })
@@ -77,13 +87,22 @@ describe("qr new-student verify route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
     })
+
     const res = await POST(req)
-    expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.exists).toBe(true)
-    expect(data.hasCompletedPurchase).toBe(true)
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "fallback_regular",
+      reason: "existing_customer",
+      exists: true,
+      hasCompletedPurchase: true,
+      eligibleForNewStudent: false,
+      requiresSmsVerification: false,
+      shouldFallbackToRegular: true,
+      requiresLogin: true,
+    })
     expect(data.sources.completedPurchase).toBe(true)
-    expect(data.requiresLogin).toBe(true)
   })
 
   it("matches phone variants with and without country code", async () => {
@@ -97,9 +116,11 @@ describe("qr new-student verify route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
     })
+
     const res = await POST(req)
-    expect(res.status).toBe(200)
     const data = await res.json()
+
+    expect(res.status).toBe(200)
     expect(data.exists).toBe(true)
     expect(data.sources.databaseUser).toBe(true)
     expect(mockUserFindFirst).toHaveBeenCalledWith(
@@ -116,7 +137,7 @@ describe("qr new-student verify route", () => {
     )
   })
 
-  it("returns sessionOwnsPhone=true when session user owns that phone", async () => {
+  it("returns eligible when the current session already owns the phone", async () => {
     mockAuth.mockResolvedValue({ userId: "clerk_123" })
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
     mockUserFindFirst.mockResolvedValue({ id: "usr_123", clerkId: "clerk_123" })
@@ -128,57 +149,19 @@ describe("qr new-student verify route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
     })
+
     const res = await POST(req)
-    expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.exists).toBe(true)
-    expect(data.hasCompletedPurchase).toBe(false)
-    expect(data.sessionOwnsPhone).toBe(true)
-    expect(data.requiresLogin).toBe(false)
-  })
 
-  it("returns requiresLogin=false when there is no completed purchase, even if session user differs", async () => {
-    mockAuth.mockResolvedValue({ userId: "clerk_other" })
-    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
-    mockUserFindFirst.mockResolvedValue({ id: "usr_123", clerkId: "clerk_123" })
-    mockPurchaseFindFirst.mockResolvedValue(null)
-
-    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
-    const req = new Request("http://localhost/api/checkin/qr/new-student/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
-    })
-    const res = await POST(req)
     expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.exists).toBe(true)
-    expect(data.hasCompletedPurchase).toBe(false)
-    expect(data.sessionOwnsPhone).toBe(false)
-    expect(data.requiresLogin).toBe(false)
-  })
-
-  it("returns requiresLogin=true when there is completed purchase and session user differs", async () => {
-    mockAuth.mockResolvedValue({ userId: "clerk_other" })
-    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
-    mockUserFindFirst.mockResolvedValue({ id: "usr_123", clerkId: "clerk_123" })
-    mockPurchaseFindFirst.mockResolvedValue({
-      id: "pur_123",
-      user: { clerkId: "clerk_123" },
+    expect(data).toMatchObject({
+      outcome: "eligible",
+      reason: "verified_phone_session",
+      sessionOwnsPhone: true,
+      eligibleForNewStudent: true,
+      requiresSmsVerification: false,
+      shouldFallbackToRegular: false,
+      requiresLogin: false,
     })
-
-    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
-    const req = new Request("http://localhost/api/checkin/qr/new-student/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
-    })
-    const res = await POST(req)
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.exists).toBe(true)
-    expect(data.hasCompletedPurchase).toBe(true)
-    expect(data.sessionOwnsPhone).toBe(false)
-    expect(data.requiresLogin).toBe(true)
   })
 })

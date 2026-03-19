@@ -9,6 +9,8 @@ export const runtime = "nodejs"
 
 const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"] as const
 
+type NewStudentVerifyOutcome = "eligible" | "requires_sms_verification" | "fallback_regular"
+
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
   return value.trim()
@@ -127,12 +129,34 @@ export async function POST(req: Request) {
     if (existingDbUser?.clerkId) matchedClerkIds.add(existingDbUser.clerkId)
     if (existingPaidPurchase?.user?.clerkId) matchedClerkIds.add(existingPaidPurchase.user.clerkId)
     const sessionOwnsPhone = Boolean(sessionUserId && matchedClerkIds.has(sessionUserId))
+    const outcome: NewStudentVerifyOutcome = hasCompletedPurchase
+      ? "fallback_regular"
+      : sessionOwnsPhone
+        ? "eligible"
+        : "requires_sms_verification"
+    const reason = hasCompletedPurchase
+      ? "existing_customer"
+      : sessionOwnsPhone
+        ? "verified_phone_session"
+        : "phone_verification_required"
+    const message =
+      outcome === "fallback_regular"
+        ? "This customer is not eligible for the new-student price. The flow should continue with the regular $20 price."
+        : outcome === "eligible"
+          ? "This customer can continue with the new-student price."
+          : "SMS phone verification is required before continuing with the new-student price."
 
     return NextResponse.json({
+      outcome,
+      reason,
+      message,
       exists,
       hasCompletedPurchase,
       sessionOwnsPhone,
       requiresLogin: Boolean(hasCompletedPurchase && !sessionOwnsPhone),
+      eligibleForNewStudent: outcome === "eligible",
+      requiresSmsVerification: outcome === "requires_sms_verification",
+      shouldFallbackToRegular: outcome === "fallback_regular",
       sources: {
         clerk: Boolean(existingClerkUser),
         databaseUser: Boolean(existingDbUser),

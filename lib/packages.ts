@@ -62,6 +62,7 @@ export const syncPackagePurchaseFromPaidPurchase = async (input: {
   userId: string
   purchaseId: string
   purchasedAt?: Date
+  source?: string
   metadata: PackageMetadataInput
 }) => {
   const packagePayload = buildPackagePurchasePayload(input.metadata, input.purchasedAt)
@@ -111,7 +112,7 @@ export const syncPackagePurchaseFromPaidPurchase = async (input: {
       expiresAt: packagePayload.expiresAt,
       status: "active",
       purchaseId: input.purchaseId,
-      source: "stripe",
+      source: input.source || "stripe",
     },
   })
 }

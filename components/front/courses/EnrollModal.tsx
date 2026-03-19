@@ -2,13 +2,14 @@
 import React from "react"
 import Link from "next/link"
 import CalendarPicker from "../ui/CalendarPicker"
-import { demoCourses, type EnrollmentOption } from "@/constants/courses"
+import { demoCourses, type CourseData, type EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
 import {
   Calendar as CalendarIcon,
   CalendarRange,
   CalendarDays,
   CalendarCheck,
+  Camera,
   CreditCard,
   Building2,
   User,
@@ -24,6 +25,19 @@ import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
 import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
+import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
+import ProfilePhotoCapture from "@/components/front/checkin/ProfilePhotoCapture"
+import {
+  getPhotoPolicy,
+  isPhotoRequiredForAccount,
+  type PhotoFlowContext,
+} from "@/lib/checkin/photo-context-policy"
+import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
+import {
+  isRegularFallbackLocked,
+  normalizePhoneKey,
+  resolveCheckInServiceSelection,
+} from "@/lib/checkin/new-student-flow"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -51,6 +65,27 @@ type EnrollPrefillSelection = {
   addons?: string[]
   participants?: number
   paymentMethod?: PaymentMethod
+}
+
+type PreparedAccountState = {
+  clerkUserId: string | null
+  created: boolean
+  requiresSignIn: boolean
+  hasAvatar: boolean
+}
+
+type NewStudentVerifyResponse = {
+  outcome?: "eligible" | "requires_sms_verification" | "fallback_regular"
+  reason?: string
+  message?: string
+  eligibleForNewStudent?: boolean
+  requiresSmsVerification?: boolean
+  shouldFallbackToRegular?: boolean
+}
+
+type FlowPopupState = {
+  title: string
+  message: string
 }
 
 const normalizeIsoDate = (value: unknown) => {
@@ -123,10 +158,15 @@ const isEligibleForTodayCheckIn = (slot: string, nowMinutes: number | null) => {
   return nowMinutes <= slotMinutes + CHECKIN_LATE_GRACE_MINUTES
 }
 
-const findNextCourseSlot = (courseSlug: string, baseDateIso: string, nowMinutes: number | null) => {
+const findNextCourseSlot = (
+  courseSlug: string,
+  baseDateIso: string,
+  nowMinutes: number | null,
+  courses: CourseData[]
+) => {
   for (let offset = 0; offset <= 14; offset += 1) {
     const dateIso = shiftIsoDate(baseDateIso, offset)
-    const daySlots = sortTime24(getAvailableTimesForCourseDate(courseSlug, dateIso))
+    const daySlots = sortTime24(getAvailableTimesForCourseDate(courseSlug, dateIso, courses))
     if (!daySlots.length) continue
     const candidates =
       offset === 0 ? daySlots.filter((slot) => isEligibleForTodayCheckIn(slot, nowMinutes)) : daySlots
@@ -142,12 +182,17 @@ const findNextCourseSlot = (courseSlug: string, baseDateIso: string, nowMinutes:
   return null as null | { date: string; time: string }
 }
 
-const findNextDifferentCourseSlot = (courseSlug: string, dateIso: string, nowMinutes: number) => {
+const findNextDifferentCourseSlot = (
+  courseSlug: string,
+  dateIso: string,
+  nowMinutes: number,
+  courses: CourseData[]
+) => {
   let candidate: { title: string; time: string; minutes: number } | null = null
 
-  for (const possibleCourse of demoCourses) {
+  for (const possibleCourse of courses) {
     if (possibleCourse.slug === courseSlug) continue
-    const slots = sortTime24(getAvailableTimesForCourseDate(possibleCourse.slug, dateIso))
+    const slots = sortTime24(getAvailableTimesForCourseDate(possibleCourse.slug, dateIso, courses))
     for (const slot of slots) {
       const slotMinutes = toMinutes(slot)
       if (slotMinutes === null || slotMinutes <= nowMinutes) continue
@@ -166,6 +211,7 @@ const findNextDifferentCourseSlot = (courseSlug: string, dateIso: string, nowMin
 
 const computeCheckInAutofill = (
   courseSlug: string,
+  courses: CourseData[],
   context?: EnrollCheckInContext,
   referenceDate = new Date()
 ) => {
@@ -175,8 +221,8 @@ const computeCheckInAutofill = (
   const contextDate = normalizeIsoDate(context?.date)
   const contextTime = normalizeTime24(context?.time)
 
-  const todaySlots = nowDateIso ? sortTime24(getAvailableTimesForCourseDate(courseSlug, nowDateIso)) : []
-  const contextSlots = contextDate ? sortTime24(getAvailableTimesForCourseDate(courseSlug, contextDate)) : []
+  const todaySlots = nowDateIso ? sortTime24(getAvailableTimesForCourseDate(courseSlug, nowDateIso, courses)) : []
+  const contextSlots = contextDate ? sortTime24(getAvailableTimesForCourseDate(courseSlug, contextDate, courses)) : []
 
   const contextIsValid =
     Boolean(contextDate && contextTime && contextSlots.includes(contextTime)) &&
@@ -186,7 +232,7 @@ const computeCheckInAutofill = (
         (contextDate === nowDateIso && isEligibleForTodayCheckIn(contextTime, nowMinutes))
     )
 
-  const nextSlotFromNow = nowDateIso ? findNextCourseSlot(courseSlug, nowDateIso, nowMinutes) : null
+  const nextSlotFromNow = nowDateIso ? findNextCourseSlot(courseSlug, nowDateIso, nowMinutes, courses) : null
 
   let targetDate = ""
   let targetTime = ""
@@ -220,9 +266,9 @@ const computeCheckInAutofill = (
   if (nowDateIso && nowMinutes !== null && targetDate !== nowDateIso && todaySlots.length > 0) {
     const hasAvailableTodaySlot = todaySlots.some((slot) => isEligibleForTodayCheckIn(slot, nowMinutes))
     if (!hasAvailableTodaySlot) {
-      const nextDifferentCourse = findNextDifferentCourseSlot(courseSlug, nowDateIso, nowMinutes)
+      const nextDifferentCourse = findNextDifferentCourseSlot(courseSlug, nowDateIso, nowMinutes, courses)
       if (nextDifferentCourse) {
-        notice = `Hay un horario disponible más tarde: ${nextDifferentCourse.title} a las ${to12hLabel(nextDifferentCourse.time)}.`
+        notice = `A schedule is available later: ${nextDifferentCourse.title} at ${to12hLabel(nextDifferentCourse.time)}.`
       }
     }
   }
@@ -239,13 +285,13 @@ export default function EnrollModal({
   open,
   onCloseAction,
   onCompletedAction,
-  onExistingAccountDetectedAction,
   initialStep,
   mode = "modal",
   prefillContact,
   prefillSelection,
   flowVariant = "default",
   completionMode = "default",
+  photoFlowContext = "external_web",
   checkInContext,
   useDraft = true,
 }: {
@@ -253,20 +299,21 @@ export default function EnrollModal({
   open: boolean
   onCloseAction: () => void
   onCompletedAction?: () => void | Promise<void>
-  onExistingAccountDetectedAction?: (context: {
-    phone: string
-    requiresLogin: boolean
-    hasCompletedPurchase: boolean
-  }) => void
   initialStep?: number
   mode?: "modal" | "inline"
   prefillContact?: Partial<EnrollmentContact>
   prefillSelection?: EnrollPrefillSelection
   flowVariant?: EnrollFlowVariant
   completionMode?: EnrollCompletionMode
+  photoFlowContext?: PhotoFlowContext
   checkInContext?: EnrollCheckInContext
   useDraft?: boolean
 }) {
+  const { courses: catalogCourses } = useCatalogCourses()
+  const sourceCourses = React.useMemo(
+    () => (catalogCourses.length ? catalogCourses : demoCourses),
+    [catalogCourses]
+  )
   const { t } = useI18n()
   const router = useRouter()
   const { isLoaded, isSignedIn, user } = useUser()
@@ -280,6 +327,7 @@ export default function EnrollModal({
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
   const isStationCompletion = isCheckInFlow && completionMode === "station"
   const isPersonalCompletion = isCheckInFlow && completionMode === "personal"
+  const photoPolicy = React.useMemo(() => getPhotoPolicy(photoFlowContext), [photoFlowContext])
   const allowPanelAccess = !isCheckInFlow
   const availableServices = React.useMemo(
     () =>
@@ -293,8 +341,10 @@ export default function EnrollModal({
     [course.enrollment.services]
   )
   const courseAvailableWeekdays = React.useMemo(
-    () => demoCourses.find((item) => item.slug === course.slug)?.schedule.availableWeekdays,
-    [course.slug]
+    () =>
+      course.schedule?.availableWeekdays ||
+      sourceCourses.find((item) => item.slug === course.slug)?.schedule.availableWeekdays,
+    [course.schedule?.availableWeekdays, course.slug, sourceCourses]
   )
   const forcedNewStudentServiceId = hasNewStudentService
     ? "new-student"
@@ -329,15 +379,20 @@ export default function EnrollModal({
   const [timeLoading, setTimeLoading] = React.useState<boolean>(false)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
   const [formError, setFormError] = React.useState<string | null>(null)
-  const [requiresPhoneVerification, setRequiresPhoneVerification] = React.useState<boolean>(false)
   const [requiresSignIn, setRequiresSignIn] = React.useState<boolean>(false)
   const [existingAccountDetected, setExistingAccountDetected] = React.useState<boolean>(false)
   const [resumeAfterSignInStep, setResumeAfterSignInStep] = React.useState<number | null>(null)
   const [pendingAutoPay, setPendingAutoPay] = React.useState<boolean>(false)
+  const [resumeContactFlowAfterSignIn, setResumeContactFlowAfterSignIn] = React.useState<boolean>(false)
   const [identityCheckBusy, setIdentityCheckBusy] = React.useState<boolean>(false)
   const [phoneTouched, setPhoneTouched] = React.useState<boolean>(false)
   const [stripeClientSecret, setStripeClientSecret] = React.useState<string>("")
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
+  const [preparedAccount, setPreparedAccount] = React.useState<PreparedAccountState | null>(null)
+  const [photoSaved, setPhotoSaved] = React.useState<boolean>(false)
+  const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
+  const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
+  const [signInPurpose, setSignInPurpose] = React.useState<"existing" | "sms_verification" | "account_preparation">("existing")
   const [checkInScheduleNotice, setCheckInScheduleNotice] = React.useState<string | null>(null)
   const [checkInNow, setCheckInNow] = React.useState<Date>(() => new Date())
   const stationCompletionTimeoutRef = React.useRef<number | null>(null)
@@ -351,23 +406,23 @@ export default function EnrollModal({
     note: "",
   })
   const isNewStudent = service === "new-student"
-  const returnTo = `/cursos/${course.slug}?enroll=1&step=2`
-  const verifyPhoneUrl = `/verify-phone?return=${encodeURIComponent(returnTo)}`
   const steps = React.useMemo(
     () =>
       [
         { key: "party", label: t("step_party") },
         { key: "datetime", label: t("step_datetime") },
         { key: "info", label: t("step_info") },
+        ...(isCheckInFlow && photoPolicy.photoRequired ? [{ key: "photo", label: "Photo" }] : []),
         { key: "payments", label: t("step_payments") },
         ...(isCheckInFlow ? [] : [{ key: "review", label: t("step_review") }]),
       ] as const,
-    [isCheckInFlow, t]
+    [isCheckInFlow, photoPolicy.photoRequired, t]
   )
   const stepIcons: Record<string, typeof User> = {
     party: User,
     datetime: CalendarIcon,
     info: FileText,
+    photo: Camera,
     payments: CreditCard,
     review: CheckCircle2,
   }
@@ -381,6 +436,18 @@ export default function EnrollModal({
   const paymentsStepIndex = React.useMemo(
     () => steps.findIndex((item) => item.key === "payments"),
     [steps]
+  )
+  const photoStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "photo"),
+    [steps]
+  )
+  const regularServicePrice = React.useMemo(
+    () => availableServices.find((item) => item.id === regularServiceId)?.price || 20,
+    [availableServices, regularServiceId]
+  )
+  const regularFallbackLocked = React.useMemo(
+    () => isRegularFallbackLocked(newStudentFallbackPhoneKey, contact.phone),
+    [contact.phone, newStudentFallbackPhoneKey]
   )
   React.useEffect(() => {
     prefillContactRef.current = prefillContact
@@ -413,7 +480,7 @@ export default function EnrollModal({
     user?.primaryEmailAddress?.emailAddress,
     user?.primaryPhoneNumber?.phoneNumber,
   ])
-  const signInReturnTo = `/cursos/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
+  const signInReturnTo = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
   useEnrollDraft({
@@ -470,27 +537,28 @@ export default function EnrollModal({
     setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
     setStep(0)
     setCheckInScheduleNotice(null)
-    setRequiresPhoneVerification(false)
     setRequiresSignIn(false)
     setExistingAccountDetected(false)
     setResumeAfterSignInStep(null)
     setPendingAutoPay(false)
+    setResumeContactFlowAfterSignIn(false)
     setIdentityCheckBusy(false)
     setPhoneTouched(false)
     setStripeClientSecret("")
     setShowStripeModal(false)
+    setPreparedAccount(null)
+    setPhotoSaved(false)
+    setNewStudentFallbackPhoneKey(null)
+    setFlowPopup(null)
+    setSignInPurpose("existing")
     setFormError(null)
     setProcessing(false)
   }, [])
 
   const handleClose = React.useCallback(() => {
-    if (isInline) {
-      resetForm()
-      onCloseAction()
-      return
-    }
+    resetForm()
     onCloseAction()
-  }, [isInline, onCloseAction, resetForm])
+  }, [onCloseAction, resetForm])
 
   React.useEffect(() => {
     return () => {
@@ -525,6 +593,30 @@ export default function EnrollModal({
   }, [isStationCompletion, onCompletedAction, success])
 
   React.useEffect(() => {
+    if (!open || !isStationCompletion || !onCompletedAction || success) return
+
+    const controller = createKioskInactivityController({
+      onTimeout: () => {
+        void onCompletedAction()
+      },
+    })
+    const handleActivity = () => controller.arm()
+    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart"]
+
+    controller.arm()
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, handleActivity, { passive: true })
+    }
+
+    return () => {
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, handleActivity)
+      }
+      controller.dispose()
+    }
+  }, [isStationCompletion, onCompletedAction, open, success])
+
+  React.useEffect(() => {
     if (isInline) return
     if (!open) return
     const prev = document.body.style.overflow
@@ -538,8 +630,13 @@ export default function EnrollModal({
   React.useEffect(() => {
     const serviceIds = availableServices.map((s) => s.id)
     setService((prev) => {
-      if (isCheckInNewFlow && hasNewStudentService) return "new-student"
-      return serviceIds.includes(prev) ? prev : serviceIds[0] ?? ""
+      return resolveCheckInServiceSelection({
+        previousService: prev,
+        availableServiceIds: serviceIds,
+        isCheckInNewFlow,
+        hasNewStudentService,
+        regularFallbackLocked,
+      })
     })
     setPkg((prev) => (course.enrollment.packages.some((p) => p.id === prev) ? prev : ""))
     setAddons((prev) => prev.filter((id) => course.enrollment.addons?.some((a) => a.id === id)))
@@ -550,6 +647,7 @@ export default function EnrollModal({
     course.enrollment.addons,
     isCheckInNewFlow,
     hasNewStudentService,
+    regularFallbackLocked,
   ])
 
   React.useEffect(() => {
@@ -559,11 +657,25 @@ export default function EnrollModal({
   }, [isNewStudent, participants])
 
   React.useEffect(() => {
+    if (!isCheckInFlow) return
+    setPreparedAccount(null)
+    setPhotoSaved(false)
+  }, [
+    contact.email,
+    contact.firstName,
+    contact.lastName,
+    contact.phone,
+    isCheckInFlow,
+    service,
+  ])
+
+  React.useEffect(() => {
     if (!isCheckInNewFlow || !open || !hasNewStudentService) return
+    if (regularFallbackLocked) return
     if (service !== "new-student") {
       setService("new-student")
     }
-  }, [isCheckInNewFlow, open, hasNewStudentService, service])
+  }, [hasNewStudentService, isCheckInNewFlow, open, regularFallbackLocked, service])
 
   React.useEffect(() => {
     if (isCheckInNewFlow) return
@@ -611,7 +723,7 @@ export default function EnrollModal({
           note: prefillContactRef.current?.note ?? "",
         }
     const checkInAutofill = isCheckInFlow
-      ? computeCheckInAutofill(course.slug, {
+      ? computeCheckInAutofill(course.slug, sourceCourses, {
           date: checkInContextDate,
           time: checkInContextTime,
         })
@@ -646,7 +758,6 @@ export default function EnrollModal({
     setPaymentMethod(prefillSelectionRef.current?.paymentMethod || "")
     setStep(0)
     setCheckInScheduleNotice(checkInAutofill.notice)
-    setRequiresPhoneVerification(false)
     setRequiresSignIn(false)
     setExistingAccountDetected(false)
     setResumeAfterSignInStep(null)
@@ -669,6 +780,7 @@ export default function EnrollModal({
     isCheckInFlow,
     checkInContextDate,
     checkInContextTime,
+    sourceCourses,
   ])
 
   // No early returns before hooks complete. We will conditionally render at the final return
@@ -701,10 +813,28 @@ export default function EnrollModal({
     if (!option?.meta) return option?.description
     const parts: string[] = []
     if (option.meta.cadence) parts.push(option.meta.cadence)
-    if (option.meta.totalClasses && option.meta.totalClasses > 0) parts.push(`${option.meta.totalClasses} clases`)
+    if (option.meta.totalClasses && option.meta.totalClasses > 0) parts.push(`${option.meta.totalClasses} classes`)
     if (option.meta.makeUps && option.meta.makeUps > 0) parts.push(`+${option.meta.makeUps} make-ups`)
     return parts.join(" • ") || option.description
   }, [])
+
+  const getCurrentCourseTimesForDate = React.useCallback((dateIso: string) => {
+    if (course.slug === "salsa-nocturno") {
+      return sortTime24(getAvailableTimesForCourseDate(course.slug, dateIso, sourceCourses))
+    }
+    const dateValue = normalizeIsoDate(dateIso)
+    if (!dateValue) return [] as string[]
+    const parsedDate = new Date(`${dateValue}T00:00:00`)
+    if (Number.isNaN(parsedDate.getTime())) return [] as string[]
+    const weekdayMon = (parsedDate.getDay() + 6) % 7
+    const weekdays = Array.isArray(course.schedule?.availableWeekdays) ? course.schedule.availableWeekdays : []
+    const times = Array.isArray(course.schedule?.availableTimes) ? course.schedule.availableTimes : []
+    if (!weekdays.length || !times.length) {
+      return sortTime24(getAvailableTimesForCourseDate(course.slug, dateValue, sourceCourses))
+    }
+    if (!weekdays.includes(weekdayMon)) return [] as string[]
+    return sortTime24(times)
+  }, [course.schedule?.availableTimes, course.schedule?.availableWeekdays, course.slug, sourceCourses])
 
   // Helpers
   const to12h = (value: string) => to12hLabel(value)
@@ -718,8 +848,8 @@ export default function EnrollModal({
   )
   const TIME_SLOTS_24 = React.useMemo(() => {
     if (!date) return [] as readonly string[]
-    return sortTime24(getAvailableTimesForCourseDate(course.slug, date))
-  }, [course.slug, date])
+    return getCurrentCourseTimesForDate(date)
+  }, [date, getCurrentCourseTimesForDate])
   const visibleTimeSlots = React.useMemo(() => {
     if (!isCheckInFlow) return TIME_SLOTS_24 as readonly string[]
     if (time) return [time] as const
@@ -739,6 +869,7 @@ export default function EnrollModal({
     if (!isCheckInFlow || !open) return
     const recommended = computeCheckInAutofill(
       course.slug,
+      sourceCourses,
       {
         date: checkInContextDate,
         time: checkInContextTime,
@@ -764,6 +895,7 @@ export default function EnrollModal({
     date,
     time,
     checkInScheduleNotice,
+    sourceCourses,
   ])
 
   // Calendar helpers (Google URL + ICS data URI)
@@ -827,118 +959,230 @@ export default function EnrollModal({
 
   const validateBeforeSubmit = () => {
     if (!service || !availableServices.some((s) => s.id === service)) {
-      return { step: 0, message: "Selecciona un servicio válido." }
+      return { step: 0, message: "Select a valid service." }
     }
     if (pkg && !course.enrollment.packages.some((p) => p.id === pkg)) {
-      return { step: 0, message: "El paquete elegido no es válido." }
+      return { step: 0, message: "The selected package is invalid." }
     }
     if (participants < 1 || participants > 10) {
-      return { step: 0, message: "El número de participantes no es válido." }
+      return { step: 0, message: "The number of participants is invalid." }
     }
     if (!date || !time) {
-      return { step: 1, message: "Selecciona fecha y hora." }
+      return { step: 1, message: "Select date and time." }
     }
     if (!contact.firstName.trim() || !contact.lastName.trim()) {
-      return { step: 2, message: "Completa tu nombre y apellido." }
+      return { step: 2, message: "Complete your first and last name." }
     }
     if (!emailIsValid(contact.email)) {
-      return { step: 2, message: "Ingresa un email válido." }
+      return { step: 2, message: "Enter a valid email." }
     }
     if (!isCompleteUSPhone(contact.phone)) {
-      return { step: 2, message: "Ingresa un teléfono válido de EE. UU." }
+      return { step: 2, message: "Enter a valid US phone number." }
     }
     if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {
-      return { step: 3, message: "Selecciona un método de pago." }
+      return { step: paymentsStepIndex >= 0 ? paymentsStepIndex : 3, message: "Select a payment method." }
     }
     const addonsValid = addons.every((id) => course.enrollment.addons?.some((a) => a.id === id))
     if (!addonsValid) {
-      return { step: 0, message: "Extras inválidos." }
+      return { step: 0, message: "Invalid extras." }
     }
     if (!Number.isFinite(total) || total <= 0) {
-      return { step: 0, message: "El monto calculado es inválido." }
+      return { step: 0, message: "Calculated amount is invalid." }
     }
     return null
   }
 
-  const verifyIdentityBeforePayments = React.useCallback(async () => {
-    if (!isCheckInNewFlow && service !== "new-student") return true
-    if (!isCompleteUSPhone(contact.phone)) return true
+  const buildCheckoutPayload = React.useCallback(
+    (extra: Record<string, unknown> = {}) => ({
+      courseSlug: course.slug,
+      courseTitle: course.title,
+      amount: Math.round(total * 100),
+      currency: "usd",
+      date,
+      time,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      name: `${contact.firstName} ${contact.lastName}`.trim(),
+      email: contact.email,
+      participants,
+      addons,
+      coupon: appliedCoupon?.code || undefined,
+      packageId: pkg,
+      serviceId: service,
+      phone: contact.phone,
+      photoContext: photoFlowContext,
+      ...extra,
+    }),
+    [
+      addons,
+      appliedCoupon?.code,
+      contact.email,
+      contact.firstName,
+      contact.lastName,
+      contact.phone,
+      course.slug,
+      course.title,
+      date,
+      participants,
+      photoFlowContext,
+      pkg,
+      service,
+      time,
+      total,
+    ]
+  )
+
+  const requestNewStudentOutcome = React.useCallback(async () => {
+    const res = await fetch("/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        phone: contact.phone,
+      }),
+    })
+    const contentType = res.headers.get("content-type") || ""
+    const data = contentType.includes("application/json") ? await res.json().catch(() => null) : null
+
+    if (!res.ok || !data || typeof data.outcome !== "string") {
+      setFormError(
+        typeof data?.error === "string" && data.error.trim().length > 0
+          ? data.error
+          : "We couldn't verify the customer's phone."
+      )
+      return null
+    }
+
+    return data as NewStudentVerifyResponse
+  }, [contact.phone])
+
+  const requestAccountPreparation = React.useCallback(async () => {
+    const res = await fetch("/api/checkout/intent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(buildCheckoutPayload({ prepareOnly: true })),
+    })
+    const data = await res.json().catch(() => null)
+    const account = data?.account as PreparedAccountState | undefined
+
+    if (!res.ok || !account || typeof account.hasAvatar !== "boolean") {
+      setFormError(
+        typeof data?.error === "string" && data.error.trim().length > 0
+          ? data.error
+          : "We couldn't prepare the customer account."
+      )
+      return null
+    }
+
+    setPreparedAccount(account)
+    return account
+  }, [buildCheckoutPayload])
+
+  const showRegularFallbackPopup = React.useCallback(
+    (message?: string) => {
+      const nextFallbackPhoneKey = normalizePhoneKey(contact.phone)
+      if (nextFallbackPhoneKey) {
+        setNewStudentFallbackPhoneKey(nextFallbackPhoneKey)
+      }
+      if (regularServiceId && regularServiceId !== service) {
+        setService(regularServiceId)
+      }
+      setFlowPopup({
+        title: "Regular price applied",
+        message:
+          message ||
+          `We switched this booking to the regular $${regularServicePrice.toFixed(0)} price. Continue without restarting the flow.`,
+      })
+    },
+    [contact.phone, regularServiceId, regularServicePrice, service]
+  )
+
+  const advanceFromContactStep = React.useCallback(async () => {
+    if (!isCheckInFlow) {
+      setStep(step + 1)
+      return
+    }
 
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      const res = await fetch("/api/checkin/qr/new-student/verify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          phone: contact.phone,
-        }),
-      })
-      const contentType = res.headers.get("content-type") || ""
-      const data = contentType.includes("application/json") ? await res.json().catch(() => null) : null
-      const hasValidPayload = Boolean(data && typeof data.exists === "boolean")
-      if (!res.ok || !hasValidPayload) {
-        setFormError(
-          typeof data?.error === "string" && data.error.trim().length > 0
-            ? data.error
-            : t("identity_check_failed")
-        )
-        return false
+      if (service === "new-student" && isCompleteUSPhone(contact.phone)) {
+        const verification = await requestNewStudentOutcome()
+        if (!verification) return
+
+        if (verification.shouldFallbackToRegular || verification.outcome === "fallback_regular") {
+          showRegularFallbackPopup(verification.message)
+          return
+        }
+
+        if (verification.requiresSmsVerification || verification.outcome === "requires_sms_verification") {
+          const account = await requestAccountPreparation()
+          if (!account) return
+
+          if (!isSignedIn || account.requiresSignIn) {
+            setSignInPurpose("sms_verification")
+            setRequiresSignIn(true)
+            setExistingAccountDetected(false)
+            setResumeAfterSignInStep(null)
+            setPendingAutoPay(false)
+            setResumeContactFlowAfterSignIn(true)
+            return
+          }
+
+          const verifiedAgain = await requestNewStudentOutcome()
+          if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
+            showRegularFallbackPopup(verifiedAgain?.message)
+            return
+          }
+        }
       }
 
-      const hasCompletedPurchase = Boolean(data?.hasCompletedPurchase ?? data?.sources?.completedPurchase)
+      const account = preparedAccount || (await requestAccountPreparation())
+      if (!account) return
 
-      if (!hasCompletedPurchase) {
+      if (photoPolicy.uploadMode === "customer_self" && account.requiresSignIn && !isSignedIn) {
+        setSignInPurpose("account_preparation")
+        setRequiresSignIn(true)
         setExistingAccountDetected(false)
         setResumeAfterSignInStep(null)
-        return true
-      }
-
-      const requiresLogin = Boolean(data?.requiresLogin || !data?.sessionOwnsPhone || !isSignedIn)
-      onExistingAccountDetectedAction?.({
-        phone: contact.phone,
-        requiresLogin,
-        hasCompletedPurchase: true,
-      })
-
-      if (onExistingAccountDetectedAction) {
-        return false
-      }
-
-      if (requiresLogin) {
-        setExistingAccountDetected(true)
-        setResumeAfterSignInStep(paymentsStepIndex >= 0 ? paymentsStepIndex : 3)
-        setRequiresSignIn(true)
         setPendingAutoPay(false)
-        setFormError(t("existing_customer_signin_required"))
-        return false
+        setResumeContactFlowAfterSignIn(true)
+        return
       }
 
-      // Even when the same account is already signed in, do not continue through "new student".
-      // The caller can redirect to the registered-customer flow.
-      setExistingAccountDetected(true)
-      setResumeAfterSignInStep(null)
-      setRequiresSignIn(false)
-      setPendingAutoPay(false)
-      setFormError(t("account_exists_error"))
-      return false
-    } catch {
-      setFormError(t("identity_check_failed"))
-      return false
+      const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
+      if (needsPhoto && photoStepIndex >= 0) {
+        setStep(photoStepIndex)
+        return
+      }
+
+      if (paymentsStepIndex >= 0) {
+        setStep(paymentsStepIndex)
+        return
+      }
     } finally {
       setIdentityCheckBusy(false)
     }
   }, [
     contact.phone,
+    isCheckInFlow,
     isCheckInNewFlow,
     isSignedIn,
     paymentsStepIndex,
-    onExistingAccountDetectedAction,
+    photoPolicy,
+    photoSaved,
+    photoStepIndex,
+    preparedAccount,
+    requestAccountPreparation,
+    requestNewStudentOutcome,
     service,
-    t,
+    showRegularFallbackPopup,
+    step,
   ])
 
   const requestStripeIntent = async (token?: string | null) => {
@@ -949,24 +1193,21 @@ export default function EnrollModal({
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       credentials: "include",
-      body: JSON.stringify({
-        courseSlug: course.slug,
-        courseTitle: course.title,
-        amount: Math.round(total * 100),
-        currency: "usd",
-        date,
-        time,
-        firstName: contact.firstName,
-        lastName: contact.lastName,
-        name: `${contact.firstName} ${contact.lastName}`.trim(),
-        email: contact.email,
-        participants,
-        addons,
-        coupon: appliedCoupon?.code || undefined,
-        packageId: pkg,
-        serviceId: service,
-        phone: contact.phone,
-      }),
+      body: JSON.stringify(buildCheckoutPayload()),
+    })
+    const data = await res.json().catch(() => ({}))
+    return { res, data }
+  }
+
+  const requestCashCheckout = async (token?: string | null) => {
+    const res = await fetch("/api/checkout/cash", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify(buildCheckoutPayload({ cashNote: contact.note || undefined })),
     })
     const data = await res.json().catch(() => ({}))
     return { res, data }
@@ -1019,10 +1260,14 @@ export default function EnrollModal({
 
         if (!result.res.ok) {
           const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
-          const needsSignIn = finalCode === "ACCOUNT_EXISTS"
+          const needsSignIn = !isCheckInFlow && finalCode === "ACCOUNT_EXISTS"
           const isNewStudentBlocked =
             finalCode === "NEW_STUDENT_ALREADY" ||
             (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
+          const needsPhoneFallback =
+            isCheckInFlow &&
+            typeof result.data?.error === "string" &&
+            result.data.error.toLowerCase().includes("phone verification")
           if (needsSignIn && isSignedIn) {
             setFormError(t("account_exists_signed_in"))
             setRequiresSignIn(false)
@@ -1033,14 +1278,25 @@ export default function EnrollModal({
             return
           }
           if (isNewStudentBlocked) {
-            setFormError(t("new_student_existing_error"))
-            setRequiresPhoneVerification(false)
             setRequiresSignIn(false)
             setExistingAccountDetected(false)
             setResumeAfterSignInStep(null)
             setPendingAutoPay(false)
             setProcessing(false)
-            setStep(0)
+            showRegularFallbackPopup(
+              `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+            )
+            return
+          }
+          if (needsPhoneFallback) {
+            setRequiresSignIn(false)
+            setExistingAccountDetected(false)
+            setResumeAfterSignInStep(null)
+            setPendingAutoPay(false)
+            setProcessing(false)
+            showRegularFallbackPopup(
+              `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+            )
             return
           }
           const message =
@@ -1048,47 +1304,137 @@ export default function EnrollModal({
               ? t("account_exists_error")
               : typeof result.data?.error === "string"
                 ? result.data.error
-                : "Error al iniciar el pago con tarjeta."
-          const needsPhoneVerification = message.toLowerCase().includes("phone verification")
+                : "Error starting card payment."
           setFormError(needsSignIn ? null : message)
-          setRequiresPhoneVerification(needsPhoneVerification)
           setRequiresSignIn(needsSignIn)
           setExistingAccountDetected(needsSignIn)
           setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
           setPendingAutoPay(needsSignIn)
-          if (needsPhoneVerification) {
-            router.push(verifyPhoneUrl)
-          }
           setProcessing(false)
           return
         }
         if (!result.data.clientSecret) throw new Error("Missing client secret")
         setStripeClientSecret(result.data.clientSecret)
         setShowStripeModal(true)
-        setRequiresPhoneVerification(false)
         setRequiresSignIn(false)
         setExistingAccountDetected(false)
         setResumeAfterSignInStep(null)
         setPendingAutoPay(false)
       } catch (err) {
         console.error(err)
-        alert("No pudimos iniciar el pago. Intenta nuevamente.")
+        alert("We couldn't start the payment. Please try again.")
       } finally {
         setProcessing(false)
       }
       return
     }
 
-    setSuccessMessage(isCheckInFlow ? "Compra registrada. El check-in automático queda pendiente para este método de pago." : null)
-    setSuccess(true)
-    setProcessing(false)
+    try {
+      let token = isSignedIn ? await getToken({ skipCache: true }) : null
+      let result = await requestCashCheckout(token)
+      const code = typeof result.data?.code === "string" ? result.data.code : undefined
+
+      if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350))
+        const refreshed = await getToken({ skipCache: true })
+        if (refreshed) {
+          token = refreshed
+          result = await requestCashCheckout(token)
+        }
+      }
+
+      if (!result.res.ok) {
+        const isNewStudentBlocked =
+          code === "NEW_STUDENT_ALREADY" ||
+          (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
+        const message =
+          typeof result.data?.error === "string" && result.data.error.trim().length > 0
+            ? result.data.error
+            : "Unable to register cash payment."
+        const needsPhoneFallback = isCheckInFlow && message.toLowerCase().includes("phone verification")
+        const needsSignIn = !isCheckInFlow && code === "ACCOUNT_EXISTS"
+        if (isNewStudentBlocked || needsPhoneFallback) {
+          setRequiresSignIn(false)
+          setExistingAccountDetected(false)
+          setResumeAfterSignInStep(null)
+          setPendingAutoPay(false)
+          setProcessing(false)
+          showRegularFallbackPopup(
+            isNewStudentBlocked
+              ? `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+              : `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+          )
+          return
+        }
+        setFormError(needsSignIn ? null : message)
+        setRequiresSignIn(needsSignIn)
+        setExistingAccountDetected(needsSignIn)
+        setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
+        setPendingAutoPay(needsSignIn)
+        setProcessing(false)
+        return
+      }
+
+      let completionMessage =
+        typeof result.data?.migration?.message === "string" && result.data.migration.message.trim().length > 0
+          ? result.data.migration.message
+          : "Cash request saved as pending confirmation."
+
+      if (isCheckInFlow && !pkg && date && time && typeof result.data?.purchaseId === "string") {
+        try {
+          const dropInRes = await fetch("/api/checkin/qr/dropin", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              purchaseId: result.data.purchaseId,
+              courseSlug: course.slug,
+              date,
+              time,
+              durationMinutes: checkInContextDuration,
+            }),
+          })
+          const dropInData = await dropInRes.json().catch(() => null)
+          completionMessage = dropInRes.ok
+            ? "Cash payment recorded and check-in completed successfully."
+            : typeof dropInData?.error === "string"
+              ? `Cash payment recorded. Automatic check-in could not be completed: ${dropInData.error}`
+              : "Cash payment recorded. Automatic check-in could not be completed."
+        } catch (error) {
+          console.warn("Unable to complete automatic check-in for cash", error)
+          completionMessage = "Cash payment recorded, but automatic check-in could not be completed."
+        }
+      }
+
+      if (!isCheckInFlow && !isSignedIn && result.data?.account?.requiresSignIn) {
+        completionMessage =
+          "Cash request saved as pending confirmation. Sign in later to save your card and speed up future checkouts."
+      } else if (!isCheckInFlow && result.data?.paymentStatus === "pending") {
+        completionMessage = "Cash request saved. Staff must confirm the payment in admin before class access."
+      }
+
+      setSuccessMessage(completionMessage)
+      setSuccess(true)
+      setRequiresSignIn(false)
+      setExistingAccountDetected(false)
+      setResumeAfterSignInStep(null)
+      setPendingAutoPay(false)
+    } catch (err) {
+      console.error(err)
+      alert("We couldn't register the cash payment. Please try again.")
+    } finally {
+      setProcessing(false)
+    }
   }
 
   const handleFormStepSubmit = async () => {
     if (step < steps.length - 1) {
-      if (step === 2) {
-        const allowedToContinue = await verifyIdentityBeforePayments()
-        if (!allowedToContinue) return
+      if (step === 2 && isCheckInFlow) {
+        await advanceFromContactStep()
+        return
       }
       setStep(step + 1)
       return
@@ -1098,6 +1444,8 @@ export default function EnrollModal({
 
   const handleSubmitRef = React.useRef(handleSubmit)
   handleSubmitRef.current = handleSubmit
+  const advanceFromContactStepRef = React.useRef(advanceFromContactStep)
+  advanceFromContactStepRef.current = advanceFromContactStep
 
   React.useEffect(() => {
     if (!pendingAutoPay || !isSignedIn || processing) return
@@ -1144,11 +1492,17 @@ export default function EnrollModal({
       setResumeAfterSignInStep(null)
       setFormError(null)
     }
+
+    if (resumeContactFlowAfterSignIn) {
+      setResumeContactFlowAfterSignIn(false)
+      void advanceFromContactStepRef.current()
+    }
   }, [
     existingAccountDetected,
     isSignedIn,
     regularServiceId,
     requiresSignIn,
+    resumeContactFlowAfterSignIn,
     resumeAfterSignInStep,
     service,
     steps.length,
@@ -1162,25 +1516,60 @@ export default function EnrollModal({
   }, [open, initialStep, steps.length])
 
   const stepValid = (s: number) => {
-    switch (s) {
-      case 0:
+    const stepKey = steps[s]?.key
+    switch (stepKey) {
+      case "party":
         // Paquete ahora es opcional según pedido; solo servicio y participantes
         return participants >= 1 && availableServices.some((opt) => opt.id === service)
-      case 1:
+      case "datetime":
         return Boolean(date) && Boolean(time)
-      case 2:
+      case "info":
         return contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
-      case 3:
+      case "photo":
+        return !isPhotoRequiredForAccount(photoPolicy, Boolean(preparedAccount?.hasAvatar || photoSaved)) || photoSaved
+      case "payments":
         return paymentMethod !== ""
-      case 4:
+      case "review":
         return true
       default:
         return false
     }
   }
 
+  const activeStepKey = steps[step]?.key || ""
   const canContinue = stepValid(step)
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
+  const signInModalTitle =
+    signInPurpose === "sms_verification"
+      ? "Verify your phone to keep the new-student price"
+      : signInPurpose === "account_preparation"
+        ? "Sign in to continue"
+        : showAccountExistsSignInCopy
+          ? t("account_exists_title")
+          : t("sign_in_modal_title")
+  const signInModalSubtitle =
+    signInPurpose === "sms_verification"
+      ? "Complete SMS verification now. If you skip it, the booking will continue with the regular price."
+      : signInPurpose === "account_preparation"
+        ? "Sign in with your phone to upload your profile photo before payment."
+        : showAccountExistsSignInCopy
+          ? t("existing_customer_signin_required")
+          : t("sign_in_modal_subtitle")
+
+  const handleSignInDismiss = React.useCallback(() => {
+    setRequiresSignIn(false)
+    setExistingAccountDetected(false)
+    setResumeAfterSignInStep(null)
+    setPendingAutoPay(false)
+    setResumeContactFlowAfterSignIn(false)
+    setSignInPurpose("existing")
+
+    if (signInPurpose === "sms_verification") {
+      showRegularFallbackPopup(
+        `Phone verification was not completed. We switched this booking to the regular $${regularServicePrice.toFixed(0)} price.`
+      )
+    }
+  }, [regularServicePrice, showRegularFallbackPopup, signInPurpose])
 
   if (!open && !isInline) return null
 
@@ -1378,7 +1767,7 @@ export default function EnrollModal({
                 )}
 
                 {/* Summary */}
-                {step !== 3 && (
+                {activeStepKey !== "payments" && (
                   <>
                     <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
                       <div className="font-semibold mb-2">{t("summary")}</div>
@@ -1520,7 +1909,7 @@ export default function EnrollModal({
                       onClick={() => router.push("/client-profile")}
                       className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10"
                     >
-                      Ir a mi cuenta
+                      Go to my account
                     </button>
                   )}
                   <button
@@ -1538,7 +1927,7 @@ export default function EnrollModal({
                     }}
                     className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white"
                   >
-                    {isStationCompletion ? t("finish") : isPersonalCompletion ? "Cerrar" : t("finish")}
+                    {isStationCompletion ? t("finish") : isPersonalCompletion ? "Close" : t("finish")}
                   </button>
                 </div>
               </div>
@@ -1551,7 +1940,7 @@ export default function EnrollModal({
                 className="space-y-4"
               >
                 {/* Step contents */}
-                {step === 0 && (
+                {activeStepKey === "party" && (
                   <div className="space-y-5">
                     <div className={`grid gap-3 ${isInline ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
                       <fieldset className="space-y-2">
@@ -1572,7 +1961,7 @@ export default function EnrollModal({
                           ))}
                         </select>
                         {isCheckInNewFlow && hasNewStudentService && (
-                          <p className="text-xs text-neutral-500">Servicio preseleccionado para alumnos nuevos.</p>
+                          <p className="text-xs text-neutral-500">Service preselected for new students.</p>
                         )}
                       </fieldset>
                       <fieldset className="space-y-2">
@@ -1654,7 +2043,7 @@ export default function EnrollModal({
                   </div>
                 )}
 
-                {step === 1 && (
+                {activeStepKey === "datetime" && (
                   <div className="grid grid-cols-1 gap-4">
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("step_datetime")}</label>
@@ -1679,7 +2068,7 @@ export default function EnrollModal({
                               setCheckInScheduleNotice(null)
                               return
                             }
-                            const nextSlots = sortTime24(getAvailableTimesForCourseDate(course.slug, d))
+                            const nextSlots = getCurrentCourseTimesForDate(d)
                             setTime(nextSlots[0] || "")
                             setCheckInScheduleNotice(null)
                             setTimeLoading(true)
@@ -1735,14 +2124,14 @@ export default function EnrollModal({
                                 )
                               })}
                               {visibleTimeSlots.length === 0 && (
-                                <p className="text-xs text-muted-foreground">No hay horarios disponibles para este día.</p>
+                                <p className="text-xs text-muted-foreground">No time slots available for this day.</p>
                               )}
                             </>
                           )}
                         </div>
                       ) : (
                         <div className="flex flex-col gap-2">
-                          <p className="text-xs text-muted-foreground">Selecciona una fecha para ver horarios disponibles.</p>
+                          <p className="text-xs text-muted-foreground">Select a date to view available times.</p>
                           <div className="h-3 w-32 rounded-full shimmer" />
                           <div className="h-3 w-24 rounded-full shimmer" />
                         </div>
@@ -1756,7 +2145,7 @@ export default function EnrollModal({
                   </div>
                 )}
 
-                {step === 2 && (
+                {activeStepKey === "info" && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("label_firstName")}</label>
@@ -1771,7 +2160,7 @@ export default function EnrollModal({
                     <input type="email" value={contact.email} onChange={(e)=>setContact((c)=>({...c, email: e.target.value}))} placeholder={t("placeholder_email")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                     {!isCheckInFlow && (
                       <p className="text-xs text-neutral-500">
-                        ¿Ya tienes cuenta?{" "}
+                        Already have an account?{" "}
                         <button
                           type="button"
                           onClick={() => {
@@ -1782,14 +2171,14 @@ export default function EnrollModal({
                         }}
                           className="underline font-medium"
                         >
-                          Inicia sesión
+                          Sign in
                         </button>{" "}
-                        y se completan tus datos automáticamente.
+                        and your details will be filled in automatically.
                       </p>
                     )}
                   </fieldset>
                   <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">Teléfono</label>
+                    <label className="text-sm font-medium">Phone</label>
                     <div className="flex items-center gap-2">
                       <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
                         US
@@ -1820,7 +2209,28 @@ export default function EnrollModal({
                 </div>
                 )}
 
-                {step === 3 && (
+                {activeStepKey === "photo" && (
+                  <div className="space-y-4">
+                    <ProfilePhotoCapture
+                      policy={photoPolicy}
+                      targetUserId={preparedAccount?.clerkUserId}
+                      onSaved={() => {
+                        setPhotoSaved(true)
+                        setPreparedAccount((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                hasAvatar: true,
+                              }
+                            : prev
+                        )
+                        setFormError(null)
+                      }}
+                    />
+                  </div>
+                )}
+
+                {activeStepKey === "payments" && (
                   <div className="space-y-4">
                     {/* Payments step */}
                     <div>
@@ -1830,12 +2240,12 @@ export default function EnrollModal({
                             <div className="text-sm font-semibold">{t("reviewAndConfirm")}</div>
                             <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-neutral-600 dark:text-white/70 sm:grid-cols-2">
                               <div>{t("course")}: <span className="text-neutral-900 dark:text-white">{course.title}</span></div>
-                              <div>{t("service")}: <span className="text-neutral-900 dark:text-white">{course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (incluida en paquete)" : ""}</span></div>
+                              <div>{t("service")}: <span className="text-neutral-900 dark:text-white">{course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (included in package)" : ""}</span></div>
                               <div>{t("dateTime")}: <span className="text-neutral-900 dark:text-white">{date} {to12h(time)}</span></div>
                               <div>{t("people")}: <span className="text-neutral-900 dark:text-white">{participants}</span></div>
                               <div>{t("name")}: <span className="text-neutral-900 dark:text-white">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</span></div>
                               <div>{t("email")}: <span className="text-neutral-900 dark:text-white">{contact.email || "—"}</span></div>
-                              <div>Teléfono: <span className="text-neutral-900 dark:text-white">{contact.phone || "—"}</span></div>
+                              <div>Phone: <span className="text-neutral-900 dark:text-white">{contact.phone || "—"}</span></div>
                               {!!addons.length && (
                                 <div>{t("extras")}: <span className="text-neutral-900 dark:text-white">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</span></div>
                               )}
@@ -1856,8 +2266,8 @@ export default function EnrollModal({
                               </div>
                               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-neutral-500 dark:text-white/60">
                                 <span>{participants} {participants===1?t("onePerson"):t("manyPeople")}</span>
-                                <span>Servicio: {serviceOpt?.label || "—"}{pkgOpt ? " (incluida)" : ""}</span>
-                                {pkgOpt && <span>Paquete: {pkgOpt.label}</span>}
+                                <span>Service: {serviceOpt?.label || "—"}{pkgOpt ? " (included)" : ""}</span>
+                                {pkgOpt && <span>Package: {pkgOpt.label}</span>}
                                 {!!addonsOpts.length && <span>Extras: {addonsOpts.map((a)=>a.label).join(", ")}</span>}
                               </div>
                             </div>
@@ -1936,20 +2346,20 @@ export default function EnrollModal({
                   </div>
                 )}
 
-                {!isCheckInFlow && step === 4 && (
+                {!isCheckInFlow && activeStepKey === "review" && (
                   <div className="space-y-4">
                     <GlassyCard className="p-4">
                       <div className="text-sm space-y-1">
                         <div className="font-medium">{t("reviewAndConfirm")}</div>
                         <div>{t("course")}: {course.title}</div>
-                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (incluida en paquete)" : ""}</div>
+                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (included in package)" : ""}</div>
                         <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
                         {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
                         <div>{t("people")}: {participants}</div>
                         <div>{t("dateTime")}: {date} {to12h(time)}</div>
                         <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
                         <div>{t("email")}: {contact.email || "—"}</div>
-                        <div>Teléfono: {contact.phone || "—"}</div>
+                        <div>Phone: {contact.phone || "—"}</div>
                         <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
                         {contact.note && <div>{t("notes")}: {contact.note}</div>}
                         <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
@@ -1994,18 +2404,12 @@ export default function EnrollModal({
                         disabled={processing || identityCheckBusy}
                         className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
-                        {processing ? "Procesando..." : t("confirm")}
+                        {processing ? "Processing..." : t("confirm")}
                       </button>
                     )}
                   </div>
                 </div>
                 {formError && <p className="text-sm text-red-600 mt-2" role="alert" aria-live="polite">{formError}</p>}
-                {requiresPhoneVerification && (
-                  <div className="mt-2 text-sm text-neutral-700 dark:text-neutral-200">
-                    <p>{t("new_student_verify_phone")}</p>
-                    <Link href={verifyPhoneUrl} className="underline font-medium">{t("verify_phone_cta")}</Link>
-                  </div>
-                )}
               </form>
             )}
             </div>
@@ -2051,26 +2455,26 @@ export default function EnrollModal({
                     })
                     const dropInData = await dropInRes.json().catch(() => null)
                     completionMessage = dropInRes.ok
-                      ? "Compra y check-in registrados correctamente."
+                      ? "Purchase and check-in recorded successfully."
                       : typeof dropInData?.error === "string"
-                        ? `Compra registrada. El check-in automático no se pudo completar: ${dropInData.error}`
-                        : "Compra registrada. El check-in automático no se pudo completar."
+                        ? `Purchase recorded. Automatic check-in could not be completed: ${dropInData.error}`
+                        : "Purchase recorded. Automatic check-in could not be completed."
                   } else if (finalizeRes.ok) {
                     completionMessage = isCheckInFlow
-                      ? "Compra registrada correctamente."
+                      ? "Purchase recorded successfully."
                       : null
                   }
                 } catch (error) {
                   console.warn("Unable to finalize purchase sync", error)
                   completionMessage = isCheckInFlow
-                    ? "El pago se completó, pero no pudimos confirmar el check-in automático."
+                    ? "Payment was completed, but we couldn't confirm automatic check-in."
                     : null
                 }
               }
               if (isCheckInFlow && !completionMessage) {
                 completionMessage = purchaseFinalized
-                  ? "Compra registrada correctamente."
-                  : "El pago se completó, pero la sincronización del check-in quedó pendiente."
+                  ? "Purchase recorded successfully."
+                  : "Payment was completed, but check-in sync is still pending."
               }
               setSuccessMessage(completionMessage)
               setSuccess(true)
@@ -2081,38 +2485,45 @@ export default function EnrollModal({
           />
         )}
       </GlassyCard>
+      {flowPopup && (
+        <div className="fixed inset-0 z-[10015] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+            <p className="text-xs uppercase tracking-[0.18em] text-[var(--brand,#c71818)]">Booking update</p>
+            <h3 className="mt-2 text-lg font-semibold text-white">{flowPopup.title}</h3>
+            <p className="mt-3 text-sm leading-relaxed text-white/70">{flowPopup.message}</p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setFlowPopup(null)
+                  void advanceFromContactStepRef.current()
+                }}
+                className="rounded-md bg-[var(--brand,#111)] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {requiresSignIn && (
         <div className="fixed inset-0 z-[10020] flex items-stretch justify-end px-2 sm:px-4 py-6">
           <button
             type="button"
             aria-label={t("aria_close")}
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => {
-              setRequiresSignIn(false)
-              setExistingAccountDetected(false)
-              setResumeAfterSignInStep(null)
-              setPendingAutoPay(false)
-            }}
+            onClick={handleSignInDismiss}
           />
           <div className="relative z-10 w-full sm:max-w-md rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-white">
-                  {showAccountExistsSignInCopy ? t("account_exists_title") : t("sign_in_modal_title")}
-                </h3>
-                <p className="text-sm text-white/68">
-                  {showAccountExistsSignInCopy ? t("existing_customer_signin_required") : t("sign_in_modal_subtitle")}
-                </p>
+                <h3 className="text-lg font-semibold text-white">{signInModalTitle}</h3>
+                <p className="text-sm text-white/68">{signInModalSubtitle}</p>
               </div>
               <button
                 type="button"
                 className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
-                onClick={() => {
-                  setRequiresSignIn(false)
-                  setExistingAccountDetected(false)
-                  setResumeAfterSignInStep(null)
-                  setPendingAutoPay(false)
-                }}
+                onClick={handleSignInDismiss}
               >
                 {t("cancel")}
               </button>
@@ -2121,18 +2532,20 @@ export default function EnrollModal({
               <EmbeddedSignIn
                 redirectUrl={signInReturnTo}
                 phoneNumber={toE164Phone(contact.phone)}
+                onSuccessAction={
+                  isCheckInFlow
+                    ? async () => {
+                        setFormError(null)
+                      }
+                    : undefined
+                }
               />
             </div>
             <div className="mt-4 flex justify-end">
               <button
                 type="button"
                 className="text-sm font-medium text-white/72 underline decoration-white/25 underline-offset-4"
-                onClick={() => {
-                  setRequiresSignIn(false)
-                  setExistingAccountDetected(false)
-                  setResumeAfterSignInStep(null)
-                  setPendingAutoPay(false)
-                }}
+                onClick={handleSignInDismiss}
               >
                 {t("account_exists_back")}
               </button>

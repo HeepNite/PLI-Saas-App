@@ -65,7 +65,7 @@ describe("staff school routes", () => {
     mockPrisma.courseCatalog.upsert.mockResolvedValue({
       id: "course_1",
       slug: "salsa-femenina-matutina",
-      title: "Salsa Femenina",
+      title: "Salsa Feminine Style",
     })
 
     const { POST } = await import("@/app/api/staff/school/courses/route")
@@ -73,8 +73,8 @@ describe("staff school routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        slug: "Salsa Femenina Matutina",
-        title: "Salsa Femenina",
+        slug: "Salsa Feminine Morning",
+        title: "Salsa Feminine Style",
         kind: "course",
         availableWeekdays: [1, 3, 3],
         availableTimes: ["10:00", "11:00", "11:00", "bad"],
@@ -85,7 +85,7 @@ describe("staff school routes", () => {
     expect(res.status).toBe(200)
     expect(mockPrisma.courseCatalog.upsert).toHaveBeenCalled()
     expect(mockPrisma.courseCatalog.upsert.mock.calls[0][0]).toMatchObject({
-      where: { slug: "salsa-femenina-matutina" },
+      where: { slug: "salsa-feminine-morning" },
     })
   })
 
@@ -121,7 +121,7 @@ describe("staff school routes", () => {
     mockPrisma.pointsRule.upsert.mockResolvedValue({
       id: "rule_1",
       key: "profile-completed",
-      label: "Perfil completo",
+      label: "Complete profile",
     })
 
     const { POST } = await import("@/app/api/staff/school/points-rules/route")
@@ -130,7 +130,7 @@ describe("staff school routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         key: "profile-completed",
-        label: "Perfil completo",
+        label: "Complete profile",
         eventType: "PROFILE_COMPLETED",
         points: 10,
       }),

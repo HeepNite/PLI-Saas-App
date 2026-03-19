@@ -76,7 +76,7 @@ export default function StaffCheckInClient() {
 
   const submitPin = React.useCallback(async () => {
     if (pin.length !== PIN_LENGTH) {
-      setError("Ingresá un PIN válido de 4 dígitos.")
+      setError("Enter a valid 4-digit PIN.")
       setPin("")
       return
     }
@@ -95,13 +95,13 @@ export default function StaffCheckInClient() {
       })
       const data = (await res.json().catch(() => ({}))) as Partial<PinCheckInResponse> & { error?: string }
       if (!res.ok || (!terminalMode && !data?.signInUrl)) {
-        setError(typeof data?.error === "string" ? data.error : "PIN inválido.")
+        setError(typeof data?.error === "string" ? data.error : "Invalid PIN.")
         setPin("")
         return
       }
 
       const name = data?.staff?.name || "staff"
-      setSuccess(terminalMode ? `Check-in registrado para ${name}.` : `Check-in registrado para ${name}. Redirigiendo...`)
+      setSuccess(terminalMode ? `Check-in recorded for ${name}.` : `Check-in recorded for ${name}. Redirecting...`)
       setPin("")
       if (terminalMode) return
 
@@ -137,7 +137,7 @@ export default function StaffCheckInClient() {
 
       window.location.assign(data.signInUrl!)
     } catch {
-      setError("No se pudo validar el PIN. Intentá nuevamente.")
+      setError("We couldn't validate the PIN. Please try again.")
       setPin("")
       setSuccess(null)
     } finally {
@@ -177,11 +177,11 @@ export default function StaffCheckInClient() {
     <section className="rounded-2xl border border-black/10 bg-white/80 p-5 shadow-[0_14px_38px_-14px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-white/5 sm:p-6">
       <header className="text-center">
         <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Check-in</p>
-        <h2 className="mt-2 text-2xl font-semibold text-black dark:text-white">Ingreso por PIN</h2>
+        <h2 className="mt-2 text-2xl font-semibold text-black dark:text-white">PIN check-in</h2>
         <p className="mt-2 text-sm text-black/65 dark:text-white/65">
           {terminalMode
-            ? "Ingresá tu PIN para marcar entrada. Al validar, el terminal registra tu ingreso sin cambiar la sesión activa."
-            : "Ingresá tu PIN para marcar entrada y entrar directo a tu panel según tu rol."}
+            ? "Enter your PIN to record check-in. After validation, the terminal registers access without changing the active session."
+            : "Enter your PIN to check in and go directly to your panel based on your role."}
         </p>
       </header>
 
@@ -203,7 +203,7 @@ export default function StaffCheckInClient() {
         </div>
         <div className="mb-4 flex items-center justify-center gap-2 text-sm text-black/70 dark:text-white/70">
           <Clock3 className="h-4 w-4 text-[var(--brand,#b61616)]" />
-          <span>Hora actual: {nowLabel}</span>
+          <span>Current time: {nowLabel}</span>
         </div>
 
         <div className="mx-auto grid w-full max-w-sm grid-cols-3 gap-2">
@@ -239,7 +239,7 @@ export default function StaffCheckInClient() {
             onClick={removeDigit}
             disabled={busy}
             className="inline-flex items-center justify-center rounded-md border border-black/15 bg-white px-3 py-3 text-black transition hover:border-[var(--brand,#b61616)] hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.02] dark:text-white"
-            aria-label="Borrar último número"
+            aria-label="Delete last digit"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -253,7 +253,7 @@ export default function StaffCheckInClient() {
             className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {busy ? "Validando..." : "Marcar entrada"}
+            {busy ? "Validating..." : "Check in"}
           </button>
         </div>
       </div>

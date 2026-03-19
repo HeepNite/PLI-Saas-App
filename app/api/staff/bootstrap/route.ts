@@ -4,6 +4,7 @@ import { authorizeStaffPortalBaseRequest, hasAnyStaffAdmin } from "@/lib/securit
 import { applyStaffRoleToMetadata, extractStaffRoleFromUserMetadata, isStaffAdminRole } from "@/lib/security/staff-role"
 import { applyStaffCategoryToMetadata } from "@/lib/security/staff-category"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { createStaffRoleAudit, extractStaffRoleSnapshot, syncStaffAccountFromClerkUser } from "@/lib/security/staff-account-sync"
 
 export const runtime = "nodejs"
 
@@ -39,9 +40,23 @@ export async function POST(req: Request) {
 
   const client = await clerkClient()
   const currentUser = await client.users.getUser(authResult.userId)
+  const previousState = extractStaffRoleSnapshot(currentUser)
   const withOwnerRole = applyStaffRoleToMetadata(currentUser.publicMetadata, "owner")
   const updated = await client.users.updateUserMetadata(authResult.userId, {
     publicMetadata: applyStaffCategoryToMetadata(withOwnerRole, "partner"),
+  })
+  const nextState = extractStaffRoleSnapshot(updated)
+  await syncStaffAccountFromClerkUser(updated, { source: "staff_bootstrap" })
+  await createStaffRoleAudit({
+    staffClerkUserId: updated.id,
+    actorClerkUserId: authResult.userId,
+    actorRole: "owner",
+    action: "bootstrap_owner",
+    previousRole: previousState.role,
+    nextRole: nextState.role,
+    previousCategory: previousState.category,
+    nextCategory: nextState.category,
+    metadata: { via: "staff/bootstrap POST" },
   })
 
   return NextResponse.json({

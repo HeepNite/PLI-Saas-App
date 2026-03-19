@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
 
-const COURSE_KIND_VALUES = ["course", "program", "bootcamp", "workshop", "convention"] as const
+const COURSE_KIND_VALUES = ["course", "program", "bootcamp", "workshop", "convention", "congress"] as const
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
@@ -21,6 +21,20 @@ type CourseSpecialEventEntry = {
   label: string | null
 }
 
+type CoursePublicationMode = "publish_now" | "coming_soon" | "launch_date"
+type CourseSpecialDiscountType = "none" | "valentines_desc" | "christmas_desc" | "custom"
+
+type CoursePublicationSettings = {
+  mode: CoursePublicationMode
+  launchDate: string | null
+}
+
+type CourseSpecialDiscountSettings = {
+  type: CourseSpecialDiscountType
+  label: string | null
+  priceCents: number | null
+}
+
 type CourseScheduleRulesPayload = {
   mode: "regular" | "special_event"
   weeklyDaysTarget: number
@@ -29,6 +43,8 @@ type CourseScheduleRulesPayload = {
   recurrenceEndsAt: string | null
   rules: CourseScheduleRuleEntry[]
   specialEvents: CourseSpecialEventEntry[]
+  publication?: CoursePublicationSettings
+  specialDiscount?: CourseSpecialDiscountSettings
 }
 
 const toSafeText = (value: unknown, max = 200) => (typeof value === "string" ? value.trim().slice(0, max) : "")
@@ -96,7 +112,51 @@ const toScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
       label: "Special event",
     }))
 
-  if (rules.length === 0 && specialEvents.length === 0) return null
+  const publicationSource =
+    source.publication && typeof source.publication === "object"
+      ? (source.publication as Record<string, unknown>)
+      : null
+  const publicationModeRaw = publicationSource?.mode
+  const publicationMode: CoursePublicationMode =
+    publicationModeRaw === "coming_soon" || publicationModeRaw === "launch_date" || publicationModeRaw === "publish_now"
+      ? publicationModeRaw
+      : "publish_now"
+  const launchDateRaw = typeof publicationSource?.launchDate === "string" ? publicationSource.launchDate.trim() : ""
+  const launchDate = publicationMode === "launch_date" && DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
+  const publication: CoursePublicationSettings = {
+    mode: publicationMode,
+    launchDate,
+  }
+
+  const specialDiscountSource =
+    source.specialDiscount && typeof source.specialDiscount === "object"
+      ? (source.specialDiscount as Record<string, unknown>)
+      : null
+  const specialDiscountTypeRaw = specialDiscountSource?.type
+  const specialDiscountType: CourseSpecialDiscountType =
+    specialDiscountTypeRaw === "valentines_desc" ||
+    specialDiscountTypeRaw === "christmas_desc" ||
+    specialDiscountTypeRaw === "custom" ||
+    specialDiscountTypeRaw === "none"
+      ? specialDiscountTypeRaw
+      : "none"
+  const specialDiscountLabelRaw = typeof specialDiscountSource?.label === "string" ? specialDiscountSource.label.trim() : ""
+  const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
+  const specialDiscountPriceRaw = Number(specialDiscountSource?.priceCents)
+  const specialDiscountPrice =
+    Number.isFinite(specialDiscountPriceRaw) && specialDiscountPriceRaw >= 0
+      ? Math.round(specialDiscountPriceRaw)
+      : null
+  const specialDiscount: CourseSpecialDiscountSettings = {
+    type: specialDiscountType,
+    label: specialDiscountLabel,
+    priceCents: specialDiscountPrice,
+  }
+
+  const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
+  const hasSpecialDiscount =
+    specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
+  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
 
   const weeklyDaysTargetRaw = Number(source.weeklyDaysTarget)
   const weeklyDaysTarget = Number.isFinite(weeklyDaysTargetRaw)
@@ -118,6 +178,8 @@ const toScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
     recurrenceEndsAt,
     rules,
     specialEvents,
+    publication,
+    specialDiscount,
   }
 }
 

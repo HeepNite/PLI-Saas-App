@@ -4,9 +4,9 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
-import { courseRepository } from "@/lib/courses-repository"
-import { awardPointsFromRule } from "@/lib/points/service"
-import { ATTENDANCE_STREAK_MILESTONE, POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
+import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 
 export const runtime = "nodejs"
 
@@ -23,6 +23,22 @@ const normalizePhoneDigits = (value: string) => {
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
   return value.trim()
+}
+
+const isPaidPurchaseStatus = (status: string) => ["paid", "succeeded", "completed"].includes(status.toLowerCase())
+
+const isCashPurchaseMetadata = (value: unknown) => {
+  const metadata = toRecord(value)
+  if (!metadata) return false
+  const paymentChannel = normalizeString(metadata.paymentChannel).toLowerCase()
+  const paymentMethod = normalizeString(metadata.paymentMethod).toLowerCase()
+  const source = normalizeString(metadata.source).toLowerCase()
+  return (
+    paymentChannel === "cash" ||
+    paymentMethod === "onsite" ||
+    paymentMethod === "cash" ||
+    source === "cash_checkout"
+  )
 }
 
 const toRecord = (value: unknown) =>
@@ -56,14 +72,14 @@ export async function POST(req: Request) {
 
     const payload = toRecord(body)
     const paymentIntentId = normalizeString(payload?.paymentIntentId)
+    const purchaseId = normalizeString(payload?.purchaseId)
     const context = parseQrCheckInContext(
       {
         courseSlug: payload?.courseSlug,
         date: payload?.date,
         time: payload?.time,
         durationMinutes: payload?.durationMinutes,
-      },
-      { requireKnownCourse: true }
+      }
     )
     if ("status" in context) {
       return NextResponse.json({ error: context.error }, { status: context.status })
@@ -81,7 +97,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const course = courseRepository.getCourseBySlug(context.courseSlug)
+    const course = await getCatalogCourseBySlug(context.courseSlug)
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
@@ -107,7 +123,7 @@ export async function POST(req: Request) {
       where: {
         userId: dbUser.id,
         courseSlug: context.courseSlug,
-        status: { in: ["paid", "succeeded"] },
+        ...(purchaseId ? { id: purchaseId } : {}),
         ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
         createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
       },
@@ -115,17 +131,22 @@ export async function POST(req: Request) {
       take: paymentIntentId ? 1 : 30,
     })
 
-    const paidDropInPurchase =
+    const dropInPurchase =
       recentPurchases.find((purchase) => {
         const metadata = toRecord(purchase.metadata)
         const metaDate = normalizeString(metadata?.date)
         const metaTime = normalizeString(metadata?.time)
         const metaPackageId = normalizeString(metadata?.packageId)
         if (metaPackageId) return false
-        return metaDate === context.date && metaTime === context.time
+        if (!(metaDate === context.date && metaTime === context.time)) return false
+        if (paymentIntentId && purchase.stripePaymentIntentId !== paymentIntentId) return false
+        if (purchaseId && purchase.id !== purchaseId) return false
+
+        if (isPaidPurchaseStatus(purchase.status)) return true
+        return isCashPurchaseMetadata(purchase.metadata)
       }) || null
 
-    if (!paidDropInPurchase) {
+    if (!dropInPurchase) {
       return NextResponse.json(
         { error: "No successful drop-in payment was found for this class slot." },
         { status: 409 }
@@ -175,7 +196,7 @@ export async function POST(req: Request) {
               metadata: {
                 ...previousMetadata,
                 source: "qr_dropin_checkin",
-                purchaseId: paidDropInPurchase.id,
+                purchaseId: dropInPurchase.id,
                 qrDate: context.date,
                 qrTime: context.time,
               },
@@ -189,7 +210,7 @@ export async function POST(req: Request) {
               checkedInAt: now,
               metadata: {
                 source: "qr_dropin_checkin",
-                purchaseId: paidDropInPurchase.id,
+                purchaseId: dropInPurchase.id,
                 qrDate: context.date,
                 qrTime: context.time,
               },
@@ -204,10 +225,11 @@ export async function POST(req: Request) {
         },
       })
 
+      const attendanceMilestoneEvery = await getAttendanceMilestoneClasses(tx)
       let pointsAwarded = 0
       let attendanceMilestone = 0
-      if (checkedInCount > 0 && checkedInCount % ATTENDANCE_STREAK_MILESTONE === 0) {
-        attendanceMilestone = Math.floor(checkedInCount / ATTENDANCE_STREAK_MILESTONE)
+      if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {
+        attendanceMilestone = Math.floor(checkedInCount / attendanceMilestoneEvery)
         const pointsResult = await awardPointsFromRule({
           db: tx,
           userId: dbUser.id,
@@ -216,9 +238,9 @@ export async function POST(req: Request) {
           fallbackType: "CONSECUTIVE_ATTENDANCE",
           meta: {
             source: "qr_dropin_checkin",
-            purchaseId: paidDropInPurchase.id,
+            purchaseId: dropInPurchase.id,
             courseSlug: context.courseSlug,
-            milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+            milestoneEvery: attendanceMilestoneEvery,
             milestone: attendanceMilestone,
             attendanceCount: checkedInCount,
           },
@@ -231,6 +253,7 @@ export async function POST(req: Request) {
       return {
         attendance,
         checkedInCount,
+        attendanceMilestoneEvery,
         pointsAwarded,
         attendanceMilestone,
       }
@@ -246,14 +269,16 @@ export async function POST(req: Request) {
         startsAt: context.startsAt.toISOString(),
       },
       payment: {
-        purchaseId: paidDropInPurchase.id,
-        paymentIntentId: paidDropInPurchase.stripePaymentIntentId,
+        purchaseId: dropInPurchase.id,
+        paymentIntentId: dropInPurchase.stripePaymentIntentId,
+        paymentStatus: dropInPurchase.status,
+        paymentMode: isCashPurchaseMetadata(dropInPurchase.metadata) ? "cash" : "card",
       },
       points: {
         awarded: result.pointsAwarded,
         milestone: result.attendanceMilestone > 0 ? result.attendanceMilestone : null,
         attendanceCount: result.checkedInCount,
-        milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+        milestoneEvery: result.attendanceMilestoneEvery,
       },
     })
   } catch (error) {

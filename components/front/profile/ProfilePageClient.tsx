@@ -7,6 +7,7 @@ import { Flame, Medal, Star, Trophy, X, Music2, Camera } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import type { CourseData } from "@/constants/courses"
 import { useUser } from "@clerk/nextjs"
+import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import { getAvailableTimesForCourseDate, isSlotInPastForTimeZone } from "@/lib/class-schedule"
 import {
@@ -22,9 +23,9 @@ const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false
 type ProfileStatus = "NEW" | "ACTIVE" | "ALUMNI"
 
 const statusLabel: Record<ProfileStatus, string> = {
-  NEW: "Nuevo",
-  ACTIVE: "Activo",
-  ALUMNI: "Ex‑alumno",
+  NEW: "New",
+  ACTIVE: "Active",
+  ALUMNI: "Alumni",
 }
 
 const NY_TIMEZONE = "America/New_York"
@@ -38,7 +39,7 @@ const toProfileStatus = (value: unknown): ProfileStatus => {
 }
 
 const mockProfile = {
-  name: "Alumno",
+  name: "Student",
   level: "Beginner",
   status: "ACTIVE" as ProfileStatus,
   email: "",
@@ -52,8 +53,8 @@ const mockProfile = {
   promos: ["New student promo (used)", "Winter bonus 10%"],
   stats: {
     classesTaken: 18,
-    streak: "3 semanas",
-    lastClass: "Jueves 11:00 AM",
+    streak: "3 weeks",
+    lastClass: "Thursday 11:00 AM",
   },
   coins: {
     current: 320,
@@ -63,10 +64,10 @@ const mockProfile = {
   attendance: [
     { label: "Oct", value: 5 },
     { label: "Nov", value: 4 },
-    { label: "Dic", value: 6 },
-    { label: "Ene", value: 3 },
+    { label: "Dec", value: 6 },
+    { label: "Jan", value: 3 },
   ],
-  medals: ["5 clases", "10 clases", "1 mes activo"],
+  medals: ["5 classes", "10 classes", "1 active month"],
   moments: [
     "/images/carousel/_DSC1079.JPG",
     "/images/carousel/_DSC1087.JPG",
@@ -75,8 +76,8 @@ const mockProfile = {
   ],
   preferredCourses: ["salsa-femenina-matutina", "salsa-nocturno"],
   schedule: {
-    recurring: "Martes 7:00 PM",
-    nextClass: "Martes 7:00 PM",
+    recurring: "Tuesday 7:00 PM",
+    nextClass: "Tuesday 7:00 PM",
     hasActiveBooking: false,
   },
   shoeTracking: {
@@ -181,36 +182,36 @@ type ActionRequestItem = {
   resolvedAt: string | null
 }
 
-const analyticsMonths = ["Oct", "Nov", "Dic", "Ene"] as const
+const analyticsMonths = ["Oct", "Nov", "Dec", "Jan"] as const
 const analyticsMetricConfig: Record<MetricKey, { label: string; color: string; values: number[] }> = {
   attendance: {
-    label: "Asistencia",
+    label: "Attendance",
     color: "var(--brand,#b61616)",
     values: [5, 4, 6, 3],
   },
   progress: {
-    label: "Progreso",
+    label: "Progress",
     color: "#ef6b6b",
     values: [2, 3, 4, 5],
   },
   rhythm: {
-    label: "Ritmo",
+    label: "Rhythm",
     color: "#f59e0b",
     values: [1, 2, 3, 4],
   },
 }
 
 const actionRequestLabels: Record<ActionRequestType, string> = {
-  CLASS_CHANGE: "Cambio de clase",
-  SUSPEND: "Suspensión",
-  CANCEL: "Cancelación",
+  CLASS_CHANGE: "Class change",
+  SUSPEND: "Suspension",
+  CANCEL: "Cancellation",
 }
 
 const actionRequestStatusLabel = (status: string) => {
-  if (status === "PENDING") return "Pendiente"
-  if (status === "PROCESSING") return "En proceso"
-  if (status === "RESOLVED") return "Resuelto"
-  if (status === "REJECTED") return "Rechazado"
+  if (status === "PENDING") return "Pending"
+  if (status === "PROCESSING") return "In progress"
+  if (status === "RESOLVED") return "Resolved"
+  if (status === "REJECTED") return "Rejected"
   return status
 }
 
@@ -218,7 +219,7 @@ const formatRequestDate = (value: unknown) => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
   const parsed = new Date(`${value}T12:00:00.000Z`)
   if (Number.isNaN(parsed.getTime())) return null
-  return parsed.toLocaleDateString("es-AR", {
+  return parsed.toLocaleDateString("en-US", {
     timeZone: "UTC",
     day: "2-digit",
     month: "short",
@@ -231,20 +232,20 @@ const actionRequestMetaLabel = (request: ActionRequestItem) => {
     const start = formatRequestDate(request.meta?.startDate)
     const end = formatRequestDate(request.meta?.endDate)
     const packageLabel = typeof request.meta?.packageLabel === "string" ? request.meta.packageLabel : ""
-    if (start && end && packageLabel) return `${packageLabel} · desde ${start} hasta ${end}`
-    if (start && end) return `Desde ${start} hasta ${end}`
+    if (start && end && packageLabel) return `${packageLabel} · from ${start} to ${end}`
+    if (start && end) return `From ${start} to ${end}`
   }
   if (request.type === "CANCEL") {
     const effective = formatRequestDate(request.meta?.effectiveDate)
     const courseTitle = typeof request.meta?.courseTitle === "string" ? request.meta.courseTitle : ""
-    if (effective && courseTitle) return `${courseTitle} · efectiva desde ${effective}`
-    if (effective) return `Efectiva desde ${effective}`
+    if (effective && courseTitle) return `${courseTitle} · effective from ${effective}`
+    if (effective) return `Effective from ${effective}`
   }
   return null
 }
 
 const getPendingProcessLabel = (request: ActionRequestItem | undefined) => {
-  if (!request) return "Proceso"
+  if (!request) return "Process"
   const type = actionRequestLabels[request.type] || request.type
   const status = actionRequestStatusLabel(request.status).toLowerCase()
   return `${type} (${status})`
@@ -294,12 +295,12 @@ const addDaysToIsoDate = (isoDate: string, days: number) => {
 }
 
 const pointsTypeLabel = (type: string) => {
-  if (type === "PROFILE_COMPLETED") return "Perfil completado"
-  if (type === "PACKAGE_PURCHASE") return "Compra de paquete"
-  if (type === "PACKAGE_ASSIGNMENT") return "Asignación de clases"
-  if (type === "CONSECUTIVE_ATTENDANCE") return "Asistencia consecutiva"
-  if (type === "REFERRAL_BONUS") return "Referido"
-  if (type === "CLASS_MILESTONE") return "Meta de clases"
+  if (type === "PROFILE_COMPLETED") return "Profile completed"
+  if (type === "PACKAGE_PURCHASE") return "Package purchase"
+  if (type === "PACKAGE_ASSIGNMENT") return "Class assignment"
+  if (type === "CONSECUTIVE_ATTENDANCE") return "Consecutive attendance"
+  if (type === "REFERRAL_BONUS") return "Referral"
+  if (type === "CLASS_MILESTONE") return "Class milestone"
   return type
 }
 
@@ -343,7 +344,7 @@ const formatDateTimeInTimeZone = (
     hour: "numeric",
     minute: "2-digit",
   },
-  locale = "es-ES",
+  locale = "en-US",
   timeZone = NY_TIMEZONE
 ) => {
   const date = value instanceof Date ? value : new Date(value)
@@ -356,6 +357,11 @@ const formatDateTimeInTimeZone = (
 
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
+  const { courses: catalogCourses } = useCatalogCourses()
+  const sourceCourses = React.useMemo(
+    () => (catalogCourses.length ? catalogCourses : demoCourses),
+    [catalogCourses]
+  )
   const [e2eAuthBypass, setE2eAuthBypass] = React.useState(false)
   const [activeMetric, setActiveMetric] = React.useState<MetricKey>("attendance")
   const [hoverPoint, setHoverPoint] = React.useState<{ label: string; value: number; x: number; y: number; idx: number } | null>(null)
@@ -471,10 +477,10 @@ export default function ProfilePageClient() {
 
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
   const orderedCourses = React.useMemo(() => {
-    const preferred = demoCourses.filter((course) => preferredSet.has(course.slug))
-    const rest = demoCourses.filter((course) => !preferredSet.has(course.slug))
+    const preferred = sourceCourses.filter((course) => preferredSet.has(course.slug))
+    const rest = sourceCourses.filter((course) => !preferredSet.has(course.slug))
     return [...preferred, ...rest]
-  }, [preferredSet])
+  }, [preferredSet, sourceCourses])
 
   const classRequestsByAttendance = React.useMemo(() => {
     const map = new Map<string, ActionRequestItem>()
@@ -578,7 +584,7 @@ export default function ProfilePageClient() {
   const isRescheduleDateBlocked = React.useCallback(
     (dateIso: string) => {
       if (!selectedBooking?.courseSlug) return false
-      const availableTimes = getAvailableTimesForCourseDate(selectedBooking.courseSlug, dateIso)
+      const availableTimes = getAvailableTimesForCourseDate(selectedBooking.courseSlug, dateIso, sourceCourses)
       if (!availableTimes.length) return false
       const futureTimes = availableTimes.filter((time) => !isSlotInPastForTimeZone(dateIso, time, NY_TIMEZONE))
       if (!futureTimes.length) return true
@@ -591,17 +597,17 @@ export default function ProfilePageClient() {
   const getRescheduleDateBlockReason = React.useCallback(
     (dateIso: string) => {
       if (!selectedBooking?.courseSlug) return undefined
-      const availableTimes = getAvailableTimesForCourseDate(selectedBooking.courseSlug, dateIso)
+      const availableTimes = getAvailableTimesForCourseDate(selectedBooking.courseSlug, dateIso, sourceCourses)
       if (!availableTimes.length) return undefined
       const futureTimes = availableTimes.filter((time) => !isSlotInPastForTimeZone(dateIso, time, NY_TIMEZONE))
-      if (!futureTimes.length) return "Los horarios de este día ya pasaron."
+      if (!futureTimes.length) return "The time slots for this day have already passed."
       const occupied = rescheduleBookedTimesByDate.get(dateIso)
       if (occupied && futureTimes.every((time) => occupied.has(time))) {
-        return "Ese horario en ese día ya está tomado por otra clase."
+        return "That time slot on that day is already taken by another class."
       }
       return undefined
     },
-    [rescheduleBookedTimesByDate, selectedBooking?.courseSlug]
+    [rescheduleBookedTimesByDate, selectedBooking?.courseSlug, sourceCourses]
   )
   const pendingAssignablePackages = React.useMemo(
     () => assignablePackages.filter((pkg) => pkg.isUnlimited || (pkg.remainingCredits ?? 0) > 0),
@@ -610,8 +616,8 @@ export default function ProfilePageClient() {
 
   const selectedBookingCourse = React.useMemo(() => {
     if (!selectedBooking) return null
-    return demoCourses.find((course) => course.slug === selectedBooking.courseSlug) || null
-  }, [selectedBooking])
+    return sourceCourses.find((course) => course.slug === selectedBooking.courseSlug) || null
+  }, [selectedBooking, sourceCourses])
 
   const selectedPackageForAssign = React.useMemo(
     () => assignablePackages.find((item) => item.id === assignPackageId) || null,
@@ -619,8 +625,8 @@ export default function ProfilePageClient() {
   )
   const selectedPackageCourse = React.useMemo(() => {
     if (!selectedPackageForAssign?.courseSlug) return null
-    return demoCourses.find((course) => course.slug === selectedPackageForAssign.courseSlug) || null
-  }, [selectedPackageForAssign])
+    return sourceCourses.find((course) => course.slug === selectedPackageForAssign.courseSlug) || null
+  }, [selectedPackageForAssign, sourceCourses])
   const selectedPackageAssignmentStats = React.useMemo(() => {
     if (!selectedPackageForAssign) return null
     const assignedBookingsCount = bookings.filter(
@@ -652,7 +658,7 @@ export default function ProfilePageClient() {
     if (!selectedPackageForAssign?.courseSlug) return [] as string[]
     const dates: string[] = []
     for (const [dateKey, bookedTimes] of assignBookedTimesByDate.entries()) {
-      const availableTimes = getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, dateKey)
+      const availableTimes = getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, dateKey, sourceCourses)
       if (!availableTimes.length) continue
       const futureTimes = availableTimes.filter((time) => !isSlotInPastForTimeZone(dateKey, time, NY_TIMEZONE))
       if (!futureTimes.length) {
@@ -662,7 +668,11 @@ export default function ProfilePageClient() {
       const allTaken = futureTimes.every((slot) => bookedTimes.has(slot))
       if (allTaken) dates.push(dateKey)
     }
-    const todayAvailableTimes = getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, todayNyDateKey)
+    const todayAvailableTimes = getAvailableTimesForCourseDate(
+      selectedPackageForAssign.courseSlug,
+      todayNyDateKey,
+      sourceCourses
+    )
     if (
       todayAvailableTimes.length > 0 &&
       todayAvailableTimes.every((time) => isSlotInPastForTimeZone(todayNyDateKey, time, NY_TIMEZONE)) &&
@@ -671,7 +681,7 @@ export default function ProfilePageClient() {
       dates.push(todayNyDateKey)
     }
     return dates
-  }, [assignBookedTimesByDate, selectedPackageForAssign?.courseSlug, todayNyDateKey])
+  }, [assignBookedTimesByDate, selectedPackageForAssign?.courseSlug, sourceCourses, todayNyDateKey])
   const assignBookedTimesForSelectedDate = React.useMemo(() => {
     if (!assignDate) return new Set<string>()
     return assignBookedTimesByDate.get(assignDate) || new Set<string>()
@@ -685,7 +695,7 @@ export default function ProfilePageClient() {
       const res = await fetch("/api/profile/points")
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setPointsError(data?.error || "No se pudo cargar el historial de puntos.")
+        setPointsError(data?.error || "Could not load points history.")
         return
       }
       setPointsBalance(typeof data?.balance === "number" ? data.balance : 0)
@@ -702,7 +712,7 @@ export default function ProfilePageClient() {
       )
       setPointsEntries(Array.isArray(data?.entries) ? data.entries : [])
     } catch {
-      setPointsError("No se pudo cargar el historial de puntos.")
+      setPointsError("Could not load points history.")
     } finally {
       setPointsLoading(false)
     }
@@ -716,12 +726,12 @@ export default function ProfilePageClient() {
       const res = await fetch("/api/profile/requests")
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setActionRequestsError(data?.error || "No se pudo cargar tus solicitudes.")
+        setActionRequestsError(data?.error || "Could not load your requests.")
         return
       }
       setActionRequests(Array.isArray(data?.requests) ? data.requests : [])
     } catch {
-      setActionRequestsError("No se pudo cargar tus solicitudes.")
+      setActionRequestsError("Could not load your requests.")
     } finally {
       setActionRequestsLoading(false)
     }
@@ -779,7 +789,7 @@ export default function ProfilePageClient() {
       const res = await fetch("/api/profile/bookings")
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setBookingsError(data?.error || "No se pudieron cargar tus clases agendadas.")
+        setBookingsError(data?.error || "Unable to load your scheduled classes.")
         return
       }
       clearAvailabilityCache()
@@ -795,7 +805,7 @@ export default function ProfilePageClient() {
       setAssignPackageId((prev) => (prev && packagesData.some((item) => item.id === prev) ? prev : packagesData[0]?.id || ""))
       return { bookings: bookingsData, packages: packagesData }
     } catch {
-      setBookingsError("No se pudieron cargar tus clases agendadas.")
+      setBookingsError("Unable to load your scheduled classes.")
       return null
     } finally {
       setBookingsLoading(false)
@@ -888,7 +898,7 @@ export default function ProfilePageClient() {
     (bookingId: string) => {
       const booking = visibleBookings.find((item) => item.id === bookingId) || null
       if (!booking) {
-        setRescheduleError("No tenés una clase agendada para cambiar.")
+        setRescheduleError("You don't have a scheduled class to change.")
         return false
       }
       setRescheduleError(null)
@@ -905,7 +915,7 @@ export default function ProfilePageClient() {
 
   const openChangeClassModal = () => {
     if (!selectedBooking) {
-      setRescheduleError("No tenés una clase agendada para cambiar.")
+      setRescheduleError("You don't have a scheduled class to change.")
       return
     }
     openChangeClassModalForBooking(selectedBooking.id)
@@ -921,7 +931,7 @@ export default function ProfilePageClient() {
 
   const openSuspendModal = () => {
     if (!suspendablePackages.length) {
-      setRequestSubmitError("No tenés paquetes activos para suspender.")
+      setRequestSubmitError("You don't have active packages to suspend.")
       return
     }
     const today = formatDateKeyInTimeZone(new Date(), NY_TIMEZONE) || new Date().toISOString().slice(0, 10)
@@ -939,7 +949,7 @@ export default function ProfilePageClient() {
 
   const openCancelModal = () => {
     if (!visibleBookings.length) {
-      setRequestSubmitError("No tenés clases asignadas disponibles para cancelar.")
+      setRequestSubmitError("You don't have assigned classes available to cancel.")
       return
     }
     const booking = selectedBooking || visibleBookings[0]
@@ -975,15 +985,15 @@ export default function ProfilePageClient() {
 
     if (requestModalType === "SUSPEND") {
       if (!requestSuspendPackageId) {
-        setRequestSubmitError("Seleccioná un paquete para suspender.")
+        setRequestSubmitError("Select a package to suspend.")
         return
       }
       if (!requestSuspendStart || !requestSuspendEnd) {
-        setRequestSubmitError("Seleccioná fecha de inicio y fin para la suspensión.")
+        setRequestSubmitError("Select start and end dates for the suspension.")
         return
       }
       if (requestSuspendEnd < requestSuspendStart) {
-        setRequestSubmitError("La fecha de fin no puede ser anterior al inicio.")
+        setRequestSubmitError("End date cannot be earlier than start date.")
         return
       }
       meta = {
@@ -995,11 +1005,11 @@ export default function ProfilePageClient() {
 
     if (requestModalType === "CANCEL") {
       if (!requestCancelBookingId) {
-        setRequestSubmitError("Seleccioná la clase que querés cancelar.")
+        setRequestSubmitError("Select the class you want to cancel.")
         return
       }
       if (!requestCancelDecision) {
-        setRequestSubmitError("Seleccioná si querés reasignar o solicitar reembolso.")
+        setRequestSubmitError("Select whether you want to reassign or request a refund.")
         return
       }
       if (requestCancelDecision === "REASSIGN") {
@@ -1009,12 +1019,12 @@ export default function ProfilePageClient() {
       }
       const booking = visibleBookings.find((item) => item.id === requestCancelBookingId) || null
       if (!booking) {
-        setRequestSubmitError("No encontramos la clase seleccionada para cancelar.")
+        setRequestSubmitError("We couldn't find the selected class to cancel.")
         return
       }
       const effectiveDate = requestCancelEffectiveDate || formatDateKeyInTimeZone(booking.startsAt, NY_TIMEZONE)
       if (!effectiveDate) {
-        setRequestSubmitError("No pudimos resolver la fecha efectiva para la cancelación.")
+        setRequestSubmitError("We couldn't determine the effective date for cancellation.")
         return
       }
       meta = {
@@ -1038,14 +1048,14 @@ export default function ProfilePageClient() {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setRequestSubmitError(data?.error || "No se pudo crear la solicitud.")
+        setRequestSubmitError(data?.error || "Could not create the request.")
         return
       }
-      setRequestSubmitSuccess(`Solicitud de ${actionRequestLabels[requestModalType].toLowerCase()} enviada.`)
+      setRequestSubmitSuccess(`${actionRequestLabels[requestModalType].toLowerCase()} request sent.`)
       closeRequestModal()
       await loadActionRequests()
     } catch {
-      setRequestSubmitError("No se pudo crear la solicitud.")
+      setRequestSubmitError("Could not create the request.")
     } finally {
       setRequestSubmitting(false)
     }
@@ -1060,24 +1070,24 @@ export default function ProfilePageClient() {
       openCancelModal()
       return
     }
-    setRequestSubmitError("Este tipo de solicitud se maneja desde 'Cambiar clase'.")
+    setRequestSubmitError("This request type is handled from 'Change class'.")
   }
 
   const continueRescheduleStep = () => {
     if (!selectedBooking || !rescheduleDate || !rescheduleTime) {
-      setRescheduleError("Seleccioná fecha y hora.")
+      setRescheduleError("Select date and time.")
       return
     }
     if (isSlotInPastForTimeZone(rescheduleDate, rescheduleTime, NY_TIMEZONE)) {
-      setRescheduleError("Ese horario ya pasó.")
+      setRescheduleError("That time slot has already passed.")
       return
     }
     if (isCurrentRescheduleSlot(rescheduleDate, rescheduleTime)) {
-      setRescheduleError("No podés reasignar al mismo día y horario actual.")
+      setRescheduleError("You can't reassign to the same day and current time slot.")
       return
     }
     if (rescheduleBookedTimesForSelectedDate.has(rescheduleTime)) {
-      setRescheduleError("Ese horario en ese día ya está tomado por otra clase.")
+      setRescheduleError("That time slot on that day is already taken by another class.")
       return
     }
     setRescheduleError(null)
@@ -1095,7 +1105,7 @@ export default function ProfilePageClient() {
     if (!res.ok) {
       return {
         ok: false as const,
-        error: data?.error || "No se pudo cambiar la clase.",
+        error: data?.error || "Unable to change class.",
       }
     }
     return { ok: true as const }
@@ -1103,7 +1113,7 @@ export default function ProfilePageClient() {
 
   const submitPrimaryReschedule = async () => {
     if (!selectedBooking || !rescheduleDate || !rescheduleTime) {
-      setRescheduleError("Seleccioná fecha y hora.")
+      setRescheduleError("Select date and time.")
       return
     }
     setRescheduleSaving(true)
@@ -1123,14 +1133,14 @@ export default function ProfilePageClient() {
 
       const refreshedPackages = refreshed?.packages || []
       const hasPendingAssignments = refreshedPackages.some((pkg) => pkg.isUnlimited || (pkg.remainingCredits ?? 0) > 0)
-      setRescheduleSuccess("Clase reprogramada correctamente.")
+      setRescheduleSuccess("Class rescheduled successfully.")
       if (hasPendingAssignments) {
         setRescheduleStep(3)
       } else {
         window.setTimeout(() => closeChangeClassModal(), 700)
       }
     } catch {
-      setRescheduleError("No se pudo cambiar la clase.")
+      setRescheduleError("Unable to change class.")
     } finally {
       setRescheduleSaving(false)
     }
@@ -1138,24 +1148,24 @@ export default function ProfilePageClient() {
 
   const addAssignSlot = () => {
     if (!assignPackageId) {
-      setAssignError("Seleccioná un paquete.")
+      setAssignError("Select a package.")
       return
     }
     if (!assignDate || !assignTime) {
-      setAssignError("Seleccioná fecha y hora para agregar la clase.")
+      setAssignError("Select date and time to add the class.")
       return
     }
     if (isSlotInPastForTimeZone(assignDate, assignTime, NY_TIMEZONE)) {
-      setAssignError("Ese horario ya pasó.")
+      setAssignError("That time slot has already passed.")
       return
     }
     if (assignBookedTimesForSelectedDate.has(assignTime)) {
-      setAssignError("Ese horario ya está reservado por vos.")
+      setAssignError("That time slot is already reserved by you.")
       return
     }
     const slotKey = `${assignDate}|${assignTime}`
     if (assignSlots.some((slot) => `${slot.date}|${slot.time}` === slotKey)) {
-      setAssignError("Ese horario ya está agregado.")
+      setAssignError("That time slot is already added.")
       return
     }
     setAssignError(null)
@@ -1170,14 +1180,14 @@ export default function ProfilePageClient() {
 
   const submitAssignClasses = async () => {
     if (!assignPackageId) {
-      setAssignError("Seleccioná un paquete.")
+      setAssignError("Select a package.")
       return
     }
     const cleaned = assignSlots
       .map((slot) => ({ date: slot.date.trim(), time: slot.time.trim() }))
       .filter((slot) => slot.date && slot.time)
     if (!cleaned.length) {
-      setAssignError("Agregá al menos una clase para asignar.")
+      setAssignError("Add at least one class to assign.")
       return
     }
 
@@ -1195,10 +1205,10 @@ export default function ProfilePageClient() {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setAssignError(data?.error || "No se pudieron asignar las clases del paquete.")
+        setAssignError(data?.error || "Unable to assign package classes.")
         return
       }
-      setAssignSuccess("Clases del paquete asignadas correctamente.")
+      setAssignSuccess("Package classes assigned successfully.")
       setAssignSlots([])
       setAssignDate("")
       setAssignTime("")
@@ -1206,7 +1216,7 @@ export default function ProfilePageClient() {
       clearAvailabilityCache()
       await Promise.all([loadBookings(), loadPointsHistory(), loadActionRequests()])
     } catch {
-      setAssignError("No se pudieron asignar las clases del paquete.")
+      setAssignError("Unable to assign package classes.")
     } finally {
       setAssigning(false)
     }
@@ -1225,7 +1235,7 @@ export default function ProfilePageClient() {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setCheckInError(data?.error || "No se pudo registrar tu check-in.")
+        setCheckInError(data?.error || "Could not register your check-in.")
         return
       }
 
@@ -1233,17 +1243,17 @@ export default function ProfilePageClient() {
       const pointsAwarded = typeof data?.points?.awarded === "number" ? data.points.awarded : 0
       const milestone = typeof data?.points?.milestone === "number" ? data.points.milestone : null
       let message = alreadyCheckedIn
-        ? "Esta clase ya estaba marcada con check-in."
-        : "Check-in registrado correctamente."
+        ? "This class was already marked as checked in."
+        : "Check-in recorded successfully."
       if (!alreadyCheckedIn && pointsAwarded > 0) {
-        message += ` +${pointsAwarded} puntos`
-        if (milestone) message += ` (hito ${milestone})`
+        message += ` +${pointsAwarded} points`
+        if (milestone) message += ` (milestone ${milestone})`
         message += "."
       }
       setCheckInSuccess(message)
       await Promise.all([loadBookings(), loadPointsHistory()])
     } catch {
-      setCheckInError("No se pudo registrar tu check-in.")
+      setCheckInError("Could not register your check-in.")
     } finally {
       setCheckInSubmittingId(null)
     }
@@ -1378,7 +1388,7 @@ export default function ProfilePageClient() {
           level: mockProfile.level,
           status: "NEW",
         })
-        setProfileError("No pudimos cargar tu perfil.")
+        setProfileError("We couldn't load your profile.")
       })
       .finally(() => {
         if (!active) return
@@ -1550,7 +1560,7 @@ export default function ProfilePageClient() {
     setRescheduleDate("")
     setRescheduleTime("")
     setAvailability([])
-    setRescheduleError(blockReason || "Ese día ya no tiene horarios disponibles.")
+    setRescheduleError(blockReason || "That day no longer has available time slots.")
   }, [getRescheduleDateBlockReason, isRescheduleDateBlocked, rescheduleDate])
 
   React.useEffect(() => {
@@ -1601,7 +1611,7 @@ export default function ProfilePageClient() {
     if (!assignDate) return
     if (assignUnavailableDates.includes(assignDate)) {
       const scheduleTimes = selectedPackageForAssign?.courseSlug
-        ? getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, assignDate)
+        ? getAvailableTimesForCourseDate(selectedPackageForAssign.courseSlug, assignDate, sourceCourses)
         : []
       const allTimesPast =
         scheduleTimes.length > 0 &&
@@ -1609,9 +1619,9 @@ export default function ProfilePageClient() {
       setAssignDate("")
       setAssignTime("")
       setAssignAvailability([])
-      setAssignError(allTimesPast ? "Los horarios de ese día ya pasaron." : "Esa fecha ya está completamente reservada por vos.")
+      setAssignError(allTimesPast ? "The time slots for that day have already passed." : "That date is already fully booked by you.")
     }
-  }, [assignDate, assignUnavailableDates, selectedPackageForAssign?.courseSlug])
+  }, [assignDate, assignUnavailableDates, selectedPackageForAssign?.courseSlug, sourceCourses])
 
   React.useEffect(() => {
     if (mobileAgendaOpenDay === null) return
@@ -1677,12 +1687,12 @@ export default function ProfilePageClient() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setAvatarError(data?.error || "No se pudo actualizar el avatar.")
+        setAvatarError(data?.error || "Could not update avatar.")
         return
       }
       setProfileUser((prev) => ({ ...prev, imageUrl: data?.imageUrl || prev.imageUrl }))
     } catch {
-      setAvatarError("No se pudo actualizar el avatar.")
+      setAvatarError("Could not update avatar.")
     } finally {
       setAvatarUploading(false)
     }
@@ -1702,7 +1712,7 @@ export default function ProfilePageClient() {
       const hasBillingData = [billingLine1, billingLine2, billingCity, billingState, billingPostalCode, billingCountry].some(Boolean)
 
       if (hasBillingData && (!billingLine1 || !billingCity || !billingState || !billingPostalCode || !billingCountry)) {
-        setProfileError("Completa la dirección de facturación (línea 1, ciudad, estado, ZIP y país).")
+        setProfileError("Complete the billing address (line 1, city, state, ZIP, and country).")
         return
       }
 
@@ -1737,7 +1747,7 @@ export default function ProfilePageClient() {
         data = null
       }
       if (!res.ok) {
-        const fallback = res.status ? `No se pudo guardar el perfil (${res.status}).` : "No se pudo guardar el perfil."
+        const fallback = res.status ? `Could not save profile (${res.status}).` : "Could not save profile."
         setProfileError(data?.error || fallback)
         return
       }
@@ -1753,7 +1763,7 @@ export default function ProfilePageClient() {
       }
       profileSavedTimeout.current = window.setTimeout(() => setProfileSaved(false), 2500)
     } catch {
-      setProfileError("No se pudo guardar el perfil.")
+      setProfileError("Could not save profile.")
     } finally {
       setProfileSaving(false)
     }
@@ -1815,9 +1825,9 @@ export default function ProfilePageClient() {
   })
 
   const pieSegments = [
-    { label: "Asistencia", value: 42, color: "var(--brand,#b61616)" },
-    { label: "Progreso", value: 34, color: "#ef6b6b" },
-    { label: "Ritmo", value: 24, color: "#f59e0b" },
+    { label: "Attendance", value: 42, color: "var(--brand,#b61616)" },
+    { label: "Progress", value: 34, color: "#ef6b6b" },
+    { label: "Rhythm", value: 24, color: "#f59e0b" },
   ]
   const pieStops = pieSegments.reduce<{ value: number; color: string }[]>((acc, segment) => {
     const total = acc.reduce((sum, s) => sum + s.value, 0)
@@ -1832,9 +1842,9 @@ export default function ProfilePageClient() {
     .join(", ")
 
   const medalItems = [
-    { label: "5 clases", icon: Trophy },
-    { label: "10 clases", icon: Medal },
-    { label: "1 mes activo", icon: Flame },
+    { label: "5 classes", icon: Trophy },
+    { label: "10 classes", icon: Medal },
+    { label: "1 active month", icon: Flame },
     { label: "Consistencia", icon: Star },
   ]
 
@@ -1857,7 +1867,7 @@ export default function ProfilePageClient() {
   }
   const calendarDays = React.useMemo(() => buildCalendar(agendaYear, agendaMonth), [agendaYear, agendaMonth])
   const agendaMonthLabel = React.useMemo(() => {
-    const monthLabel = new Intl.DateTimeFormat("es-ES", { month: "long" }).format(new Date(agendaYear, agendaMonth, 1))
+    const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(agendaYear, agendaMonth, 1))
     return monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
   }, [agendaMonth, agendaYear])
   const agendaYears = React.useMemo(() => {
@@ -1933,9 +1943,9 @@ export default function ProfilePageClient() {
   const latestPointEntries = pointsEntries.slice(0, 6)
   const latestActionRequests = actionRequests.slice(0, 5)
   const rescheduleStepItems = [
-    { id: 1 as const, label: "Reasignación" },
-    { id: 2 as const, label: "Confirmación" },
-    { id: 3 as const, label: "Asignar pendientes" },
+    { id: 1 as const, label: "Reassignment" },
+    { id: 2 as const, label: "Confirmation" },
+    { id: 3 as const, label: "Assign pending" },
   ]
 
   return (
@@ -1952,8 +1962,8 @@ export default function ProfilePageClient() {
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className="group relative h-full w-full overflow-hidden"
-                    aria-label="Cambiar avatar"
-                    title="Cambiar avatar"
+                    aria-label="Change avatar"
+                    title="Change avatar"
                     disabled={avatarUploading}
                     data-testid="avatar-upload-trigger"
                   >
@@ -1964,7 +1974,7 @@ export default function ProfilePageClient() {
                       data-testid="avatar-edit-overlay"
                     >
                       <Camera className="h-3.5 w-3.5" />
-                      <span className="text-[10px] font-semibold tracking-[0.08em] uppercase">Editar foto</span>
+                      <span className="text-[10px] font-semibold tracking-[0.08em] uppercase">Edit photo</span>
                     </span>
                   </button>
                   <input
@@ -1980,7 +1990,7 @@ export default function ProfilePageClient() {
                   />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Alumno</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Student</p>
                   <h2 className="text-lg font-semibold">{profileUser.name || mockProfile.name}</h2>
                   <p className="text-xs text-zinc-600 dark:text-white/60">{mockProfile.level}</p>
                 </div>
@@ -1988,12 +1998,12 @@ export default function ProfilePageClient() {
 
               <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
                 <div className="rounded-md border border-white/10 px-3 py-2">
-                  <p className="text-[color:var(--brand)]">Estado</p>
+                  <p className="text-[color:var(--brand)]">Status</p>
                   <p className="font-semibold">{statusLabel[profileUser.status]}</p>
                 </div>
                 <div className="rounded-md border border-white/10 px-3 py-2">
-                  <p className="text-[color:var(--brand)]">Teléfono</p>
-                  <p className="font-semibold">{profileUser.phoneVerified ? "Verificado" : "Sin validar"}</p>
+                  <p className="text-[color:var(--brand)]">Phone</p>
+                  <p className="font-semibold">{profileUser.phoneVerified ? "Verified" : "Unverified"}</p>
                 </div>
               </div>
 
@@ -2002,13 +2012,13 @@ export default function ProfilePageClient() {
                 <p>{profileUser.phone || mockProfile.phone}</p>
               </div>
               {avatarError && <p className="mt-2 text-xs text-red-400">{avatarError}</p>}
-              {avatarUploading && <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">Actualizando avatar...</p>}
+              {avatarUploading && <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">Updating avatar...</p>}
 
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Actividad</p>
-                <p className="mt-2">Clases tomadas: <strong>{activityStats.classesTaken}</strong></p>
-                <p>Racha: <strong>{activityStats.streakWeeks} semanas</strong></p>
-                <p>Última clase: <strong>{activityStats.lastClassLabel || "—"}</strong></p>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Activity</p>
+                <p className="mt-2">Classes taken: <strong>{activityStats.classesTaken}</strong></p>
+                <p>Streak: <strong>{activityStats.streakWeeks} weeks</strong></p>
+                <p>Last class: <strong>{activityStats.lastClassLabel || "—"}</strong></p>
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -2017,7 +2027,7 @@ export default function ProfilePageClient() {
                   onClick={() => setShowProfileForm(true)}
                   className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs font-semibold text-zinc-800 hover:border-black/20 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:border-white/30"
                 >
-                  Editar perfil
+                  Edit profile
                 </button>
                 {(() => {
                   const ringColor =
@@ -2034,41 +2044,41 @@ export default function ProfilePageClient() {
                   )
                 })()}
                 {!profileComplete && (
-                  <span className="text-[11px] text-[var(--brand,#b61616)]">Completa tu perfil y gana puntos</span>
+                  <span className="text-[11px] text-[var(--brand,#b61616)]">Complete your profile and earn points</span>
                 )}
               </div>
 
               <div className="mt-5 border-t border-white/10 pt-6">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Paquetes y promos</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Packages and promos</p>
                 <div className="mt-3 space-y-3 text-sm">
                   {packagesData.length > 0 ? (
                     packagesData.map((pkg) => (
                       <div key={pkg.id} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                         <p className="font-semibold">{pkg.label}</p>
                         <p className="text-xs text-zinc-600 dark:text-white/60">
-                          {pkg.isUnlimited ? "Ilimitado" : `Restantes: ${pkg.remainingCredits ?? 0}`}
+                          {pkg.isUnlimited ? "Unlimited" : `Remaining: ${pkg.remainingCredits ?? 0}`}
                         </p>
                         <p className="text-[11px] text-zinc-500 dark:text-white/40">
                           {pkg.expiresAt
-                            ? `Vence: ${formatDateTimeInTimeZone(pkg.expiresAt, {
+                            ? `Expires: ${formatDateTimeInTimeZone(pkg.expiresAt, {
                                 year: "numeric",
                                 month: "2-digit",
                                 day: "2-digit",
                               })}`
-                            : "Sin vencimiento"}
+                            : "No expiration"}
                         </p>
                       </div>
                     ))
                   ) : (
                     <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-600 dark:text-white/60">
-                      No tenés paquetes activos.
+                      You do not have active packages.
                     </div>
                   )}
                   <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                    <p className="font-semibold">Resumen</p>
+                    <p className="font-semibold">Summary</p>
                     <p className="text-xs text-zinc-600 dark:text-white/60">
-                      Activos: {packagesSummary.activePackages} · Créditos: {packagesSummary.totalRemainingCredits}
-                      {packagesSummary.unlimitedPackages > 0 ? ` · Ilimitados: ${packagesSummary.unlimitedPackages}` : ""}
+                      Active: {packagesSummary.activePackages} · Credits: {packagesSummary.totalRemainingCredits}
+                      {packagesSummary.unlimitedPackages > 0 ? ` · Unlimiteds: ${packagesSummary.unlimitedPackages}` : ""}
                     </p>
                   </div>
                 </div>
@@ -2088,10 +2098,10 @@ export default function ProfilePageClient() {
             <GlassyCard className="p-5 relative">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Perfil</p>
-                  <h3 className="mt-2 text-lg font-semibold text-zinc-900 dark:text-white">Completa tu perfil y gana puntos</h3>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Profile</p>
+                  <h3 className="mt-2 text-lg font-semibold text-zinc-900 dark:text-white">Complete your profile and earn points</h3>
                   <p className="mt-1 text-sm text-zinc-600 dark:text-white/60">
-                    Al completar tu perfil sumás puntos para canjear por beneficios.
+                    By completing your profile, you earn points to redeem benefits.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -2102,7 +2112,7 @@ export default function ProfilePageClient() {
                     type="button"
                     onClick={() => setShowProfileForm(false)}
                     className="rounded-full border border-black/10 bg-black/[0.05] p-2 text-zinc-700 hover:text-zinc-900 dark:border-white/10 dark:bg-black/40 dark:text-white/70 dark:hover:text-white"
-                    aria-label="Cerrar"
+                    aria-label="Close"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -2111,21 +2121,21 @@ export default function ProfilePageClient() {
 
               <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <fieldset className="space-y-2">
-                  <label className="text-sm font-medium">Nombre</label>
+                  <label className="text-sm font-medium">First name</label>
                   <input
                     value={profileForm.firstName}
                     onChange={(e) => setProfileForm((s) => ({ ...s, firstName: e.target.value }))}
                     className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 dark:border-white/15 dark:text-white/90 dark:placeholder:text-white/40"
-                    placeholder="Tu nombre"
+                    placeholder="Your first name"
                   />
                 </fieldset>
                 <fieldset className="space-y-2">
-                  <label className="text-sm font-medium">Apellido</label>
+                  <label className="text-sm font-medium">Last name</label>
                   <input
                     value={profileForm.lastName}
                     onChange={(e) => setProfileForm((s) => ({ ...s, lastName: e.target.value }))}
                     className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 dark:border-white/15 dark:text-white/90 dark:placeholder:text-white/40"
-                    placeholder="Tu apellido"
+                    placeholder="Your last name"
                   />
                 </fieldset>
                 <fieldset className="space-y-2 sm:col-span-2">
@@ -2137,7 +2147,7 @@ export default function ProfilePageClient() {
                   />
                 </fieldset>
                 <fieldset className="space-y-2">
-                  <label className="text-sm font-medium">Teléfono</label>
+                  <label className="text-sm font-medium">Phone</label>
                   <input
                     value={user?.primaryPhoneNumber?.phoneNumber || ""}
                     readOnly
@@ -2145,7 +2155,7 @@ export default function ProfilePageClient() {
                   />
                 </fieldset>
                 <fieldset className="space-y-2">
-                  <label className="text-sm font-medium">Cumpleaños</label>
+                  <label className="text-sm font-medium">Birthday</label>
                   <input
                     type="date"
                     value={profileForm.birthDate}
@@ -2156,78 +2166,78 @@ export default function ProfilePageClient() {
               </div>
 
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Contacto de emergencia</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Emergency contact</p>
                 <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <fieldset className="space-y-2">
-                    <label className="text-sm font-medium">Nombre</label>
+                    <label className="text-sm font-medium">Name</label>
                     <input
                       value={profileForm.emergencyContactName}
                       onChange={(e) => setProfileForm((s) => ({ ...s, emergencyContactName: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="Nombre y apellido"
+                      placeholder="Full name"
                     />
                   </fieldset>
                   <fieldset className="space-y-2">
-                    <label className="text-sm font-medium">Relación</label>
+                    <label className="text-sm font-medium">Relationship</label>
                     <input
                       value={profileForm.emergencyContactRelation}
                       onChange={(e) => setProfileForm((s) => ({ ...s, emergencyContactRelation: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="Ej: Madre, Padre, Amigo"
+                      placeholder="Ex: Mother, Father, Friend"
                     />
                   </fieldset>
                   <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">Teléfono</label>
+                    <label className="text-sm font-medium">Phone</label>
                     <input
                       value={profileForm.emergencyContactPhone}
                       onChange={(e) => setProfileForm((s) => ({ ...s, emergencyContactPhone: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="Número"
+                      placeholder="Number"
                     />
                   </fieldset>
                 </div>
               </div>
 
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Dirección de facturación</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Billing address</p>
                 <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">
-                  Se usa solo para pagos con tarjeta (Stripe). Podés editarla cuando quieras.
+                  Used only for card payments (Stripe). You can edit it anytime.
                 </p>
                 <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">Línea 1</label>
+                    <label className="text-sm font-medium">Line 1</label>
                     <input
                       value={profileForm.billingLine1}
                       onChange={(e) => setProfileForm((s) => ({ ...s, billingLine1: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="Calle y número"
+                      placeholder="Street and number"
                     />
                   </fieldset>
                   <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">Línea 2 (opcional)</label>
+                    <label className="text-sm font-medium">Line 2 (optional)</label>
                     <input
                       value={profileForm.billingLine2}
                       onChange={(e) => setProfileForm((s) => ({ ...s, billingLine2: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="Apto, piso, unidad"
+                      placeholder="Apt, floor, unit"
                     />
                   </fieldset>
                   <fieldset className="space-y-2">
-                    <label className="text-sm font-medium">Ciudad</label>
+                    <label className="text-sm font-medium">City</label>
                     <input
                       value={profileForm.billingCity}
                       onChange={(e) => setProfileForm((s) => ({ ...s, billingCity: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="Ciudad"
+                      placeholder="City"
                     />
                   </fieldset>
                   <fieldset className="space-y-2">
-                    <label className="text-sm font-medium">Estado</label>
+                    <label className="text-sm font-medium">State</label>
                     <input
                       value={profileForm.billingState}
                       onChange={(e) => setProfileForm((s) => ({ ...s, billingState: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="Estado"
+                      placeholder="State"
                     />
                   </fieldset>
                   <fieldset className="space-y-2">
@@ -2240,12 +2250,12 @@ export default function ProfilePageClient() {
                     />
                   </fieldset>
                   <fieldset className="space-y-2">
-                    <label className="text-sm font-medium">País</label>
+                    <label className="text-sm font-medium">Country</label>
                     <input
                       value={profileForm.billingCountry}
                       onChange={(e) => setProfileForm((s) => ({ ...s, billingCountry: e.target.value }))}
                       className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
-                      placeholder="País"
+                      placeholder="Country"
                     />
                   </fieldset>
                 </div>
@@ -2253,7 +2263,7 @@ export default function ProfilePageClient() {
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-zinc-600 dark:text-white/60">
-                  {profileComplete ? "Perfil completo. ¡Seguís sumando puntos!" : "Completa tu perfil para ganar 10 puntos."}
+                  {profileComplete ? "Profile complete. Keep earning points!" : "Complete your profile to earn 10 points."}
                 </div>
                 <button
                   type="button"
@@ -2261,24 +2271,24 @@ export default function ProfilePageClient() {
                   disabled={profileSaving || profileLoading}
                   className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  {profileSaving ? "Guardando..." : "Guardar perfil"}
+                  {profileSaving ? "Saving..." : "Save profile"}
                 </button>
               </div>
               {profileError && <p className="mt-2 text-sm text-red-400">{profileError}</p>}
               {profileSaved && !profileError && (
-                <p className="mt-2 text-sm text-emerald-300">Perfil guardado.</p>
+                <p className="mt-2 text-sm text-emerald-300">Profile saved.</p>
               )}
             </GlassyCard>
             </div>
             )}
 
             <GlassyCard className="order-2 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Momentos del alumno</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Student moments</p>
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                 {mockProfile.moments.map((src, idx) => (
                   <div key={`moment-${idx}`} className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt="momento" className="h-full w-full object-cover" />
+                    <img src={src} alt="moment" className="h-full w-full object-cover" />
                   </div>
                 ))}
               </div>
@@ -2292,11 +2302,11 @@ export default function ProfilePageClient() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Analytics</p>
-                    <p className="mt-2 text-sm text-white/70">Progreso general del alumno.</p>
+                    <p className="mt-2 text-sm text-white/70">Overall student progress.</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/60">Filtros</span>
-                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/60">Este mes</span>
+                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/60">Filters</span>
+                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/60">This month</span>
                   </div>
                 </div>
 
@@ -2321,26 +2331,26 @@ export default function ProfilePageClient() {
                   <div className="space-y-3 h-full flex flex-col">
                     <div className="relative min-h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-[#0b0b0f]/80 px-5 py-4 flex-1 flex flex-col justify-between text-center">
                       <div className="pointer-events-none absolute -left-10 -top-10 h-24 w-24 rounded-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.35),transparent_70%)] blur-2xl" />
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Clases totales</p>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Total classes</p>
                       <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight text-white">{activityStats.classesTaken}</p>
-                      <p className="mt-2 text-[11px] text-white/50">+12% vs mes anterior</p>
+                      <p className="mt-2 text-[11px] text-white/50">+12% vs previous month</p>
                     </div>
                     <div className="min-h-[148px] rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-[#0b0b0f]/80 px-5 py-4 flex-1 flex flex-col justify-between text-center">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Promedio semanal</p>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Weekly average</p>
                       <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight text-white">{activityStats.weeklyAverage}</p>
-                      <p className="mt-2 text-[11px] text-white/50">Racha: {activityStats.streakWeeks} semanas</p>
+                      <p className="mt-2 text-[11px] text-white/50">Streak: {activityStats.streakWeeks} weeks</p>
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 h-full flex flex-col">
                     <div className="flex items-center justify-between text-[11px] text-white/60">
                       <span>{analyticsMetricConfig[activeMetric].label}</span>
-                      <span>Últimos 4 meses</span>
+                      <span>Last 4 months</span>
                     </div>
                     <div className="mt-2 flex flex-col overflow-visible">
                       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#141017] via-[#0d0b12] to-[#09090d] px-3 pb-2 pt-3 shadow-[0_20px_60px_-40px_rgba(0,0,0,0.9)]">
                         <div className="pointer-events-none absolute right-4 top-3 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] text-white/70">
-                          Progreso estimado
+                          Estimated progress
                         </div>
                         <div className="grid grid-cols-[40px_1fr] gap-2">
                           <div className="relative h-[185px] text-[10px] text-white/40">
@@ -2468,18 +2478,18 @@ export default function ProfilePageClient() {
                                     <p className="text-sm font-semibold text-white">{hoverPoint.value}</p>
                                   </div>
                                   <div>
-                                    <p className="text-white/50">Meta</p>
+                                    <p className="text-white/50">Goal</p>
                                     <p className="text-sm font-semibold text-white">{targetValues[hoverPoint.idx]}</p>
                                   </div>
                                 </div>
                                 <div className="mt-3 flex items-center gap-3 text-[10px] text-white/50">
                                   <span className="inline-flex items-center gap-2">
                                     <span className="h-2 w-2 rounded-full bg-[var(--brand,#b61616)]" />
-                                    Actual
+                                    Current
                                   </span>
                                   <span className="inline-flex items-center gap-2">
                                     <span className="h-2 w-2 rounded-full bg-[#f59e0b]" />
-                                    Objetivo
+                                    Target
                                   </span>
                                 </div>
                               </div>
@@ -2509,7 +2519,7 @@ export default function ProfilePageClient() {
                       <div className="pointer-events-none absolute -right-10 -bottom-10 h-24 w-24 rounded-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.4),transparent_70%)] blur-2xl" />
                       <div className="flex items-center gap-2 text-[11px] text-white/60">
                         <span className="h-2 w-2 rounded-full bg-[var(--brand,#b61616)]" />
-                        Distribución
+                        Distribution
                       </div>
                       <div className="mt-3 flex flex-1 flex-col">
                         <div className="flex flex-1 items-center justify-center">
@@ -2552,11 +2562,11 @@ export default function ProfilePageClient() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">PLI Coins</p>
                   <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
-                    Te faltan <strong>{pointsToNextFreeClass}</strong> puntos para una clase gratis.
+                    You are <strong>{pointsToNextFreeClass}</strong> points away from a free class.
                   </p>
                 </div>
                 <div className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/60">
-                  Meta: {freeClassThreshold} PLI Coins
+                  Goal: {freeClassThreshold} PLI Coins
                 </div>
               </div>
               <div className="relative mt-4 h-28 overflow-hidden rounded-2xl border border-white/10">
@@ -2564,7 +2574,7 @@ export default function ProfilePageClient() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src="/images/carousel/_DSC1087.JPG"
-                    alt="Clase gratis"
+                    alt="Free class"
                     className="h-full w-full object-cover grayscale"
                   />
                 </div>
@@ -2572,7 +2582,7 @@ export default function ProfilePageClient() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src="/images/carousel/_DSC1087.JPG"
-                    alt="Clase gratis progreso"
+                    alt="Free class progress"
                     className="h-full w-full object-cover"
                   />
                 </div>
@@ -2582,15 +2592,15 @@ export default function ProfilePageClient() {
                 </div>
               </div>
               <p className="mt-3 text-xs text-zinc-600 dark:text-white/60">
-                Clases gratis disponibles: <strong>{freeClassesAvailable}</strong>
+                Available free classes: <strong>{freeClassesAvailable}</strong>
               </p>
             </GlassyCard>
 
             <GlassyCard className="order-6 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Historial de puntos</p>
-                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">Movimientos recientes de tu balance.</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Points history</p>
+                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">Recent balance movements.</p>
                 </div>
                 <div className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs font-semibold text-zinc-800 dark:border-white/10 dark:bg-white/5 dark:text-white/80">
                   Balance: {pointsBalance}
@@ -2629,12 +2639,12 @@ export default function ProfilePageClient() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-4 text-xs text-zinc-600 dark:text-white/60">Todavía no tenés movimientos de puntos.</p>
+                <p className="mt-4 text-xs text-zinc-600 dark:text-white/60">You do not have any point activity yet.</p>
               )}
             </GlassyCard>
 
             <GlassyCard className="order-7 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Medallas</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Medals</p>
               <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {medalItems.map((item) => {
                   const Icon = item.icon
@@ -2660,7 +2670,7 @@ export default function ProfilePageClient() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Agenda</p>
                   <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
-                    Tus clases programadas y horarios reales.
+                    Your scheduled classes and real-time slots.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2676,7 +2686,7 @@ export default function ProfilePageClient() {
                       setAgendaMonth(nextMonth)
                     }}
                     className="rounded-full border border-black/10 px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
-                    aria-label="Mes anterior"
+                    aria-label="Previous month"
                   >
                     ‹
                   </button>
@@ -2703,7 +2713,7 @@ export default function ProfilePageClient() {
                       setAgendaMonth(nextMonth)
                     }}
                     className="rounded-full border border-black/10 px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
-                    aria-label="Mes siguiente"
+                    aria-label="Next month"
                   >
                     ›
                   </button>
@@ -2722,7 +2732,7 @@ export default function ProfilePageClient() {
                     }}
                     className="rounded-full border border-black/10 px-3 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
                   >
-                    Hoy
+                    Today
                   </button>
                 </div>
                 <div className="mt-3 grid grid-cols-7 text-[11px] uppercase tracking-[0.18em] text-zinc-500 dark:text-white/40">
@@ -2746,7 +2756,7 @@ export default function ProfilePageClient() {
                     const pendingBadgeText =
                       pendingProcessLabels.length === 1
                         ? pendingProcessLabels[0]
-                        : `${pendingDayEvents.length} procesos en curso`
+                        : `${pendingDayEvents.length} processes in progress`
                     const mobileOpen = mobileAgendaOpenDay === day.day && dayEvents.length > 0
                     return (
                       <div
@@ -2763,9 +2773,9 @@ export default function ProfilePageClient() {
                                 key={`calendar-entry-${entry.id}`}
                                 className="group relative mt-2 hidden items-center gap-1 rounded-full bg-[var(--brand,#b61616)]/70 px-2 py-1 text-[10px] text-left text-white sm:inline-flex"
                               >
-                                Clase {entry.time}
+                                Class {entry.time}
                                 <div className="pointer-events-none absolute left-1/2 top-0 z-30 w-44 -translate-x-1/2 -translate-y-[108%] rounded-xl border border-white/10 bg-[#16111a]/95 px-3 py-2 text-left text-[11px] opacity-0 shadow-[0_20px_55px_-30px_rgba(0,0,0,0.8)] transition group-hover:opacity-100">
-                                  <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--brand,#b61616)]">Clase</p>
+                                  <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--brand,#b61616)]">Class</p>
                                   <p className="mt-1 text-white">{entry.courseTitle}</p>
                                   <p className="mt-1 text-white/70">{entry.time}</p>
                                 </div>
@@ -2773,7 +2783,7 @@ export default function ProfilePageClient() {
                             ))}
                             {dayEvents.length > 2 && (
                               <div className="mt-1 hidden text-[10px] text-[var(--brand,#b61616)] sm:block">
-                                +{dayEvents.length - 2} más
+                                +{dayEvents.length - 2} more
                               </div>
                             )}
                             {pendingDayEvents.length > 0 && (
@@ -2808,7 +2818,7 @@ export default function ProfilePageClient() {
                                   type="button"
                                   onClick={() => setMobileAgendaOpenDay((prev) => (prev === day.day ? null : day.day))}
                                   className="mt-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--brand,#b61616)]/80 text-white sm:hidden"
-                                  aria-label={`Ver clases del día ${day.day}`}
+                                  aria-label={`View classes for day ${day.day}`}
                                 >
                                   <Music2 className="h-3.5 w-3.5" aria-hidden />
                                 </button>
@@ -2841,14 +2851,14 @@ export default function ProfilePageClient() {
               </div>
 
               <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm">
-                Próxima clase: <strong>{nextBookedClass.scheduleLabel}</strong>
+                Next class: <strong>{nextBookedClass.scheduleLabel}</strong>
                 {nextBookedClass.courseTitle && (
                   <span className="ml-2 text-zinc-600 dark:text-white/65">· {nextBookedClass.courseTitle}</span>
                 )}
               </div>
               {pendingBookings.length > 0 && (
                 <div className="mt-3 rounded-lg border border-black/10 bg-black/[0.03] px-3 py-3 text-sm dark:border-white/10 dark:bg-white/5">
-                  <p className="font-semibold text-zinc-800 dark:text-white">Procesos sobre clases asignadas</p>
+                  <p className="font-semibold text-zinc-800 dark:text-white">Processes for assigned classes</p>
                   <div className="mt-2 space-y-2 text-xs">
                     {pendingBookings.slice(0, 3).map((booking) => {
                       const request = classRequestsByAttendance.get(booking.id)
@@ -2867,14 +2877,14 @@ export default function ProfilePageClient() {
                       )
                     })}
                     {pendingBookings.length > 3 && (
-                      <p className="text-zinc-700 dark:text-white/65">+{pendingBookings.length - 3} más en gestión.</p>
+                      <p className="text-zinc-700 dark:text-white/65">+{pendingBookings.length - 3} more in progress.</p>
                     )}
                   </div>
                 </div>
               )}
               {visibleBookings.length === 0 && (
                 <div className="mt-3 rounded-lg border border-[var(--brand,#b61616)]/40 bg-[rgba(182,22,22,0.1)] px-3 py-3 text-sm">
-                  No tenés clases agendadas. ¿Deseas reservar ahora?
+                  You do not have scheduled classes. Would you like to book now?
                 </div>
               )}
             </GlassyCard>
@@ -2882,65 +2892,65 @@ export default function ProfilePageClient() {
             <GlassyCard id="assign-classes-section" className="order-4 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Asignar clases</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Assign classes</p>
                   <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
-                    Organiza tus clases restantes con horarios disponibles del paquete.
+                    Organize your remaining classes with available package time slots.
                   </p>
                 </div>
                 {selectedPackageForAssign && (
                   <span className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
                     {selectedPackageForAssign.isUnlimited
-                      ? "Ilimitado"
-                      : `${selectedPackageForAssign.remainingCredits ?? 0} créditos`}
+                      ? "Unlimited"
+                      : `${selectedPackageForAssign.remainingCredits ?? 0} credits`}
                   </span>
                 )}
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
                 <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
-                  <label className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Paquete</label>
+                  <label className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Package</label>
                   <select
                     value={assignPackageId}
                     onChange={(event) => setAssignPackageId(event.target.value)}
                     className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-zinc-900 dark:text-white"
                   >
-                    <option value="">Selecciona un paquete</option>
+                    <option value="">Select a package</option>
                     {assignablePackages.map((pkg) => (
                       <option key={pkg.id} value={pkg.id}>
-                        {pkg.label} {pkg.isUnlimited ? "(Ilimitado)" : `(${pkg.remainingCredits ?? 0} créditos)`}
+                        {pkg.label} {pkg.isUnlimited ? "(Unlimited)" : `(${pkg.remainingCredits ?? 0} credits)`}
                       </option>
                     ))}
                   </select>
                   {selectedPackageForAssign && (
                     <div className="rounded-lg border border-white/10 bg-black/[0.04] px-3 py-2 text-xs text-zinc-700 dark:bg-white/5 dark:text-white/65">
                       <p>
-                        Clase:{" "}
+                        Class:{" "}
                         <strong className="text-zinc-900 dark:text-white">
-                          {selectedPackageCourse?.title || selectedPackageForAssign.courseSlug || "Sin clase"}
+                          {selectedPackageCourse?.title || selectedPackageForAssign.courseSlug || "No class"}
                         </strong>
                       </p>
                       <p className="mt-1">
-                        Horarios: {selectedPackageCourse?.schedule.day || "Según calendario"}
+                        Schedule: {selectedPackageCourse?.schedule.day || "According to calendar"}
                       </p>
                       {selectedPackageAssignmentStats && (
                         <div className="mt-2 rounded-md border border-black/10 bg-black/[0.03] px-2 py-2 text-[11px] dark:border-white/10 dark:bg-white/5">
                           <p>
-                            Clases del paquete asignadas:{" "}
+                            Assigned package classes:{" "}
                             <strong className="text-zinc-900 dark:text-white">
                               {selectedPackageAssignmentStats.assigned}
                             </strong>
                           </p>
                           <p className="mt-1">
-                            Clases del paquete que faltan asignar:{" "}
+                            Package classes left to assign:{" "}
                             <strong className="text-zinc-900 dark:text-white">
                               {selectedPackageAssignmentStats.isUnlimited
-                                ? "Sin límite"
+                                ? "No limit"
                                 : selectedPackageAssignmentStats.remaining ?? 0}
                             </strong>
                           </p>
                           {selectedPackageAssignmentStats.queued > 0 && (
                             <p className="mt-1 text-[10px] text-zinc-600 dark:text-white/55">
-                              Incluye {selectedPackageAssignmentStats.queued} clase(s) en “Clases a confirmar”.
+                              Includes {selectedPackageAssignmentStats.queued} class(es) in &quot;Classes to confirm&quot;.
                             </p>
                           )}
                         </div>
@@ -2950,7 +2960,7 @@ export default function ProfilePageClient() {
                 </div>
 
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Nuevo horario</p>
+                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">New time slot</p>
                   <div className="mt-3">
                     <CalendarPicker
                       value={assignDate}
@@ -2969,7 +2979,7 @@ export default function ProfilePageClient() {
                       className="bg-white/5"
                     />
                   </div>
-                  <p className="mt-3 text-xs text-zinc-600 dark:text-white/50">Horarios disponibles</p>
+                  <p className="mt-3 text-xs text-zinc-600 dark:text-white/50">Available time slots</p>
                   {assignAvailabilityLoading ? (
                     <div className="mt-2 h-10 animate-pulse rounded-md border border-white/10 bg-white/5" />
                   ) : assignAvailability.length > 0 ? (
@@ -2996,12 +3006,12 @@ export default function ProfilePageClient() {
                               <span className="block">{slot.label}</span>
                               <span className="mt-1 block text-[10px] text-zinc-500 dark:text-white/55">
                                 {alreadyBooked
-                                  ? "Ya reservada"
+                                  ? "Already booked"
                                   : isPast
-                                    ? "Horario pasado"
+                                    ? "Past time slot"
                                     : slot.isFull
                                       ? "Full"
-                                      : `${slot.spotsLeft} cupos`}
+                                      : `${slot.spotsLeft} spots`}
                               </span>
                             </button>
                           )
@@ -3011,13 +3021,13 @@ export default function ProfilePageClient() {
                         (slot) => slot.isFull || Boolean(slot.isPast) || assignBookedTimesForSelectedDate.has(slot.time)
                       ) && (
                         <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
-                          No hay horarios disponibles para esa fecha.
+                          No available time slots for that date.
                         </p>
                       )}
                     </div>
                   ) : (
                     <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
-                      Seleccioná un paquete y una fecha para ver horarios.
+                      Select a package and a date to view time slots.
                     </p>
                   )}
 
@@ -3028,14 +3038,14 @@ export default function ProfilePageClient() {
                       disabled={!assignDate || !assignTime}
                       className="rounded-md border border-[var(--brand,#b61616)]/60 px-3 py-2 text-xs font-semibold text-[var(--brand,#b61616)] disabled:opacity-50"
                     >
-                      Agregar clase
+                      Add class
                     </button>
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Clases a confirmar</p>
+                <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Classes to confirm</p>
                 {assignSlots.length > 0 ? (
                   <div className="mt-3 space-y-2">
                     {assignSlots.map((slot, idx) => (
@@ -3051,20 +3061,20 @@ export default function ProfilePageClient() {
                           onClick={() => removeAssignSlot(idx)}
                           className="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold text-zinc-700 dark:text-white/80"
                         >
-                          Quitar
+                          Remove
                         </button>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
-                    Aún no agregaste clases para este paquete.
+                    You have not added classes for this package yet.
                   </p>
                 )}
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-zinc-600 dark:text-white/60">
-                    Ganas 2.5 puntos por asignar por primera vez este paquete.
+                    You earn 2.5 points for assigning this package for the first time.
                   </p>
                   <button
                     type="button"
@@ -3072,7 +3082,7 @@ export default function ProfilePageClient() {
                     disabled={assigning || !assignSlots.length || !assignPackageId}
                     className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   >
-                    {assigning ? "Asignando..." : "Asignar clases"}
+                    {assigning ? "Assigning..." : "Assign classes"}
                   </button>
                 </div>
               </div>
@@ -3081,23 +3091,23 @@ export default function ProfilePageClient() {
             </GlassyCard>
 
             <GlassyCard className="order-9 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Equipo</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Gear</p>
               <div className="mt-4 flex items-center gap-4">
                 <div className="h-20 w-28 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/images/shoes-pli.svg" alt="Calzado" className="h-full w-full object-cover" />
+                  <img src="/images/shoes-pli.svg" alt="Shoes" className="h-full w-full object-cover" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-zinc-800 dark:text-white/80">Calzado: {mockProfile.shoeTracking.model}</p>
+                  <p className="text-sm text-zinc-800 dark:text-white/80">Shoes: {mockProfile.shoeTracking.model}</p>
                   <div className="mt-2 h-3 rounded-full bg-white/10 overflow-hidden">
                     <div className="h-full bg-[var(--brand,#b61616)]" style={{ width: `${shoeProgress}%` }} />
                   </div>
                   <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">
-                    {mockProfile.shoeTracking.km} km usados · Recomendado cambiar en {mockProfile.shoeTracking.maxKm} km.
+                    {mockProfile.shoeTracking.km} km used · Recommended replacement at {mockProfile.shoeTracking.maxKm} km.
                   </p>
                 </div>
                 <span className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
-                  {shoeProgress}% vida
+                  {shoeProgress}% life
                 </span>
               </div>
             </GlassyCard>
@@ -3107,19 +3117,19 @@ export default function ProfilePageClient() {
           <aside className="lg:w-[15rem] lg:justify-self-end lg:self-start">
             <div ref={rightRailRef} className="profile-right-rail space-y-4">
             <GlassyCard className="p-4">
-              <h3 className="text-base font-semibold">Reservar nueva clase</h3>
-              <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Agenda una nueva clase disponible en tu horario.</p>
+              <h3 className="text-base font-semibold">Book new class</h3>
+              <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Schedule a new class available in your time slot.</p>
               <button
                 className="mt-4 w-full rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white"
                 onClick={() => setCoursePickerOpen(true)}
               >
-                Reservar
+                Book
               </button>
             </GlassyCard>
             <GlassyCard className="p-4">
-              <h3 className="text-base font-semibold">Cambiar clase</h3>
+              <h3 className="text-base font-semibold">Change class</h3>
               {bookingsLoading ? (
-                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Cargando próxima clase...</p>
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Loading next class...</p>
               ) : selectedBooking ? (
                 <div className="mt-2 space-y-2 text-sm">
                   <p className="text-zinc-800 dark:text-white/80">{selectedBooking.courseTitle}</p>
@@ -3128,7 +3138,7 @@ export default function ProfilePageClient() {
                   </p>
                 </div>
               ) : (
-                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">No tenés una clase agendada para cambiar.</p>
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">You do not have a scheduled class to change.</p>
               )}
               {bookingsError && <p className="mt-2 text-xs text-red-400">{bookingsError}</p>}
               <button
@@ -3137,13 +3147,13 @@ export default function ProfilePageClient() {
                 onClick={openChangeClassModal}
                 disabled={!selectedBooking}
               >
-                Cambiar
+                Change
               </button>
             </GlassyCard>
             <GlassyCard className="p-4">
               <h3 className="text-base font-semibold">Check-in</h3>
               {bookingsLoading ? (
-                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Cargando clases...</p>
+                <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">Loading classes...</p>
               ) : nextCheckInBooking ? (
                 <div className="mt-2 space-y-2 text-sm">
                   <p className="text-zinc-800 dark:text-white/80">{nextCheckInBooking.courseTitle}</p>
@@ -3153,12 +3163,12 @@ export default function ProfilePageClient() {
                 </div>
               ) : pendingCheckInBooking ? (
                 <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">
-                  El check-in se habilita {CHECK_IN_OPEN_WINDOW_HOURS} horas antes.
-                  {checkInOpensAtLabel ? ` Disponible desde ${checkInOpensAtLabel}.` : ""}
+                  Check-in opens {CHECK_IN_OPEN_WINDOW_HOURS} hours before.
+                  {checkInOpensAtLabel ? ` Available from ${checkInOpensAtLabel}.` : ""}
                 </p>
               ) : (
                 <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">
-                  No tenés clases pendientes para hacer check-in.
+                  You do not have pending classes to check in.
                 </p>
               )}
               <button
@@ -3170,16 +3180,16 @@ export default function ProfilePageClient() {
                 }}
                 disabled={!nextCheckInBooking || Boolean(checkInSubmittingId)}
               >
-                {checkInSubmittingId === nextCheckInBooking?.id ? "Registrando..." : "Marcar check-in"}
+                {checkInSubmittingId === nextCheckInBooking?.id ? "Recording..." : "Mark check-in"}
               </button>
               {checkInError && <p className="mt-2 text-xs text-red-400">{checkInError}</p>}
               {checkInSuccess && <p className="mt-2 text-xs text-emerald-500 dark:text-emerald-300">{checkInSuccess}</p>}
             </GlassyCard>
             <GlassyCard className="p-4">
-              <h3 className="text-base font-semibold">Suspender / Cancelar</h3>
+              <h3 className="text-base font-semibold">Suspend / Cancel</h3>
               <p className="mt-2 text-sm text-zinc-600 dark:text-white/60">
-                Cancelación: elegís clase y definís si reasignar o pedir reembolso.
-                Suspensión: solo para paquetes activos.
+                Cancellation: choose a class and decide whether to reassign or request a refund.
+                Suspension: only for active packages.
               </p>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
@@ -3187,14 +3197,14 @@ export default function ProfilePageClient() {
                   className="rounded-md border border-black/10 px-3 py-2 text-sm font-semibold text-zinc-700 dark:border-white/10 dark:text-white/80"
                   onClick={() => openRequestModal("SUSPEND")}
                 >
-                  Suspender paquete
+                  Suspend package
                 </button>
                 <button
                   type="button"
                   className="rounded-md border border-[var(--brand,#b61616)]/50 px-3 py-2 text-sm font-semibold text-zinc-700 dark:text-white/80"
                   onClick={() => openRequestModal("CANCEL")}
                 >
-                  Cancelar clase
+                  Cancel class
                 </button>
               </div>
               {requestSubmitError && !requestModalType && (
@@ -3205,7 +3215,7 @@ export default function ProfilePageClient() {
               )}
             </GlassyCard>
             <GlassyCard className="p-4">
-              <h3 className="text-base font-semibold">Solicitudes recientes</h3>
+              <h3 className="text-base font-semibold">Recent requests</h3>
               {actionRequestsError && <p className="mt-2 text-xs text-red-400">{actionRequestsError}</p>}
               {actionRequestsLoading ? (
                 <div className="mt-3 space-y-2">
@@ -3247,7 +3257,7 @@ export default function ProfilePageClient() {
                   })}
                 </div>
               ) : (
-                <p className="mt-3 text-xs text-zinc-600 dark:text-white/60">Sin solicitudes por ahora.</p>
+                <p className="mt-3 text-xs text-zinc-600 dark:text-white/60">No requests for now.</p>
               )}
             </GlassyCard>
             </div>
@@ -3260,17 +3270,17 @@ export default function ProfilePageClient() {
           <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-gradient-to-br from-[#151118] via-[#0d0b12] to-[#09090d] p-5 shadow-[0_30px_120px_-50px_rgba(0,0,0,0.85)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Cambiar clase</p>
-                <h3 className="mt-2 text-xl font-semibold text-white">Reprogramación por pasos</h3>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Change class</p>
+                <h3 className="mt-2 text-xl font-semibold text-white">Step-by-step reschedule</h3>
                 <p className="mt-1 text-sm text-white/65">
-                  Reasigná tu clase principal y, si querés, continuá con clases de paquete.
+                  Reassign your main class and, if you want, continue with package classes.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closeChangeClassModal}
                 className="rounded-full border border-white/10 bg-black/40 p-2 text-white/70 hover:text-white"
-                aria-label="Cerrar"
+                aria-label="Close"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -3292,7 +3302,7 @@ export default function ProfilePageClient() {
                             : "border-white/10 bg-black/20 text-white/55"
                       }`}
                     >
-                      Paso {step.id}
+                      Step {step.id}
                       <p className="mt-1 text-[10px] normal-case tracking-normal">{step.label}</p>
                     </div>
                   )
@@ -3304,7 +3314,7 @@ export default function ProfilePageClient() {
               <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/50">Curso seleccionado</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/50">Selected course</p>
                     <select
                       value={rescheduleCourseSlug || selectedBooking.courseSlug}
                       onChange={(event) => {
@@ -3325,7 +3335,7 @@ export default function ProfilePageClient() {
                     </select>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/50">Clase reservada</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/50">Booked class</p>
                     <select
                       value={selectedBooking.id}
                       onChange={(event) => {
@@ -3338,7 +3348,7 @@ export default function ProfilePageClient() {
                     >
                       {rescheduleScopedBookings.map((item) => (
                         <option key={`booking-option-${item.id}`} value={item.id}>
-                          Reserva: {formatDateTimeInTimeZone(item.startsAt)}
+                          Booking: {formatDateTimeInTimeZone(item.startsAt)}
                         </option>
                       ))}
                     </select>
@@ -3347,11 +3357,11 @@ export default function ProfilePageClient() {
 
                 <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/70">
                   <p className="font-semibold text-white">{selectedBooking.courseTitle}</p>
-                  <p className="mt-1">Reserva actual: {formatDateTimeInTimeZone(selectedBooking.startsAt)}</p>
-                  {selectedBooking.packageLabel && <p className="mt-1">Paquete: {selectedBooking.packageLabel}</p>}
+                  <p className="mt-1">Current booking: {formatDateTimeInTimeZone(selectedBooking.startsAt)}</p>
+                  {selectedBooking.packageLabel && <p className="mt-1">Package: {selectedBooking.packageLabel}</p>}
                 </div>
 
-                <p className="mt-4 text-xs uppercase tracking-[0.2em] text-white/50">Nuevo horario</p>
+                <p className="mt-4 text-xs uppercase tracking-[0.2em] text-white/50">New time slot</p>
                 <div className="mt-2">
                     <CalendarPicker
                       value={rescheduleDate}
@@ -3370,7 +3380,7 @@ export default function ProfilePageClient() {
                   />
                 </div>
                 <div className="mt-3">
-                  <p className="text-xs text-white/50">Hora</p>
+                  <p className="text-xs text-white/50">Time</p>
                   {availabilityLoading ? (
                     <div className="mt-2 h-10 animate-pulse rounded-md border border-white/10 bg-white/5" />
                   ) : availability.length > 0 ? (
@@ -3381,11 +3391,11 @@ export default function ProfilePageClient() {
                         const isPast = Boolean(slot.isPast)
                         const disabled = slot.isFull || timeTaken || sameAsCurrent || isPast
                         const disabledReason = sameAsCurrent
-                          ? "Ya es tu reserva actual."
+                          ? "This is already your current booking."
                           : timeTaken
-                            ? "Ese horario en ese día ya está tomado por otra clase."
+                            ? "That time slot on that day is already taken by another class."
                             : isPast
-                              ? "Ese horario ya pasó."
+                              ? "That time slot has already passed."
                             : undefined
                         return (
                           <button
@@ -3405,21 +3415,21 @@ export default function ProfilePageClient() {
                             <span className="block">{slot.label}</span>
                             <span className="mt-1 block text-[10px] text-white/50">
                               {sameAsCurrent
-                                ? "Actual"
+                                ? "Current"
                                 : timeTaken
-                                  ? "Tomado"
+                                  ? "Taken"
                                   : isPast
-                                    ? "Horario pasado"
+                                    ? "Past time slot"
                                     : slot.isFull
                                       ? "Full"
-                                      : `${slot.spotsLeft} cupos`}
+                                      : `${slot.spotsLeft} spots`}
                             </span>
                           </button>
                         )
                       })}
                     </div>
                   ) : (
-                    <p className="mt-2 text-xs text-white/55">Seleccioná una fecha para ver horarios.</p>
+                    <p className="mt-2 text-xs text-white/55">Select a date to view time slots.</p>
                   )}
                 </div>
 
@@ -3430,7 +3440,7 @@ export default function ProfilePageClient() {
                     className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                     disabled={!selectedBooking || !rescheduleDate || !rescheduleTime}
                   >
-                    Continuar
+                    Continue
                   </button>
                 </div>
               </div>
@@ -3438,20 +3448,20 @@ export default function ProfilePageClient() {
 
             {rescheduleStep === 2 && (
               <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Confirmación</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Confirmation</p>
                 <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-white/80">
                   <p>
-                    <span className="text-white/60">Curso:</span> {selectedBooking.courseTitle}
+                    <span className="text-white/60">Course:</span> {selectedBooking.courseTitle}
                   </p>
                   <p className="mt-1">
-                    <span className="text-white/60">Reserva actual:</span> {formatDateTimeInTimeZone(selectedBooking.startsAt)}
+                    <span className="text-white/60">Current booking:</span> {formatDateTimeInTimeZone(selectedBooking.startsAt)}
                   </p>
                   <p className="mt-1">
-                    <span className="text-white/60">Nuevo horario:</span> {formatDateTimeInTimeZone(`${rescheduleDate}T${rescheduleTime}:00`)}
+                    <span className="text-white/60">New time slot:</span> {formatDateTimeInTimeZone(`${rescheduleDate}T${rescheduleTime}:00`)}
                   </p>
                   {selectedBooking.packageLabel && (
                     <p className="mt-1">
-                      <span className="text-white/60">Paquete:</span> {selectedBooking.packageLabel}
+                      <span className="text-white/60">Package:</span> {selectedBooking.packageLabel}
                     </p>
                   )}
                 </div>
@@ -3461,7 +3471,7 @@ export default function ProfilePageClient() {
                     onClick={() => setRescheduleStep(1)}
                     className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
                   >
-                    Volver
+                    Back
                   </button>
                   <button
                     type="button"
@@ -3469,7 +3479,7 @@ export default function ProfilePageClient() {
                     disabled={rescheduleSaving}
                     className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   >
-                    {rescheduleSaving ? "Guardando..." : "Confirmar clase principal"}
+                    {rescheduleSaving ? "Saving..." : "Confirm main class"}
                   </button>
                 </div>
               </div>
@@ -3477,11 +3487,11 @@ export default function ProfilePageClient() {
 
             {rescheduleStep === 3 && (
               <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Clases pendientes</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Pending classes</p>
                 <p className="mt-2 text-sm text-white/75">
                   {pendingAssignablePackages.length > 0
-                    ? "Estas son las clases de paquete que todavía te quedan sin asignar."
-                    : "No tenés créditos pendientes por asignar en paquetes activos."}
+                    ? "These are the package classes you still have left to assign."
+                    : "You don't have pending credits to assign in active packages."}
                 </p>
                 {pendingAssignablePackages.length > 0 && (
                   <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-lg border border-white/10 bg-black/20 p-2">
@@ -3489,10 +3499,10 @@ export default function ProfilePageClient() {
                       <div key={`pkg-pending-${pkg.id}`} className="rounded-md border border-white/10 px-3 py-2 text-xs text-white/75">
                         <p className="font-semibold text-white">{pkg.label}</p>
                         <p className="mt-1">
-                          Pendientes: {pkg.isUnlimited ? "Ilimitado" : `${pkg.remainingCredits ?? 0} créditos`}
+                          Pending: {pkg.isUnlimited ? "Unlimited" : `${pkg.remainingCredits ?? 0} credits`}
                         </p>
                         <p className="mt-1 text-white/60">
-                          Curso: {demoCourses.find((course) => course.slug === pkg.courseSlug)?.title || pkg.courseSlug || "Sin curso"}
+                          Course: {sourceCourses.find((course) => course.slug === pkg.courseSlug)?.title || pkg.courseSlug || "No course"}
                         </p>
                       </div>
                     ))}
@@ -3504,14 +3514,14 @@ export default function ProfilePageClient() {
                     onClick={() => setRescheduleStep(1)}
                     className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
                   >
-                    Volver
+                    Back
                   </button>
                   <button
                     type="button"
                     onClick={closeChangeClassModal}
                     className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
                   >
-                    Finalizar
+                    Finish
                   </button>
                   <button
                     type="button"
@@ -3527,7 +3537,7 @@ export default function ProfilePageClient() {
                     disabled={!pendingAssignablePackages.length}
                     className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   >
-                    Asignar clases pendientes
+                    Assign pending classes
                   </button>
                 </div>
               </div>
@@ -3544,21 +3554,21 @@ export default function ProfilePageClient() {
           <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gradient-to-br from-[#16121a] via-[#0e0c13] to-[#09090d] p-5 shadow-[0_30px_120px_-50px_rgba(0,0,0,0.85)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Solicitud</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Request</p>
                 <h3 className="mt-2 text-lg font-semibold text-white">
-                  {requestModalType === "SUSPEND" ? "Suspender paquete" : "Cancelar clase"}
+                  {requestModalType === "SUSPEND" ? "Suspend package" : "Cancel class"}
                 </h3>
                 <p className="mt-1 text-sm text-white/60">
                   {requestModalType === "SUSPEND"
-                    ? "La suspensión aplica solo a paquetes activos."
-                    : "Elegí la clase y decidí si querés reasignar o pedir reembolso."}
+                    ? "Suspension applies only to active packages."
+                    : "Choose the class and decide if you want to reassign or request a refund."}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closeRequestModal}
                 className="rounded-full border border-white/10 bg-black/40 p-2 text-white/70 hover:text-white"
-                aria-label="Cerrar"
+                aria-label="Close"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -3568,23 +3578,23 @@ export default function ProfilePageClient() {
               {requestModalType === "SUSPEND" && (
                 <div className="space-y-3">
                   <div>
-                    <label className="text-sm font-medium text-white">Paquete</label>
+                    <label className="text-sm font-medium text-white">Package</label>
                     <select
                       value={requestSuspendPackageId}
                       onChange={(event) => setRequestSuspendPackageId(event.target.value)}
                       className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
                     >
-                      <option value="">Seleccioná un paquete</option>
+                      <option value="">Select a package</option>
                       {suspendablePackages.map((pkg) => (
                         <option key={`suspend-package-${pkg.id}`} value={pkg.id}>
-                          {pkg.label} {pkg.isUnlimited ? "(Ilimitado)" : `(${pkg.remainingCredits ?? 0} créditos)`}
+                          {pkg.label} {pkg.isUnlimited ? "(Unlimited)" : `(${pkg.remainingCredits ?? 0} credits)`}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
-                      <label className="text-sm font-medium text-white">Inicio de suspensión</label>
+                      <label className="text-sm font-medium text-white">Suspension start</label>
                       <input
                         type="date"
                         value={requestSuspendStart}
@@ -3593,7 +3603,7 @@ export default function ProfilePageClient() {
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-white">Fin de suspensión</label>
+                      <label className="text-sm font-medium text-white">Suspension end</label>
                       <input
                         type="date"
                         value={requestSuspendEnd}
@@ -3609,7 +3619,7 @@ export default function ProfilePageClient() {
               {requestModalType === "CANCEL" && (
                 <div className="space-y-3">
                   <div>
-                    <label className="text-sm font-medium text-white">Clase asignada</label>
+                    <label className="text-sm font-medium text-white">Assigned class</label>
                     <select
                       value={requestCancelBookingId}
                       onChange={(event) => {
@@ -3619,7 +3629,7 @@ export default function ProfilePageClient() {
                       }}
                       className="mt-2 w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white"
                     >
-                      <option value="">Seleccioná una clase</option>
+                      <option value="">Select a class</option>
                       {visibleBookings.map((booking) => (
                         <option key={`cancel-booking-${booking.id}`} value={booking.id}>
                           {booking.courseTitle} · {formatDateTimeInTimeZone(booking.startsAt)}
@@ -3634,7 +3644,7 @@ export default function ProfilePageClient() {
                     </div>
                   )}
                   <div>
-                    <p className="text-sm font-medium text-white">¿Querés reasignar esta clase?</p>
+                    <p className="text-sm font-medium text-white">Do you want to reassign this class?</p>
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <button
                         type="button"
@@ -3648,7 +3658,7 @@ export default function ProfilePageClient() {
                             : "border-white/15 text-white/80 hover:border-white/40"
                         }`}
                       >
-                        Sí, reasignar
+                        Yes, reassign
                       </button>
                       <button
                         type="button"
@@ -3662,24 +3672,24 @@ export default function ProfilePageClient() {
                             : "border-white/15 text-white/80 hover:border-white/40"
                         }`}
                       >
-                        No, reembolso
+                        No, refund
                       </button>
                     </div>
                   </div>
                 </div>
               )}
 
-              <label className="text-sm font-medium text-white">Detalle (opcional)</label>
+              <label className="text-sm font-medium text-white">Details (optional)</label>
               <textarea
                 value={requestMessage}
                 onChange={(event) => setRequestMessage(event.target.value)}
                 rows={4}
                 placeholder={
                   requestModalType === "SUSPEND"
-                    ? "Ej: viajo dos semanas y retomo luego."
+                    ? "Ex: I am traveling for two weeks and resuming later."
                     : requestCancelDecision === "REASSIGN"
-                      ? "Podés agregar contexto antes de ir al cambio."
-                      : "Ej: por ahora no voy a continuar."
+                      ? "You can add context before moving to the change."
+                      : "Ex: for now I will not continue."
                 }
                 className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white placeholder:text-white/45"
               />
@@ -3692,7 +3702,7 @@ export default function ProfilePageClient() {
                 onClick={closeRequestModal}
                 className="rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
               >
-                Cancelar
+                Cancel
               </button>
               <button
                 type="button"
@@ -3700,7 +3710,7 @@ export default function ProfilePageClient() {
                 disabled={requestSubmitting || (requestModalType === "CANCEL" && !requestCancelDecision)}
                 className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
-                {requestSubmitting ? "Procesando..." : "Continuar"}
+                {requestSubmitting ? "Processing..." : "Continue"}
               </button>
             </div>
           </div>
@@ -3713,15 +3723,15 @@ export default function ProfilePageClient() {
             <button
               className="absolute right-5 top-5 rounded-full border border-white/10 bg-black/40 p-2 text-white/70 hover:text-white"
               onClick={() => setCoursePickerOpen(false)}
-              aria-label="Cerrar"
+              aria-label="Close"
             >
               <X className="h-4 w-4" />
             </button>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Reservar</p>
-                <h3 className="mt-2 text-lg font-semibold text-white">Elegí la clase que querés reservar</h3>
-                <p className="mt-1 text-sm text-white/60">Mostramos primero las clases que más elegís.</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Book</p>
+                <h3 className="mt-2 text-lg font-semibold text-white">Choose the class you want to book</h3>
+                <p className="mt-1 text-sm text-white/60">We show the classes you choose the most first.</p>
               </div>
             </div>
 
@@ -3754,7 +3764,7 @@ export default function ProfilePageClient() {
                     </div>
                     {preferredSet.has(course.slug) && (
                       <span className="rounded-full border border-[var(--brand,#b61616)]/60 bg-[rgba(182,22,22,0.15)] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--brand,#b61616)]">
-                        Preferida
+                        Preferred
                       </span>
                     )}
                   </div>
@@ -3763,8 +3773,8 @@ export default function ProfilePageClient() {
                     <p>{course.location.address}</p>
                   </div>
                   <div className="mt-4 flex items-center gap-2 text-[11px] text-white/70">
-                    <span className="rounded-full border border-white/10 px-2 py-1">Ver detalles</span>
-                    <span className="rounded-full border border-white/10 px-2 py-1">Reservar</span>
+                    <span className="rounded-full border border-white/10 px-2 py-1">View details</span>
+                    <span className="rounded-full border border-white/10 px-2 py-1">Book</span>
                   </div>
                 </button>
               ))}

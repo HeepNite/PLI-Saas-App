@@ -39,9 +39,11 @@ const getClerkErrorMessage = (err: unknown) => {
 export default function EmbeddedSignIn({
   redirectUrl,
   phoneNumber,
+  onSuccessAction,
 }: {
   redirectUrl: string
   phoneNumber?: string
+  onSuccessAction?: () => void | Promise<void>
 }) {
   const { isLoaded, signIn, setActive } = useSignIn()
   const [phone, setPhone] = React.useState(() => formatUSPhone(phoneNumber || ""))
@@ -83,11 +85,11 @@ export default function EmbeddedSignIn({
 
   const sendCode = React.useCallback(async () => {
     if (!normalizedPhone || !isCompleteUSPhone(phone)) {
-      setError("Ingresa un número válido de EE. UU.")
+      setError("Enter a valid US phone number.")
       return
     }
     if (!isLoaded || !signIn) {
-      setError("El acceso todavía se está cargando. Intenta de nuevo.")
+      setError("Access is still loading. Please try again.")
       return
     }
 
@@ -109,7 +111,7 @@ export default function EmbeddedSignIn({
 
       const factor = getPhoneCodeFactor(created.supportedFirstFactors)
       if (!factor?.phoneNumberId) {
-        setError("No pudimos preparar el ingreso por teléfono.")
+        setError("We couldn't prepare phone sign-in.")
         return
       }
 
@@ -125,10 +127,10 @@ export default function EmbeddedSignIn({
       const message = getClerkErrorMessage(err)
       if (moveToCodeStepFromCurrentAttempt() || (message && PHONE_CODE_RATE_LIMIT_RE.test(message))) {
         setStep("code")
-        setError("Ya enviamos un código. Ingresa el que recibiste o espera 30 segundos para reenviar.")
+        setError("We already sent a code. Enter the one you received or wait 30 seconds to resend.")
         return
       }
-      setError(message || "No pudimos enviar el código al teléfono.")
+      setError(message || "We couldn't send the code to your phone.")
     } finally {
       setBusy(false)
     }
@@ -136,11 +138,11 @@ export default function EmbeddedSignIn({
 
   const verifyCode = React.useCallback(async () => {
     if (!isLoaded || !signIn || !setActive) {
-      setError("El acceso todavía se está cargando. Intenta de nuevo.")
+      setError("Access is still loading. Please try again.")
       return
     }
     if (code.trim().length !== CODE_LENGTH) {
-      setError("Ingresa el código de 6 dígitos.")
+      setError("Enter the 6-digit code.")
       return
     }
 
@@ -154,18 +156,22 @@ export default function EmbeddedSignIn({
 
       if (attempt.status === "complete" && attempt.createdSessionId) {
         await setActive({ session: attempt.createdSessionId })
-        window.location.assign(redirectUrl)
+        if (onSuccessAction) {
+          await onSuccessAction()
+        } else {
+          window.location.assign(redirectUrl)
+        }
         return
       }
 
-      setError("No pudimos completar el ingreso. Intenta de nuevo.")
+      setError("We couldn't complete sign-in. Please try again.")
     } catch (err) {
       const message = getClerkErrorMessage(err)
-      setError(message || "El código no es válido.")
+      setError(message || "The code is invalid.")
     } finally {
       setBusy(false)
     }
-  }, [code, isLoaded, redirectUrl, setActive, signIn])
+  }, [code, isLoaded, onSuccessAction, redirectUrl, setActive, signIn])
 
   const resendCode = React.useCallback(async () => {
     if (!isLoaded || !signIn || !phoneNumberId) return
@@ -179,10 +185,10 @@ export default function EmbeddedSignIn({
     } catch (err) {
       const message = getClerkErrorMessage(err)
       if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
-        setError("Ya enviamos un código. Usa el que recibiste o espera 30 segundos para reenviar.")
+        setError("We already sent a code. Use the one you received or wait 30 seconds to resend.")
         return
       }
-      setError(message || "No pudimos reenviar el código.")
+      setError(message || "We couldn't resend the code.")
     } finally {
       setBusy(false)
     }
@@ -210,11 +216,11 @@ export default function EmbeddedSignIn({
       {step === "phone" ? (
         <div className="space-y-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Acceso por teléfono</p>
-            <p className="mt-1 text-sm text-white/82">Ingresa tu número y te enviamos un código por SMS.</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Phone access</p>
+            <p className="mt-1 text-sm text-white/82">Enter your number and we will send you an SMS code.</p>
           </div>
           <label className="block space-y-2">
-            <span className="text-xs font-medium text-white/85">Teléfono</span>
+            <span className="text-xs font-medium text-white/85">Phone</span>
             <input
               type="tel"
               value={phone}
@@ -236,17 +242,17 @@ export default function EmbeddedSignIn({
             className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Enviar código
+            Send code
           </button>
         </div>
       ) : (
         <div className="space-y-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verifica tu acceso</p>
-            <p className="mt-1 text-sm text-white/82">Escribe el código que enviamos a {formatUSPhone(phone)}.</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verify your access</p>
+            <p className="mt-1 text-sm text-white/82">Enter the code we sent to {formatUSPhone(phone)}.</p>
           </div>
           <label className="block space-y-2">
-            <span className="text-xs font-medium text-white/85">Código</span>
+            <span className="text-xs font-medium text-white/85">Code</span>
             <input
               type="text"
               value={code}
@@ -267,7 +273,7 @@ export default function EmbeddedSignIn({
               onClick={resetToPhoneStep}
               className="text-white/65 underline decoration-white/20 underline-offset-4"
             >
-              Cambiar número
+              Change number
             </button>
             <button
               type="button"
@@ -275,7 +281,7 @@ export default function EmbeddedSignIn({
               disabled={busy}
               className="text-[var(--brand,#e31b1b)] underline decoration-[var(--brand,#e31b1b)]/30 underline-offset-4 disabled:opacity-60"
             >
-              Reenviar código
+              Resend code
             </button>
           </div>
           <button
@@ -285,7 +291,7 @@ export default function EmbeddedSignIn({
             className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Continuar
+            Continue
           </button>
         </div>
       )}

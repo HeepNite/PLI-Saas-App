@@ -3,8 +3,8 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { demoCourses } from "@/constants/courses"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
+import { getCatalogFrontData } from "@/lib/catalog-courses"
 
 export const runtime = "nodejs"
 
@@ -124,14 +124,19 @@ export async function GET(req: Request) {
       }),
     ])
 
+    const catalogData = await getCatalogFrontData()
+    const courseTitleBySlug = new Map(
+      catalogData.courses.map((course) => [course.slug, course.title])
+    )
+
     const bookingItems = bookings.map((attendance) => {
-      const course = demoCourses.find((item) => item.slug === attendance.session.courseSlug)
+      const catalogTitle = courseTitleBySlug.get(attendance.session.courseSlug)
       return {
         id: attendance.id,
         status: attendance.status,
         startsAt: attendance.session.startsAt.toISOString(),
         courseSlug: attendance.session.courseSlug,
-        courseTitle: attendance.session.title || course?.title || attendance.session.courseSlug,
+        courseTitle: attendance.session.title || catalogTitle || attendance.session.courseSlug,
         sessionId: attendance.sessionId,
         packagePurchaseId: attendance.packageUsage?.packagePurchaseId || null,
         packageLabel: attendance.packageUsage?.packagePurchase?.packageLabel || null,

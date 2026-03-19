@@ -3,8 +3,8 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { awardPointsFromRule } from "@/lib/points/service"
-import { ATTENDANCE_STREAK_MILESTONE, POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 
 export const runtime = "nodejs"
 
@@ -128,6 +128,7 @@ export async function POST(req: Request) {
           session: { courseSlug: attendance.session.courseSlug },
         },
       })
+      const attendanceMilestoneEvery = await getAttendanceMilestoneClasses()
 
       return NextResponse.json({
         alreadyCheckedIn: true,
@@ -144,7 +145,7 @@ export async function POST(req: Request) {
           awarded: 0,
           milestone: null,
           attendanceCount: checkedInCount,
-          milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+          milestoneEvery: attendanceMilestoneEvery,
         },
       })
     }
@@ -201,10 +202,11 @@ export async function POST(req: Request) {
       },
     })
 
+    const attendanceMilestoneEvery = await getAttendanceMilestoneClasses()
     let pointsAwarded = 0
     let attendanceMilestone = 0
-    if (checkedInCount > 0 && checkedInCount % ATTENDANCE_STREAK_MILESTONE === 0) {
-      attendanceMilestone = Math.floor(checkedInCount / ATTENDANCE_STREAK_MILESTONE)
+    if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {
+      attendanceMilestone = Math.floor(checkedInCount / attendanceMilestoneEvery)
       const pointsResult = await awardPointsFromRule({
         userId: dbUser.id,
         ruleKey: POINTS_RULE_KEYS.CONSECUTIVE_ATTENDANCE,
@@ -213,7 +215,7 @@ export async function POST(req: Request) {
         meta: {
           source: "profile_checkin",
           courseSlug: updatedAttendance.session.courseSlug,
-          milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+          milestoneEvery: attendanceMilestoneEvery,
           milestone: attendanceMilestone,
           attendanceCount: checkedInCount,
         },
@@ -238,7 +240,7 @@ export async function POST(req: Request) {
         awarded: pointsAwarded,
         milestone: attendanceMilestone > 0 ? attendanceMilestone : null,
         attendanceCount: checkedInCount,
-        milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+        milestoneEvery: attendanceMilestoneEvery,
       },
     })
   } catch (error) {

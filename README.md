@@ -25,6 +25,12 @@ App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, the
 - Seguridad “new student”: teléfono obligatorio + SMS verificado, 1 participante, bloqueo si hay compras previas por email/teléfono/Clerk.
 - Compras: webhook de Stripe en `app/api/stripe/webhook/route.ts` guarda en Postgres (`prisma/schema.prisma`).
 - Verificación SMS: pantalla `/verify-phone` con retorno a la acción previa usando `?return=/ruta` (ver detalles en `docs/README.md`).
+- Reports IA (preparado para integración): `POST /api/staff/reports/suggestions` con proveedor `mock` o `custom-http` por env.
+
+## Variables opcionales (IA reports)
+- `AI_REPORTS_PROVIDER`: `mock` (default) o `custom-http`.
+- `AI_REPORTS_AGENT_URL`: URL del endpoint externo del agente (si usas `custom-http`).
+- `AI_REPORTS_AGENT_TOKEN`: bearer token opcional para autenticar contra el endpoint externo.
 
 ## Edición de contenido
 - Cursos/home y testimonios: `constants/home-content.ts`.

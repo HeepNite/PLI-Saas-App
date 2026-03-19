@@ -41,7 +41,7 @@ function SearchResults({ query }: { query: string }) {
         return (
             <div className="text-center py-12">
                 <p className="text-muted-foreground text-lg">
-                    ✨ Escribe algo en el buscador para encontrar cursos
+                    ✨ Type something in the search bar to find courses
                 </p>
             </div>
         );
@@ -53,10 +53,10 @@ function SearchResults({ query }: { query: string }) {
         return (
             <div className="text-center py-12">
                 <h2 className="text-2xl font-bold mb-2">
-                    No se encontraron resultados para: <span className="text-primary">{query}</span>
+                    No results found for: <span className="text-primary">{query}</span>
                 </h2>
                 <p className="text-muted-foreground">
-                    Intenta con otros términos de búsqueda
+                    Try different search terms
                 </p>
             </div>
         );
@@ -66,10 +66,10 @@ function SearchResults({ query }: { query: string }) {
         <div className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold mb-2">
-                    Resultados de búsqueda
+                    Search results
                 </h1>
                 <p className="text-muted-foreground">
-                    {results.length} {results.length === 1 ? 'curso encontrado' : 'cursos encontrados'} para: <span className="font-semibold text-foreground">{query}</span>
+                    {results.length} {results.length === 1 ? 'course found' : 'courses found'} para: <span className="font-semibold text-foreground">{query}</span>
                 </p>
             </div>
 

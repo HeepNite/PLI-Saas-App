@@ -133,11 +133,11 @@ export default function CalendarPicker({
 
   return (
     <div
-      className={`rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 ${
+      className={`block w-full min-w-0 rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 ${
         compact ? "p-3" : "p-3 sm:p-5 lg:p-6"
       } ${className}`}
     >
-      <div className="mx-auto grid w-full max-w-none grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
+      <div className="grid w-full max-w-none grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
         <div className={`grid min-w-0 items-center gap-2 ${compact ? "grid-cols-[minmax(0,1fr)_98px]" : "grid-cols-[minmax(0,1fr)_122px]"}`}>
           {locked ? (
             <>
@@ -189,7 +189,7 @@ export default function CalendarPicker({
           <div className="flex items-center justify-end gap-2 shrink-0">
             <button
               type="button"
-              aria-label="Mes anterior"
+              aria-label="Previous month"
               onClick={()=>go(-1)}
               className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
             >
@@ -197,7 +197,7 @@ export default function CalendarPicker({
             </button>
             <button
               type="button"
-              aria-label="Mes siguiente"
+              aria-label="Next month"
               onClick={()=>go(1)}
               className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
             >
@@ -229,7 +229,7 @@ export default function CalendarPicker({
       </div>
 
       <div
-        className={`mx-auto mt-4 grid w-full max-w-none grid-cols-7 text-center ${
+        className={`mt-4 grid w-full max-w-none grid-cols-7 text-center ${
           compact ? "gap-1 text-xs" : "gap-1 sm:gap-2 lg:gap-3 text-xs sm:text-sm lg:text-base"
         }`}
       >

@@ -1,15 +1,17 @@
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import {
-  extractStaffRoleFromClaims,
   extractStaffRoleFromUserMetadata,
   isStaffAdminRole,
+  STAFF_ROLES,
   type StaffRole,
 } from "@/lib/security/staff-role"
 import {
-  extractStaffCategoryFromClaims,
   extractStaffCategoryFromUserMetadata,
+  parseStaffCategory,
   type StaffCategory,
 } from "@/lib/security/staff-category"
+import { canAccessStaffPortalSection, type StaffPortalSection } from "@/lib/security/staff-access"
+import { prisma } from "@/lib/prisma"
 
 export type StaffPortalAuthResult =
   | { ok: true; userId: string; role: StaffRole; category: StaffCategory | null }
@@ -21,6 +23,36 @@ export type StaffPortalBaseAuthResult =
 
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
+const STAFF_ROLE_SET = new Set<StaffRole>(STAFF_ROLES)
+
+const asObject = (value: unknown): Record<string, unknown> => {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
+  return {}
+}
+
+const parseSessionIssuedAtMs = (claims: unknown): number | null => {
+  if (!claims || typeof claims !== "object") return null
+  const maybe = (claims as Record<string, unknown>).iat
+  if (typeof maybe !== "number" || !Number.isFinite(maybe)) return null
+  // Clerk iat claim is unix seconds.
+  return Math.floor(maybe * 1000)
+}
+
+const parseForcedLogoutAtMs = (privateMetadata: unknown): number | null => {
+  const value = asObject(privateMetadata).staffForceLogoutAt
+  if (typeof value === "number" && Number.isFinite(value)) return Math.floor(value)
+  if (typeof value === "string") {
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const parseDbRole = (value: unknown): StaffRole | null => {
+  if (typeof value !== "string") return null
+  const normalized = value.trim().toLowerCase()
+  return STAFF_ROLE_SET.has(normalized as StaffRole) ? (normalized as StaffRole) : null
+}
 
 export const hasAnyStaffAdmin = async () => {
   const client = await clerkClient()
@@ -53,16 +85,31 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
   const client = await clerkClient()
   const user = await client.users.getUser(authResult.userId)
 
-  const claimRole = extractStaffRoleFromClaims(authResult.sessionClaims)
-  const claimCategory = extractStaffCategoryFromClaims(authResult.sessionClaims)
-  const metadataRole = extractStaffRoleFromUserMetadata(user)
-  const metadataCategory = extractStaffCategoryFromUserMetadata(user)
+  let metadataRole = extractStaffRoleFromUserMetadata(user)
+  let metadataCategory = extractStaffCategoryFromUserMetadata(user)
+  if (!metadataRole || !metadataCategory) {
+    try {
+      const mirrored = await prisma.staffAccount.findUnique({
+        where: { clerkUserId: authResult.userId },
+        select: { role: true, category: true },
+      })
+      if (!metadataRole) metadataRole = parseDbRole(mirrored?.role)
+      if (!metadataCategory) metadataCategory = parseStaffCategory(mirrored?.category)
+    } catch (error) {
+      console.warn("authorizeStaffPortalBaseRequest: failed to read staff mirror, continuing with Clerk metadata", error)
+    }
+  }
+  const sessionIssuedAtMs = parseSessionIssuedAtMs(authResult.sessionClaims)
+  const forcedLogoutAtMs = parseForcedLogoutAtMs(user.privateMetadata)
+  if (forcedLogoutAtMs && sessionIssuedAtMs && sessionIssuedAtMs <= forcedLogoutAtMs) {
+    return { ok: false, status: 401, error: "Staff session expired" }
+  }
 
   return {
     ok: true,
     userId: authResult.userId,
-    role: metadataRole || claimRole,
-    category: metadataCategory || claimCategory,
+    role: metadataRole,
+    category: metadataCategory,
   }
 }
 
@@ -73,4 +120,18 @@ export const authorizeStaffPortalRequest = async (): Promise<StaffPortalAuthResu
     return { ok: false, status: 403, error: "Insufficient role" }
   }
   return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category }
+}
+
+export const authorizeStaffPortalSectionRequest = async (
+  section: StaffPortalSection
+): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!authResult.role) {
+    return { ok: false, status: 403, error: "Insufficient role" }
+  }
+  if (!canAccessStaffPortalSection(authResult.role, authResult.category, section)) {
+    return { ok: false, status: 403, error: "Insufficient role" }
+  }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }
 }

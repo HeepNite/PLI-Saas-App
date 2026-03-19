@@ -15,6 +15,11 @@ import {
   type StaffCategory,
 } from "@/lib/security/staff-category"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import {
+  createStaffRoleAudit,
+  extractStaffRoleSnapshot,
+  syncStaffAccountFromClerkUser,
+} from "@/lib/security/staff-account-sync"
 
 export const runtime = "nodejs"
 
@@ -165,8 +170,48 @@ const sanitizeName = (value: unknown, max = 80) => {
   return trimmed
 }
 
-const ONLINE_THRESHOLD_MS = 10 * 60 * 1000
 const PRESENCE_MAX_AGE_MS = 16 * 60 * 60 * 1000
+const PRESENCE_ONLINE_MAX_AGE_MS = 30 * 60 * 1000
+const RECENT_SIGN_IN_MAX_AGE_MS = 2 * 60 * 60 * 1000
+const VERIFY_SESSION_ACTIVE_WINDOW_MS = 72 * 60 * 60 * 1000
+
+const shouldVerifyUserActiveSession = (user: {
+  lastActiveAt?: number | null
+  privateMetadata?: unknown
+}) => {
+  const now = Date.now()
+  const privateMetadata = asObject(user.privateMetadata)
+  const presenceStatus =
+    typeof privateMetadata.staffPresenceStatus === "string" ? privateMetadata.staffPresenceStatus : null
+  const presenceUpdatedRaw =
+    typeof privateMetadata.staffPresenceUpdatedAt === "string" ? privateMetadata.staffPresenceUpdatedAt : ""
+  const parsedPresenceUpdated = presenceUpdatedRaw ? Date.parse(presenceUpdatedRaw) : Number.NaN
+  const presenceUpdatedAt = Number.isFinite(parsedPresenceUpdated) ? parsedPresenceUpdated : null
+  const lastActiveAt =
+    typeof user.lastActiveAt === "number" && Number.isFinite(user.lastActiveAt) ? user.lastActiveAt : null
+
+  // If Clerk metadata marks online, always verify via per-user sessions endpoint.
+  // The global sessions endpoint may be stale/incomplete for some tenants.
+  if (presenceStatus === "online") {
+    return true
+  }
+  if (lastActiveAt && now - lastActiveAt <= VERIFY_SESSION_ACTIVE_WINDOW_MS) {
+    return true
+  }
+  if (presenceUpdatedAt && now - presenceUpdatedAt <= VERIFY_SESSION_ACTIVE_WINDOW_MS) {
+    return true
+  }
+  return false
+}
+
+const chunkArray = <T,>(items: T[], size: number): T[][] => {
+  if (size <= 0) return [items]
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
 
 const toStaffListItem = (user: {
   id: string
@@ -185,7 +230,7 @@ const toStaffListItem = (user: {
   publicMetadata?: unknown
   privateMetadata?: unknown
   unsafeMetadata?: unknown
-}): StaffListItem | null => {
+}, hasActiveSession: boolean): StaffListItem | null => {
   const role = extractStaffRoleFromUserMetadata(user)
   if (!role) return null
   const category = extractStaffCategoryFromUserMetadata(user) || "guest_staff"
@@ -210,12 +255,13 @@ const toStaffListItem = (user: {
   const presenceUpdatedAt = Number.isFinite(parsedPresenceUpdated) ? parsedPresenceUpdated : null
   const now = Date.now()
   const forcedOffline =
-    presenceStatus === "offline" && Boolean(presenceUpdatedAt && now - presenceUpdatedAt <= PRESENCE_MAX_AGE_MS)
+    !hasActiveSession && presenceStatus === "offline" && Boolean(presenceUpdatedAt && now - presenceUpdatedAt <= PRESENCE_MAX_AGE_MS)
   const onlineByPresence =
-    presenceStatus === "online" && Boolean(presenceUpdatedAt && now - presenceUpdatedAt <= PRESENCE_MAX_AGE_MS)
-  const onlineByActivity = Boolean(lastActiveAt && now - lastActiveAt <= ONLINE_THRESHOLD_MS)
-  const onlineByRecentSignIn = Boolean(lastSignInAt && now - lastSignInAt <= ONLINE_THRESHOLD_MS)
-  const online = forcedOffline ? false : onlineByPresence || onlineByActivity || onlineByRecentSignIn
+    presenceStatus === "online" && Boolean(presenceUpdatedAt && now - presenceUpdatedAt <= PRESENCE_ONLINE_MAX_AGE_MS)
+  const onlineByRecentCheckIn =
+    Boolean(staffLastCheckInAt && now - staffLastCheckInAt <= PRESENCE_ONLINE_MAX_AGE_MS)
+  const onlineByRecentSignIn = Boolean(lastSignInAt && now - lastSignInAt <= RECENT_SIGN_IN_MAX_AGE_MS)
+  const online = hasActiveSession ? true : forcedOffline ? false : onlineByPresence || onlineByRecentCheckIn || onlineByRecentSignIn
   const payroll = asObject(publicMetadata.staffPayroll)
   const performance = asObject(publicMetadata.staffPerformance)
   const teaching = asObject(publicMetadata.staffTeaching)
@@ -282,20 +328,70 @@ export async function GET(req: Request) {
   const categoryFilter = parseStaffCategory(requestUrl.searchParams.get("category") || undefined)
 
   const client = await clerkClient()
+
+  let activeSessionUserIds = new Set<string>()
+  try {
+    const sessions = await client.sessions.getSessionList({
+      status: "active",
+      limit: 500,
+    })
+    activeSessionUserIds = new Set(
+      sessions.data
+        .map((session) => (typeof session.userId === "string" ? session.userId : ""))
+        .filter((userId) => userId.length > 0)
+    )
+  } catch {
+    activeSessionUserIds = new Set<string>()
+  }
+
   const users = await client.users.getUserList({
     limit: 100,
     ...(query ? { query } : {}),
   })
 
+  const shouldForcePerUserSessionLookup = activeSessionUserIds.size === 0
+  const verificationCandidates = users.data
+    .filter((user) => !activeSessionUserIds.has(user.id))
+    .filter((user) => (shouldForcePerUserSessionLookup ? true : shouldVerifyUserActiveSession(user)))
+
+  if (verificationCandidates.length > 0) {
+    const batches = chunkArray(verificationCandidates, 10)
+    for (const batch of batches) {
+      await Promise.all(
+        batch.map(async (user) => {
+          try {
+            const sessions = await client.sessions.getSessionList({
+              userId: user.id,
+              status: "active",
+              limit: 1,
+            })
+            if (sessions.data.length > 0) {
+              activeSessionUserIds.add(user.id)
+            }
+          } catch {
+            // Ignore per-user session lookup failure and keep fallback presence logic.
+          }
+        })
+      )
+    }
+  }
+
   let list = users.data
-    .map((user) => toStaffListItem(user))
+    .map((user) => toStaffListItem(user, activeSessionUserIds.has(user.id)))
     .filter((item): item is StaffListItem => Boolean(item))
   if (categoryFilter) {
     list = list.filter((item) => item.category === categoryFilter)
   }
   list = list.sort((a, b) => b.createdAt - a.createdAt)
 
-  return NextResponse.json({ items: list })
+  return NextResponse.json(
+    { items: list },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  )
 }
 
 export async function POST(req: Request) {
@@ -350,15 +446,29 @@ export async function POST(req: Request) {
 
   if (existing.data.length > 0) {
     const current = existing.data[0]
+    const previousState = extractStaffRoleSnapshot(current)
     const withRole = applyStaffRoleToMetadata(current.publicMetadata, role)
     const updated = await client.users.updateUser(current.id, {
       firstName: firstName || current.firstName || undefined,
       lastName: lastName || current.lastName || undefined,
       publicMetadata: applyStaffCategoryToMetadata(withRole, category),
     })
+    await syncStaffAccountFromClerkUser(updated, { source: "staff_portal_post" })
+    const nextState = extractStaffRoleSnapshot(updated)
+    await createStaffRoleAudit({
+      staffClerkUserId: updated.id,
+      actorClerkUserId: authResult.userId,
+      actorRole: authResult.role,
+      action: "promote_existing",
+      previousRole: previousState.role,
+      nextRole: nextState.role,
+      previousCategory: previousState.category,
+      nextCategory: nextState.category,
+      metadata: { via: "staff/users POST", email },
+    })
     return NextResponse.json({
       mode: "promoted_existing",
-      user: toStaffListItem(updated),
+      user: toStaffListItem(updated, false),
     })
   }
 

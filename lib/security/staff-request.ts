@@ -4,6 +4,7 @@ export const STAFF_REQUEST_TYPES = [
   "STAFF_SCHEDULE_CHANGE",
   "STAFF_PAY_ADVANCE",
   "STAFF_SHIFT_COVER",
+  "STAFF_GENERAL_QUERY",
 ] as const
 
 export type StaffRequestType = (typeof STAFF_REQUEST_TYPES)[number]
@@ -26,4 +27,3 @@ export const parseStaffRequestStatus = (value: unknown): StaffRequestStatus | nu
   const normalized = value.trim().toUpperCase()
   return requestStatusSet.has(normalized) ? (normalized as StaffRequestStatus) : null
 }
-

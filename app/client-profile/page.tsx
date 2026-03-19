@@ -6,7 +6,7 @@ import { redirect } from "next/navigation"
 
 export const metadata = {
   title: "Client Profile — PLI",
-  description: "Perfil del alumno con progreso, paquetes y reservas.",
+  description: "Student profile with progress, packages, and bookings.",
 }
 
 type ClientProfilePageProps = {

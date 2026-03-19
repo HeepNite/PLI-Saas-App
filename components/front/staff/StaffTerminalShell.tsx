@@ -50,7 +50,7 @@ export default function StaffTerminalShell({
       <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex justify-center px-3 pt-3 sm:px-4">
         <div className="pointer-events-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border border-white/12 bg-[#11131a]/88 px-4 py-3 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.72)] backdrop-blur">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--brand,#ff4b4b)]">Terminal activa</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--brand,#ff4b4b)]">Active terminal</p>
             <div className="mt-1 flex items-center gap-2 text-sm text-white/78">
               <MonitorSmartphone className="h-4 w-4 text-white/55" />
               <span className="truncate font-medium text-white">{terminal.name}</span>
@@ -64,7 +64,7 @@ export default function StaffTerminalShell({
             className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-white/12 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-white transition hover:border-[var(--brand,#b61616)] disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-            Cambiar terminal
+            Switch terminal
           </button>
         </div>
       </div>

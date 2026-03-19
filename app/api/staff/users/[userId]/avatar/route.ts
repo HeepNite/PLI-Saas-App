@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
+import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
@@ -21,9 +22,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     )
   }
 
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  const portalAuth = await authorizeStaffPortalRequest()
+  const terminalAuth = portalAuth.ok ? null : await authorizeStaffTerminalSession()
+  if (!portalAuth.ok && !terminalAuth?.ok) {
+    return NextResponse.json({ error: portalAuth.error }, { status: portalAuth.status })
   }
 
   const { userId } = await context.params
@@ -34,8 +36,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
   const client = await clerkClient()
   const targetUser = await client.users.getUser(userId)
   const targetRole = extractStaffRoleFromUserMetadata(targetUser)
-  if (authResult.role !== "owner" && targetRole === "owner") {
+  if (portalAuth.ok && portalAuth.role !== "owner" && targetRole === "owner") {
     return NextResponse.json({ error: "Admins cannot update Owner avatar." }, { status: 403 })
+  }
+  if (terminalAuth?.ok && targetRole) {
+    return NextResponse.json({ error: "Terminal kiosk can only update customer avatars." }, { status: 403 })
   }
 
   let formData: FormData

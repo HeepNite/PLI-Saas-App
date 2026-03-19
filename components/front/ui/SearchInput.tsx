@@ -13,14 +13,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/DropDownMenu"
-import { demoCourses } from "@/constants/courses"
+import { demoCourses, type CourseData } from "@/constants/courses"
+import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 
 const SearchInput = () => {
   const { t } = useI18n()
+  const { courses: catalogCourses } = useCatalogCourses()
+  const sourceCourses = catalogCourses.length ? catalogCourses : demoCourses
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
   const [loading, setLoading] = React.useState(false)
-  const [results, setResults] = React.useState<typeof demoCourses>([])
+  const [results, setResults] = React.useState<CourseData[]>([])
   const wrapperRef = React.useRef<HTMLDivElement | null>(null)
 
   React.useEffect(() => {
@@ -33,7 +36,7 @@ const SearchInput = () => {
     }
     setLoading(true)
     const id = window.setTimeout(() => {
-      const filtered = demoCourses.filter((course) => {
+      const filtered = sourceCourses.filter((course) => {
         const haystack = `${course.title} ${course.description} ${course.level} ${course.schedule.day}`.toLowerCase()
         return haystack.includes(normalized)
       })
@@ -42,7 +45,7 @@ const SearchInput = () => {
       setOpen(true)
     }, 260)
     return () => window.clearTimeout(id)
-  }, [query])
+  }, [query, sourceCourses])
 
   const gridClass =
     results.length <= 1
@@ -99,7 +102,7 @@ const SearchInput = () => {
           }}
         >
           <DropdownMenuLabel className="px-6 pt-5 pb-2 text-xs uppercase tracking-wider text-muted-foreground">
-            {loading ? "Buscando cursos..." : "Resultados"}
+            {loading ? "Searching courses..." : "Results"}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
 
@@ -116,7 +119,7 @@ const SearchInput = () => {
               : results.map((course) => (
                   <Link
                     key={course.slug}
-                    href={`/cursos/${course.slug}`}
+                    href={`/courses/${course.slug}`}
                     className={`rounded-xl border border-white/10 bg-white/60 dark:bg-black/50 backdrop-blur-md text-card-foreground p-4 hover:bg-white/70 dark:hover:bg-black/60 transition-all ${cardClass}`}
                   >
                     <div className="relative mb-3 aspect-[16/9] w-full overflow-hidden rounded-lg">
@@ -138,7 +141,7 @@ const SearchInput = () => {
           </div>
           {!loading && query.trim().length >= 3 && results.length === 0 && (
             <div className="border-t px-6 py-6 text-sm text-muted-foreground">
-              No encontramos cursos con ese término. Probá con otro.
+              We could not find courses for that term. Try another one.
             </div>
           )}
         </DropdownMenuContent>

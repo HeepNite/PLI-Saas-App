@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
-import { courseRepository } from "@/lib/courses-repository"
+import type { CourseData } from "@/constants/courses"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 
 export const runtime = "nodejs"
 
@@ -43,14 +44,13 @@ const pickPercentDiscount = (coupon: string) => {
 }
 
 const buildPricingTemplate = (input: {
-  courseSlug: string
+  course: CourseData
   lastPurchaseMetadata: Record<string, unknown> | null
   lastPurchaseAddonsCsv: string | null
   lastPurchaseParticipants: number | null
   lastPurchaseCoupon: string | null
 }): CoursePricingTemplate | null => {
-  const course = courseRepository.getCourseBySlug(input.courseSlug)
-  if (!course) return null
+  const course = input.course
 
   const metadata = input.lastPurchaseMetadata
   const serviceIdCandidate = normalizeString(metadata?.serviceId)
@@ -160,8 +160,7 @@ export async function POST(req: Request) {
         date: payload?.date,
         time: payload?.time,
         durationMinutes: payload?.durationMinutes,
-      },
-      { requireKnownCourse: true }
+      }
     )
     if ("status" in context) {
       return NextResponse.json({ error: context.error }, { status: context.status })
@@ -169,7 +168,7 @@ export async function POST(req: Request) {
 
     const now = new Date()
     const isWindowOpen = isQrCheckInWindowOpen(context, now)
-    const course = courseRepository.getCourseBySlug(context.courseSlug)
+    const course = await getCatalogCourseBySlug(context.courseSlug)
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
@@ -244,7 +243,7 @@ export async function POST(req: Request) {
     const purchaseMetadata = toRecord(lastPurchase?.metadata)
     const quickTemplate = lastPurchase
       ? buildPricingTemplate({
-          courseSlug: context.courseSlug,
+          course,
           lastPurchaseMetadata: purchaseMetadata,
           lastPurchaseAddonsCsv: lastPurchase.addonsCsv,
           lastPurchaseParticipants: lastPurchase.participants,
@@ -291,11 +290,13 @@ export async function POST(req: Request) {
       },
       customer: {
         userId: dbUser.id,
+        clerkUserId: authResult.userId,
         firstName,
         lastName,
         name: dbUser.name || name,
         email: dbUser.email || email,
         phone: dbUser.phone || phone,
+        hasAvatar: Boolean(clerkUser.hasImage),
       },
       package: preferredPackage
         ? {

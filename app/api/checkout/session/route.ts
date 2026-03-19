@@ -58,14 +58,14 @@ export async function POST(req: Request) {
     phone,
   } = body || {}
 
-  const validation = validateCheckoutPayload(body)
+  const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
 
   const base = getBaseUrl()
-  const success = `${base}/cursos/${validation.courseSlug}?status=success`
-  const cancel = `${base}/cursos/${validation.courseSlug}?status=cancel`
+  const success = `${base}/courses/${validation.courseSlug}?status=success`
+  const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
   const { userId, clerkUser } = await resolveAuthUser(req, { firstName, lastName, name, phone })
   const identity = resolveContactIdentity({ clerkUser, email, phone })

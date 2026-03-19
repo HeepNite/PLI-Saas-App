@@ -256,6 +256,52 @@ model ActionRequest {
   @@index([type])
 }
 
+model StaffAccount {
+  id             String          @id @default(cuid())
+  clerkUserId    String          @unique
+  email          String
+  phone          String?
+  firstName      String?
+  lastName       String?
+  role           String
+  category       String?
+  banned         Boolean         @default(false)
+  locked         Boolean         @default(false)
+  hasPin         Boolean         @default(false)
+  lastSignInAt   DateTime?
+  lastCheckInAt  DateTime?
+  source         String          @default("clerk")
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  roleAuditTrail StaffRoleAudit[]
+
+  @@index([role])
+  @@index([category])
+  @@index([banned, locked])
+  @@index([updatedAt])
+}
+
+model StaffRoleAudit {
+  id               String       @id @default(cuid())
+  staffAccountId   String?
+  staffAccount     StaffAccount? @relation(fields: [staffAccountId], references: [id], onDelete: SetNull)
+  staffClerkUserId String
+  actorClerkUserId String?
+  actorRole        String?
+  action           String
+  previousRole     String?
+  nextRole         String?
+  previousCategory String?
+  nextCategory     String?
+  metadata         Json?
+  createdAt        DateTime     @default(now())
+
+  @@index([staffClerkUserId, createdAt])
+  @@index([actorClerkUserId, createdAt])
+  @@index([action, createdAt])
+}
+
 model StaffTerminal {
   id                String                 @id @default(cuid())
   slug              String                 @unique
