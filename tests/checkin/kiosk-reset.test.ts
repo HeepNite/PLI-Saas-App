@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
 
 describe("completeKioskCustomerFlow", () => {
-  it("resets the kiosk state and signs out the temporary customer session", async () => {
+  it("resets the kiosk state and signs out only the temporary local customer session", async () => {
     const events: string[] = []
     const resetCustomerState = vi.fn(() => {
       events.push("reset")
     })
-    const signOut = vi.fn(async ({ redirectUrl }: { redirectUrl: string }) => {
-      events.push(`signout:${redirectUrl}`)
+    const signOut = vi.fn(async ({ redirectUrl, sessionId }: { redirectUrl: string; sessionId?: string }) => {
+      events.push(`signout:${redirectUrl}:${sessionId || "none"}`)
     })
 
     await completeKioskCustomerFlow({
@@ -16,12 +16,16 @@ describe("completeKioskCustomerFlow", () => {
       isKioskTerminalFlow: true,
       isCustomerSignedIn: true,
       redirectUrl: "/checkin?courseSlug=test",
+      sessionId: "sess_terminal_123",
       signOut,
     })
 
     expect(resetCustomerState).toHaveBeenCalledOnce()
-    expect(signOut).toHaveBeenCalledWith({ redirectUrl: "/checkin?courseSlug=test" })
-    expect(events).toEqual(["reset", "signout:/checkin?courseSlug=test"])
+    expect(signOut).toHaveBeenCalledWith({
+      redirectUrl: "/checkin?courseSlug=test",
+      sessionId: "sess_terminal_123",
+    })
+    expect(events).toEqual(["reset", "signout:/checkin?courseSlug=test:sess_terminal_123"])
   })
 
   it("does not sign out when no temporary customer session is active", async () => {
@@ -33,6 +37,7 @@ describe("completeKioskCustomerFlow", () => {
       isKioskTerminalFlow: true,
       isCustomerSignedIn: false,
       redirectUrl: "/checkin",
+      sessionId: "sess_terminal_123",
       signOut,
     })
 
@@ -49,6 +54,7 @@ describe("completeKioskCustomerFlow", () => {
       isKioskTerminalFlow: false,
       isCustomerSignedIn: true,
       redirectUrl: "/checkin",
+      sessionId: "sess_terminal_123",
       signOut,
     })
 

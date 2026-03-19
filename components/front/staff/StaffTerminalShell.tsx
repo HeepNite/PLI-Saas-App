@@ -18,7 +18,7 @@ export default function StaffTerminalShell({
 }: {
   terminal: TerminalSummary
 }) {
-  const { isLoaded, userId } = useAuth()
+  const { isLoaded, userId, sessionId } = useAuth()
   const clerk = useClerk()
   const [busy, setBusy] = React.useState(false)
 
@@ -27,9 +27,9 @@ export default function StaffTerminalShell({
     const cleanupKey = `pli-terminal-clerk-clean:${terminal.id}`
     if (window.sessionStorage.getItem(cleanupKey) === "done") return
     window.sessionStorage.setItem(cleanupKey, "done")
-    if (!userId) return
-    void clerk.signOut({ redirectUrl: "/staff/terminal" })
-  }, [clerk, isLoaded, terminal.id, userId])
+    if (!userId || !sessionId) return
+    void clerk.signOut({ sessionId, redirectUrl: "/staff/terminal" })
+  }, [clerk, isLoaded, sessionId, terminal.id, userId])
 
   const signOutTerminal = React.useCallback(async () => {
     setBusy(true)

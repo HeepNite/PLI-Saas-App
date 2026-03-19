@@ -3,7 +3,8 @@ type CompleteKioskCustomerFlowInput = {
   isKioskTerminalFlow: boolean
   isCustomerSignedIn: boolean
   redirectUrl: string
-  signOut: (input: { redirectUrl: string }) => Promise<unknown> | unknown
+  sessionId?: string | null
+  signOut: (input: { redirectUrl: string; sessionId?: string }) => Promise<unknown> | unknown
 }
 
 export const completeKioskCustomerFlow = async (input: CompleteKioskCustomerFlowInput) => {
@@ -13,5 +14,8 @@ export const completeKioskCustomerFlow = async (input: CompleteKioskCustomerFlow
     return
   }
 
-  await input.signOut({ redirectUrl: input.redirectUrl })
+  await input.signOut({
+    redirectUrl: input.redirectUrl,
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+  })
 }

@@ -5,12 +5,12 @@ import {
 } from "@/lib/checkin/existing-customer-flow"
 
 describe("existing customer terminal flow helpers", () => {
-  it("starts quick checkout existing customers on the confirmation step", () => {
-    expect(getExistingCustomerInitialStep(true)).toBe(3)
+  it("starts existing customers on the contact information step", () => {
+    expect(getExistingCustomerInitialStep()).toBe(2)
   })
 
-  it("starts non-repurchase existing customers at the beginning of the purchase flow", () => {
-    expect(getExistingCustomerInitialStep(false)).toBe(0)
+  it("keeps the entry step stable even without quick checkout", () => {
+    expect(getExistingCustomerInitialStep()).toBe(2)
   })
 
   it("shows the QR panel for terminal shell on compact tablet viewports", () => {

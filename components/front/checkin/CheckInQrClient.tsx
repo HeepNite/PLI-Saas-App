@@ -289,7 +289,7 @@ export default function CheckInQrClient({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { isLoaded, isSignedIn } = useUser()
-  const { getToken } = useAuth()
+  const { getToken, sessionId: activeSessionId } = useAuth()
   const clerk = useClerk()
   const [nowTick, setNowTick] = React.useState<Date>(() => new Date())
   const [origin, setOrigin] = React.useState("")
@@ -477,9 +477,10 @@ export default function CheckInQrClient({
       isKioskTerminalFlow,
       isCustomerSignedIn: Boolean(isSignedIn),
       redirectUrl: stationRedirectUrl,
+      sessionId: activeSessionId,
       signOut: clerk.signOut,
     })
-  }, [clerk, isKioskTerminalFlow, isSignedIn, resetCustomerFlowState, stationRedirectUrl])
+  }, [activeSessionId, clerk, isKioskTerminalFlow, isSignedIn, resetCustomerFlowState, stationRedirectUrl])
   const showQrPanel = shouldShowCheckInQrPanel({
     hideQrPanel,
     hasQrImage: Boolean(checkInQrImage),
@@ -902,17 +903,17 @@ export default function CheckInQrClient({
 
           {showCourseCardPanel && showQrPanel && (
             <div className="mt-6 rounded-2xl border border-white/15 bg-white/[0.02] px-4 py-5 sm:px-6">
-              <div className="grid items-stretch gap-5 lg:grid-cols-[1fr_1px_0.5fr] lg:gap-6">
+              <div className="grid items-stretch gap-5 md:grid-cols-[minmax(0,1fr)_1px_16rem] md:gap-5 lg:grid-cols-[minmax(0,1fr)_1px_18rem] lg:gap-6">
                 <article className="flex h-full flex-col">
                   <p className="text-xs uppercase tracking-[0.2em] text-white/60">Home card preview</p>
                   <div className="mt-2 flex-1 overflow-hidden rounded-2xl border border-white/15 bg-[linear-gradient(150deg,rgba(3,5,12,0.96),rgba(10,14,28,0.96))]">
-                    <div className="grid h-full grid-cols-1 sm:grid-cols-[0.9fr_1.1fr]">
-                      <div className="relative min-h-[220px] sm:h-full sm:min-h-0">
+                    <div className="grid h-full grid-cols-1 xl:grid-cols-[0.9fr_1.1fr]">
+                      <div className="relative min-h-[220px] xl:h-full xl:min-h-0">
                         <Image
                           src={checkInCardImage}
                           alt={checkInDisplayCourse?.title || "Current course"}
                           fill
-                          sizes="(max-width: 1024px) 100vw, 32vw"
+                          sizes="(max-width: 767px) 100vw, (max-width: 1279px) 38vw, 32vw"
                           className="object-cover"
                         />
                         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.05),rgba(0,0,0,0.62))]" />
@@ -948,15 +949,15 @@ export default function CheckInQrClient({
                   </div>
                 </article>
 
-                <div className="hidden h-full w-px bg-white/15 lg:block" aria-hidden />
+                <div className="hidden h-full w-px bg-white/15 md:block" aria-hidden />
 
-                <div className="flex h-full flex-col items-center justify-center text-center lg:pt-6">
+                <div className="flex h-full flex-col items-center justify-center text-center md:pt-2 lg:pt-6">
                   <p className="text-xs uppercase tracking-[0.2em] text-white/60">QR Code</p>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={checkInQrImage}
                     alt="Check-in QR"
-                    className="mt-4 h-52 w-52 rounded-2xl border border-white/15 bg-white object-contain sm:h-56 sm:w-56"
+                    className="mt-4 h-48 w-48 rounded-2xl border border-white/15 bg-white object-contain lg:h-56 lg:w-56"
                   />
                   <p className="mt-4 max-w-[17rem] text-base font-medium leading-relaxed text-white/82">
                     scan this code to continue the check-in process
@@ -1152,7 +1153,12 @@ export default function CheckInQrClient({
                 <p className="text-sm text-white/80">Active session for fast flow.</p>
                 <button
                   type="button"
-                  onClick={() => void clerk.signOut({ redirectUrl: forceRedirectUrl })}
+                  onClick={() =>
+                    void clerk.signOut({
+                      redirectUrl: forceRedirectUrl,
+                      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+                    })
+                  }
                   className="text-xs text-white/70 underline"
                 >
                   Switch account
@@ -1390,7 +1396,7 @@ export default function CheckInQrClient({
             }
             setExistingRegularBookingOverride(null)
           }}
-          initialStep={getExistingCustomerInitialStep(Boolean(bootstrap?.quickCheckout))}
+          initialStep={getExistingCustomerInitialStep()}
           prefillSelection={
             bootstrap?.quickCheckout
               ? {

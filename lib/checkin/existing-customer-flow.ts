@@ -1,4 +1,6 @@
-export const getExistingCustomerInitialStep = (hasQuickCheckout: boolean) => (hasQuickCheckout ? 3 : 0)
+const EXISTING_CUSTOMER_INFO_STEP = 2
+
+export const getExistingCustomerInitialStep = () => EXISTING_CUSTOMER_INFO_STEP
 
 export const shouldShowCheckInQrPanel = (input: {
   hideQrPanel: boolean
