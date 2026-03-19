@@ -4,6 +4,7 @@ import React from "react"
 import { Loader2 } from "lucide-react"
 import { useSignIn } from "@clerk/nextjs"
 import { formatUSPhone, isCompleteUSPhone, toE164Phone } from "@/components/front/courses/utils/phone"
+import { CODE_INPUT_ATTRIBUTES, PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
 
 type PhoneCodeFactor = {
   strategy: "phone_code"
@@ -222,14 +223,15 @@ export default function EmbeddedSignIn({
           <label className="block space-y-2">
             <span className="text-xs font-medium text-white/85">Phone</span>
             <input
-              type="tel"
+              type={PHONE_INPUT_ATTRIBUTES.type}
               value={phone}
               onChange={(event) => {
                 setPhone(formatUSPhone(event.target.value))
                 setError(null)
               }}
-              inputMode="tel"
-              autoComplete="tel"
+              inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
+              autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
+              pattern={PHONE_INPUT_ATTRIBUTES.pattern}
               placeholder="+1 (929) 387-6584"
               className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition focus:border-[var(--brand,#c71818)]"
             />
@@ -254,14 +256,15 @@ export default function EmbeddedSignIn({
           <label className="block space-y-2">
             <span className="text-xs font-medium text-white/85">Code</span>
             <input
-              type="text"
+              type={CODE_INPUT_ATTRIBUTES.type}
               value={code}
               onChange={(event) => {
                 setCode(event.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))
                 setError(null)
               }}
-              inputMode="numeric"
-              autoComplete="one-time-code"
+              inputMode={CODE_INPUT_ATTRIBUTES.inputMode}
+              autoComplete={CODE_INPUT_ATTRIBUTES.autoComplete}
+              pattern={CODE_INPUT_ATTRIBUTES.pattern}
               placeholder="123456"
               className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition focus:border-[var(--brand,#c71818)]"
             />

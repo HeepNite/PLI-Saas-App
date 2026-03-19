@@ -34,10 +34,16 @@ import {
 } from "@/lib/checkin/photo-context-policy"
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
+  getCheckInSignInModalVariant,
+  resolveEnrollInitialStep,
+  shouldIncludePhotoStep,
+} from "@/lib/checkin/enroll-flow"
+import {
   isRegularFallbackLocked,
   normalizePhoneKey,
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
+import { PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -396,6 +402,7 @@ export default function EnrollModal({
   const [checkInScheduleNotice, setCheckInScheduleNotice] = React.useState<string | null>(null)
   const [checkInNow, setCheckInNow] = React.useState<Date>(() => new Date())
   const stationCompletionTimeoutRef = React.useRef<number | null>(null)
+  const openInitializationRef = React.useRef(false)
   const prefillContactRef = React.useRef(prefillContact)
   const prefillSelectionRef = React.useRef(prefillSelection)
   const userContactRef = React.useRef<Partial<EnrollmentContact>>({
@@ -406,17 +413,28 @@ export default function EnrollModal({
     note: "",
   })
   const isNewStudent = service === "new-student"
+  const accountHasAvatar = Boolean(preparedAccount?.hasAvatar || photoSaved)
+  const requiresPhotoStep = React.useMemo(
+    () =>
+      shouldIncludePhotoStep({
+        isCheckInFlow,
+        photoPolicyRequired: photoPolicy.photoRequired,
+        hasAvatar: accountHasAvatar,
+        photoSaved,
+      }),
+    [accountHasAvatar, isCheckInFlow, photoPolicy.photoRequired, photoSaved]
+  )
   const steps = React.useMemo(
     () =>
       [
         { key: "party", label: t("step_party") },
         { key: "datetime", label: t("step_datetime") },
         { key: "info", label: t("step_info") },
-        ...(isCheckInFlow && photoPolicy.photoRequired ? [{ key: "photo", label: "Photo" }] : []),
+        ...(requiresPhotoStep ? [{ key: "photo", label: "Photo" }] : []),
         { key: "payments", label: t("step_payments") },
         ...(isCheckInFlow ? [] : [{ key: "review", label: t("step_review") }]),
       ] as const,
-    [isCheckInFlow, photoPolicy.photoRequired, t]
+    [isCheckInFlow, requiresPhotoStep, t]
   )
   const stepIcons: Record<string, typeof User> = {
     party: User,
@@ -449,6 +467,14 @@ export default function EnrollModal({
     () => isRegularFallbackLocked(newStudentFallbackPhoneKey, contact.phone),
     [contact.phone, newStudentFallbackPhoneKey]
   )
+  const effectiveInitialStep = React.useMemo(
+    () => resolveEnrollInitialStep({ initialStep, stepsLength: steps.length }),
+    [initialStep, steps.length]
+  )
+  const signInModalVariant = React.useMemo(
+    () => getCheckInSignInModalVariant(isCheckInFlow),
+    [isCheckInFlow]
+  )
   React.useEffect(() => {
     prefillContactRef.current = prefillContact
   }, [prefillContact])
@@ -463,6 +489,11 @@ export default function EnrollModal({
     const intervalId = window.setInterval(() => setCheckInNow(new Date()), 30_000)
     return () => window.clearInterval(intervalId)
   }, [isCheckInFlow, open])
+
+  React.useEffect(() => {
+    if (open) return
+    openInitializationRef.current = false
+  }, [open])
 
   React.useEffect(() => {
     const userPhone = user?.primaryPhoneNumber?.phoneNumber || user?.phoneNumbers?.[0]?.phoneNumber
@@ -701,11 +732,16 @@ export default function EnrollModal({
   React.useEffect(() => {
     if (!open) return
     if (typeof window === "undefined") return
+    if (openInitializationRef.current) return
     const hasDraft = useDraft ? sessionStorage.getItem(draftKey) : null
-    if (useDraft && hasDraft) return
+    if (useDraft && hasDraft) {
+      openInitializationRef.current = true
+      return
+    }
     if (!useDraft) {
       sessionStorage.removeItem(draftKey)
     }
+    openInitializationRef.current = true
     const userContact = userContactRef.current
     const initialContact: EnrollmentContact = isCheckInNewFlow
       ? {
@@ -756,7 +792,7 @@ export default function EnrollModal({
     setCouponInput("")
     setAppliedCoupon(null)
     setPaymentMethod(prefillSelectionRef.current?.paymentMethod || "")
-    setStep(0)
+    setStep(effectiveInitialStep)
     setCheckInScheduleNotice(checkInAutofill.notice)
     setRequiresSignIn(false)
     setExistingAccountDetected(false)
@@ -780,6 +816,7 @@ export default function EnrollModal({
     isCheckInFlow,
     checkInContextDate,
     checkInContextTime,
+    effectiveInitialStep,
     sourceCourses,
   ])
 
@@ -1509,11 +1546,9 @@ export default function EnrollModal({
   ])
 
   React.useEffect(() => {
-    if (open && typeof initialStep === "number") {
-      const safeStep = Math.max(0, Math.min(steps.length - 1, Math.floor(initialStep)))
-      setStep(safeStep)
-    }
-  }, [open, initialStep, steps.length])
+    if (!open) return
+    setStep((prev) => Math.max(0, Math.min(prev, steps.length - 1)))
+  }, [open, steps.length])
 
   const stepValid = (s: number) => {
     const stepKey = steps[s]?.key
@@ -1526,7 +1561,7 @@ export default function EnrollModal({
       case "info":
         return contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
       case "photo":
-        return !isPhotoRequiredForAccount(photoPolicy, Boolean(preparedAccount?.hasAvatar || photoSaved)) || photoSaved
+        return !requiresPhotoStep || photoSaved
       case "payments":
         return paymentMethod !== ""
       case "review":
@@ -2180,11 +2215,11 @@ export default function EnrollModal({
                   <fieldset className="space-y-2 sm:col-span-2">
                     <label className="text-sm font-medium">Phone</label>
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
+                        <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
                         US
                       </span>
                       <input
-                        type="tel"
+                        type={PHONE_INPUT_ATTRIBUTES.type}
                         value={contact.phone}
                         onChange={(e) => {
                           setPhoneTouched(true)
@@ -2192,8 +2227,9 @@ export default function EnrollModal({
                         }}
                         onBlur={() => setPhoneTouched(true)}
                         placeholder="(929) 387-6584"
-                        inputMode="tel"
-                        autoComplete="tel"
+                        inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
+                        autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
+                        pattern={PHONE_INPUT_ATTRIBUTES.pattern}
                         aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
                         className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2"
                       />
@@ -2507,14 +2543,24 @@ export default function EnrollModal({
         </div>
       )}
       {requiresSignIn && (
-        <div className="fixed inset-0 z-[10020] flex items-stretch justify-end px-2 sm:px-4 py-6">
+        <div
+          className={`fixed inset-0 z-[10020] flex ${
+            signInModalVariant === "compact"
+              ? "items-center justify-center px-4 py-4"
+              : "items-stretch justify-end px-2 py-6 sm:px-4"
+          }`}
+        >
           <button
             type="button"
             aria-label={t("aria_close")}
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             onClick={handleSignInDismiss}
           />
-          <div className="relative z-10 w-full sm:max-w-md rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+          <div
+            className={`relative z-10 w-full rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] ${
+              signInModalVariant === "compact" ? "max-w-sm" : "sm:max-w-md"
+            }`}
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">{signInModalTitle}</h3>
@@ -2541,15 +2587,17 @@ export default function EnrollModal({
                 }
               />
             </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                className="text-sm font-medium text-white/72 underline decoration-white/25 underline-offset-4"
-                onClick={handleSignInDismiss}
-              >
-                {t("account_exists_back")}
-              </button>
-            </div>
+            {signInModalVariant === "sheet" && (
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  className="text-sm font-medium text-white/72 underline decoration-white/25 underline-offset-4"
+                  onClick={handleSignInDismiss}
+                >
+                  {t("account_exists_back")}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
