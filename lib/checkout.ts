@@ -203,6 +203,15 @@ export const prepareCheckoutAccount = async (
     created = Boolean(guestResult.ensuredClerkUser && !userId)
   }
 
+  if (resolvedClerkUser?.id) {
+    try {
+      const client = await clerkClient()
+      resolvedClerkUser = await client.users.getUser(resolvedClerkUser.id)
+    } catch (error) {
+      console.warn("Unable to refresh Clerk user before avatar gating", error)
+    }
+  }
+
   const resolvedUserId = userId || resolvedClerkUser?.id || null
 
   return {

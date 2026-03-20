@@ -1397,7 +1397,7 @@ export default function CheckInQrClient({
             }
             setExistingRegularBookingOverride(null)
           }}
-          initialStep={getExistingCustomerInitialStep()}
+          initialStep={getExistingCustomerInitialStep({ isKioskTerminalFlow })}
           prefillSelection={
             bootstrap?.quickCheckout
               ? {

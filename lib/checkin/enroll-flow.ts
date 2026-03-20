@@ -28,7 +28,7 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
 }
 
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
-  if (input.isCheckInNewFlow && input.isKioskTerminalFlow) {
+  if (input.isCheckInFlow && input.isKioskTerminalFlow) {
     return [
       "info",
       ...(input.requiresPhotoStep ? (["photo"] as const) : []),

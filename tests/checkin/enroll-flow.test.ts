@@ -48,7 +48,7 @@ describe("enroll flow helpers", () => {
     ).toEqual(["info", "payments"])
   })
 
-  it("keeps the standard existing-customer flow steps unchanged", () => {
+  it("starts kiosk existing-customer check-in on info and hides party/datetime", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -56,7 +56,18 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: true,
       })
-    ).toEqual(["party", "datetime", "info", "photo", "payments"])
+    ).toEqual(["info", "photo", "payments"])
+  })
+
+  it("keeps the standard non-kiosk flow steps unchanged", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: false,
+        requiresPhotoStep: true,
+      })
+    ).toEqual(["party", "datetime", "info", "photo", "payments", "review"])
   })
 
   it("uses the compact sign-in modal variant for check-in flows", () => {

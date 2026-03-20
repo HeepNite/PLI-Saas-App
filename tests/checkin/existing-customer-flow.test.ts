@@ -5,11 +5,11 @@ import {
 } from "@/lib/checkin/existing-customer-flow"
 
 describe("existing customer terminal flow helpers", () => {
-  it("starts existing customers on the contact information step", () => {
-    expect(getExistingCustomerInitialStep()).toBe(2)
+  it("starts existing kiosk customers on the contact information step", () => {
+    expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true })).toBe(0)
   })
 
-  it("keeps the entry step stable even without quick checkout", () => {
+  it("keeps the non-kiosk entry step stable for the full wizard", () => {
     expect(getExistingCustomerInitialStep()).toBe(2)
   })
 

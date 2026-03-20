@@ -1,6 +1,7 @@
 const EXISTING_CUSTOMER_INFO_STEP = 2
 
-export const getExistingCustomerInitialStep = () => EXISTING_CUSTOMER_INFO_STEP
+export const getExistingCustomerInitialStep = (input?: { isKioskTerminalFlow?: boolean }) =>
+  input?.isKioskTerminalFlow ? 0 : EXISTING_CUSTOMER_INFO_STEP
 
 export const shouldShowCheckInQrPanel = (input: {
   hideQrPanel: boolean
