@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   getCheckInSignInModalVariant,
+  isCheckInContactGateStep,
   resolveEnrollInitialStep,
   resolveEnrollStepKeys,
   shouldIncludePhotoStep,
@@ -73,5 +74,14 @@ describe("enroll flow helpers", () => {
   it("uses the compact sign-in modal variant for check-in flows", () => {
     expect(getCheckInSignInModalVariant(true)).toBe("compact")
     expect(getCheckInSignInModalVariant(false)).toBe("sheet")
+  })
+
+  it("treats the info step as the semantic contact gate for check-in flows", () => {
+    expect(isCheckInContactGateStep({ isCheckInFlow: true, activeStepKey: "info" })).toBe(true)
+    expect(isCheckInContactGateStep({ isCheckInFlow: true, activeStepKey: "payments" })).toBe(false)
+  })
+
+  it("does not run the contact gate outside check-in flows", () => {
+    expect(isCheckInContactGateStep({ isCheckInFlow: false, activeStepKey: "info" })).toBe(false)
   })
 })

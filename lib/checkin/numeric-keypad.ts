@@ -23,3 +23,5 @@ export const appendCodeDigit = (currentValue: string, digit: string, maxLength =
 export const removeCodeDigit = (currentValue: string) => currentValue.replace(/\D/g, "").slice(0, -1)
 
 export const clearCodeDigits = () => ""
+
+export type KioskNumericField = "phone" | "code" | null

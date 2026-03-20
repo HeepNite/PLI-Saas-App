@@ -46,6 +46,11 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
   ]
 }
 
+export const isCheckInContactGateStep = (input: {
+  isCheckInFlow: boolean
+  activeStepKey: EnrollStepKey | ""
+}) => input.isCheckInFlow && input.activeStepKey === "info"
+
 export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) =>
   input.isCheckInFlow && input.photoPolicyRequired && !(input.hasAvatar || input.photoSaved)
 

@@ -35,6 +35,7 @@ import {
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
   getCheckInSignInModalVariant,
+  isCheckInContactGateStep,
   resolveEnrollInitialStep,
   resolveEnrollStepKeys,
   shouldIncludePhotoStep,
@@ -46,7 +47,12 @@ import {
 } from "@/lib/checkin/new-student-flow"
 import { PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
-import { appendPhoneDigit, clearPhoneDigits, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
+import {
+  appendPhoneDigit,
+  clearPhoneDigits,
+  type KioskNumericField,
+  removePhoneDigit,
+} from "@/lib/checkin/numeric-keypad"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -401,6 +407,7 @@ export default function EnrollModal({
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
   const [preparedAccount, setPreparedAccount] = React.useState<PreparedAccountState | null>(null)
   const [photoSaved, setPhotoSaved] = React.useState<boolean>(false)
+  const [activeNumericField, setActiveNumericField] = React.useState<KioskNumericField>(null)
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
   const [signInPurpose, setSignInPurpose] = React.useState<"existing" | "sms_verification" | "account_preparation">("existing")
@@ -601,6 +608,7 @@ export default function EnrollModal({
     setShowStripeModal(false)
     setPreparedAccount(null)
     setPhotoSaved(false)
+    setActiveNumericField(null)
     setNewStudentFallbackPhoneKey(null)
     setFlowPopup(null)
     setSignInPurpose("existing")
@@ -1502,7 +1510,7 @@ export default function EnrollModal({
 
   const handleFormStepSubmit = async () => {
     if (step < steps.length - 1) {
-      if (step === 2 && isCheckInFlow) {
+      if (isCheckInContactGateStep({ isCheckInFlow, activeStepKey })) {
         await advanceFromContactStep()
         return
       }
@@ -1583,6 +1591,16 @@ export default function EnrollModal({
     setStep((prev) => Math.max(0, Math.min(prev, steps.length - 1)))
   }, [open, steps.length])
 
+  const activeStepKey = steps[step]?.key || ""
+
+  React.useEffect(() => {
+    if (!isKioskTerminalFlow || !open) {
+      setActiveNumericField(null)
+      return
+    }
+    setActiveNumericField(activeStepKey === "info" ? "phone" : null)
+  }, [activeStepKey, isKioskTerminalFlow, open])
+
   const stepValid = (s: number) => {
     const stepKey = steps[s]?.key
     switch (stepKey) {
@@ -1604,8 +1622,14 @@ export default function EnrollModal({
     }
   }
 
-  const activeStepKey = steps[step]?.key || ""
   const canContinue = stepValid(step)
+  const renderKioskCursorHint = (field: KioskNumericField) =>
+    isKioskTerminalFlow && activeNumericField === field ? (
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-1/2 h-5 w-[2px] -translate-y-1/2 animate-pulse rounded-full bg-[var(--brand,#ff7a7a)]"
+      />
+    ) : null
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
   const signInModalTitle =
     signInPurpose === "sms_verification"
@@ -1678,7 +1702,7 @@ export default function EnrollModal({
           <button
             type="button"
             onClick={handleClose}
-            className="absolute right-3 top-3 h-9 w-9 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+            className="absolute right-2 top-2 z-20 h-9 w-9 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 sm:right-3 sm:top-3"
             aria-label={t("aria_close")}
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/></svg>
@@ -1904,7 +1928,7 @@ export default function EnrollModal({
           >
             <div className={isInline ? "" : "mx-auto w-full max-w-2xl"}>
               {!(success && isCheckInFlow) && (
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-3 flex items-center gap-2 pr-12">
                   {step > 0 && (
                     <button
                       type="button"
@@ -2263,35 +2287,51 @@ export default function EnrollModal({
                         <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
                         US
                       </span>
-                      <input
-                        type={PHONE_INPUT_ATTRIBUTES.type}
-                        value={contact.phone}
-                        onChange={(e) => {
-                          setPhoneTouched(true)
-                          setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
-                        }}
-                        onBlur={() => setPhoneTouched(true)}
-                        placeholder="(929) 387-6584"
-                        readOnly={isKioskTerminalFlow}
-                        inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
-                        autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
-                        enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
-                        aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
-                        className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2"
-                      />
+                      <div className="relative w-full">
+                        <input
+                          type={PHONE_INPUT_ATTRIBUTES.type}
+                          value={contact.phone}
+                          onChange={(e) => {
+                            setPhoneTouched(true)
+                            setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
+                          }}
+                          onBlur={() => setPhoneTouched(true)}
+                          onFocus={() => {
+                            if (isKioskTerminalFlow) setActiveNumericField("phone")
+                          }}
+                          onClick={() => {
+                            if (isKioskTerminalFlow) setActiveNumericField("phone")
+                          }}
+                          placeholder="(929) 387-6584"
+                          readOnly={isKioskTerminalFlow}
+                          inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
+                          autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
+                          enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
+                          aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
+                          className={`w-full rounded-md border bg-white/80 px-3 py-2 dark:bg-white/10 ${
+                            isKioskTerminalFlow && activeNumericField === "phone"
+                              ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
+                              : "border-black/10 dark:border-white/10"
+                          }`}
+                        />
+                        {renderKioskCursorHint("phone")}
+                      </div>
                     </div>
                     {isKioskTerminalFlow && (
                       <KioskNumericKeypad
                         className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
                         onDigit={(digit) => {
+                          setActiveNumericField("phone")
                           setPhoneTouched(true)
                           setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
                         }}
                         onBackspace={() => {
+                          setActiveNumericField("phone")
                           setPhoneTouched(true)
                           setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
                         }}
                         onClear={() => {
+                          setActiveNumericField("phone")
                           setPhoneTouched(true)
                           setContact((c) => ({ ...c, phone: clearPhoneDigits() }))
                         }}
@@ -2625,7 +2665,7 @@ export default function EnrollModal({
             }`}
           >
             <div className="flex items-start justify-between gap-4">
-              <div>
+              <div className="pr-10">
                 <h3 className="text-lg font-semibold text-white">{signInModalTitle}</h3>
                 <p className="text-sm text-white/68">{signInModalSubtitle}</p>
               </div>

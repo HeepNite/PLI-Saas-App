@@ -11,6 +11,7 @@ import {
   appendPhoneDigit,
   clearCodeDigits,
   clearPhoneDigits,
+  type KioskNumericField,
   removeCodeDigit,
   removePhoneDigit,
 } from "@/lib/checkin/numeric-keypad"
@@ -64,12 +65,28 @@ export default function EmbeddedSignIn({
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [phoneNumberId, setPhoneNumberId] = React.useState<string>("")
+  const [activeField, setActiveField] = React.useState<KioskNumericField>(useNumericKeypad ? "phone" : null)
 
   React.useEffect(() => {
     setPhone(formatUSPhone(phoneNumber || ""))
   }, [phoneNumber])
 
+  React.useEffect(() => {
+    if (!useNumericKeypad) {
+      setActiveField(null)
+      return
+    }
+    setActiveField(step === "code" ? "code" : "phone")
+  }, [step, useNumericKeypad])
+
   const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
+  const renderCursorHint = (field: KioskNumericField) =>
+    useNumericKeypad && activeField === field ? (
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-1/2 h-5 w-[2px] -translate-y-1/2 animate-pulse rounded-full bg-[var(--brand,#ff7a7a)]"
+      />
+    ) : null
 
   const moveToCodeStepFromCurrentAttempt = React.useCallback(() => {
     if (!signIn) return false
@@ -233,33 +250,49 @@ export default function EmbeddedSignIn({
           </div>
           <label className="block space-y-2">
             <span className="text-xs font-medium text-white/85">Phone</span>
-            <input
-              type={PHONE_INPUT_ATTRIBUTES.type}
-              value={phone}
-              onChange={(event) => {
-                setPhone(formatUSPhone(event.target.value))
-                setError(null)
-              }}
-              readOnly={useNumericKeypad}
-              inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
-              autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
-              enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
-              placeholder="+1 (929) 387-6584"
-              className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition focus:border-[var(--brand,#c71818)]"
-            />
+            <div className="relative">
+              <input
+                type={PHONE_INPUT_ATTRIBUTES.type}
+                value={phone}
+                onChange={(event) => {
+                  setPhone(formatUSPhone(event.target.value))
+                  setError(null)
+                }}
+                onFocus={() => {
+                  if (useNumericKeypad) setActiveField("phone")
+                }}
+                onClick={() => {
+                  if (useNumericKeypad) setActiveField("phone")
+                }}
+                readOnly={useNumericKeypad}
+                inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
+                autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
+                enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
+                placeholder="+1 (929) 387-6584"
+                className={`h-11 w-full rounded-xl border bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition ${
+                  useNumericKeypad && activeField === "phone"
+                    ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
+                    : "border-white/12 focus:border-[var(--brand,#c71818)]"
+                }`}
+              />
+              {renderCursorHint("phone")}
+            </div>
           </label>
           {useNumericKeypad && (
             <KioskNumericKeypad
               disabled={busy}
               onDigit={(digit) => {
+                setActiveField("phone")
                 setPhone((prev) => appendPhoneDigit(prev, digit))
                 setError(null)
               }}
               onBackspace={() => {
+                setActiveField("phone")
                 setPhone((prev) => removePhoneDigit(prev))
                 setError(null)
               }}
               onClear={() => {
+                setActiveField("phone")
                 setPhone(clearPhoneDigits())
                 setError(null)
               }}
@@ -284,33 +317,49 @@ export default function EmbeddedSignIn({
           </div>
           <label className="block space-y-2">
             <span className="text-xs font-medium text-white/85">Code</span>
-            <input
-              type={CODE_INPUT_ATTRIBUTES.type}
-              value={code}
-              onChange={(event) => {
-                setCode(event.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))
-                setError(null)
-              }}
-              readOnly={useNumericKeypad}
-              inputMode={CODE_INPUT_ATTRIBUTES.inputMode}
-              autoComplete={CODE_INPUT_ATTRIBUTES.autoComplete}
-              enterKeyHint={CODE_INPUT_ATTRIBUTES.enterKeyHint}
-              placeholder="123456"
-              className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition focus:border-[var(--brand,#c71818)]"
-            />
+            <div className="relative">
+              <input
+                type={CODE_INPUT_ATTRIBUTES.type}
+                value={code}
+                onChange={(event) => {
+                  setCode(event.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))
+                  setError(null)
+                }}
+                onFocus={() => {
+                  if (useNumericKeypad) setActiveField("code")
+                }}
+                onClick={() => {
+                  if (useNumericKeypad) setActiveField("code")
+                }}
+                readOnly={useNumericKeypad}
+                inputMode={CODE_INPUT_ATTRIBUTES.inputMode}
+                autoComplete={CODE_INPUT_ATTRIBUTES.autoComplete}
+                enterKeyHint={CODE_INPUT_ATTRIBUTES.enterKeyHint}
+                placeholder="123456"
+                className={`h-11 w-full rounded-xl border bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition ${
+                  useNumericKeypad && activeField === "code"
+                    ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
+                    : "border-white/12 focus:border-[var(--brand,#c71818)]"
+                }`}
+              />
+              {renderCursorHint("code")}
+            </div>
           </label>
           {useNumericKeypad && (
             <KioskNumericKeypad
               disabled={busy}
               onDigit={(digit) => {
+                setActiveField("code")
                 setCode((prev) => appendCodeDigit(prev, digit, CODE_LENGTH))
                 setError(null)
               }}
               onBackspace={() => {
+                setActiveField("code")
                 setCode((prev) => removeCodeDigit(prev))
                 setError(null)
               }}
               onClear={() => {
+                setActiveField("code")
                 setCode(clearCodeDigits())
                 setError(null)
               }}
