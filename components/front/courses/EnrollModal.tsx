@@ -1806,34 +1806,76 @@ export default function EnrollModal({
                   <>
                     <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
                       <div className="font-semibold mb-2">{t("summary")}</div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
-                        <div className="space-y-1">
-                          <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
-                          <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                          {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
-                          <div>{t("people")}: {participants}</div>
+                      <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+                        <div className="space-y-2">
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("service")}</div>
+                            <div className="mt-1 text-white/85">{course.enrollment.services.find((s)=>s.id===service)?.label || "—"}</div>
+                          </div>
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("package")}</div>
+                            <div className="mt-1 text-white/85">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                          </div>
+                          {!!addons.length && (
+                            <div className="break-words">
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("extras")}</div>
+                              <div className="mt-1 text-white/85">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>
+                            </div>
+                          )}
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("people")}</div>
+                            <div className="mt-1 text-white/85">{participants}</div>
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
-                          <div>{t("email")}: {contact.email || "—"}</div>
-                          <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                        <div className="space-y-2">
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("dateTime")}</div>
+                            <div className="mt-1 text-white/85">{date || "—"} {to12h(time) || ""}</div>
+                          </div>
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("email")}</div>
+                            <div className="mt-1 text-white/85">{contact.email || "—"}</div>
+                          </div>
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("total")}</div>
+                            <div className="mt-1 text-white/85"><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                          </div>
                         </div>
                       </div>
                     </div>
                     <div className="mt-4 sm:hidden">
                       <details className="rounded-md border border-white/10 p-3 text-xs">
                         <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
-                        <div className="mt-2 flex flex-col gap-2">
-                          <div className="space-y-1">
-                            <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
-                            <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                            {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
-                            <div>{t("people")}: {participants}</div>
+                        <div className="mt-2 space-y-2">
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("service")}</div>
+                            <div className="mt-1 text-white/85">{course.enrollment.services.find((s)=>s.id===service)?.label || "—"}</div>
                           </div>
-                          <div className="space-y-1">
-                            <div>{t("dateTime")}: {date || "—"} {to12h(time) || ""}</div>
-                            <div>{t("email")}: {contact.email || "—"}</div>
-                            <div className="pt-1">{t("total")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("package")}</div>
+                            <div className="mt-1 text-white/85">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
+                          </div>
+                          {!!addons.length && (
+                            <div className="break-words">
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("extras")}</div>
+                              <div className="mt-1 text-white/85">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>
+                            </div>
+                          )}
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("people")}</div>
+                            <div className="mt-1 text-white/85">{participants}</div>
+                          </div>
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("dateTime")}</div>
+                            <div className="mt-1 text-white/85">{date || "—"} {to12h(time) || ""}</div>
+                          </div>
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("email")}</div>
+                            <div className="mt-1 text-white/85">{contact.email || "—"}</div>
+                          </div>
+                          <div className="break-words">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("total")}</div>
+                            <div className="mt-1 text-white/85"><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
                           </div>
                         </div>
                       </details>
@@ -2229,7 +2271,7 @@ export default function EnrollModal({
                         placeholder="(929) 387-6584"
                         inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
                         autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
-                        pattern={PHONE_INPUT_ATTRIBUTES.pattern}
+                        enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
                         aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
                         className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2"
                       />

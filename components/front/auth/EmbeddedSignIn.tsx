@@ -231,7 +231,7 @@ export default function EmbeddedSignIn({
               }}
               inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
               autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
-              pattern={PHONE_INPUT_ATTRIBUTES.pattern}
+              enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
               placeholder="+1 (929) 387-6584"
               className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition focus:border-[var(--brand,#c71818)]"
             />
@@ -264,7 +264,7 @@ export default function EmbeddedSignIn({
               }}
               inputMode={CODE_INPUT_ATTRIBUTES.inputMode}
               autoComplete={CODE_INPUT_ATTRIBUTES.autoComplete}
-              pattern={CODE_INPUT_ATTRIBUTES.pattern}
+              enterKeyHint={CODE_INPUT_ATTRIBUTES.enterKeyHint}
               placeholder="123456"
               className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition focus:border-[var(--brand,#c71818)]"
             />
