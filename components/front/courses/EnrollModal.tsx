@@ -36,6 +36,7 @@ import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
   getCheckInSignInModalVariant,
   resolveEnrollInitialStep,
+  resolveEnrollStepKeys,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
 import {
@@ -44,6 +45,8 @@ import {
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
 import { PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
+import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
+import { appendPhoneDigit, clearPhoneDigits, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -331,6 +334,8 @@ export default function EnrollModal({
   const isCheckInNewFlow = flowVariant === "checkin-new"
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
+  const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
+  const isTerminalNewFlow = isCheckInNewFlow && isKioskTerminalFlow
   const isStationCompletion = isCheckInFlow && completionMode === "station"
   const isPersonalCompletion = isCheckInFlow && completionMode === "personal"
   const photoPolicy = React.useMemo(() => getPhotoPolicy(photoFlowContext), [photoFlowContext])
@@ -424,17 +429,34 @@ export default function EnrollModal({
       }),
     [accountHasAvatar, isCheckInFlow, photoPolicy.photoRequired, photoSaved]
   )
+  const stepKeys = React.useMemo(
+    () =>
+      resolveEnrollStepKeys({
+        isCheckInFlow,
+        isCheckInNewFlow,
+        isKioskTerminalFlow,
+        requiresPhotoStep,
+      }),
+    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep]
+  )
   const steps = React.useMemo(
     () =>
-      [
-        { key: "party", label: t("step_party") },
-        { key: "datetime", label: t("step_datetime") },
-        { key: "info", label: t("step_info") },
-        ...(requiresPhotoStep ? [{ key: "photo", label: "Photo" }] : []),
-        { key: "payments", label: t("step_payments") },
-        ...(isCheckInFlow ? [] : [{ key: "review", label: t("step_review") }]),
-      ] as const,
-    [isCheckInFlow, requiresPhotoStep, t]
+      stepKeys.map((key) => ({
+        key,
+        label:
+          key === "party"
+            ? t("step_party")
+            : key === "datetime"
+              ? t("step_datetime")
+              : key === "info"
+                ? t("step_info")
+                : key === "payments"
+                  ? t("step_payments")
+                  : key === "review"
+                    ? t("step_review")
+                    : "Photo",
+      })),
+    [stepKeys, t]
   )
   const stepIcons: Record<string, typeof User> = {
     party: User,
@@ -845,6 +867,17 @@ export default function EnrollModal({
       : paymentMethod === "onsite"
         ? t("payments_onSite")
         : "—"
+  const summaryGridClass = isKioskTerminalFlow ? "grid gap-3" : "grid gap-3 sm:grid-cols-2 sm:gap-4"
+
+  const renderSummaryItem = React.useCallback(
+    (label: string, value: React.ReactNode) => (
+      <div className="break-words">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{label}</div>
+        <div className="mt-1 whitespace-normal break-words text-white/85">{value}</div>
+      </div>
+    ),
+    []
+  )
 
   const formatPackageMeta = React.useCallback((option?: EnrollmentOption | null) => {
     if (!option?.meta) return option?.description
@@ -1806,40 +1839,25 @@ export default function EnrollModal({
                   <>
                     <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
                       <div className="font-semibold mb-2">{t("summary")}</div>
-                      <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+                      <div className={summaryGridClass}>
                         <div className="space-y-2">
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("service")}</div>
-                            <div className="mt-1 text-white/85">{course.enrollment.services.find((s)=>s.id===service)?.label || "—"}</div>
-                          </div>
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("package")}</div>
-                            <div className="mt-1 text-white/85">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                          </div>
+                          {renderSummaryItem(t("service"), course.enrollment.services.find((s)=>s.id===service)?.label || "—")}
+                          {renderSummaryItem(t("package"), course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—")}
                           {!!addons.length && (
-                            <div className="break-words">
-                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("extras")}</div>
-                              <div className="mt-1 text-white/85">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>
-                            </div>
+                            renderSummaryItem(
+                              t("extras"),
+                              addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")
+                            )
                           )}
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("people")}</div>
-                            <div className="mt-1 text-white/85">{participants}</div>
-                          </div>
+                          {renderSummaryItem(t("people"), participants)}
                         </div>
                         <div className="space-y-2">
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("dateTime")}</div>
-                            <div className="mt-1 text-white/85">{date || "—"} {to12h(time) || ""}</div>
-                          </div>
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("email")}</div>
-                            <div className="mt-1 text-white/85">{contact.email || "—"}</div>
-                          </div>
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("total")}</div>
-                            <div className="mt-1 text-white/85"><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
-                          </div>
+                          {renderSummaryItem(t("dateTime"), <>{date || "—"} {to12h(time) || ""}</>)}
+                          {renderSummaryItem(t("email"), contact.email || "—")}
+                          {renderSummaryItem(
+                            t("total"),
+                            <><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1847,36 +1865,21 @@ export default function EnrollModal({
                       <details className="rounded-md border border-white/10 p-3 text-xs">
                         <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
                         <div className="mt-2 space-y-2">
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("service")}</div>
-                            <div className="mt-1 text-white/85">{course.enrollment.services.find((s)=>s.id===service)?.label || "—"}</div>
-                          </div>
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("package")}</div>
-                            <div className="mt-1 text-white/85">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                          </div>
+                          {renderSummaryItem(t("service"), course.enrollment.services.find((s)=>s.id===service)?.label || "—")}
+                          {renderSummaryItem(t("package"), course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—")}
                           {!!addons.length && (
-                            <div className="break-words">
-                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("extras")}</div>
-                              <div className="mt-1 text-white/85">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>
-                            </div>
+                            renderSummaryItem(
+                              t("extras"),
+                              addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")
+                            )
                           )}
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("people")}</div>
-                            <div className="mt-1 text-white/85">{participants}</div>
-                          </div>
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("dateTime")}</div>
-                            <div className="mt-1 text-white/85">{date || "—"} {to12h(time) || ""}</div>
-                          </div>
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("email")}</div>
-                            <div className="mt-1 text-white/85">{contact.email || "—"}</div>
-                          </div>
-                          <div className="break-words">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("total")}</div>
-                            <div className="mt-1 text-white/85"><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
-                          </div>
+                          {renderSummaryItem(t("people"), participants)}
+                          {renderSummaryItem(t("dateTime"), <>{date || "—"} {to12h(time) || ""}</>)}
+                          {renderSummaryItem(t("email"), contact.email || "—")}
+                          {renderSummaryItem(
+                            t("total"),
+                            <><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></>
+                          )}
                         </div>
                       </details>
                     </div>
@@ -2269,6 +2272,7 @@ export default function EnrollModal({
                         }}
                         onBlur={() => setPhoneTouched(true)}
                         placeholder="(929) 387-6584"
+                        readOnly={isKioskTerminalFlow}
                         inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
                         autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
                         enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
@@ -2276,6 +2280,23 @@ export default function EnrollModal({
                         className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2"
                       />
                     </div>
+                    {isKioskTerminalFlow && (
+                      <KioskNumericKeypad
+                        className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
+                        onDigit={(digit) => {
+                          setPhoneTouched(true)
+                          setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
+                        }}
+                        onBackspace={() => {
+                          setPhoneTouched(true)
+                          setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
+                        }}
+                        onClear={() => {
+                          setPhoneTouched(true)
+                          setContact((c) => ({ ...c, phone: clearPhoneDigits() }))
+                        }}
+                      />
+                    )}
                     {phoneTouched && !isCompleteUSPhone(contact.phone) && (
                       <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
                     )}
@@ -2620,6 +2641,7 @@ export default function EnrollModal({
               <EmbeddedSignIn
                 redirectUrl={signInReturnTo}
                 phoneNumber={toE164Phone(contact.phone)}
+                useNumericKeypad={isKioskTerminalFlow}
                 onSuccessAction={
                   isCheckInFlow
                     ? async () => {

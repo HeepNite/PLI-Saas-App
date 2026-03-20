@@ -3,6 +3,15 @@ type ResolveEnrollInitialStepInput = {
   stepsLength: number
 }
 
+export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "payments" | "review"
+
+type ResolveEnrollStepKeysInput = {
+  isCheckInFlow: boolean
+  isCheckInNewFlow: boolean
+  isKioskTerminalFlow: boolean
+  requiresPhotoStep: boolean
+}
+
 type ShouldIncludePhotoStepInput = {
   isCheckInFlow: boolean
   photoPolicyRequired: boolean
@@ -16,6 +25,25 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
     return 0
   }
   return Math.max(0, Math.min(maxStep, Math.floor(input.initialStep)))
+}
+
+export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
+  if (input.isCheckInNewFlow && input.isKioskTerminalFlow) {
+    return [
+      "info",
+      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+      "payments",
+    ]
+  }
+
+  return [
+    "party",
+    "datetime",
+    "info",
+    ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+    "payments",
+    ...(input.isCheckInFlow ? [] : (["review"] as const)),
+  ]
 }
 
 export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) =>

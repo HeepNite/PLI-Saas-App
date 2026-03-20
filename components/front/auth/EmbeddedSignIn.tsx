@@ -5,6 +5,15 @@ import { Loader2 } from "lucide-react"
 import { useSignIn } from "@clerk/nextjs"
 import { formatUSPhone, isCompleteUSPhone, toE164Phone } from "@/components/front/courses/utils/phone"
 import { CODE_INPUT_ATTRIBUTES, PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
+import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
+import {
+  appendCodeDigit,
+  appendPhoneDigit,
+  clearCodeDigits,
+  clearPhoneDigits,
+  removeCodeDigit,
+  removePhoneDigit,
+} from "@/lib/checkin/numeric-keypad"
 
 type PhoneCodeFactor = {
   strategy: "phone_code"
@@ -41,10 +50,12 @@ export default function EmbeddedSignIn({
   redirectUrl,
   phoneNumber,
   onSuccessAction,
+  useNumericKeypad = false,
 }: {
   redirectUrl: string
   phoneNumber?: string
   onSuccessAction?: () => void | Promise<void>
+  useNumericKeypad?: boolean
 }) {
   const { isLoaded, signIn, setActive } = useSignIn()
   const [phone, setPhone] = React.useState(() => formatUSPhone(phoneNumber || ""))
@@ -229,6 +240,7 @@ export default function EmbeddedSignIn({
                 setPhone(formatUSPhone(event.target.value))
                 setError(null)
               }}
+              readOnly={useNumericKeypad}
               inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
               autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
               enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
@@ -236,6 +248,23 @@ export default function EmbeddedSignIn({
               className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition focus:border-[var(--brand,#c71818)]"
             />
           </label>
+          {useNumericKeypad && (
+            <KioskNumericKeypad
+              disabled={busy}
+              onDigit={(digit) => {
+                setPhone((prev) => appendPhoneDigit(prev, digit))
+                setError(null)
+              }}
+              onBackspace={() => {
+                setPhone((prev) => removePhoneDigit(prev))
+                setError(null)
+              }}
+              onClear={() => {
+                setPhone(clearPhoneDigits())
+                setError(null)
+              }}
+            />
+          )}
           {error && <p className="text-xs text-red-200">{error}</p>}
           <button
             type="button"
@@ -262,6 +291,7 @@ export default function EmbeddedSignIn({
                 setCode(event.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))
                 setError(null)
               }}
+              readOnly={useNumericKeypad}
               inputMode={CODE_INPUT_ATTRIBUTES.inputMode}
               autoComplete={CODE_INPUT_ATTRIBUTES.autoComplete}
               enterKeyHint={CODE_INPUT_ATTRIBUTES.enterKeyHint}
@@ -269,6 +299,23 @@ export default function EmbeddedSignIn({
               className="h-11 w-full rounded-xl border border-white/12 bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition focus:border-[var(--brand,#c71818)]"
             />
           </label>
+          {useNumericKeypad && (
+            <KioskNumericKeypad
+              disabled={busy}
+              onDigit={(digit) => {
+                setCode((prev) => appendCodeDigit(prev, digit, CODE_LENGTH))
+                setError(null)
+              }}
+              onBackspace={() => {
+                setCode((prev) => removeCodeDigit(prev))
+                setError(null)
+              }}
+              onClear={() => {
+                setCode(clearCodeDigits())
+                setError(null)
+              }}
+            />
+          )}
           {error && <p className="text-xs text-red-200">{error}</p>}
           <div className="flex items-center justify-between gap-3 text-xs">
             <button

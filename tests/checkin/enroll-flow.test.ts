@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   getCheckInSignInModalVariant,
   resolveEnrollInitialStep,
+  resolveEnrollStepKeys,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
 
@@ -34,6 +35,28 @@ describe("enroll flow helpers", () => {
         photoSaved: false,
       })
     ).toBe(true)
+  })
+
+  it("starts kiosk new-customer check-in on info and hides party/datetime", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: false,
+      })
+    ).toEqual(["info", "payments"])
+  })
+
+  it("keeps the standard existing-customer flow steps unchanged", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: true,
+      })
+    ).toEqual(["party", "datetime", "info", "photo", "payments"])
   })
 
   it("uses the compact sign-in modal variant for check-in flows", () => {

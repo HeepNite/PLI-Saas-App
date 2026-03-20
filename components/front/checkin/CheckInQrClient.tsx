@@ -1371,6 +1371,7 @@ export default function CheckInQrClient({
               <EmbeddedSignIn
                 redirectUrl={forceRedirectUrl}
                 phoneNumber={toE164Phone(pendingLoginPhone)}
+                useNumericKeypad={photoFlowContext === "kiosk_terminal"}
                 onSuccessAction={async () => {
                   setShowPhoneSignIn(false)
                   setPendingLoginPhone("")
