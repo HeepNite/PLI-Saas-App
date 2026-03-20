@@ -4,7 +4,12 @@ import React from "react"
 import { Loader2 } from "lucide-react"
 import { useSignIn } from "@clerk/nextjs"
 import { formatUSPhone, isCompleteUSPhone, toE164Phone } from "@/components/front/courses/utils/phone"
-import { CODE_INPUT_ATTRIBUTES, PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
+import {
+  CODE_INPUT_ATTRIBUTES,
+  INITIAL_KIOSK_NUMERIC_FIELD,
+  PHONE_INPUT_ATTRIBUTES,
+  selectKioskNumericField,
+} from "@/lib/checkin/sign-in-inputs"
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import {
   appendCodeDigit,
@@ -65,7 +70,7 @@ export default function EmbeddedSignIn({
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [phoneNumberId, setPhoneNumberId] = React.useState<string>("")
-  const [activeField, setActiveField] = React.useState<KioskNumericField>(useNumericKeypad ? "phone" : null)
+  const [activeField, setActiveField] = React.useState<KioskNumericField>(INITIAL_KIOSK_NUMERIC_FIELD)
 
   React.useEffect(() => {
     setPhone(formatUSPhone(phoneNumber || ""))
@@ -73,11 +78,9 @@ export default function EmbeddedSignIn({
 
   React.useEffect(() => {
     if (!useNumericKeypad) {
-      setActiveField(null)
-      return
+      setActiveField(INITIAL_KIOSK_NUMERIC_FIELD)
     }
-    setActiveField(step === "code" ? "code" : "phone")
-  }, [step, useNumericKeypad])
+  }, [useNumericKeypad])
 
   const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
   const renderCursorHint = (field: KioskNumericField) =>
@@ -259,10 +262,10 @@ export default function EmbeddedSignIn({
                   setError(null)
                 }}
                 onFocus={() => {
-                  if (useNumericKeypad) setActiveField("phone")
+                  if (useNumericKeypad) setActiveField(selectKioskNumericField("phone"))
                 }}
                 onClick={() => {
-                  if (useNumericKeypad) setActiveField("phone")
+                  if (useNumericKeypad) setActiveField(selectKioskNumericField("phone"))
                 }}
                 readOnly={useNumericKeypad}
                 inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
@@ -282,17 +285,17 @@ export default function EmbeddedSignIn({
             <KioskNumericKeypad
               disabled={busy}
               onDigit={(digit) => {
-                setActiveField("phone")
+                setActiveField(selectKioskNumericField("phone"))
                 setPhone((prev) => appendPhoneDigit(prev, digit))
                 setError(null)
               }}
               onBackspace={() => {
-                setActiveField("phone")
+                setActiveField(selectKioskNumericField("phone"))
                 setPhone((prev) => removePhoneDigit(prev))
                 setError(null)
               }}
               onClear={() => {
-                setActiveField("phone")
+                setActiveField(selectKioskNumericField("phone"))
                 setPhone(clearPhoneDigits())
                 setError(null)
               }}
@@ -326,10 +329,10 @@ export default function EmbeddedSignIn({
                   setError(null)
                 }}
                 onFocus={() => {
-                  if (useNumericKeypad) setActiveField("code")
+                  if (useNumericKeypad) setActiveField(selectKioskNumericField("code"))
                 }}
                 onClick={() => {
-                  if (useNumericKeypad) setActiveField("code")
+                  if (useNumericKeypad) setActiveField(selectKioskNumericField("code"))
                 }}
                 readOnly={useNumericKeypad}
                 inputMode={CODE_INPUT_ATTRIBUTES.inputMode}
@@ -349,17 +352,17 @@ export default function EmbeddedSignIn({
             <KioskNumericKeypad
               disabled={busy}
               onDigit={(digit) => {
-                setActiveField("code")
+                setActiveField(selectKioskNumericField("code"))
                 setCode((prev) => appendCodeDigit(prev, digit, CODE_LENGTH))
                 setError(null)
               }}
               onBackspace={() => {
-                setActiveField("code")
+                setActiveField(selectKioskNumericField("code"))
                 setCode((prev) => removeCodeDigit(prev))
                 setError(null)
               }}
               onClear={() => {
-                setActiveField("code")
+                setActiveField(selectKioskNumericField("code"))
                 setCode(clearCodeDigits())
                 setError(null)
               }}

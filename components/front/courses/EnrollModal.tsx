@@ -45,7 +45,11 @@ import {
   normalizePhoneKey,
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
-import { PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
+import {
+  INITIAL_KIOSK_NUMERIC_FIELD,
+  PHONE_INPUT_ATTRIBUTES,
+  selectKioskNumericField,
+} from "@/lib/checkin/sign-in-inputs"
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import {
   appendPhoneDigit,
@@ -140,6 +144,27 @@ const to12hLabel = (time24: string) => {
   const ampm = hour24 >= 12 ? "PM" : "AM"
   const hour12 = hour24 % 12 || 12
   return `${hour12}:${pad(minute)} ${ampm}`
+}
+
+export const formatCheckInSummaryDateTime = (dateIso: string, time24: string, timeZone = CHECKIN_TIME_ZONE) => {
+  const normalizedDate = normalizeIsoDate(dateIso)
+  const normalizedTime = normalizeTime24(time24)
+  if (!normalizedDate || !normalizedTime) return "—"
+
+  const [year, month, day] = normalizedDate.split("-").map((part) => Number.parseInt(part, 10))
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return `${normalizedDate} · ${to12hLabel(normalizedTime)}`
+  }
+
+  const stableDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(stableDate)
+
+  return `${dateLabel} · ${to12hLabel(normalizedTime)}`
 }
 
 const sortTime24 = (values: string[]) =>
@@ -407,7 +432,7 @@ export default function EnrollModal({
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
   const [preparedAccount, setPreparedAccount] = React.useState<PreparedAccountState | null>(null)
   const [photoSaved, setPhotoSaved] = React.useState<boolean>(false)
-  const [activeNumericField, setActiveNumericField] = React.useState<KioskNumericField>(null)
+  const [activeNumericField, setActiveNumericField] = React.useState<KioskNumericField>(INITIAL_KIOSK_NUMERIC_FIELD)
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
   const [signInPurpose, setSignInPurpose] = React.useState<"existing" | "sms_verification" | "account_preparation">("existing")
@@ -916,6 +941,13 @@ export default function EnrollModal({
 
   // Helpers
   const to12h = (value: string) => to12hLabel(value)
+  const formattedSummaryDateTime = React.useMemo(
+    () => formatCheckInSummaryDateTime(date, time),
+    [date, time]
+  )
+  const summaryDateTimeValue = isKioskTerminalFlow
+    ? formattedSummaryDateTime
+    : <>{date || "—"} {to12h(time) || ""}</>
   const checkInTodayIso = React.useMemo(
     () => getDateKeyInTimeZone(checkInNow, CHECKIN_TIME_ZONE),
     [checkInNow]
@@ -1594,11 +1626,10 @@ export default function EnrollModal({
   const activeStepKey = steps[step]?.key || ""
 
   React.useEffect(() => {
-    if (!isKioskTerminalFlow || !open) {
+    if (!isKioskTerminalFlow || !open || activeStepKey !== "info") {
       setActiveNumericField(null)
       return
     }
-    setActiveNumericField(activeStepKey === "info" ? "phone" : null)
   }, [activeStepKey, isKioskTerminalFlow, open])
 
   const stepValid = (s: number) => {
@@ -1863,8 +1894,9 @@ export default function EnrollModal({
                   <>
                     <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
                       <div className="font-semibold mb-2">{t("summary")}</div>
-                      <div className={summaryGridClass}>
-                        <div className="space-y-2">
+                        <div className={summaryGridClass}>
+                          <div className="space-y-2">
+                          {isKioskTerminalFlow && renderSummaryItem("Course", course.title)}
                           {renderSummaryItem(t("service"), course.enrollment.services.find((s)=>s.id===service)?.label || "—")}
                           {renderSummaryItem(t("package"), course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—")}
                           {!!addons.length && (
@@ -1876,7 +1908,7 @@ export default function EnrollModal({
                           {renderSummaryItem(t("people"), participants)}
                         </div>
                         <div className="space-y-2">
-                          {renderSummaryItem(t("dateTime"), <>{date || "—"} {to12h(time) || ""}</>)}
+                          {renderSummaryItem(isKioskTerminalFlow ? "Date/Time" : t("dateTime"), summaryDateTimeValue)}
                           {renderSummaryItem(t("email"), contact.email || "—")}
                           {renderSummaryItem(
                             t("total"),
@@ -1889,6 +1921,7 @@ export default function EnrollModal({
                       <details className="rounded-md border border-white/10 p-3 text-xs">
                         <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
                         <div className="mt-2 space-y-2">
+                          {isKioskTerminalFlow && renderSummaryItem("Course", course.title)}
                           {renderSummaryItem(t("service"), course.enrollment.services.find((s)=>s.id===service)?.label || "—")}
                           {renderSummaryItem(t("package"), course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—")}
                           {!!addons.length && (
@@ -1898,7 +1931,7 @@ export default function EnrollModal({
                             )
                           )}
                           {renderSummaryItem(t("people"), participants)}
-                          {renderSummaryItem(t("dateTime"), <>{date || "—"} {to12h(time) || ""}</>)}
+                          {renderSummaryItem(isKioskTerminalFlow ? "Date/Time" : t("dateTime"), summaryDateTimeValue)}
                           {renderSummaryItem(t("email"), contact.email || "—")}
                           {renderSummaryItem(
                             t("total"),
@@ -2296,12 +2329,12 @@ export default function EnrollModal({
                             setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
                           }}
                           onBlur={() => setPhoneTouched(true)}
-                          onFocus={() => {
-                            if (isKioskTerminalFlow) setActiveNumericField("phone")
-                          }}
-                          onClick={() => {
-                            if (isKioskTerminalFlow) setActiveNumericField("phone")
-                          }}
+                        onFocus={() => {
+                          if (isKioskTerminalFlow) setActiveNumericField(selectKioskNumericField("phone"))
+                        }}
+                        onClick={() => {
+                          if (isKioskTerminalFlow) setActiveNumericField(selectKioskNumericField("phone"))
+                        }}
                           placeholder="(929) 387-6584"
                           readOnly={isKioskTerminalFlow}
                           inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
@@ -2321,17 +2354,17 @@ export default function EnrollModal({
                       <KioskNumericKeypad
                         className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
                         onDigit={(digit) => {
-                          setActiveNumericField("phone")
+                          setActiveNumericField(selectKioskNumericField("phone"))
                           setPhoneTouched(true)
                           setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
                         }}
                         onBackspace={() => {
-                          setActiveNumericField("phone")
+                          setActiveNumericField(selectKioskNumericField("phone"))
                           setPhoneTouched(true)
                           setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
                         }}
                         onClear={() => {
-                          setActiveNumericField("phone")
+                          setActiveNumericField(selectKioskNumericField("phone"))
                           setPhoneTouched(true)
                           setContact((c) => ({ ...c, phone: clearPhoneDigits() }))
                         }}
