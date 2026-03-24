@@ -13,6 +13,7 @@ const mockPrisma = {
 
 vi.mock("@/lib/security/staff-portal-auth", () => ({
   authorizeStaffPortalRequest: (...args: unknown[]) => mockAuthorizePortal(...args),
+  authorizeStaffPortalSectionRequest: (...args: unknown[]) => mockAuthorizePortal(...args),
 }))
 
 vi.mock("@/lib/packages", () => ({

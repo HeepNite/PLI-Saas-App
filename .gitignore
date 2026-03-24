@@ -46,6 +46,10 @@ next-env.d.ts
 
 # editor / local
 .idea/
+.vscode/
+
+# local uploads
+public/uploads/
 
 # test artifacts
 test-results/

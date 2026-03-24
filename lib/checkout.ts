@@ -2,7 +2,7 @@ import "server-only"
 
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { verifyToken } from "@clerk/backend"
-import { ensureClerkUser, findClerkUserByIdentifiers, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
+import { ensureClerkUser, findClerkUserByIdentifiers, resolveAvatarState, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
 import type { PhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
@@ -203,14 +203,19 @@ export const prepareCheckoutAccount = async (
     created = Boolean(guestResult.ensuredClerkUser && !userId)
   }
 
-  if (resolvedClerkUser?.id) {
+  let avatarState = resolveAvatarState(resolvedClerkUser)
+
+  if (avatarState.needsRefresh && resolvedClerkUser?.id) {
     try {
       const client = await clerkClient()
       resolvedClerkUser = await client.users.getUser(resolvedClerkUser.id)
+      avatarState = resolveAvatarState(resolvedClerkUser)
     } catch (error) {
       console.warn("Unable to refresh Clerk user before avatar gating", error)
     }
   }
+
+  const hasAvatar = Boolean(avatarState.hasAvatar ?? resolveAvatarState(clerkUser).hasAvatar)
 
   const resolvedUserId = userId || resolvedClerkUser?.id || null
 
@@ -223,7 +228,7 @@ export const prepareCheckoutAccount = async (
       clerkUserId: resolvedUserId,
       created,
       requiresSignIn: Boolean(!userId && options.photoContext === "qr_phone"),
-      hasAvatar: Boolean(resolvedClerkUser?.hasImage || clerkUser?.hasImage),
+      hasAvatar,
     },
   }
 }
