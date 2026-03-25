@@ -43,11 +43,14 @@ import {
 } from "@/lib/checkin/enroll-flow"
 import {
   createEmptyKioskQrCheckoutState,
+  getKioskPaymentTransitionMessage,
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
   isKioskQrPendingPhase,
+  KIOSK_PAYMENT_TRANSITION_MIN_MS,
   KIOSK_QR_POLL_INTERVAL_MS,
   resolveKioskQrPhaseFromStatus,
+  shouldShowKioskPaymentTransition,
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
@@ -460,7 +463,10 @@ export default function EnrollModal({
   const [checkInScheduleNotice, setCheckInScheduleNotice] = React.useState<string | null>(null)
   const [checkInNow, setCheckInNow] = React.useState<Date>(() => new Date())
   const [kioskStepHydrating, setKioskStepHydrating] = React.useState(false)
+  const [showKioskPaymentTransition, setShowKioskPaymentTransition] = React.useState(false)
   const stationCompletionTimeoutRef = React.useRef<number | null>(null)
+  const kioskPaymentTransitionTimeoutRef = React.useRef<number | null>(null)
+  const previousActiveStepKeyRef = React.useRef<string | null>(null)
   const openInitializationRef = React.useRef(false)
   const prefillContactRef = React.useRef(prefillContact)
   const prefillSelectionRef = React.useRef(prefillSelection)
@@ -552,6 +558,10 @@ export default function EnrollModal({
   const signInModalVariant = React.useMemo(
     () => getCheckInSignInModalVariant(isCheckInFlow),
     [isCheckInFlow]
+  )
+  const kioskPaymentTransitionMessage = React.useMemo(
+    () => getKioskPaymentTransitionMessage(contact.firstName),
+    [contact.firstName]
   )
   React.useEffect(() => {
     prefillContactRef.current = prefillContact
@@ -645,6 +655,10 @@ export default function EnrollModal({
   }, [])
 
   const resetForm = React.useCallback(() => {
+    if (kioskPaymentTransitionTimeoutRef.current !== null) {
+      window.clearTimeout(kioskPaymentTransitionTimeoutRef.current)
+      kioskPaymentTransitionTimeoutRef.current = null
+    }
     setSuccess(false)
     setSuccessMessage(null)
     setAddons([])
@@ -672,6 +686,8 @@ export default function EnrollModal({
     setSignInPurpose("existing")
     setFormError(null)
     setProcessing(false)
+    setShowKioskPaymentTransition(false)
+    previousActiveStepKeyRef.current = null
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false
   }, [])
@@ -686,6 +702,10 @@ export default function EnrollModal({
       if (stationCompletionTimeoutRef.current !== null) {
         window.clearTimeout(stationCompletionTimeoutRef.current)
         stationCompletionTimeoutRef.current = null
+      }
+      if (kioskPaymentTransitionTimeoutRef.current !== null) {
+        window.clearTimeout(kioskPaymentTransitionTimeoutRef.current)
+        kioskPaymentTransitionTimeoutRef.current = null
       }
     }
   }, [])
@@ -1855,6 +1875,41 @@ export default function EnrollModal({
   })
 
   React.useEffect(() => {
+    if (kioskPaymentTransitionTimeoutRef.current !== null) {
+      window.clearTimeout(kioskPaymentTransitionTimeoutRef.current)
+      kioskPaymentTransitionTimeoutRef.current = null
+    }
+
+    if (!open) {
+      setShowKioskPaymentTransition(false)
+      previousActiveStepKeyRef.current = activeStepKey || null
+      return
+    }
+
+    const shouldShowPaymentTransition = shouldShowKioskPaymentTransition({
+      isKioskTerminalFlow,
+      isCheckInExistingFlow,
+      activeStepKey,
+      previousStepKey: previousActiveStepKeyRef.current,
+    })
+
+    previousActiveStepKeyRef.current = activeStepKey || null
+
+    if (!shouldShowPaymentTransition) {
+      if (activeStepKey !== "payments") {
+        setShowKioskPaymentTransition(false)
+      }
+      return
+    }
+
+    setShowKioskPaymentTransition(true)
+    kioskPaymentTransitionTimeoutRef.current = window.setTimeout(() => {
+      setShowKioskPaymentTransition(false)
+      kioskPaymentTransitionTimeoutRef.current = null
+    }, KIOSK_PAYMENT_TRANSITION_MIN_MS)
+  }, [activeStepKey, isCheckInExistingFlow, isKioskTerminalFlow, open])
+
+  React.useEffect(() => {
     if (!isKioskTerminalFlow || !open || activeStepKey !== "info") {
       setActiveNumericField(null)
       return
@@ -1877,6 +1932,7 @@ export default function EnrollModal({
     if (!kioskCardFastPathEligible) return
     if (!kioskFastPathAdvanceTriggeredRef.current || kioskFastPathSubmitTriggeredRef.current) return
     if (activeStepKey !== "payments") return
+    if (showKioskPaymentTransition) return
     if (processing || identityCheckBusy || requiresSignIn) return
     if (kioskQrCheckout.phase !== "idle") return
 
@@ -1891,6 +1947,7 @@ export default function EnrollModal({
     open,
     processing,
     requiresSignIn,
+    showKioskPaymentTransition,
   ])
 
   React.useEffect(() => {
@@ -2315,10 +2372,10 @@ export default function EnrollModal({
           <section
             className={
               isInline
-                ? "p-4 sm:p-6"
+                ? "relative p-4 sm:p-6"
                 : hideCalendarSidebar
-                  ? "md:col-span-12 p-3 sm:p-6"
-                  : "md:col-span-8 lg:col-span-9 p-3 sm:p-6"
+                  ? "relative md:col-span-12 p-3 sm:p-6"
+                  : "relative md:col-span-8 lg:col-span-9 p-3 sm:p-6"
             }
           >
             <div className={isInline ? "" : "mx-auto w-full max-w-2xl"}>
@@ -2972,6 +3029,25 @@ export default function EnrollModal({
                 </div>
                 {formError && <p className="text-sm text-red-600 mt-2" role="alert" aria-live="polite">{formError}</p>}
               </form>
+            )}
+            {showKioskPaymentTransition && activeStepKey === "payments" && !success && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,rgba(199,24,24,0.24),transparent_42%),linear-gradient(180deg,rgba(33,8,8,0.92),rgba(92,18,18,0.9))] px-6 py-8 backdrop-blur-sm">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle,rgba(255,255,255,0.14),transparent_60%)]" />
+                <div className="relative w-full max-w-sm rounded-[2rem] border border-white/12 bg-white/[0.06] px-6 py-8 text-center text-white shadow-[0_32px_80px_-40px_rgba(0,0,0,0.85)] backdrop-blur-md">
+                  <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+                    <span className="absolute inset-0 rounded-full border border-white/20 bg-[rgba(255,255,255,0.04)]" />
+                    <span className="absolute inset-2 rounded-full border border-[rgba(255,255,255,0.16)] animate-ping" />
+                    <span className="absolute inset-4 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.28),rgba(255,255,255,0.04))]" />
+                    <svg viewBox="0 0 64 64" className="relative h-12 w-12 text-white" fill="none" aria-hidden>
+                      <circle cx="34" cy="14" r="5" fill="currentColor" fillOpacity="0.95" />
+                      <path d="M31 22c5 0 9 3 11 7l4 8c1 2 0 4-2 5s-4 0-5-2l-2-4-4 8 8 10c1 2 1 4-1 6-2 1-4 1-6-1l-7-8-8 7c-2 2-4 2-6 0s-2-4 0-6l8-7 4-10-7 3c-2 1-4 0-5-2-1-2 0-4 2-5l9-5c2-1 3-1 5-1Z" fill="currentColor" fillOpacity="0.92" />
+                    </svg>
+                  </div>
+                  <p className="mt-5 text-[11px] uppercase tracking-[0.24em] text-white/62">Payment transition</p>
+                  <h4 className="mt-3 text-[1.65rem] font-semibold leading-tight">{kioskPaymentTransitionMessage}</h4>
+                  <p className="mt-3 text-sm leading-relaxed text-white/74">One moment while we prepare the payment step.</p>
+                </div>
+              </div>
             )}
             </div>
           </section>

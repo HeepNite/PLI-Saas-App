@@ -1,6 +1,7 @@
 import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
 
 export const KIOSK_QR_POLL_INTERVAL_MS = 3_000
+export const KIOSK_PAYMENT_TRANSITION_MIN_MS = 900
 
 export type KioskQrCheckoutPhase =
   | "idle"
@@ -55,7 +56,16 @@ type KioskInfoMaskInput = {
   fastPathEligible: boolean
 }
 
+type KioskPaymentTransitionInput = {
+  isKioskTerminalFlow: boolean
+  isCheckInExistingFlow: boolean
+  activeStepKey: string
+  previousStepKey: string | null
+}
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const normalizeFirstName = (value?: string) => value?.trim().split(/\s+/)[0] || ""
 
 const hasValidKioskFastPathPhone = (value?: string) => {
   const digits = normalizePhoneKey(value || "")
@@ -129,6 +139,20 @@ export const shouldMaskKioskInfoStep = (input: KioskInfoMaskInput) => {
   }
 
   return (input.isCheckInExistingFlow && input.hydrating) || input.fastPathEligible
+}
+
+export const shouldShowKioskPaymentTransition = (input: KioskPaymentTransitionInput) =>
+  input.isKioskTerminalFlow &&
+  input.isCheckInExistingFlow &&
+  input.activeStepKey === "payments" &&
+  input.previousStepKey !== null &&
+  input.previousStepKey !== "payments"
+
+export const getKioskPaymentTransitionMessage = (firstName?: string) => {
+  const normalizedFirstName = normalizeFirstName(firstName)
+  return normalizedFirstName
+    ? `We're getting your payment ready, ${normalizedFirstName}.`
+    : "We're getting your payment ready."
 }
 
 export const resolveKioskQrPhaseFromStatus = (status: string | null | undefined): KioskQrCheckoutPhase => {

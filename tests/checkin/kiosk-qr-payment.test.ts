@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   createEmptyKioskQrCheckoutState,
+  getKioskPaymentTransitionMessage,
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
+  KIOSK_PAYMENT_TRANSITION_MIN_MS,
   resolveKioskQrPhaseFromStatus,
+  shouldShowKioskPaymentTransition,
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
@@ -192,6 +195,41 @@ describe("kiosk QR payment helpers", () => {
         fastPathEligible: false,
       })
     ).toBe(false)
+  })
+
+  it("shows the branded payment transition only when kiosk existing customers enter payments", () => {
+    expect(
+      shouldShowKioskPaymentTransition({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        activeStepKey: "payments",
+        previousStepKey: "info",
+      })
+    ).toBe(true)
+
+    expect(
+      shouldShowKioskPaymentTransition({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        activeStepKey: "payments",
+        previousStepKey: "payments",
+      })
+    ).toBe(false)
+
+    expect(
+      shouldShowKioskPaymentTransition({
+        isKioskTerminalFlow: false,
+        isCheckInExistingFlow: true,
+        activeStepKey: "payments",
+        previousStepKey: "info",
+      })
+    ).toBe(false)
+  })
+
+  it("builds the branded payment transition copy with or without first name", () => {
+    expect(getKioskPaymentTransitionMessage("Mora")).toBe("We're getting your payment ready, Mora.")
+    expect(getKioskPaymentTransitionMessage("   ")).toBe("We're getting your payment ready.")
+    expect(KIOSK_PAYMENT_TRANSITION_MIN_MS).toBeGreaterThanOrEqual(800)
   })
 
   it("keeps the auto-submit fast path off for cash or incomplete prefill", () => {
