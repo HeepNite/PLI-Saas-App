@@ -35,6 +35,15 @@ type KioskFastPathEligibilityInput = {
   }
 }
 
+type KioskInfoAutoAdvanceInput = KioskFastPathEligibilityInput & {
+  activeStepKey: string
+  open: boolean
+  processing: boolean
+  identityCheckBusy: boolean
+  requiresSignIn: boolean
+  hasError: boolean
+}
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const hasValidKioskFastPathPhone = (value?: string) => {
@@ -86,6 +95,18 @@ export const isKioskInfoFastPathEligible = (input: KioskFastPathEligibilityInput
 export const isKioskCardFastPathEligible = (
   input: KioskFastPathEligibilityInput & { paymentMethod: string }
 ) => input.paymentMethod === "stripe" && isKioskInfoFastPathEligible(input)
+
+export const shouldAutoAdvanceKioskInfoStep = (input: KioskInfoAutoAdvanceInput) => {
+  if (!input.open || input.activeStepKey !== "info") {
+    return false
+  }
+
+  if (input.processing || input.identityCheckBusy || input.requiresSignIn || input.hasError) {
+    return false
+  }
+
+  return isKioskInfoFastPathEligible(input)
+}
 
 export const resolveKioskQrPhaseFromStatus = (status: string | null | undefined): KioskQrCheckoutPhase => {
   switch ((status || "").toLowerCase()) {

@@ -4,6 +4,7 @@ import {
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
   resolveKioskQrPhaseFromStatus,
+  shouldAutoAdvanceKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
 } from "@/lib/checkin/kiosk-qr-payment"
 
@@ -105,6 +106,50 @@ describe("kiosk QR payment helpers", () => {
         },
       })
     ).toBe(true)
+  })
+
+  it("only auto-advances the info step while the kiosk fast path is idle", () => {
+    expect(
+      shouldAutoAdvanceKioskInfoStep({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        date: "2026-03-24",
+        time: "18:30",
+        contact: {
+          firstName: "Mora",
+          lastName: "Diaz",
+          email: "mora@example.com",
+          phone: "+1 929 387 6584",
+        },
+        activeStepKey: "info",
+        open: true,
+        processing: false,
+        identityCheckBusy: false,
+        requiresSignIn: false,
+        hasError: false,
+      })
+    ).toBe(true)
+
+    expect(
+      shouldAutoAdvanceKioskInfoStep({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        date: "2026-03-24",
+        time: "18:30",
+        contact: {
+          firstName: "Mora",
+          lastName: "Diaz",
+          email: "mora@example.com",
+          phone: "+1 929 387 6584",
+        },
+        activeStepKey: "info",
+        open: true,
+        processing: false,
+        identityCheckBusy: true,
+        requiresSignIn: false,
+        hasError: false,
+      })
+    ).toBe(false)
   })
 
   it("keeps the auto-submit fast path off for cash or incomplete prefill", () => {

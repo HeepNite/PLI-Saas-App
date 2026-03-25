@@ -48,6 +48,7 @@ import {
   isKioskQrPendingPhase,
   KIOSK_QR_POLL_INTERVAL_MS,
   resolveKioskQrPhaseFromStatus,
+  shouldAutoAdvanceKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
@@ -1823,6 +1824,26 @@ export default function EnrollModal({
     time,
     contact,
   })
+  const kioskInfoAutoAdvanceReady = shouldAutoAdvanceKioskInfoStep({
+    isKioskTerminalFlow,
+    isCheckInExistingFlow,
+    date,
+    time,
+    contact,
+    activeStepKey,
+    open,
+    processing,
+    identityCheckBusy,
+    requiresSignIn,
+    hasError: Boolean(formError),
+  })
+  const kioskInfoAutoAdvanceActive =
+    open &&
+    isKioskTerminalFlow &&
+    activeStepKey === "info" &&
+    kioskInfoFastPathEligible &&
+    !requiresSignIn &&
+    !formError
 
   React.useEffect(() => {
     if (!isKioskTerminalFlow || !open || activeStepKey !== "info") {
@@ -1832,23 +1853,13 @@ export default function EnrollModal({
   }, [activeStepKey, isKioskTerminalFlow, open])
 
   React.useEffect(() => {
-    if (!open) return
-    if (!isKioskTerminalFlow) return
-    if (!kioskInfoFastPathEligible) return
-    if (activeStepKey !== "info") return
+    if (!kioskInfoAutoAdvanceReady) return
     if (kioskFastPathAdvanceTriggeredRef.current) return
-    if (identityCheckBusy || processing || requiresSignIn) return
 
     kioskFastPathAdvanceTriggeredRef.current = true
     void advanceFromContactStepRef.current()
   }, [
-    activeStepKey,
-    identityCheckBusy,
-    isKioskTerminalFlow,
-    kioskInfoFastPathEligible,
-    open,
-    processing,
-    requiresSignIn,
+    kioskInfoAutoAdvanceReady,
   ])
 
   React.useEffect(() => {
@@ -2625,6 +2636,15 @@ export default function EnrollModal({
                 )}
 
                 {activeStepKey === "info" && (
+                  kioskInfoAutoAdvanceActive ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-8 text-center">
+                      <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-[var(--brand,#ff7a7a)]" aria-hidden />
+                      <h4 className="mt-4 text-lg font-semibold text-white">Confirming customer details</h4>
+                      <p className="mt-2 text-sm leading-relaxed text-white/68">
+                        Existing customer info is already complete, so the terminal keeps moving to payment automatically.
+                      </p>
+                    </div>
+                  ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("label_firstName")}</label>
@@ -2721,6 +2741,7 @@ export default function EnrollModal({
                     <textarea value={contact.note} onChange={(e)=>setContact((c)=>({...c, note: e.target.value}))} rows={3} placeholder={t("placeholder_notes")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                   </fieldset>
                 </div>
+                  )
                 )}
 
                 {activeStepKey === "photo" && (

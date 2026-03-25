@@ -27,5 +27,7 @@ describe("KioskQrPaymentPanel", () => {
     expect(markup).toContain("Card payment QR")
     expect(markup).toContain("Hosted checkout QR")
     expect(markup).toContain("Open checkout link")
+    expect(markup).toContain("max-h-[calc(100vh-2rem)]")
+    expect(markup).toContain("h-52 w-52")
   })
 })
