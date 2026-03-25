@@ -44,6 +44,7 @@ import {
 import {
   createEmptyKioskQrCheckoutState,
   isKioskCardFastPathEligible,
+  isKioskInfoFastPathEligible,
   isKioskQrPendingPhase,
   KIOSK_QR_POLL_INTERVAL_MS,
   resolveKioskQrPhaseFromStatus,
@@ -1795,6 +1796,13 @@ export default function EnrollModal({
   }, [open, steps.length])
 
   const activeStepKey = steps[step]?.key || ""
+  const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
+    isKioskTerminalFlow,
+    isCheckInExistingFlow,
+    date,
+    time,
+    contact,
+  })
   const kioskCardFastPathEligible = isKioskCardFastPathEligible({
     isKioskTerminalFlow,
     isCheckInExistingFlow,
@@ -1814,7 +1822,7 @@ export default function EnrollModal({
   React.useEffect(() => {
     if (!open) return
     if (!isKioskTerminalFlow) return
-    if (!kioskCardFastPathEligible) return
+    if (!kioskInfoFastPathEligible) return
     if (activeStepKey !== "info") return
     if (kioskFastPathAdvanceTriggeredRef.current) return
     if (identityCheckBusy || processing || requiresSignIn) return
@@ -1825,7 +1833,7 @@ export default function EnrollModal({
     activeStepKey,
     identityCheckBusy,
     isKioskTerminalFlow,
-    kioskCardFastPathEligible,
+    kioskInfoFastPathEligible,
     open,
     processing,
     requiresSignIn,

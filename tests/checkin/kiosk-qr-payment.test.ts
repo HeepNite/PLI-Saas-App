@@ -2,12 +2,62 @@ import { describe, expect, it } from "vitest"
 import {
   createEmptyKioskQrCheckoutState,
   isKioskCardFastPathEligible,
+  isKioskInfoFastPathEligible,
   resolveKioskQrPhaseFromStatus,
   shouldPauseKioskInactivityForQrPhase,
 } from "@/lib/checkin/kiosk-qr-payment"
 
 describe("kiosk QR payment helpers", () => {
-  it("enables the fast path only for kiosk existing-customer card checkouts with valid prefill", () => {
+  it("enables the early info skip for kiosk existing customers with valid prefill", () => {
+    expect(
+      isKioskInfoFastPathEligible({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        date: "2026-03-24",
+        time: "18:30",
+        contact: {
+          firstName: "Mora",
+          lastName: "Diaz",
+          email: "mora@example.com",
+          phone: "+1 929 387 6584",
+        },
+      })
+    ).toBe(true)
+  })
+
+  it("keeps the early info skip off when kiosk existing-customer context is incomplete", () => {
+    expect(
+      isKioskInfoFastPathEligible({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        date: "2026-03-24",
+        time: "18:30",
+        contact: {
+          firstName: "Mora",
+          lastName: "",
+          email: "mora@example.com",
+          phone: "+1 929 387 6584",
+        },
+      })
+    ).toBe(false)
+
+    expect(
+      isKioskInfoFastPathEligible({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: false,
+        date: "2026-03-24",
+        time: "18:30",
+        contact: {
+          firstName: "Mora",
+          lastName: "Diaz",
+          email: "mora@example.com",
+          phone: "+1 929 387 6584",
+        },
+      })
+    ).toBe(false)
+  })
+
+  it("enables the auto-submit fast path only for kiosk existing-customer card checkouts with valid prefill", () => {
     expect(
       isKioskCardFastPathEligible({
         isKioskTerminalFlow: true,
@@ -25,7 +75,7 @@ describe("kiosk QR payment helpers", () => {
     ).toBe(true)
   })
 
-  it("keeps the fast path off for cash or incomplete prefill", () => {
+  it("keeps the auto-submit fast path off for cash or incomplete prefill", () => {
     expect(
       isKioskCardFastPathEligible({
         isKioskTerminalFlow: true,

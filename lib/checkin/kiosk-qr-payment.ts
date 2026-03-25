@@ -20,10 +20,9 @@ export type KioskQrCheckoutState = {
   error: string | null
 }
 
-type KioskCardFastPathEligibilityInput = {
+type KioskFastPathEligibilityInput = {
   isKioskTerminalFlow: boolean
   isCheckInExistingFlow: boolean
-  paymentMethod: string
   date: string
   time: string
   contact: {
@@ -56,8 +55,8 @@ export const shouldPauseKioskInactivityForQrPhase = (phase: KioskQrCheckoutPhase
 export const buildKioskCheckoutQrImageUrl = (url: string, size = 260) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=png&data=${encodeURIComponent(url)}`
 
-export const isKioskCardFastPathEligible = (input: KioskCardFastPathEligibilityInput) => {
-  if (!input.isKioskTerminalFlow || !input.isCheckInExistingFlow || input.paymentMethod !== "stripe") {
+export const isKioskInfoFastPathEligible = (input: KioskFastPathEligibilityInput) => {
+  if (!input.isKioskTerminalFlow || !input.isCheckInExistingFlow) {
     return false
   }
 
@@ -75,6 +74,10 @@ export const isKioskCardFastPathEligible = (input: KioskCardFastPathEligibilityI
       /^\+1\s\d{3}\s\d{3}\s\d{4}$/.test(phone)
   )
 }
+
+export const isKioskCardFastPathEligible = (
+  input: KioskFastPathEligibilityInput & { paymentMethod: string }
+) => input.paymentMethod === "stripe" && isKioskInfoFastPathEligible(input)
 
 export const resolveKioskQrPhaseFromStatus = (status: string | null | undefined): KioskQrCheckoutPhase => {
   switch ((status || "").toLowerCase()) {
