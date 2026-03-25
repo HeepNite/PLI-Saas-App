@@ -9,6 +9,7 @@ import {
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
+  shouldShowKioskResolvingOverlay,
 } from "@/lib/checkin/kiosk-qr-payment"
 
 describe("kiosk QR payment helpers", () => {
@@ -260,6 +261,64 @@ describe("kiosk QR payment helpers", () => {
       purchaseId: null,
       paymentStatus: null,
       error: null,
+    })
+  })
+
+  describe("shouldShowKioskResolvingOverlay", () => {
+    const base = {
+      isKioskTerminalFlow: true,
+      mode: "existing" as const,
+      isSignedIn: true,
+      loadingBootstrap: false,
+      hasBootstrap: false,
+      hasExistingRegularBookingOverride: false,
+      hasVisibleError: false,
+    }
+
+    it("shows the overlay while bootstrap is loading", () => {
+      expect(shouldShowKioskResolvingOverlay({ ...base, loadingBootstrap: true })).toBe(true)
+    })
+
+    it("shows the overlay when bootstrap resolved but EnrollModal not open yet", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: false,
+          hasExistingRegularBookingOverride: false,
+          hasVisibleError: false,
+        })
+      ).toBe(true)
+    })
+
+    it("hides the overlay once the EnrollModal is open", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: true,
+          hasExistingRegularBookingOverride: true,
+        })
+      ).toBe(false)
+    })
+
+    it("hides the overlay when a visible error should be shown instead", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({ ...base, hasVisibleError: true })
+      ).toBe(false)
+    })
+
+    it("does not show the overlay for non-kiosk flows", () => {
+      expect(shouldShowKioskResolvingOverlay({ ...base, isKioskTerminalFlow: false })).toBe(false)
+    })
+
+    it("does not show the overlay when the user is not signed in", () => {
+      expect(shouldShowKioskResolvingOverlay({ ...base, isSignedIn: false })).toBe(false)
+    })
+
+    it("does not show the overlay outside the existing-customer mode", () => {
+      expect(shouldShowKioskResolvingOverlay({ ...base, mode: "idle" })).toBe(false)
+      expect(shouldShowKioskResolvingOverlay({ ...base, mode: "new" })).toBe(false)
     })
   })
 })

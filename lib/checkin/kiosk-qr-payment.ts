@@ -141,6 +141,33 @@ export const getKioskPaymentTransitionMessage = (firstName?: string) => {
     : "We're getting your payment ready."
 }
 
+type KioskResolvingOverlayInput = {
+  isKioskTerminalFlow: boolean
+  mode: string
+  isSignedIn: boolean
+  loadingBootstrap: boolean
+  hasBootstrap: boolean
+  hasExistingRegularBookingOverride: boolean
+  hasVisibleError: boolean
+}
+
+/**
+ * Returns true when the terminal existing-customer flow is still resolving
+ * (bootstrap in-flight or bootstrap just resolved but the EnrollModal hasn't opened yet).
+ * Used to render a full-screen spinner that covers the intermediate UI.
+ */
+export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInput): boolean => {
+  if (!input.isKioskTerminalFlow || input.mode !== "existing" || !input.isSignedIn) {
+    return false
+  }
+  if (input.loadingBootstrap) return true
+  // Bootstrap resolved but EnrollModal not open yet (and no error to show)
+  if (!input.hasBootstrap && !input.hasExistingRegularBookingOverride && !input.hasVisibleError) {
+    return true
+  }
+  return false
+}
+
 export const resolveKioskQrPhaseFromStatus = (status: string | null | undefined): KioskQrCheckoutPhase => {
   switch ((status || "").toLowerCase()) {
     case "complete":
