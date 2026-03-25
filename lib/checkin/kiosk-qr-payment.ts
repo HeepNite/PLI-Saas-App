@@ -44,6 +44,17 @@ type KioskInfoAutoAdvanceInput = KioskFastPathEligibilityInput & {
   hasError: boolean
 }
 
+type KioskInfoMaskInput = {
+  isKioskTerminalFlow: boolean
+  isCheckInExistingFlow: boolean
+  activeStepKey: string
+  open: boolean
+  requiresSignIn: boolean
+  hasError: boolean
+  hydrating: boolean
+  fastPathEligible: boolean
+}
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const hasValidKioskFastPathPhone = (value?: string) => {
@@ -106,6 +117,18 @@ export const shouldAutoAdvanceKioskInfoStep = (input: KioskInfoAutoAdvanceInput)
   }
 
   return isKioskInfoFastPathEligible(input)
+}
+
+export const shouldMaskKioskInfoStep = (input: KioskInfoMaskInput) => {
+  if (!input.open || !input.isKioskTerminalFlow || input.activeStepKey !== "info") {
+    return false
+  }
+
+  if (input.requiresSignIn || input.hasError) {
+    return false
+  }
+
+  return (input.isCheckInExistingFlow && input.hydrating) || input.fastPathEligible
 }
 
 export const resolveKioskQrPhaseFromStatus = (status: string | null | undefined): KioskQrCheckoutPhase => {

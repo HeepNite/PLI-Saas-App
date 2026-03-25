@@ -8,18 +8,6 @@ type KioskQrPaymentPanelProps = {
   onRetry: () => void
 }
 
-const formatExpiry = (value: string | null) => {
-  if (!value) return null
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(parsed)
-}
-
 const getHeading = (state: KioskQrCheckoutState) => {
   switch (state.phase) {
     case "creating":
@@ -58,7 +46,6 @@ const getBody = (state: KioskQrCheckoutState) => {
 
 export default function KioskQrPaymentPanel({ checkoutState, onCancel, onRetry }: KioskQrPaymentPanelProps) {
   const qrImage = checkoutState.url ? buildKioskCheckoutQrImageUrl(checkoutState.url) : null
-  const expiresAtLabel = formatExpiry(checkoutState.expiresAt)
   const heading = getHeading(checkoutState)
   const body = getBody(checkoutState)
 
@@ -75,7 +62,7 @@ export default function KioskQrPaymentPanel({ checkoutState, onCancel, onRetry }
         role="dialog"
         aria-modal="true"
         aria-label="Card payment QR"
-        className="relative z-10 w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[linear-gradient(165deg,rgba(9,13,24,0.98),rgba(24,31,49,0.96))] px-4 pb-5 pt-4 text-white shadow-[0_32px_90px_-42px_rgba(0,0,0,0.9)] sm:max-w-lg sm:px-5 sm:pb-6 sm:pt-5"
+        className="relative z-10 w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[linear-gradient(165deg,rgba(9,13,24,0.98),rgba(24,31,49,0.96))] px-5 pb-6 pt-5 text-white shadow-[0_32px_90px_-42px_rgba(0,0,0,0.9)] sm:max-w-lg sm:px-6 sm:pb-7 sm:pt-6"
       >
         <button
           type="button"
@@ -86,47 +73,34 @@ export default function KioskQrPaymentPanel({ checkoutState, onCancel, onRetry }
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/></svg>
         </button>
 
-        <div className="space-y-4 text-center sm:space-y-5">
-          <div className="space-y-3 px-8 sm:px-10">
+        <div className="space-y-5 text-center sm:space-y-6">
+          <div className="space-y-3 px-10 sm:px-12">
             <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Hosted checkout</p>
             <h4 className="text-xl font-semibold leading-tight sm:text-[1.75rem]">{heading}</h4>
             {body && <p className="mx-auto max-w-sm text-sm leading-relaxed text-white/72">{body}</p>}
-            {expiresAtLabel && isFinite(new Date(checkoutState.expiresAt || "").getTime()) && (
-              <p className="text-xs text-white/55">Expires {expiresAtLabel}</p>
-            )}
           </div>
 
           <div className="flex justify-center">
             {qrImage ? (
-              <div className="rounded-[1.35rem] bg-white p-3 shadow-[0_18px_50px_-24px_rgba(255,255,255,0.35)] sm:p-4">
+              <div className="rounded-[1.45rem] bg-white p-4 shadow-[0_18px_50px_-24px_rgba(255,255,255,0.35)] sm:p-5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={qrImage}
                   alt="Hosted checkout QR"
-                  className="h-52 w-52 object-contain sm:h-60 sm:w-60"
+                  className="h-44 w-44 object-contain sm:h-48 sm:w-48"
                 />
               </div>
             ) : (
-              <div className="flex h-52 w-52 items-center justify-center rounded-[1.35rem] border border-dashed border-white/18 bg-white/5 px-6 text-center text-sm text-white/65 sm:h-60 sm:w-60">
+              <div className="flex h-44 w-44 items-center justify-center rounded-[1.45rem] border border-dashed border-white/18 bg-white/5 px-6 text-center text-sm text-white/65 sm:h-48 sm:w-48">
                 QR code will appear here once the session is ready.
               </div>
             )}
           </div>
 
-          <div className="space-y-2 pb-1">
-            {checkoutState.url && (
-              <a
-                href={checkoutState.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex text-sm font-medium text-white underline underline-offset-4"
-              >
-                Open checkout link
-              </a>
-            )}
-            {checkoutState.sessionId && (
-              <p className="text-xs text-white/45">Session: {checkoutState.sessionId}</p>
-            )}
+          <div className="mx-auto max-w-xs pb-1">
+            <p className="text-sm leading-relaxed text-white/62">
+              Every purchase earns points and stays available to review in the student account.
+            </p>
           </div>
         </div>
 

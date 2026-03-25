@@ -49,6 +49,7 @@ import {
   KIOSK_QR_POLL_INTERVAL_MS,
   resolveKioskQrPhaseFromStatus,
   shouldAutoAdvanceKioskInfoStep,
+  shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
@@ -458,6 +459,7 @@ export default function EnrollModal({
   const [signInPurpose, setSignInPurpose] = React.useState<"existing" | "sms_verification" | "account_preparation">("existing")
   const [checkInScheduleNotice, setCheckInScheduleNotice] = React.useState<string | null>(null)
   const [checkInNow, setCheckInNow] = React.useState<Date>(() => new Date())
+  const [kioskStepHydrating, setKioskStepHydrating] = React.useState(false)
   const stationCompletionTimeoutRef = React.useRef<number | null>(null)
   const openInitializationRef = React.useRef(false)
   const prefillContactRef = React.useRef(prefillContact)
@@ -569,6 +571,7 @@ export default function EnrollModal({
   React.useEffect(() => {
     if (open) return
     openInitializationRef.current = false
+    setKioskStepHydrating(false)
   }, [open])
 
   React.useEffect(() => {
@@ -831,8 +834,10 @@ export default function EnrollModal({
     const hasDraft = useDraft ? sessionStorage.getItem(draftKey) : null
     if (useDraft && hasDraft) {
       openInitializationRef.current = true
+      setKioskStepHydrating(false)
       return
     }
+    setKioskStepHydrating(isKioskTerminalFlow && isCheckInExistingFlow)
     if (!useDraft) {
       sessionStorage.removeItem(draftKey)
     }
@@ -901,6 +906,7 @@ export default function EnrollModal({
     setFormError(null)
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false
+    setKioskStepHydrating(false)
   }, [
     open,
     course.slug,
@@ -1837,13 +1843,16 @@ export default function EnrollModal({
     requiresSignIn,
     hasError: Boolean(formError),
   })
-  const kioskInfoAutoAdvanceActive =
-    open &&
-    isKioskTerminalFlow &&
-    activeStepKey === "info" &&
-    kioskInfoFastPathEligible &&
-    !requiresSignIn &&
-    !formError
+  const shouldMaskKioskInfoContent = shouldMaskKioskInfoStep({
+    isKioskTerminalFlow,
+    isCheckInExistingFlow,
+    activeStepKey,
+    open,
+    requiresSignIn,
+    hasError: Boolean(formError),
+    hydrating: kioskStepHydrating,
+    fastPathEligible: kioskInfoFastPathEligible,
+  })
 
   React.useEffect(() => {
     if (!isKioskTerminalFlow || !open || activeStepKey !== "info") {
@@ -2636,15 +2645,15 @@ export default function EnrollModal({
                 )}
 
                 {activeStepKey === "info" && (
-                  kioskInfoAutoAdvanceActive ? (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-8 text-center">
-                      <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-[var(--brand,#ff7a7a)]" aria-hidden />
-                      <h4 className="mt-4 text-lg font-semibold text-white">Confirming customer details</h4>
-                      <p className="mt-2 text-sm leading-relaxed text-white/68">
-                        Existing customer info is already complete, so the terminal keeps moving to payment automatically.
-                      </p>
-                    </div>
-                  ) : (
+                  shouldMaskKioskInfoContent ? (
+                     <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-8 text-center">
+                       <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-[var(--brand,#ff7a7a)]" aria-hidden />
+                       <h4 className="mt-4 text-lg font-semibold text-white">Getting payment ready</h4>
+                       <p className="mt-2 text-sm leading-relaxed text-white/68">
+                         We are using the saved student details and moving straight to payment.
+                       </p>
+                     </div>
+                   ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("label_firstName")}</label>

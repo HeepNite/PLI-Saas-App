@@ -5,6 +5,7 @@ import {
   isKioskInfoFastPathEligible,
   resolveKioskQrPhaseFromStatus,
   shouldAutoAdvanceKioskInfoStep,
+  shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
 } from "@/lib/checkin/kiosk-qr-payment"
 
@@ -148,6 +149,47 @@ describe("kiosk QR payment helpers", () => {
         identityCheckBusy: true,
         requiresSignIn: false,
         hasError: false,
+      })
+    ).toBe(false)
+  })
+
+  it("masks the kiosk info step while terminal prefill is hydrating or auto-skipping", () => {
+    expect(
+      shouldMaskKioskInfoStep({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        activeStepKey: "info",
+        open: true,
+        requiresSignIn: false,
+        hasError: false,
+        hydrating: true,
+        fastPathEligible: false,
+      })
+    ).toBe(true)
+
+    expect(
+      shouldMaskKioskInfoStep({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        activeStepKey: "info",
+        open: true,
+        requiresSignIn: false,
+        hasError: false,
+        hydrating: false,
+        fastPathEligible: true,
+      })
+    ).toBe(true)
+
+    expect(
+      shouldMaskKioskInfoStep({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        activeStepKey: "info",
+        open: true,
+        requiresSignIn: false,
+        hasError: false,
+        hydrating: false,
+        fastPathEligible: false,
       })
     ).toBe(false)
   })
