@@ -6,7 +6,6 @@ import {
   isKioskInfoFastPathEligible,
   KIOSK_PAYMENT_TRANSITION_MIN_MS,
   resolveKioskQrPhaseFromStatus,
-  shouldShowKioskPaymentTransition,
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
@@ -156,7 +155,7 @@ describe("kiosk QR payment helpers", () => {
     ).toBe(false)
   })
 
-  it("masks the kiosk info step while terminal prefill is hydrating or auto-skipping", () => {
+  it("masks the kiosk info step only while terminal prefill is hydrating or transitioning", () => {
     expect(
       shouldMaskKioskInfoStep({
         isKioskTerminalFlow: true,
@@ -166,7 +165,7 @@ describe("kiosk QR payment helpers", () => {
         requiresSignIn: false,
         hasError: false,
         hydrating: true,
-        fastPathEligible: false,
+        transitionPending: false,
       })
     ).toBe(true)
 
@@ -179,7 +178,7 @@ describe("kiosk QR payment helpers", () => {
         requiresSignIn: false,
         hasError: false,
         hydrating: false,
-        fastPathEligible: true,
+        transitionPending: true,
       })
     ).toBe(true)
 
@@ -192,41 +191,12 @@ describe("kiosk QR payment helpers", () => {
         requiresSignIn: false,
         hasError: false,
         hydrating: false,
-        fastPathEligible: false,
+        transitionPending: false,
       })
     ).toBe(false)
   })
 
-  it("shows the branded payment transition only when kiosk existing customers enter payments", () => {
-    expect(
-      shouldShowKioskPaymentTransition({
-        isKioskTerminalFlow: true,
-        isCheckInExistingFlow: true,
-        activeStepKey: "payments",
-        previousStepKey: "info",
-      })
-    ).toBe(true)
-
-    expect(
-      shouldShowKioskPaymentTransition({
-        isKioskTerminalFlow: true,
-        isCheckInExistingFlow: true,
-        activeStepKey: "payments",
-        previousStepKey: "payments",
-      })
-    ).toBe(false)
-
-    expect(
-      shouldShowKioskPaymentTransition({
-        isKioskTerminalFlow: false,
-        isCheckInExistingFlow: true,
-        activeStepKey: "payments",
-        previousStepKey: "info",
-      })
-    ).toBe(false)
-  })
-
-  it("builds the branded payment transition copy with or without first name", () => {
+  it("builds the payment transition copy with or without first name", () => {
     expect(getKioskPaymentTransitionMessage("Mora")).toBe("We're getting your payment ready, Mora.")
     expect(getKioskPaymentTransitionMessage("   ")).toBe("We're getting your payment ready.")
     expect(KIOSK_PAYMENT_TRANSITION_MIN_MS).toBeGreaterThanOrEqual(800)

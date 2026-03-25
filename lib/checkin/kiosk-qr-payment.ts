@@ -53,14 +53,7 @@ type KioskInfoMaskInput = {
   requiresSignIn: boolean
   hasError: boolean
   hydrating: boolean
-  fastPathEligible: boolean
-}
-
-type KioskPaymentTransitionInput = {
-  isKioskTerminalFlow: boolean
-  isCheckInExistingFlow: boolean
-  activeStepKey: string
-  previousStepKey: string | null
+  transitionPending: boolean
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -138,15 +131,8 @@ export const shouldMaskKioskInfoStep = (input: KioskInfoMaskInput) => {
     return false
   }
 
-  return (input.isCheckInExistingFlow && input.hydrating) || input.fastPathEligible
+  return (input.isCheckInExistingFlow && input.hydrating) || input.transitionPending
 }
-
-export const shouldShowKioskPaymentTransition = (input: KioskPaymentTransitionInput) =>
-  input.isKioskTerminalFlow &&
-  input.isCheckInExistingFlow &&
-  input.activeStepKey === "payments" &&
-  input.previousStepKey !== null &&
-  input.previousStepKey !== "payments"
 
 export const getKioskPaymentTransitionMessage = (firstName?: string) => {
   const normalizedFirstName = normalizeFirstName(firstName)

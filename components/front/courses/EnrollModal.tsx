@@ -50,7 +50,6 @@ import {
   KIOSK_PAYMENT_TRANSITION_MIN_MS,
   KIOSK_QR_POLL_INTERVAL_MS,
   resolveKioskQrPhaseFromStatus,
-  shouldShowKioskPaymentTransition,
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
@@ -466,7 +465,7 @@ export default function EnrollModal({
   const [showKioskPaymentTransition, setShowKioskPaymentTransition] = React.useState(false)
   const stationCompletionTimeoutRef = React.useRef<number | null>(null)
   const kioskPaymentTransitionTimeoutRef = React.useRef<number | null>(null)
-  const previousActiveStepKeyRef = React.useRef<string | null>(null)
+  const kioskPaymentTransitionStartedAtRef = React.useRef<number | null>(null)
   const openInitializationRef = React.useRef(false)
   const prefillContactRef = React.useRef(prefillContact)
   const prefillSelectionRef = React.useRef(prefillSelection)
@@ -687,7 +686,7 @@ export default function EnrollModal({
     setFormError(null)
     setProcessing(false)
     setShowKioskPaymentTransition(false)
-    previousActiveStepKeyRef.current = null
+    kioskPaymentTransitionStartedAtRef.current = null
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false
   }, [])
@@ -1850,6 +1849,7 @@ export default function EnrollModal({
     time,
     contact,
   })
+  const kioskInfoTransitionPending = kioskInfoFastPathEligible && !kioskFastPathAdvanceTriggeredRef.current
   const kioskInfoAutoAdvanceReady = shouldAutoAdvanceKioskInfoStep({
     isKioskTerminalFlow,
     isCheckInExistingFlow,
@@ -1871,7 +1871,7 @@ export default function EnrollModal({
     requiresSignIn,
     hasError: Boolean(formError),
     hydrating: kioskStepHydrating,
-    fastPathEligible: kioskInfoFastPathEligible,
+    transitionPending: kioskInfoTransitionPending,
   })
 
   React.useEffect(() => {
@@ -1882,32 +1882,26 @@ export default function EnrollModal({
 
     if (!open) {
       setShowKioskPaymentTransition(false)
-      previousActiveStepKeyRef.current = activeStepKey || null
+      kioskPaymentTransitionStartedAtRef.current = null
       return
     }
 
-    const shouldShowPaymentTransition = shouldShowKioskPaymentTransition({
-      isKioskTerminalFlow,
-      isCheckInExistingFlow,
-      activeStepKey,
-      previousStepKey: previousActiveStepKeyRef.current,
-    })
-
-    previousActiveStepKeyRef.current = activeStepKey || null
-
-    if (!shouldShowPaymentTransition) {
-      if (activeStepKey !== "payments") {
-        setShowKioskPaymentTransition(false)
-      }
+    if (!showKioskPaymentTransition) {
       return
     }
 
-    setShowKioskPaymentTransition(true)
+    if (activeStepKey === "info") {
+      return
+    }
+
+    const startedAt = kioskPaymentTransitionStartedAtRef.current ?? Date.now()
+    const remaining = Math.max(0, KIOSK_PAYMENT_TRANSITION_MIN_MS - (Date.now() - startedAt))
     kioskPaymentTransitionTimeoutRef.current = window.setTimeout(() => {
       setShowKioskPaymentTransition(false)
+      kioskPaymentTransitionStartedAtRef.current = null
       kioskPaymentTransitionTimeoutRef.current = null
-    }, KIOSK_PAYMENT_TRANSITION_MIN_MS)
-  }, [activeStepKey, isCheckInExistingFlow, isKioskTerminalFlow, open])
+    }, remaining)
+  }, [activeStepKey, open, showKioskPaymentTransition])
 
   React.useEffect(() => {
     if (!isKioskTerminalFlow || !open || activeStepKey !== "info") {
@@ -1920,6 +1914,8 @@ export default function EnrollModal({
     if (!kioskInfoAutoAdvanceReady) return
     if (kioskFastPathAdvanceTriggeredRef.current) return
 
+    kioskPaymentTransitionStartedAtRef.current = Date.now()
+    setShowKioskPaymentTransition(true)
     kioskFastPathAdvanceTriggeredRef.current = true
     void advanceFromContactStepRef.current()
   }, [
@@ -3030,22 +3026,12 @@ export default function EnrollModal({
                 {formError && <p className="text-sm text-red-600 mt-2" role="alert" aria-live="polite">{formError}</p>}
               </form>
             )}
-            {showKioskPaymentTransition && activeStepKey === "payments" && !success && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,rgba(199,24,24,0.24),transparent_42%),linear-gradient(180deg,rgba(33,8,8,0.92),rgba(92,18,18,0.9))] px-6 py-8 backdrop-blur-sm">
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle,rgba(255,255,255,0.14),transparent_60%)]" />
-                <div className="relative w-full max-w-sm rounded-[2rem] border border-white/12 bg-white/[0.06] px-6 py-8 text-center text-white shadow-[0_32px_80px_-40px_rgba(0,0,0,0.85)] backdrop-blur-md">
-                  <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
-                    <span className="absolute inset-0 rounded-full border border-white/20 bg-[rgba(255,255,255,0.04)]" />
-                    <span className="absolute inset-2 rounded-full border border-[rgba(255,255,255,0.16)] animate-ping" />
-                    <span className="absolute inset-4 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.28),rgba(255,255,255,0.04))]" />
-                    <svg viewBox="0 0 64 64" className="relative h-12 w-12 text-white" fill="none" aria-hidden>
-                      <circle cx="34" cy="14" r="5" fill="currentColor" fillOpacity="0.95" />
-                      <path d="M31 22c5 0 9 3 11 7l4 8c1 2 0 4-2 5s-4 0-5-2l-2-4-4 8 8 10c1 2 1 4-1 6-2 1-4 1-6-1l-7-8-8 7c-2 2-4 2-6 0s-2-4 0-6l8-7 4-10-7 3c-2 1-4 0-5-2-1-2 0-4 2-5l9-5c2-1 3-1 5-1Z" fill="currentColor" fillOpacity="0.92" />
-                    </svg>
-                  </div>
-                  <p className="mt-5 text-[11px] uppercase tracking-[0.24em] text-white/62">Payment transition</p>
-                  <h4 className="mt-3 text-[1.65rem] font-semibold leading-tight">{kioskPaymentTransitionMessage}</h4>
-                  <p className="mt-3 text-sm leading-relaxed text-white/74">One moment while we prepare the payment step.</p>
+            {showKioskPaymentTransition && !success && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-[rgba(24,12,12,0.72)] px-6 py-8 backdrop-blur-sm">
+                <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[rgba(28,18,18,0.92)] px-6 py-8 text-center text-white shadow-[0_24px_60px_-32px_rgba(0,0,0,0.9)]">
+                  <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-white/15 border-t-white" aria-hidden />
+                  <h4 className="mt-4 text-xl font-semibold leading-tight">{kioskPaymentTransitionMessage}</h4>
+                  <p className="mt-2 text-sm leading-relaxed text-white/72">One moment while we prepare the payment step.</p>
                 </div>
               </div>
             )}
