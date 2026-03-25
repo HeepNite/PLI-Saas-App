@@ -27,6 +27,7 @@ import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZ
 import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import ProfilePhotoCapture from "@/components/front/checkin/ProfilePhotoCapture"
+import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
 import {
   getPhotoPolicy,
   isPhotoRequiredForAccount,
@@ -40,6 +41,15 @@ import {
   resolveEnrollStepKeys,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
+import {
+  createEmptyKioskQrCheckoutState,
+  isKioskCardFastPathEligible,
+  isKioskQrPendingPhase,
+  KIOSK_QR_POLL_INTERVAL_MS,
+  resolveKioskQrPhaseFromStatus,
+  shouldPauseKioskInactivityForQrPhase,
+  type KioskQrCheckoutState,
+} from "@/lib/checkin/kiosk-qr-payment"
 import {
   isRegularFallbackLocked,
   normalizePhoneKey,
@@ -430,6 +440,9 @@ export default function EnrollModal({
   const [phoneTouched, setPhoneTouched] = React.useState<boolean>(false)
   const [stripeClientSecret, setStripeClientSecret] = React.useState<string>("")
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
+  const [kioskQrCheckout, setKioskQrCheckout] = React.useState<KioskQrCheckoutState>(
+    () => createEmptyKioskQrCheckoutState()
+  )
   const [preparedAccount, setPreparedAccount] = React.useState<PreparedAccountState | null>(null)
   const [photoSaved, setPhotoSaved] = React.useState<boolean>(false)
   const [activeNumericField, setActiveNumericField] = React.useState<KioskNumericField>(INITIAL_KIOSK_NUMERIC_FIELD)
@@ -442,6 +455,8 @@ export default function EnrollModal({
   const openInitializationRef = React.useRef(false)
   const prefillContactRef = React.useRef(prefillContact)
   const prefillSelectionRef = React.useRef(prefillSelection)
+  const kioskFastPathAdvanceTriggeredRef = React.useRef(false)
+  const kioskFastPathSubmitTriggeredRef = React.useRef(false)
   const userContactRef = React.useRef<Partial<EnrollmentContact>>({
     firstName: "",
     lastName: "",
@@ -631,6 +646,7 @@ export default function EnrollModal({
     setPhoneTouched(false)
     setStripeClientSecret("")
     setShowStripeModal(false)
+    setKioskQrCheckout(createEmptyKioskQrCheckoutState())
     setPreparedAccount(null)
     setPhotoSaved(false)
     setActiveNumericField(null)
@@ -639,6 +655,8 @@ export default function EnrollModal({
     setSignInPurpose("existing")
     setFormError(null)
     setProcessing(false)
+    kioskFastPathAdvanceTriggeredRef.current = false
+    kioskFastPathSubmitTriggeredRef.current = false
   }, [])
 
   const handleClose = React.useCallback(() => {
@@ -679,7 +697,15 @@ export default function EnrollModal({
   }, [isStationCompletion, onCompletedAction, success])
 
   React.useEffect(() => {
-    if (!open || !isStationCompletion || !onCompletedAction || success) return
+    if (
+      !open ||
+      !isStationCompletion ||
+      !onCompletedAction ||
+      success ||
+      shouldPauseKioskInactivityForQrPhase(kioskQrCheckout.phase)
+    ) {
+      return
+    }
 
     const controller = createKioskInactivityController({
       onTimeout: () => {
@@ -700,7 +726,7 @@ export default function EnrollModal({
       }
       controller.dispose()
     }
-  }, [isStationCompletion, onCompletedAction, open, success])
+  }, [isStationCompletion, kioskQrCheckout.phase, onCompletedAction, open, success])
 
   React.useEffect(() => {
     if (isInline) return
@@ -857,7 +883,10 @@ export default function EnrollModal({
     setPhoneTouched(false)
     setStripeClientSecret("")
     setShowStripeModal(false)
+    setKioskQrCheckout(createEmptyKioskQrCheckoutState())
     setFormError(null)
+    kioskFastPathAdvanceTriggeredRef.current = false
+    kioskFastPathSubmitTriggeredRef.current = false
   }, [
     open,
     course.slug,
@@ -901,6 +930,8 @@ export default function EnrollModal({
         ? t("payments_onSite")
         : "—"
   const summaryGridClass = isKioskTerminalFlow ? "grid gap-3" : "grid gap-3 sm:grid-cols-2 sm:gap-4"
+  const kioskQrCheckoutPending = isKioskQrPendingPhase(kioskQrCheckout.phase)
+  const kioskQrCheckoutLocked = isKioskTerminalFlow && (kioskQrCheckout.phase === "creating" || kioskQrCheckoutPending)
 
   const renderSummaryItem = React.useCallback(
     (label: string, value: React.ReactNode) => (
@@ -1309,6 +1340,20 @@ export default function EnrollModal({
     return { res, data }
   }
 
+  const requestKioskCheckoutSession = async (token?: string | null) => {
+    const res = await fetch("/api/checkout/session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify(buildCheckoutPayload()),
+    })
+    const data = await res.json().catch(() => ({}))
+    return { res, data }
+  }
+
   const requestCashCheckout = async (token?: string | null) => {
     const res = await fetch("/api/checkout/cash", {
       method: "POST",
@@ -1322,6 +1367,115 @@ export default function EnrollModal({
     const data = await res.json().catch(() => ({}))
     return { res, data }
   }
+
+  const resetKioskQrCheckout = React.useCallback(() => {
+    setKioskQrCheckout(createEmptyKioskQrCheckoutState())
+  }, [])
+
+  const completeDropInCheckInAfterCardPayment = React.useCallback(
+    async ({ paymentIntentId, purchaseId }: { paymentIntentId?: string | null; purchaseId?: string | null }) => {
+      if (!isCheckInFlow) return null
+      if (pkg || !date || !time) {
+        return "Purchase recorded successfully."
+      }
+
+      const resolvedPaymentIntentId = typeof paymentIntentId === "string" && paymentIntentId.trim().length > 0
+        ? paymentIntentId
+        : null
+      const resolvedPurchaseId = typeof purchaseId === "string" && purchaseId.trim().length > 0 ? purchaseId : null
+
+      if (!resolvedPaymentIntentId && !resolvedPurchaseId) {
+        return "Payment was completed, but check-in sync is still pending."
+      }
+
+      try {
+        const dropInRes = await fetch("/api/checkin/qr/dropin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            ...(resolvedPaymentIntentId ? { paymentIntentId: resolvedPaymentIntentId } : {}),
+            ...(resolvedPurchaseId ? { purchaseId: resolvedPurchaseId } : {}),
+            courseSlug: course.slug,
+            date,
+            time,
+            durationMinutes: checkInContextDuration,
+          }),
+        })
+        const dropInData = await dropInRes.json().catch(() => null)
+        return dropInRes.ok
+          ? "Purchase and check-in recorded successfully."
+          : typeof dropInData?.error === "string"
+            ? `Purchase recorded. Automatic check-in could not be completed: ${dropInData.error}`
+            : "Purchase recorded. Automatic check-in could not be completed."
+      } catch (error) {
+        console.warn("Unable to complete automatic drop-in check-in", error)
+        return "Payment was completed, but we couldn't confirm automatic check-in."
+      }
+    },
+    [checkInContextDuration, course.slug, date, isCheckInFlow, pkg, time]
+  )
+
+  const startKioskQrCheckout = React.useCallback(async () => {
+    setKioskQrCheckout((prev) => ({
+      ...createEmptyKioskQrCheckoutState(),
+      phase: "creating",
+      error: prev.error,
+    }))
+
+    let token = isSignedIn ? await getToken({ skipCache: true }) : null
+    let result = await requestKioskCheckoutSession(token)
+    const code = typeof result.data?.code === "string" ? result.data.code : undefined
+
+    if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350))
+      const refreshed = await getToken({ skipCache: true })
+      if (refreshed) {
+        token = refreshed
+        result = await requestKioskCheckoutSession(token)
+      }
+    }
+
+    if (!result.res.ok) {
+      const message =
+        typeof result.data?.error === "string" && result.data.error.trim().length > 0
+          ? result.data.error
+          : "Error starting QR checkout."
+      setKioskQrCheckout({
+        ...createEmptyKioskQrCheckoutState(),
+        phase: "error",
+        error: message,
+      })
+      setFormError(message)
+      return false
+    }
+
+    if (typeof result.data?.url !== "string" || typeof result.data?.sessionId !== "string") {
+      const message = "Checkout session is missing required data."
+      setKioskQrCheckout({
+        ...createEmptyKioskQrCheckoutState(),
+        phase: "error",
+        error: message,
+      })
+      setFormError(message)
+      return false
+    }
+
+    setFormError(null)
+    setKioskQrCheckout({
+      phase: "qr_ready",
+      sessionId: result.data.sessionId,
+      url: result.data.url,
+      expiresAt: typeof result.data?.expiresAt === "string" ? result.data.expiresAt : null,
+      awaitingWebhook: false,
+      purchaseId: null,
+      paymentStatus: null,
+      error: null,
+    })
+    return true
+  }, [getToken, isSignedIn, requestKioskCheckoutSession])
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
@@ -1352,6 +1506,23 @@ export default function EnrollModal({
       total,
     }
     console.log("[EnrollModal] demo submit", payload)
+
+    if (paymentMethod === "stripe" && isKioskTerminalFlow) {
+      try {
+        await startKioskQrCheckout()
+      } catch (err) {
+        console.error(err)
+        setKioskQrCheckout({
+          ...createEmptyKioskQrCheckoutState(),
+          phase: "error",
+          error: "We couldn't start the QR payment. Please try again.",
+        })
+        alert("We couldn't start the QR payment. Please try again.")
+      } finally {
+        setProcessing(false)
+      }
+      return
+    }
 
     if (paymentMethod === "stripe") {
       try {
@@ -1624,6 +1795,14 @@ export default function EnrollModal({
   }, [open, steps.length])
 
   const activeStepKey = steps[step]?.key || ""
+  const kioskCardFastPathEligible = isKioskCardFastPathEligible({
+    isKioskTerminalFlow,
+    isCheckInExistingFlow,
+    paymentMethod,
+    date,
+    time,
+    contact,
+  })
 
   React.useEffect(() => {
     if (!isKioskTerminalFlow || !open || activeStepKey !== "info") {
@@ -1631,6 +1810,149 @@ export default function EnrollModal({
       return
     }
   }, [activeStepKey, isKioskTerminalFlow, open])
+
+  React.useEffect(() => {
+    if (!open) return
+    if (!isKioskTerminalFlow) return
+    if (!kioskCardFastPathEligible) return
+    if (activeStepKey !== "info") return
+    if (kioskFastPathAdvanceTriggeredRef.current) return
+    if (identityCheckBusy || processing || requiresSignIn) return
+
+    kioskFastPathAdvanceTriggeredRef.current = true
+    void advanceFromContactStepRef.current()
+  }, [
+    activeStepKey,
+    identityCheckBusy,
+    isKioskTerminalFlow,
+    kioskCardFastPathEligible,
+    open,
+    processing,
+    requiresSignIn,
+  ])
+
+  React.useEffect(() => {
+    if (!open) return
+    if (!isKioskTerminalFlow) return
+    if (!kioskCardFastPathEligible) return
+    if (!kioskFastPathAdvanceTriggeredRef.current || kioskFastPathSubmitTriggeredRef.current) return
+    if (activeStepKey !== "payments") return
+    if (processing || identityCheckBusy || requiresSignIn) return
+    if (kioskQrCheckout.phase !== "idle") return
+
+    kioskFastPathSubmitTriggeredRef.current = true
+    void handleSubmitRef.current()
+  }, [
+    activeStepKey,
+    identityCheckBusy,
+    isKioskTerminalFlow,
+    kioskCardFastPathEligible,
+    kioskQrCheckout.phase,
+    open,
+    processing,
+    requiresSignIn,
+  ])
+
+  React.useEffect(() => {
+    if (!open || !isKioskTerminalFlow || !kioskQrCheckout.sessionId || !kioskQrCheckoutPending) {
+      return
+    }
+
+    let cancelled = false
+    let timeoutId: number | null = null
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/checkout/session/status?sessionId=${encodeURIComponent(kioskQrCheckout.sessionId || "")}`,
+          {
+            credentials: "include",
+          }
+        )
+        const data = await res.json().catch(() => null)
+        if (cancelled) return
+
+        const nextPhase = resolveKioskQrPhaseFromStatus(typeof data?.status === "string" ? data.status : null)
+
+        if (nextPhase === "complete") {
+          const completionMessage = await completeDropInCheckInAfterCardPayment({
+            purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : null,
+          })
+          setSuccessMessage(
+            completionMessage ||
+              (typeof data?.paymentStatus === "string" && data.paymentStatus.trim().length > 0
+                ? `Payment recorded successfully (${data.paymentStatus}).`
+                : "Payment recorded successfully.")
+          )
+          setSuccess(true)
+          setRequiresSignIn(false)
+          setExistingAccountDetected(false)
+          setResumeAfterSignInStep(null)
+          setPendingAutoPay(false)
+          setKioskQrCheckout(createEmptyKioskQrCheckoutState())
+          return
+        }
+
+        if (nextPhase === "expired") {
+          setKioskQrCheckout((prev) => ({
+            ...prev,
+            phase: "expired",
+            awaitingWebhook: false,
+            error:
+              typeof data?.error === "string" && data.error.trim().length > 0
+                ? data.error
+                : "The hosted checkout session expired before payment completed.",
+          }))
+          return
+        }
+
+        if (!res.ok) {
+          setKioskQrCheckout((prev) => ({
+            ...prev,
+            phase: "error",
+            awaitingWebhook: false,
+            error:
+              typeof data?.error === "string" && data.error.trim().length > 0
+                ? data.error
+                : "Unable to refresh checkout status.",
+          }))
+          return
+        }
+
+        setKioskQrCheckout((prev) => ({
+          ...prev,
+          phase: nextPhase,
+          awaitingWebhook: Boolean(data?.awaitingWebhook),
+          purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : null,
+          paymentStatus: typeof data?.paymentStatus === "string" ? data.paymentStatus : null,
+          error: null,
+        }))
+      } catch (error) {
+        if (cancelled) return
+        console.warn("Unable to poll hosted checkout session status", error)
+        setKioskQrCheckout((prev) => ({
+          ...prev,
+          phase: "error",
+          awaitingWebhook: false,
+          error: "Unable to refresh checkout status.",
+        }))
+        return
+      }
+
+      if (!cancelled) {
+        timeoutId = window.setTimeout(poll, KIOSK_QR_POLL_INTERVAL_MS)
+      }
+    }
+
+    void poll()
+
+    return () => {
+      cancelled = true
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [isKioskTerminalFlow, kioskQrCheckout.sessionId, kioskQrCheckoutPending, open])
 
   const stepValid = (s: number) => {
     const stepKey = steps[s]?.key
@@ -2404,6 +2726,17 @@ export default function EnrollModal({
 
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
+                    {isKioskTerminalFlow && paymentMethod === "stripe" && kioskQrCheckout.phase !== "idle" && (
+                      <KioskQrPaymentPanel
+                        checkoutState={kioskQrCheckout}
+                        onCancel={resetKioskQrCheckout}
+                        onRetry={() => {
+                          kioskFastPathSubmitTriggeredRef.current = true
+                          setFormError(null)
+                          void handleSubmit()
+                        }}
+                      />
+                    )}
                     {/* Payments step */}
                     <div>
                       <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 space-y-2.5">
@@ -2454,11 +2787,13 @@ export default function EnrollModal({
                             value={couponInput}
                             onChange={(e)=>setCouponInput(e.target.value)}
                             placeholder={t("payments_coupon_placeholder")}
+                            disabled={kioskQrCheckoutLocked}
                             className="flex-1 rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
                           />
                           {appliedCoupon ? (
                             <button
                               type="button"
+                              disabled={kioskQrCheckoutLocked}
                               onClick={()=>{ setAppliedCoupon(null); setCouponInput("") }}
                               className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2 text-sm"
                             >
@@ -2467,6 +2802,7 @@ export default function EnrollModal({
                           ) : (
                             <button
                               type="button"
+                              disabled={kioskQrCheckoutLocked}
                               onClick={()=>{
                                 const code = couponInput.trim().toUpperCase()
                                 if (code === "PLI10") setAppliedCoupon({ code, type: "percent", value: 10 })
@@ -2493,6 +2829,7 @@ export default function EnrollModal({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <button
                           type="button"
+                          disabled={kioskQrCheckoutLocked}
                           onClick={()=>setPaymentMethod("onsite")}
                           className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod==="onsite"?"border-[var(--brand,#111)] bg-[var(--brand,#111)]/5":"border-black/10 dark:border-white/10"}`}
                         >
@@ -2504,6 +2841,7 @@ export default function EnrollModal({
                         </button>
                         <button
                           type="button"
+                          disabled={kioskQrCheckoutLocked}
                           onClick={()=>setPaymentMethod("stripe")}
                           className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod==="stripe"?"border-[var(--brand,#111)] bg-[var(--brand,#111)]/5":"border-black/10 dark:border-white/10"}`}
                         >
@@ -2555,11 +2893,17 @@ export default function EnrollModal({
                     )}
                     <button
                       type="button"
-                      onClick={() => setStep((s) => Math.max(0, s - 1))}
-                      disabled={step === 0}
+                      onClick={() => {
+                        if (kioskQrCheckoutLocked) {
+                          resetKioskQrCheckout()
+                          return
+                        }
+                        setStep((s) => Math.max(0, s - 1))
+                      }}
+                      disabled={step === 0 && !kioskQrCheckoutLocked}
                       className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50"}
                     >
-                      {t("back")}
+                      {kioskQrCheckoutLocked ? "Cancel QR" : t("back")}
                     </button>
                     {step < steps.length - 1 ? (
                       <button
@@ -2570,14 +2914,20 @@ export default function EnrollModal({
                         {identityCheckBusy ? t("verifyingAccount") : t("continue")}
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => void handleSubmit()}
-                        disabled={processing || identityCheckBusy}
-                        className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
-                      >
-                        {processing ? "Processing..." : t("confirm")}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleSubmit()}
+                          disabled={processing || identityCheckBusy || kioskQrCheckoutLocked}
+                          className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
+                        >
+                          {processing
+                            ? "Processing..."
+                            : isKioskTerminalFlow && paymentMethod === "stripe"
+                              ? kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
+                                ? "Create new QR"
+                                : "Show QR"
+                              : t("confirm")}
+                        </button>
                     )}
                   </div>
                 </div>
@@ -2609,32 +2959,8 @@ export default function EnrollModal({
                   })
                   purchaseFinalized = finalizeRes.ok
 
-                  if (isCheckInFlow && !pkg && date && time && finalizeRes.ok) {
-                    const dropInRes = await fetch("/api/checkin/qr/dropin", {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                      },
-                      credentials: "include",
-                      body: JSON.stringify({
-                        paymentIntentId,
-                        courseSlug: course.slug,
-                        date,
-                        time,
-                        durationMinutes: checkInContextDuration,
-                      }),
-                    })
-                    const dropInData = await dropInRes.json().catch(() => null)
-                    completionMessage = dropInRes.ok
-                      ? "Purchase and check-in recorded successfully."
-                      : typeof dropInData?.error === "string"
-                        ? `Purchase recorded. Automatic check-in could not be completed: ${dropInData.error}`
-                        : "Purchase recorded. Automatic check-in could not be completed."
-                  } else if (finalizeRes.ok) {
-                    completionMessage = isCheckInFlow
-                      ? "Purchase recorded successfully."
-                      : null
+                  if (finalizeRes.ok) {
+                    completionMessage = await completeDropInCheckInAfterCardPayment({ paymentIntentId })
                   }
                 } catch (error) {
                   console.warn("Unable to finalize purchase sync", error)

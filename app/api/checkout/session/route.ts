@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import {
-  ensureGuestClerkUser,
   enforceNewStudentRules,
-  resolveAuthUser,
-  resolveContactIdentity,
+  prepareCheckoutAccount,
   type ApiError,
 } from "@/lib/checkout"
+import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
@@ -55,8 +54,9 @@ export async function POST(req: Request) {
     firstName,
     lastName,
     name,
-    phone,
+    phone = "",
   } = body || {}
+  const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
   const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
@@ -67,32 +67,30 @@ export async function POST(req: Request) {
   const success = `${base}/courses/${validation.courseSlug}?status=success`
   const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
-  const { userId, clerkUser } = await resolveAuthUser(req, { firstName, lastName, name, phone })
-  const identity = resolveContactIdentity({ clerkUser, email, phone })
-  if (isApiError(identity)) {
-    return toErrorResponse(identity)
+  const preparedAccount = await prepareCheckoutAccount(
+    req,
+    {
+      email,
+      firstName,
+      lastName,
+      name,
+      phone,
+    },
+    {
+      photoContext,
+      allowExistingAccountLookup: photoContext === "kiosk_terminal",
+    }
+  )
+  if (isApiError(preparedAccount)) {
+    return toErrorResponse(preparedAccount)
   }
 
-  const guestResult = await ensureGuestClerkUser({
-    userId: userId || undefined,
-    resolvedEmail: identity.resolvedEmail,
-    phoneRaw: identity.phoneRaw,
-    firstName,
-    lastName,
-    name,
-    phone,
-  })
-  if (isApiError(guestResult)) {
-    return toErrorResponse(guestResult)
-  }
-
-  const ensuredClerkUser = guestResult.ensuredClerkUser
-  const resolvedUserId = userId || ensuredClerkUser?.id
+  const { clerkUser, resolvedUserId, identity } = preparedAccount
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
-    clerkUserForVerification: clerkUser || ensuredClerkUser,
-    resolvedUserId,
+    clerkUserForVerification: clerkUser,
+    resolvedUserId: resolvedUserId || undefined,
     resolvedEmail: identity.resolvedEmail,
     phoneNormalized: identity.phoneNormalized,
   })
@@ -100,11 +98,14 @@ export async function POST(req: Request) {
     return toErrorResponse(newStudentError)
   }
 
+  const expiresAt =
+    photoContext === "kiosk_terminal" ? Math.floor(Date.now() / 1000) + 30 * 60 : undefined
+
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
-      client_reference_id: resolvedUserId,
+      client_reference_id: resolvedUserId || undefined,
       line_items: [
         {
           quantity: 1,
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
       success_url: success,
       cancel_url: cancel,
       customer_email: identity.resolvedEmail,
+      expires_at: expiresAt,
       metadata: {
         courseSlug: validation.courseSlug,
         courseTitle: validation.courseTitle,
@@ -142,10 +144,16 @@ export async function POST(req: Request) {
         phone: identity.phoneNormalized,
         phoneRaw: phone || "",
         email: identity.resolvedEmail,
+        flowContext: photoContext,
+        paymentSurface: photoContext === "kiosk_terminal" ? "hosted_checkout" : "web_checkout",
       },
     })
 
-    return NextResponse.json({ url: session.url })
+    return NextResponse.json({
+      url: session.url,
+      sessionId: session.id,
+      expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+    })
   } catch (err) {
     console.error("Stripe checkout error", err)
     return NextResponse.json({ error: "Unable to create checkout session" }, { status: 500 })

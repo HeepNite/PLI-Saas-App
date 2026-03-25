@@ -3,6 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
@@ -41,6 +42,14 @@ const isCashPurchaseMetadata = (value: unknown) => {
   )
 }
 
+const isHostedKioskCardPurchase = (value: unknown) => {
+  const metadata = toRecord(value)
+  if (!metadata) return false
+  const flowContext = normalizeString(metadata.flowContext).toLowerCase()
+  const paymentSurface = normalizeString(metadata.paymentSurface).toLowerCase()
+  return flowContext === "kiosk_terminal" && paymentSurface === "hosted_checkout"
+}
+
 const toRecord = (value: unknown) =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
@@ -59,9 +68,6 @@ export async function POST(req: Request) {
     }
 
     const authResult = await auth()
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
 
     let body: unknown
     try {
@@ -102,34 +108,94 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
-    const client = await clerkClient()
-    const clerkUser = await client.users.getUser(authResult.userId)
-    const email = clerkUser.primaryEmailAddress?.emailAddress || ""
-    const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-    const phone = normalizePhoneDigits(phoneRaw)
-    const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+    let dbUser: { id: string } | null = null
+    let durableKioskPurchase:
+      | {
+          id: string
+          userId: string
+          status: string
+          stripePaymentIntentId: string | null
+          metadata: unknown
+        }
+      | null = null
 
-    const dbUser = await upsertUserByIdentifiers({
-      clerkId: authResult.userId,
-      email,
-      phone,
-      name,
-    })
-    if (!dbUser) {
-      return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+    if (purchaseId && !paymentIntentId) {
+      const terminalAuth = await authorizeStaffTerminalSession()
+      if (terminalAuth.ok) {
+        const purchase = await prisma.purchase.findUnique({
+          where: { id: purchaseId },
+          select: {
+            id: true,
+            userId: true,
+            status: true,
+            courseSlug: true,
+            stripePaymentIntentId: true,
+            metadata: true,
+          },
+        })
+
+        const metadata = toRecord(purchase?.metadata)
+        const purchaseCourseSlug = normalizeString(metadata?.courseSlug) || normalizeString(purchase?.courseSlug)
+        const purchaseDate = normalizeString(metadata?.date)
+        const purchaseTime = normalizeString(metadata?.time)
+
+        if (
+          purchase &&
+          purchase.userId &&
+          isPaidPurchaseStatus(purchase.status) &&
+          !isCashPurchaseMetadata(purchase.metadata) &&
+          isHostedKioskCardPurchase(purchase.metadata) &&
+          purchaseCourseSlug === context.courseSlug &&
+          purchaseDate === context.date &&
+          purchaseTime === context.time
+        ) {
+          dbUser = { id: purchase.userId }
+          durableKioskPurchase = purchase
+        } else if (!authResult.userId) {
+          return NextResponse.json(
+            { error: "No successful kiosk card payment was found for this class slot." },
+            { status: 409 }
+          )
+        }
+      }
     }
 
-    const recentPurchases = await prisma.purchase.findMany({
-      where: {
-        userId: dbUser.id,
-        courseSlug: context.courseSlug,
-        ...(purchaseId ? { id: purchaseId } : {}),
-        ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
-        createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
-      },
-      orderBy: { createdAt: "desc" },
-      take: paymentIntentId ? 1 : 30,
-    })
+    if (!dbUser) {
+      if (!authResult.userId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+
+      const client = await clerkClient()
+      const clerkUser = await client.users.getUser(authResult.userId)
+      const email = clerkUser.primaryEmailAddress?.emailAddress || ""
+      const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+      const phone = normalizePhoneDigits(phoneRaw)
+      const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+
+      dbUser = await upsertUserByIdentifiers({
+        clerkId: authResult.userId,
+        email,
+        phone,
+        name,
+      })
+      if (!dbUser) {
+        return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+      }
+    }
+
+    const recentPurchases = durableKioskPurchase
+      ? [durableKioskPurchase]
+      : await prisma.purchase.findMany({
+          where: {
+            userId: dbUser.id,
+            courseSlug: context.courseSlug,
+            ...(purchaseId ? { id: purchaseId } : {}),
+            ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
+            createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+          },
+          orderBy: { createdAt: "desc" },
+          take: paymentIntentId ? 1 : 30,
+        })
 
     const dropInPurchase =
       recentPurchases.find((purchase) => {
