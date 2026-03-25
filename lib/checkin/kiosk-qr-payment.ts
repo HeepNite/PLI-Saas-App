@@ -152,8 +152,11 @@ type KioskResolvingOverlayInput = {
 }
 
 /**
- * Returns true when the terminal existing-customer flow is still resolving
- * (bootstrap in-flight or bootstrap just resolved but the EnrollModal hasn't opened yet).
+ * Returns true when the terminal existing-customer flow is still resolving:
+ * - bootstrap in-flight, OR
+ * - bootstrap just resolved but the EnrollModal hasn't opened yet (covers the
+ *   React flush gap between setState(bootstrap) and the useEffect that sets
+ *   existingRegularBookingOverride).
  * Used to render a full-screen spinner that covers the intermediate UI.
  */
 export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInput): boolean => {
@@ -161,8 +164,10 @@ export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInpu
     return false
   }
   if (input.loadingBootstrap) return true
-  // Bootstrap resolved but EnrollModal not open yet (and no error to show)
-  if (!input.hasBootstrap && !input.hasExistingRegularBookingOverride && !input.hasVisibleError) {
+  // Keep the overlay until the EnrollModal is actually open (override set) or an
+  // error needs to be shown. This covers both the pre-bootstrap gap and the
+  // post-bootstrap / pre-modal-open gap.
+  if (!input.hasExistingRegularBookingOverride && !input.hasVisibleError) {
     return true
   }
   return false

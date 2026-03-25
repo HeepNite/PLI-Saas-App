@@ -279,12 +279,25 @@ describe("kiosk QR payment helpers", () => {
       expect(shouldShowKioskResolvingOverlay({ ...base, loadingBootstrap: true })).toBe(true)
     })
 
-    it("shows the overlay when bootstrap resolved but EnrollModal not open yet", () => {
+    it("shows the overlay when bootstrap has not resolved yet and EnrollModal is not open", () => {
       expect(
         shouldShowKioskResolvingOverlay({
           ...base,
           loadingBootstrap: false,
           hasBootstrap: false,
+          hasExistingRegularBookingOverride: false,
+          hasVisibleError: false,
+        })
+      ).toBe(true)
+    })
+
+    it("shows the overlay in the post-bootstrap / pre-modal gap (bootstrap arrived but useEffect not flushed yet)", () => {
+      // hasBootstrap=true but override not set yet — this was the source of the visual jump
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: true,
           hasExistingRegularBookingOverride: false,
           hasVisibleError: false,
         })

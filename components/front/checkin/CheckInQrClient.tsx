@@ -982,8 +982,8 @@ export default function CheckInQrClient({
           {showCourseCardPanel && !showQrPanel && (
             <div className="mt-6">
               <article className="overflow-hidden rounded-2xl border border-white/15 bg-[linear-gradient(150deg,rgba(3,5,12,0.96),rgba(10,14,28,0.96))]">
-                <div className="grid h-full grid-cols-[0.92fr_1.08fr] sm:grid-cols-[0.9fr_1.1fr]">
-                  <div className="relative min-h-[18rem] sm:h-full sm:min-h-0">
+                <div className="grid grid-cols-[0.92fr_1.08fr] sm:grid-cols-[0.9fr_1.1fr]">
+                  <div className="relative min-h-[18rem]">
                     <Image
                       src={checkInCardImage}
                       alt={checkInDisplayCourse?.title || "Current course"}
