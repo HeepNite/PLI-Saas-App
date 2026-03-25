@@ -1,3 +1,5 @@
+import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
+
 export const KIOSK_QR_POLL_INTERVAL_MS = 3_000
 
 export type KioskQrCheckoutPhase =
@@ -35,6 +37,12 @@ type KioskFastPathEligibilityInput = {
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+const hasValidKioskFastPathPhone = (value?: string) => {
+  const digits = normalizePhoneKey(value || "")
+  if (digits.length === 10) return true
+  return digits.length === 11 && digits.startsWith("1")
+}
+
 export const createEmptyKioskQrCheckoutState = (): KioskQrCheckoutState => ({
   phase: "idle",
   sessionId: null,
@@ -71,7 +79,7 @@ export const isKioskInfoFastPathEligible = (input: KioskFastPathEligibilityInput
       firstName.length > 0 &&
       lastName.length > 0 &&
       EMAIL_REGEX.test(email) &&
-      /^\+1\s\d{3}\s\d{3}\s\d{4}$/.test(phone)
+      hasValidKioskFastPathPhone(phone)
   )
 }
 

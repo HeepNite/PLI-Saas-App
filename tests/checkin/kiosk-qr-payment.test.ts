@@ -25,6 +25,38 @@ describe("kiosk QR payment helpers", () => {
     ).toBe(true)
   })
 
+  it("accepts normalized or UI-formatted phone values for the kiosk fast path", () => {
+    expect(
+      isKioskInfoFastPathEligible({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        date: "2026-03-24",
+        time: "18:30",
+        contact: {
+          firstName: "Mora",
+          lastName: "Diaz",
+          email: "mora@example.com",
+          phone: "9293876584",
+        },
+      })
+    ).toBe(true)
+
+    expect(
+      isKioskInfoFastPathEligible({
+        isKioskTerminalFlow: true,
+        isCheckInExistingFlow: true,
+        date: "2026-03-24",
+        time: "18:30",
+        contact: {
+          firstName: "Mora",
+          lastName: "Diaz",
+          email: "mora@example.com",
+          phone: "+1 (929) 387-6584",
+        },
+      })
+    ).toBe(true)
+  })
+
   it("keeps the early info skip off when kiosk existing-customer context is incomplete", () => {
     expect(
       isKioskInfoFastPathEligible({

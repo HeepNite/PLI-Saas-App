@@ -331,6 +331,11 @@ const computeCheckInAutofill = (
   }
 }
 
+const normalizeEnrollPhonePrefill = (value?: string) => {
+  if (typeof value !== "string" || value.trim().length === 0) return "+1 "
+  return formatUSPhone(value)
+}
+
 export default function EnrollModal({
   course,
   open,
@@ -620,7 +625,14 @@ export default function EnrollModal({
   React.useEffect(() => {
     if (isCheckInNewFlow) return
     if (!open || !prefillContact) return
-    setContact((prev) => ({ ...prev, ...prefillContact }))
+    setContact((prev) => ({
+      ...prev,
+      ...prefillContact,
+      phone:
+        typeof prefillContact.phone === "string"
+          ? normalizeEnrollPhonePrefill(prefillContact.phone)
+          : prev.phone,
+    }))
   }, [isCheckInNewFlow, open, prefillContact])
 
   React.useEffect(() => {
@@ -833,13 +845,13 @@ export default function EnrollModal({
           phone: "+1 ",
           note: "",
         }
-      : {
-          firstName: prefillContactRef.current?.firstName ?? userContact.firstName ?? "",
-          lastName: prefillContactRef.current?.lastName ?? userContact.lastName ?? "",
-          email: prefillContactRef.current?.email ?? userContact.email ?? "",
-          phone: prefillContactRef.current?.phone ?? userContact.phone ?? "+1 ",
-          note: prefillContactRef.current?.note ?? "",
-        }
+        : {
+            firstName: prefillContactRef.current?.firstName ?? userContact.firstName ?? "",
+            lastName: prefillContactRef.current?.lastName ?? userContact.lastName ?? "",
+            email: prefillContactRef.current?.email ?? userContact.email ?? "",
+            phone: normalizeEnrollPhonePrefill(prefillContactRef.current?.phone ?? userContact.phone),
+            note: prefillContactRef.current?.note ?? "",
+          }
     const checkInAutofill = isCheckInFlow
       ? computeCheckInAutofill(course.slug, sourceCourses, {
           date: checkInContextDate,
@@ -2734,17 +2746,6 @@ export default function EnrollModal({
 
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
-                    {isKioskTerminalFlow && paymentMethod === "stripe" && kioskQrCheckout.phase !== "idle" && (
-                      <KioskQrPaymentPanel
-                        checkoutState={kioskQrCheckout}
-                        onCancel={resetKioskQrCheckout}
-                        onRetry={() => {
-                          kioskFastPathSubmitTriggeredRef.current = true
-                          setFormError(null)
-                          void handleSubmit()
-                        }}
-                      />
-                    )}
                     {/* Payments step */}
                     <div>
                       <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 space-y-2.5">
@@ -2988,6 +2989,17 @@ export default function EnrollModal({
             email={contact.email}
             name={`${contact.firstName} ${contact.lastName}`.trim()}
             phone={contact.phone}
+          />
+        )}
+        {isKioskTerminalFlow && paymentMethod === "stripe" && kioskQrCheckout.phase !== "idle" && (
+          <KioskQrPaymentPanel
+            checkoutState={kioskQrCheckout}
+            onCancel={resetKioskQrCheckout}
+            onRetry={() => {
+              kioskFastPathSubmitTriggeredRef.current = true
+              setFormError(null)
+              void handleSubmit()
+            }}
           />
         )}
       </GlassyCard>
