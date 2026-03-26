@@ -1390,7 +1390,9 @@ export default function CheckInQrClient({
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
             />
           </svg>
-          <p className="mt-4 text-sm text-white/65">One moment...</p>
+          <p className="mt-4 text-sm text-white/65">
+            Alright niños, hang tight — we&apos;re getting your payment ready.
+          </p>
         </div>
       )}
 
