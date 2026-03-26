@@ -273,6 +273,7 @@ describe("kiosk QR payment helpers", () => {
       hasBootstrap: false,
       hasExistingRegularBookingOverride: false,
       hasVisibleError: false,
+      paymentsStepReady: false,
     }
 
     it("shows the overlay while bootstrap is loading", () => {
@@ -304,13 +305,27 @@ describe("kiosk QR payment helpers", () => {
       ).toBe(true)
     })
 
-    it("hides the overlay once the EnrollModal is open", () => {
+    it("keeps the overlay up when EnrollModal is open but payments step is not ready yet", () => {
+      // Modal is open (override set) but still transitioning to payments internally
       expect(
         shouldShowKioskResolvingOverlay({
           ...base,
           loadingBootstrap: false,
           hasBootstrap: true,
           hasExistingRegularBookingOverride: true,
+          paymentsStepReady: false,
+        })
+      ).toBe(true)
+    })
+
+    it("hides the overlay once the EnrollModal is open AND payments step is ready", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: true,
+          hasExistingRegularBookingOverride: true,
+          paymentsStepReady: true,
         })
       ).toBe(false)
     })

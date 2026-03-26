@@ -345,6 +345,7 @@ export default function EnrollModal({
   open,
   onCloseAction,
   onCompletedAction,
+  onPaymentsStepReadyAction,
   initialStep,
   mode = "modal",
   prefillContact,
@@ -359,6 +360,12 @@ export default function EnrollModal({
   open: boolean
   onCloseAction: () => void
   onCompletedAction?: () => void | Promise<void>
+  /**
+   * Called once when the modal reaches the payments step for the first time
+   * after opening. Used by the kiosk terminal flow to know when to hide the
+   * full-screen resolving overlay.
+   */
+  onPaymentsStepReadyAction?: () => void
   initialStep?: number
   mode?: "modal" | "inline"
   prefillContact?: Partial<EnrollmentContact>
@@ -1873,6 +1880,25 @@ export default function EnrollModal({
     hydrating: kioskStepHydrating,
     transitionPending: kioskInfoTransitionPending,
   })
+
+  // Track whether we already fired onPaymentsStepReadyAction for this open session
+  const paymentsReadyFiredRef = React.useRef(false)
+
+  // Notify the parent (e.g. CheckInQrClient) once payments is the active step
+  // AND the internal kiosk transition overlay has cleared. This lets the
+  // outer full-screen resolving overlay stay up until the payment UI is truly
+  // visible — not just until the EnrollModal has been opened.
+  React.useEffect(() => {
+    if (!open) {
+      paymentsReadyFiredRef.current = false
+      return
+    }
+    if (paymentsReadyFiredRef.current) return
+    if (activeStepKey !== "payments") return
+    if (showKioskPaymentTransition) return
+    paymentsReadyFiredRef.current = true
+    onPaymentsStepReadyAction?.()
+  }, [activeStepKey, onPaymentsStepReadyAction, open, showKioskPaymentTransition])
 
   React.useEffect(() => {
     if (kioskPaymentTransitionTimeoutRef.current !== null) {

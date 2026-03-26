@@ -373,6 +373,9 @@ export default function CheckInQrClient({
     time: string
   } | null>(null)
   const [existingRegularBookingKey, setExistingRegularBookingKey] = React.useState(0)
+  // True once the EnrollModal has reached the payments step and is ready to display.
+  // Used to keep the kiosk resolving overlay up until payments is truly visible.
+  const [paymentsModalReady, setPaymentsModalReady] = React.useState(false)
   const [processingPackageCheckIn, setProcessingPackageCheckIn] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
@@ -465,6 +468,7 @@ export default function CheckInQrClient({
     setOpenNewBooking(false)
     setNewBookingOverride(null)
     setExistingRegularBookingOverride(null)
+    setPaymentsModalReady(false)
     setMode("idle")
     setBootstrap(null)
     setShowPhoneSignIn(false)
@@ -558,6 +562,7 @@ export default function CheckInQrClient({
     hasBootstrap: Boolean(bootstrap),
     hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
     hasVisibleError: Boolean(visibleError),
+    paymentsStepReady: paymentsModalReady,
   })
   const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const effectiveCheckInWindowOpen = Boolean(bootstrap?.context.checkInWindow.isOpen)
@@ -810,6 +815,7 @@ export default function CheckInQrClient({
   const openExistingPurchaseFlow = React.useCallback((context: { courseSlug: string; date: string; time: string }) => {
     setError(null)
     setSuccess(null)
+    setPaymentsModalReady(false)
     setExistingRegularBookingKey((prev) => prev + 1)
     setExistingRegularBookingOverride(context)
   }, [])
@@ -1435,6 +1441,7 @@ export default function CheckInQrClient({
             }
             setExistingRegularBookingOverride(null)
           }}
+          onPaymentsStepReadyAction={isKioskTerminalFlow ? () => setPaymentsModalReady(true) : undefined}
           initialStep={getExistingCustomerInitialStep({ isKioskTerminalFlow })}
           prefillSelection={
             bootstrap?.quickCheckout
