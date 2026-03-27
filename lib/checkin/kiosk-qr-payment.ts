@@ -144,7 +144,7 @@ export const getKioskPaymentTransitionMessage = (firstName?: string) => {
 type KioskResolvingOverlayInput = {
   isKioskTerminalFlow: boolean
   mode: string
-  isSignedIn: boolean
+  hasActiveCustomerSession: boolean
   loadingBootstrap: boolean
   hasBootstrap: boolean
   hasExistingRegularBookingOverride: boolean
@@ -168,7 +168,7 @@ type KioskResolvingOverlayInput = {
  * Used to render a full-screen spinner that covers the intermediate UI.
  */
 export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInput): boolean => {
-  if (!input.isKioskTerminalFlow || input.mode !== "existing" || !input.isSignedIn) {
+  if (!input.isKioskTerminalFlow || input.mode !== "existing" || !input.hasActiveCustomerSession) {
     return false
   }
   if (input.loadingBootstrap) return true

@@ -268,7 +268,7 @@ describe("kiosk QR payment helpers", () => {
     const base = {
       isKioskTerminalFlow: true,
       mode: "existing" as const,
-      isSignedIn: true,
+      hasActiveCustomerSession: true,
       loadingBootstrap: false,
       hasBootstrap: false,
       hasExistingRegularBookingOverride: false,
@@ -340,8 +340,12 @@ describe("kiosk QR payment helpers", () => {
       expect(shouldShowKioskResolvingOverlay({ ...base, isKioskTerminalFlow: false })).toBe(false)
     })
 
-    it("does not show the overlay when the user is not signed in", () => {
-      expect(shouldShowKioskResolvingOverlay({ ...base, isSignedIn: false })).toBe(false)
+    it("does not show the overlay when there is no active customer session", () => {
+      expect(shouldShowKioskResolvingOverlay({ ...base, hasActiveCustomerSession: false })).toBe(false)
+    })
+
+    it("shows the overlay for kiosk PIN sessions even before Clerk sign-in exists", () => {
+      expect(shouldShowKioskResolvingOverlay({ ...base, hasActiveCustomerSession: true, loadingBootstrap: true })).toBe(true)
     })
 
     it("does not show the overlay outside the existing-customer mode", () => {
