@@ -222,6 +222,22 @@ describe("student PIN helpers", () => {
     )
   })
 
+  it("allows provisional PIN issuance when the same student already owns the active permanent PIN", async () => {
+    mockPrisma.studentPinCredential.findFirst.mockResolvedValue(null)
+    mockPrisma.studentPinCredential.upsert.mockResolvedValue({ id: "prov_1" })
+
+    await issueProvisionalStudentPin(mockPrisma as never, { userId: "user_1", nextPin: "1234" })
+
+    expect(mockPrisma.studentPinCredential.upsert).toHaveBeenCalled()
+    expect(mockPrisma.studentPinCredential.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          NOT: expect.arrayContaining([{ userId: "user_1" }]),
+        }),
+      })
+    )
+  })
+
   it("rejects provisional PIN issuance when another active student already uses the PIN", async () => {
     mockPrisma.studentPinCredential.findFirst.mockResolvedValue({ id: "cred_other" })
 

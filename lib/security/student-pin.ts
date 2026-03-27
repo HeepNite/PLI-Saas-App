@@ -183,7 +183,7 @@ export const isStudentPinExpired = (
 
 export const assertStudentPinGlobalUniqueness = async (
   tx: StudentPinDbClient,
-  input: { nextPin: string; credentialId?: string }
+  input: { nextPin: string; credentialId?: string; ownerUserId?: string }
 ) => {
   const pinLookupDigest = createStudentPinLookupDigest(input.nextPin)
   const existing = await tx.studentPinCredential.findFirst({
@@ -192,9 +192,12 @@ export const assertStudentPinGlobalUniqueness = async (
       status: {
         in: [...STUDENT_PIN_ACTIVE_LOOKUP_STATUSES],
       },
-      ...(input.credentialId
+      ...(input.credentialId || input.ownerUserId
         ? {
-            NOT: { id: input.credentialId },
+            NOT: [
+              ...(input.credentialId ? [{ id: input.credentialId }] : []),
+              ...(input.ownerUserId ? [{ userId: input.ownerUserId }] : []),
+            ],
           }
         : {}),
     },
@@ -460,7 +463,11 @@ export const replacePermanentStudentPin = async (
 ): Promise<StudentPinCredential> => {
   const now = new Date()
   const existingCredentialId = await findOwnedCredentialId(tx, input.userId, "permanent")
-  await assertStudentPinGlobalUniqueness(tx, { nextPin: input.nextPin, credentialId: existingCredentialId })
+  await assertStudentPinGlobalUniqueness(tx, {
+    nextPin: input.nextPin,
+    credentialId: existingCredentialId,
+    ownerUserId: input.userId,
+  })
   const hashed = await hashStudentPin(input.nextPin)
 
   try {
@@ -506,7 +513,11 @@ export const issueProvisionalStudentPin = async (
 ): Promise<StudentPinCredential> => {
   const now = new Date()
   const existingCredentialId = await findOwnedCredentialId(tx, input.userId, "provisional")
-  await assertStudentPinGlobalUniqueness(tx, { nextPin: input.nextPin, credentialId: existingCredentialId })
+  await assertStudentPinGlobalUniqueness(tx, {
+    nextPin: input.nextPin,
+    credentialId: existingCredentialId,
+    ownerUserId: input.userId,
+  })
   const hashed = await hashStudentPin(input.nextPin)
   try {
     return await tx.studentPinCredential.upsert({
