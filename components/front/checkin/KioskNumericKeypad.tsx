@@ -11,6 +11,7 @@ export default function KioskNumericKeypad({
   disabled = false,
   className = "",
   activeKey = null,
+  framed = true,
 }: {
   onDigit: (digit: string) => void
   onBackspace: () => void
@@ -18,6 +19,7 @@ export default function KioskNumericKeypad({
   disabled?: boolean
   className?: string
   activeKey?: string | null
+  framed?: boolean
 }) {
   const [pressedKey, setPressedKey] = React.useState<string | null>(null)
 
@@ -40,7 +42,11 @@ export default function KioskNumericKeypad({
   )
 
   return (
-    <div className={`rounded-2xl border border-white/10 bg-white/[0.03] p-3 ${className}`.trim()}>
+    <div
+      className={
+        `${framed ? "rounded-2xl border border-white/10 bg-white/[0.03] p-3" : ""} ${className}`.trim()
+      }
+    >
       <div className="grid grid-cols-3 gap-2">
         {KIOSK_NUMERIC_KEYPAD_DIGITS.slice(0, 9).map((digit) => (
           <button

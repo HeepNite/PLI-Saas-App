@@ -20,3 +20,21 @@ export const shouldShowCheckInQrPanel = (input: {
 
   return !input.isCompactViewport
 }
+
+export const shouldAutoOpenExistingPurchase = (input: {
+  mode: "idle" | "existing" | "new"
+  hasBootstrap: boolean
+  isSignedIn: boolean
+  hasKioskPinSession: boolean
+  loadingBootstrap: boolean
+  hasExistingRegularBookingOverride: boolean
+  openNewBooking: boolean
+  processingPackageCheckIn: boolean
+  hasPackage: boolean
+}) => {
+  if (input.mode !== "existing") return false
+  if (!input.hasBootstrap || input.loadingBootstrap) return false
+  if (!input.isSignedIn && !input.hasKioskPinSession) return false
+  if (input.hasExistingRegularBookingOverride || input.openNewBooking || input.processingPackageCheckIn) return false
+  return !input.hasPackage
+}

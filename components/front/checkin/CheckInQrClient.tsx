@@ -13,7 +13,11 @@ import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import { buildSessionStartsAt, getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { toE164Phone } from "@/components/front/courses/utils/phone"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
-import { getExistingCustomerInitialStep, shouldShowCheckInQrPanel } from "@/lib/checkin/existing-customer-flow"
+import {
+  getExistingCustomerInitialStep,
+  shouldAutoOpenExistingPurchase,
+  shouldShowCheckInQrPanel,
+} from "@/lib/checkin/existing-customer-flow"
 import { shouldShowKioskResolvingOverlay } from "@/lib/checkin/kiosk-qr-payment"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
@@ -132,6 +136,7 @@ const WALK_IN_LATE_GRACE_MINUTES = 30
 const TERMINAL_LATE_PAYMENT_AFTER_END_MINUTES = 10
 const TERMINAL_LATE_PAYMENT_NEXT_CLASS_MAX_GAP_MINUTES = 120
 const PIN_LAST_DIGIT_REVEAL_MS = 700
+const TRANSIENT_MESSAGE_TIMEOUT_MS = 3200
 
 const pad = (value: number) => String(value).padStart(2, "0")
 
@@ -297,12 +302,45 @@ const toEsDateTime = (value: string, options?: Intl.DateTimeFormatOptions) => {
   }).format(parsed)
 }
 
-const formatMaskedPinDisplay = (value: string, revealedIndex: number | null) =>
-  Array.from({ length: 4 }, (_, index) => {
-    if (index >= value.length) return "-"
-    if (revealedIndex === index) return value[index]
-    return "*"
-  }).join("")
+const getActivePinSlotIndex = (value: string) => Math.min(value.length, 3)
+
+const renderPinSlots = (input: {
+  value: string
+  revealedIndex: number | null
+  isActive: boolean
+  activeIndex: number
+  compact?: boolean
+}) => (
+  <div className={`grid grid-cols-4 gap-2 ${input.compact ? "sm:gap-3" : "sm:gap-4"}`}>
+    {Array.from({ length: 4 }, (_, index) => {
+      const hasDigit = index < input.value.length
+      const isSlotActive = input.isActive && index === input.activeIndex
+      const displayValue = hasDigit ? (input.revealedIndex === index ? input.value[index] : "*") : ""
+
+      return (
+        <div
+          key={`pin-slot-${index}`}
+          className={`flex h-14 items-center justify-center rounded-2xl border text-center font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition sm:h-16 ${
+            input.compact ? "text-xl tracking-[0.24em] sm:text-2xl" : "text-2xl tracking-[0.3em] sm:text-[2rem]"
+          } ${
+            isSlotActive
+              ? "border-[var(--brand,#ff6b6b)] bg-[rgba(182,22,22,0.18)] shadow-[0_0_0_1px_rgba(255,107,107,0.2)]"
+              : "border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
+          }`}
+          aria-hidden="true"
+        >
+          {displayValue ? (
+            <span>{displayValue}</span>
+          ) : isSlotActive ? (
+            <span className="h-6 w-px animate-pulse rounded-full bg-[var(--brand,#ff8b8b)]" />
+          ) : (
+            <span className="text-white/28">-</span>
+          )}
+        </div>
+      )
+    })}
+  </div>
+)
 
 export default function CheckInQrClient({
   forcedDeviceMode,
@@ -610,6 +648,7 @@ export default function CheckInQrClient({
   const showKioskPinPanel =
     mode === "existing" && isKioskTerminalFlow && !isSignedIn && (!bootstrap || kioskPinRotationRequired)
   const hideEntrySelection = showSignedInBootstrapPanel || showKioskPinPanel
+  const activePinField = !hasKioskPinSession ? "entry" : kioskPinNext.length < 4 ? "next" : "confirm"
   // Full-screen loader: covers the terminal existing-customer handoff while bootstrap is
   // resolving (or just resolved but the EnrollModal hasn't opened yet). Only shown in kiosk
   // terminal flows — personal/QR flows keep the inline skeleton.
@@ -1064,9 +1103,22 @@ export default function CheckInQrClient({
 
   React.useEffect(() => {
     if (!isKioskTerminalFlow) return
-    if (mode !== "existing" || !isSignedIn || loadingBootstrap || !bootstrap) return
-    if (existingRegularBookingOverride || openNewBooking || processingPackageCheckIn) return
-    if (bootstrap.package) return
+    if (!bootstrap) return
+    if (
+      !shouldAutoOpenExistingPurchase({
+        mode,
+        hasBootstrap: true,
+        isSignedIn: Boolean(isSignedIn),
+        hasKioskPinSession,
+        loadingBootstrap,
+        hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
+        openNewBooking,
+        processingPackageCheckIn,
+        hasPackage: Boolean(bootstrap.package),
+      })
+    ) {
+      return
+    }
 
     openExistingPurchaseFlow({
       courseSlug: bootstrap.context.courseSlug,
@@ -1076,6 +1128,7 @@ export default function CheckInQrClient({
   }, [
     bootstrap,
     existingRegularBookingOverride,
+    hasKioskPinSession,
     isKioskTerminalFlow,
     isSignedIn,
     loadingBootstrap,
@@ -1084,6 +1137,16 @@ export default function CheckInQrClient({
     openNewBooking,
     processingPackageCheckIn,
   ])
+
+  React.useEffect(() => {
+    if (!error && !success) return
+    const timeoutId = window.setTimeout(() => {
+      setError(null)
+      setSuccess(null)
+    }, TRANSIENT_MESSAGE_TIMEOUT_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [error, success])
 
   return (
     <main className={`relative min-h-screen overflow-hidden bg-[#13141d] px-3 ${mainSpacingClass} sm:px-4`}>
@@ -1414,7 +1477,7 @@ export default function CheckInQrClient({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="existing-customer-pin-title"
-                className="w-full max-w-[24rem] overflow-hidden rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.22),transparent_54%),linear-gradient(160deg,rgba(12,15,28,0.99),rgba(21,25,40,0.97))] shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] md:max-w-[46rem]"
+                className="w-full max-w-[28rem] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.22),transparent_54%),linear-gradient(160deg,rgba(12,15,28,0.99),rgba(21,25,40,0.97))] shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] max-h-[calc(100vh-7rem)] md:max-w-[46rem]"
               >
                 <div className="grid gap-4 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_18rem] md:gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
                   <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4 sm:p-5">
@@ -1449,11 +1512,16 @@ export default function CheckInQrClient({
 
                     {!hasKioskPinSession ? (
                       <>
-                        <div className="mt-5 rounded-2xl border border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] px-4 py-5 text-center text-2xl tracking-[0.35em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:text-[2rem]">
-                          {formatMaskedPinDisplay(kioskPin, pinReveal?.field === "entry" ? pinReveal.index : null)}
+                        <div className="mt-5">
+                          {renderPinSlots({
+                            value: kioskPin,
+                            revealedIndex: pinReveal?.field === "entry" ? pinReveal.index : null,
+                            isActive: activePinField === "entry",
+                            activeIndex: getActivePinSlotIndex(kioskPin),
+                          })}
                         </div>
                         <p className="mt-3 text-xs uppercase tracking-[0.16em] text-white/48">
-                          Digits stay hidden after a brief confirmation.
+                          The highlighted slot shows where the next digit will land.
                         </p>
                         {typeof kioskPinAttemptsRemaining === "number" && kioskPinAttemptsRemaining >= 0 && (
                           <p className="mt-4 text-xs text-white/58">Attempts remaining on this terminal: {kioskPinAttemptsRemaining}</p>
@@ -1477,15 +1545,23 @@ export default function CheckInQrClient({
                         <div className="mt-5 grid gap-3 sm:grid-cols-2">
                           <div>
                             <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-white/55">New PIN</p>
-                            <div className="rounded-2xl border border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] px-4 py-4 text-center text-xl tracking-[0.3em] text-white sm:text-2xl">
-                              {formatMaskedPinDisplay(kioskPinNext, pinReveal?.field === "next" ? pinReveal.index : null)}
-                            </div>
+                            {renderPinSlots({
+                              value: kioskPinNext,
+                              revealedIndex: pinReveal?.field === "next" ? pinReveal.index : null,
+                              isActive: activePinField === "next",
+                              activeIndex: getActivePinSlotIndex(kioskPinNext),
+                              compact: true,
+                            })}
                           </div>
                           <div>
                             <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-white/55">Confirm PIN</p>
-                            <div className="rounded-2xl border border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] px-4 py-4 text-center text-xl tracking-[0.3em] text-white sm:text-2xl">
-                              {formatMaskedPinDisplay(kioskPinConfirm, pinReveal?.field === "confirm" ? pinReveal.index : null)}
-                            </div>
+                            {renderPinSlots({
+                              value: kioskPinConfirm,
+                              revealedIndex: pinReveal?.field === "confirm" ? pinReveal.index : null,
+                              isActive: activePinField === "confirm",
+                              activeIndex: getActivePinSlotIndex(kioskPinConfirm),
+                              compact: true,
+                            })}
                           </div>
                         </div>
                         <button
@@ -1504,8 +1580,9 @@ export default function CheckInQrClient({
 
                   <div className="rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(210,52,52,0.16),transparent_60%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3 sm:p-4">
                     <KioskNumericKeypad
-                      className="h-full border-0 bg-transparent p-0"
+                      className="h-full"
                       disabled={hasKioskPinSession ? kioskPinRotating : kioskPinLoading}
+                      framed={false}
                       onDigit={(digit) => {
                         if (!hasKioskPinSession) {
                           setKioskPin((current) => {

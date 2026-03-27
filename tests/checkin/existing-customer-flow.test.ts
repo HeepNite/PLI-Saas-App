@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   getExistingCustomerInitialStep,
+  shouldAutoOpenExistingPurchase,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
 
-describe("existing customer terminal flow helpers", () => {
+describe("existing customer kiosk helpers", () => {
   it("starts existing kiosk customers on the contact information step", () => {
     expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true })).toBe(0)
   })
@@ -45,6 +46,38 @@ describe("existing customer terminal flow helpers", () => {
         isCompactViewport: true,
         isQrEntry: false,
         shellVariant: "qr",
+      })
+    ).toBe(false)
+  })
+
+  it("auto-opens the current class purchase after PIN identify when a kiosk session is active", () => {
+    expect(
+      shouldAutoOpenExistingPurchase({
+        mode: "existing",
+        hasBootstrap: true,
+        isSignedIn: false,
+        hasKioskPinSession: true,
+        loadingBootstrap: false,
+        hasExistingRegularBookingOverride: false,
+        openNewBooking: false,
+        processingPackageCheckIn: false,
+        hasPackage: false,
+      })
+    ).toBe(true)
+  })
+
+  it("does not auto-open when the student already has a package for the class", () => {
+    expect(
+      shouldAutoOpenExistingPurchase({
+        mode: "existing",
+        hasBootstrap: true,
+        isSignedIn: false,
+        hasKioskPinSession: true,
+        loadingBootstrap: false,
+        hasExistingRegularBookingOverride: false,
+        openNewBooking: false,
+        processingPackageCheckIn: false,
+        hasPackage: true,
       })
     ).toBe(false)
   })
