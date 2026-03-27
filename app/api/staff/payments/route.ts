@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client"
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
@@ -72,6 +73,60 @@ const toDateIso = (value: unknown) => {
 
 const attendanceSlotKey = (userId: string, courseSlug: string, startsAtMs: number) => `${userId}|${courseSlug}|${startsAtMs}`
 
+const isStudentPinSchemaUnavailableError = (error: unknown) => {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    const fallbackCode =
+      typeof error === "object" && error && "code" in error && typeof error.code === "string" ? error.code : null
+    const fallbackName =
+      typeof error === "object" && error && "name" in error && typeof error.name === "string" ? error.name : null
+    return fallbackName === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(fallbackCode || "")
+  }
+  return ["P2021", "P2022"].includes(error.code)
+}
+
+const loadStudentPinCredentials = async (userIds: string[]) => {
+  if (!userIds.length || !isStudentPinLifecycleEnabled()) {
+    return { available: false, credentials: [] as Array<{
+      userId: string
+      kind: string
+      status: string
+      failedAttempts: number
+      lockedAt: Date | null
+      expiresAt: Date | null
+    }> }
+  }
+
+  try {
+    const credentials = await prisma.studentPinCredential.findMany({
+      where: {
+        userId: { in: userIds },
+        kind: { in: ["permanent", "provisional"] },
+      },
+      select: {
+        userId: true,
+        kind: true,
+        status: true,
+        failedAttempts: true,
+        lockedAt: true,
+        expiresAt: true,
+      },
+    })
+    return { available: true, credentials }
+  } catch (error) {
+    if (isStudentPinSchemaUnavailableError(error)) {
+      return { available: false, credentials: [] as Array<{
+        userId: string
+        kind: string
+        status: string
+        failedAttempts: number
+        lockedAt: Date | null
+        expiresAt: Date | null
+      }> }
+    }
+    throw error
+  }
+}
+
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:payments:get", getClientIp(req)),
@@ -134,7 +189,7 @@ export async function GET(req: Request) {
   const userIds = [...new Set(enrichedPurchases.map((item) => item.userId).filter(Boolean))]
   const courseSlugs = [...new Set(enrichedPurchases.map((item) => item.purchase.courseSlug).filter(Boolean))]
 
-  const [pointsGrouped, pointsEntries, activePackages, locations, slotAttendances, purchaseUsers, studentPinCredentials] = await Promise.all([
+  const [pointsGrouped, pointsEntries, activePackages, locations, slotAttendances, purchaseUsers, studentPinState] = await Promise.all([
     userIds.length
       ? prisma.pointsLedger.groupBy({
           by: ["userId"],
@@ -221,22 +276,7 @@ export async function GET(req: Request) {
           select: { id: true, clerkId: true },
         })
       : Promise.resolve([]),
-    userIds.length && isStudentPinLifecycleEnabled()
-      ? prisma.studentPinCredential.findMany({
-          where: {
-            userId: { in: userIds },
-            kind: { in: ["permanent", "provisional"] },
-          },
-          select: {
-            userId: true,
-            kind: true,
-            status: true,
-            failedAttempts: true,
-            lockedAt: true,
-            expiresAt: true,
-          },
-        })
-      : Promise.resolve([]),
+    loadStudentPinCredentials(userIds),
   ])
 
   const pointsByUser = new Map<string, number>()
@@ -382,9 +422,9 @@ export async function GET(req: Request) {
     }
   >()
 
-  if (isStudentPinLifecycleEnabled()) {
+  if (studentPinState.available) {
     for (const userId of userIds) {
-      const credentials = studentPinCredentials.filter((credential) => credential.userId === userId)
+      const credentials = studentPinState.credentials.filter((credential) => credential.userId === userId)
       const permanent = credentials.find((credential) => credential.kind === "permanent") || null
       const provisional = credentials.find((credential) => credential.kind === "provisional") || null
       const provisionalActive = Boolean(
