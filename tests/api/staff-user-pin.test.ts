@@ -294,4 +294,56 @@ describe("staff student PIN route", () => {
       provisionalPinMasked: "**78",
     })
   })
+
+  it("returns a deployment error when student PIN tables are missing before loading credentials", async () => {
+    mockAuthorizePortalBase.mockResolvedValue({ ok: true, userId: "staff_2", role: "staff", category: "front_desk" })
+    mockPrisma.user.findUnique.mockRejectedValue({
+      name: "PrismaClientKnownRequestError",
+      code: "P2021",
+    })
+
+    const { POST } = await import("@/app/api/staff/users/[userId]/pin/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/users/student_1/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "issue_provisional",
+          reason: "Legacy student needs same-day kiosk access",
+        }),
+      }),
+      { params: Promise.resolve({ userId: "student_1" }) }
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining("20260326090000_add_student_pin_lifecycle"),
+    })
+  })
+
+  it("returns a deployment error when student PIN tables are missing during issuance", async () => {
+    mockAuthorizePortalBase.mockResolvedValue({ ok: true, userId: "staff_2", role: "staff", category: "front_desk" })
+    mockPrisma.$transaction.mockRejectedValue({
+      name: "PrismaClientKnownRequestError",
+      code: "P2022",
+    })
+
+    const { POST } = await import("@/app/api/staff/users/[userId]/pin/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/users/student_1/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "issue_provisional",
+          reason: "Legacy student needs same-day kiosk access",
+        }),
+      }),
+      { params: Promise.resolve({ userId: "student_1" }) }
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining("not deployed in this environment"),
+    })
+  })
 })

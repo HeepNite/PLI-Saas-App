@@ -1,5 +1,6 @@
 import { randomInt } from "crypto"
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { hasExplicitStaffPermission } from "@/lib/security/staff-access"
@@ -22,7 +23,25 @@ export const runtime = "nodejs"
 const generateProvisionalPin = () => String(randomInt(0, 10_000)).padStart(4, "0")
 const AUTO_GENERATED_PIN_RETRY_LIMIT = 25
 
+const STUDENT_PIN_DEPLOYMENT_ERROR =
+  "Student PIN lifecycle tables are not deployed in this environment. Apply Prisma migration `20260326090000_add_student_pin_lifecycle` and redeploy before issuing provisional PINs."
+
 const maskPin = (pin: string) => `${"*".repeat(Math.max(0, pin.length - 2))}${pin.slice(-2)}`
+
+const isStudentPinSchemaUnavailableError = (error: unknown) => {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    const fallbackCode =
+      typeof error === "object" && error && "code" in error && typeof error.code === "string" ? error.code : null
+    const fallbackName =
+      typeof error === "object" && error && "name" in error && typeof error.name === "string" ? error.name : null
+    return fallbackName === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(fallbackCode || "")
+  }
+
+  return ["P2021", "P2022"].includes(error.code)
+}
+
+const studentPinSchemaUnavailableResponse = () =>
+  NextResponse.json({ error: STUDENT_PIN_DEPLOYMENT_ERROR }, { status: 503 })
 
 const issueProvisionalPin = async (tx: typeof prisma, userId: string, providedPin?: string) => {
   if (providedPin) {
@@ -108,22 +127,30 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
     return NextResponse.json({ error: "PIN must be exactly 4 digits." }, { status: 400 })
   }
 
-  const targetUser = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      studentPinCredentials: {
-        where: { kind: { in: ["permanent", "provisional"] } },
-        select: {
-          kind: true,
-          status: true,
-          expiresAt: true,
+  let targetUser
+  try {
+    targetUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        studentPinCredentials: {
+          where: { kind: { in: ["permanent", "provisional"] } },
+          select: {
+            kind: true,
+            status: true,
+            expiresAt: true,
+          },
         },
       },
-    },
-  })
+    })
+  } catch (error) {
+    if (isStudentPinSchemaUnavailableError(error)) {
+      return studentPinSchemaUnavailableResponse()
+    }
+    throw error
+  }
 
   if (!targetUser) {
     return NextResponse.json({ error: "Student not found." }, { status: 404 })
@@ -271,6 +298,9 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
       status,
     })
   } catch (error) {
+    if (isStudentPinSchemaUnavailableError(error)) {
+      return NextResponse.json({ error: STUDENT_PIN_DEPLOYMENT_ERROR }, { status: 503 })
+    }
     if (isStudentPinConflictError(error)) {
       return NextResponse.json({ error: error.message }, { status: 409 })
     }
