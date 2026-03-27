@@ -4,10 +4,13 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
+import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import type { CourseData } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 
 export const runtime = "nodejs"
+
+type ClerkUser = Awaited<ReturnType<Awaited<ReturnType<typeof clerkClient>>["users"]["getUser"]>>
 
 type CoursePricingTemplate = {
   serviceId: string
@@ -141,11 +144,6 @@ export async function POST(req: Request) {
       )
     }
 
-    const authResult = await auth()
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     let body: unknown
     try {
       body = await req.json()
@@ -154,6 +152,19 @@ export async function POST(req: Request) {
     }
 
     const payload = toRecord(body)
+    const authResult = await auth()
+    const kioskSessionToken = normalizeString(payload?.kioskSessionToken)
+    const kioskSessionResult = !authResult.userId && kioskSessionToken
+      ? await resolveTerminalKioskSession(kioskSessionToken)
+      : null
+
+    if (!authResult.userId && !kioskSessionResult?.ok) {
+      return NextResponse.json(
+        { error: kioskSessionResult?.error || "Unauthorized" },
+        { status: kioskSessionResult?.status || 401 }
+      )
+    }
+
     const context = parseQrCheckInContext(
       {
         courseSlug: payload?.courseSlug,
@@ -173,21 +184,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
-    const client = await clerkClient()
-    const clerkUser = await client.users.getUser(authResult.userId)
-    const email = clerkUser.primaryEmailAddress?.emailAddress || ""
-    const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-    const phone = normalizePhoneDigits(phoneRaw)
-    const firstName = clerkUser.firstName?.trim() || ""
-    const lastName = clerkUser.lastName?.trim() || ""
-    const name = [firstName, lastName].filter(Boolean).join(" ").trim()
+    const kioskUser = kioskSessionResult?.ok ? kioskSessionResult.session.user : null
 
-    const dbUser = await upsertUserByIdentifiers({
-      clerkId: authResult.userId,
-      email,
-      phone,
-      name,
-    })
+    let clerkUser: ClerkUser | null = null
+    let email = kioskUser?.email || ""
+    let phone = kioskUser ? normalizePhoneDigits(kioskUser.phone || "") : ""
+    let firstName = ""
+    let lastName = ""
+    let name = kioskUser?.name || ""
+
+    const dbUser = authResult.userId
+      ? await (async () => {
+          const client = await clerkClient()
+          clerkUser = await client.users.getUser(authResult.userId as string)
+          email = clerkUser.primaryEmailAddress?.emailAddress || ""
+          const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+          phone = normalizePhoneDigits(phoneRaw)
+          firstName = clerkUser.firstName?.trim() || ""
+          lastName = clerkUser.lastName?.trim() || ""
+          name = [firstName, lastName].filter(Boolean).join(" ").trim()
+          return upsertUserByIdentifiers({
+            clerkId: authResult.userId as string,
+            email,
+            phone,
+            name,
+          })
+        })()
+      : kioskSessionResult?.ok
+        ? {
+            id: kioskUser!.id,
+            name: kioskUser!.name,
+            email: kioskUser!.email,
+            phone: kioskUser!.phone,
+          }
+        : null
     if (!dbUser) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
     }
@@ -290,13 +320,13 @@ export async function POST(req: Request) {
       },
       customer: {
         userId: dbUser.id,
-        clerkUserId: authResult.userId,
+        clerkUserId: authResult.userId || kioskUser?.clerkId || "",
         firstName,
         lastName,
         name: dbUser.name || name,
         email: dbUser.email || email,
         phone: dbUser.phone || phone,
-        hasAvatar: Boolean(clerkUser.hasImage),
+        hasAvatar: Boolean(authResult.userId && clerkUser),
       },
       package: preferredPackage
         ? {

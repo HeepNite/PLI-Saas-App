@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mockValidate = vi.fn()
 const mockPrepareCheckoutAccount = vi.fn()
 const mockEnforceNewStudent = vi.fn()
+const mockEnrollStudentPin = vi.fn()
 const mockCreateCheckoutSession = vi.fn()
 
 vi.mock("@/lib/checkout", () => ({
   prepareCheckoutAccount: (...args: unknown[]) => mockPrepareCheckoutAccount(...args),
   enforceNewStudentRules: (...args: unknown[]) => mockEnforceNewStudent(...args),
+  enrollStudentPinForCheckout: (...args: unknown[]) => mockEnrollStudentPin(...args),
 }))
 
 vi.mock("@/lib/checkout/validation", () => ({
@@ -35,6 +37,7 @@ describe("checkout session route", () => {
     mockValidate.mockReset()
     mockPrepareCheckoutAccount.mockReset()
     mockEnforceNewStudent.mockReset()
+    mockEnrollStudentPin.mockReset()
     mockCreateCheckoutSession.mockReset()
 
     mockValidate.mockResolvedValue({
@@ -73,6 +76,7 @@ describe("checkout session route", () => {
       },
     })
     mockEnforceNewStudent.mockResolvedValue(null)
+    mockEnrollStudentPin.mockResolvedValue({ ok: true, dbUserId: null })
     mockCreateCheckoutSession.mockResolvedValue({
       id: "cs_test_123",
       url: "https://stripe.test/session",
@@ -148,6 +152,45 @@ describe("checkout session route", () => {
           flowContext: "kiosk_terminal",
           paymentSurface: "hosted_checkout",
         }),
+      })
+    )
+  })
+
+  it("enrolls a student PIN before creating checkout for new-student service", async () => {
+    mockValidate.mockResolvedValueOnce({
+      courseSlug: "salsa-femenina-matutina",
+      courseTitle: "Course booking",
+      amountInt: 2000,
+      currency: "usd",
+      date: "2026-02-10",
+      time: "11:00",
+      packageId: "",
+      serviceId: "new-student",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      pkg: null,
+      packageTotalCredits: null,
+      packageIsUnlimited: false,
+      packageCadence: "",
+      packageMakeUps: 0,
+      packageValidDays: 180,
+    })
+
+    const { POST } = await import("@/app/api/checkout/session/route")
+    await POST(
+      new Request("http://localhost/api/checkout/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentPin: "1234", studentPinConfirm: "1234" }),
+      })
+    )
+
+    expect(mockEnrollStudentPin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serviceId: "new-student",
+        studentPin: "1234",
+        studentPinConfirm: "1234",
       })
     )
   })

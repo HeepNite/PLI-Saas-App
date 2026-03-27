@@ -13,6 +13,7 @@ export const STAFF_PORTAL_SECTIONS = [
 ] as const
 
 export type StaffPortalSection = (typeof STAFF_PORTAL_SECTIONS)[number]
+export type StaffPermission = "studentPinOps"
 
 const UNIQUE_ORDER: StaffPortalSection[] = [...STAFF_PORTAL_SECTIONS]
 
@@ -57,4 +58,15 @@ export const getDefaultStaffPortalSection = (
 export const mergeStaffPortalSections = (...chunks: StaffPortalSection[][]) => {
   const merged = chunks.flatMap((chunk) => chunk)
   return uniqSections(merged)
+}
+
+export const hasExplicitStaffPermission = (
+  role: StaffRole | null | undefined,
+  category: StaffCategory | null | undefined,
+  permission: StaffPermission
+) => {
+  if (permission !== "studentPinOps") return false
+  if (role === "owner") return true
+  if (role === "staff" && category === "front_desk") return true
+  return role === "admin" && category === "manager"
 }

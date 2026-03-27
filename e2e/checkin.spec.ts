@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 const CHECKIN_URL =
-  "/checkin?courseSlug=salsa-femenina-matutina&date=2026-02-26&time=11:00&durationMinutes=60"
+  "/checkin?courseSlug=salsa-femenina-matutina&date=2026-02-26&time=11:00&durationMinutes=60&e2eAuth=1"
 
 test("checkin page renders qr block and entry options", async ({ page }) => {
   await page.goto(CHECKIN_URL, { waitUntil: "domcontentloaded" })

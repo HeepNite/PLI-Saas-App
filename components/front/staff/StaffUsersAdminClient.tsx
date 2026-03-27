@@ -39,6 +39,7 @@ import { type StaffCategory } from "@/lib/security/staff-category"
 import type { StaffRequestStatus, StaffRequestType } from "@/lib/security/staff-request"
 import {
   getDefaultStaffPortalSection,
+  hasExplicitStaffPermission,
   resolveStaffPortalSections,
   type StaffPortalSection,
 } from "@/lib/security/staff-access"
@@ -141,6 +142,15 @@ type PaymentRow = {
     expiresAt: string | null
     status: string
   } | null
+  studentPin: {
+    enabled: boolean
+    enrolled: boolean
+    locked: boolean
+    needsEnrollment: boolean
+    permanentStatus: string | null
+    provisionalActive: boolean
+    provisionalExpiresAt: string | null
+  }
 }
 
 type PaymentCategoryFilter = "cash" | "card" | "packages" | "dropin"
@@ -267,6 +277,15 @@ type PayrollDelayModalState = {
   entries: PayrollDelayEntry[]
   totalDelayMinutes: number
   lateDays: number
+}
+
+type StudentPinModalState = {
+  userId: string
+  name: string
+  email: string
+  needsEnrollment: boolean
+  provisionalActive: boolean
+  provisionalExpiresAt: string | null
 }
 
 type StaffProfileForm = {
@@ -1313,6 +1332,17 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [profileGalleryUploading, setProfileGalleryUploading] = React.useState(false)
   const [presenceMenuUserId, setPresenceMenuUserId] = React.useState<string | null>(null)
   const [delayModal, setDelayModal] = React.useState<PayrollDelayModalState | null>(null)
+  const [studentPinModal, setStudentPinModal] = React.useState<StudentPinModalState | null>(null)
+  const [studentPinReason, setStudentPinReason] = React.useState("")
+  const [studentPinDraft, setStudentPinDraft] = React.useState("")
+  const [studentPinSubmitting, setStudentPinSubmitting] = React.useState(false)
+  const [studentPinError, setStudentPinError] = React.useState<string | null>(null)
+  const [studentPinIssued, setStudentPinIssued] = React.useState<{
+    value: string
+    masked: string
+    expiresAt: string | null
+  } | null>(null)
+  const [studentPinRevealIssued, setStudentPinRevealIssued] = React.useState(false)
   const [teacherUserId, setTeacherUserId] = React.useState("")
   const [teacherReviewCycleDays, setTeacherReviewCycleDays] = React.useState(30)
   const [teacherAssignedUserId, setTeacherAssignedUserId] = React.useState("")
@@ -1472,6 +1502,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const canAccessAssistantNav = allowedNavSections.includes("assistant")
   const canAccessSettingsNav = allowedNavSections.includes("settings")
   const canAccessProfileNav = allowedNavSections.includes("profile")
+  const canOperateStudentPins = hasExplicitStaffPermission(currentRole, resolvedCurrentCategory, "studentPinOps")
   const isStudentsView = activeNav === "students" && canAccessStudentsNav
   const isReportsView = activeNav === "reports" && canAccessReportsNav
   const isSchoolView = activeNav === "schedule" && canAccessSchoolNav
@@ -1688,6 +1719,80 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setPaymentsLoading(false)
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
+
+  const closeStudentPinModal = React.useCallback(() => {
+    setStudentPinModal(null)
+    setStudentPinReason("")
+    setStudentPinDraft("")
+    setStudentPinError(null)
+    setStudentPinIssued(null)
+    setStudentPinRevealIssued(false)
+    setStudentPinSubmitting(false)
+  }, [])
+
+  const openStudentPinModal = React.useCallback((payment: PaymentRow) => {
+    const identity = splitCustomerName(payment.customerName, payment.customerEmail)
+    setStudentPinModal({
+      userId: payment.userId,
+      name: identity.fullName,
+      email: payment.customerEmail,
+      needsEnrollment: payment.studentPin.needsEnrollment,
+      provisionalActive: payment.studentPin.provisionalActive,
+      provisionalExpiresAt: payment.studentPin.provisionalExpiresAt,
+    })
+    setStudentPinReason("")
+    setStudentPinDraft("")
+    setStudentPinError(null)
+    setStudentPinIssued(null)
+    setStudentPinRevealIssued(false)
+  }, [])
+
+  const submitStudentPinIssue = React.useCallback(async () => {
+    if (!studentPinModal?.userId) return
+
+    const reason = studentPinReason.trim()
+    const provisionalPin = studentPinDraft.trim()
+    if (reason.length < 8) {
+      setStudentPinError("Add a short reason so the audit log explains the recovery.")
+      return
+    }
+    if (provisionalPin && !/^\d{4}$/.test(provisionalPin)) {
+      setStudentPinError("Custom provisional PIN must be exactly 4 digits.")
+      return
+    }
+
+    setStudentPinSubmitting(true)
+    setStudentPinError(null)
+    try {
+      const res = await fetch(`/api/staff/users/${encodeURIComponent(studentPinModal.userId)}/pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "issue_provisional",
+          reason,
+          provisionalPin: provisionalPin || undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setStudentPinError(typeof data?.error === "string" ? data.error : "Unable to issue provisional PIN.")
+        return
+      }
+
+      setStudentPinIssued({
+        value: typeof data?.provisionalPin === "string" ? data.provisionalPin : "",
+        masked: typeof data?.provisionalPinMasked === "string" ? data.provisionalPinMasked : "",
+        expiresAt: typeof data?.expiresAt === "string" ? data.expiresAt : null,
+      })
+      setStudentPinRevealIssued(false)
+      await fetchPayments()
+    } catch {
+      setStudentPinError("Network error while issuing provisional PIN.")
+    } finally {
+      setStudentPinSubmitting(false)
+    }
+  }, [fetchPayments, handleStaffAuthFailure, studentPinDraft, studentPinModal, studentPinReason])
 
   const fetchStaffRequests = React.useCallback(
     async (
@@ -7503,6 +7608,24 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 const totalSpentLabel = formatMoney(student.totalCollectedCents, payment.currency)
                 const lastPaymentAtPreciseLabel = formatIsoDateTimePrecise(payment.createdAt)
                 const isSelected = selectedPaymentIds.includes(payment.id)
+                const studentPinLabel = !payment.studentPin.enabled
+                  ? "PIN disabled"
+                  : payment.studentPin.provisionalActive
+                    ? "Provisional active"
+                    : payment.studentPin.locked
+                      ? "PIN locked"
+                      : payment.studentPin.needsEnrollment
+                        ? "Needs PIN setup"
+                        : "PIN enrolled"
+                const studentPinTone = !payment.studentPin.enabled
+                  ? "border-white/20 bg-white/10 text-white/75"
+                  : payment.studentPin.provisionalActive
+                    ? "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
+                    : payment.studentPin.locked
+                      ? "border-amber-400/35 bg-amber-400/10 text-amber-200"
+                      : payment.studentPin.needsEnrollment
+                        ? "border-[var(--brand,#ff4b4b)]/50 bg-[var(--brand,#b61616)]/14 text-[var(--brand,#ffd1d1)]"
+                        : "border-emerald-400/35 bg-emerald-400/10 text-emerald-200"
                 const checkInHistory = student.allPayments
                   .filter((entry) => isCheckedInStatus(entry.checkInStatus))
                   .slice(0, 10)
@@ -7612,6 +7735,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${paymentStateTone(payment)}`}>
                         {paymentStateLabel(payment)}
                       </span>
+                      <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${studentPinTone}`}>
+                        {studentPinLabel}
+                      </span>
                       <span className="group relative inline-flex cursor-help items-center justify-center rounded-full border border-cyan-400/35 bg-cyan-400/10 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-200">
                         Spent: {totalSpentLabel}
                         <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-44 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
@@ -7659,6 +7785,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         <span className="truncate text-right">{payment.customerPhone || "—"}</span>
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>Student PIN</span>
+                        <span className="truncate text-right">{studentPinLabel}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>PIN expiry</span>
+                        <span className="truncate text-right">
+                          {payment.studentPin.provisionalExpiresAt ? formatIsoDate(payment.studentPin.provisionalExpiresAt) : "—"}
+                        </span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>Package</span>
                         <span className="truncate text-right">{packageLabel}</span>
                       </p>
@@ -7700,7 +7836,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       </p>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-2.5">
+                    <div className={`mt-4 grid gap-2.5 ${canOperateStudentPins && payment.userId ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2"}`}>
                       <button
                         type="button"
                         onClick={() => {
@@ -7726,6 +7862,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       >
                         Copy email
                       </button>
+                      {canOperateStudentPins && payment.userId ? (
+                        <button
+                          type="button"
+                          onClick={() => openStudentPinModal(payment)}
+                          className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
+                        >
+                          {payment.studentPin.provisionalActive ? "Reissue provisional PIN" : "Issue provisional PIN"}
+                        </button>
+                      ) : null}
                     </div>
                   </article>
                 )
@@ -8700,6 +8845,117 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {studentPinModal ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-2xl border border-black/15 bg-white shadow-[0_40px_90px_-40px_rgba(0,0,0,0.75)] dark:border-white/15 dark:bg-[#10131d]">
+            <div className="flex items-start justify-between border-b border-black/10 px-5 py-4 dark:border-white/10">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Student PIN</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">{studentPinModal.name}</h3>
+                <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                  {studentPinModal.email || "No email on file"} · {studentPinModal.needsEnrollment ? "Legacy/no-PIN setup" : "In-person recovery"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeStudentPinModal}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/20 text-black/70 transition hover:bg-black/5 dark:border-white/20 dark:text-white/70 dark:hover:bg-white/5"
+                aria-label="Close student PIN dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-950 dark:text-cyan-100">
+                Provisional PINs stay valid until end of day. Issue them only for front-desk assisted enrollment or same-day recovery.
+              </div>
+
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-black dark:text-white">Reason</span>
+                <textarea
+                  value={studentPinReason}
+                  onChange={(event) => setStudentPinReason(event.target.value)}
+                  rows={3}
+                  placeholder="Example: Walk-in recovery before class starts"
+                  className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-black dark:text-white">Custom PIN (optional)</span>
+                <input
+                  value={studentPinDraft}
+                  onChange={(event) => setStudentPinDraft(event.target.value.replace(/\D+/g, "").slice(0, 4))}
+                  inputMode="numeric"
+                  placeholder="Leave blank to auto-generate"
+                  className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                />
+              </label>
+
+              {studentPinModal.provisionalActive || studentPinModal.provisionalExpiresAt ? (
+                <p className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+                  Existing provisional PIN {studentPinModal.provisionalActive ? "is active" : "was issued"}. Expiry: {formatIsoDate(studentPinModal.provisionalExpiresAt)}.
+                </p>
+              ) : null}
+
+              {studentPinError ? <p className="text-sm text-[var(--brand,#ff4b4b)]">{studentPinError}</p> : null}
+
+              {studentPinIssued?.value ? (
+                <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm text-emerald-950 dark:text-emerald-100">
+                  <p className="text-xs uppercase tracking-[0.2em]">Issued</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <code className="rounded-md bg-black/10 px-3 py-2 text-base font-semibold tracking-[0.35em] dark:bg-black/20">
+                      {studentPinRevealIssued ? studentPinIssued.value : studentPinIssued.masked}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => setStudentPinRevealIssued((prev) => !prev)}
+                      className="rounded-md border border-black/15 px-3 py-1.5 text-xs font-semibold text-black dark:border-white/15 dark:text-white"
+                    >
+                      {studentPinRevealIssued ? "Hide" : "Reveal"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return
+                        try {
+                          await navigator.clipboard.writeText(studentPinIssued.value)
+                        } catch {
+                          setStudentPinError("Unable to copy provisional PIN.")
+                        }
+                      }}
+                      className="rounded-md border border-black/15 px-3 py-1.5 text-xs font-semibold text-black dark:border-white/15 dark:text-white"
+                    >
+                      Copy PIN
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs">Expires: {formatIsoDate(studentPinIssued.expiresAt)}</p>
+                </div>
+              ) : null}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeStudentPinModal}
+                  className="rounded-xl border border-black/15 px-4 py-2 text-sm font-medium text-black dark:border-white/15 dark:text-white"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitStudentPinIssue()}
+                  disabled={studentPinSubmitting}
+                  className="rounded-xl bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {studentPinSubmitting ? "Issuing..." : studentPinIssued ? "Reissue PIN" : "Issue provisional PIN"}
+                </button>
               </div>
             </div>
           </div>

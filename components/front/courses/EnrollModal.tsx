@@ -354,6 +354,7 @@ export default function EnrollModal({
   completionMode = "default",
   photoFlowContext = "external_web",
   checkInContext,
+  kioskSessionToken,
   useDraft = true,
 }: {
   course: CourseEnrollmentData
@@ -374,6 +375,7 @@ export default function EnrollModal({
   completionMode?: EnrollCompletionMode
   photoFlowContext?: PhotoFlowContext
   checkInContext?: EnrollCheckInContext
+  kioskSessionToken?: string
   useDraft?: boolean
 }) {
   const { courses: catalogCourses } = useCatalogCourses()
@@ -430,6 +432,8 @@ export default function EnrollModal({
   const [couponInput, setCouponInput] = React.useState<string>("")
   const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>("")
+  const [studentPin, setStudentPin] = React.useState("")
+  const [studentPinConfirm, setStudentPinConfirm] = React.useState("")
   // Paso 2: datos de contacto (modular, sin teléfono)
   const [contact, setContact] = React.useState<EnrollmentContact>(
     {
@@ -686,6 +690,8 @@ export default function EnrollModal({
     setKioskQrCheckout(createEmptyKioskQrCheckoutState())
     setPreparedAccount(null)
     setPhotoSaved(false)
+    setStudentPin("")
+    setStudentPinConfirm("")
     setActiveNumericField(null)
     setNewStudentFallbackPhoneKey(null)
     setFlowPopup(null)
@@ -1169,6 +1175,14 @@ export default function EnrollModal({
     if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {
       return { step: paymentsStepIndex >= 0 ? paymentsStepIndex : 3, message: "Select a payment method." }
     }
+    if (service === "new-student") {
+      if (!/^\d{4}$/.test(studentPin)) {
+        return { step: steps.length - 1, message: "Create a 4-digit PIN to continue." }
+      }
+      if (studentPin !== studentPinConfirm) {
+        return { step: steps.length - 1, message: "PIN confirmation does not match." }
+      }
+    }
     const addonsValid = addons.every((id) => course.enrollment.addons?.some((a) => a.id === id))
     if (!addonsValid) {
       return { step: 0, message: "Invalid extras." }
@@ -1198,6 +1212,9 @@ export default function EnrollModal({
       serviceId: service,
       phone: contact.phone,
       photoContext: photoFlowContext,
+      kioskSessionToken: kioskSessionToken || undefined,
+      studentPin: service === "new-student" ? studentPin : undefined,
+      studentPinConfirm: service === "new-student" ? studentPinConfirm : undefined,
       ...extra,
     }),
     [
@@ -1213,7 +1230,10 @@ export default function EnrollModal({
       participants,
       photoFlowContext,
       pkg,
+      kioskSessionToken,
       service,
+      studentPin,
+      studentPinConfirm,
       time,
       total,
     ]
@@ -2971,6 +2991,37 @@ export default function EnrollModal({
                         </button>
                       </div>
                     </div>
+
+                    {service === "new-student" && (
+                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3 space-y-3">
+                        <div>
+                          <div className="text-sm font-semibold">Create student PIN</div>
+                          <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
+                            This 4-digit PIN is required for future kiosk check-ins and account recovery.
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <input
+                            inputMode="numeric"
+                            maxLength={4}
+                            type="password"
+                            value={studentPin}
+                            onChange={(e) => setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                            placeholder="4-digit PIN"
+                          />
+                          <input
+                            inputMode="numeric"
+                            maxLength={4}
+                            type="password"
+                            value={studentPinConfirm}
+                            onChange={(e) => setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                            placeholder="Confirm PIN"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2988,11 +3039,40 @@ export default function EnrollModal({
                         <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
                         <div>{t("email")}: {contact.email || "—"}</div>
                         <div>Phone: {contact.phone || "—"}</div>
+                        {service === "new-student" && <div>Student PIN: {studentPin ? "Configured" : "Required"}</div>}
                         <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
                         {contact.note && <div>{t("notes")}: {contact.note}</div>}
                         <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
                       </div>
                     </GlassyCard>
+                    {service === "new-student" && (
+                      <GlassyCard className="p-4">
+                        <div className="text-sm font-medium">Create student PIN</div>
+                        <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
+                          New students must finish signup with a personal 4-digit PIN.
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <input
+                            inputMode="numeric"
+                            maxLength={4}
+                            type="password"
+                            value={studentPin}
+                            onChange={(e) => setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                            placeholder="4-digit PIN"
+                          />
+                          <input
+                            inputMode="numeric"
+                            maxLength={4}
+                            type="password"
+                            value={studentPinConfirm}
+                            onChange={(e) => setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                            placeholder="Confirm PIN"
+                          />
+                        </div>
+                      </GlassyCard>
+                    )}
                   </div>
                 )}
 

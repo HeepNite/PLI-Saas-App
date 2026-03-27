@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockValidate = vi.fn()
 const mockPrepareCheckoutAccount = vi.fn()
 const mockEnforceNewStudent = vi.fn()
+const mockEnrollStudentPin = vi.fn()
 const mockUpsertUser = vi.fn()
 
 const mockPrisma = {
@@ -14,6 +15,7 @@ const mockPrisma = {
 vi.mock("@/lib/checkout", () => ({
   prepareCheckoutAccount: (...args: unknown[]) => mockPrepareCheckoutAccount(...args),
   enforceNewStudentRules: (...args: unknown[]) => mockEnforceNewStudent(...args),
+  enrollStudentPinForCheckout: (...args: unknown[]) => mockEnrollStudentPin(...args),
 }))
 
 vi.mock("@/lib/checkout/validation", () => ({
@@ -33,6 +35,7 @@ describe("checkout cash route", () => {
     mockValidate.mockReset()
     mockPrepareCheckoutAccount.mockReset()
     mockEnforceNewStudent.mockReset()
+    mockEnrollStudentPin.mockReset()
     mockUpsertUser.mockReset()
     mockPrisma.purchase.create.mockReset()
 
@@ -72,6 +75,7 @@ describe("checkout cash route", () => {
       },
     })
     mockEnforceNewStudent.mockResolvedValue(null)
+    mockEnrollStudentPin.mockResolvedValue({ ok: true, dbUserId: null })
     mockUpsertUser.mockResolvedValue({ id: "db_user_1" })
     mockPrisma.purchase.create.mockResolvedValue({
       id: "purchase_1",

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
+import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
@@ -62,11 +63,6 @@ export async function POST(req: Request) {
       )
     }
 
-    const authResult = await auth()
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     let body: unknown
     try {
       body = await req.json()
@@ -75,6 +71,19 @@ export async function POST(req: Request) {
     }
 
     const payload = toRecord(body)
+    const authResult = await auth()
+    const kioskSessionToken = typeof payload?.kioskSessionToken === "string" ? payload.kioskSessionToken.trim() : ""
+    const kioskSessionResult = !authResult.userId && kioskSessionToken
+      ? await resolveTerminalKioskSession(kioskSessionToken)
+      : null
+
+    if (!authResult.userId && !kioskSessionResult?.ok) {
+      return NextResponse.json(
+        { error: kioskSessionResult?.error || "Unauthorized" },
+        { status: kioskSessionResult?.status || 401 }
+      )
+    }
+
     const context = parseQrCheckInContext(
       {
         courseSlug: payload?.courseSlug,
@@ -104,19 +113,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
-    const client = await clerkClient()
-    const clerkUser = await client.users.getUser(authResult.userId)
-    const email = clerkUser.primaryEmailAddress?.emailAddress || ""
-    const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-    const phone = normalizePhoneDigits(phoneRaw)
-    const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+    let email = kioskSessionResult?.ok ? kioskSessionResult.session.user.email : ""
+    let phone = kioskSessionResult?.ok ? normalizePhoneDigits(kioskSessionResult.session.user.phone || "") : ""
+    let name = kioskSessionResult?.ok ? kioskSessionResult.session.user.name || "" : ""
 
-    const dbUser = await upsertUserByIdentifiers({
-      clerkId: authResult.userId,
-      email,
-      phone,
-      name,
-    })
+    const dbUser = authResult.userId
+      ? await (async () => {
+          const client = await clerkClient()
+          const clerkUser = await client.users.getUser(authResult.userId as string)
+          email = clerkUser.primaryEmailAddress?.emailAddress || ""
+          const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+          phone = normalizePhoneDigits(phoneRaw)
+          name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+          return upsertUserByIdentifiers({
+            clerkId: authResult.userId as string,
+            email,
+            phone,
+            name,
+          })
+        })()
+      : kioskSessionResult?.ok
+        ? { id: kioskSessionResult.session.user.id }
+        : null
     if (!dbUser) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
     }

@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockValidate = vi.fn()
 const mockPrepareCheckoutAccount = vi.fn()
 const mockEnforceNewStudent = vi.fn()
+const mockEnrollStudentPin = vi.fn()
 const mockCreatePaymentIntent = vi.fn()
 
 vi.mock("@/lib/checkout", () => ({
   prepareCheckoutAccount: (...args: unknown[]) => mockPrepareCheckoutAccount(...args),
   enforceNewStudentRules: (...args: unknown[]) => mockEnforceNewStudent(...args),
+  enrollStudentPinForCheckout: (...args: unknown[]) => mockEnrollStudentPin(...args),
 }))
 
 vi.mock("@/lib/checkout/validation", () => ({
@@ -29,6 +31,7 @@ describe("checkout intent route", () => {
     mockValidate.mockReset()
     mockPrepareCheckoutAccount.mockReset()
     mockEnforceNewStudent.mockReset()
+    mockEnrollStudentPin.mockReset()
     mockCreatePaymentIntent.mockReset()
 
     mockValidate.mockReturnValue({
@@ -67,6 +70,7 @@ describe("checkout intent route", () => {
       },
     })
     mockEnforceNewStudent.mockResolvedValue(null)
+    mockEnrollStudentPin.mockResolvedValue({ ok: true, dbUserId: null })
     mockCreatePaymentIntent.mockResolvedValue({ client_secret: "pi_secret_123" })
   })
 
@@ -123,6 +127,7 @@ describe("checkout intent route", () => {
       })
     )
     expect(mockEnforceNewStudent).not.toHaveBeenCalled()
+    expect(mockEnrollStudentPin).not.toHaveBeenCalled()
     expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
   })
 })

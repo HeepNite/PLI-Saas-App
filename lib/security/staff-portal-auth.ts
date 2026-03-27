@@ -10,7 +10,12 @@ import {
   parseStaffCategory,
   type StaffCategory,
 } from "@/lib/security/staff-category"
-import { canAccessStaffPortalSection, type StaffPortalSection } from "@/lib/security/staff-access"
+import {
+  canAccessStaffPortalSection,
+  hasExplicitStaffPermission,
+  type StaffPermission,
+  type StaffPortalSection,
+} from "@/lib/security/staff-access"
 import { prisma } from "@/lib/prisma"
 
 export type StaffPortalAuthResult =
@@ -131,6 +136,15 @@ export const authorizeStaffPortalSectionRequest = async (
     return { ok: false, status: 403, error: "Insufficient role" }
   }
   if (!canAccessStaffPortalSection(authResult.role, authResult.category, section)) {
+    return { ok: false, status: 403, error: "Insufficient role" }
+  }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }
+}
+
+export const authorizeStaffPermissionRequest = async (permission: StaffPermission): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!authResult.role || !hasExplicitStaffPermission(authResult.role, authResult.category, permission)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
   return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }

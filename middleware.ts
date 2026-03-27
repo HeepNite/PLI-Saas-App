@@ -1,12 +1,22 @@
-import { clerkMiddleware } from '@clerk/nextjs/server';
+import { clerkMiddleware } from "@clerk/nextjs/server"
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server"
 
-export default clerkMiddleware();
+const clerk = clerkMiddleware()
+
+export default function middleware(req: NextRequest, evt: NextFetchEvent) {
+  const allowE2eBypass =
+    process.env.NODE_ENV !== "production" && req.nextUrl.searchParams.get("e2eAuth") === "1"
+
+  if (allowE2eBypass) {
+    return NextResponse.next()
+  }
+
+  return clerk(req, evt)
+}
 
 export const config = {
-    matcher: [
-        // Skip Next.js internals and all static files, unless found in search params
-        '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-        // Always run for API routes
-        '/(api|trpc)(.*)',
-    ],
-};
+  matcher: [
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/(api|trpc)(.*)",
+  ],
+}

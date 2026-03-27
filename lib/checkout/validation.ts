@@ -22,6 +22,9 @@ export type CheckoutBody = {
   phone?: string
   prepareOnly?: boolean
   photoContext?: string
+  kioskSessionToken?: string
+  studentPin?: string
+  studentPinConfirm?: string
 }
 
 export type CheckoutValidation = {

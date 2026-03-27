@@ -3,10 +3,19 @@ import "server-only"
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { verifyToken } from "@clerk/backend"
 import { ensureClerkUser, findClerkUserByIdentifiers, resolveAvatarState, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
+import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import type { PhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import { isEmail, normalizePhone, type ApiError, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
+import {
+  replacePermanentStudentPin,
+  assertStudentPinConfirmation,
+  isStudentPinConflictError,
+  isStudentPinLifecycleEnabled,
+} from "@/lib/security/student-pin"
+import { writeStudentPinAudit, STUDENT_PIN_AUDIT_ACTIONS } from "@/lib/security/student-pin-audit"
+import { upsertUserByIdentifiers } from "@/lib/users"
 
 const NEW_STUDENT_SERVICE_IDS = new Set(["new-student"])
 const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"]
@@ -34,6 +43,17 @@ export type PreparedCheckoutAccount = {
     requiresSignIn: boolean
     hasAvatar: boolean
   }
+}
+
+export type EnrollStudentPinInput = {
+  serviceId: string
+  prepareOnly?: boolean
+  resolvedClerkUserId?: string | null
+  resolvedEmail: string
+  phoneNormalized: string
+  name?: string
+  studentPin?: string
+  studentPinConfirm?: string
 }
 
 export const resolveAuthUser = async (
@@ -141,9 +161,49 @@ export const prepareCheckoutAccount = async (
   options: {
     photoContext?: PhotoFlowContext
     allowExistingAccountLookup?: boolean
+    kioskSessionToken?: string
   } = {}
 ): Promise<ApiError | PreparedCheckoutAccount> => {
   const { userId, clerkUser } = await resolveAuthUser(req, input)
+
+  if (!userId && options.photoContext === "kiosk_terminal" && options.kioskSessionToken) {
+    const kioskSessionResult = await resolveTerminalKioskSession(options.kioskSessionToken)
+    if (!kioskSessionResult.ok) {
+      return {
+        status: kioskSessionResult.status,
+        error: kioskSessionResult.error,
+      } satisfies ApiError
+    }
+
+    const resolvedEmail = kioskSessionResult.session.user.email?.trim()
+    const phoneRaw = kioskSessionResult.session.user.phone || ""
+    const phoneNormalized = normalizePhone(phoneRaw)
+
+    if (!resolvedEmail || !phoneNormalized) {
+      return {
+        status: 409,
+        error: "Identified student is missing the required contact data for checkout.",
+      } satisfies ApiError
+    }
+
+    return {
+      userId: null,
+      clerkUser: null,
+      resolvedUserId: kioskSessionResult.session.user.clerkId || null,
+      identity: {
+        resolvedEmail,
+        phoneRaw,
+        phoneNormalized,
+      },
+      account: {
+        clerkUserId: kioskSessionResult.session.user.clerkId || null,
+        created: false,
+        requiresSignIn: false,
+        hasAvatar: true,
+      },
+    }
+  }
+
   const identity = resolveContactIdentity({ clerkUser, email: input.email, phone: input.phone })
   if ("status" in identity) {
     return identity
@@ -276,4 +336,60 @@ export const enforceNewStudentRules = async (input: {
   }
 
   return null
+}
+
+export const enrollStudentPinForCheckout = async (input: EnrollStudentPinInput): Promise<ApiError | { ok: true; dbUserId: string | null }> => {
+  if (!isStudentPinLifecycleEnabled()) {
+    return { ok: true, dbUserId: null }
+  }
+
+  if (!NEW_STUDENT_SERVICE_IDS.has(input.serviceId)) {
+    return { ok: true, dbUserId: null }
+  }
+
+  if (input.prepareOnly) {
+    return { ok: true, dbUserId: null }
+  }
+
+  const confirmationError = assertStudentPinConfirmation(input.studentPin || "", input.studentPinConfirm || "")
+  if (confirmationError) {
+    return confirmationError
+  }
+
+  const dbUser = await upsertUserByIdentifiers({
+    clerkId: input.resolvedClerkUserId || undefined,
+    email: input.resolvedEmail,
+    phone: input.phoneNormalized,
+    name: input.name,
+  })
+
+  if (!dbUser) {
+    return { status: 500, error: "Unable to resolve user for PIN enrollment." }
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await replacePermanentStudentPin(tx as typeof prisma, {
+        userId: dbUser.id,
+        nextPin: input.studentPin as string,
+      })
+    })
+    await writeStudentPinAudit({
+      userId: dbUser.id,
+      action: STUDENT_PIN_AUDIT_ACTIONS.ENROLLED,
+      result: "success",
+      actorType: "student",
+      actorClerkId: input.resolvedClerkUserId || null,
+      credentialKind: "permanent",
+      metadata: { source: "checkout" },
+    })
+  } catch (error) {
+    if (isStudentPinConflictError(error)) {
+      return { status: 409, error: error.message }
+    }
+    console.error("Student PIN enrollment failed", error)
+    return { status: 500, error: "Unable to save student PIN." }
+  }
+
+  return { ok: true, dbUserId: dbUser.id }
 }

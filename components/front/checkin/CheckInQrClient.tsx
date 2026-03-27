@@ -91,6 +91,34 @@ type BootstrapResponse = {
   hasAnyCompletedPurchase: boolean
 }
 
+type KioskPinIdentifySuccess = {
+  identified: true
+  credentialKind: "permanent" | "provisional"
+  requiresPinRotation: boolean
+  requiresPinRegeneration?: boolean
+  regenerationReason?: "obsolete"
+  sessionToken: string
+  sessionExpiresAt: string
+}
+
+type KioskPinIdentifyFailure = {
+  identified: false
+  terminalBlocked?: boolean
+  blockedUntil?: string | null
+  attemptsRemaining?: number
+  requiresPinRegeneration?: boolean
+  reason?: string
+  message?: string
+}
+
+type KioskPinIdentifyError = {
+  error?: string
+  message?: string
+  blockedUntil?: string | null
+  attemptsRemaining?: number
+  requiresPinRegeneration?: boolean
+}
+
 const parseDuration = (value: string | null) => {
   if (!value) return 60
   const parsed = Number.parseInt(value, 10)
@@ -379,6 +407,16 @@ export default function CheckInQrClient({
   const [processingPackageCheckIn, setProcessingPackageCheckIn] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
+  const [kioskPin, setKioskPin] = React.useState("")
+  const [kioskPinSessionToken, setKioskPinSessionToken] = React.useState("")
+  const [kioskPinLoading, setKioskPinLoading] = React.useState(false)
+  const [kioskPinRotationRequired, setKioskPinRotationRequired] = React.useState(false)
+  const [kioskPinRotationMode, setKioskPinRotationMode] = React.useState<"provisional" | "regeneration" | null>(null)
+  const [kioskPinNext, setKioskPinNext] = React.useState("")
+  const [kioskPinConfirm, setKioskPinConfirm] = React.useState("")
+  const [kioskPinRotating, setKioskPinRotating] = React.useState(false)
+  const [kioskPinAttemptsRemaining, setKioskPinAttemptsRemaining] = React.useState<number | null>(null)
+  const [kioskPinBlockedUntil, setKioskPinBlockedUntil] = React.useState<string | null>(null)
   const visibleError = React.useMemo(() => {
     if (!error) return null
     const normalized = error.trim().toLowerCase()
@@ -475,6 +513,14 @@ export default function CheckInQrClient({
     setPendingLoginPhone("")
     setError(null)
     setSuccess(null)
+    setKioskPin("")
+    setKioskPinSessionToken("")
+    setKioskPinRotationRequired(false)
+    setKioskPinRotationMode(null)
+    setKioskPinNext("")
+    setKioskPinConfirm("")
+    setKioskPinAttemptsRemaining(null)
+    setKioskPinBlockedUntil(null)
   }, [])
   const handleStationCompletion = React.useCallback(async () => {
     await completeKioskCustomerFlow({
@@ -549,8 +595,11 @@ export default function CheckInQrClient({
     bootstrapHomeCourse?.description || bootstrapCourse?.description || "Class activa en el establecimiento."
   const legacyContextMissing = !qrCourseSlug || !qrDate || !qrTime
   const showContextWarning = !contextIsValid && legacyContextMissing
-  const showSignedInBootstrapPanel = mode === "existing" && isSignedIn
-  const hideEntrySelection = showSignedInBootstrapPanel
+  const hasKioskPinSession = Boolean(kioskPinSessionToken)
+  const showSignedInBootstrapPanel = mode === "existing" && (isSignedIn || hasKioskPinSession)
+  const showKioskPinPanel =
+    mode === "existing" && isKioskTerminalFlow && !isSignedIn && (!bootstrap || kioskPinRotationRequired)
+  const hideEntrySelection = showSignedInBootstrapPanel || showKioskPinPanel
   // Full-screen loader: covers the terminal existing-customer handoff while bootstrap is
   // resolving (or just resolved but the EnrollModal hasn't opened yet). Only shown in kiosk
   // terminal flows — personal/QR flows keep the inline skeleton.
@@ -615,7 +664,15 @@ export default function CheckInQrClient({
     }
     if (mode === "existing") {
       items.push("Existing customer")
-      if (!isSignedIn) {
+      if (showKioskPinPanel && !hasKioskPinSession) {
+        items.push("Enter PIN")
+        return items
+      }
+      if (showKioskPinPanel && kioskPinRotationRequired) {
+        items.push("Rotate PIN")
+        return items
+      }
+      if (!isSignedIn && !hasKioskPinSession) {
         items.push("Sign in")
         return items
       }
@@ -631,10 +688,23 @@ export default function CheckInQrClient({
       }
     }
     return items
-  }, [bootstrap?.quickCheckout, existingRegularBookingOverride, isSignedIn, loadingBootstrap, mode, openNewBooking, shellVariant])
+  }, [
+    bootstrap?.quickCheckout,
+    existingRegularBookingOverride,
+    hasKioskPinSession,
+    isSignedIn,
+    kioskPinRotationRequired,
+    loadingBootstrap,
+    mode,
+    openNewBooking,
+    shellVariant,
+    showKioskPinPanel,
+  ])
 
   const loadBootstrap = React.useCallback(async () => {
-    if (!contextIsValid || !isSignedIn) return
+    if (!contextIsValid) return
+    if (!isSignedIn && !kioskPinSessionToken) return
+    if (!isSignedIn && kioskPinRotationRequired) return
     setLoadingBootstrap(true)
     setError(null)
     try {
@@ -646,7 +716,10 @@ export default function CheckInQrClient({
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         credentials: "include",
-        body: JSON.stringify(contextPayload),
+        body: JSON.stringify({
+          ...contextPayload,
+          ...(!isSignedIn && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+        }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
@@ -661,7 +734,7 @@ export default function CheckInQrClient({
     } finally {
       setLoadingBootstrap(false)
     }
-  }, [contextIsValid, contextPayload, getToken, isSignedIn])
+  }, [contextIsValid, contextPayload, getToken, isSignedIn, kioskPinRotationRequired, kioskPinSessionToken])
 
   const handlePackageCheckIn = React.useCallback(async () => {
     if (!bootstrap) return
@@ -696,6 +769,7 @@ export default function CheckInQrClient({
           date: bootstrap.context.date,
           time: bootstrap.context.time,
           durationMinutes: bootstrap.context.durationMinutes,
+          ...(!isSignedIn && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
         }),
       })
 
@@ -739,15 +813,139 @@ export default function CheckInQrClient({
     getToken,
     handleStationCompletion,
     isSignedIn,
+    kioskPinSessionToken,
     isStationDeviceFlow,
     loadBootstrap,
   ])
 
+  const handleKioskPinIdentify = React.useCallback(async () => {
+    if (!isKioskTerminalFlow) return
+    setKioskPinLoading(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const res = await fetch("/api/checkin/pin/identify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ pin: kioskPin }),
+      })
+      const data = (await res.json().catch(() => null)) as
+        | KioskPinIdentifyFailure
+        | KioskPinIdentifySuccess
+        | KioskPinIdentifyError
+        | null
+
+      if (!res.ok) {
+        const failure = data && "identified" in data && !data.identified ? data : null
+        const errorPayload = data && !("identified" in data) ? data : null
+        setKioskPinSessionToken("")
+        setKioskPinRotationRequired(false)
+        setKioskPinRotationMode(null)
+        setBootstrap(null)
+        setKioskPinAttemptsRemaining(typeof failure?.attemptsRemaining === "number" ? failure.attemptsRemaining : null)
+        setKioskPinBlockedUntil(typeof failure?.blockedUntil === "string" ? failure.blockedUntil : null)
+        const failureMessage = typeof failure?.message === "string" ? failure.message : null
+        const errorMessage = typeof errorPayload?.message === "string" ? errorPayload.message : null
+        if ((failure?.requiresPinRegeneration || errorPayload?.requiresPinRegeneration) && (failureMessage || errorMessage)) {
+          setError(failureMessage || errorMessage)
+          return
+        }
+        setError(typeof errorPayload?.error === "string" ? errorPayload.error : "Unable to identify this student PIN.")
+        return
+      }
+
+      if (!data || !("identified" in data)) {
+        setKioskPinAttemptsRemaining(null)
+        setKioskPinBlockedUntil(null)
+        setError("We couldn't match that PIN. Please try again.")
+        return
+      }
+
+      if (!data.identified) {
+        setKioskPinAttemptsRemaining(typeof data.attemptsRemaining === "number" ? data.attemptsRemaining : null)
+        setKioskPinBlockedUntil(typeof data.blockedUntil === "string" ? data.blockedUntil : null)
+        setError(typeof data.message === "string" ? data.message : "We couldn't match that PIN. Please try again.")
+        return
+      }
+
+      const nextRotationMode = data.requiresPinRotation
+        ? data.requiresPinRegeneration || data.regenerationReason === "obsolete" || data.credentialKind === "permanent"
+          ? "regeneration"
+          : "provisional"
+        : null
+
+      setKioskPinSessionToken(data.sessionToken)
+      setKioskPinRotationRequired(Boolean(data.requiresPinRotation))
+      setKioskPinRotationMode(nextRotationMode)
+      setKioskPinAttemptsRemaining(null)
+      setKioskPinBlockedUntil(null)
+      setKioskPin("")
+
+      if (data.requiresPinRotation) {
+        setSuccess(
+          nextRotationMode === "regeneration"
+            ? "Identity confirmed. Regenerate your PIN to continue."
+            : "Identity confirmed. Create your permanent PIN to continue."
+        )
+        return
+      }
+
+      setSuccess("Identity confirmed. Loading your current class options...")
+    } catch {
+      setError("Unable to identify this student PIN.")
+    } finally {
+      setKioskPinLoading(false)
+    }
+  }, [isKioskTerminalFlow, kioskPin])
+
+  const handleKioskPinRotate = React.useCallback(async () => {
+    if (!kioskPinSessionToken) return
+    setKioskPinRotating(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const res = await fetch("/api/checkin/pin/rotate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          sessionToken: kioskPinSessionToken,
+          nextPin: kioskPinNext,
+          confirmPin: kioskPinConfirm,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok) {
+        setError(typeof data?.error === "string" ? data.error : "Unable to rotate this student PIN.")
+        return
+      }
+
+      setKioskPinRotationRequired(false)
+      setKioskPinRotationMode(null)
+      setKioskPinNext("")
+      setKioskPinConfirm("")
+      setSuccess("PIN updated. Loading your purchase options...")
+    } catch {
+      setError("Unable to rotate this student PIN.")
+    } finally {
+      setKioskPinRotating(false)
+    }
+  }, [kioskPinConfirm, kioskPinNext, kioskPinSessionToken])
+
   React.useEffect(() => {
     if (mode !== "existing") return
-    if (!isLoaded || !isSignedIn) return
+    if (!isLoaded) return
+    if (!isSignedIn && !kioskPinSessionToken) return
     void loadBootstrap()
-  }, [isLoaded, isSignedIn, loadBootstrap, mode])
+  }, [isLoaded, isSignedIn, kioskPinSessionToken, loadBootstrap, mode])
 
   React.useEffect(() => {
     if (entryMode === "existing" && mode !== "existing") {
@@ -1116,8 +1314,19 @@ export default function CheckInQrClient({
                   setError(null)
                   setSuccess(null)
                   setBootstrap(null)
+                  setKioskPin("")
+                    setKioskPinSessionToken("")
+                    setKioskPinRotationRequired(false)
+                    setKioskPinRotationMode(null)
+                    setKioskPinNext("")
+                  setKioskPinConfirm("")
+                  setKioskPinAttemptsRemaining(null)
+                  setKioskPinBlockedUntil(null)
                   if (!selectedCourse || !contextIsValid) {
                     setError("We couldn't open the purchase because QR data is missing.")
+                    return
+                  }
+                  if (isKioskTerminalFlow && !isSignedIn) {
                     return
                   }
                   if (!isSignedIn) {
@@ -1133,7 +1342,9 @@ export default function CheckInQrClient({
                 }`}
               >
                 <p className="text-sm font-semibold">I am already a customer</p>
-                <p className="mt-1 text-xs text-white/60">Sign in and repurchase the current course.</p>
+                 <p className="mt-1 text-xs text-white/60">
+                   {isKioskTerminalFlow ? "Enter your PIN to continue on this terminal." : "Sign in and repurchase the current course."}
+                 </p>
               </button>
               <button
                 type="button"
@@ -1163,6 +1374,89 @@ export default function CheckInQrClient({
                 <p className="text-sm font-semibold">I am new</p>
                 <p className="mt-1 text-xs text-white/60">Open regular purchase with account creation included.</p>
               </button>
+            </div>
+          )}
+
+          {showKioskPinPanel && (
+            <div className="mx-auto mt-5 max-w-xl rounded-2xl border border-white/15 bg-black/20 p-4 sm:p-5">
+              {!hasKioskPinSession ? (
+                <>
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Existing student PIN</p>
+                  <h2 className="mt-2 text-xl font-semibold text-white">Enter your 4-digit PIN</h2>
+                  <p className="mt-2 text-sm text-white/68">
+                    We&apos;ll identify your account here and then continue with the same checkout flow on this terminal.
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      autoComplete="one-time-code"
+                      value={kioskPin}
+                      onChange={(event) => setKioskPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="4-digit PIN"
+                      className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center text-2xl tracking-[0.35em] text-white outline-none placeholder:text-white/25"
+                    />
+                    {typeof kioskPinAttemptsRemaining === "number" && kioskPinAttemptsRemaining >= 0 && (
+                      <p className="text-xs text-white/58">Attempts remaining on this terminal: {kioskPinAttemptsRemaining}</p>
+                    )}
+                    {kioskPinBlockedUntil && (
+                      <p className="text-xs text-amber-200/90">This terminal is temporarily blocked until {toEsDateTime(kioskPinBlockedUntil)}.</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleKioskPinIdentify()}
+                      disabled={kioskPinLoading || kioskPin.length !== 4}
+                      className="w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {kioskPinLoading ? "Checking PIN..." : "Continue"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Permanent PIN required</p>
+                  <h2 className="mt-2 text-xl font-semibold text-white">
+                    {kioskPinRotationMode === "regeneration" ? "Regenerate your 4-digit PIN" : "Create your new 4-digit PIN"}
+                  </h2>
+                  <p className="mt-2 text-sm text-white/68">
+                    {kioskPinRotationMode === "regeneration"
+                      ? "This PIN expired after inactivity. Set a new permanent PIN now before continuing to purchase."
+                      : "This provisional PIN only works once. Set a permanent PIN now before continuing to purchase."}
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      value={kioskPinNext}
+                      onChange={(event) => setKioskPinNext(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="New PIN"
+                      className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center text-xl tracking-[0.3em] text-white outline-none placeholder:text-white/25"
+                    />
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      value={kioskPinConfirm}
+                      onChange={(event) => setKioskPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="Confirm PIN"
+                      className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center text-xl tracking-[0.3em] text-white outline-none placeholder:text-white/25"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleKioskPinRotate()}
+                    disabled={kioskPinRotating || kioskPinNext.length !== 4 || kioskPinConfirm.length !== 4}
+                    className="mt-4 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {kioskPinRotating ? "Saving PIN..." : "Save new PIN"}
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -1459,6 +1753,7 @@ export default function CheckInQrClient({
           flowVariant="checkin-existing"
           completionMode={completionMode}
           checkInContext={existingRegularBookingContext}
+          kioskSessionToken={!isSignedIn && kioskPinSessionToken ? kioskPinSessionToken : undefined}
           photoFlowContext={photoFlowContext}
           useDraft={false}
           mode="modal"

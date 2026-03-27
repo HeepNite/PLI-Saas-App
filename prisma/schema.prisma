@@ -23,6 +23,9 @@ model User {
   packageUsage     PackageUsageLedger[]
   attendances      Attendance[]
   actionRequests   ActionRequest[]
+  studentPinCredentials StudentPinCredential[]
+  studentPinAudits      StudentPinAudit[]
+  kioskIdentificationSessions KioskIdentificationSession[]
 }
 
 model Purchase {
@@ -316,6 +319,8 @@ model StaffTerminal {
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
   sessions          StaffTerminalSession[]
+  kioskMissCounter  KioskTerminalMissCounter?
+  kioskIdentificationSessions KioskIdentificationSession[]
 
   @@index([active])
   @@index([defaultCourseSlug])
@@ -331,5 +336,84 @@ model StaffTerminalSession {
   createdAt  DateTime      @default(now())
 
   @@index([terminalId])
+  @@index([expiresAt])
+}
+
+model StudentPinCredential {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind            String
+  status          String   @default("active")
+  pinHash         String
+  pinLookupDigest String
+  failedAttempts  Int      @default(0)
+  lockedAt        DateTime?
+  lockReason      String?
+  lastVerifiedAt  DateTime?
+  lastPinAuthAt   DateTime?
+  expiresAt       DateTime?
+  usedAt          DateTime?
+  consumedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, kind])
+  @@index([kind, status, expiresAt])
+  @@index([pinLookupDigest])
+  @@index([pinLookupDigest, status])
+  @@index([lockedAt])
+}
+
+model KioskTerminalMissCounter {
+  id          String        @id @default(cuid())
+  terminalId  String        @unique
+  terminal    StaffTerminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+  missCount   Int           @default(0)
+  windowStart DateTime      @default(now())
+  blockedUntil DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([blockedUntil])
+}
+
+model StudentPinAudit {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actorUserId    String?
+  actorClerkId   String?
+  actorRole      String?
+  actorType      String
+  action         String
+  result         String
+  credentialKind String?
+  terminalId     String?
+  reason         String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([actorClerkId, createdAt])
+  @@index([action, createdAt])
+}
+
+model KioskIdentificationSession {
+  id                  String        @id @default(cuid())
+  terminalId          String
+  terminal            StaffTerminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialKind      String
+  requiresPinRotation Boolean       @default(false)
+  rotationBypassed    Boolean       @default(false)
+  checkoutContext     Json?
+  expiresAt           DateTime
+  lastActivityAt      DateTime      @default(now())
+  createdAt           DateTime      @default(now())
+
+  @@index([terminalId])
+  @@index([userId])
   @@index([expiresAt])
 }

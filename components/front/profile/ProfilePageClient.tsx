@@ -8,6 +8,7 @@ import { demoCourses } from "@/constants/courses"
 import type { CourseData } from "@/constants/courses"
 import { useUser } from "@clerk/nextjs"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
+import { useStudentPinStatus } from "@/components/front/hooks/useStudentPinStatus"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import { getAvailableTimesForCourseDate, isSlotInPastForTimeZone } from "@/lib/class-schedule"
 import {
@@ -442,6 +443,13 @@ export default function ProfilePageClient() {
   const [requestSubmitError, setRequestSubmitError] = React.useState<string | null>(null)
   const [requestSubmitSuccess, setRequestSubmitSuccess] = React.useState<string | null>(null)
   const [mobileAgendaOpenDay, setMobileAgendaOpenDay] = React.useState<number | null>(null)
+  const [pinCurrentValue, setPinCurrentValue] = React.useState("")
+  const [pinNextValue, setPinNextValue] = React.useState("")
+  const [pinConfirmValue, setPinConfirmValue] = React.useState("")
+  const [pinRecoveryMode, setPinRecoveryMode] = React.useState(false)
+  const [pinSaving, setPinSaving] = React.useState(false)
+  const [pinFormError, setPinFormError] = React.useState<string | null>(null)
+  const [pinFormSuccess, setPinFormSuccess] = React.useState<string | null>(null)
   const profileSavedTimeout = React.useRef<number | null>(null)
   const availabilityCacheRef = React.useRef<Map<string, CachedAvailabilityEntry>>(new Map())
   const availabilityInflightRef = React.useRef<Map<string, Promise<SlotAvailability[] | null>>>(new Map())
@@ -474,6 +482,7 @@ export default function ProfilePageClient() {
     [profileForm, profileUser, user]
   )
   const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
+  const { status: pinStatus, loading: pinLoading, error: pinStatusError, refresh: refreshPinStatus } = useStudentPinStatus(canLoadProtectedData)
 
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
   const orderedCourses = React.useMemo(() => {
@@ -1058,6 +1067,50 @@ export default function ProfilePageClient() {
       setRequestSubmitError("Could not create the request.")
     } finally {
       setRequestSubmitting(false)
+    }
+  }
+
+  const submitStudentPin = async () => {
+    if (!pinRecoveryMode && pinStatus.enrolled && !/^\d{4}$/.test(pinCurrentValue)) {
+      setPinFormError("Enter your current 4-digit PIN.")
+      return
+    }
+    if (!/^\d{4}$/.test(pinNextValue)) {
+      setPinFormError("New PIN must be exactly 4 digits.")
+      return
+    }
+    if (pinNextValue !== pinConfirmValue) {
+      setPinFormError("PIN confirmation does not match.")
+      return
+    }
+
+    setPinSaving(true)
+    setPinFormError(null)
+    setPinFormSuccess(null)
+    try {
+      const res = await fetch("/api/profile/pin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPin: pinRecoveryMode ? undefined : pinCurrentValue,
+          nextPin: pinNextValue,
+          confirmPin: pinConfirmValue,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setPinFormError(data?.error || "Could not update your PIN.")
+        return
+      }
+      setPinCurrentValue("")
+      setPinNextValue("")
+      setPinConfirmValue("")
+      setPinFormSuccess(pinRecoveryMode ? "PIN recovered successfully." : "PIN updated successfully.")
+      await refreshPinStatus()
+    } catch {
+      setPinFormError("Could not update your PIN.")
+    } finally {
+      setPinSaving(false)
     }
   }
 
@@ -2280,6 +2333,110 @@ export default function ProfilePageClient() {
               )}
             </GlassyCard>
             </div>
+            )}
+
+            {(pinStatus.enabled || pinLoading || pinStatusError) && (
+              <GlassyCard className="order-[1.5] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Student PIN</p>
+                    <h3 className="mt-2 text-lg font-semibold text-zinc-900 dark:text-white">
+                      {pinStatus.needsEnrollment ? "Set your kiosk PIN" : "Manage your kiosk PIN"}
+                    </h3>
+                    <p className="mt-1 text-sm text-zinc-600 dark:text-white/60">
+                      Use a personal 4-digit PIN for kiosk identification and recovery.
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-700 dark:text-white/70">
+                    {pinStatus.locked ? "Locked" : pinStatus.needsEnrollment ? "Not enrolled" : "Active"}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Status</p>
+                    <p className="mt-2 font-semibold">{pinStatus.needsEnrollment ? "Enrollment required" : pinStatus.locked ? "Locked after failed attempts" : "Ready for kiosk use"}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Attempts</p>
+                    <p className="mt-2 font-semibold">{pinStatus.permanent.failedAttempts} / 5 failed attempts</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Recovery</p>
+                    <p className="mt-2 font-semibold">{pinStatus.provisional.active ? "Staff provisional PIN active" : "Account recovery available"}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {!pinRecoveryMode && pinStatus.enrolled && (
+                    <fieldset className="space-y-2">
+                      <label className="text-sm font-medium">Current PIN</label>
+                      <input
+                        inputMode="numeric"
+                        maxLength={4}
+                        type="password"
+                        value={pinCurrentValue}
+                        onChange={(e) => setPinCurrentValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                        className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                        placeholder="Current PIN"
+                      />
+                    </fieldset>
+                  )}
+                  <fieldset className="space-y-2">
+                    <label className="text-sm font-medium">New PIN</label>
+                    <input
+                      inputMode="numeric"
+                      maxLength={4}
+                      type="password"
+                      value={pinNextValue}
+                      onChange={(e) => setPinNextValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="4 digits"
+                    />
+                  </fieldset>
+                  <fieldset className="space-y-2">
+                    <label className="text-sm font-medium">Confirm PIN</label>
+                    <input
+                      inputMode="numeric"
+                      maxLength={4}
+                      type="password"
+                      value={pinConfirmValue}
+                      onChange={(e) => setPinConfirmValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-900 dark:border-white/15 dark:text-white/90"
+                      placeholder="Repeat PIN"
+                    />
+                  </fieldset>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  {pinStatus.enrolled && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPinRecoveryMode((prev) => !prev)
+                        setPinFormError(null)
+                        setPinFormSuccess(null)
+                        setPinCurrentValue("")
+                      }}
+                      className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs font-semibold text-zinc-800 dark:border-white/10 dark:bg-white/5 dark:text-white/80"
+                    >
+                      {pinRecoveryMode ? "Use current PIN instead" : "Forgot your PIN? Recover from account"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void submitStudentPin()}
+                    disabled={pinSaving || pinLoading}
+                    className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {pinSaving ? "Saving..." : pinStatus.needsEnrollment ? "Enroll PIN" : pinRecoveryMode ? "Recover PIN" : "Update PIN"}
+                  </button>
+                </div>
+
+                {pinStatusError && <p className="mt-3 text-sm text-red-400">{pinStatusError}</p>}
+                {pinFormError && <p className="mt-3 text-sm text-red-400">{pinFormError}</p>}
+                {pinFormSuccess && !pinFormError && <p className="mt-3 text-sm text-emerald-300">{pinFormSuccess}</p>}
+              </GlassyCard>
             )}
 
             <GlassyCard className="order-2 p-4">

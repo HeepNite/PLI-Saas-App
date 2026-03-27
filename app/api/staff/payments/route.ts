@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { buildSessionStartsAt } from "@/lib/class-schedule"
+import { isLockedCredential, isStudentPinLifecycleEnabled, type StudentPinStatusValue } from "@/lib/security/student-pin"
 
 export const runtime = "nodejs"
 
@@ -133,7 +134,7 @@ export async function GET(req: Request) {
   const userIds = [...new Set(enrichedPurchases.map((item) => item.userId).filter(Boolean))]
   const courseSlugs = [...new Set(enrichedPurchases.map((item) => item.purchase.courseSlug).filter(Boolean))]
 
-  const [pointsGrouped, pointsEntries, activePackages, locations, slotAttendances, purchaseUsers] = await Promise.all([
+  const [pointsGrouped, pointsEntries, activePackages, locations, slotAttendances, purchaseUsers, studentPinCredentials] = await Promise.all([
     userIds.length
       ? prisma.pointsLedger.groupBy({
           by: ["userId"],
@@ -218,6 +219,22 @@ export async function GET(req: Request) {
       ? prisma.user.findMany({
           where: { id: { in: userIds } },
           select: { id: true, clerkId: true },
+        })
+      : Promise.resolve([]),
+    userIds.length && isStudentPinLifecycleEnabled()
+      ? prisma.studentPinCredential.findMany({
+          where: {
+            userId: { in: userIds },
+            kind: { in: ["permanent", "provisional"] },
+          },
+          select: {
+            userId: true,
+            kind: true,
+            status: true,
+            failedAttempts: true,
+            lockedAt: true,
+            expiresAt: true,
+          },
         })
       : Promise.resolve([]),
   ])
@@ -352,6 +369,43 @@ export async function GET(req: Request) {
     }
   }
 
+  const studentPinByUserId = new Map<
+    string,
+    {
+      enabled: boolean
+      enrolled: boolean
+      locked: boolean
+      needsEnrollment: boolean
+      permanentStatus: StudentPinStatusValue | null
+      provisionalActive: boolean
+      provisionalExpiresAt: string | null
+    }
+  >()
+
+  if (isStudentPinLifecycleEnabled()) {
+    for (const userId of userIds) {
+      const credentials = studentPinCredentials.filter((credential) => credential.userId === userId)
+      const permanent = credentials.find((credential) => credential.kind === "permanent") || null
+      const provisional = credentials.find((credential) => credential.kind === "provisional") || null
+      const provisionalActive = Boolean(
+        provisional &&
+          provisional.status !== "expired" &&
+          provisional.status !== "superseded" &&
+          (!provisional.expiresAt || provisional.expiresAt > new Date())
+      )
+
+      studentPinByUserId.set(userId, {
+        enabled: true,
+        enrolled: Boolean(permanent && permanent.status !== "expired"),
+        locked: Boolean(permanent && isLockedCredential(permanent)),
+        needsEnrollment: !permanent || permanent.status === "expired",
+        permanentStatus: (permanent?.status as StudentPinStatusValue | null) || null,
+        provisionalActive,
+        provisionalExpiresAt: provisional?.expiresAt?.toISOString() || null,
+      })
+    }
+  }
+
   const mapped = enrichedPurchases.map((item) => {
     const purchase = item.purchase
     const courseSlug = purchase.courseSlug
@@ -422,6 +476,15 @@ export async function GET(req: Request) {
             status: activePackage.status,
           }
         : null,
+      studentPin: studentPinByUserId.get(item.userId) || {
+        enabled: false,
+        enrolled: false,
+        locked: false,
+        needsEnrollment: false,
+        permanentStatus: null,
+        provisionalActive: false,
+        provisionalExpiresAt: null,
+      },
     }
   })
 
