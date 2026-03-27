@@ -9,6 +9,7 @@ import type { CourseData } from "@/constants/courses"
 import { homeCourses } from "@/constants/home-content"
 import EnrollModal from "@/components/front/courses/EnrollModal"
 import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
+import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import { buildSessionStartsAt, getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { toE164Phone } from "@/components/front/courses/utils/phone"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
@@ -1378,85 +1379,137 @@ export default function CheckInQrClient({
           )}
 
           {showKioskPinPanel && (
-            <div className="mx-auto mt-5 max-w-xl rounded-2xl border border-white/15 bg-black/20 p-4 sm:p-5">
-              {!hasKioskPinSession ? (
-                <>
-                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Existing student PIN</p>
-                  <h2 className="mt-2 text-xl font-semibold text-white">Enter your 4-digit PIN</h2>
-                  <p className="mt-2 text-sm text-white/68">
-                    We&apos;ll identify your account here and then continue with the same checkout flow on this terminal.
-                  </p>
-                  <div className="mt-4 space-y-3">
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={4}
-                      autoComplete="one-time-code"
-                      value={kioskPin}
-                      onChange={(event) => setKioskPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                      placeholder="4-digit PIN"
-                      className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center text-2xl tracking-[0.35em] text-white outline-none placeholder:text-white/25"
+            <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="existing-customer-pin-title"
+                className="w-full max-w-[24rem] rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-4 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] sm:p-5"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">
+                      {hasKioskPinSession ? "Permanent PIN required" : "Existing student PIN"}
+                    </p>
+                    <h2 id="existing-customer-pin-title" className="mt-1 text-lg font-semibold text-white">
+                      {hasKioskPinSession
+                        ? kioskPinRotationMode === "regeneration"
+                          ? "Regenerate your 4-digit PIN"
+                          : "Create your new 4-digit PIN"
+                        : "Enter your 4-digit PIN"}
+                    </h2>
+                    <p className="mt-1 text-sm text-white/68">
+                      {hasKioskPinSession
+                        ? kioskPinRotationMode === "regeneration"
+                          ? "This PIN expired after inactivity. Set a new permanent PIN now before continuing to purchase."
+                          : "This provisional PIN only works once. Set a permanent PIN now before continuing to purchase."
+                        : "We&apos;ll identify your account here and continue on this terminal."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExistingCustomerDismiss}
+                    className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {!hasKioskPinSession ? (
+                  <>
+                    <div className="mt-4 rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-4 text-center text-2xl tracking-[0.35em] text-white">
+                      {(kioskPin || "----").padEnd(4, "-")}
+                    </div>
+                    <KioskNumericKeypad
+                      className="mt-4"
+                      disabled={kioskPinLoading}
+                      onDigit={(digit) => {
+                        setKioskPin((current) => `${current}${digit}`.slice(0, 4))
+                        setError(null)
+                      }}
+                      onBackspace={() => {
+                        setKioskPin((current) => current.slice(0, -1))
+                        setError(null)
+                      }}
+                      onClear={() => {
+                        setKioskPin("")
+                        setError(null)
+                      }}
                     />
                     {typeof kioskPinAttemptsRemaining === "number" && kioskPinAttemptsRemaining >= 0 && (
-                      <p className="text-xs text-white/58">Attempts remaining on this terminal: {kioskPinAttemptsRemaining}</p>
+                      <p className="mt-3 text-xs text-white/58">Attempts remaining on this terminal: {kioskPinAttemptsRemaining}</p>
                     )}
                     {kioskPinBlockedUntil && (
-                      <p className="text-xs text-amber-200/90">This terminal is temporarily blocked until {toEsDateTime(kioskPinBlockedUntil)}.</p>
+                      <p className="mt-2 text-xs text-amber-200/90">This terminal is temporarily blocked until {toEsDateTime(kioskPinBlockedUntil)}.</p>
                     )}
                     <button
                       type="button"
                       onClick={() => void handleKioskPinIdentify()}
                       disabled={kioskPinLoading || kioskPin.length !== 4}
-                      className="w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                      className="mt-4 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                     >
                       {kioskPinLoading ? "Checking PIN..." : "Continue"}
                     </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Permanent PIN required</p>
-                  <h2 className="mt-2 text-xl font-semibold text-white">
-                    {kioskPinRotationMode === "regeneration" ? "Regenerate your 4-digit PIN" : "Create your new 4-digit PIN"}
-                  </h2>
-                  <p className="mt-2 text-sm text-white/68">
-                    {kioskPinRotationMode === "regeneration"
-                      ? "This PIN expired after inactivity. Set a new permanent PIN now before continuing to purchase."
-                      : "This provisional PIN only works once. Set a permanent PIN now before continuing to purchase."}
-                  </p>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={4}
-                      value={kioskPinNext}
-                      onChange={(event) => setKioskPinNext(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                      placeholder="New PIN"
-                      className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center text-xl tracking-[0.3em] text-white outline-none placeholder:text-white/25"
+                    {visibleError ? <p className="mt-3 text-sm text-red-200">{visibleError}</p> : null}
+                    {success ? <p className="mt-3 text-sm text-emerald-200">{success}</p> : null}
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-white/55">New PIN</p>
+                        <div className="rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-4 text-center text-xl tracking-[0.3em] text-white">
+                          {(kioskPinNext || "----").padEnd(4, "-")}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-white/55">Confirm PIN</p>
+                        <div className="rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-4 text-center text-xl tracking-[0.3em] text-white">
+                          {(kioskPinConfirm || "----").padEnd(4, "-")}
+                        </div>
+                      </div>
+                    </div>
+                    <KioskNumericKeypad
+                      className="mt-4"
+                      disabled={kioskPinRotating}
+                      onDigit={(digit) => {
+                        if (kioskPinNext.length < 4) {
+                          setKioskPinNext((current) => `${current}${digit}`.slice(0, 4))
+                        } else {
+                          setKioskPinConfirm((current) => `${current}${digit}`.slice(0, 4))
+                        }
+                        setError(null)
+                      }}
+                      onBackspace={() => {
+                        if (kioskPinConfirm.length > 0) {
+                          setKioskPinConfirm((current) => current.slice(0, -1))
+                        } else {
+                          setKioskPinNext((current) => current.slice(0, -1))
+                        }
+                        setError(null)
+                      }}
+                      onClear={() => {
+                        if (kioskPinConfirm.length > 0) {
+                          setKioskPinConfirm("")
+                        } else {
+                          setKioskPinNext("")
+                        }
+                        setError(null)
+                      }}
                     />
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={4}
-                      value={kioskPinConfirm}
-                      onChange={(event) => setKioskPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                      placeholder="Confirm PIN"
-                      className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center text-xl tracking-[0.3em] text-white outline-none placeholder:text-white/25"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleKioskPinRotate()}
-                    disabled={kioskPinRotating || kioskPinNext.length !== 4 || kioskPinConfirm.length !== 4}
-                    className="mt-4 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    {kioskPinRotating ? "Saving PIN..." : "Save new PIN"}
-                  </button>
-                </>
-              )}
+                    <button
+                      type="button"
+                      onClick={() => void handleKioskPinRotate()}
+                      disabled={kioskPinRotating || kioskPinNext.length !== 4 || kioskPinConfirm.length !== 4}
+                      className="mt-4 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {kioskPinRotating ? "Saving PIN..." : "Save new PIN"}
+                    </button>
+                    {visibleError ? <p className="mt-3 text-sm text-red-200">{visibleError}</p> : null}
+                    {success ? <p className="mt-3 text-sm text-emerald-200">{success}</p> : null}
+                  </>
+                )}
+              </div>
             </div>
           )}
 

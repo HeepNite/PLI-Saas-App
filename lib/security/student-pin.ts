@@ -95,8 +95,11 @@ const subtractMonths = (value: Date, months: number) => {
   return next
 }
 
-export const isStudentPinLifecycleEnabled = () =>
-  process.env.STUDENT_PIN_LIFECYCLE_ENABLED === "true"
+export const isStudentPinLifecycleEnabled = () => {
+  const configuredValue = process.env.STUDENT_PIN_LIFECYCLE_ENABLED?.trim().toLowerCase()
+  if (!configuredValue) return true
+  return !["false", "0", "off", "disabled"].includes(configuredValue)
+}
 
 export const isStudentPinFormatValid = (value: string) => /^\d{4}$/.test(value)
 

@@ -33,6 +33,7 @@ import {
   createStudentPinLookupDigest,
   hashStudentPin,
   getStudentPinStatus,
+  isStudentPinLifecycleEnabled,
   isStudentPinExpired,
   isTerminalBlocked,
   isStudentPinObsolete,
@@ -79,6 +80,14 @@ describe("student PIN helpers", () => {
   it("creates deterministic lookup digests", () => {
     expect(createStudentPinLookupDigest("1234")).toBe(createStudentPinLookupDigest("1234"))
     expect(createStudentPinLookupDigest("1234")).not.toBe(createStudentPinLookupDigest("4321"))
+  })
+
+  it("enables the lifecycle by default unless explicitly disabled", () => {
+    delete process.env.STUDENT_PIN_LIFECYCLE_ENABLED
+    expect(isStudentPinLifecycleEnabled()).toBe(true)
+
+    process.env.STUDENT_PIN_LIFECYCLE_ENABLED = "false"
+    expect(isStudentPinLifecycleEnabled()).toBe(false)
   })
 
   it("marks permanent credentials obsolete after six months without PIN-auth activity", () => {

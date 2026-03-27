@@ -7608,24 +7608,24 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 const totalSpentLabel = formatMoney(student.totalCollectedCents, payment.currency)
                 const lastPaymentAtPreciseLabel = formatIsoDateTimePrecise(payment.createdAt)
                 const isSelected = selectedPaymentIds.includes(payment.id)
-                const studentPinLabel = !payment.studentPin.enabled
-                  ? "PIN disabled"
-                  : payment.studentPin.provisionalActive
+                const studentPinLabel = payment.studentPin.enabled
+                  ? payment.studentPin.provisionalActive
                     ? "Provisional active"
                     : payment.studentPin.locked
                       ? "PIN locked"
                       : payment.studentPin.needsEnrollment
                         ? "Needs PIN setup"
                         : "PIN enrolled"
-                const studentPinTone = !payment.studentPin.enabled
-                  ? "border-white/20 bg-white/10 text-white/75"
-                  : payment.studentPin.provisionalActive
+                  : null
+                const studentPinTone = payment.studentPin.enabled
+                  ? payment.studentPin.provisionalActive
                     ? "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
                     : payment.studentPin.locked
                       ? "border-amber-400/35 bg-amber-400/10 text-amber-200"
                       : payment.studentPin.needsEnrollment
                         ? "border-[var(--brand,#ff4b4b)]/50 bg-[var(--brand,#b61616)]/14 text-[var(--brand,#ffd1d1)]"
                         : "border-emerald-400/35 bg-emerald-400/10 text-emerald-200"
+                  : null
                 const checkInHistory = student.allPayments
                   .filter((entry) => isCheckedInStatus(entry.checkInStatus))
                   .slice(0, 10)
@@ -7735,9 +7735,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${paymentStateTone(payment)}`}>
                         {paymentStateLabel(payment)}
                       </span>
-                      <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${studentPinTone}`}>
-                        {studentPinLabel}
-                      </span>
+                      {studentPinLabel && studentPinTone ? (
+                        <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${studentPinTone}`}>
+                          {studentPinLabel}
+                        </span>
+                      ) : null}
                       <span className="group relative inline-flex cursor-help items-center justify-center rounded-full border border-cyan-400/35 bg-cyan-400/10 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-200">
                         Spent: {totalSpentLabel}
                         <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-44 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
@@ -7786,7 +7788,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>Student PIN</span>
-                        <span className="truncate text-right">{studentPinLabel}</span>
+                        <span className="truncate text-right">{studentPinLabel || "-"}</span>
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>PIN expiry</span>
@@ -7868,7 +7870,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           onClick={() => openStudentPinModal(payment)}
                           className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
                         >
-                          {payment.studentPin.provisionalActive ? "Reissue provisional PIN" : "Issue provisional PIN"}
+                          {payment.studentPin.provisionalActive ? "Reissue PIN" : "Provisional PIN"}
                         </button>
                       ) : null}
                     </div>
@@ -8859,7 +8861,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Student PIN</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">{studentPinModal.name}</h3>
                 <p className="mt-1 text-xs text-black/65 dark:text-white/65">
-                  {studentPinModal.email || "No email on file"} · {studentPinModal.needsEnrollment ? "Legacy/no-PIN setup" : "In-person recovery"}
+                  {studentPinModal.email || "No email on file"} · {studentPinModal.needsEnrollment ? "PIN setup" : "Same-day recovery"}
                 </p>
               </div>
               <button
@@ -8873,8 +8875,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </div>
 
             <div className="space-y-4 p-5">
-              <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-950 dark:text-cyan-100">
-                Provisional PINs stay valid until end of day. Issue them only for front-desk assisted enrollment or same-day recovery.
+                <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-950 dark:text-cyan-100">
+                  Provisional PINs stay valid until end of day. Use them only for front-desk assisted enrollment or same-day recovery.
               </div>
 
               <label className="block space-y-1.5">
@@ -8901,7 +8903,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
               {studentPinModal.provisionalActive || studentPinModal.provisionalExpiresAt ? (
                 <p className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
-                  Existing provisional PIN {studentPinModal.provisionalActive ? "is active" : "was issued"}. Expiry: {formatIsoDate(studentPinModal.provisionalExpiresAt)}.
+                  Existing provisional PIN {studentPinModal.provisionalActive ? "is active" : "was created"}. Expiry: {formatIsoDate(studentPinModal.provisionalExpiresAt)}.
                 </p>
               ) : null}
 
@@ -8954,7 +8956,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   disabled={studentPinSubmitting}
                   className="rounded-xl bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  {studentPinSubmitting ? "Issuing..." : studentPinIssued ? "Reissue PIN" : "Issue provisional PIN"}
+                  {studentPinSubmitting ? "Saving..." : studentPinIssued ? "Reissue PIN" : "Create provisional PIN"}
                 </button>
               </div>
             </div>
