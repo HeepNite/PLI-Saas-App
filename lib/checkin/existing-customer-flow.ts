@@ -1,7 +1,28 @@
 const EXISTING_CUSTOMER_INFO_STEP = 2
 
-export const getExistingCustomerInitialStep = (input?: { isKioskTerminalFlow?: boolean }) =>
-  input?.isKioskTerminalFlow ? 0 : EXISTING_CUSTOMER_INFO_STEP
+export const hasExistingCustomerPrefillContact = (input?: {
+  firstName?: string | null
+  lastName?: string | null
+  email?: string | null
+  phone?: string | null
+}) =>
+  Boolean(
+    input?.firstName?.trim() &&
+      input?.lastName?.trim() &&
+      input?.email?.trim() &&
+      input?.phone?.trim()
+  )
+
+export const getExistingCustomerInitialStep = (input?: {
+  isKioskTerminalFlow?: boolean
+  hasPrefilledContact?: boolean
+}) => {
+  if (!input?.isKioskTerminalFlow) {
+    return EXISTING_CUSTOMER_INFO_STEP
+  }
+
+  return input.hasPrefilledContact ? 1 : 0
+}
 
 export const shouldShowCheckInQrPanel = (input: {
   hideQrPanel: boolean

@@ -15,6 +15,7 @@ import { toE164Phone } from "@/components/front/courses/utils/phone"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import {
   getExistingCustomerInitialStep,
+  hasExistingCustomerPrefillContact,
   shouldAutoOpenExistingPurchase,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
@@ -304,6 +305,24 @@ const toEsDateTime = (value: string, options?: Intl.DateTimeFormatOptions) => {
 
 const getActivePinSlotIndex = (value: string) => Math.min(value.length, 3)
 
+const normalizeCustomerNameParts = (input: { firstName?: string; lastName?: string; name?: string }) => {
+  const firstName = input.firstName?.trim() || ""
+  const lastName = input.lastName?.trim() || ""
+  if (firstName || lastName) {
+    return { firstName, lastName }
+  }
+
+  const parts = (input.name || "").trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) {
+    return { firstName: "", lastName: "" }
+  }
+
+  return {
+    firstName: parts[0] || "",
+    lastName: parts.slice(1).join(" "),
+  }
+}
+
 const renderPinSlots = (input: {
   value: string
   revealedIndex: number | null
@@ -324,7 +343,7 @@ const renderPinSlots = (input: {
             input.compact ? "text-xl tracking-[0.24em] sm:text-2xl" : "text-2xl tracking-[0.3em] sm:text-[2rem]"
           } ${
             isSlotActive
-              ? "border-[var(--brand,#ff6b6b)] bg-[rgba(182,22,22,0.18)] shadow-[0_0_0_1px_rgba(255,107,107,0.2)]"
+              ? "border-white/80 bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]"
               : "border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
           }`}
           aria-hidden="true"
@@ -332,7 +351,7 @@ const renderPinSlots = (input: {
           {displayValue ? (
             <span>{displayValue}</span>
           ) : isSlotActive ? (
-            <span className="h-6 w-px animate-pulse rounded-full bg-[var(--brand,#ff8b8b)]" />
+            <span className="h-6 w-px animate-pulse rounded-full bg-white" />
           ) : (
             <span className="text-white/28">-</span>
           )}
@@ -664,6 +683,17 @@ export default function CheckInQrClient({
   })
   const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const effectiveCheckInWindowOpen = Boolean(bootstrap?.context.checkInWindow.isOpen)
+  const bootstrapContact = React.useMemo(() => {
+    if (!bootstrap) return null
+    const nameParts = normalizeCustomerNameParts(bootstrap.customer)
+    return {
+      firstName: nameParts.firstName,
+      lastName: nameParts.lastName,
+      email: bootstrap.customer.email,
+      phone: bootstrap.customer.phone,
+    }
+  }, [bootstrap])
+  const hasBootstrapPrefilledContact = hasExistingCustomerPrefillContact(bootstrapContact || undefined)
   const welcomeLabel = bootstrap?.customer.firstName || bootstrap?.customer.name || "student"
   const shellEyebrow = "QR Check-in"
   const isLatePaymentContext = Boolean(
@@ -1139,6 +1169,7 @@ export default function CheckInQrClient({
   ])
 
   React.useEffect(() => {
+    if (showKioskPinPanel) return
     if (!error && !success) return
     const timeoutId = window.setTimeout(() => {
       setError(null)
@@ -1146,7 +1177,7 @@ export default function CheckInQrClient({
     }, TRANSIENT_MESSAGE_TIMEOUT_MS)
 
     return () => window.clearTimeout(timeoutId)
-  }, [error, success])
+  }, [error, showKioskPinPanel, success])
 
   return (
     <main className={`relative min-h-screen overflow-hidden bg-[#13141d] px-3 ${mainSpacingClass} sm:px-4`}>
@@ -1934,7 +1965,10 @@ export default function CheckInQrClient({
             setExistingRegularBookingOverride(null)
           }}
           onPaymentsStepReadyAction={isKioskTerminalFlow ? () => setPaymentsModalReady(true) : undefined}
-          initialStep={getExistingCustomerInitialStep({ isKioskTerminalFlow })}
+          initialStep={getExistingCustomerInitialStep({
+            isKioskTerminalFlow,
+            hasPrefilledContact: hasBootstrapPrefilledContact,
+          })}
           prefillSelection={
             bootstrap?.quickCheckout
               ? {
@@ -1954,16 +1988,7 @@ export default function CheckInQrClient({
           useDraft={false}
           mode="modal"
           onCompletedAction={isStationDeviceFlow ? handleStationCompletion : undefined}
-          prefillContact={
-            bootstrap
-              ? {
-                  firstName: bootstrap.customer.firstName,
-                  lastName: bootstrap.customer.lastName,
-                  email: bootstrap.customer.email,
-                  phone: bootstrap.customer.phone,
-                }
-              : undefined
-          }
+          prefillContact={bootstrapContact || undefined}
         />
       )}
 

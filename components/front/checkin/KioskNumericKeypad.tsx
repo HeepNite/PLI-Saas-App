@@ -35,8 +35,8 @@ export default function KioskNumericKeypad({
     (key: string) =>
       `rounded-xl border px-3 py-3 transition disabled:opacity-50 ${
         pressedKey === key || activeKey === key
-          ? "border-[var(--brand,#ff6b6b)] bg-[rgba(199,24,24,0.18)] text-white scale-[0.98] shadow-[0_0_0_1px_rgba(255,107,107,0.25)]"
-          : "border-white/12 bg-white/[0.04] text-white hover:border-[var(--brand,#c71818)] hover:text-[var(--brand,#ff7a7a)]"
+          ? "border-white/80 bg-white/10 text-white scale-[0.98] shadow-[0_0_0_1px_rgba(255,255,255,0.2)]"
+          : "border-white/12 bg-white/[0.04] text-white hover:border-white/60 hover:text-white"
       }`,
     [activeKey, pressedKey]
   )

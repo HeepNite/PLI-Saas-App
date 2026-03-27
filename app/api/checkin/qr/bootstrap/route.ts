@@ -7,6 +7,7 @@ import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import type { CourseData } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
+import { resolveAvatarState } from "@/lib/clerk-users"
 
 export const runtime = "nodejs"
 
@@ -29,6 +30,15 @@ const normalizeString = (value: unknown) => {
 const normalizePhoneDigits = (value: string) => {
   const digits = value.replace(/\D/g, "")
   return digits.length >= 6 ? digits : ""
+}
+
+const splitName = (value: string) => {
+  const parts = value.trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return { firstName: "", lastName: "" }
+  return {
+    firstName: parts[0] || "",
+    lastName: parts.slice(1).join(" "),
+  }
 }
 
 const toRecord = (value: unknown) =>
@@ -193,16 +203,19 @@ export async function POST(req: Request) {
     let lastName = ""
     let name = kioskUser?.name || ""
 
+    if (authResult.userId || kioskUser?.clerkId) {
+      const client = await clerkClient()
+      clerkUser = await client.users.getUser((authResult.userId || kioskUser?.clerkId) as string)
+      email = clerkUser.primaryEmailAddress?.emailAddress || email
+      const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+      phone = normalizePhoneDigits(phoneRaw) || phone
+      firstName = clerkUser.firstName?.trim() || firstName
+      lastName = clerkUser.lastName?.trim() || lastName
+      name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
+    }
+
     const dbUser = authResult.userId
       ? await (async () => {
-          const client = await clerkClient()
-          clerkUser = await client.users.getUser(authResult.userId as string)
-          email = clerkUser.primaryEmailAddress?.emailAddress || ""
-          const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-          phone = normalizePhoneDigits(phoneRaw)
-          firstName = clerkUser.firstName?.trim() || ""
-          lastName = clerkUser.lastName?.trim() || ""
-          name = [firstName, lastName].filter(Boolean).join(" ").trim()
           return upsertUserByIdentifiers({
             clerkId: authResult.userId as string,
             email,
@@ -220,6 +233,12 @@ export async function POST(req: Request) {
         : null
     if (!dbUser) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+    }
+
+    if (!firstName && !lastName) {
+      const nameParts = splitName(dbUser.name || name)
+      firstName = nameParts.firstName
+      lastName = nameParts.lastName
     }
 
     const [activePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
@@ -326,7 +345,7 @@ export async function POST(req: Request) {
         name: dbUser.name || name,
         email: dbUser.email || email,
         phone: dbUser.phone || phone,
-        hasAvatar: Boolean(authResult.userId && clerkUser),
+        hasAvatar: Boolean(resolveAvatarState(clerkUser).hasAvatar),
       },
       package: preferredPackage
         ? {

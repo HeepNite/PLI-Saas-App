@@ -1,17 +1,41 @@
 import { describe, expect, it } from "vitest"
 import {
   getExistingCustomerInitialStep,
+  hasExistingCustomerPrefillContact,
   shouldAutoOpenExistingPurchase,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
 
 describe("existing customer kiosk helpers", () => {
-  it("starts existing kiosk customers on the contact information step", () => {
-    expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true })).toBe(0)
+  it("keeps kiosk customers on the contact step when the identity prefill is incomplete", () => {
+    expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true, hasPrefilledContact: false })).toBe(0)
+  })
+
+  it("skips the kiosk contact form when the identified student is already prefilled", () => {
+    expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true, hasPrefilledContact: true })).toBe(1)
   })
 
   it("keeps the non-kiosk entry step stable for the full wizard", () => {
     expect(getExistingCustomerInitialStep()).toBe(2)
+  })
+
+  it("requires full identified contact data before the kiosk flow skips ahead", () => {
+    expect(
+      hasExistingCustomerPrefillContact({
+        firstName: "Jane",
+        lastName: "Student",
+        email: "jane@example.com",
+        phone: "+1 555 111 2222",
+      })
+    ).toBe(true)
+    expect(
+      hasExistingCustomerPrefillContact({
+        firstName: "",
+        lastName: "Student",
+        email: "jane@example.com",
+        phone: "+1 555 111 2222",
+      })
+    ).toBe(false)
   })
 
   it("shows the QR panel for terminal shell on compact tablet viewports", () => {

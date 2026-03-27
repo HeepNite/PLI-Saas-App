@@ -2119,7 +2119,7 @@ export default function EnrollModal({
     isKioskTerminalFlow && activeNumericField === field ? (
       <span
         aria-hidden
-        className="pointer-events-none absolute right-3 top-1/2 h-5 w-[2px] -translate-y-1/2 animate-pulse rounded-full bg-[var(--brand,#ff7a7a)]"
+        className="pointer-events-none absolute right-3 top-1/2 h-5 w-[2px] -translate-y-1/2 animate-pulse rounded-full bg-white"
       />
     ) : null
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
