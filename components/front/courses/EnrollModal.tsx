@@ -349,6 +349,7 @@ export default function EnrollModal({
   initialStep,
   mode = "modal",
   prefillContact,
+  prefillHasAvatar,
   prefillSelection,
   flowVariant = "default",
   completionMode = "default",
@@ -370,6 +371,7 @@ export default function EnrollModal({
   initialStep?: number
   mode?: "modal" | "inline"
   prefillContact?: Partial<EnrollmentContact>
+  prefillHasAvatar?: boolean
   prefillSelection?: EnrollPrefillSelection
   flowVariant?: EnrollFlowVariant
   completionMode?: EnrollCompletionMode
@@ -490,7 +492,7 @@ export default function EnrollModal({
     note: "",
   })
   const isNewStudent = service === "new-student"
-  const accountHasAvatar = Boolean(preparedAccount?.hasAvatar || photoSaved)
+  const accountHasAvatar = Boolean(prefillHasAvatar || preparedAccount?.hasAvatar || photoSaved)
   const requiresPhotoStep = React.useMemo(
     () =>
       shouldIncludePhotoStep({
@@ -2813,7 +2815,7 @@ export default function EnrollModal({
                           aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
                           className={`w-full rounded-md border bg-white/80 px-3 py-2 dark:bg-white/10 ${
                             isKioskTerminalFlow && activeNumericField === "phone"
-                              ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
+                              ? "border-sky-400/70 ring-2 ring-sky-300/20"
                               : "border-black/10 dark:border-white/10"
                           }`}
                         />

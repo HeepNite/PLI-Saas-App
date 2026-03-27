@@ -72,6 +72,7 @@ describe("qr check-in bootstrap route", () => {
           primaryEmailAddress: { emailAddress: "student@example.com" },
           primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
         }),
+        getUserList: vi.fn().mockResolvedValue({ data: [] }),
       },
     })
     mockGetCatalogCourseBySlug.mockResolvedValue({
@@ -164,5 +165,140 @@ describe("qr check-in bootstrap route", () => {
         hasAvatar: true,
       },
     })
+  })
+
+  it("refreshes the Clerk user before avatar gating when the first payload is incomplete", async () => {
+    const getUser = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "clerk_user_1",
+        firstName: "Jane",
+        lastName: "Student",
+        primaryEmailAddress: { emailAddress: "student@example.com" },
+        primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+      })
+      .mockResolvedValueOnce({
+        id: "clerk_user_1",
+        firstName: "Jane",
+        lastName: "Student",
+        hasImage: true,
+        primaryEmailAddress: { emailAddress: "student@example.com" },
+        primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+      })
+
+    mockClerkClient.mockResolvedValue({
+      users: {
+        getUser,
+      },
+    })
+    mockAuth.mockResolvedValue({ userId: null })
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: {
+        user: {
+          id: "db_user_1",
+          clerkId: "clerk_user_1",
+          email: "student@example.com",
+          name: "Jane Student",
+          phone: "15551112222",
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-02-24",
+        time: "11:00",
+        kioskSessionToken: "session_1",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      customer: {
+        hasAvatar: true,
+      },
+    })
+    expect(getUser).toHaveBeenCalledTimes(2)
+  })
+
+  it("finds the Clerk profile by session identifiers when the kiosk session has no clerk id", async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      id: "clerk_user_2",
+      firstName: "Jane",
+      lastName: "Student",
+      hasImage: true,
+      primaryEmailAddress: { emailAddress: "student@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+    })
+    const getUserList = vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: "clerk_user_2",
+          firstName: "Jane",
+          lastName: "Student",
+          hasImage: true,
+          primaryEmailAddress: { emailAddress: "student@example.com" },
+          primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+          phoneNumbers: [{ phoneNumber: "+1 555 111 2222" }],
+        },
+      ],
+    })
+
+    mockClerkClient.mockResolvedValue({
+      users: {
+        getUser,
+        getUserList,
+      },
+    })
+    mockAuth.mockResolvedValue({ userId: null })
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: {
+        user: {
+          id: "db_user_1",
+          clerkId: null,
+          email: "student@example.com",
+          name: "Jane Student",
+          phone: "+1 555 111 2222",
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-02-24",
+        time: "11:00",
+        kioskSessionToken: "session_1",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      customer: {
+        firstName: "Jane",
+        lastName: "Student",
+        email: "student@example.com",
+        phone: "15551112222",
+        hasAvatar: true,
+      },
+    })
+    expect(getUserList).toHaveBeenCalledWith({
+      emailAddress: ["student@example.com"],
+      limit: 1,
+    })
+    expect(getUser).not.toHaveBeenCalled()
   })
 })

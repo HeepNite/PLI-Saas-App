@@ -341,11 +341,11 @@ const renderPinSlots = (input: {
           key={`pin-slot-${index}`}
           className={`flex h-14 items-center justify-center rounded-2xl border text-center font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition sm:h-16 ${
             input.compact ? "text-xl tracking-[0.24em] sm:text-2xl" : "text-2xl tracking-[0.3em] sm:text-[2rem]"
-          } ${
-            isSlotActive
-              ? "border-white/80 bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]"
+           } ${
+             isSlotActive
+              ? "border-sky-300/80 bg-sky-300/10 shadow-[0_0_0_1px_rgba(125,211,252,0.2)]"
               : "border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
-          }`}
+           }`}
           aria-hidden="true"
         >
           {displayValue ? (
@@ -1462,7 +1462,7 @@ export default function CheckInQrClient({
                 }}
                 className={`min-h-[104px] rounded-2xl border px-4 py-4 text-left sm:min-h-[112px] sm:px-5 sm:py-5 ${
                   mode === "existing"
-                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.2)] text-white"
+                    ? "border-sky-300/55 bg-sky-300/10 text-white shadow-[0_0_0_1px_rgba(125,211,252,0.16)]"
                     : "border-white/15 bg-black/20 text-white/80"
                 }`}
               >
@@ -1492,7 +1492,7 @@ export default function CheckInQrClient({
                 }}
                 className={`min-h-[104px] rounded-2xl border px-4 py-4 text-left sm:min-h-[112px] sm:px-5 sm:py-5 ${
                   mode === "new"
-                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.2)] text-white"
+                    ? "border-sky-300/55 bg-sky-300/10 text-white shadow-[0_0_0_1px_rgba(125,211,252,0.16)]"
                     : "border-white/15 bg-black/20 text-white/80"
                 }`}
               >
@@ -1508,13 +1508,13 @@ export default function CheckInQrClient({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="existing-customer-pin-title"
-                className="w-full max-w-[28rem] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.22),transparent_54%),linear-gradient(160deg,rgba(12,15,28,0.99),rgba(21,25,40,0.97))] shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] max-h-[calc(100vh-7rem)] md:max-w-[46rem]"
+                className="w-full max-w-[28rem] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(125,211,252,0.18),transparent_54%),linear-gradient(160deg,rgba(12,15,28,0.99),rgba(21,25,40,0.97))] shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] max-h-[calc(100vh-7rem)] md:max-w-[46rem]"
               >
                 <div className="grid gap-4 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_18rem] md:gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
                   <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4 sm:p-5">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">
+                        <p className="text-xs uppercase tracking-[0.16em] text-sky-200/80">
                           {hasKioskPinSession ? "Permanent PIN required" : "Existing student PIN"}
                         </p>
                         <h2 id="existing-customer-pin-title" className="mt-1 text-lg font-semibold text-white sm:text-xl">
@@ -1564,7 +1564,7 @@ export default function CheckInQrClient({
                           type="button"
                           onClick={() => void handleKioskPinIdentify()}
                           disabled={kioskPinLoading || kioskPin.length !== 4}
-                          className="mt-5 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                          className="mt-5 w-full rounded-xl bg-sky-500/80 px-4 py-3 text-sm font-semibold text-white transition hover:bg-sky-400/90 disabled:opacity-50"
                         >
                           {kioskPinLoading ? "Checking PIN..." : "Continue"}
                         </button>
@@ -1599,7 +1599,7 @@ export default function CheckInQrClient({
                           type="button"
                           onClick={() => void handleKioskPinRotate()}
                           disabled={kioskPinRotating || kioskPinNext.length !== 4 || kioskPinConfirm.length !== 4}
-                          className="mt-5 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                          className="mt-5 w-full rounded-xl bg-sky-500/80 px-4 py-3 text-sm font-semibold text-white transition hover:bg-sky-400/90 disabled:opacity-50"
                         >
                           {kioskPinRotating ? "Saving PIN..." : "Save new PIN"}
                         </button>
@@ -1609,7 +1609,7 @@ export default function CheckInQrClient({
                     )}
                   </div>
 
-                  <div className="rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(210,52,52,0.16),transparent_60%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3 sm:p-4">
+                  <div className="rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(125,211,252,0.14),transparent_60%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3 sm:p-4">
                     <KioskNumericKeypad
                       className="h-full"
                       disabled={hasKioskPinSession ? kioskPinRotating : kioskPinLoading}
@@ -1985,6 +1985,7 @@ export default function CheckInQrClient({
           checkInContext={existingRegularBookingContext}
           kioskSessionToken={!isSignedIn && kioskPinSessionToken ? kioskPinSessionToken : undefined}
           photoFlowContext={photoFlowContext}
+          prefillHasAvatar={bootstrap?.customer.hasAvatar}
           useDraft={false}
           mode="modal"
           onCompletedAction={isStationDeviceFlow ? handleStationCompletion : undefined}

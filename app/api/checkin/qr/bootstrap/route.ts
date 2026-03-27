@@ -7,7 +7,7 @@ import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import type { CourseData } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
-import { resolveAvatarState } from "@/lib/clerk-users"
+import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
 
 export const runtime = "nodejs"
 
@@ -197,7 +197,9 @@ export async function POST(req: Request) {
     const kioskUser = kioskSessionResult?.ok ? kioskSessionResult.session.user : null
 
     let clerkUser: ClerkUser | null = null
+    let hasAvatar = false
     let email = kioskUser?.email || ""
+    const kioskPhoneRaw = kioskUser?.phone || ""
     let phone = kioskUser ? normalizePhoneDigits(kioskUser.phone || "") : ""
     let firstName = ""
     let lastName = ""
@@ -206,12 +208,38 @@ export async function POST(req: Request) {
     if (authResult.userId || kioskUser?.clerkId) {
       const client = await clerkClient()
       clerkUser = await client.users.getUser((authResult.userId || kioskUser?.clerkId) as string)
+      let avatarState = resolveAvatarState(clerkUser)
+      if (avatarState.needsRefresh && clerkUser?.id) {
+        clerkUser = await client.users.getUser(clerkUser.id)
+        avatarState = resolveAvatarState(clerkUser)
+      }
+      hasAvatar = Boolean(avatarState.hasAvatar)
       email = clerkUser.primaryEmailAddress?.emailAddress || email
       const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
       phone = normalizePhoneDigits(phoneRaw) || phone
       firstName = clerkUser.firstName?.trim() || firstName
       lastName = clerkUser.lastName?.trim() || lastName
       name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
+    } else if (email || kioskPhoneRaw) {
+      clerkUser = await findClerkUserByIdentifiers({
+        email,
+        phone: kioskPhoneRaw,
+      })
+      if (clerkUser) {
+        let avatarState = resolveAvatarState(clerkUser)
+        if (avatarState.needsRefresh && clerkUser.id) {
+          const client = await clerkClient()
+          clerkUser = await client.users.getUser(clerkUser.id)
+          avatarState = resolveAvatarState(clerkUser)
+        }
+        hasAvatar = Boolean(avatarState.hasAvatar)
+        email = clerkUser.primaryEmailAddress?.emailAddress || email
+        const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+        phone = normalizePhoneDigits(phoneRaw) || phone
+        firstName = clerkUser.firstName?.trim() || firstName
+        lastName = clerkUser.lastName?.trim() || lastName
+        name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
+      }
     }
 
     const dbUser = authResult.userId
@@ -343,9 +371,9 @@ export async function POST(req: Request) {
         firstName,
         lastName,
         name: dbUser.name || name,
-        email: dbUser.email || email,
-        phone: dbUser.phone || phone,
-        hasAvatar: Boolean(resolveAvatarState(clerkUser).hasAvatar),
+        email: email || dbUser.email || "",
+        phone: phone || dbUser.phone || "",
+        hasAvatar,
       },
       package: preferredPackage
         ? {
