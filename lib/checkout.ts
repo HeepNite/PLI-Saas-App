@@ -5,8 +5,19 @@ import { verifyToken } from "@clerk/backend"
 import { ensureClerkUser, findClerkUserByIdentifiers, resolveAvatarState, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import type { PhotoFlowContext } from "@/lib/checkin/photo-context-policy"
+import {
+  PREPARED_CHECKOUT_FALLBACK_REASONS,
+  deletePreparedCheckoutContext,
+  isPreparedCheckoutContextEnabled,
+  lookupPreparedCheckoutContext,
+  snapshotPreparedCheckoutVerification,
+} from "@/lib/checkout/prepared-context"
 import { prisma } from "@/lib/prisma"
-import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
+import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
+import {
+  authorizeStaffTerminalSession,
+  type StaffTerminalSessionAuthResult,
+} from "@/lib/security/staff-terminal"
 import { isEmail, normalizePhone, type ApiError, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
 import {
   replacePermanentStudentPin,
@@ -54,6 +65,18 @@ export type EnrollStudentPinInput = {
   name?: string
   studentPin?: string
   studentPinConfirm?: string
+}
+
+export type CheckoutVerification = {
+  hasVerifiedPhone: boolean
+}
+
+export type CheckoutPreparationResolution = {
+  source: "prepared" | "fallback"
+  preparedAccount: PreparedCheckoutAccount
+  verification: CheckoutVerification
+  terminalAuth: Extract<StaffTerminalSessionAuthResult, { ok: true }> | null
+  fallbackReason?: string
 }
 
 export const resolveAuthUser = async (
@@ -162,12 +185,31 @@ export const prepareCheckoutAccount = async (
     photoContext?: PhotoFlowContext
     allowExistingAccountLookup?: boolean
     kioskSessionToken?: string
+    terminalAuth?: Extract<StaffTerminalSessionAuthResult, { ok: true }> | null
+    touchKioskSession?: boolean
   } = {}
 ): Promise<ApiError | PreparedCheckoutAccount> => {
-  const { userId, clerkUser } = await resolveAuthUser(req, input)
+  const authUser = await resolveAuthUser(req, input)
+  const kioskCustomerAuth =
+    options.photoContext === "kiosk_terminal"
+      ? await resolveKioskCustomerClerkAuth(authUser.userId)
+      : null
+
+  const userId = kioskCustomerAuth ? kioskCustomerAuth.userId : authUser.userId
+  const clerkUser = kioskCustomerAuth?.clerkUser || authUser.clerkUser
+
+  if (options.photoContext === "kiosk_terminal" && kioskCustomerAuth?.blocked && !options.kioskSessionToken) {
+    return {
+      status: 401,
+      error: "Kiosk customer identification is required before checkout.",
+    } satisfies ApiError
+  }
 
   if (!userId && options.photoContext === "kiosk_terminal" && options.kioskSessionToken) {
-    const kioskSessionResult = await resolveTerminalKioskSession(options.kioskSessionToken)
+    const kioskSessionResult = await resolveTerminalKioskSession(options.kioskSessionToken, {
+      terminalAuth: options.terminalAuth || undefined,
+      touch: options.touchKioskSession,
+    })
     if (!kioskSessionResult.ok) {
       return {
         status: kioskSessionResult.status,
@@ -211,7 +253,7 @@ export const prepareCheckoutAccount = async (
 
   const allowExistingAccountLookup = Boolean(options.allowExistingAccountLookup)
   if (allowExistingAccountLookup && !userId && options.photoContext === "kiosk_terminal") {
-    const terminalAuth = await authorizeStaffTerminalSession()
+    const terminalAuth = options.terminalAuth || (await authorizeStaffTerminalSession({ touchLastSeen: false }))
     if (!terminalAuth.ok) {
       return {
         status: 401,
@@ -296,7 +338,8 @@ export const prepareCheckoutAccount = async (
 export const enforceNewStudentRules = async (input: {
   serviceId: string
   safeParticipants: number
-  clerkUserForVerification: ClerkUser | null
+  clerkUserForVerification?: ClerkUser | null
+  hasVerifiedPhone?: boolean
   resolvedUserId?: string
   resolvedEmail: string
   phoneNormalized: string
@@ -306,7 +349,11 @@ export const enforceNewStudentRules = async (input: {
   if (input.safeParticipants !== 1) {
     return { status: 400, error: "New student price is limited to 1 participant." } satisfies ApiError
   }
-  if (!hasVerifiedPhone(input.clerkUserForVerification)) {
+  const verifiedPhone = typeof input.hasVerifiedPhone === "boolean"
+    ? input.hasVerifiedPhone
+    : hasVerifiedPhone(input.clerkUserForVerification || null)
+
+  if (!verifiedPhone) {
     return { status: 409, error: "Phone verification required for new student price." } satisfies ApiError
   }
 
@@ -336,6 +383,105 @@ export const enforceNewStudentRules = async (input: {
   }
 
   return null
+}
+
+export const resolveCheckoutPreparation = async (
+  req: Request,
+  input: {
+    email?: string
+    firstName?: string
+    lastName?: string
+    name?: string
+    phone?: string
+  },
+  options: {
+    photoContext?: PhotoFlowContext
+    allowExistingAccountLookup?: boolean
+    kioskSessionToken?: string
+    validation: Pick<CheckoutValidation, "courseSlug" | "date" | "time"> & { durationMinutes?: number | null }
+  }
+): Promise<ApiError | CheckoutPreparationResolution> => {
+  const shouldAttemptPreparedContext =
+    options.photoContext === "kiosk_terminal" && Boolean(options.kioskSessionToken) && isPreparedCheckoutContextEnabled()
+
+  if (!shouldAttemptPreparedContext) {
+    const preparedAccount = await prepareCheckoutAccount(req, input, {
+      photoContext: options.photoContext,
+      allowExistingAccountLookup: options.allowExistingAccountLookup,
+      kioskSessionToken: options.kioskSessionToken,
+    })
+    if ("status" in preparedAccount) return preparedAccount
+
+    return {
+      source: "fallback",
+      preparedAccount,
+      verification: snapshotPreparedCheckoutVerification({
+        hasVerifiedPhone: hasVerifiedPhone(preparedAccount.clerkUser),
+      }),
+      terminalAuth: null,
+      fallbackReason: !isPreparedCheckoutContextEnabled()
+        ? PREPARED_CHECKOUT_FALLBACK_REASONS.disabled
+        : PREPARED_CHECKOUT_FALLBACK_REASONS.missingKioskSession,
+    }
+  }
+
+  const terminalAuth = await authorizeStaffTerminalSession()
+  if (!terminalAuth.ok) {
+    return {
+      status: 401,
+      error: "Terminal session required for kiosk checkout.",
+    }
+  }
+
+  const preparedContext = await lookupPreparedCheckoutContext({
+    terminalId: terminalAuth.terminal.id,
+    kioskSessionId: options.kioskSessionToken as string,
+    validation: options.validation,
+  })
+
+  if (preparedContext.ok) {
+    return {
+      source: "prepared",
+      preparedAccount: preparedContext.preparedAccount,
+      verification: preparedContext.verification,
+      terminalAuth,
+    }
+  }
+
+  const preparedAccount = await prepareCheckoutAccount(req, input, {
+    photoContext: options.photoContext,
+    allowExistingAccountLookup: options.allowExistingAccountLookup,
+    kioskSessionToken: options.kioskSessionToken,
+    terminalAuth,
+    touchKioskSession: false,
+  })
+  if ("status" in preparedAccount) return preparedAccount
+
+  return {
+    source: "fallback",
+    preparedAccount,
+    verification: snapshotPreparedCheckoutVerification({
+      hasVerifiedPhone: hasVerifiedPhone(preparedAccount.clerkUser),
+    }),
+    terminalAuth,
+    fallbackReason: preparedContext.reason,
+  }
+}
+
+export const clearPreparedCheckoutAfterSuccess = async (input: {
+  terminalAuth: Extract<StaffTerminalSessionAuthResult, { ok: true }> | null
+  kioskSessionToken?: string
+  validation: Pick<CheckoutValidation, "courseSlug" | "date" | "time"> & { durationMinutes?: number | null }
+}) => {
+  if (!input.terminalAuth || !input.kioskSessionToken || !isPreparedCheckoutContextEnabled()) {
+    return
+  }
+
+  await deletePreparedCheckoutContext({
+    terminalId: input.terminalAuth.terminal.id,
+    kioskSessionId: input.kioskSessionToken,
+    validation: input.validation,
+  })
 }
 
 export const enrollStudentPinForCheckout = async (input: EnrollStudentPinInput): Promise<ApiError | { ok: true; dbUserId: string | null }> => {
