@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 
 const TERMINAL_COOKIE_NAME = "pli_terminal_session"
 const TERMINAL_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
+export const STAFF_TERMINAL_LAST_SEEN_THROTTLE_MS = 60_000
 
 const getTerminalSecret = () => {
   const secret =
@@ -115,7 +116,9 @@ export type StaffTerminalSessionAuthResult =
       reason: "missing" | "expired" | "inactive"
     }
 
-export const authorizeStaffTerminalSession = async (): Promise<StaffTerminalSessionAuthResult> => {
+export const authorizeStaffTerminalSession = async (
+  options: { touchLastSeen?: boolean } = {}
+): Promise<StaffTerminalSessionAuthResult> => {
   const token = await readStaffTerminalCookie()
   if (!token) {
     return { ok: false, reason: "missing" }
@@ -149,17 +152,24 @@ export const authorizeStaffTerminalSession = async (): Promise<StaffTerminalSess
     return { ok: false, reason: "inactive" }
   }
 
-  await prisma.staffTerminalSession.update({
-    where: { id: session.id },
-    data: {
-      lastSeenAt: now,
-      terminal: {
-        update: {
-          lastSeenAt: now,
+  const shouldTouchLastSeen = options.touchLastSeen !== false
+  const shouldWriteLastSeen =
+    shouldTouchLastSeen &&
+    (!session.lastSeenAt || now.getTime() - session.lastSeenAt.getTime() >= STAFF_TERMINAL_LAST_SEEN_THROTTLE_MS)
+
+  if (shouldWriteLastSeen) {
+    await prisma.staffTerminalSession.update({
+      where: { id: session.id },
+      data: {
+        lastSeenAt: now,
+        terminal: {
+          update: {
+            lastSeenAt: now,
+          },
         },
       },
-    },
-  })
+    })
+  }
 
   return {
     ok: true,

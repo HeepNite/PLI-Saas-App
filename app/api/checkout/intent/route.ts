@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import {
+  clearPreparedCheckoutAfterSuccess,
   enrollStudentPinForCheckout,
   enforceNewStudentRules,
-  prepareCheckoutAccount,
+  resolveCheckoutPreparation,
   type ApiError,
 } from "@/lib/checkout"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
@@ -23,6 +24,7 @@ const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
 
 export async function POST(req: Request) {
+  const startedAt = Date.now()
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("checkout:intent", getClientIp(req)),
     limit: 30,
@@ -60,7 +62,7 @@ export async function POST(req: Request) {
     return toErrorResponse(validation)
   }
 
-  const preparedAccount = await prepareCheckoutAccount(
+  const preparation = await resolveCheckoutPreparation(
     req,
     {
       email,
@@ -73,15 +75,23 @@ export async function POST(req: Request) {
       photoContext,
       allowExistingAccountLookup: prepareOnly || photoContext === "kiosk_terminal",
       kioskSessionToken,
+      validation,
     }
   )
-  if (isApiError(preparedAccount)) {
-    return toErrorResponse(preparedAccount)
+  if (isApiError(preparation)) {
+    return toErrorResponse(preparation)
   }
 
+  const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
   const { clerkUser, resolvedUserId, identity, account } = preparedAccount
 
   if (prepareOnly) {
+    console.info("[staff-terminal-checkout-latency] checkout-intent", {
+      segment: "prepare_only",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
+    })
     return NextResponse.json({
       ok: true,
       prepareOnly: true,
@@ -97,6 +107,7 @@ export async function POST(req: Request) {
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
     clerkUserForVerification: clerkUser,
+    hasVerifiedPhone: verification.hasVerifiedPhone,
     resolvedUserId: resolvedUserId || undefined,
     resolvedEmail: identity.resolvedEmail,
     phoneNormalized: identity.phoneNormalized,
@@ -147,6 +158,19 @@ export async function POST(req: Request) {
         phone: identity.phoneNormalized,
         phoneRaw: phone || "",
       },
+    })
+
+    await clearPreparedCheckoutAfterSuccess({
+      terminalAuth,
+      kioskSessionToken,
+      validation,
+    })
+
+    console.info("[staff-terminal-checkout-latency] checkout-intent", {
+      segment: "card_next_step",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
     })
 
     return NextResponse.json({

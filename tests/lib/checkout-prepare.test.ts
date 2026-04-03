@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { mockAuth, mockClerkClient, mockVerifyToken } = vi.hoisted(() => ({
+const {
+  mockAuth,
+  mockAuthorizeStaffTerminalSession,
+  mockClerkClient,
+  mockLookupPreparedCheckoutContext,
+  mockVerifyToken,
+  mockResolveTerminalKioskSession,
+} = vi.hoisted(() => ({
   mockAuth: vi.fn(),
+  mockAuthorizeStaffTerminalSession: vi.fn(),
   mockClerkClient: vi.fn(),
+  mockLookupPreparedCheckoutContext: vi.fn(),
   mockVerifyToken: vi.fn(),
+  mockResolveTerminalKioskSession: vi.fn(),
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -14,6 +24,22 @@ vi.mock("@clerk/nextjs/server", () => ({
 vi.mock("@clerk/backend", () => ({
   verifyToken: mockVerifyToken,
 }))
+
+vi.mock("@/lib/checkin/kiosk-session", () => ({
+  resolveTerminalKioskSession: mockResolveTerminalKioskSession,
+}))
+
+vi.mock("@/lib/security/staff-terminal", () => ({
+  authorizeStaffTerminalSession: mockAuthorizeStaffTerminalSession,
+}))
+
+vi.mock("@/lib/checkout/prepared-context", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/checkout/prepared-context")>("@/lib/checkout/prepared-context")
+  return {
+    ...actual,
+    lookupPreparedCheckoutContext: mockLookupPreparedCheckoutContext,
+  }
+})
 
 type MockClerkUser = {
   id: string
@@ -64,6 +90,9 @@ describe("prepareCheckoutAccount", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockVerifyToken.mockResolvedValue({ data: {} })
+    mockResolveTerminalKioskSession.mockReset()
+    mockAuthorizeStaffTerminalSession.mockReset()
+    mockLookupPreparedCheckoutContext.mockReset()
   })
 
   it("returns hasAvatar true for an authenticated user with an avatar", async () => {
@@ -315,5 +344,136 @@ describe("prepareCheckoutAccount", () => {
     expect(result.account.hasAvatar).toBe(false)
     expect(result.account.created).toBe(true)
     expect(result.account.clerkUserId).toBe(createdUser.id)
+  })
+
+  it("ignores staff Clerk auth in kiosk checkout and falls back to kiosk identity", async () => {
+    const staffUser = makeClerkUser({
+      id: "staff_user_1",
+      firstName: "Owner",
+      lastName: "Account",
+      primaryEmailAddress: { emailAddress: "owner@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 999 0000" },
+      phoneNumbers: [
+        {
+          id: "pn_owner",
+          phoneNumber: "+15559990000",
+          verification: { status: "verified" },
+        },
+      ],
+      primaryPhoneNumberId: "pn_owner",
+    }) as MockClerkUser & {
+      publicMetadata: { role: string }
+      privateMetadata: Record<string, never>
+      unsafeMetadata: Record<string, never>
+    }
+    staffUser.publicMetadata = { role: "owner" }
+    staffUser.privateMetadata = {}
+    staffUser.unsafeMetadata = {}
+
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(staffUser)
+    mockAuth.mockResolvedValue({ userId: staffUser.id })
+    mockClerkClient.mockResolvedValue(client)
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: {
+        user: {
+          id: "db_kiosk_user_1",
+          clerkId: "customer_clerk_1",
+          email: "student@example.com",
+          phone: "+1 555 111 2222",
+          name: "Student Example",
+        },
+      },
+    })
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(
+      new Request("http://localhost/checkout"),
+      {},
+      {
+        photoContext: "kiosk_terminal",
+        kioskSessionToken: "kiosk_session_1",
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    if ("status" in result) throw new Error("Expected prepared checkout account")
+    expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("kiosk_session_1", {
+      terminalAuth: undefined,
+      touch: undefined,
+    })
+    expect(result.userId).toBeNull()
+    expect(result.resolvedUserId).toBe("customer_clerk_1")
+    expect(result.identity).toMatchObject({
+      resolvedEmail: "student@example.com",
+      phoneNormalized: "15551112222",
+    })
+    expect(result.account).toMatchObject({
+      clerkUserId: "customer_clerk_1",
+      requiresSignIn: false,
+      created: false,
+      hasAvatar: true,
+    })
+  })
+})
+
+describe("resolveCheckoutPreparation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.PREPARED_CHECKOUT_CONTEXT = "0"
+    mockVerifyToken.mockResolvedValue({ data: {} })
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: {
+        user: {
+          id: "db_kiosk_user_1",
+          clerkId: "customer_clerk_1",
+          email: "student@example.com",
+          phone: "+1 555 111 2222",
+          name: "Student Example",
+        },
+      },
+    })
+  })
+
+  it("falls back to the existing preparation path when PREPARED_CHECKOUT_CONTEXT=0", async () => {
+    const { PREPARED_CHECKOUT_FALLBACK_REASONS } = await import("@/lib/checkout/prepared-context")
+    const { resolveCheckoutPreparation } = await import("@/lib/checkout")
+
+    const result = await resolveCheckoutPreparation(
+      new Request("http://localhost/api/checkout/intent"),
+      {},
+      {
+        photoContext: "kiosk_terminal",
+        allowExistingAccountLookup: true,
+        kioskSessionToken: "kiosk_session_1",
+        validation: {
+          courseSlug: "salsa-femenina-matutina",
+          date: "2026-02-24",
+          time: "11:00",
+          durationMinutes: 60,
+        },
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    if ("status" in result) throw new Error("Expected checkout preparation result")
+
+    expect(result).toMatchObject({
+      source: "fallback",
+      fallbackReason: PREPARED_CHECKOUT_FALLBACK_REASONS.disabled,
+      terminalAuth: null,
+      preparedAccount: {
+        resolvedUserId: "customer_clerk_1",
+      },
+    })
+    expect(mockAuthorizeStaffTerminalSession).not.toHaveBeenCalled()
+    expect(mockLookupPreparedCheckoutContext).not.toHaveBeenCalled()
+    expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("kiosk_session_1", {
+      terminalAuth: undefined,
+      touch: undefined,
+    })
   })
 })

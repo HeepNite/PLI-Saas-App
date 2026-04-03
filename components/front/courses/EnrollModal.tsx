@@ -43,6 +43,7 @@ import {
 } from "@/lib/checkin/enroll-flow"
 import {
   createEmptyKioskQrCheckoutState,
+  getKioskPaymentTransitionRemainingMs,
   getKioskPaymentTransitionMessage,
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
@@ -1943,7 +1944,7 @@ export default function EnrollModal({
     }
 
     const startedAt = kioskPaymentTransitionStartedAtRef.current ?? Date.now()
-    const remaining = Math.max(0, KIOSK_PAYMENT_TRANSITION_MIN_MS - (Date.now() - startedAt))
+    const remaining = getKioskPaymentTransitionRemainingMs(startedAt)
     kioskPaymentTransitionTimeoutRef.current = window.setTimeout(() => {
       setShowKioskPaymentTransition(false)
       kioskPaymentTransitionStartedAtRef.current = null

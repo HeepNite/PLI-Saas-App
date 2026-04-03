@@ -215,6 +215,7 @@ model Attendance {
   session      ClassSession        @relation(fields: [sessionId], references: [id])
   status       String              @default("checked_in")
   checkedInAt  DateTime            @default(now())
+  checkedOutAt DateTime?
   qrToken      String?
   metadata     Json?
   packageUsage PackageUsageLedger?
@@ -321,6 +322,7 @@ model StaffTerminal {
   sessions          StaffTerminalSession[]
   kioskMissCounter  KioskTerminalMissCounter?
   kioskIdentificationSessions KioskIdentificationSession[]
+  preparedCheckoutContexts PreparedCheckoutContext[]
 
   @@index([active])
   @@index([defaultCourseSlug])
@@ -415,5 +417,27 @@ model KioskIdentificationSession {
 
   @@index([terminalId])
   @@index([userId])
+  @@index([expiresAt])
+}
+
+model PreparedCheckoutContext {
+  id                   String        @id @default(cuid())
+  terminalId           String
+  terminal             StaffTerminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+  kioskSessionId       String
+  classSlotKey         String
+  dbUserId             String?
+  resolvedClerkUserId  String?
+  resolvedEmail        String
+  phoneRaw             String?
+  phoneNormalized      String
+  accountSnapshot      Json
+  verificationSnapshot Json
+  expiresAt            DateTime
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@unique([terminalId, kioskSessionId, classSlotKey])
+  @@index([terminalId, kioskSessionId, expiresAt])
   @@index([expiresAt])
 }

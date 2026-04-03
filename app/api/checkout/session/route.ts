@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import {
+  clearPreparedCheckoutAfterSuccess,
   enrollStudentPinForCheckout,
   enforceNewStudentRules,
-  prepareCheckoutAccount,
+  resolveCheckoutPreparation,
   type ApiError,
 } from "@/lib/checkout"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
@@ -27,6 +28,7 @@ const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
 
 export async function POST(req: Request) {
+  const startedAt = Date.now()
   if (!stripe) {
     return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
   }
@@ -71,7 +73,7 @@ export async function POST(req: Request) {
   const success = `${base}/courses/${validation.courseSlug}?status=success`
   const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
-  const preparedAccount = await prepareCheckoutAccount(
+  const preparation = await resolveCheckoutPreparation(
     req,
     {
       email,
@@ -84,17 +86,20 @@ export async function POST(req: Request) {
       photoContext,
       allowExistingAccountLookup: photoContext === "kiosk_terminal",
       kioskSessionToken,
+      validation,
     }
   )
-  if (isApiError(preparedAccount)) {
-    return toErrorResponse(preparedAccount)
+  if (isApiError(preparation)) {
+    return toErrorResponse(preparation)
   }
 
+  const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
   const { clerkUser, resolvedUserId, identity } = preparedAccount
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
     clerkUserForVerification: clerkUser,
+    hasVerifiedPhone: verification.hasVerifiedPhone,
     resolvedUserId: resolvedUserId || undefined,
     resolvedEmail: identity.resolvedEmail,
     phoneNormalized: identity.phoneNormalized,
@@ -165,6 +170,19 @@ export async function POST(req: Request) {
         flowContext: photoContext,
         paymentSurface: photoContext === "kiosk_terminal" ? "hosted_checkout" : "web_checkout",
       },
+    })
+
+    await clearPreparedCheckoutAfterSuccess({
+      terminalAuth,
+      kioskSessionToken,
+      validation,
+    })
+
+    console.info("[staff-terminal-checkout-latency] checkout-session", {
+      segment: "card_next_step",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
     })
 
     return NextResponse.json({

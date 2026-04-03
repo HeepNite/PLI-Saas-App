@@ -2,6 +2,13 @@ import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
 
 export const KIOSK_QR_POLL_INTERVAL_MS = 3_000
 export const KIOSK_PAYMENT_TRANSITION_MIN_MS = 900
+export const STAFF_TERMINAL_LATENCY_TARGETS_MS = {
+  pinReady: 2_000,
+  cardNextStep: 1_500,
+  cashNextStep: 800,
+} as const
+
+export type StaffTerminalLatencySegment = "pin_ready" | "card_next_step" | "cash_next_step"
 
 export type KioskQrCheckoutPhase =
   | "idle"
@@ -141,10 +148,28 @@ export const getKioskPaymentTransitionMessage = (firstName?: string) => {
     : "We're getting your payment ready."
 }
 
+export const getKioskPaymentTransitionRemainingMs = (startedAtMs: number, nowMs = Date.now()) =>
+  Math.max(0, KIOSK_PAYMENT_TRANSITION_MIN_MS - (nowMs - startedAtMs))
+
+export const isWithinStaffTerminalLatencyTarget = (
+  segment: StaffTerminalLatencySegment,
+  durationMs: number
+) => {
+  switch (segment) {
+    case "pin_ready":
+      return durationMs <= STAFF_TERMINAL_LATENCY_TARGETS_MS.pinReady
+    case "card_next_step":
+      return durationMs <= STAFF_TERMINAL_LATENCY_TARGETS_MS.cardNextStep
+    case "cash_next_step":
+      return durationMs <= STAFF_TERMINAL_LATENCY_TARGETS_MS.cashNextStep
+  }
+}
+
 type KioskResolvingOverlayInput = {
   isKioskTerminalFlow: boolean
   mode: string
   hasActiveCustomerSession: boolean
+  hasPendingPinRotation: boolean
   loadingBootstrap: boolean
   hasBootstrap: boolean
   hasExistingRegularBookingOverride: boolean
@@ -171,6 +196,7 @@ export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInpu
   if (!input.isKioskTerminalFlow || input.mode !== "existing" || !input.hasActiveCustomerSession) {
     return false
   }
+  if (input.hasPendingPinRotation) return false
   if (input.loadingBootstrap) return true
   if (input.hasVisibleError) return false
   // Keep the overlay until the EnrollModal is actually open (override set).

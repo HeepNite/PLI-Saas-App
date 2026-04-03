@@ -5,9 +5,11 @@ import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
+import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled, snapshotPreparedCheckoutVerification } from "@/lib/checkout/prepared-context"
 import type { CourseData } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
+import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 
 export const runtime = "nodejs"
 
@@ -142,6 +144,7 @@ const pickPreferredPackage = (input: {
 
 export async function POST(req: Request) {
   try {
+    const startedAt = Date.now()
     const rateLimit = consumeRateLimit({
       key: buildRateLimitKey("checkin:qr:bootstrap:post", getClientIp(req)),
       limit: 30,
@@ -164,13 +167,24 @@ export async function POST(req: Request) {
     const payload = toRecord(body)
     const authResult = await auth()
     const kioskSessionToken = normalizeString(payload?.kioskSessionToken)
-    const kioskSessionResult = !authResult.userId && kioskSessionToken
+    const flowContext = normalizeString(payload?.flowContext)
+    const kioskCustomerAuth =
+      flowContext === "kiosk_terminal"
+        ? await resolveKioskCustomerClerkAuth(authResult.userId)
+        : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
+    const customerClerkUserId = kioskCustomerAuth.userId
+    const kioskSessionResult = !customerClerkUserId && kioskSessionToken
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
 
-    if (!authResult.userId && !kioskSessionResult?.ok) {
+    if (!customerClerkUserId && !kioskSessionResult?.ok) {
       return NextResponse.json(
-        { error: kioskSessionResult?.error || "Unauthorized" },
+        {
+          error:
+            kioskCustomerAuth.blocked && flowContext === "kiosk_terminal"
+              ? "Kiosk customer identification is required before continuing."
+              : kioskSessionResult?.error || "Unauthorized",
+        },
         { status: kioskSessionResult?.status || 401 }
       )
     }
@@ -205,11 +219,15 @@ export async function POST(req: Request) {
     let lastName = ""
     let name = kioskUser?.name || ""
 
-    if (authResult.userId || kioskUser?.clerkId) {
-      const client = await clerkClient()
-      clerkUser = await client.users.getUser((authResult.userId || kioskUser?.clerkId) as string)
+    if (customerClerkUserId || kioskUser?.clerkId) {
+      clerkUser = customerClerkUserId ? kioskCustomerAuth.clerkUser : null
+      if (!clerkUser) {
+        const client = await clerkClient()
+        clerkUser = await client.users.getUser((customerClerkUserId || kioskUser?.clerkId) as string)
+      }
       let avatarState = resolveAvatarState(clerkUser)
       if (avatarState.needsRefresh && clerkUser?.id) {
+        const client = await clerkClient()
         clerkUser = await client.users.getUser(clerkUser.id)
         avatarState = resolveAvatarState(clerkUser)
       }
@@ -242,10 +260,10 @@ export async function POST(req: Request) {
       }
     }
 
-    const dbUser = authResult.userId
+    const dbUser = customerClerkUserId
       ? await (async () => {
           return upsertUserByIdentifiers({
-            clerkId: authResult.userId as string,
+            clerkId: customerClerkUserId,
             email,
             phone,
             name,
@@ -268,6 +286,8 @@ export async function POST(req: Request) {
       firstName = nameParts.firstName
       lastName = nameParts.lastName
     }
+
+    const isTerminalFlow = flowContext === "kiosk_terminal"
 
     const [activePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
       prisma.packagePurchase.findMany({
@@ -302,13 +322,15 @@ export async function POST(req: Request) {
         orderBy: { createdAt: "desc" },
         take: 8,
       }),
-      prisma.purchase.findFirst({
-        where: {
-          userId: dbUser.id,
-          status: { in: ["paid", "succeeded"] },
-        },
-        select: { id: true },
-      }),
+      isTerminalFlow
+        ? Promise.resolve(null)
+        : prisma.purchase.findFirst({
+            where: {
+              userId: dbUser.id,
+              status: { in: ["paid", "succeeded"] },
+            },
+            select: { id: true },
+          }),
     ])
     const lastPurchase = recentPurchases[0] || null
 
@@ -350,6 +372,50 @@ export async function POST(req: Request) {
       }
     })
 
+    if (flowContext === "kiosk_terminal" && kioskSessionResult?.ok && isPreparedCheckoutContextEnabled()) {
+      await createPreparedCheckoutContext({
+        terminalId: kioskSessionResult.terminalAuth.terminal.id,
+        kioskSessionId: kioskSessionResult.session.id,
+        validation: {
+          courseSlug: context.courseSlug,
+          date: context.date,
+          time: context.time,
+          durationMinutes: context.durationMinutes,
+        },
+        preparedAccount: {
+          userId: dbUser.id,
+          clerkUser: null,
+          resolvedUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+          identity: {
+            resolvedEmail: email || dbUser.email || "",
+            phoneRaw: kioskPhoneRaw || clerkUser?.primaryPhoneNumber?.phoneNumber || dbUser.phone || "",
+            phoneNormalized: phone || "",
+          },
+          account: {
+            clerkUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+            created: false,
+            requiresSignIn: false,
+            hasAvatar,
+          },
+        },
+        verification: snapshotPreparedCheckoutVerification({
+          hasVerifiedPhone:
+            clerkUser?.phoneNumbers?.some((entry) => entry.id === clerkUser.primaryPhoneNumberId && entry.verification?.status === "verified") ||
+            clerkUser?.phoneNumbers?.some((entry) => entry.verification?.status === "verified") ||
+            false,
+        }),
+      })
+    }
+
+    const terminalPayload = isTerminalFlow
+
+    console.info("[staff-terminal-checkout-latency] bootstrap", {
+      flowContext,
+      source: terminalPayload ? "prepared_context_created" : "standard_bootstrap",
+      durationMs: Date.now() - startedAt,
+      hasQuickCheckout: Boolean(quickTemplate),
+    })
+
     return NextResponse.json({
       context: {
         courseSlug: context.courseSlug,
@@ -367,7 +433,7 @@ export async function POST(req: Request) {
       },
       customer: {
         userId: dbUser.id,
-        clerkUserId: authResult.userId || kioskUser?.clerkId || "",
+        clerkUserId: customerClerkUserId || kioskUser?.clerkId || "",
         firstName,
         lastName,
         name: dbUser.name || name,
@@ -381,7 +447,7 @@ export async function POST(req: Request) {
             expiresAt: preferredPackage.expiresAt ? preferredPackage.expiresAt.toISOString() : null,
           }
         : null,
-      packages: packagesList,
+      ...(terminalPayload ? {} : { packages: packagesList }),
       quickCheckout: quickTemplate
         ? {
             ...quickTemplate,
@@ -390,9 +456,13 @@ export async function POST(req: Request) {
             sourcePurchaseAt: lastPurchase?.createdAt?.toISOString() || null,
           }
         : null,
-      purchaseHistory,
-      hasPreviousPurchase: Boolean(lastPurchase),
-      hasAnyCompletedPurchase: Boolean(anyCompletedPurchase),
+      ...(terminalPayload
+        ? {}
+        : {
+            purchaseHistory,
+            hasPreviousPurchase: Boolean(lastPurchase),
+            hasAnyCompletedPurchase: Boolean(anyCompletedPurchase),
+          }),
     })
   } catch (error) {
     console.error("QR check-in bootstrap failed", error)

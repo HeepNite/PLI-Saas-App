@@ -1,6 +1,9 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
+import {
+  authorizeStaffTerminalSession,
+  type StaffTerminalSessionAuthResult,
+} from "@/lib/security/staff-terminal"
 
 export const KIOSK_IDENTIFICATION_SESSION_TTL_MS = 15 * 60 * 1000
 
@@ -93,7 +96,11 @@ export const touchKioskIdentificationSession = async (db: KioskSessionDbClient, 
 
 export const resolveTerminalKioskSession = async (
   sessionToken: unknown,
-  options: { allowRotationRequired?: boolean } = {}
+  options: {
+    allowRotationRequired?: boolean
+    terminalAuth?: Extract<StaffTerminalSessionAuthResult, { ok: true }>
+    touch?: boolean
+  } = {}
 ) => {
   const normalizedToken = typeof sessionToken === "string" ? sessionToken.trim() : ""
   if (!normalizedToken) {
@@ -104,7 +111,7 @@ export const resolveTerminalKioskSession = async (
     }
   }
 
-  const terminalAuth = await authorizeStaffTerminalSession()
+  const terminalAuth = options.terminalAuth || (await authorizeStaffTerminalSession({ touchLastSeen: options.touch !== false }))
   if (!terminalAuth.ok) {
     return {
       ok: false as const,
@@ -137,7 +144,9 @@ export const resolveTerminalKioskSession = async (
     }
   }
 
-  await touchKioskIdentificationSession(prisma, resolvedSession.id)
+  if (options.touch !== false) {
+    await touchKioskIdentificationSession(prisma, resolvedSession.id)
+  }
 
   return {
     ok: true as const,

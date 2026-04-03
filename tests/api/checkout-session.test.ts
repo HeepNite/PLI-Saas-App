@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockValidate = vi.fn()
-const mockPrepareCheckoutAccount = vi.fn()
+const mockResolveCheckoutPreparation = vi.fn()
 const mockEnforceNewStudent = vi.fn()
 const mockEnrollStudentPin = vi.fn()
 const mockCreateCheckoutSession = vi.fn()
+const mockClearPreparedCheckout = vi.fn()
 
 vi.mock("@/lib/checkout", () => ({
-  prepareCheckoutAccount: (...args: unknown[]) => mockPrepareCheckoutAccount(...args),
+  resolveCheckoutPreparation: (...args: unknown[]) => mockResolveCheckoutPreparation(...args),
   enforceNewStudentRules: (...args: unknown[]) => mockEnforceNewStudent(...args),
   enrollStudentPinForCheckout: (...args: unknown[]) => mockEnrollStudentPin(...args),
+  clearPreparedCheckoutAfterSuccess: (...args: unknown[]) => mockClearPreparedCheckout(...args),
 }))
 
 vi.mock("@/lib/checkout/validation", () => ({
@@ -35,10 +37,11 @@ describe("checkout session route", () => {
     process.env.NEXT_PUBLIC_SITE_URL = "http://localhost:3000"
 
     mockValidate.mockReset()
-    mockPrepareCheckoutAccount.mockReset()
+    mockResolveCheckoutPreparation.mockReset()
     mockEnforceNewStudent.mockReset()
     mockEnrollStudentPin.mockReset()
     mockCreateCheckoutSession.mockReset()
+    mockClearPreparedCheckout.mockReset()
 
     mockValidate.mockResolvedValue({
       courseSlug: "salsa-femenina-matutina",
@@ -59,20 +62,36 @@ describe("checkout session route", () => {
       packageMakeUps: 0,
       packageValidDays: 180,
     })
-    mockPrepareCheckoutAccount.mockResolvedValue({
-      userId: "user_123",
-      clerkUser: null,
-      resolvedUserId: "user_123",
-      identity: {
-        resolvedEmail: "test@example.com",
-        phoneRaw: "+1 9293876584",
-        phoneNormalized: "9293876584",
+    mockResolveCheckoutPreparation.mockResolvedValue({
+      source: "prepared",
+      terminalAuth: {
+        ok: true,
+        sessionId: "terminal_session_1",
+        terminal: {
+          id: "terminal_1",
+          slug: "terminal-1",
+          name: "Terminal 1",
+          location: null,
+          defaultCourseSlug: null,
+          active: true,
+        },
       },
-      account: {
-        clerkUserId: "user_123",
-        created: false,
-        requiresSignIn: false,
-        hasAvatar: false,
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: "user_123",
+        clerkUser: null,
+        resolvedUserId: "user_123",
+        identity: {
+          resolvedEmail: "test@example.com",
+          phoneRaw: "+1 9293876584",
+          phoneNormalized: "9293876584",
+        },
+        account: {
+          clerkUserId: "user_123",
+          created: false,
+          requiresSignIn: false,
+          hasAvatar: false,
+        },
       },
     })
     mockEnforceNewStudent.mockResolvedValue(null)
@@ -128,7 +147,7 @@ describe("checkout session route", () => {
     const res = await POST(req)
 
     expect(res.status).toBe(200)
-    expect(mockPrepareCheckoutAccount).toHaveBeenCalledWith(
+    expect(mockResolveCheckoutPreparation).toHaveBeenCalledWith(
       expect.any(Request),
       expect.objectContaining({
         email: "test@example.com",
@@ -152,6 +171,11 @@ describe("checkout session route", () => {
           flowContext: "kiosk_terminal",
           paymentSurface: "hosted_checkout",
         }),
+      })
+    )
+    expect(mockClearPreparedCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        terminalAuth: expect.objectContaining({ ok: true }),
       })
     )
   })
@@ -193,5 +217,71 @@ describe("checkout session route", () => {
         studentPinConfirm: "1234",
       })
     )
+  })
+
+  it("falls back silently when prepared context is expired and still logs card latency", async () => {
+    const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {})
+    const dateNow = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(10_000)
+      .mockReturnValueOnce(10_000)
+      .mockReturnValueOnce(11_200)
+
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({
+      source: "fallback",
+      fallbackReason: "expired_prepared_context",
+      terminalAuth: {
+        ok: true,
+        sessionId: "terminal_session_1",
+        terminal: {
+          id: "terminal_1",
+          slug: "terminal-1",
+          name: "Terminal 1",
+          location: null,
+          defaultCourseSlug: null,
+          active: true,
+        },
+      },
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: "user_123",
+        clerkUser: null,
+        resolvedUserId: "user_123",
+        identity: {
+          resolvedEmail: "test@example.com",
+          phoneRaw: "+1 9293876584",
+          phoneNormalized: "9293876584",
+        },
+        account: {
+          clerkUserId: "user_123",
+          created: false,
+          requiresSignIn: false,
+          hasAvatar: false,
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/checkout/session/route")
+    const res = await POST(
+      new Request("http://localhost/api/checkout/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ url: "https://stripe.test/session" })
+    expect(consoleInfo).toHaveBeenCalledWith(
+      "[staff-terminal-checkout-latency] checkout-session",
+      expect.objectContaining({
+        segment: "card_next_step",
+        source: "fallback",
+        fallbackReason: "expired_prepared_context",
+        durationMs: 1_200,
+      })
+    )
+
+    consoleInfo.mockRestore()
+    dateNow.mockRestore()
   })
 })
