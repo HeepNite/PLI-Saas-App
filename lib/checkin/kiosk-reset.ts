@@ -1,21 +1,23 @@
 type CompleteKioskCustomerFlowInput = {
   resetCustomerState: () => void
   isKioskTerminalFlow: boolean
-  isCustomerSignedIn: boolean
-  redirectUrl: string
-  sessionId?: string | null
-  signOut: (input: { redirectUrl: string; sessionId?: string }) => Promise<unknown> | unknown
+  resetUrl?: string
+  replaceUrl?: (url: string) => Promise<unknown> | unknown
+  signOutCustomerSession?: () => Promise<unknown> | unknown
 }
 
 export const completeKioskCustomerFlow = async (input: CompleteKioskCustomerFlowInput) => {
-  input.resetCustomerState()
+  try {
+    if (input.isKioskTerminalFlow && input.signOutCustomerSession) {
+      await input.signOutCustomerSession()
+    }
+  } finally {
+    input.resetCustomerState()
 
-  if (!input.isKioskTerminalFlow || !input.isCustomerSignedIn) {
-    return
+    if (!input.isKioskTerminalFlow || !input.resetUrl || !input.replaceUrl) {
+      return
+    }
+
+    await input.replaceUrl(input.resetUrl)
   }
-
-  await input.signOut({
-    redirectUrl: input.redirectUrl,
-    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-  })
 }

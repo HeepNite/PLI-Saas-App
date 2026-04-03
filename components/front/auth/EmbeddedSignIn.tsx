@@ -56,11 +56,13 @@ export default function EmbeddedSignIn({
   redirectUrl,
   phoneNumber,
   onSuccessAction,
+  onSessionCreated,
   useNumericKeypad = false,
 }: {
   redirectUrl: string
   phoneNumber?: string
   onSuccessAction?: () => void | Promise<void>
+  onSessionCreated?: (sessionId: string) => void | Promise<void>
   useNumericKeypad?: boolean
 }) {
   const { isLoaded, signIn, setActive } = useSignIn()
@@ -188,6 +190,9 @@ export default function EmbeddedSignIn({
 
       if (attempt.status === "complete" && attempt.createdSessionId) {
         await setActive({ session: attempt.createdSessionId })
+        if (onSessionCreated) {
+          await onSessionCreated(attempt.createdSessionId)
+        }
         if (onSuccessAction) {
           await onSuccessAction()
         } else {
@@ -203,7 +208,7 @@ export default function EmbeddedSignIn({
     } finally {
       setBusy(false)
     }
-  }, [code, isLoaded, onSuccessAction, redirectUrl, setActive, signIn])
+  }, [code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, setActive, signIn])
 
   const resendCode = React.useCallback(async () => {
     if (!isLoaded || !signIn || !phoneNumberId) return
