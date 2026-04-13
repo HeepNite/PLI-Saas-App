@@ -6,6 +6,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
@@ -133,7 +134,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
 
   const amount = session.amount_total ?? 0
   const currency = session.currency || "usd"
-  const status = session.payment_status === "paid" ? "paid" : session.payment_status || "unknown"
+  const status = normalizePersistedPurchaseStatus(session.payment_status)
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
 
@@ -244,7 +245,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
 
   const amount = intent.amount ?? 0
   const currency = intent.currency || "usd"
-  const status = intent.status || "unknown"
+  const status = normalizePersistedPurchaseStatus(intent.status)
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
 
@@ -286,7 +287,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
     },
   })
 
-  if (status === "succeeded") {
+  if (status === "paid") {
     const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
       userId: user.id,
       purchaseId: purchase.id,

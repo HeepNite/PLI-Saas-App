@@ -2,7 +2,6 @@
 
 import React from "react"
 import { Loader2, LogOut, MonitorSmartphone } from "lucide-react"
-import { useAuth, useClerk } from "@clerk/nextjs"
 import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
 
 type TerminalSummary = {
@@ -18,32 +17,18 @@ export default function StaffTerminalShell({
 }: {
   terminal: TerminalSummary
 }) {
-  const { isLoaded, userId, sessionId } = useAuth()
-  const clerk = useClerk()
   const [busy, setBusy] = React.useState(false)
-
-  React.useEffect(() => {
-    if (!isLoaded || typeof window === "undefined") return
-    const cleanupKey = `pli-terminal-clerk-clean:${terminal.id}`
-    if (window.sessionStorage.getItem(cleanupKey) === "done") return
-    window.sessionStorage.setItem(cleanupKey, "done")
-    if (!userId || !sessionId) return
-    void clerk.signOut({ sessionId, redirectUrl: "/staff/terminal" })
-  }, [clerk, isLoaded, sessionId, terminal.id, userId])
 
   const signOutTerminal = React.useCallback(async () => {
     setBusy(true)
     try {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(`pli-terminal-clerk-clean:${terminal.id}`)
-      }
       await fetch("/api/staff/terminal/session", {
         method: "DELETE",
       })
     } finally {
       window.location.assign("/staff/terminal")
     }
-  }, [terminal.id])
+  }, [])
 
   return (
     <div className="relative">

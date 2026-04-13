@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "crypto"
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
@@ -11,8 +12,11 @@ import {
   applyStaffCategoryToMetadata,
   extractStaffCategoryFromUserMetadata,
   parseStaffCategory,
+  parseStaffSubCategory,
+  applyStaffSubCategoryToMetadata,
   STAFF_CATEGORIES,
   type StaffCategory,
+  type StaffSubCategory,
 } from "@/lib/security/staff-category"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import {
@@ -20,11 +24,23 @@ import {
   extractStaffRoleSnapshot,
   syncStaffAccountFromClerkUser,
 } from "@/lib/security/staff-account-sync"
+import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
 
+const hashPin = (pin: string) => {
+  const salt = randomBytes(16).toString("hex")
+  const hash = createHash("sha256")
+    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
+    .digest("hex")
+  return `${salt}:${hash}`
+}
+
+const isValidPinFormat = (pin: string) => /^\d{4}$/.test(pin)
+
 type StaffListItem = {
   id: string
+  paymentModelId: string | null
   email: string
   phone: string
   avatarUrl: string
@@ -233,7 +249,7 @@ const toStaffListItem = (user: {
 }, hasActiveSession: boolean): StaffListItem | null => {
   const role = extractStaffRoleFromUserMetadata(user)
   if (!role) return null
-  const category = extractStaffCategoryFromUserMetadata(user) || "guest_staff"
+  const category = extractStaffCategoryFromUserMetadata(user) || "guest"
   const primaryEmail =
     user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress || ""
   const primaryPhone =
@@ -268,6 +284,7 @@ const toStaffListItem = (user: {
   const location = typeof publicMetadata.staffLocation === "string" ? publicMetadata.staffLocation.trim() : ""
   return {
     id: user.id,
+    paymentModelId: null,
     email: primaryEmail,
     phone: primaryPhone,
     avatarUrl: user.imageUrl || "",
@@ -384,6 +401,20 @@ export async function GET(req: Request) {
   }
   list = list.sort((a, b) => b.createdAt - a.createdAt)
 
+  const clerkUserIds = list.map((item) => item.id).filter(Boolean)
+  if (clerkUserIds.length > 0) {
+    const staffAccounts = (await prisma.staffAccount.findMany({
+      where: {
+        clerkUserId: { in: clerkUserIds },
+      },
+    })) as Array<{ clerkUserId: string; paymentModelId?: string | null }>
+    const paymentModelByUserId = new Map(staffAccounts.map((account) => [account.clerkUserId, account.paymentModelId]))
+    list = list.map((item) => ({
+      ...item,
+      paymentModelId: paymentModelByUserId.get(item.id) ?? null,
+    }))
+  }
+
   return NextResponse.json(
     { items: list },
     {
@@ -432,8 +463,9 @@ export async function POST(req: Request) {
   if (authResult.role !== "owner" && role === "owner") {
     return NextResponse.json({ error: "Only Owner can assign Owner role." }, { status: 403 })
   }
-  const requestedCategory = parseStaffCategory(payload.category) || "guest_staff"
+  const requestedCategory = parseStaffCategory(payload.category) || "guest"
   const category = normalizeCategoryForRole(role, requestedCategory)
+  const subCategory = parseStaffSubCategory(payload.subCategory)
 
   const firstName = sanitizeName(payload.firstName)
   const lastName = sanitizeName(payload.lastName)
@@ -448,11 +480,27 @@ export async function POST(req: Request) {
     const current = existing.data[0]
     const previousState = extractStaffRoleSnapshot(current)
     const withRole = applyStaffRoleToMetadata(current.publicMetadata, role)
+    const withCategory = applyStaffCategoryToMetadata(withRole, category)
+    const withSubCategory = applyStaffSubCategoryToMetadata(withCategory, subCategory)
     const updated = await client.users.updateUser(current.id, {
       firstName: firstName || current.firstName || undefined,
       lastName: lastName || current.lastName || undefined,
-      publicMetadata: applyStaffCategoryToMetadata(withRole, category),
+      publicMetadata: withSubCategory,
     })
+
+    // If PIN is provided, update privateMetadata with the hashed PIN
+    const pinPayload = typeof payload.pin === "string" ? payload.pin.trim() : ""
+    if (isValidPinFormat(pinPayload)) {
+      const currentPrivateMetadata = asObject(current.privateMetadata)
+      await client.users.updateUserMetadata(current.id, {
+        privateMetadata: {
+          ...currentPrivateMetadata,
+          staffPinHash: hashPin(pinPayload),
+          staffPinUpdatedAt: new Date().toISOString(),
+        },
+      })
+    }
+
     await syncStaffAccountFromClerkUser(updated, { source: "staff_portal_post" })
     const nextState = extractStaffRoleSnapshot(updated)
     await createStaffRoleAudit({
@@ -464,7 +512,7 @@ export async function POST(req: Request) {
       nextRole: nextState.role,
       previousCategory: previousState.category,
       nextCategory: nextState.category,
-      metadata: { via: "staff/users POST", email },
+      metadata: { via: "staff/users POST", email, pinAssigned: Boolean(pinPayload) },
     })
     return NextResponse.json({
       mode: "promoted_existing",
@@ -473,13 +521,15 @@ export async function POST(req: Request) {
   }
 
   const requestUrl = new URL(req.url)
-  const redirectUrl = `${requestUrl.origin}/staff/sign-in`
+  const redirectUrl = `${requestUrl.origin}/staff/log-in`
   const withRole = applyStaffRoleToMetadata({}, role)
+  const withCategory = applyStaffCategoryToMetadata(withRole, category)
+  const withSubCategory = applyStaffSubCategoryToMetadata(withCategory, subCategory)
   const invitation = await client.invitations.createInvitation({
     emailAddress: email,
     notify: true,
     ignoreExisting: true,
-    publicMetadata: applyStaffCategoryToMetadata(withRole, category),
+    publicMetadata: withSubCategory,
     redirectUrl,
   })
 

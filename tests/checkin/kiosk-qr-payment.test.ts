@@ -269,8 +269,11 @@ describe("kiosk QR payment helpers", () => {
       isKioskTerminalFlow: true,
       mode: "existing" as const,
       hasActiveCustomerSession: true,
+      hasPendingPinRotation: false,
       loadingBootstrap: false,
       hasBootstrap: false,
+      hasPackage: false,
+      processingPackageCheckIn: false,
       hasExistingRegularBookingOverride: false,
       hasVisibleError: false,
       paymentsStepReady: false,
@@ -348,9 +351,47 @@ describe("kiosk QR payment helpers", () => {
       expect(shouldShowKioskResolvingOverlay({ ...base, hasActiveCustomerSession: true, loadingBootstrap: true })).toBe(true)
     })
 
+    it("hides the overlay while a kiosk PIN rotation step is still pending", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          hasPendingPinRotation: true,
+          loadingBootstrap: false,
+          hasBootstrap: false,
+          hasExistingRegularBookingOverride: false,
+        })
+      ).toBe(false)
+    })
+
     it("does not show the overlay outside the existing-customer mode", () => {
       expect(shouldShowKioskResolvingOverlay({ ...base, mode: "idle" })).toBe(false)
       expect(shouldShowKioskResolvingOverlay({ ...base, mode: "new" })).toBe(false)
+    })
+
+    it("keeps the overlay while package check-in is processing", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: true,
+          hasPackage: true,
+          processingPackageCheckIn: true,
+          hasExistingRegularBookingOverride: false,
+        })
+      ).toBe(true)
+    })
+
+    it("hides the overlay once package check-in completes", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: true,
+          hasPackage: true,
+          processingPackageCheckIn: false,
+          hasExistingRegularBookingOverride: false,
+        })
+      ).toBe(false)
     })
   })
 })

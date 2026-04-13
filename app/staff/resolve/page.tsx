@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
 import {
-  extractStaffCategoryFromUserMetadata,
+  extractStaffCategoryWithSubCategoryFromUser,
 } from "@/lib/security/staff-category"
 import {
   extractStaffRoleFromUserMetadata,
@@ -20,11 +20,11 @@ export const dynamic = "force-dynamic"
 export default async function StaffResolvePage() {
   const authResult = await auth()
   if (!authResult.userId) {
-    redirect("/staff/checkin")
+    redirect("/staff/log-in")
   }
 
   let role: ReturnType<typeof extractStaffRoleFromUserMetadata> = null
-  let category: ReturnType<typeof extractStaffCategoryFromUserMetadata> = null
+  let category: ReturnType<typeof extractStaffCategoryWithSubCategoryFromUser>["category"] | null = null
 
   let currentUser: Awaited<ReturnType<Awaited<ReturnType<typeof clerkClient>>["users"]["getUser"]>> | null = null
   try {
@@ -35,7 +35,10 @@ export default async function StaffResolvePage() {
   }
 
   role = extractStaffRoleFromUserMetadata(currentUser)
-  category = extractStaffCategoryFromUserMetadata(currentUser)
+  // Extract normalized category + subCategory (handles legacy teacher → guest normalization)
+  const { category: normalizedCategory, subCategory } = extractStaffCategoryWithSubCategoryFromUser(currentUser)
+  category = normalizedCategory
+
   if (role && currentUser) {
     try {
       await syncStaffAccountFromClerkUser(currentUser, { source: "staff_resolve" })
@@ -45,10 +48,10 @@ export default async function StaffResolvePage() {
   }
 
   if (!role) {
-    redirect("/staff/sign-in?error=staff_invite_required")
+    redirect("/staff/log-in?error=staff_invite_required")
   }
 
-  const defaultSection = getDefaultStaffPortalSection(role, category)
+  const defaultSection = getDefaultStaffPortalSection(role, category, subCategory)
   if (!defaultSection) {
     redirect("/staff/checkin")
   }

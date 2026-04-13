@@ -148,4 +148,57 @@ describe("stripe webhook checkout session persistence", () => {
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(1)
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(1)
   })
+
+  it("normalizes payment intent success to paid before persisting", async () => {
+    mockConstructEvent.mockReturnValue({
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_456",
+          status: "succeeded",
+          amount: 3000,
+          currency: "usd",
+          customer: "cus_456",
+          receipt_email: "intent@example.com",
+          metadata: {
+            courseSlug: "bachata",
+            courseTitle: "Bachata",
+            packageId: "pkg_456",
+            packageLabel: "Package",
+            packageTotalCredits: "8",
+            packageIsUnlimited: "false",
+            packageCadence: "weekly",
+            packageMakeUps: "0",
+            packageValidDays: "90",
+            userId: "guest",
+            participants: "1",
+            email: "intent@example.com",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(
+      new Request("http://localhost/api/stripe/webhook", {
+        method: "POST",
+        body: JSON.stringify({ id: "evt_456" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPurchaseUpsert).toHaveBeenCalledTimes(1)
+    expect(mockPurchaseUpsert.mock.calls[0]?.[0]).toMatchObject({
+      where: { stripePaymentIntentId: "pi_456" },
+      create: {
+        stripePaymentIntentId: "pi_456",
+        status: "paid",
+      },
+      update: {
+        status: "paid",
+      },
+    })
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(1)
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(1)
+  })
 })

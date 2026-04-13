@@ -4,6 +4,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
@@ -127,10 +128,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
   }
 
+  const purchaseStatus = normalizePersistedPurchaseStatus(intent.status)
+
   const purchase = await prisma.purchase.upsert({
     where: { stripePaymentIntentId: intent.id },
     update: {
-      status: intent.status,
+      status: purchaseStatus,
       amount: intent.amount ?? 0,
       currency: intent.currency || "usd",
       email,
@@ -148,7 +151,7 @@ export async function POST(req: Request) {
     create: {
       userId: user.id,
       stripePaymentIntentId: intent.id,
-      status: intent.status,
+      status: purchaseStatus,
       amount: intent.amount ?? 0,
       currency: intent.currency || "usd",
       email,

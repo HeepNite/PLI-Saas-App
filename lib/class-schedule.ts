@@ -38,6 +38,30 @@ export const formatTime12h = (time24: string) => {
   return `${h}:${mm} ${ampm}`
 }
 
+export const formatReadableDate = (dateIso: string) => {
+  const parsed = parseIsoDate(dateIso)
+  if (!parsed) return dateIso
+
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).formatToParts(parsed)
+
+    const weekday = parts.find((part) => part.type === "weekday")?.value ?? ""
+    const day = parts.find((part) => part.type === "day")?.value ?? ""
+    const month = parts.find((part) => part.type === "month")?.value ?? ""
+    const year = parts.find((part) => part.type === "year")?.value ?? ""
+
+    if (!weekday || !day || !month || !year) return dateIso
+    return `${weekday} ${day} ${month} ${year}`
+  } catch {
+    return dateIso
+  }
+}
+
 const getLegacyFallbackTimes = (courseSlug: string, weekday: number) => {
   if (courseSlug === "salsa-nocturno") {
     if (weekday === 0 || weekday === 3) return ["21:10"]
@@ -91,6 +115,16 @@ export const isTimeAllowedForCourseDate = (courseSlug: string, dateIso: string, 
   return times.includes(time24)
 }
 
+/**
+ * Returns today's date in YYYY-MM-DD format using America/New_York timezone.
+ * Uses Intl.DateTimeFormat with 'en-CA' locale for ISO format (no external deps).
+ */
+export function getTodayNewYork(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date())
+}
+
 export const getDateKeyInTimeZone = (value: Date, timeZone = "America/New_York") => {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -131,4 +165,71 @@ export const isSlotInPastForTimeZone = (
   if (dateIso < nowDateKey) return true
   if (dateIso > nowDateKey) return false
   return time24 <= nowTimeKey
+}
+
+export type RoomOverlapSessionLike = {
+  id: string
+  roomId: string | null
+  startsAt: Date
+  durationMinutes: number | null
+}
+
+const isValidDate = (value: Date) => Number.isFinite(value.getTime())
+
+export const buildSessionEndsAtUtc = (startsAt: Date, durationMinutes: number | null | undefined) => {
+  if (!isValidDate(startsAt)) return null
+
+  const normalizedDuration = Number.isFinite(durationMinutes)
+    ? Math.max(0, Math.round(durationMinutes as number))
+    : 0
+
+  return new Date(startsAt.getTime() + normalizedDuration * 60_000)
+}
+
+export const doUtcIntervalsOverlap = (
+  leftStartsAt: Date,
+  leftEndsAt: Date,
+  rightStartsAt: Date,
+  rightEndsAt: Date
+) => {
+  if (!isValidDate(leftStartsAt) || !isValidDate(leftEndsAt) || !isValidDate(rightStartsAt) || !isValidDate(rightEndsAt)) {
+    return false
+  }
+
+  const leftStartMs = leftStartsAt.getTime()
+  const leftEndMs = leftEndsAt.getTime()
+  const rightStartMs = rightStartsAt.getTime()
+  const rightEndMs = rightEndsAt.getTime()
+
+  if (leftEndMs <= leftStartMs || rightEndMs <= rightStartMs) return false
+  return leftStartMs < rightEndMs && leftEndMs > rightStartMs
+}
+
+export const findOverlappingRoomSession = <Session extends RoomOverlapSessionLike>(
+  sessions: Session[],
+  options: {
+    roomId: string | null | undefined
+    startsAt: Date
+    durationMinutes: number | null | undefined
+    excludeSessionId?: string
+  }
+) => {
+  if (!options.roomId || !isValidDate(options.startsAt)) return null
+
+  const requestedEndsAt = buildSessionEndsAtUtc(options.startsAt, options.durationMinutes)
+  if (!requestedEndsAt) return null
+
+  for (const session of sessions) {
+    if (session.roomId !== options.roomId) continue
+    if (options.excludeSessionId && session.id === options.excludeSessionId) continue
+
+    const existingEndsAt = buildSessionEndsAtUtc(session.startsAt, session.durationMinutes)
+    if (!existingEndsAt) continue
+
+    if (doUtcIntervalsOverlap(options.startsAt, requestedEndsAt, session.startsAt, existingEndsAt)) {
+      return session
+    }
+  }
+
+  return null
 }

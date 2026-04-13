@@ -39,6 +39,7 @@ type UseCheckInDisplayDataArgs = {
   paymentsModalReady: boolean
   existingRegularBookingOverride: { courseSlug: string; date: string; time: string } | null
   openNewBooking: boolean
+  processingPackageCheckIn: boolean
 }
 
 export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
@@ -64,6 +65,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     paymentsModalReady,
     existingRegularBookingOverride,
     openNewBooking,
+    processingPackageCheckIn,
   } = args
 
   // ─── URL params ─────────────────────────────────────────────
@@ -297,6 +299,8 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     hasPendingPinRotation: kioskPinRotationRequired,
     loadingBootstrap,
     hasBootstrap: Boolean(bootstrap),
+    hasPackage: Boolean(bootstrap?.package),
+    processingPackageCheckIn,
     hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
     hasVisibleError: Boolean(visibleError),
     paymentsStepReady: paymentsModalReady,

@@ -3,6 +3,7 @@ import {
   getExistingCustomerInitialStep,
   hasExistingCustomerPrefillContact,
   shouldAutoOpenExistingPurchase,
+  shouldAutoTriggerPackageCheckIn,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
 
@@ -104,5 +105,33 @@ describe("existing customer kiosk helpers", () => {
         hasPackage: true,
       })
     ).toBe(false)
+  })
+
+  it("blocks kiosk package auto-trigger while the package success state is still visible", () => {
+    expect(
+      shouldAutoTriggerPackageCheckIn({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasPackage: true,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: true,
+        effectiveCheckInWindowOpen: true,
+        hasActiveSession: true,
+      })
+    ).toBe(false)
+  })
+
+  it("still allows kiosk package auto-trigger once the success state is cleared", () => {
+    expect(
+      shouldAutoTriggerPackageCheckIn({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasPackage: true,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: false,
+        effectiveCheckInWindowOpen: true,
+        hasActiveSession: true,
+      })
+    ).toBe(true)
   })
 })

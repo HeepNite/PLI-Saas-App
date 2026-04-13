@@ -9,6 +9,7 @@ export const runtime = "nodejs"
 const COURSE_KIND_VALUES = ["course", "program", "bootcamp", "workshop", "convention", "congress"] as const
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 type CourseScheduleRuleEntry = {
   weekday: number
@@ -190,6 +191,13 @@ const toOptionalInt = (value: unknown, min: number, max: number) => {
   return Math.max(min, Math.min(max, Math.round(out)))
 }
 
+const toOptionalRoomId = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return { ok: true as const, value: null }
+  const normalized = toSafeText(value, 36).toLowerCase()
+  if (!UUID_REGEX.test(normalized)) return { ok: false as const }
+  return { ok: true as const, value: normalized }
+}
+
 const prismaRouteError = (error: unknown, fallbackMessage: string) => {
   if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2021" || error.code === "P2022")) {
     return NextResponse.json(
@@ -200,6 +208,12 @@ const prismaRouteError = (error: unknown, fallbackMessage: string) => {
   console.error("Staff school courses route failed", error)
   return NextResponse.json({ error: fallbackMessage }, { status: 500 })
 }
+
+const roomDelegate = (prisma as typeof prisma & {
+  room: {
+    findUnique: (args: unknown) => Promise<{ id: string; active: boolean } | null>
+  }
+}).room
 
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
@@ -258,6 +272,10 @@ export async function POST(req: Request) {
   const level = toSafeText(body.level, 30) || null
   const durationMinutes = toOptionalInt(body.durationMinutes, 0, 600)
   const location = toSafeText(body.location, 160) || null
+  const hasDefaultRoomId = Object.prototype.hasOwnProperty.call(body, "defaultRoomId")
+  const defaultRoomIdResult = hasDefaultRoomId
+    ? toOptionalRoomId(body.defaultRoomId)
+    : ({ ok: true as const, value: undefined })
   const availableWeekdays = toWeekdays(body.availableWeekdays)
   const availableTimes = toTimes(body.availableTimes)
   const scheduleRules = toScheduleRules(body.scheduleRules)
@@ -272,45 +290,68 @@ export async function POST(req: Request) {
   if (!title) {
     return NextResponse.json({ error: "Title is required." }, { status: 400 })
   }
+  if (!defaultRoomIdResult.ok) {
+    return NextResponse.json({ error: "Invalid defaultRoomId." }, { status: 400 })
+  }
+
+  if (typeof defaultRoomIdResult.value === "string") {
+    const room = await roomDelegate.findUnique({
+      where: { id: defaultRoomIdResult.value },
+      select: {
+        id: true,
+        active: true,
+      },
+    })
+
+    if (!room || !room.active) {
+      return NextResponse.json({ error: "Default room not found or inactive." }, { status: 404 })
+    }
+  }
+
+  const createData = {
+    slug,
+    title,
+    kind,
+    category,
+    description,
+    coverImageUrl,
+    previewVideoUrl,
+    dropInPriceCents,
+    firstClassPriceCents,
+    level,
+    durationMinutes,
+    location,
+    defaultRoomId: defaultRoomIdResult.value ?? null,
+    availableWeekdays,
+    availableTimes,
+    scheduleRules: scheduleRulesInput,
+    active,
+  } as Prisma.CourseCatalogUncheckedCreateInput
+
+  const updateData = {
+    title,
+    kind,
+    category,
+    description,
+    coverImageUrl,
+    previewVideoUrl,
+    dropInPriceCents,
+    firstClassPriceCents,
+    level,
+    durationMinutes,
+    location,
+    ...(hasDefaultRoomId ? { defaultRoomId: defaultRoomIdResult.value ?? null } : {}),
+    availableWeekdays,
+    availableTimes,
+    scheduleRules: scheduleRulesInput,
+    active,
+  } as Prisma.CourseCatalogUncheckedUpdateInput
 
   try {
     const item = await prisma.courseCatalog.upsert({
       where: { slug },
-      create: {
-        slug,
-        title,
-        kind,
-        category,
-        description,
-        coverImageUrl,
-        previewVideoUrl,
-        dropInPriceCents,
-        firstClassPriceCents,
-        level,
-        durationMinutes,
-        location,
-        availableWeekdays,
-        availableTimes,
-        scheduleRules: scheduleRulesInput,
-        active,
-      },
-      update: {
-        title,
-        kind,
-        category,
-        description,
-        coverImageUrl,
-        previewVideoUrl,
-        dropInPriceCents,
-        firstClassPriceCents,
-        level,
-        durationMinutes,
-        location,
-        availableWeekdays,
-        availableTimes,
-        scheduleRules: scheduleRulesInput,
-        active,
-      },
+      create: createData,
+      update: updateData,
     })
 
     return NextResponse.json({

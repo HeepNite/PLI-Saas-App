@@ -34,6 +34,7 @@ import {
   hashStudentPin,
   getStudentPinStatus,
   isStudentPinLifecycleEnabled,
+  isProvisionalStudentPinActive,
   isStudentPinExpired,
   isTerminalBlocked,
   isStudentPinObsolete,
@@ -394,6 +395,24 @@ describe("student PIN helpers", () => {
         lastVerifiedAt: expect.any(Date),
       }),
     })
+  })
+
+  it("treats consumed provisional credentials as inactive", () => {
+    expect(
+      isProvisionalStudentPinActive({
+        kind: "provisional",
+        status: "consumed",
+        expiresAt: new Date("2026-03-27T23:59:59.999Z"),
+      })
+    ).toBe(false)
+
+    expect(
+      isProvisionalStudentPinActive({
+        kind: "provisional",
+        status: "rotation_required",
+        expiresAt: new Date("2026-03-27T23:59:59.999Z"),
+      })
+    ).toBe(true)
   })
 
   it("marks consumed credentials with a timestamp", async () => {

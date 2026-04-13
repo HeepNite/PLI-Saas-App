@@ -32,11 +32,14 @@ Guía rápida de cobertura actual (unit, API y E2E).
 
 ### 1.3 Staff (nuevo módulo)
 - `tests/staff-role.test.ts`
+- `tests/class-schedule.test.ts`
 - `tests/api/staff-bootstrap.test.ts`
 - `tests/api/staff-checkin.test.ts`
+- `tests/api/staff-rooms.test.ts`
 - `tests/api/staff-schedule.test.ts`
 - `tests/api/staff-school.test.ts`
 - `tests/api/staff-users.test.ts`
+- `components/front/staff/__tests__/StaffUsersAdminClient.test.ts`
 
 ## 2. E2E (Playwright)
 - `e2e/course-flow.spec.ts`
@@ -57,6 +60,7 @@ Guía rápida de cobertura actual (unit, API y E2E).
 ## 3. Estado de cobertura de lo nuevo
 - QR check-in: cubierto en API/unit.
 - Staff portal/API: cubierto en API/unit.
+- Room management y conflicto de salas: cubierto en unit/API y component tests.
 - Staff UI E2E: cobertura inicial del terminal PIN implementada.
 - E2E dedicado de `/checkin`: cobertura inicial implementada.
 - Pendiente E2E: panel completo `/staff/portal` (roles, school CRUD, requests, payments).
@@ -74,7 +78,7 @@ npm run test:e2e
 npm run test -- tests/api/checkin-qr-new-student-verify.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts
 
 # Staff (api/unit)
-npm run test -- tests/staff-role.test.ts tests/api/staff-bootstrap.test.ts tests/api/staff-checkin.test.ts tests/api/staff-schedule.test.ts tests/api/staff-school.test.ts tests/api/staff-users.test.ts
+npm run test -- tests/staff-role.test.ts tests/class-schedule.test.ts tests/api/staff-bootstrap.test.ts tests/api/staff-checkin.test.ts tests/api/staff-rooms.test.ts tests/api/staff-schedule.test.ts tests/api/staff-school.test.ts tests/api/staff-users.test.ts components/front/staff/__tests__/StaffUsersAdminClient.test.ts
 
 # E2E puntuales
 npm run test:e2e -- e2e/course-flow.spec.ts

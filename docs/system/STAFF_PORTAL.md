@@ -8,6 +8,7 @@ Guía de arquitectura, permisos y rutas del nuevo módulo Staff.
 - `/staff/resolve`: resuelve rol/categoría y redirige según permisos.
 - `/staff/setup`: onboarding inicial para primer owner/admin.
 - `/staff/portal`: panel admin (users + school + schedule + requests + payments).
+- `/staff/portal`: panel admin (users + school + schedule + requests + payments + room management).
 - `/staff/panel`: panel básico para staff no admin.
 - `/staff/checkin`: terminal por PIN.
 - `/staff/school/course/[slug]`: acceso directo a edición/preview de un curso del school canvas.
@@ -57,6 +58,14 @@ Guía de arquitectura, permisos y rutas del nuevo módulo Staff.
 - `GET/POST /api/staff/school/points-rules`
 - `POST /api/staff/school/points-assign`
 
+Notas:
+- `CourseCatalog` acepta `defaultRoomId` opcional para asociar una sala por defecto.
+
+### 4.3.1 Rooms
+- `GET/POST /api/staff/rooms`
+- `PUT/DELETE /api/staff/rooms/[id]`
+- `DELETE` aplica soft-disable (`active=false`) y puede rechazar la operación si la sala sigue en uso según reglas de negocio.
+
 ### 4.4 Schedule / requests / payments
 - `GET /api/staff/schedule`
 - `GET/POST /api/staff/requests`
@@ -67,6 +76,11 @@ Guía de arquitectura, permisos y rutas del nuevo módulo Staff.
 
 ### 4.5 Check-in operativo
 - `POST /api/staff/checkin`
+
+Notas:
+- El payload acepta `roomId` opcional.
+- Si la sala no existe, está inactiva o tiene solapamiento con otra `ClassSession`, la API responde error (`404`/`409`).
+- Las sesiones legacy sin `roomId` siguen siendo válidas.
 
 ## 5. Terminal por PIN (staff/checkin)
 - UI: `components/front/staff/StaffCheckInClient.tsx`.
@@ -79,11 +93,14 @@ Guía de arquitectura, permisos y rutas del nuevo módulo Staff.
 
 ## 6. Tests actuales staff
 - `tests/staff-role.test.ts`
+- `tests/class-schedule.test.ts`
 - `tests/api/staff-bootstrap.test.ts`
 - `tests/api/staff-checkin.test.ts`
+- `tests/api/staff-rooms.test.ts`
 - `tests/api/staff-schedule.test.ts`
 - `tests/api/staff-school.test.ts`
 - `tests/api/staff-users.test.ts`
+- `components/front/staff/__tests__/StaffUsersAdminClient.test.ts`
 - `e2e/staff.spec.ts` (terminal PIN)
 
 ## 7. Estado de cobertura

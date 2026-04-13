@@ -7,24 +7,38 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Currency {
+  id             String               @id @default(cuid())
+  code           String               @unique
+  symbol         String?
+  decimals       Int?
+  active         Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  paymentModels  StaffPaymentModel[]  @relation("StaffPaymentModelCurrency")
+  paymentMethods StaffPaymentMethod[] @relation("StaffPaymentMethodCurrency")
+  payrollEntries StaffPayrollEntry[]  @relation("StaffPayrollEntryCurrency")
+
+  @@index([active])
+}
+
 model User {
-  id               String               @id @default(cuid())
-  clerkId          String?              @unique
-  email            String               @unique
-  name             String?
-  phone            String?
-  stripeCustomerId String?              @unique
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  purchases        Purchase[]
-  profile          StudentProfile?
-  points           PointsLedger[]
-  packages         PackagePurchase[]
-  packageUsage     PackageUsageLedger[]
-  attendances      Attendance[]
-  actionRequests   ActionRequest[]
-  studentPinCredentials StudentPinCredential[]
-  studentPinAudits      StudentPinAudit[]
+  id                          String                       @id @default(cuid())
+  clerkId                     String?                      @unique
+  email                       String                       @unique
+  name                        String?
+  phone                       String?
+  stripeCustomerId            String?                      @unique
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  purchases                   Purchase[]
+  profile                     StudentProfile?
+  points                      PointsLedger[]
+  packages                    PackagePurchase[]
+  packageUsage                PackageUsageLedger[]
+  attendances                 Attendance[]
+  actionRequests              ActionRequest[]
+  studentPinCredentials       StudentPinCredential[]
+  studentPinAudits            StudentPinAudit[]
   kioskIdentificationSessions KioskIdentificationSession[]
 }
 
@@ -78,27 +92,44 @@ model PackagePlan {
 }
 
 model CourseCatalog {
-  id                String   @id @default(cuid())
-  slug              String   @unique
-  title             String
-  kind              String   @default("course")
-  category          String?
-  description       String?
-  coverImageUrl     String?
-  previewVideoUrl   String?
-  dropInPriceCents  Int?
+  id                   String   @id @default(cuid())
+  slug                 String   @unique
+  title                String
+  kind                 String   @default("course")
+  category             String?
+  description          String?
+  coverImageUrl        String?
+  previewVideoUrl      String?
+  dropInPriceCents     Int?
   firstClassPriceCents Int?
-  level             String?
-  durationMinutes   Int?
-  location          String?
-  availableWeekdays Int[]
-  availableTimes    String[]
-  scheduleRules     Json?
-  active            Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  level                String?
+  durationMinutes      Int?
+  location             String?
+  defaultRoomId        String?
+  defaultRoom          Room?    @relation(fields: [defaultRoomId], references: [id], onDelete: SetNull)
+  availableWeekdays    Int[]
+  availableTimes       String[]
+  scheduleRules        Json?
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@index([kind])
+  @@index([active])
+  @@index([defaultRoomId])
+}
+
+model Room {
+  id             String          @id @default(uuid())
+  name           String          @unique
+  capacity       Int
+  location       String?
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  sessions       ClassSession[]
+  defaultCourses CourseCatalog[]
+
   @@index([active])
 }
 
@@ -199,12 +230,15 @@ model ClassSession {
   durationMinutes Int?
   capacity        Int          @default(12)
   location        String?
+  roomId          String?
+  room            Room?        @relation(fields: [roomId], references: [id], onDelete: SetNull)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   attendances     Attendance[]
 
   @@unique([courseSlug, startsAt])
   @@index([courseSlug, startsAt])
+  @@index([roomId, startsAt])
 }
 
 model Attendance {
@@ -261,33 +295,259 @@ model ActionRequest {
 }
 
 model StaffAccount {
-  id             String          @id @default(cuid())
-  clerkUserId    String          @unique
-  email          String
-  phone          String?
-  firstName      String?
-  lastName       String?
-  role           String
-  category       String?
-  banned         Boolean         @default(false)
-  locked         Boolean         @default(false)
-  hasPin         Boolean         @default(false)
-  lastSignInAt   DateTime?
-  lastCheckInAt  DateTime?
-  source         String          @default("clerk")
-  metadata       Json?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  roleAuditTrail StaffRoleAudit[]
+  id                     String                       @id @default(cuid())
+  clerkUserId            String                       @unique
+  email                  String
+  phone                  String?
+  firstName              String?
+  lastName               String?
+  role                   String
+  category               String?
+  subCategory            String?
+  banned                 Boolean                      @default(false)
+  locked                 Boolean                      @default(false)
+  hasPin                 Boolean                      @default(false)
+  lastSignInAt           DateTime?
+  lastCheckInAt          DateTime?
+  source                 String                       @default("clerk")
+  metadata               Json?
+  paymentPreference      String?
+  paymentInfo            Json?
+  hourlyRate             Float?
+  paydayWeekday          Int?
+  paymentModelId         String?
+  paymentModel           StaffPaymentModel?           @relation(fields: [paymentModelId], references: [id], onDelete: SetNull)
+  creditCapCents         Int?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  roleAuditTrail         StaffRoleAudit[]
+  clockEntries           StaffClockEntry[]
+  payrollEntries         StaffPayrollEntry[]
+  creditLedgerEntries    StaffCreditLedgerEntry[]
+  payrollBonuses         StaffPayrollBonus[]
+  unavailabilityRequests StaffUnavailabilityRequest[]
+  paymentSchedule        StaffPaymentSchedule?
+  payrollAudits          StaffPayrollAudit[]
+  notifications          StaffNotification[]
+  paymentChangeRequests  StaffPaymentChangeRequest[]
 
   @@index([role])
   @@index([category])
+  @@index([subCategory])
   @@index([banned, locked])
+  @@index([paymentModelId])
   @@index([updatedAt])
 }
 
+model StaffPaymentModel {
+  id                     String              @id @default(cuid())
+  schoolId               String?
+  name                   String
+  type                   String              @default("per_hour")
+  hourlyRate             Float
+  percentageRate         Float?
+  revenueBase            String?             @default("class_revenue")
+  currency               String
+  currencyRef            Currency            @relation("StaffPaymentModelCurrency", fields: [currency], references: [code])
+  paydayWeekday          Int
+  creditCapCents         Int                 @default(0)
+  defaultPaymentMethodId String?
+  defaultPaymentMethod   StaffPaymentMethod? @relation("StaffPaymentModelDefaultMethod", fields: [defaultPaymentMethodId], references: [id], onDelete: SetNull)
+  isDefault              Boolean             @default(false)
+  active                 Boolean             @default(true)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  staffAccounts          StaffAccount[]
+  payrollEntries         StaffPayrollEntry[]
+
+  @@index([schoolId])
+  @@index([isDefault])
+}
+
+model StaffPaymentMethod {
+  id               String              @id @default(cuid())
+  schoolId         String?
+  name             String
+  adapterType      String
+  configJson       Json?
+  currency         String
+  currencyRef      Currency            @relation("StaffPaymentMethodCurrency", fields: [currency], references: [code])
+  active           Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  defaultForModels StaffPaymentModel[] @relation("StaffPaymentModelDefaultMethod")
+  payrollEntries   StaffPayrollEntry[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@index([active])
+}
+
+model StaffPayrollEntry {
+  id                   String              @id @default(cuid())
+  staffAccountId       String
+  staffAccount         StaffAccount        @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  periodStart          DateTime
+  periodEnd            DateTime
+  hoursWorked          Float
+  hourlyRate           Float
+  grossAmount          Int
+  bonusAmount          Int                 @default(0)
+  totalAmount          Int
+  currency             String
+  currencyRef          Currency            @relation("StaffPayrollEntryCurrency", fields: [currency], references: [code])
+  status               String              @default("pending")
+  paymentMethodId      String?
+  paymentMethod        StaffPaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  paymentModelId       String?
+  paymentModel         StaffPaymentModel?  @relation(fields: [paymentModelId], references: [id], onDelete: SetNull)
+  idempotencyKey       String?
+  proposedAmount       Int?
+  proposedBy           String?
+  rejectionNote        String?
+  paidAt               DateTime?
+  paidBy               String?
+  paidAmount           Int?
+  reversedAt           DateTime?
+  reversedBy           String?
+  reversalReason       String?
+  amountOverrideReason String?
+  amountOverriddenBy   String?
+  notes                String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  bonuses              StaffPayrollBonus[]
+  audits               StaffPayrollAudit[]
+
+  @@unique([staffAccountId, periodStart, periodEnd])
+  @@index([staffAccountId])
+  @@index([idempotencyKey])
+  @@index([status])
+  @@index([periodStart])
+}
+
+model StaffCreditLedgerEntry {
+  id             String       @id @default(cuid())
+  staffAccountId String
+  staffAccount   StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  type           String
+  amount         Int
+  note           String?
+  eventKey       String?
+  awardedBy      String?
+  createdAt      DateTime     @default(now())
+
+  @@unique([staffAccountId, eventKey])
+  @@index([staffAccountId, createdAt])
+}
+
+model StaffPayrollBonus {
+  id             String             @id @default(cuid())
+  staffAccountId String
+  staffAccount   StaffAccount       @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  type           String
+  amount         Int
+  note           String?
+  entryId        String?
+  entry          StaffPayrollEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  expiresAt      DateTime?
+  active         Boolean            @default(true)
+  cancelledAt    DateTime?
+  cancelledBy    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([staffAccountId, active])
+  @@index([entryId])
+}
+
+model StaffUnavailabilityRequest {
+  id             String       @id @default(cuid())
+  staffAccountId String
+  staffAccount   StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  startDate      DateTime
+  endDate        DateTime
+  type           String
+  note           String?
+  status         String       @default("pending")
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([staffAccountId])
+  @@index([status])
+}
+
+model StaffPaymentSchedule {
+  id             String       @id @default(cuid())
+  staffAccountId String       @unique
+  staffAccount   StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  paydayWeekday  Int
+  time           String
+  timezone       String
+  active         Boolean      @default(true)
+  nextRunAt      DateTime?
+  lastRunAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model StaffPayrollAudit {
+  id               String             @id @default(cuid())
+  entryId          String?
+  entry            StaffPayrollEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  staffAccountId   String?
+  staffAccount     StaffAccount?      @relation(fields: [staffAccountId], references: [id], onDelete: SetNull)
+  type             String
+  actorClerkUserId String?
+  previousValue    Json?
+  nextValue        Json?
+  reason           String?
+  metadata         Json?
+  createdAt        DateTime           @default(now())
+
+  @@index([entryId])
+  @@index([staffAccountId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model StaffNotification {
+  id             String       @id @default(cuid())
+  staffAccountId String
+  staffAccount   StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  type           String
+  payload        Json
+  read           Boolean      @default(false)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([staffAccountId, read])
+  @@index([createdAt])
+}
+
+model StaffPaymentChangeRequest {
+  id              String       @id @default(cuid())
+  staffAccountId  String
+  staffAccount    StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  requestedMethod String
+  requestedInfo   Json
+  reason          String?
+  status          String       @default("pending") // pending, approved, rejected, cancelled
+  reviewedBy      String? // Clerk User ID
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([staffAccountId])
+  @@index([status])
+}
+
 model StaffRoleAudit {
-  id               String       @id @default(cuid())
+  id               String        @id @default(cuid())
   staffAccountId   String?
   staffAccount     StaffAccount? @relation(fields: [staffAccountId], references: [id], onDelete: SetNull)
   staffClerkUserId String
@@ -299,7 +559,7 @@ model StaffRoleAudit {
   previousCategory String?
   nextCategory     String?
   metadata         Json?
-  createdAt        DateTime     @default(now())
+  createdAt        DateTime      @default(now())
 
   @@index([staffClerkUserId, createdAt])
   @@index([actorClerkUserId, createdAt])
@@ -307,22 +567,22 @@ model StaffRoleAudit {
 }
 
 model StaffTerminal {
-  id                String                 @id @default(cuid())
-  slug              String                 @unique
-  name              String
-  location          String?
-  defaultCourseSlug String?
-  pinHash           String
-  active            Boolean                @default(true)
-  createdByUserId   String?
-  lastSeenAt        DateTime?
-  lastUsedAt        DateTime?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
-  sessions          StaffTerminalSession[]
-  kioskMissCounter  KioskTerminalMissCounter?
+  id                          String                       @id @default(cuid())
+  slug                        String                       @unique
+  name                        String
+  location                    String?
+  defaultCourseSlug           String?
+  pinHash                     String
+  active                      Boolean                      @default(true)
+  createdByUserId             String?
+  lastSeenAt                  DateTime?
+  lastUsedAt                  DateTime?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  sessions                    StaffTerminalSession[]
+  kioskMissCounter            KioskTerminalMissCounter?
   kioskIdentificationSessions KioskIdentificationSession[]
-  preparedCheckoutContexts PreparedCheckoutContext[]
+  preparedCheckoutContexts    PreparedCheckoutContext[]
 
   @@index([active])
   @@index([defaultCourseSlug])
@@ -342,14 +602,14 @@ model StaffTerminalSession {
 }
 
 model StudentPinCredential {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   kind            String
-  status          String   @default("active")
+  status          String    @default("active")
   pinHash         String
   pinLookupDigest String
-  failedAttempts  Int      @default(0)
+  failedAttempts  Int       @default(0)
   lockedAt        DateTime?
   lockReason      String?
   lastVerifiedAt  DateTime?
@@ -357,8 +617,8 @@ model StudentPinCredential {
   expiresAt       DateTime?
   usedAt          DateTime?
   consumedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([userId, kind])
   @@index([kind, status, expiresAt])
@@ -368,14 +628,14 @@ model StudentPinCredential {
 }
 
 model KioskTerminalMissCounter {
-  id          String        @id @default(cuid())
-  terminalId  String        @unique
-  terminal    StaffTerminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
-  missCount   Int           @default(0)
-  windowStart DateTime      @default(now())
+  id           String        @id @default(cuid())
+  terminalId   String        @unique
+  terminal     StaffTerminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+  missCount    Int           @default(0)
+  windowStart  DateTime      @default(now())
   blockedUntil DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@index([blockedUntil])
 }
@@ -440,4 +700,24 @@ model PreparedCheckoutContext {
   @@unique([terminalId, kioskSessionId, classSlotKey])
   @@index([terminalId, kioskSessionId, expiresAt])
   @@index([expiresAt])
+}
+
+model StaffClockEntry {
+  id                   String       @id @default(cuid())
+  staffAccountId       String
+  staffAccount         StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Cascade)
+  clockInAt            DateTime
+  expectedClockOutAt   DateTime
+  actualClockOutAt     DateTime?
+  totalExpectedMinutes Int
+  status               String       @default("clocked_in")
+  courseSlugs          Json
+  metadata             Json?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([staffAccountId, clockInAt])
+  @@index([staffAccountId])
+  @@index([clockInAt])
+  @@index([status])
 }

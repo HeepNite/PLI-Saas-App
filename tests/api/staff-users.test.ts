@@ -85,7 +85,7 @@ describe("staff users routes", () => {
     const data = await res.json()
     expect(data.items).toHaveLength(1)
     expect(data.items[0].id).toBe("u_staff")
-    expect(data.items[0].category).toBe("guest_staff")
+    expect(data.items[0].category).toBe("guest")
   })
 
   it("GET can filter by category", async () => {
@@ -180,6 +180,88 @@ describe("staff users routes", () => {
     const data = await res.json()
     expect(data.mode).toBe("invited")
     expect(invitationsApi.createInvitation).toHaveBeenCalled()
+  })
+
+  it("POST stores teacher guest sub-category metadata on invitations", async () => {
+    usersApi.getUserList.mockResolvedValueOnce({ data: [] })
+    invitationsApi.createInvitation.mockResolvedValue({
+      id: "inv_teacher",
+      emailAddress: "teacher@example.com",
+      status: "pending",
+      createdAt: Date.now(),
+    })
+
+    const { POST } = await import("@/app/api/staff/users/route")
+    const req = new Request("http://localhost/api/staff/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "teacher@example.com", role: "staff", category: "guest", subCategory: "teacher" }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(invitationsApi.createInvitation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicMetadata: expect.objectContaining({
+          role: "staff",
+          staffCategory: "guest",
+          staffSubCategory: "teacher",
+        }),
+      })
+    )
+  })
+
+  it("POST stores front-desk guest sub-category metadata and uses the log-in redirect", async () => {
+    usersApi.getUserList.mockResolvedValueOnce({ data: [] })
+    invitationsApi.createInvitation.mockResolvedValue({
+      id: "inv_front_desk",
+      emailAddress: "frontdesk@example.com",
+      status: "pending",
+      createdAt: Date.now(),
+    })
+
+    const { POST } = await import("@/app/api/staff/users/route")
+    const req = new Request("http://localhost/api/staff/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "frontdesk@example.com", role: "staff", category: "guest", subCategory: "front_desk" }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(invitationsApi.createInvitation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicMetadata: expect.objectContaining({
+          role: "staff",
+          staffCategory: "guest",
+          staffSubCategory: "front_desk",
+        }),
+        redirectUrl: "http://localhost/staff/log-in",
+      })
+    )
+  })
+
+  it("POST invitations always redirect to /staff/log-in", async () => {
+    usersApi.getUserList.mockResolvedValueOnce({ data: [] })
+    invitationsApi.createInvitation.mockResolvedValue({
+      id: "inv_redirect",
+      emailAddress: "redirect@example.com",
+      status: "pending",
+      createdAt: Date.now(),
+    })
+
+    const { POST } = await import("@/app/api/staff/users/route")
+    const req = new Request("http://localhost/api/staff/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "redirect@example.com", role: "staff" }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(invitationsApi.createInvitation).toHaveBeenCalledWith(
+      expect.objectContaining({ redirectUrl: "http://localhost/staff/log-in" })
+    )
   })
 
   it("PATCH set_role updates metadata", async () => {

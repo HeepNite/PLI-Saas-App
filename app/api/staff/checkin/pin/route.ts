@@ -4,6 +4,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { createTeacherClockEntryWithSlugs } from "@/lib/clock/teacher-clock"
 
 export const runtime = "nodejs"
 
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
   const pin = typeof payload.pin === "string" ? payload.pin.trim() : ""
   const requestedUserId = typeof payload.userId === "string" ? payload.userId.trim() : ""
   const preferredUserId = typeof payload.preferUserId === "string" ? payload.preferUserId.trim() : ""
+  const skipSession = payload.skipSession === true
   if (!/^\d{4}$/.test(pin)) {
     return NextResponse.json({ error: "PIN must be exactly 4 digits." }, { status: 400 })
   }
@@ -173,6 +175,44 @@ export async function POST(req: Request) {
     },
   })
 
+  const category = extractStaffCategoryFromUserMetadata(matchedUser)
+  if (category === "teacher") {
+    const publicMetadata = asObject(matchedUser.publicMetadata)
+    const teaching = asObject(publicMetadata.staffTeaching)
+    const courseSlugs = Array.isArray(teaching.courseSlugs)
+      ? teaching.courseSlugs.filter((s): s is string => typeof s === "string")
+      : []
+    
+    createTeacherClockEntryWithSlugs(matchedUser.id, new Date(now), courseSlugs)
+      .catch((err) => console.error("Failed to create teacher clock entry", err))
+  }
+
+  const name = `${matchedUser.firstName || ""} ${matchedUser.lastName || ""}`.trim() || matchedUser.primaryEmailAddress?.emailAddress || matchedUser.id
+
+  console.info("staff/checkin/pin matched user", {
+    userId: matchedUser.id,
+    role: matchedRole,
+    category,
+    requestedUserId: requestedUserId || null,
+    preferredUserId: preferredUserId || null,
+    skipSession,
+  })
+
+  // Check-in mode: skip session creation, just return check-in confirmation
+  if (skipSession) {
+    return NextResponse.json({
+      ok: true,
+      checkedInAt: now,
+      staff: {
+        id: matchedUser.id,
+        name,
+        role: matchedRole,
+        category,
+      },
+    })
+  }
+
+  // Login mode: create session token and return sign-in URL
   const signInToken = await client.signInTokens.createSignInToken({
     userId: matchedUser.id,
     expiresInSeconds: 60,
@@ -186,17 +226,6 @@ export async function POST(req: Request) {
   const ticket = typeof (signInToken as { token?: unknown }).token === "string"
     ? ((signInToken as { token: string }).token || "").trim()
     : (ticketFromUrl || "").trim()
-
-  const name = `${matchedUser.firstName || ""} ${matchedUser.lastName || ""}`.trim() || matchedUser.primaryEmailAddress?.emailAddress || matchedUser.id
-  const category = extractStaffCategoryFromUserMetadata(matchedUser)
-
-  console.info("staff/checkin/pin matched user", {
-    userId: matchedUser.id,
-    role: matchedRole,
-    category,
-    requestedUserId: requestedUserId || null,
-    preferredUserId: preferredUserId || null,
-  })
 
   return NextResponse.json({
     ok: true,

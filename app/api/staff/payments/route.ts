@@ -4,64 +4,52 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { buildSessionStartsAt } from "@/lib/class-schedule"
-import { isLockedCredential, isStudentPinLifecycleEnabled, type StudentPinStatusValue } from "@/lib/security/student-pin"
+import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import {
+  COMPLETED_PAYMENT_STATUSES,
+  asObject,
+  asText,
+  attendanceSlotKey,
+  buildOutstandingBalanceByUser,
+  isCompletedPaymentStatus,
+  normalizePaymentChannel,
+  normalizeSettlementStatus,
+  selectActivePackagesByUser,
+  type SettlementStatus,
+} from "@/app/api/staff/payments/shared"
+import {
+  isLockedCredential,
+  isProvisionalStudentPinActive,
+  isStudentPinLifecycleEnabled,
+  type StudentPinStatusValue,
+} from "@/lib/security/student-pin"
 
 export const runtime = "nodejs"
 
-type SettlementStatus = "pending" | "paid"
-type CheckInStatus = "checked_in" | "checked_in_no_package" | "scheduled" | "none"
+type CheckInStatus = "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
+type PaymentsMode = "today" | "history"
 
-const COMPLETED_PAYMENT_STATUSES = new Set(["succeeded", "paid", "completed"])
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
-
-const normalizeSettlementStatus = (value: unknown): SettlementStatus => {
-  if (typeof value !== "string") return "pending"
-  return value.toLowerCase() === "paid" ? "paid" : "pending"
-}
-
-const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "")
-
-const normalizePaymentChannel = (input: {
-  metadata: Record<string, unknown>
-  status: string
-  stripePaymentIntentId: string | null
-  stripeCheckoutSessionId: string | null
-}) => {
-  const paymentChannelRaw = asText(input.metadata.paymentChannel || input.metadata.payment_channel).toLowerCase()
-  if (paymentChannelRaw === "cash") return "cash" as const
-  if (paymentChannelRaw === "card" || paymentChannelRaw === "stripe") return "card" as const
-
-  if (input.stripePaymentIntentId || input.stripeCheckoutSessionId) return "card" as const
-
-  const methodRaw = asText(input.metadata.paymentMethod || input.metadata.payment_method || input.metadata.paymentMode).toLowerCase()
-  const sourceRaw = asText(input.metadata.source).toLowerCase()
-  if (
-    methodRaw.includes("cash") ||
-    methodRaw.includes("onsite") ||
-    methodRaw.includes("on_site") ||
-    sourceRaw === "cash_checkout" ||
-    sourceRaw === "on_site_checkout"
-  ) {
-    return "cash" as const
-  }
-
-  const normalizedStatus = (input.status || "").toLowerCase()
-  if (COMPLETED_PAYMENT_STATUSES.has(normalizedStatus)) return "card" as const
-  if (normalizedStatus.includes("cash") || normalizedStatus.includes("onsite") || normalizedStatus.includes("on_site")) return "cash" as const
-  return "unknown" as const
-}
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
+const TODAY_MODE_TAKE_LIMIT = 200
+const HISTORY_MODE_TAKE_LIMIT = 2000
+const ATTENDED_CHECKIN_STATUSES = ["checked_in", "checked_in_no_package", "checked_out"] as const
 
 const normalizePurchaseCategory = (input: { packageId: string; serviceId: string }) => {
   if (input.packageId) return "package" as const
   if (input.serviceId) return "dropin" as const
   return "other" as const
+}
+
+const buildPurchaseAttendanceDedupKey = (input: {
+  purchaseId: string
+  userId: string
+  courseSlug: string | null | undefined
+  classStartsAt: Date | null
+}) => {
+  if (input.courseSlug && input.classStartsAt) {
+    return attendanceSlotKey(input.userId, input.courseSlug, input.classStartsAt.getTime())
+  }
+  return `purchase:${input.purchaseId}`
 }
 
 const toDateIso = (value: unknown) => {
@@ -70,8 +58,6 @@ const toDateIso = (value: unknown) => {
   if (Number.isNaN(parsed.getTime())) return null
   return parsed.toISOString()
 }
-
-const attendanceSlotKey = (userId: string, courseSlug: string, startsAtMs: number) => `${userId}|${courseSlug}|${startsAtMs}`
 
 const isStudentPinSchemaUnavailableError = (error: unknown) => {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
@@ -127,6 +113,38 @@ const loadStudentPinCredentials = async (userIds: string[]) => {
   }
 }
 
+const normalizeHistoryRangeInputs = (input: { from: string; to: string; date: string }) => {
+  const normalizedFrom = input.from || input.date
+  const normalizedTo = input.to || input.date
+
+  if (!normalizedFrom || !normalizedTo) {
+    return {
+      ok: false as const,
+      error: "History mode requires both from and to dates.",
+    }
+  }
+
+  if (!DATE_REGEX.test(normalizedFrom) || !DATE_REGEX.test(normalizedTo)) {
+    return {
+      ok: false as const,
+      error: "History mode requires valid YYYY-MM-DD from/to dates.",
+    }
+  }
+
+  if (normalizedFrom > normalizedTo) {
+    return {
+      ok: false as const,
+      error: "History mode requires from to be on or before to.",
+    }
+  }
+
+  return {
+    ok: true as const,
+    from: normalizedFrom,
+    to: normalizedTo,
+  }
+}
+
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:payments:get", getClientIp(req)),
@@ -148,12 +166,31 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const query = url.searchParams.get("q")?.trim() || ""
   const settlementFilter = url.searchParams.get("settlement")?.trim().toLowerCase() || "all"
+  const requestedMode = url.searchParams.get("mode")?.trim().toLowerCase()
+  const mode: PaymentsMode = requestedMode === "history" ? "history" : "today"
+  const selectedDate = url.searchParams.get("date")?.trim() || ""
+  const selectedFrom = url.searchParams.get("from")?.trim() || ""
+  const selectedTo = url.searchParams.get("to")?.trim() || ""
+  const selectedClass = url.searchParams.get("class")?.trim() || ""
+
+  const historyRange =
+    mode === "history"
+      ? normalizeHistoryRangeInputs({ from: selectedFrom, to: selectedTo, date: selectedDate })
+      : null
+
+  if (historyRange && !historyRange.ok) {
+    return NextResponse.json(
+      { error: historyRange.error },
+      { status: 400 }
+    )
+  }
 
   const where = query
     ? {
         OR: [
           { email: { contains: query, mode: "insensitive" as const } },
           { name: { contains: query, mode: "insensitive" as const } },
+          { phone: { contains: query, mode: "insensitive" as const } },
           { courseTitle: { contains: query, mode: "insensitive" as const } },
           { courseSlug: { contains: query, mode: "insensitive" as const } },
         ],
@@ -161,12 +198,26 @@ export async function GET(req: Request) {
     : undefined
 
   const purchases = await prisma.purchase.findMany({
-    where,
+    where:
+      mode === "history"
+        ? {
+            AND: [
+              ...(where ? [where] : []),
+              { metadata: { path: ["date"], gte: historyRange!.from } },
+              { metadata: { path: ["date"], lte: historyRange!.to } },
+            ],
+          }
+        : where,
     orderBy: { createdAt: "desc" },
-    take: 200,
+    take: mode === "history" ? HISTORY_MODE_TAKE_LIMIT + 1 : TODAY_MODE_TAKE_LIMIT,
   })
 
-  const enrichedPurchases = purchases.map((purchase) => {
+  const historyTruncated = mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT
+  const scopedBasePurchases = historyTruncated ? purchases.slice(0, HISTORY_MODE_TAKE_LIMIT) : purchases
+
+  const todayNY = getTodayNewYork()
+
+  const enrichedPurchases = scopedBasePurchases.map((purchase) => {
     const metadata = asObject(purchase.metadata)
     const settlementStatus = normalizeSettlementStatus(metadata.settlementStatus)
     const classDate = asText(metadata.date)
@@ -186,10 +237,180 @@ export async function GET(req: Request) {
     }
   })
 
-  const userIds = [...new Set(enrichedPurchases.map((item) => item.userId).filter(Boolean))]
-  const courseSlugs = [...new Set(enrichedPurchases.map((item) => item.purchase.courseSlug).filter(Boolean))]
+  let standaloneItems: typeof enrichedPurchases = []
+  const todayAttendanceByPurchaseId = new Map<
+    string,
+    {
+      id: string
+      status: string
+      checkedInAt: string
+      checkedOutAt: string | null
+      packagePurchaseId: string | null
+    }
+  >()
+  if (mode === "today") {
+    const minStart = buildSessionStartsAt(todayNY, "00:00")!
+    const maxStart = buildSessionStartsAt(todayNY, "23:59")!
 
-  const [pointsGrouped, pointsEntries, activePackages, locations, slotAttendances, purchaseUsers, studentPinState] = await Promise.all([
+    const todayAttendances = await prisma.attendance.findMany({
+      where: {
+        session: {
+          startsAt: { gte: minStart, lte: maxStart },
+        },
+        ...(where
+          ? {
+              user: {
+                OR: [
+                  { email: { contains: query, mode: "insensitive" as const } },
+                  { name: { contains: query, mode: "insensitive" as const } },
+                  { phone: { contains: query, mode: "insensitive" as const } },
+                ],
+              },
+            }
+          : {}),
+      },
+      include: {
+        session: {
+          select: {
+            courseSlug: true,
+            startsAt: true,
+            title: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            clerkId: true,
+          },
+        },
+        packageUsage: {
+          select: {
+            packagePurchaseId: true,
+            packagePurchase: {
+              select: {
+                packageId: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { checkedInAt: "desc" },
+      take: TODAY_MODE_TAKE_LIMIT,
+    })
+
+    const purchaseDedupKeys = new Set(
+      enrichedPurchases
+        .filter((item) => item.classDate === todayNY)
+        .map((item) =>
+          buildPurchaseAttendanceDedupKey({
+            purchaseId: item.purchase.id,
+            userId: item.userId,
+            courseSlug: item.purchase.courseSlug,
+            classStartsAt: item.classStartsAt,
+          })
+        )
+    )
+
+    for (const att of todayAttendances) {
+      const attendanceMetadata = asObject(att.metadata)
+      const linkedPurchaseId = asText(attendanceMetadata.purchaseId)
+      const attendanceRow = att as typeof att & {
+        checkedOutAt?: Date | null
+        packageUsage?: { packagePurchaseId: string | null } | null
+      }
+      const normalizedAttendance = {
+        id: att.id,
+        status: att.status,
+        checkedInAt: att.checkedInAt.toISOString(),
+        checkedOutAt: attendanceRow.checkedOutAt ? attendanceRow.checkedOutAt.toISOString() : null,
+        packagePurchaseId: attendanceRow.packageUsage?.packagePurchaseId || null,
+      }
+      if (linkedPurchaseId) {
+        todayAttendanceByPurchaseId.set(linkedPurchaseId, normalizedAttendance)
+      }
+      const dedupKey = linkedPurchaseId
+        ? `purchase:${linkedPurchaseId}`
+        : attendanceSlotKey(att.userId, att.session.courseSlug, att.session.startsAt.getTime())
+
+      if (!purchaseDedupKeys.has(dedupKey)) {
+        const packageId = att.packageUsage?.packagePurchase?.packageId || ""
+        standaloneItems.push({
+          purchase: {
+            id: `att-${att.id}`,
+            userId: att.userId,
+            courseSlug: att.session.courseSlug,
+            courseTitle: att.session.title || att.session.courseSlug,
+            amount: 0,
+            currency: "usd",
+            status: "none",
+            name: att.user.name,
+            email: att.user.email,
+            phone: att.user.phone,
+            stripePaymentIntentId: null,
+            stripeCheckoutSessionId: null,
+            metadata: {
+              attendanceId: att.id,
+              packageId,
+              packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
+            },
+            createdAt: att.checkedInAt,
+            updatedAt: att.checkedInAt,
+          } as any,
+          id: `att-${att.id}`,
+          metadata: {
+            attendanceId: att.id,
+            packageId,
+            packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
+          },
+          userId: att.userId,
+          settlementStatus: "pending",
+          settlementNote: "",
+          settledAt: null,
+          classDate: todayNY,
+          classTime: getTimeKeyInTimeZone(att.session.startsAt),
+          classStartsAt: att.session.startsAt,
+        })
+      }
+    }
+  }
+
+  const historyEligiblePurchases = enrichedPurchases.filter((item) => item.classDate && item.classTime)
+  const historyDatePurchases = mode === "history"
+    ? historyEligiblePurchases.filter((item) => item.classDate! >= historyRange!.from && item.classDate! <= historyRange!.to)
+    : []
+  const classOptions = mode === "history"
+    ? Array.from(
+        new Map(
+          historyDatePurchases
+            .filter((item) => item.purchase.courseSlug)
+            .map((item) => [
+              item.purchase.courseSlug,
+              {
+                slug: item.purchase.courseSlug,
+                title: item.purchase.courseTitle || item.purchase.courseSlug,
+              },
+            ])
+        ).values()
+      )
+    : []
+  const scopedPurchases =
+    mode === "history"
+      ? historyDatePurchases.filter((item) => !selectedClass || item.purchase.courseSlug === selectedClass)
+      : [...enrichedPurchases.filter((item) => item.classDate === todayNY), ...standaloneItems].sort((a, b) => {
+          const aTime = a.classStartsAt?.getTime() || a.purchase.createdAt.getTime()
+          const bTime = b.classStartsAt?.getTime() || b.purchase.createdAt.getTime()
+          return bTime - aTime
+        })
+
+  const userIds = [...new Set(scopedPurchases.map((item) => item.userId).filter(Boolean))]
+  const courseSlugs = [...new Set(scopedPurchases.map((item) => item.purchase.courseSlug).filter(Boolean))]
+  const purchaseIds = scopedPurchases.map((item) => item.purchase.id)
+  const scopedPackagePurchaseIds = [...new Set(scopedPurchases.map((item) => asText(item.metadata.packagePurchaseId)).filter(Boolean))]
+
+  const [pointsGrouped, pointsEntries, activePackages, historyPackageData, locations, slotAttendances, completedAttendances, globalPurchases, purchaseUsers, studentPinState] = await Promise.all([
     userIds.length
       ? prisma.pointsLedger.groupBy({
           by: ["userId"],
@@ -220,9 +441,11 @@ export async function GET(req: Request) {
             OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
           },
           select: {
+            id: true,
             userId: true,
             packageId: true,
             packageLabel: true,
+            totalCredits: true,
             remainingCredits: true,
             isUnlimited: true,
             expiresAt: true,
@@ -232,6 +455,59 @@ export async function GET(req: Request) {
           },
         })
       : Promise.resolve([]),
+    (purchaseIds.length || scopedPackagePurchaseIds.length)
+      ? (async () => {
+          const packagePurchases = await prisma.packagePurchase.findMany({
+            where: {
+              OR: [
+                ...(purchaseIds.length ? [{ purchaseId: { in: purchaseIds } }] : []),
+                ...(scopedPackagePurchaseIds.length ? [{ id: { in: scopedPackagePurchaseIds } }] : []),
+              ],
+            },
+            select: {
+              id: true,
+              purchaseId: true,
+            },
+          })
+
+          const packagePurchaseIds = packagePurchases.map((item) => item.id)
+          const usageEntries = mode === "history" && packagePurchaseIds.length
+            ? await prisma.packageUsageLedger.findMany({
+                where: {
+                  packagePurchaseId: { in: packagePurchaseIds },
+                  attendanceId: { not: null },
+                },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                select: {
+                  id: true,
+                  packagePurchaseId: true,
+                  attendanceId: true,
+                  createdAt: true,
+                },
+              })
+            : []
+
+          const fundingPurchaseIds = [...new Set(packagePurchases.map((item) => item.purchaseId).filter((item): item is string => Boolean(item)))]
+          const fundingPurchases = fundingPurchaseIds.length
+            ? await prisma.purchase.findMany({
+                where: { id: { in: fundingPurchaseIds } },
+                select: {
+                  id: true,
+                  amount: true,
+                  currency: true,
+                  createdAt: true,
+                  courseTitle: true,
+                },
+              })
+            : []
+
+          return {
+            packagePurchases,
+            usageEntries,
+            fundingPurchases,
+          }
+        })()
+      : Promise.resolve({ packagePurchases: [], usageEntries: [], fundingPurchases: [] }),
     courseSlugs.length
       ? prisma.courseCatalog.findMany({
           where: { slug: { in: courseSlugs } },
@@ -239,7 +515,7 @@ export async function GET(req: Request) {
         })
       : Promise.resolve([]),
     (() => {
-      const withSlot = enrichedPurchases.filter((item) => item.classStartsAt)
+      const withSlot = scopedPurchases.filter((item) => item.classStartsAt)
       if (!withSlot.length || !userIds.length || !courseSlugs.length) return Promise.resolve([])
 
       const starts = withSlot
@@ -257,19 +533,44 @@ export async function GET(req: Request) {
             startsAt: { gte: minStart, lte: maxStart },
           },
         },
-        select: {
-          userId: true,
-          status: true,
-          checkedInAt: true,
+        include: {
           session: {
             select: {
               courseSlug: true,
               startsAt: true,
             },
           },
+          packageUsage: {
+            select: {
+              packagePurchaseId: true,
+            },
+          },
         },
       })
     })(),
+    userIds.length
+      ? prisma.attendance.groupBy({
+          by: ["userId"],
+          where: {
+            userId: { in: userIds },
+            status: { in: [...ATTENDED_CHECKIN_STATUSES] },
+          },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.purchase.findMany({
+          where: { userId: { in: userIds } },
+          select: {
+            userId: true,
+            amount: true,
+            metadata: true,
+            status: true,
+            stripePaymentIntentId: true,
+            stripeCheckoutSessionId: true,
+          },
+        })
+      : Promise.resolve([]),
     userIds.length
       ? prisma.user.findMany({
           where: { id: { in: userIds } },
@@ -278,6 +579,53 @@ export async function GET(req: Request) {
       : Promise.resolve([]),
     loadStudentPinCredentials(userIds),
   ])
+
+  const knownPackagePurchaseIds = new Set(historyPackageData.packagePurchases.map((item) => item.id))
+  const attendanceDerivedPackagePurchaseIds = new Set<string>()
+
+  for (const attendance of todayAttendanceByPurchaseId.values()) {
+    if (attendance.packagePurchaseId && !knownPackagePurchaseIds.has(attendance.packagePurchaseId)) {
+      attendanceDerivedPackagePurchaseIds.add(attendance.packagePurchaseId)
+    }
+  }
+
+  for (const attendance of slotAttendances) {
+    const packagePurchaseId = attendance.packageUsage?.packagePurchaseId || null
+    if (packagePurchaseId && !knownPackagePurchaseIds.has(packagePurchaseId)) {
+      attendanceDerivedPackagePurchaseIds.add(packagePurchaseId)
+    }
+  }
+
+  const extraPackagePurchases = attendanceDerivedPackagePurchaseIds.size
+    ? await prisma.packagePurchase.findMany({
+        where: { id: { in: [...attendanceDerivedPackagePurchaseIds] } },
+        select: {
+          id: true,
+          purchaseId: true,
+        },
+      })
+    : []
+
+  const knownFundingPurchaseIds = new Set(historyPackageData.fundingPurchases.map((item) => item.id))
+  const extraFundingPurchaseIds = [...new Set(
+    extraPackagePurchases.map((item) => item.purchaseId).filter((item): item is string => Boolean(item))
+  )].filter((item) => !knownFundingPurchaseIds.has(item))
+
+  const extraFundingPurchases = extraFundingPurchaseIds.length
+    ? await prisma.purchase.findMany({
+        where: { id: { in: extraFundingPurchaseIds } },
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          createdAt: true,
+          courseTitle: true,
+        },
+      })
+    : []
+
+  const packagePurchases = [...historyPackageData.packagePurchases, ...extraPackagePurchases]
+  const fundingPurchases = [...historyPackageData.fundingPurchases, ...extraFundingPurchases]
 
   const pointsByUser = new Map<string, number>()
   for (const row of pointsGrouped) {
@@ -315,55 +663,126 @@ export async function GET(req: Request) {
     })
   }
 
-  const activePackageByUser = new Map<
-    string,
-    {
-      packageId: string
-      packageLabel: string | null
-      remainingCredits: number | null
-      isUnlimited: boolean
-      expiresAt: string | null
-      status: string
-    }
-  >()
-  for (const pkg of [...activePackages].sort((a, b) => {
-    const aUsed = a.lastUsedAt ? a.lastUsedAt.getTime() : 0
-    const bUsed = b.lastUsedAt ? b.lastUsedAt.getTime() : 0
-    if (aUsed !== bUsed) return bUsed - aUsed
-    return b.purchasedAt.getTime() - a.purchasedAt.getTime()
-  })) {
-    if (activePackageByUser.has(pkg.userId)) continue
-    activePackageByUser.set(pkg.userId, {
-      packageId: pkg.packageId,
-      packageLabel: pkg.packageLabel,
-      remainingCredits: pkg.remainingCredits,
-      isUnlimited: pkg.isUnlimited,
-      expiresAt: pkg.expiresAt ? pkg.expiresAt.toISOString() : null,
-      status: pkg.status,
-    })
+  const completedClassesByUser = new Map<string, number>()
+  for (const row of completedAttendances) {
+    completedClassesByUser.set(row.userId, row._count._all)
   }
+
+  const selectedActivePackages = selectActivePackagesByUser(activePackages)
+  const selectedActivePackageIds = [...new Set([...selectedActivePackages.values()].map((pkg) => pkg.id).filter((id): id is string => Boolean(id)))]
+  const activePackageUsageRows = selectedActivePackageIds.length
+    ? await prisma.packageUsageLedger.groupBy({
+        by: ["packagePurchaseId"],
+        where: {
+          packagePurchaseId: { in: selectedActivePackageIds },
+          attendance: {
+            is: {
+              status: { in: [...ATTENDED_CHECKIN_STATUSES] },
+            },
+          },
+        },
+        _count: { _all: true },
+      })
+    : []
+  const activePackageClassesUsedById = new Map<string, number>()
+  for (const row of activePackageUsageRows) {
+    activePackageClassesUsedById.set(row.packagePurchaseId, row._count._all)
+  }
+  const outstandingBalanceByUser = buildOutstandingBalanceByUser(globalPurchases)
+
+  const activePackageByUser = new Map(
+    [...selectedActivePackages.entries()].map(([userId, pkg]) => [
+      userId,
+      {
+        packagePurchaseId: pkg.id || "",
+        packageId: pkg.packageId,
+        packageLabel: pkg.packageLabel,
+        totalCredits: pkg.totalCredits,
+        remainingCredits: pkg.remainingCredits,
+        isUnlimited: pkg.isUnlimited,
+        expiresAt: pkg.expiresAt ? pkg.expiresAt.toISOString() : null,
+        status: pkg.status,
+      },
+    ])
+  )
 
   const courseLocationBySlug = new Map<string, string | null>()
   for (const row of locations) {
     courseLocationBySlug.set(row.slug, row.location || null)
   }
 
+  const packagePurchaseIdByPurchaseId = new Map<string, string>()
+  for (const row of packagePurchases) {
+    if (row.purchaseId) {
+      packagePurchaseIdByPurchaseId.set(row.purchaseId, row.id)
+    }
+  }
+
+  const packageClassNumberByUsageKey = new Map<string, number>()
+  const usageCountByPackagePurchaseId = new Map<string, number>()
+  for (const row of historyPackageData.usageEntries) {
+    if (!row.attendanceId) continue
+    const nextCount = (usageCountByPackagePurchaseId.get(row.packagePurchaseId) || 0) + 1
+    usageCountByPackagePurchaseId.set(row.packagePurchaseId, nextCount)
+    packageClassNumberByUsageKey.set(`${row.packagePurchaseId}|${row.attendanceId}`, nextCount)
+  }
+
   const attendanceBySlot = new Map<
     string,
     {
+      id: string
       status: string
       checkedInAt: string
+      checkedOutAt: string | null
+      packagePurchaseId: string | null
     }
   >()
   for (const row of slotAttendances) {
+    const attendanceRow = row as typeof row & {
+      checkedOutAt?: Date | null
+      packageUsage?: { packagePurchaseId: string | null } | null
+    }
     const key = attendanceSlotKey(row.userId, row.session.courseSlug, row.session.startsAt.getTime())
     const current = attendanceBySlot.get(key)
     const nextCheckedInAt = row.checkedInAt.toISOString()
     if (!current || current.checkedInAt < nextCheckedInAt) {
       attendanceBySlot.set(key, {
+        id: row.id,
         status: row.status,
         checkedInAt: nextCheckedInAt,
+        checkedOutAt: attendanceRow.checkedOutAt ? attendanceRow.checkedOutAt.toISOString() : null,
+        packagePurchaseId: attendanceRow.packageUsage?.packagePurchaseId || null,
       })
+    }
+  }
+
+  const fundingPurchaseByPackagePurchaseId = new Map<
+    string,
+    {
+      id: string
+      amount: number
+      currency: string
+      createdAt: string
+      courseTitle: string | null
+    }
+  >()
+  const fundingPurchaseById = new Map(
+    fundingPurchases.map((purchase) => [
+      purchase.id,
+      {
+        id: purchase.id,
+        amount: purchase.amount,
+        currency: purchase.currency,
+        createdAt: purchase.createdAt.toISOString(),
+        courseTitle: purchase.courseTitle || null,
+      },
+    ])
+  )
+  for (const row of packagePurchases) {
+    if (!row.purchaseId) continue
+    const fundingPayment = fundingPurchaseById.get(row.purchaseId)
+    if (fundingPayment) {
+      fundingPurchaseByPackagePurchaseId.set(row.id, fundingPayment)
     }
   }
 
@@ -427,12 +846,7 @@ export async function GET(req: Request) {
       const credentials = studentPinState.credentials.filter((credential) => credential.userId === userId)
       const permanent = credentials.find((credential) => credential.kind === "permanent") || null
       const provisional = credentials.find((credential) => credential.kind === "provisional") || null
-      const provisionalActive = Boolean(
-        provisional &&
-          provisional.status !== "expired" &&
-          provisional.status !== "superseded" &&
-          (!provisional.expiresAt || provisional.expiresAt > new Date())
-      )
+      const provisionalActive = isProvisionalStudentPinActive(provisional)
 
       studentPinByUserId.set(userId, {
         enabled: true,
@@ -446,7 +860,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const mapped = enrichedPurchases.map((item) => {
+  const mapped = scopedPurchases.map((item) => {
     const purchase = item.purchase
     const courseSlug = purchase.courseSlug
     const slotKey =
@@ -454,7 +868,12 @@ export async function GET(req: Request) {
         ? attendanceSlotKey(item.userId, courseSlug, item.classStartsAt.getTime())
         : null
     const slotAttendance = slotKey ? attendanceBySlot.get(slotKey) : null
+    const linkedAttendance = mode === "today" ? todayAttendanceByPurchaseId.get(purchase.id) || null : null
+    const resolvedAttendance = slotAttendance || linkedAttendance
     const activePackage = activePackageByUser.get(item.userId)
+    const metadataPackagePurchaseId = asText(item.metadata.packagePurchaseId) || null
+    const linkedPackagePurchaseId =
+      packagePurchaseIdByPurchaseId.get(purchase.id) || metadataPackagePurchaseId || resolvedAttendance?.packagePurchaseId || null
     const paymentStatus = purchase.status
     const packageId = purchase.packageId || asText(item.metadata.packageId)
     const serviceId = purchase.serviceId || asText(item.metadata.serviceId)
@@ -465,16 +884,23 @@ export async function GET(req: Request) {
       stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
     })
     const purchaseCategory = normalizePurchaseCategory({ packageId, serviceId })
-    const isPaid = COMPLETED_PAYMENT_STATUSES.has(paymentStatus.toLowerCase())
-    const inferredCashCheckIn = !slotAttendance && paymentChannel === "cash"
+    const isPaid = isCompletedPaymentStatus(paymentStatus)
+    const inferredCashCheckIn = !resolvedAttendance && paymentChannel === "cash"
     const checkInStatus: CheckInStatus =
-      slotAttendance?.status === "checked_in" ||
-      slotAttendance?.status === "checked_in_no_package" ||
-      slotAttendance?.status === "scheduled"
-        ? (slotAttendance.status as CheckInStatus)
+      resolvedAttendance?.status === "checked_in" ||
+      resolvedAttendance?.status === "checked_in_no_package" ||
+      resolvedAttendance?.status === "checked_out" ||
+      resolvedAttendance?.status === "scheduled"
+        ? (resolvedAttendance.status as CheckInStatus)
         : inferredCashCheckIn
           ? "checked_in_no_package"
-        : "none"
+          : "none"
+    const packageClassesUsedTotal = activePackage
+      ? activePackage.isUnlimited
+        ? activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0
+        : Math.max(0, (activePackage.totalCredits || 0) - (activePackage.remainingCredits || 0))
+      : 0
+    const completedClassesTotal = Math.max(completedClassesByUser.get(item.userId) || 0, packageClassesUsedTotal)
 
     return {
       id: purchase.id,
@@ -504,18 +930,27 @@ export async function GET(req: Request) {
       pointsBalance: pointsByUser.get(item.userId) || 0,
       pointsHistory: pointsHistoryByUser.get(item.userId) || [],
       classPaid: isPaid,
+      attendanceId: resolvedAttendance?.id ?? null,
       checkInStatus,
-      checkInAt: slotAttendance?.checkedInAt || (inferredCashCheckIn ? purchase.createdAt.toISOString() : null),
+      checkInAt: resolvedAttendance?.checkedInAt || (inferredCashCheckIn ? purchase.createdAt.toISOString() : null),
+      checkedOutAt: resolvedAttendance?.checkedOutAt ?? null,
       activePackage: activePackage
         ? {
             id: activePackage.packageId,
             label: activePackage.packageLabel || activePackage.packageId,
+            totalCredits: activePackage.totalCredits,
             remainingCredits: activePackage.remainingCredits,
             isUnlimited: activePackage.isUnlimited,
             expiresAt: activePackage.expiresAt,
             status: activePackage.status,
           }
         : null,
+      completedClassesTotal,
+      packageClassesUsedTotal,
+      outstandingBalance: (() => {
+        const value = outstandingBalanceByUser.get(item.userId)
+        return typeof value === "number" && value > 0 ? value : null
+      })(),
       studentPin: studentPinByUserId.get(item.userId) || {
         enabled: false,
         enrolled: false,
@@ -525,6 +960,11 @@ export async function GET(req: Request) {
         provisionalActive: false,
         provisionalExpiresAt: null,
       },
+      packageClassNumber:
+        mode === "history" && linkedPackagePurchaseId && slotAttendance?.id
+          ? packageClassNumberByUsageKey.get(`${linkedPackagePurchaseId}|${slotAttendance.id}`) ?? null
+          : null,
+      fundingPayment: linkedPackagePurchaseId ? fundingPurchaseByPackagePurchaseId.get(linkedPackagePurchaseId) || null : null,
     }
   })
 
@@ -533,12 +973,26 @@ export async function GET(req: Request) {
   const summary = {
     totalItems: filtered.length,
     totalCollected: filtered
-      .filter((item) => COMPLETED_PAYMENT_STATUSES.has(item.paymentStatus.toLowerCase()))
+      .filter((item) => isCompletedPaymentStatus(item.paymentStatus))
       .reduce((sum, item) => sum + item.amount, 0),
     pendingSettlement: filtered.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "pending").length,
     paidSettlement: filtered.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "paid").length,
     pendingStripe: filtered.filter((item) => !item.classPaid).length,
     paidStripe: filtered.filter((item) => item.classPaid).length,
+  }
+
+  if (mode === "history") {
+      return NextResponse.json({
+        items: filtered,
+        summary,
+        classOptions,
+        meta: {
+          mode,
+          from: historyRange!.from,
+          to: historyRange!.to,
+          truncated: historyTruncated,
+        },
+      })
   }
 
   return NextResponse.json({ items: filtered, summary })

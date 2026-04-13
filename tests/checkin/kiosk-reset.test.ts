@@ -2,63 +2,102 @@ import { describe, expect, it, vi } from "vitest"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
 
 describe("completeKioskCustomerFlow", () => {
-  it("resets the kiosk state and signs out only the temporary local customer session", async () => {
+  it("resets the kiosk state and replaces the local terminal URL without global sign out", async () => {
     const events: string[] = []
     const resetCustomerState = vi.fn(() => {
       events.push("reset")
     })
-    const signOut = vi.fn(async ({ redirectUrl, sessionId }: { redirectUrl: string; sessionId?: string }) => {
-      events.push(`signout:${redirectUrl}:${sessionId || "none"}`)
+    const replaceUrl = vi.fn(async (url: string) => {
+      events.push(`replace:${url}`)
     })
 
     await completeKioskCustomerFlow({
       resetCustomerState,
       isKioskTerminalFlow: true,
-      isCustomerSignedIn: true,
-      redirectUrl: "/checkin?courseSlug=test",
-      sessionId: "sess_terminal_123",
-      signOut,
+      resetUrl: "/checkin?courseSlug=test",
+      replaceUrl,
     })
 
     expect(resetCustomerState).toHaveBeenCalledOnce()
-    expect(signOut).toHaveBeenCalledWith({
-      redirectUrl: "/checkin?courseSlug=test",
-      sessionId: "sess_terminal_123",
-    })
-    expect(events).toEqual(["reset", "signout:/checkin?courseSlug=test:sess_terminal_123"])
+    expect(replaceUrl).toHaveBeenCalledWith("/checkin?courseSlug=test")
+    expect(events).toEqual(["reset", "replace:/checkin?courseSlug=test"])
   })
 
-  it("does not sign out when no temporary customer session is active", async () => {
-    const resetCustomerState = vi.fn()
-    const signOut = vi.fn()
+  it("signs out the kiosk customer session before replacing the terminal URL", async () => {
+    const events: string[] = []
+    const resetCustomerState = vi.fn(() => {
+      events.push("reset")
+    })
+    const signOutCustomerSession = vi.fn(async () => {
+      events.push("signout")
+    })
+    const replaceUrl = vi.fn(async (url: string) => {
+      events.push(`replace:${url}`)
+    })
 
     await completeKioskCustomerFlow({
       resetCustomerState,
       isKioskTerminalFlow: true,
-      isCustomerSignedIn: false,
-      redirectUrl: "/checkin",
-      sessionId: "sess_terminal_123",
-      signOut,
+      resetUrl: "/checkin?courseSlug=test",
+      replaceUrl,
+      signOutCustomerSession,
     })
 
-    expect(resetCustomerState).toHaveBeenCalledOnce()
-    expect(signOut).not.toHaveBeenCalled()
+    expect(signOutCustomerSession).toHaveBeenCalledOnce()
+    expect(replaceUrl).toHaveBeenCalledWith("/checkin?courseSlug=test")
+    expect(events).toEqual(["signout", "reset", "replace:/checkin?courseSlug=test"])
   })
 
-  it("does not sign out for non-kiosk flows", async () => {
+  it("keeps the kiosk local reset and URL reset even if Clerk sign-out fails", async () => {
+    const signOutCustomerSession = vi.fn(async () => {
+      throw new Error("clerk unavailable")
+    })
     const resetCustomerState = vi.fn()
-    const signOut = vi.fn()
+    const replaceUrl = vi.fn()
+
+    await expect(
+      completeKioskCustomerFlow({
+        resetCustomerState,
+        isKioskTerminalFlow: true,
+        resetUrl: "/checkin",
+        replaceUrl,
+        signOutCustomerSession,
+      })
+    ).rejects.toThrow("clerk unavailable")
+
+    expect(resetCustomerState).toHaveBeenCalledOnce()
+    expect(replaceUrl).toHaveBeenCalledWith("/checkin")
+  })
+
+  it("does not replace the URL for non-kiosk flows", async () => {
+    const resetCustomerState = vi.fn()
+    const replaceUrl = vi.fn()
 
     await completeKioskCustomerFlow({
       resetCustomerState,
       isKioskTerminalFlow: false,
-      isCustomerSignedIn: true,
-      redirectUrl: "/checkin",
-      sessionId: "sess_terminal_123",
-      signOut,
+      resetUrl: "/checkin",
+      replaceUrl,
     })
 
     expect(resetCustomerState).toHaveBeenCalledOnce()
-    expect(signOut).not.toHaveBeenCalled()
+    expect(replaceUrl).not.toHaveBeenCalled()
+  })
+
+  it("does not replace the URL when no reset target is provided", async () => {
+    const resetCustomerState = vi.fn()
+    const replaceUrl = vi.fn()
+    const signOutCustomerSession = vi.fn()
+
+    await completeKioskCustomerFlow({
+      resetCustomerState,
+      isKioskTerminalFlow: true,
+      replaceUrl,
+      signOutCustomerSession,
+    })
+
+    expect(resetCustomerState).toHaveBeenCalledOnce()
+    expect(signOutCustomerSession).toHaveBeenCalledOnce()
+    expect(replaceUrl).not.toHaveBeenCalled()
   })
 })

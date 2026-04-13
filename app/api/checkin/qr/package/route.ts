@@ -7,8 +7,10 @@ import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/q
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 
 export const runtime = "nodejs"
 
@@ -73,13 +75,24 @@ export async function POST(req: Request) {
     const payload = toRecord(body)
     const authResult = await auth()
     const kioskSessionToken = typeof payload?.kioskSessionToken === "string" ? payload.kioskSessionToken.trim() : ""
-    const kioskSessionResult = !authResult.userId && kioskSessionToken
+    const flowContext = typeof payload?.flowContext === "string" ? payload.flowContext.trim() : ""
+    const kioskCustomerAuth =
+      flowContext === "kiosk_terminal"
+        ? await resolveKioskCustomerClerkAuth(authResult.userId)
+        : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
+    const customerClerkUserId = kioskCustomerAuth.userId
+    const kioskSessionResult = !customerClerkUserId && kioskSessionToken
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
 
-    if (!authResult.userId && !kioskSessionResult?.ok) {
+    if (!customerClerkUserId && !kioskSessionResult?.ok) {
       return NextResponse.json(
-        { error: kioskSessionResult?.error || "Unauthorized" },
+        {
+          error:
+            kioskCustomerAuth.blocked && flowContext === "kiosk_terminal"
+              ? "Kiosk customer identification is required before continuing."
+              : kioskSessionResult?.error || "Unauthorized",
+        },
         { status: kioskSessionResult?.status || 401 }
       )
     }
@@ -117,16 +130,18 @@ export async function POST(req: Request) {
     let phone = kioskSessionResult?.ok ? normalizePhoneDigits(kioskSessionResult.session.user.phone || "") : ""
     let name = kioskSessionResult?.ok ? kioskSessionResult.session.user.name || "" : ""
 
-    const dbUser = authResult.userId
+    const dbUser = customerClerkUserId
       ? await (async () => {
-          const client = await clerkClient()
-          const clerkUser = await client.users.getUser(authResult.userId as string)
+          const clerkUser = kioskCustomerAuth.clerkUser || await (async () => {
+            const client = await clerkClient()
+            return client.users.getUser(customerClerkUserId)
+          })()
           email = clerkUser.primaryEmailAddress?.emailAddress || ""
           const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
           phone = normalizePhoneDigits(phoneRaw)
           name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
           return upsertUserByIdentifiers({
-            clerkId: authResult.userId as string,
+            clerkId: customerClerkUserId,
             email,
             phone,
             name,
@@ -240,6 +255,21 @@ export async function POST(req: Request) {
         courseSlug: context.courseSlug,
         at: now,
         reason: "QR_CHECKIN_PACKAGE",
+      })
+
+      await ensureAttendancePackagePurchase(tx, {
+        attendanceId: attendance.id,
+        userId: dbUser.id,
+        courseSlug: context.courseSlug,
+        courseTitle: course.title,
+        email: email || null,
+        name: name || null,
+        phone: phone || null,
+        packageId: reserveResult.packagePurchase?.packageId || selectedPackage.packageId,
+        packagePurchaseId: reserveResult.packagePurchase?.id || selectedPackage.id,
+        source: "qr_package_checkin",
+        date: context.date,
+        time: context.time,
       })
 
       const checkedInCount = await tx.attendance.count({

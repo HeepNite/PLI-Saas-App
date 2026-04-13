@@ -1,5 +1,5 @@
 // UI Components
-export { KioskResolvingOverlay } from "./KioskResolvingOverlay"
+export { KioskResolvingOverlay, KioskPackageSuccessOverlay } from "./KioskResolvingOverlay"
 export { ContextWarning, QrPromptText } from "./CheckInQrPrompts"
 export { EntrySelectionButtons } from "./EntrySelectionButtons"
 export { LatePaymentPanel } from "./LatePaymentPanel"

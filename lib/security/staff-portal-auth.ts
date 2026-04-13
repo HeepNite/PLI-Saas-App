@@ -141,6 +141,16 @@ export const authorizeStaffPortalSectionRequest = async (
   return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }
 }
 
+export const authorizeOwnerRequest = async (): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (authResult.role !== "owner") {
+    return { ok: false, status: 403, error: "Owner role required" }
+  }
+
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }
+}
+
 export const authorizeStaffPermissionRequest = async (permission: StaffPermission): Promise<StaffPortalAuthResult> => {
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) return authResult

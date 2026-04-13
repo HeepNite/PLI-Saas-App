@@ -2336,38 +2336,39 @@ export default function ProfilePageClient() {
             )}
 
             {(pinStatus.enabled || pinLoading || pinStatusError) && (
-              <GlassyCard className="order-[1.5] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+              <section className="order-[1.5] rounded-2xl border border-black/10 bg-white/70 p-4 shadow-[0_10px_24px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-black/8 pb-4 dark:border-white/10">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Student PIN</p>
-                    <h3 className="mt-2 text-lg font-semibold text-zinc-900 dark:text-white">
+                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--brand,#b61616)]">Student PIN</p>
+                    <h3 className="mt-1 text-lg font-semibold text-zinc-900 dark:text-white">
                       {pinStatus.needsEnrollment ? "Set your kiosk PIN" : "Manage your kiosk PIN"}
                     </h3>
                     <p className="mt-1 text-sm text-zinc-600 dark:text-white/60">
                       Use a personal 4-digit PIN for kiosk identification and recovery.
                     </p>
                   </div>
-                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-700 dark:text-white/70">
-                    {pinStatus.locked ? "Locked" : pinStatus.needsEnrollment ? "Not enrolled" : "Active"}
+                  <div className="text-right text-xs text-zinc-500 dark:text-white/55">
+                    <p>{pinStatus.locked ? "Locked" : pinStatus.needsEnrollment ? "Not enrolled" : "Active"}</p>
+                    <p className="mt-1">{pinStatus.permanent.failedAttempts} / 5 failed attempts</p>
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
-                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Status</p>
-                    <p className="mt-2 font-semibold">{pinStatus.needsEnrollment ? "Enrollment required" : pinStatus.locked ? "Locked after failed attempts" : "Ready for kiosk use"}</p>
+                <div className="divide-y divide-black/8 dark:divide-white/10">
+                  <div className="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                    <p className="font-medium text-zinc-900 dark:text-white">Status</p>
+                    <p className="text-zinc-600 dark:text-white/65">
+                      {pinStatus.needsEnrollment ? "Enrollment required" : pinStatus.locked ? "Locked after failed attempts" : "Ready for kiosk use"}
+                    </p>
                   </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
-                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Attempts</p>
-                    <p className="mt-2 font-semibold">{pinStatus.permanent.failedAttempts} / 5 failed attempts</p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
-                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--brand,#b61616)]">Recovery</p>
-                    <p className="mt-2 font-semibold">{pinStatus.provisional.active ? "Staff provisional PIN active" : "Account recovery available"}</p>
+                  <div className="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                    <p className="font-medium text-zinc-900 dark:text-white">Recovery</p>
+                    <p className="text-zinc-600 dark:text-white/65">
+                      {pinStatus.provisional.active ? "Staff provisional PIN active" : "Account recovery available"}
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="mt-4 space-y-4">
                   {!pinRecoveryMode && pinStatus.enrolled && (
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">Current PIN</label>
@@ -2436,7 +2437,7 @@ export default function ProfilePageClient() {
                 {pinStatusError && <p className="mt-3 text-sm text-red-400">{pinStatusError}</p>}
                 {pinFormError && <p className="mt-3 text-sm text-red-400">{pinFormError}</p>}
                 {pinFormSuccess && !pinFormError && <p className="mt-3 text-sm text-emerald-300">{pinFormSuccess}</p>}
-              </GlassyCard>
+              </section>
             )}
 
             <GlassyCard className="order-2 p-4">

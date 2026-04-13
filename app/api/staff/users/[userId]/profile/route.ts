@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createHash, randomBytes } from "crypto"
 import { clerkClient } from "@clerk/nextjs/server"
+import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { canAccessStaffPortalSection } from "@/lib/security/staff-access"
@@ -13,9 +14,17 @@ import {
 import {
   applyStaffCategoryToMetadata,
   extractStaffCategoryFromUserMetadata,
+  extractStaffSubCategoryFromUserMetadata,
   parseStaffCategory,
+  parseStaffSubCategory,
+  applyStaffSubCategoryToMetadata,
   STAFF_CATEGORIES,
+  STAFF_SUB_CATEGORIES,
   type StaffCategory,
+  type StaffSubCategory,
+  type StaffPaymentInfo,
+  type StaffPaymentPreference,
+  PAYMENT_PREFERENCES,
 } from "@/lib/security/staff-category"
 import {
   createStaffRoleAudit,
@@ -40,8 +49,11 @@ type StaffProfilePayload = {
   gallery: string[]
   role: StaffRole
   category: StaffCategory
+  subCategory: StaffSubCategory | null
   pin: string
   clearPin: boolean
+  paymentPreference: StaffPaymentPreference | null
+  paymentInfo: StaffPaymentInfo | null
 }
 
 const asObject = (value: unknown): Record<string, unknown> => {
@@ -55,6 +67,14 @@ const safeText = (value: unknown, max = 120) => {
   if (typeof value !== "string") return ""
   return value.trim().slice(0, max)
 }
+
+const safeOptionalText = (value: unknown, max = 120) => {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim().slice(0, max)
+  return trimmed || null
+}
+
+const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key)
 
 const asNumber = (value: unknown): number | null => {
   if (typeof value !== "number") return null
@@ -97,6 +117,67 @@ const parseIsoMs = (value: unknown): number | null => {
   if (typeof value !== "string" || !value.trim()) return null
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+const parsePaymentPreference = (value: unknown): StaffPaymentPreference | null | undefined => {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== "string") return undefined
+  const normalized = value.trim().toLowerCase()
+  return PAYMENT_PREFERENCES.includes(normalized as StaffPaymentPreference)
+    ? (normalized as StaffPaymentPreference)
+    : undefined
+}
+
+const normalizePaymentInfo = (value: unknown): StaffPaymentInfo | null | undefined => {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+
+  const record = value as Record<string, unknown>
+  const nextPaymentInfo: StaffPaymentInfo = {}
+
+  for (const key of [
+    "cbu",
+    "alias",
+    "accountHolder",
+    "mercadoPagoId",
+    "bankName",
+    "routingNumber",
+    "accountNumber",
+    "zelleId",
+    "venmoUser",
+    "accountType",
+  ] as const) {
+    const fieldValue = record[key]
+    if (fieldValue !== undefined && fieldValue !== null && typeof fieldValue !== "string") {
+      return undefined
+    }
+  }
+
+  const cbu = safeOptionalText(record.cbu, 32)
+  const alias = safeOptionalText(record.alias, 80)
+  const accountHolder = safeOptionalText(record.accountHolder, 120)
+  const mercadoPagoId = safeOptionalText(record.mercadoPagoId, 120)
+  const bankName = safeOptionalText(record.bankName, 120)
+  const routingNumber = safeOptionalText(record.routingNumber, 32)
+  const accountNumber = safeOptionalText(record.accountNumber, 32)
+  const zelleId = safeOptionalText(record.zelleId, 120)
+  const venmoUser = safeOptionalText(record.venmoUser, 120)
+  const accountType = safeOptionalText(record.accountType, 40)
+
+  if (cbu) nextPaymentInfo.cbu = cbu
+  if (alias) nextPaymentInfo.alias = alias
+  if (accountHolder) nextPaymentInfo.accountHolder = accountHolder
+  if (mercadoPagoId) nextPaymentInfo.mercadoPagoId = mercadoPagoId
+  if (bankName) nextPaymentInfo.bankName = bankName
+  if (routingNumber) nextPaymentInfo.routingNumber = routingNumber
+  if (accountNumber) nextPaymentInfo.accountNumber = accountNumber
+  if (zelleId) nextPaymentInfo.zelleId = zelleId
+  if (venmoUser) nextPaymentInfo.venmoUser = venmoUser
+  if (accountType) nextPaymentInfo.accountType = accountType
+
+  return Object.keys(nextPaymentInfo).length > 0 ? nextPaymentInfo : null
 }
 
 const PRESENCE_MAX_AGE_MS = 16 * 60 * 60 * 1000
@@ -145,6 +226,20 @@ const isValidPinHash = (pin: string, pinHash: string) => {
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 
+type StaffPaymentRecord = {
+  paymentPreference: string | null
+  paymentInfo: unknown
+}
+
+const staffAccountDelegate = prisma.staffAccount as unknown as {
+  findUnique(args: { where: { clerkUserId: string }; select: { paymentPreference: true; paymentInfo: true } }): Promise<StaffPaymentRecord | null>
+  update(args: {
+    where: { clerkUserId: string }
+    data: { paymentPreference?: string | null; paymentInfo?: StaffPaymentInfo | null }
+    select: { paymentPreference: true; paymentInfo: true }
+  }): Promise<StaffPaymentRecord>
+}
+
 const parseRole = (value: unknown): StaffRole | null => {
   if (typeof value !== "string") return null
   const normalized = value.trim().toLowerCase()
@@ -174,6 +269,7 @@ const toResponsePayload = (user: {
   const teaching = asObject(publicMetadata.staffTeaching)
   const role = extractStaffRoleFromUserMetadata(user)
   const category = extractStaffCategoryFromUserMetadata(user)
+  const subCategory = extractStaffSubCategoryFromUserMetadata(user)
   const hasActiveSession = Boolean(options?.hasActiveSession)
   const now = Date.now()
   const staffLastCheckInAtMs = parseIsoMs(privateMetadata.staffLastCheckInAt)
@@ -209,6 +305,7 @@ const toResponsePayload = (user: {
     },
     role,
     category,
+    subCategory,
     hasPin: typeof privateMetadata.staffPinHash === "string" && privateMetadata.staffPinHash.length > 0,
     metrics: {
       performanceRating: asNumber(performance.rating),
@@ -286,11 +383,50 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   const canEditRole =
     !isSelfRequest && (authResult.role === "owner" || (authResult.role === "admin" && authResult.category === "manager"))
 
+  // Fetch payment info from database
+  let paymentPreference: StaffPaymentPreference | null = null
+  let assignedPaymentPreference: StaffPaymentPreference | null = null
+  let paymentInfo: StaffPaymentInfo | null = null
+  try {
+    const staffAccount = (await prisma.staffAccount.findUnique({
+      where: { clerkUserId: userId },
+      select: {
+        paymentPreference: true,
+        paymentInfo: true,
+        paymentModel: {
+          select: {
+            defaultPaymentMethod: {
+              select: {
+                adapterType: true,
+              },
+            },
+          },
+        },
+      },
+    } as any)) as any
+    if (staffAccount) {
+      paymentPreference = parsePaymentPreference(staffAccount.paymentPreference) ?? null
+      paymentInfo = normalizePaymentInfo(staffAccount.paymentInfo) ?? null
+      assignedPaymentPreference = parsePaymentPreference(staffAccount.paymentModel?.defaultPaymentMethod?.adapterType) ?? null
+
+      // Fallback to model's default method if no preference is set
+      if (!paymentPreference) {
+        paymentPreference = assignedPaymentPreference
+      }
+    }
+  } catch {
+    // Continue without payment info if DB query fails
+  }
+
   return NextResponse.json({
     user: toResponsePayload(user, { hasActiveSession }),
     canEditRole,
     supportedRoles: STAFF_ROLES,
     supportedCategories: STAFF_CATEGORIES,
+    supportedSubCategories: STAFF_SUB_CATEGORIES,
+    paymentPreference,
+    assignedPaymentPreference,
+    paymentInfo,
   })
 }
 
@@ -335,8 +471,20 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
   const payload = body as Partial<StaffProfilePayload>
   const pin = safeText(payload.pin, 12)
   const clearPin = Boolean(payload.clearPin)
+  const hasPaymentPreference = hasOwn(payload, "paymentPreference")
+  const hasPaymentInfo = hasOwn(payload, "paymentInfo")
   if (pin && !/^\d{4}$/.test(pin)) {
     return NextResponse.json({ error: "PIN must be exactly 4 digits." }, { status: 400 })
+  }
+
+  const parsedPaymentPreference = parsePaymentPreference(payload.paymentPreference)
+  if (hasPaymentPreference && parsedPaymentPreference === undefined) {
+    return NextResponse.json({ error: "Invalid payment preference." }, { status: 400 })
+  }
+
+  const parsedPaymentInfo = normalizePaymentInfo(payload.paymentInfo)
+  if (hasPaymentInfo && parsedPaymentInfo === undefined) {
+    return NextResponse.json({ error: "Invalid payment information." }, { status: 400 })
   }
 
   const client = await clerkClient()
@@ -352,21 +500,21 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
 
   const nextProfile = {
     ...currentProfile,
-    birthDate: safeText(payload.birthDate, 40),
-    addressLine1: safeText(payload.addressLine1, 150),
-    addressLine2: safeText(payload.addressLine2, 150),
-    city: safeText(payload.city, 80),
-    state: safeText(payload.state, 80),
-    postalCode: safeText(payload.postalCode, 24),
-    country: safeText(payload.country, 80),
-    personalNote: safeText(payload.personalNote, 600),
-    gallery: safeGallery(payload.gallery),
+    ...(hasOwn(payload, "birthDate") ? { birthDate: safeText(payload.birthDate, 40) } : {}),
+    ...(hasOwn(payload, "addressLine1") ? { addressLine1: safeText(payload.addressLine1, 150) } : {}),
+    ...(hasOwn(payload, "addressLine2") ? { addressLine2: safeText(payload.addressLine2, 150) } : {}),
+    ...(hasOwn(payload, "city") ? { city: safeText(payload.city, 80) } : {}),
+    ...(hasOwn(payload, "state") ? { state: safeText(payload.state, 80) } : {}),
+    ...(hasOwn(payload, "postalCode") ? { postalCode: safeText(payload.postalCode, 24) } : {}),
+    ...(hasOwn(payload, "country") ? { country: safeText(payload.country, 80) } : {}),
+    ...(hasOwn(payload, "personalNote") ? { personalNote: safeText(payload.personalNote, 600) } : {}),
+    ...(hasOwn(payload, "gallery") ? { gallery: safeGallery(payload.gallery) } : {}),
   }
 
   const nextPublicMetadata: Record<string, unknown> = {
     ...publicMetadata,
     staffProfile: nextProfile,
-    staffLocation: safeText(payload.location, 120),
+    ...(hasOwn(payload, "location") ? { staffLocation: safeText(payload.location, 120) } : {}),
   }
 
   const canEditRole =
@@ -378,8 +526,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
       if (authResult.role !== "owner" && parsedRole === "owner") {
         return NextResponse.json({ error: "Only Owner can assign Owner role." }, { status: 403 })
       }
+      const normalizedCategory = normalizeCategoryForRole(parsedRole, parsedCategory)
       const withRole = applyStaffRoleToMetadata(nextPublicMetadata, parsedRole)
-      Object.assign(nextPublicMetadata, applyStaffCategoryToMetadata(withRole, normalizeCategoryForRole(parsedRole, parsedCategory)))
+      const withCategory = applyStaffCategoryToMetadata(withRole, normalizedCategory)
+      
+      // Handle subCategory: only for guest category
+      let subCategory = null
+      if (normalizedCategory === "guest" && typeof payload.subCategory === "string") {
+        subCategory = parseStaffSubCategory(payload.subCategory)
+      }
+      Object.assign(nextPublicMetadata, applyStaffSubCategoryToMetadata(withCategory, subCategory))
     }
   }
   const nextPrivateMetadata: Record<string, unknown> = { ...privateMetadata }
@@ -435,6 +591,33 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     source: "staff_profile_patch",
     allowWithoutRole: true,
   })
+  let paymentPreference: StaffPaymentPreference | null = null
+  let paymentInfo: StaffPaymentInfo | null = null
+  if (hasPaymentPreference || hasPaymentInfo) {
+    const updatedStaffAccount = await prisma.staffAccount.update({
+      where: { clerkUserId: userId },
+      data: {
+        ...(hasPaymentPreference ? { paymentPreference: parsedPaymentPreference ?? null } : {}),
+        ...(hasPaymentInfo ? { paymentInfo: (parsedPaymentInfo as any) ?? null } : {}),
+      },
+      select: {
+        paymentPreference: true,
+        paymentInfo: true,
+      },
+    })
+    paymentPreference = parsePaymentPreference(updatedStaffAccount.paymentPreference) ?? null
+    paymentInfo = normalizePaymentInfo(updatedStaffAccount.paymentInfo) ?? null
+  } else {
+    const currentStaffAccount = await prisma.staffAccount.findUnique({
+      where: { clerkUserId: userId },
+      select: {
+        paymentPreference: true,
+        paymentInfo: true,
+      },
+    })
+    paymentPreference = parsePaymentPreference(currentStaffAccount?.paymentPreference) ?? null
+    paymentInfo = normalizePaymentInfo(currentStaffAccount?.paymentInfo) ?? null
+  }
   const nextState = extractStaffRoleSnapshot(updated)
   if (previousState.role !== nextState.role || previousState.category !== nextState.category) {
     await createStaffRoleAudit({
@@ -455,6 +638,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     canEditRole,
     supportedRoles: STAFF_ROLES,
     supportedCategories: STAFF_CATEGORIES,
+    supportedSubCategories: STAFF_SUB_CATEGORIES,
+    paymentPreference,
+    paymentInfo,
     user: toResponsePayload(updated),
   })
 }

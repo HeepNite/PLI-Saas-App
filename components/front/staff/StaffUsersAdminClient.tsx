@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import {
   Bot,
   CalendarPlus,
+  CheckCircle2,
   ChevronDown,
   CircleDollarSign,
   ChevronLeft,
@@ -34,8 +35,33 @@ import {
 import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import StaffTerminalSetupClient from "@/components/front/staff/StaffTerminalSetupClient"
+import StaffPaymentMethodConfigPanel from "@/components/front/staff/payroll/StaffPaymentMethodConfigPanel"
+import {
+  buildHistoryStudentCard,
+  buildHistoryStudentCards,
+  buildHistoryStudentPaidEntries,
+  isHistoryAttendanceMatch,
+  resolveCardContext,
+  resolveHistoryStudentCardAmountPaidCents,
+  resolveCardVariant,
+  type StudentProfileCard,
+  type CardContext,
+  type CardVariantConfig,
+} from "@/components/front/staff/historyCardAggregates"
+import { useStudentGlobalSearch } from "@/components/front/staff/useStudentGlobalSearch"
+import { formatReadableDate, parseIsoDate } from "@/lib/class-schedule"
+import {
+  normalizeStaffProfilePaymentInfo,
+  resolveStaffProfilePaymentSummaryCards,
+  toStaffProfilePaymentInfoPayload,
+} from "@/lib/staff/profile-payment"
 import type { StaffRole } from "@/lib/security/staff-role"
-import { type StaffCategory } from "@/lib/security/staff-category"
+import {
+  PAYMENT_PREFERENCES,
+  type StaffCategory,
+  type StaffPaymentInfo,
+  type StaffPaymentPreference,
+} from "@/lib/security/staff-category"
 import type { StaffRequestStatus, StaffRequestType } from "@/lib/security/staff-request"
 import {
   getDefaultStaffPortalSection,
@@ -47,6 +73,7 @@ import { POINTS_RULE_DEFINITIONS } from "@/lib/points/constants"
 
 type StaffUserRow = {
   id: string
+  paymentModelId: string | null
   email: string
   phone: string
   avatarUrl: string
@@ -132,11 +159,14 @@ type PaymentRow = {
     milestone: number | null
   }>
   classPaid: boolean
-  checkInStatus: "checked_in" | "checked_in_no_package" | "scheduled" | "none"
+  attendanceId: string | null
+  checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
   checkInAt: string | null
+  checkedOutAt: string | null
   activePackage: {
     id: string
     label: string
+    totalCredits: number | null
     remainingCredits: number | null
     isUnlimited: boolean
     expiresAt: string | null
@@ -151,9 +181,45 @@ type PaymentRow = {
     provisionalActive: boolean
     provisionalExpiresAt: string | null
   }
+  packageClassNumber: number | null
+  fundingPayment?: {
+    id: string
+    amount: number
+    currency: string
+    createdAt: string
+    courseTitle: string | null
+  } | null
+  completedClassesTotal: number
+  packageClassesUsedTotal: number
+  outstandingBalance: number | null
 }
 
-type PaymentCategoryFilter = "cash" | "card" | "packages" | "dropin"
+type HistoryClassOption = {
+  slug: string
+  title: string
+}
+
+type PaymentsApiSummary = {
+  totalItems: number
+  totalCollected: number
+  pendingSettlement: number
+  paidSettlement: number
+  pendingStripe: number
+  paidStripe: number
+}
+
+type PaymentCategoryFilter = "all" | "cash" | "card" | "packages" | "dropin" | "history"
+type HistoryPaymentMethodFilter = "all" | "cash" | "card" | "package" | "dropin"
+type HistoryAttendanceFilter = "all" | "attended" | "scheduled" | "no_attendance"
+type HistoryContentFilterInput = {
+  courseSlug: string
+  paymentChannel: "cash" | "card" | "unknown"
+  purchaseCategory: "package" | "dropin" | "other"
+  packageId?: string | null
+  classPaid: boolean
+  fundingPayment?: PaymentRow["fundingPayment"]
+  checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
+}
 type ReportsObjectiveFilter =
   | "all"
   | "monday_sales"
@@ -207,6 +273,37 @@ type StaffRequestSummary = {
   rejected: number
 }
 
+type PaymentChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled"
+
+type StaffPaymentChangeRequestRow = {
+  id: string
+  staffAccountId: string
+  requestedMethod: string
+  requestedInfo: unknown
+  reason: string | null
+  status: PaymentChangeRequestStatus
+  createdAt: string
+  staffAccount: {
+    firstName: string
+    lastName: string
+    email: string
+  }
+}
+
+type StaffApprovalFeedItem =
+  | {
+      id: string
+      createdAt: string
+      kind: "staff_request"
+      request: StaffRequestRow
+    }
+  | {
+      id: string
+      createdAt: string
+      kind: "payment_change_request"
+      request: StaffPaymentChangeRequestRow
+    }
+
 type SelfProfileMetrics = {
   performanceRating: number | null
   performanceReviewsCount: number | null
@@ -224,6 +321,9 @@ type SelfProfileSnapshot = {
   location: string
   role: StaffRole
   category: StaffCategory
+  paymentPreference: StaffPaymentPreference | null
+  assignedPaymentPreference: StaffPaymentPreference | null
+  paymentInfo: StaffPaymentInfo | null
   metrics: SelfProfileMetrics
   presence: {
     online: boolean
@@ -237,6 +337,20 @@ type SelfProfileSnapshot = {
     teacherShiftStart: string
     teacherShiftEnd: string
   }
+}
+
+type StaffPaymentForm = {
+  paymentPreference: StaffPaymentPreference | ""
+  cbu: string
+  alias: string
+  accountHolder: string
+  mercadoPagoId: string
+  bankName: string
+  routingNumber: string
+  accountNumber: string
+  zelleId: string
+  venmoUser: string
+  accountType: string
 }
 
 type ProfileRequestFormState = {
@@ -270,6 +384,18 @@ type PayrollDelayEntry = {
   expectedTime: string
   actualTime: string
   delayMinutes: number
+}
+
+type StaffPaymentModelOption = {
+  id: string
+  name: string
+  active: boolean
+  isDefault: boolean
+}
+
+type PayrollModelActionState = {
+  status: "idle" | "saving" | "success" | "error"
+  message: string | null
 }
 
 type PayrollDelayModalState = {
@@ -321,11 +447,39 @@ type SchoolCourseRow = {
   level: string | null
   durationMinutes: number | null
   location: string | null
+  defaultRoomId: string | null
   availableWeekdays: number[]
   availableTimes: string[]
   scheduleRules: unknown | null
   active: boolean
   createdAt: string
+}
+
+type RoomRow = {
+  id: string
+  name: string
+  capacity: number
+  location: string | null
+  active: boolean
+}
+
+type RoomStatusFilter = "all" | "active" | "inactive"
+
+type RoomFormState = {
+  id: string
+  name: string
+  capacity: string
+  location: string
+  active: boolean
+}
+
+type AssignmentCourseOption = {
+  slug: string
+  title: string
+  description: string | null
+  imageUrl: string | null
+  scheduleLabel: string | null
+  kindLabel: string | null
 }
 
 type SchoolPackageRow = {
@@ -368,6 +522,7 @@ type CourseFormState = {
   level: string
   durationMinutes: string
   location: string
+  defaultRoomId: string
   publicationMode: CoursePublicationMode
   launchDate: string
   specialDiscountType: CourseSpecialDiscountType
@@ -449,13 +604,20 @@ type PointsAssignFormState = {
   eventKey: string
 }
 
+type TeacherAssignmentFormState = {
+  assignedUserId: string
+  recurrenceUnit: "month" | "year"
+  recurrenceInterval: number
+  courseSlugs: string[]
+}
+
 type NavItem = {
   key: StaffPortalSection
   label: string
   icon: React.ComponentType<{ className?: string }>
 }
 
-const CATEGORY_OPTIONS: StaffCategory[] = ["front_desk", "manager", "teacher", "guest_staff"]
+const CATEGORY_OPTIONS: StaffCategory[] = ["front_desk", "manager", "teacher", "guest"]
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 const NAV_ITEMS: NavItem[] = [
   { key: "users", label: "User Management", icon: Users },
@@ -465,7 +627,6 @@ const NAV_ITEMS: NavItem[] = [
   { key: "reports", label: "Reports", icon: CircleDollarSign },
   { key: "assistant", label: "AI Assistant", icon: Bot },
   { key: "settings", label: "Settings", icon: Settings },
-  { key: "profile", label: "My profile", icon: User },
 ]
 
 const REPORT_OBJECTIVE_OPTIONS: Array<{ key: ReportsObjectiveFilter; label: string }> = [
@@ -494,8 +655,8 @@ const REPORT_SUGGESTIONS_SOURCE_LABELS: Record<"local" | "mock" | "custom-http",
 const CATEGORY_LABELS: Record<StaffCategory, string> = {
   front_desk: "Front desk",
   manager: "Managers",
-  teacher: "Profesores",
-  guest_staff: "Guest staff",
+  teacher: "Teachers",
+  guest: "Guest",
   partner: "Partner",
 }
 
@@ -508,6 +669,14 @@ const ROLE_FORM_LABELS: Record<StaffRole, string> = {
   owner: "Owner",
   admin: "Admin (GM)",
   staff: "Staff",
+}
+const PAYMENT_PREFERENCE_LABELS: Record<StaffPaymentPreference, string> = {
+  cash: "Cash",
+  direct_deposit: "Direct Deposit (ACH)",
+  zelle: "Zelle / Venmo",
+  mercadopago: "Mercado Pago",
+  stripe: "Stripe Payouts",
+  credits: "Internal Credits (Internship)",
 }
 
 const getFixedCategoryForRole = (role: StaffRole): StaffCategory | null => {
@@ -633,6 +802,26 @@ const buildSelfRecommendations = (metrics: SelfProfileMetrics) => {
   return tips.slice(0, 3)
 }
 
+const normalizeTeacherAssignmentCourseSlugs = (value: string[] | null | undefined) =>
+  [...new Set((Array.isArray(value) ? value : []).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+
+const buildTeacherAssignmentFormState = (row: StaffUserRow): TeacherAssignmentFormState => ({
+  assignedUserId: row.teacherAssignedUserId || row.id,
+  recurrenceUnit: row.teacherRecurrenceUnit === "year" ? "year" : "month",
+  recurrenceInterval:
+    typeof row.teacherRecurrenceInterval === "number" && Number.isFinite(row.teacherRecurrenceInterval)
+      ? Math.max(1, Math.min(12, Math.round(row.teacherRecurrenceInterval)))
+      : 1,
+  courseSlugs: normalizeTeacherAssignmentCourseSlugs(row.teacherCourseSlugs),
+})
+
+const areTeacherAssignmentStatesEqual = (a: TeacherAssignmentFormState, b: TeacherAssignmentFormState) =>
+  a.assignedUserId === b.assignedUserId &&
+  a.recurrenceUnit === b.recurrenceUnit &&
+  a.recurrenceInterval === b.recurrenceInterval &&
+  a.courseSlugs.length === b.courseSlugs.length &&
+  a.courseSlugs.every((slug, index) => slug === b.courseSlugs[index])
+
 const formatDate = (value: number | null) => {
   if (!value) return "—"
   try {
@@ -744,6 +933,46 @@ const formatCourseSlotLabel = (slot: CourseScheduleSlot) => {
     return `Every ${weekdayLabel} · ${timeLabel}`
   }
   return `${slot.date || "—"} · ${timeLabel}`
+}
+
+const formatCourseWeekdayList = (weekdays: number[]) =>
+  weekdays
+    .map((weekday) => WEEKDAY_LABELS[weekday] || `Day ${weekday}`)
+    .filter(Boolean)
+    .join(" / ")
+
+const formatCourseTimesList = (times: string[]) =>
+  times
+    .map((time) => normalizeClockTime(time))
+    .filter((time): time is string => Boolean(time))
+    .map((time) => formatClockLabel(time))
+    .join(", ")
+
+const buildAssignmentCourseScheduleLabel = (course: SchoolCourseRow) => {
+  const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
+  const ruleWeekdays = parsedRules ? [...new Set(parsedRules.rules.map((rule) => rule.weekday))].sort((a, b) => a - b) : []
+  const ruleTimes = parsedRules
+    ? [...new Set(parsedRules.rules.flatMap((rule) => rule.times).map((time) => normalizeClockTime(time)).filter(Boolean))].sort()
+    : []
+  const weekdays = ruleWeekdays.length > 0 ? ruleWeekdays : course.availableWeekdays
+  const times = ruleTimes.length > 0 ? ruleTimes : course.availableTimes.map((time) => normalizeClockTime(time)).filter(Boolean)
+  const weekdayLabel = weekdays.length > 0 ? formatCourseWeekdayList(weekdays) : ""
+  const timeLabel = times.length > 0 ? formatCourseTimesList(times) : ""
+
+  if (weekdayLabel && timeLabel) return `${weekdayLabel} · ${timeLabel}`
+  if (weekdayLabel) return weekdayLabel
+  if (timeLabel) return timeLabel
+
+  const firstSpecialEvent = parsedRules?.specialEvents[0]
+  if (!firstSpecialEvent) return null
+  const specialEventTimes = formatCourseTimesList(firstSpecialEvent.times)
+  return specialEventTimes ? `${formatIsoDate(firstSpecialEvent.date)} · ${specialEventTimes}` : formatIsoDate(firstSpecialEvent.date)
+}
+
+const buildAssignmentCourseKindLabel = (course: SchoolCourseRow) => {
+  const kindLabel = COURSE_KIND_LABELS[course.kind] || course.kind || ""
+  if (kindLabel && course.category) return `${kindLabel} · ${course.category}`
+  return kindLabel || course.category || null
 }
 
 const compareCourseSlots = (a: CourseScheduleSlot, b: CourseScheduleSlot) => {
@@ -956,18 +1185,158 @@ const formatIsoDate = (value: string | null) => {
   }).format(new Date(time))
 }
 
-const formatIsoDateTimePrecise = (value: string | null) => {
+const PAYMENT_CHANGE_REQUEST_STATUS_LABELS: Record<StaffPaymentChangeRequestRow["status"], string> = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+}
+
+const PAYMENT_CHANGE_REQUEST_STATUS_TO_STAFF_STATUS: Record<
+  Exclude<StaffPaymentChangeRequestRow["status"], "cancelled">,
+  Exclude<StaffRequestStatus, "IN_REVIEW">
+> = {
+  pending: "PENDING",
+  approved: "APPROVED",
+  rejected: "REJECTED",
+}
+
+const PAYMENT_CHANGE_REQUEST_METHOD_LABELS: Record<string, string> = {
+  cash: "Cash",
+  direct_deposit: "Direct deposit",
+  mercadopago: "Mercado Pago",
+  stripe: "Stripe payouts",
+  zelle: "Zelle / Venmo",
+  credits: "Internal credits",
+}
+
+const PAYMENT_CHANGE_REQUEST_INFO_LABELS: Record<string, string> = {
+  alias: "Alias",
+  accountHolder: "Account holder",
+  accountNumber: "Account number",
+  accountType: "Account type",
+  bankName: "Bank name",
+  cbu: "CBU",
+  mercadoPagoId: "Mercado Pago ID",
+  routingNumber: "Routing number",
+  venmoUser: "Venmo username",
+  zelleId: "Zelle ID",
+}
+
+const isVisiblePaymentChangeRequest = (
+  request: StaffPaymentChangeRequestRow,
+  statusFilter: StaffRequestStatus | "all"
+) => {
+  if (request.status === "cancelled") return false
+  if (statusFilter === "all") return true
+  return PAYMENT_CHANGE_REQUEST_STATUS_TO_STAFF_STATUS[request.status] === statusFilter
+}
+
+export const buildStaffApprovalsSummary = (
+  summary: StaffRequestSummary,
+  paymentChangeRequests: StaffPaymentChangeRequestRow[]
+): StaffRequestSummary => {
+  const visiblePaymentChangeRequests = paymentChangeRequests.filter((request) => request.status !== "cancelled")
+
+  return visiblePaymentChangeRequests.reduce(
+    (nextSummary, request) => {
+      nextSummary.total += 1
+      if (request.status === "pending") nextSummary.pending += 1
+      if (request.status === "approved") nextSummary.approved += 1
+      if (request.status === "rejected") nextSummary.rejected += 1
+      return nextSummary
+    },
+    { ...summary }
+  )
+}
+
+export const buildStaffApprovalsFeed = (
+  staffRequests: StaffRequestRow[],
+  paymentChangeRequests: StaffPaymentChangeRequestRow[]
+): StaffApprovalFeedItem[] => {
+  const staffRequestItems: StaffApprovalFeedItem[] = staffRequests.map((request) => ({
+    id: request.id,
+    createdAt: request.createdAt,
+    kind: "staff_request",
+    request,
+  }))
+
+  const paymentChangeRequestItems: StaffApprovalFeedItem[] = paymentChangeRequests
+    .filter((request) => request.status !== "cancelled")
+    .map((request) => ({
+      id: request.id,
+      createdAt: request.createdAt,
+      kind: "payment_change_request",
+      request,
+    }))
+
+  return [...staffRequestItems, ...paymentChangeRequestItems].sort(
+    (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)
+  )
+}
+
+export const formatPaymentChangeRequestMethodLabel = (requestedMethod: string) =>
+  PAYMENT_CHANGE_REQUEST_METHOD_LABELS[requestedMethod] || requestedMethod.replaceAll("_", " ")
+
+export const formatPaymentChangeRequestInfoRows = (requestedInfo: StaffPaymentChangeRequestRow["requestedInfo"]) => {
+  if (!requestedInfo) return []
+
+  return Object.entries(requestedInfo)
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
+    .map(([key, value]) => {
+      const rawValue = String(value)
+      const lowKey = key.toLowerCase()
+      const displayValue =
+        (lowKey.includes("number") || lowKey === "cbu") && rawValue.length > 3 ? `•••• ${rawValue.slice(-3)}` : rawValue
+
+      return {
+        key,
+        label: PAYMENT_CHANGE_REQUEST_INFO_LABELS[key] || key,
+        value: displayValue,
+      }
+    })
+}
+
+const formatIsoDateLong = (value: string | null) => {
   if (!value) return "—"
   const time = Date.parse(value)
   if (Number.isNaN(time)) return "—"
-  return new Intl.DateTimeFormat("en-US", {
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    day: "2-digit",
     month: "short",
-    day: "numeric",
     year: "numeric",
+  }).formatToParts(new Date(time))
+
+  const weekday = parts.find((part) => part.type === "weekday")?.value
+  const day = parts.find((part) => part.type === "day")?.value
+  const month = parts.find((part) => part.type === "month")?.value
+  const year = parts.find((part) => part.type === "year")?.value
+
+  if (!weekday || !day || !month || !year) return "—"
+  return `${weekday}, ${day} ${month} ${year}`
+}
+
+export const formatStudentPaymentCardSlotLabel = (classDate: string | null, classTime: string | null) => {
+  if (!classDate) return "No class slot"
+  const dateLabel = formatIsoDateLong(`${classDate}T12:00:00`)
+  if (!classTime) return dateLabel
+  return `${dateLabel} · ${formatClockLabel(classTime)}`
+}
+
+export const formatStudentPaymentCardDateTimeLabel = (value: string | null) => {
+  if (!value) return "—"
+  const time = Date.parse(value)
+  if (Number.isNaN(time)) return "—"
+  const date = new Date(time)
+  const dateLabel = formatIsoDateLong(date.toISOString())
+  const timeLabel = new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
-  }).format(new Date(time))
+  }).format(date)
+  return `${dateLabel} · ${timeLabel}`
 }
 
 const parseDateInputStart = (value: string) => {
@@ -1096,6 +1465,61 @@ const sanitizeTimeValue = (value: unknown): string => {
   return /^([01]\d|2[0-3]):([0-5]\d)$/.test(trimmed) ? trimmed : ""
 }
 
+const parsePaymentPreferenceValue = (value: unknown): StaffPaymentPreference | null => {
+  if (typeof value !== "string") return null
+  const normalized = value.trim().toLowerCase()
+  return PAYMENT_PREFERENCES.includes(normalized as StaffPaymentPreference)
+    ? (normalized as StaffPaymentPreference)
+    : null
+}
+
+const createEmptyStaffPaymentForm = (): StaffPaymentForm => ({
+  paymentPreference: "",
+  cbu: "",
+  alias: "",
+  accountHolder: "",
+  mercadoPagoId: "",
+  bankName: "",
+  routingNumber: "",
+  accountNumber: "",
+  zelleId: "",
+  venmoUser: "",
+  accountType: "",
+})
+
+const createStaffPaymentForm = (
+  paymentPreference: StaffPaymentPreference | null,
+  paymentInfo: StaffPaymentInfo | null
+): StaffPaymentForm => ({
+  paymentPreference: paymentPreference ?? "",
+  cbu: paymentInfo?.cbu ?? "",
+  alias: paymentInfo?.alias ?? "",
+  accountHolder: paymentInfo?.accountHolder ?? "",
+  mercadoPagoId: paymentInfo?.mercadoPagoId ?? "",
+  bankName: paymentInfo?.bankName ?? "",
+  routingNumber: paymentInfo?.routingNumber ?? "",
+  accountNumber: paymentInfo?.accountNumber ?? "",
+  zelleId: paymentInfo?.zelleId ?? "",
+  venmoUser: paymentInfo?.venmoUser ?? "",
+  accountType: paymentInfo?.accountType ?? "",
+})
+
+const toPaymentInfoPayload = (form: StaffPaymentForm): StaffPaymentInfo | null => {
+  const paymentInfo = toStaffProfilePaymentInfoPayload({
+    cbu: form.cbu,
+    alias: form.alias,
+    accountHolder: form.accountHolder,
+    mercadoPagoId: form.mercadoPagoId,
+    bankName: form.bankName,
+    routingNumber: form.routingNumber,
+    accountNumber: form.accountNumber,
+    zelleId: form.zelleId,
+    venmoUser: form.venmoUser,
+    accountType: form.accountType,
+  })
+  return paymentInfo && Object.keys(paymentInfo).length > 0 ? paymentInfo : null
+}
+
 const getInitials = (firstName: string, lastName: string, email: string) => {
   const a = firstName?.trim()?.[0] || ""
   const b = lastName?.trim()?.[0] || ""
@@ -1113,17 +1537,96 @@ const getStatusTone = (row: StaffUserRow) => {
 
 const isCheckedInStatus = (value: PaymentRow["checkInStatus"]) => value === "checked_in" || value === "checked_in_no_package"
 
-const paymentStateLabel = (row: PaymentRow) => {
+const createEmptyPaymentsSummary = (): PaymentsApiSummary => ({
+  totalItems: 0,
+  totalCollected: 0,
+  pendingSettlement: 0,
+  paidSettlement: 0,
+  pendingStripe: 0,
+  paidStripe: 0,
+})
+
+const normalizePaymentsSummary = (summary: unknown): PaymentsApiSummary => {
+  if (!summary || typeof summary !== "object") return createEmptyPaymentsSummary()
+
+  const value = summary as Partial<PaymentsApiSummary>
+  return {
+    totalItems: typeof value.totalItems === "number" ? value.totalItems : 0,
+    totalCollected: typeof value.totalCollected === "number" ? value.totalCollected : 0,
+    pendingSettlement: typeof value.pendingSettlement === "number" ? value.pendingSettlement : 0,
+    paidSettlement: typeof value.paidSettlement === "number" ? value.paidSettlement : 0,
+    pendingStripe: typeof value.pendingStripe === "number" ? value.pendingStripe : 0,
+    paidStripe: typeof value.paidStripe === "number" ? value.paidStripe : 0,
+  }
+}
+
+export const resolveHistoryRangeState = (start: string, end?: string | null) => ({
+  historyFrom: start,
+  historyTo: end ?? "",
+})
+
+const paymentMethodLabel = (row: PaymentRow) => {
+  if (row.paymentChannel === "cash") return "Cash"
+  if (row.paymentChannel === "card") return row.purchaseCategory === "package" ? "Card / package" : "Card"
+  if (row.purchaseCategory === "package") return "Package"
+  return "Unknown"
+}
+
+export const isPaymentPaidForUi = (
+  row: {
+    classPaid: PaymentRow["classPaid"]
+    purchaseCategory: PaymentRow["purchaseCategory"]
+    fundingPayment?: PaymentRow["fundingPayment"]
+    checkInStatus?: PaymentRow["checkInStatus"]
+    packageId?: PaymentRow["packageId"]
+  }
+) => {
+  if (row.fundingPayment) return true
+  if (isPackageBackedDailyCheckIn(row)) return true
+  if (row.purchaseCategory === "package") return Boolean(row.fundingPayment)
+  return row.classPaid
+}
+
+export const paymentStateLabel = (
+  row: {
+    paymentChannel: PaymentRow["paymentChannel"]
+    settlementStatus: PaymentRow["settlementStatus"]
+    classPaid: PaymentRow["classPaid"]
+    purchaseCategory: PaymentRow["purchaseCategory"]
+    fundingPayment?: PaymentRow["fundingPayment"]
+    checkInStatus?: PaymentRow["checkInStatus"]
+    packageId?: PaymentRow["packageId"]
+  }
+) => {
   if (row.paymentChannel === "cash") {
     return row.settlementStatus === "paid" ? "Cash paid" : "Cash pending"
   }
+  if (row.fundingPayment || isPackageBackedDailyCheckIn(row)) {
+    return "Package paid"
+  }
   if (row.paymentChannel === "card") {
-    return row.classPaid ? "Card paid" : "Card pending"
+    return isPaymentPaidForUi(row) ? "Card paid" : "Card pending"
   }
   if (row.purchaseCategory === "package") {
-    return row.classPaid ? "Package paid" : "Package pending"
+    return isPaymentPaidForUi(row) ? "Package paid" : "Package pending"
   }
-  return row.classPaid ? "Paid" : "Pending"
+  return isPaymentPaidForUi(row) ? "Paid" : "Pending"
+}
+
+const isPackageBackedDailyCheckIn = (
+  row: {
+    checkInStatus?: PaymentRow["checkInStatus"]
+    fundingPayment?: PaymentRow["fundingPayment"]
+    purchaseCategory: PaymentRow["purchaseCategory"]
+    packageId?: PaymentRow["packageId"]
+  }
+) => {
+  if (!row.checkInStatus || !isCheckedInStatus(row.checkInStatus)) return false
+  return Boolean(row.fundingPayment || row.purchaseCategory === "package" || row.packageId)
+}
+
+export const resolveDailyVisiblePayment = (payments: PaymentRow[]) => {
+  return payments.find((payment) => isPackageBackedDailyCheckIn(payment)) || payments[0] || null
 }
 
 const paymentStateTone = (row: PaymentRow) => {
@@ -1131,24 +1634,192 @@ const paymentStateTone = (row: PaymentRow) => {
     if (row.settlementStatus === "paid") return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
     return "border-amber-500/45 bg-amber-500/10 text-amber-300"
   }
-  if (row.classPaid) return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
+  if (isPaymentPaidForUi(row)) return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
   return "border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)]"
 }
 
-const checkInStateLabel = (row: PaymentRow) => {
-  if (row.checkInStatus === "checked_in") return "Check-in"
-  if (row.checkInStatus === "checked_in_no_package") return "Check-in (drop-in)"
-  if (row.checkInStatus === "scheduled") return "Scheduled"
-  return "No check-in"
+const checkInStateLabel = (row: PaymentRow, options?: { includePurchaseCategory?: boolean }) => {
+  const suffix = options?.includePurchaseCategory
+    ? row.purchaseCategory === "package" ? " (pkg)" : " (drop-in)"
+    : ""
+  if (row.checkInStatus === "checked_in") return `Check-in${suffix}`
+  if (row.checkInStatus === "checked_in_no_package") return `Check-in${suffix}`
+  if (row.checkInStatus === "checked_out") return `Checked out${suffix}`
+  if (row.checkInStatus === "scheduled") return `Scheduled${suffix}`
+  return `Complete class${suffix}`
 }
 
-const checkInStateTone = (row: PaymentRow) => {
-  if (isCheckedInStatus(row.checkInStatus)) return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+export const checkInStateTone = (row: PaymentRow) => {
+  if (isCheckedInStatus(row.checkInStatus)) return "border-violet-400/40 bg-violet-400/12 text-violet-200"
+  if (row.checkInStatus === "checked_out") return "border-cyan-400/40 bg-cyan-400/12 text-cyan-200"
   if (row.checkInStatus === "scheduled") return "border-amber-500/45 bg-amber-500/10 text-amber-300"
+  return "border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
+}
+
+export const resolveStudentPinTone = (studentPin: PaymentRow["studentPin"]) => {
+  if (!studentPin.enabled) return null
+  if (studentPin.provisionalActive) return "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
+  return "border-blue-400/40 bg-blue-400/12 text-blue-200"
+}
+
+const profileBalanceStatusLabel = (outstandingBalance: StudentProfileCard["outstandingBalance"]) => {
+  return typeof outstandingBalance === "number" && outstandingBalance > 0 ? "Payment due" : "Paid in full"
+}
+
+const profileBalanceStatusTone = (outstandingBalance: StudentProfileCard["outstandingBalance"]) => {
+  if (typeof outstandingBalance === "number" && outstandingBalance > 0) {
+    return "border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)]"
+  }
+  return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
+}
+
+const profilePinBadgeTone = (status: StudentProfileCard["pinStatus"]) => {
+  if (status === "provisional") return "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
+  if (status === "enrolled") return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
   return "border-white/20 bg-white/[0.03] text-white/70"
 }
 
-const matchesPaymentCategory = (row: PaymentRow, category: PaymentCategoryFilter) => {
+const LAST_CHECK_IN_BADGE_TONE = "border-sky-400/40 bg-sky-400/12 text-sky-200"
+const PROFILE_CARD_BADGE_CLASS = "w-full flex items-center justify-center rounded-md border px-2 py-1.5 text-xs font-semibold"
+
+const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
+  if (status === "provisional") return "Provisional PIN"
+  if (status === "enrolled") return "PIN enrolled"
+  return "No PIN"
+}
+
+const formatProfileLatestClassAttended = (student: StudentProfileCard) => {
+  if (!student.latestClassAttended) return "No attended classes"
+  const dateOnly = student.latestClassAttended.startsAt.split("T")[0]
+  const formattedDate = dateOnly ? formatReadableDate(dateOnly) : formatIsoDate(student.latestClassAttended.startsAt)
+  return formattedDate
+}
+
+type ProfileBadge = {
+  key: string
+  label: string
+  tone: string
+  title?: string
+}
+
+export const resolveProfileCardBadges = (student: StudentProfileCard) => {
+  const details = resolveProfileCardDetails(student)
+  return [
+    {
+      key: "points",
+      label: `Points: ${student.pointsBalance}`,
+      tone: "border-amber-400/35 bg-amber-400/10 text-amber-200",
+    },
+    {
+      key: "payment",
+      label: details.paymentStatusLabel,
+      tone: details.paymentStatusTone,
+    },
+    {
+      key: "check-in",
+      label: "Last check-in",
+      tone: LAST_CHECK_IN_BADGE_TONE,
+      ...(student.latestCheckInAt ? { title: formatStudentPaymentCardDateTimeLabel(student.latestCheckInAt) } : {}),
+    },
+    {
+      key: "pin",
+      label: details.pinStatusLabel,
+      tone: details.pinStatusTone,
+    },
+  ] satisfies ProfileBadge[]
+}
+
+export const resolveProfileCashSettlementControl = (student: StudentProfileCard) => {
+  if (!student.cashSettlement) return null
+  if (student.cashSettlement.settlementStatus !== "pending") return null
+  return {
+    paymentId: student.cashSettlement.paymentId,
+    settlementStatus: student.cashSettlement.settlementStatus,
+    settlementNote: student.cashSettlement.settlementNote,
+  }
+}
+
+export const resolveProfileSettlementControl = (student: StudentProfileCard) => {
+  const cash = resolveProfileCashSettlementControl(student)
+  if (cash) return cash
+  if (!student.pendingSettlement) return null
+  if (student.pendingSettlement.settlementStatus !== "pending") return null
+  return {
+    paymentId: student.pendingSettlement.paymentId,
+    settlementStatus: student.pendingSettlement.settlementStatus,
+    settlementNote: student.pendingSettlement.settlementNote,
+  }
+}
+
+const resolveVisibleProfileSettlementIds = (students: StudentProfileCard[]) =>
+  [
+    ...new Set(
+      students
+        .map((student) => resolveProfileSettlementControl(student)?.paymentId)
+        .filter((paymentId): paymentId is string => Boolean(paymentId))
+    ),
+  ]
+
+export const resolveProfileCardDetailRows = (student: StudentProfileCard) => {
+  const details = resolveProfileCardDetails(student)
+  return [
+    { key: "location", label: "Location", value: details.latestLocationLabel },
+    { key: "email", label: "Email", value: student.email || "—" },
+    { key: "phone", label: "Phone", value: student.phone || "—" },
+    ...(student.provisionalPinExpiresAt
+      ? [{ key: "provisional-pin-expiry", label: "Provisional PIN expiry", value: formatIsoDate(student.provisionalPinExpiresAt) }]
+      : []),
+    { key: "package", label: "Package", value: details.packageLabel },
+    { key: "credits", label: "Credits", value: details.packageValue },
+    ...(details.outstandingBalanceLabel
+      ? [{ key: "outstanding-balance", label: "Outstanding balance", value: details.outstandingBalanceLabel, tone: "danger" as const }]
+      : []),
+    { key: "last-payment", label: "Last payment", value: details.lastPaymentLabel },
+    { key: "last-course", label: "Last course", value: details.lastCourseLabel },
+  ]
+}
+
+export const resolveProfileCardDetails = (student: StudentProfileCard) => {
+  const packageLabel = student.activePackage?.label || "No active package"
+  const packageValue = student.activePackage
+    ? student.activePackage.isUnlimited
+      ? "Unlimited"
+      : `${Math.max(0, student.remainingCredits || 0)} credits`
+    : "No package credits"
+  const paymentStatusLabel = profileBalanceStatusLabel(student.outstandingBalance)
+  const paymentStatusTone = profileBalanceStatusTone(student.outstandingBalance)
+  const checkInStatusLabel = checkInStateLabel({ checkInStatus: student.checkInStatus } as PaymentRow)
+  const checkInStatusTone = checkInStateTone({ checkInStatus: student.checkInStatus } as PaymentRow)
+  const pinStatusLabel = profilePinBadgeLabel(student.pinStatus)
+  const pinStatusTone = profilePinBadgeTone(student.pinStatus)
+  const lastPaymentLabel = student.lastPayment
+    ? `${formatMoney(student.lastPayment.amountCents)} · ${formatIsoDateLong(student.lastPayment.date)}`
+    : "No successful payments"
+  const outstandingBalanceLabel = typeof student.outstandingBalance === "number" && student.outstandingBalance > 0
+    ? formatMoney(student.outstandingBalance)
+    : null
+  const latestLocationLabel = student.latestClassAttended?.location || "No class location"
+  const lastCourseLabel = student.lastCourse?.courseTitle || student.lastCourse?.courseSlug || "No registered course"
+
+  return {
+    packageLabel,
+    packageValue,
+    paymentStatusLabel,
+    paymentStatusTone,
+    checkInStatusLabel,
+    checkInStatusTone,
+    pinStatusLabel,
+    pinStatusTone,
+    lastPaymentLabel,
+    lastCourseLabel,
+    outstandingBalanceLabel,
+    latestLocationLabel,
+  }
+}
+
+const matchesPaymentCategory = (row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory">, category: PaymentCategoryFilter) => {
+  if (category === "all") return true
+  if (category === "history") return true
   if (category === "cash") return row.paymentChannel === "cash"
   if (category === "card") return row.paymentChannel === "card" || row.paymentChannel === "unknown"
   if (category === "packages") return row.purchaseCategory === "package"
@@ -1156,10 +1827,197 @@ const matchesPaymentCategory = (row: PaymentRow, category: PaymentCategoryFilter
   return true
 }
 
-const matchesStripeStatus = (row: PaymentRow, filter: "all" | "pending" | "paid") => {
+const matchesStripeStatus = (
+  row: {
+    classPaid: PaymentRow["classPaid"]
+    purchaseCategory: PaymentRow["purchaseCategory"]
+    fundingPayment?: PaymentRow["fundingPayment"]
+    checkInStatus?: PaymentRow["checkInStatus"]
+    packageId?: PaymentRow["packageId"]
+  },
+  filter: "all" | "pending" | "paid"
+) => {
   if (filter === "all") return true
-  if (filter === "paid") return row.classPaid
-  return !row.classPaid
+  if (filter === "paid") return isPaymentPaidForUi(row)
+  return !isPaymentPaidForUi(row)
+}
+
+export const matchesStudentSearchQuery = (
+  row: Pick<PaymentRow, "customerName" | "customerEmail" | "customerPhone" | "courseTitle" | "courseSlug" | "location" | "activePackage">,
+  searchTerm: string
+) => {
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase()
+  if (!normalizedSearchTerm) return true
+
+  const haystack = [
+    row.customerName,
+    row.customerEmail,
+    row.customerPhone,
+    row.courseTitle,
+    row.courseSlug,
+    row.location || "",
+    row.activePackage?.label || "",
+  ]
+    .join(" ")
+    .toLowerCase()
+
+  return haystack.includes(normalizedSearchTerm)
+}
+
+const matchesHistoryPaymentMethod = (
+  row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory">,
+  filter: HistoryPaymentMethodFilter
+) => {
+  if (filter === "all") return true
+  if (filter === "cash") return row.paymentChannel === "cash"
+  if (filter === "card") return row.paymentChannel === "card"
+  if (filter === "package") return row.purchaseCategory === "package"
+  return row.purchaseCategory === "dropin"
+}
+
+const matchesHistoryAttendanceFilter = (
+  row: Pick<PaymentRow, "checkInStatus">,
+  filter: HistoryAttendanceFilter
+) => {
+  if (filter === "all") return true
+  if (filter === "attended") return isCheckedInStatus(row.checkInStatus) || row.checkInStatus === "checked_out"
+  if (filter === "scheduled") return row.checkInStatus === "scheduled"
+  return row.checkInStatus === "none"
+}
+
+export const matchesHistoryContentFilters = (
+  row: HistoryContentFilterInput,
+  filters: {
+    classKey: string
+    paymentMethodFilter: HistoryPaymentMethodFilter
+    attendanceFilter: HistoryAttendanceFilter
+    paymentsFilter: "all" | "pending" | "paid"
+  }
+) => {
+  return (
+    (!filters.classKey || row.courseSlug === filters.classKey) &&
+    matchesHistoryPaymentMethod(row, filters.paymentMethodFilter) &&
+    matchesHistoryAttendanceFilter(row, filters.attendanceFilter) &&
+    matchesStripeStatus(row, filters.paymentsFilter)
+  )
+}
+
+export const resolveStudentCardPayments = (
+  payments: PaymentRow[],
+  options: {
+    isHistoryMode: boolean
+    historyClassKey: string
+    historyPaymentMethodFilter: HistoryPaymentMethodFilter
+    historyAttendanceFilter: HistoryAttendanceFilter
+    paymentCategoryFilter: PaymentCategoryFilter
+    paymentsFilter: "all" | "pending" | "paid"
+    studentSearchQuery: string
+  }
+) => {
+  const contentFilteredPayments = payments.filter((payment) => {
+    if (options.isHistoryMode) {
+      return matchesHistoryContentFilters(payment, {
+        classKey: options.historyClassKey,
+        paymentMethodFilter: options.historyPaymentMethodFilter,
+        attendanceFilter: options.historyAttendanceFilter,
+        paymentsFilter: "all",
+      })
+    }
+
+    return matchesPaymentCategory(payment, options.paymentCategoryFilter)
+  })
+
+  if (!options.studentSearchQuery.trim()) {
+    return contentFilteredPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
+  }
+
+  const searchMatchedPayments = contentFilteredPayments.filter((payment) => matchesStudentSearchQuery(payment, options.studentSearchQuery))
+  if (searchMatchedPayments.length === 0) return []
+
+  const statusMatchedPayments = searchMatchedPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
+  return statusMatchedPayments.length > 0 ? statusMatchedPayments : searchMatchedPayments
+}
+
+export const buildPaymentsRequestSearchParams = (input: {
+  isHistoryMode: boolean
+  historyFrom: string
+  historyTo: string
+  studentSearchQuery?: string
+}) => {
+  const searchParams = new URLSearchParams()
+  const normalizedStudentSearchQuery = input.studentSearchQuery?.trim() || ""
+  if (normalizedStudentSearchQuery) {
+    searchParams.set("q", normalizedStudentSearchQuery)
+  }
+  if (!input.isHistoryMode) return searchParams
+  searchParams.set("mode", "history")
+  searchParams.set("from", input.historyFrom)
+  searchParams.set("to", input.historyTo)
+  return searchParams
+}
+
+export const buildCurrentMonthPaymentsSummarySearchParams = (referenceDate = new Date()) => {
+  const monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1)
+  const monthEnd = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0)
+
+  return buildPaymentsRequestSearchParams({
+    isHistoryMode: true,
+    historyFrom: toLocalIsoDate(monthStart),
+    historyTo: toLocalIsoDate(monthEnd),
+  })
+}
+
+export const buildCurrentMonthStudentsSummary = (input: {
+  summary: PaymentsApiSummary
+  studentCount: number
+  checkedInStudents: number
+}) => ({
+  totalStudents: input.studentCount,
+  paidStudents: input.summary.paidStripe,
+  checkedInStudents: input.checkedInStudents,
+  totalRevenueCents: input.summary.totalCollected,
+  pendingByContext: input.summary.pendingStripe + input.summary.pendingSettlement,
+})
+
+export const buildRoomLookup = (rooms: RoomRow[]) =>
+  rooms.reduce<Record<string, RoomRow>>((acc, room) => {
+    acc[room.id] = room
+    return acc
+  }, {})
+
+export const buildCourseRoomOptions = (rooms: RoomRow[], defaultRoomId: string) => {
+  const activeRooms = rooms.filter((room) => room.active)
+  if (!defaultRoomId) return activeRooms
+
+  const selectedRoom = rooms.find((room) => room.id === defaultRoomId)
+  if (!selectedRoom || activeRooms.some((room) => room.id === selectedRoom.id)) return activeRooms
+
+  return [selectedRoom, ...activeRooms]
+}
+
+export const filterVisibleRooms = (rooms: RoomRow[], query: string, statusFilter: RoomStatusFilter) => {
+  const normalizedQuery = query.trim().toLowerCase()
+  return rooms.filter((room) => {
+    if (statusFilter === "active" && !room.active) return false
+    if (statusFilter === "inactive" && room.active) return false
+    if (!normalizedQuery) return true
+    return `${room.name} ${room.location || ""}`.toLowerCase().includes(normalizedQuery)
+  })
+}
+
+export const resolveRoomDisableActionState = (room: Pick<RoomRow, "active" | "id">, roomBusyId: string | null) => ({
+  disabled: !room.active || roomBusyId === room.id,
+  label: roomBusyId === room.id ? "Disabling..." : room.active ? "Disable" : "Disabled",
+})
+
+export const resolveRoomCatalogErrorMessage = (sources: Array<unknown>) => {
+  for (const source of sources) {
+    if (source && typeof source === "object" && typeof (source as { error?: unknown }).error === "string") {
+      return (source as { error: string }).error
+    }
+  }
+
+  return "Failed to load school catalog."
 }
 
 const splitCustomerName = (name: string, email: string) => {
@@ -1230,7 +2088,7 @@ type StaffUsersAdminClientProps = {
 export default function StaffUsersAdminClient({ currentRole, currentCategory, currentUserId }: StaffUsersAdminClientProps) {
   const searchParams = useSearchParams()
   const resolvedCurrentCategory: StaffCategory =
-    currentCategory || (currentRole === "owner" ? "partner" : currentRole === "admin" ? "manager" : "guest_staff")
+    currentCategory || (currentRole === "owner" ? "partner" : currentRole === "admin" ? "manager" : "guest")
   const defaultNav = getDefaultStaffPortalSection(currentRole, resolvedCurrentCategory) || "profile"
   const stickyTop = 0
   const gridRef = React.useRef<HTMLDivElement>(null)
@@ -1238,6 +2096,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const rightRailRef = React.useRef<HTMLDivElement>(null)
 
   const [rows, setRows] = React.useState<StaffUserRow[]>([])
+  const [payrollModelOptions, setPayrollModelOptions] = React.useState<StaffPaymentModelOption[]>([])
+  const [payrollModelLoading, setPayrollModelLoading] = React.useState(false)
+  const [payrollModelError, setPayrollModelError] = React.useState<string | null>(null)
+  const [payrollModelActionByUserId, setPayrollModelActionByUserId] = React.useState<Record<string, PayrollModelActionState>>({})
   const [nowTs, setNowTs] = React.useState(() => Date.now())
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -1262,12 +2124,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     },
   ])
   const [assistantChatInput, setAssistantChatInput] = React.useState("")
+  const [isRailCollapsed, setIsRailCollapsed] = React.useState(false)
+  const [hasAssistantViewportSync, setHasAssistantViewportSync] = React.useState(true)
 
   const [email, setEmail] = React.useState("")
   const [firstName, setFirstName] = React.useState("")
   const [lastName, setLastName] = React.useState("")
   const [newRole, setNewRole] = React.useState<StaffRole>("staff")
-  const [newCategory, setNewCategory] = React.useState<StaffCategory>("guest_staff")
+  const [newCategory, setNewCategory] = React.useState<StaffCategory>("guest")
+  const [newPin, setNewPin] = React.useState("")
   const [createBusy, setCreateBusy] = React.useState(false)
   const [createMessage, setCreateMessage] = React.useState<string | null>(null)
 
@@ -1277,9 +2142,21 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [scheduleEventsByDay, setScheduleEventsByDay] = React.useState<Record<string, ScheduleEvent[]>>({})
 
   const [payments, setPayments] = React.useState<PaymentRow[]>([])
+  const [paymentsSummaryApi, setPaymentsSummaryApi] = React.useState<PaymentsApiSummary>(() => createEmptyPaymentsSummary())
+  const [paymentsMonthlySummaryApi, setPaymentsMonthlySummaryApi] = React.useState<PaymentsApiSummary>(() => createEmptyPaymentsSummary())
+  const [paymentsMonthlyStudentCount, setPaymentsMonthlyStudentCount] = React.useState(0)
+  const [paymentsMonthlyCheckedInStudents, setPaymentsMonthlyCheckedInStudents] = React.useState(0)
+  const [paymentsMonthlyPurchaseSummary, setPaymentsMonthlyPurchaseSummary] = React.useState({ packages: 0, dropIn: 0 })
   const [paymentsLoading, setPaymentsLoading] = React.useState(false)
   const [paymentsFilter, setPaymentsFilter] = React.useState<"all" | "pending" | "paid">("all")
-  const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("card")
+  const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("all")
+  const [isHistoryMode, setIsHistoryMode] = React.useState(false)
+  const [historyFrom, setHistoryFrom] = React.useState("")
+  const [historyTo, setHistoryTo] = React.useState("")
+  const [historyPaymentMethodFilter, setHistoryPaymentMethodFilter] = React.useState<HistoryPaymentMethodFilter>("all")
+  const [historyAttendanceFilter, setHistoryAttendanceFilter] = React.useState<HistoryAttendanceFilter>("all")
+  const [historyClassKey, setHistoryClassKey] = React.useState("")
+  const [historyClassOptions, setHistoryClassOptions] = React.useState<HistoryClassOption[]>([])
   const [studentSearchQuery, setStudentSearchQuery] = React.useState("")
   const [reportsDateFrom, setReportsDateFrom] = React.useState("")
   const [reportsDateTo, setReportsDateTo] = React.useState("")
@@ -1292,6 +2169,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [reportSuggestionsError, setReportSuggestionsError] = React.useState<string | null>(null)
   const [selectedPaymentIds, setSelectedPaymentIds] = React.useState<string[]>([])
   const [paymentsBulkBusyAction, setPaymentsBulkBusyAction] = React.useState<"mark_paid" | "mark_pending" | null>(null)
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const [checkoutMenuPaymentId, setCheckoutMenuPaymentId] = React.useState<string | null>(null)
+  const [checkoutBusyAttendanceId, setCheckoutBusyAttendanceId] = React.useState<string | null>(null)
 
   const [staffRequests, setStaffRequests] = React.useState<StaffRequestRow[]>([])
   const [requestsSummary, setRequestsSummary] = React.useState<StaffRequestSummary>({
@@ -1305,8 +2185,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [requestStatusFilter, setRequestStatusFilter] = React.useState<StaffRequestStatus | "all">("PENDING")
   const [profileRequestStatusFilter, setProfileRequestStatusFilter] = React.useState<StaffRequestStatus | "all">("all")
   const [requestBusyId, setRequestBusyId] = React.useState<string | null>(null)
+  const [paymentChangeRequests, setPaymentChangeRequests] = React.useState<StaffPaymentChangeRequestRow[]>([])
+  const [paymentChangeRequestsLoading, setPaymentChangeRequestsLoading] = React.useState(false)
+  const [paymentChangeRequestBusyId, setPaymentChangeRequestBusyId] = React.useState<string | null>(null)
   const [selfProfileLoading, setSelfProfileLoading] = React.useState(false)
   const [selfProfileSnapshot, setSelfProfileSnapshot] = React.useState<SelfProfileSnapshot | null>(null)
+  const [profilePaymentExpanded, setProfilePaymentExpanded] = React.useState(false)
+  const [profilePaymentSaving, setProfilePaymentSaving] = React.useState(false)
+  const [profilePaymentError, setProfilePaymentError] = React.useState<string | null>(null)
+  const [profilePaymentSuccess, setProfilePaymentSuccess] = React.useState<string | null>(null)
+  const [profilePaymentForm, setProfilePaymentForm] = React.useState<StaffPaymentForm>(() => createEmptyStaffPaymentForm())
   const [profileRequestSubmitting, setProfileRequestSubmitting] = React.useState(false)
   const [profileRequestSuccess, setProfileRequestSuccess] = React.useState<string | null>(null)
   const [profileRequestError, setProfileRequestError] = React.useState<string | null>(null)
@@ -1352,6 +2240,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [teacherSaving, setTeacherSaving] = React.useState(false)
   const [teacherSuccess, setTeacherSuccess] = React.useState<string | null>(null)
   const [teacherError, setTeacherError] = React.useState<string | null>(null)
+  const lastHydratedTeacherIdRef = React.useRef<string | null>(null)
   const [metricsView, setMetricsView] = React.useState<"current" | "previous_cycle">("current")
   const [metricsSaving, setMetricsSaving] = React.useState(false)
   const [metricsSuccess, setMetricsSuccess] = React.useState<string | null>(null)
@@ -1361,8 +2250,23 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [schoolError, setSchoolError] = React.useState<string | null>(null)
   const [schoolSuccess, setSchoolSuccess] = React.useState<string | null>(null)
   const [schoolCourses, setSchoolCourses] = React.useState<SchoolCourseRow[]>([])
+  const [schoolRooms, setSchoolRooms] = React.useState<RoomRow[]>([])
   const [schoolPackages, setSchoolPackages] = React.useState<SchoolPackageRow[]>([])
   const [schoolPointsRules, setSchoolPointsRules] = React.useState<PointsRuleRow[]>([])
+  const [roomForm, setRoomForm] = React.useState<RoomFormState>({
+    id: "",
+    name: "",
+    capacity: "",
+    location: "",
+    active: true,
+  })
+  const [roomSearchQuery, setRoomSearchQuery] = React.useState("")
+  const [roomStatusFilter, setRoomStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
+  const [roomSaving, setRoomSaving] = React.useState(false)
+  const [roomBusyId, setRoomBusyId] = React.useState<string | null>(null)
+  const [roomFormError, setRoomFormError] = React.useState<string | null>(null)
+  const [roomFormSuccess, setRoomFormSuccess] = React.useState<string | null>(null)
+  const [roomActionErrors, setRoomActionErrors] = React.useState<Record<string, string>>({})
   const [courseForm, setCourseForm] = React.useState<CourseFormState>({
     slug: "",
     title: "",
@@ -1376,6 +2280,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     level: "Beginner",
     durationMinutes: "55",
     location: "54 Coles St, Jersey City, NJ",
+    defaultRoomId: "",
     publicationMode: "publish_now",
     launchDate: "",
     specialDiscountType: "none",
@@ -1439,7 +2344,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     firstName: "",
     lastName: "",
     role: "staff",
-    category: "guest_staff",
+    category: "guest",
     birthDate: "",
     addressLine1: "",
     addressLine2: "",
@@ -1513,6 +2418,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const isSpecialEventCourse = SPECIAL_EVENT_COURSE_KINDS.has(courseForm.kind)
   const showStaffOps = activeNav === "users" && canAccessUsersNav
   const showRightRail = true
+  const showInlineRightRail = showRightRail && !isRailCollapsed
   const activeNavLabel = React.useMemo(
     () => visibleNavItems.find((item) => item.key === activeNav)?.label ?? "Current section",
     [activeNav, visibleNavItems]
@@ -1524,6 +2430,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setActiveNav(next)
     }
   }, [activeNav, allowedNavSections, currentRole, resolvedCurrentCategory])
+  const handleNavSelection = React.useCallback((nextNav: StaffPortalSection) => {
+    setActiveNav(nextNav)
+    if (nextNav === "assistant") {
+      setIsRailCollapsed(false)
+    }
+  }, [])
   const assignableRoles = React.useMemo<StaffRole[]>(() => {
     return currentRole === "owner" ? ["owner", "admin", "staff"] : ["admin", "staff"]
   }, [currentRole])
@@ -1538,6 +2450,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const selfProfileRow = React.useMemo<StaffUserRow>(
     () => ({
       id: currentUserId,
+      paymentModelId: null,
       email: "",
       phone: "",
       avatarUrl: "",
@@ -1584,6 +2497,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       location: profileForm.location || "",
       role: currentRole,
       category: resolvedCurrentCategory,
+      paymentPreference: null,
+      assignedPaymentPreference: null,
+      paymentInfo: null,
       metrics: {
         performanceRating: null,
         performanceReviewsCount: null,
@@ -1615,9 +2531,23 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     () => buildSelfRecommendations(resolvedSelfProfile.metrics),
     [resolvedSelfProfile.metrics]
   )
+  const profilePaymentSummaryCards = React.useMemo(
+    () => resolveStaffProfilePaymentSummaryCards(resolvedSelfProfile.paymentInfo),
+    [resolvedSelfProfile.paymentInfo]
+  )
   const selectedProfileRequestType = React.useMemo(
     () => PROFILE_REQUEST_TYPE_OPTIONS.find((item) => item.value === profileRequestForm.type) || PROFILE_REQUEST_TYPE_OPTIONS[0],
     [profileRequestForm.type]
+  )
+  const roomById = React.useMemo(() => buildRoomLookup(schoolRooms), [schoolRooms])
+  const activeRoomOptions = React.useMemo(() => schoolRooms.filter((room) => room.active), [schoolRooms])
+  const courseRoomOptions = React.useMemo(
+    () => buildCourseRoomOptions(schoolRooms, courseForm.defaultRoomId),
+    [courseForm.defaultRoomId, schoolRooms]
+  )
+  const visibleRooms = React.useMemo(
+    () => filterVisibleRooms(schoolRooms, roomSearchQuery, roomStatusFilter),
+    [roomSearchQuery, roomStatusFilter, schoolRooms]
   )
   const ensureMinimumLoadingTime = React.useCallback(async (startedAt: number) => {
     const elapsed = Date.now() - startedAt
@@ -1676,6 +2606,99 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
+  const fetchPayrollModelOptions = React.useCallback(async () => {
+    setPayrollModelLoading(true)
+    setPayrollModelError(null)
+    try {
+      const res = await fetch("/api/staff/payroll/payment-models", {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setPayrollModelOptions([])
+        setPayrollModelError(typeof data?.error === "string" ? data.error : "Failed to load payroll models")
+        return
+      }
+
+      setPayrollModelOptions(
+        Array.isArray(data?.items)
+          ? data.items
+              .map((item: unknown) => {
+                const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {}
+                return {
+                  id: typeof record.id === "string" ? record.id : "",
+                  name: typeof record.name === "string" ? record.name.trim() : "",
+                  active: record.active !== false,
+                  isDefault: record.isDefault === true,
+                }
+              })
+              .filter((item: { id: string; name: string }) => item.id && item.name)
+          : []
+      )
+    } catch {
+      setPayrollModelOptions([])
+      setPayrollModelError("Network error while loading payroll models")
+    } finally {
+      setPayrollModelLoading(false)
+    }
+  }, [handleStaffAuthFailure])
+
+  const updateStaffPayrollModel = React.useCallback(async (userId: string, paymentModelId: string | null) => {
+    setPayrollModelActionByUserId((prev) => ({
+      ...prev,
+      [userId]: { status: "saving", message: "Saving payroll model..." },
+    }))
+
+    try {
+      const res = await fetch(`/api/staff/users/${userId}/payroll-model`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentModelId }),
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setPayrollModelActionByUserId((prev) => ({
+          ...prev,
+          [userId]: {
+            status: "error",
+            message: typeof data?.error === "string" ? data.error : "Unable to update payroll model.",
+          },
+        }))
+        return
+      }
+
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === userId
+            ? {
+                ...row,
+                paymentModelId: typeof data?.paymentModelId === "string" ? data.paymentModelId : null,
+              }
+            : row
+        )
+      )
+      setPayrollModelActionByUserId((prev) => ({
+        ...prev,
+        [userId]: {
+          status: "success",
+          message: paymentModelId ? "Payroll model updated." : "Using school default payroll model.",
+        },
+      }))
+    } catch {
+      setPayrollModelActionByUserId((prev) => ({
+        ...prev,
+        [userId]: {
+          status: "error",
+          message: "Network error while updating payroll model.",
+        },
+      }))
+    }
+  }, [handleStaffAuthFailure])
+
   const fetchSchedule = React.useCallback(async (month: Date) => {
     const startedAt = Date.now()
     setScheduleLoading(true)
@@ -1701,24 +2724,103 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     const startedAt = Date.now()
     setPaymentsLoading(true)
     try {
+      if (isHistoryMode && (!historyFrom || !historyTo || historyFrom > historyTo)) {
+        setPayments([])
+        setPaymentsSummaryApi(createEmptyPaymentsSummary())
+        setHistoryClassOptions([])
+        return
+      }
+
       const url = new URL("/api/staff/payments", window.location.origin)
+      const searchParams = buildPaymentsRequestSearchParams({
+        isHistoryMode,
+        historyFrom,
+        historyTo,
+      })
+      url.search = searchParams.toString()
       const res = await fetch(url.toString(), { headers: { "Content-Type": "application/json" } })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
         setError(typeof data?.error === "string" ? data.error : "Failed to load payments")
         setPayments([])
+        setPaymentsSummaryApi(createEmptyPaymentsSummary())
+        setHistoryClassOptions([])
         return
       }
       setPayments(Array.isArray(data?.items) ? data.items : [])
+      setPaymentsSummaryApi(normalizePaymentsSummary(data?.summary))
+      setHistoryClassOptions(
+        isHistoryMode && Array.isArray(data?.classOptions)
+          ? data.classOptions
+              .map((item: unknown) => {
+                const option = item as Partial<HistoryClassOption>
+                return typeof option?.slug === "string" && typeof option?.title === "string"
+                  ? { slug: option.slug, title: option.title }
+                  : null
+              })
+              .filter((item: HistoryClassOption | null): item is HistoryClassOption => Boolean(item))
+          : []
+      )
     } catch {
       setError("Network error while loading payments")
       setPayments([])
+      setPaymentsSummaryApi(createEmptyPaymentsSummary())
+      setHistoryClassOptions([])
     } finally {
       await ensureMinimumLoadingTime(startedAt)
       setPaymentsLoading(false)
     }
-  }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
+  }, [ensureMinimumLoadingTime, handleStaffAuthFailure, historyFrom, historyTo, isHistoryMode])
+
+  const fetchPaymentsMonthlySummary = React.useCallback(async () => {
+    try {
+      const url = new URL("/api/staff/payments", window.location.origin)
+      url.search = buildCurrentMonthPaymentsSummarySearchParams().toString()
+      const res = await fetch(url.toString(), { headers: { "Content-Type": "application/json" } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
+        setPaymentsMonthlyStudentCount(0)
+        setPaymentsMonthlyCheckedInStudents(0)
+        setPaymentsMonthlyPurchaseSummary({ packages: 0, dropIn: 0 })
+        return
+      }
+
+      const monthlyPayments = Array.isArray(data?.items) ? (data.items as PaymentRow[]) : []
+      const monthlyStudentCards = buildHistoryStudentCards(monthlyPayments)
+
+      setPaymentsMonthlySummaryApi(normalizePaymentsSummary(data?.summary))
+      setPaymentsMonthlyStudentCount(monthlyStudentCards.length)
+      setPaymentsMonthlyCheckedInStudents(monthlyStudentCards.filter((item) => Boolean(item.latestAttendedPayment)).length)
+      setPaymentsMonthlyPurchaseSummary(
+        monthlyPayments.reduce(
+          (acc, payment) => {
+            if (payment.purchaseCategory === "package") acc.packages += 1
+            if (payment.purchaseCategory === "dropin") acc.dropIn += 1
+            return acc
+          },
+          { packages: 0, dropIn: 0 }
+        )
+      )
+    } catch {
+      setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
+      setPaymentsMonthlyStudentCount(0)
+      setPaymentsMonthlyCheckedInStudents(0)
+      setPaymentsMonthlyPurchaseSummary({ packages: 0, dropIn: 0 })
+    }
+  }, [handleStaffAuthFailure])
+
+  const refreshPaymentsBoard = React.useCallback(async () => {
+    await Promise.all([fetchPayments(), fetchPaymentsMonthlySummary()])
+  }, [fetchPayments, fetchPaymentsMonthlySummary])
+
+  React.useEffect(() => {
+    if (!historyClassKey) return
+    if (historyClassOptions.some((option) => option.slug === historyClassKey)) return
+    setHistoryClassKey("")
+  }, [historyClassKey, historyClassOptions])
 
   const closeStudentPinModal = React.useCallback(() => {
     setStudentPinModal(null)
@@ -1739,6 +2841,27 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       needsEnrollment: payment.studentPin.needsEnrollment,
       provisionalActive: payment.studentPin.provisionalActive,
       provisionalExpiresAt: payment.studentPin.provisionalExpiresAt,
+    })
+    setStudentPinReason("")
+    setStudentPinDraft("")
+    setStudentPinError(null)
+    setStudentPinIssued(null)
+    setStudentPinRevealIssued(false)
+  }, [])
+
+  const openStudentPinModalForProfile = React.useCallback((student: {
+    userId: string
+    displayName: string
+    email: string
+    provisionalPinExpiresAt?: string
+  }) => {
+    setStudentPinModal({
+      userId: student.userId,
+      name: student.displayName,
+      email: student.email,
+      needsEnrollment: false,
+      provisionalActive: Boolean(student.provisionalPinExpiresAt),
+      provisionalExpiresAt: student.provisionalPinExpiresAt ?? null,
     })
     setStudentPinReason("")
     setStudentPinDraft("")
@@ -1786,13 +2909,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         expiresAt: typeof data?.expiresAt === "string" ? data.expiresAt : null,
       })
       setStudentPinRevealIssued(false)
-      await fetchPayments()
+      await refreshPaymentsBoard()
     } catch {
       setStudentPinError("Network error while issuing provisional PIN.")
     } finally {
       setStudentPinSubmitting(false)
     }
-  }, [fetchPayments, handleStaffAuthFailure, studentPinDraft, studentPinModal, studentPinReason])
+  }, [handleStaffAuthFailure, refreshPaymentsBoard, studentPinDraft, studentPinModal, studentPinReason])
 
   const fetchStaffRequests = React.useCallback(
     async (
@@ -1839,6 +2962,33 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
+  const fetchPaymentChangeRequests = React.useCallback(async () => {
+    const startedAt = Date.now()
+    setPaymentChangeRequestsLoading(true)
+    try {
+      const res = await fetch("/api/staff/payroll/change-requests", {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setError(typeof data?.error === "string" ? data.error : "Failed to load payment change requests")
+        setPaymentChangeRequests([])
+        return
+      }
+
+      setPaymentChangeRequests(Array.isArray(data?.items) ? data.items : [])
+    } catch {
+      setError("Network error while loading payment change requests")
+      setPaymentChangeRequests([])
+    } finally {
+      await ensureMinimumLoadingTime(startedAt)
+      setPaymentChangeRequestsLoading(false)
+    }
+  }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
+
   const fetchSelfProfile = React.useCallback(async () => {
     const startedAt = Date.now()
     setSelfProfileLoading(true)
@@ -1864,13 +3014,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       const lastCheckInIso = typeof presence.staffLastCheckInAt === "string" ? presence.staffLastCheckInAt : ""
       const parsedLastCheckIn = lastCheckInIso ? Date.parse(lastCheckInIso) : Number.NaN
       const statusValue = presence.status === "online" || presence.status === "offline" ? presence.status : null
+      const paymentPreference = parsePaymentPreferenceValue(data?.paymentPreference)
+      const assignedPaymentPreference = parsePaymentPreferenceValue(data?.assignedPaymentPreference)
+      const paymentInfo = normalizeStaffProfilePaymentInfo(data?.paymentInfo)
       const nextRole: StaffRole =
         user?.role === "owner" || user?.role === "admin" || user?.role === "staff" ? user.role : currentRole
       const nextCategory: StaffCategory =
         user?.category === "front_desk" ||
         user?.category === "manager" ||
         user?.category === "teacher" ||
-        user?.category === "guest_staff" ||
+        user?.category === "guest" ||
         user?.category === "partner"
           ? user.category
           : resolvedCurrentCategory
@@ -1882,6 +3035,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         location,
         role: nextRole,
         category: nextCategory,
+        paymentPreference,
+        assignedPaymentPreference,
+        paymentInfo,
         metrics: {
           performanceRating:
             typeof metrics.performanceRating === "number" && Number.isFinite(metrics.performanceRating)
@@ -1928,6 +3084,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           teacherShiftEnd: sanitizeTimeValue(teaching.teacherShiftEnd),
         },
       })
+      setProfilePaymentForm(createStaffPaymentForm(paymentPreference, paymentInfo))
+      setProfilePaymentError(null)
 
       setProfileForm((prev) => ({
         ...prev,
@@ -1944,6 +3102,60 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setSelfProfileLoading(false)
     }
   }, [currentRole, currentUserId, ensureMinimumLoadingTime, handleStaffAuthFailure, resolvedCurrentCategory])
+
+  const saveProfilePaymentInfo = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setProfilePaymentSaving(true)
+    setProfilePaymentError(null)
+    setProfilePaymentSuccess(null)
+
+    const isRequestFlow = 
+      profilePaymentForm.paymentPreference !== "" && 
+      profilePaymentForm.paymentPreference !== resolvedSelfProfile.assignedPaymentPreference
+
+    try {
+      const res = await fetch(isRequestFlow ? "/api/staff/payroll/change-requests" : `/api/staff/users/${currentUserId}/profile`, {
+        method: isRequestFlow ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isRequestFlow ? {
+          requestedMethod: profilePaymentForm.paymentPreference,
+          requestedInfo: toPaymentInfoPayload(profilePaymentForm),
+          reason: "Staff requested change via profile portal"
+        } : {
+          paymentPreference: profilePaymentForm.paymentPreference || null,
+          paymentInfo: toPaymentInfoPayload(profilePaymentForm),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setProfilePaymentError(typeof data?.error === "string" ? data.error : `Unable to ${isRequestFlow ? "submit change request" : "save payment information"}.`)
+        return
+      }
+
+      if (isRequestFlow) {
+        setProfilePaymentSuccess("Payment change request submitted for review.")
+      } else {
+        const nextPaymentPreference = parsePaymentPreferenceValue(data?.paymentPreference)
+        const nextPaymentInfo = normalizeStaffProfilePaymentInfo(data?.paymentInfo)
+        setProfilePaymentForm(createStaffPaymentForm(nextPaymentPreference, nextPaymentInfo))
+        setSelfProfileSnapshot((prev) =>
+          prev
+            ? {
+                ...prev,
+                paymentPreference: nextPaymentPreference,
+                paymentInfo: nextPaymentInfo,
+              }
+            : prev
+        )
+        setProfilePaymentSuccess("Payment information updated.")
+      }
+    } catch {
+      setProfilePaymentError("Network error while saving payment information.")
+    } finally {
+      setProfilePaymentSaving(false)
+    }
+  }, [currentUserId, handleStaffAuthFailure, profilePaymentForm, resolvedSelfProfile.assignedPaymentPreference])
 
   const submitProfileRequest = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2003,30 +3215,29 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     if (showLoader) setSchoolLoading(true)
     setSchoolError(null)
     try {
-      const [coursesRes, packagesRes, rulesRes] = await Promise.all([
+      const [coursesRes, roomsRes, packagesRes, rulesRes] = await Promise.all([
         fetch("/api/staff/school/courses", { headers: { "Content-Type": "application/json" } }),
+        fetch("/api/staff/rooms?pageSize=100", { headers: { "Content-Type": "application/json" } }),
         fetch("/api/staff/school/packages", { headers: { "Content-Type": "application/json" } }),
         fetch("/api/staff/school/points-rules", { headers: { "Content-Type": "application/json" } }),
       ])
-      const [coursesData, packagesData, rulesData] = await Promise.all([
+      const [coursesData, roomsData, packagesData, rulesData] = await Promise.all([
         coursesRes.json().catch(() => ({})),
+        roomsRes.json().catch(() => ({})),
         packagesRes.json().catch(() => ({})),
         rulesRes.json().catch(() => ({})),
       ])
-      if (!coursesRes.ok || !packagesRes.ok || !rulesRes.ok) {
-        const authStatuses = [coursesRes.status, packagesRes.status, rulesRes.status]
+      if (!coursesRes.ok || !roomsRes.ok || !packagesRes.ok || !rulesRes.ok) {
+        const authStatuses = [coursesRes.status, roomsRes.status, packagesRes.status, rulesRes.status]
         if (authStatuses.some((status) => status === 401) && authStatuses.some((status) => handleStaffAuthFailure(status))) {
           return
         }
-        const nextError =
-          (typeof coursesData?.error === "string" && coursesData.error) ||
-          (typeof packagesData?.error === "string" && packagesData.error) ||
-          (typeof rulesData?.error === "string" && rulesData.error) ||
-          "Failed to load school catalog."
+        const nextError = resolveRoomCatalogErrorMessage([coursesData, roomsData, packagesData, rulesData])
         setSchoolError(nextError)
         return
       }
       setSchoolCourses(Array.isArray(coursesData?.items) ? coursesData.items : [])
+      setSchoolRooms(Array.isArray(roomsData?.items) ? roomsData.items : [])
       setSchoolPackages(Array.isArray(packagesData?.items) ? packagesData.items : [])
       setSchoolPointsRules(Array.isArray(rulesData?.items) ? rulesData.items : [])
     } catch {
@@ -2038,6 +3249,105 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       }
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
+
+  const resetRoomForm = React.useCallback(() => {
+    setRoomForm({
+      id: "",
+      name: "",
+      capacity: "",
+      location: "",
+      active: true,
+    })
+    setRoomFormError(null)
+    setRoomFormSuccess(null)
+  }, [])
+
+  const loadRoomIntoForm = React.useCallback((room: RoomRow) => {
+    setRoomForm({
+      id: room.id,
+      name: room.name,
+      capacity: String(room.capacity),
+      location: room.location || "",
+      active: room.active,
+    })
+    setRoomFormError(null)
+    setRoomFormSuccess(null)
+  }, [])
+
+  const saveRoom = React.useCallback(async (event: React.FormEvent) => {
+    event.preventDefault()
+    setRoomSaving(true)
+    setRoomFormError(null)
+    setRoomFormSuccess(null)
+    try {
+      const isEditing = Boolean(roomForm.id)
+      const endpoint = isEditing ? `/api/staff/rooms/${roomForm.id}` : "/api/staff/rooms"
+      const method = isEditing ? "PUT" : "POST"
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: roomForm.name,
+          capacity: roomForm.capacity,
+          location: roomForm.location,
+          active: roomForm.active,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setRoomFormError(typeof data?.error === "string" ? data.error : "Unable to save room.")
+        return
+      }
+      const nextSuccess = typeof data?.message === "string" ? data.message : isEditing ? "Room updated." : "Room created."
+      await fetchSchoolData({ showLoader: false })
+      resetRoomForm()
+      setRoomFormSuccess(nextSuccess)
+    } catch {
+      setRoomFormError("Network error while saving room.")
+    } finally {
+      setRoomSaving(false)
+    }
+  }, [fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm])
+
+  const disableRoom = React.useCallback(async (roomId: string) => {
+    setRoomBusyId(roomId)
+    setRoomActionErrors((prev) => {
+      if (!prev[roomId]) return prev
+      const next = { ...prev }
+      delete next[roomId]
+      return next
+    })
+    setRoomFormSuccess(null)
+    try {
+      const res = await fetch(`/api/staff/rooms/${roomId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setRoomActionErrors((prev) => ({
+          ...prev,
+          [roomId]: typeof data?.error === "string" ? data.error : "Unable to disable room.",
+        }))
+        return
+      }
+      const nextSuccess = typeof data?.message === "string" ? data.message : "Room disabled."
+      await fetchSchoolData({ showLoader: false })
+      if (roomForm.id === roomId) {
+        resetRoomForm()
+      }
+      setRoomFormSuccess(nextSuccess)
+    } catch {
+      setRoomActionErrors((prev) => ({
+        ...prev,
+        [roomId]: "Network error while disabling room.",
+      }))
+    } finally {
+      setRoomBusyId(null)
+    }
+  }, [fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm.id])
 
   const resetCourseBuilder = React.useCallback(() => {
     setCourseForm({
@@ -2053,6 +3363,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       level: "Beginner",
       durationMinutes: "55",
       location: "54 Coles St, Jersey City, NJ",
+      defaultRoomId: "",
       publicationMode: "publish_now",
       launchDate: "",
       specialDiscountType: "none",
@@ -2184,6 +3495,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           level: courseForm.level,
           durationMinutes: courseForm.durationMinutes,
           location: courseForm.location,
+          defaultRoomId: courseForm.defaultRoomId || null,
           availableWeekdays: weekdays,
           availableTimes: times,
           scheduleRules: scheduleRulesPayload,
@@ -2355,7 +3667,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         user?.category === "front_desk" ||
         user?.category === "manager" ||
         user?.category === "teacher" ||
-        user?.category === "guest_staff" ||
+        user?.category === "guest" ||
         user?.category === "partner"
           ? user.category
           : row.category
@@ -2390,10 +3702,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     if (!canAccessUsersNav) {
       setLoading(false)
       setRows([])
+      setPayrollModelOptions([])
+      setPayrollModelError(null)
       return
     }
     fetchRows(undefined, categoryFilter)
-  }, [canAccessUsersNav, fetchRows, categoryFilter])
+    void fetchPayrollModelOptions()
+  }, [canAccessUsersNav, fetchPayrollModelOptions, fetchRows, categoryFilter])
 
   React.useEffect(() => {
     if (!canAccessUsersNav) return
@@ -2411,6 +3726,23 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [])
 
   React.useEffect(() => {
+    if (typeof window === "undefined") return
+    const desktopQuery = window.matchMedia("(min-width: 1180px)")
+
+    const syncAssistantLayout = () => {
+      setIsRailCollapsed(!desktopQuery.matches)
+      setHasAssistantViewportSync(true)
+    }
+
+    syncAssistantLayout()
+    desktopQuery.addEventListener("change", syncAssistantLayout)
+
+    return () => {
+      desktopQuery.removeEventListener("change", syncAssistantLayout)
+    }
+  }, [])
+
+  React.useEffect(() => {
     if (!presenceMenuUserId) return
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
@@ -2423,19 +3755,36 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [presenceMenuUserId])
 
   React.useEffect(() => {
+    if (!checkoutMenuPaymentId) return
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target) return
+      if (target.closest("[data-checkout-menu]")) return
+      setCheckoutMenuPaymentId(null)
+    }
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
+  }, [checkoutMenuPaymentId])
+
+  React.useEffect(() => {
     if (!canAccessSchoolNav) return
     fetchSchedule(scheduleMonth)
   }, [canAccessSchoolNav, fetchSchedule, scheduleMonth])
 
   React.useEffect(() => {
     if (!canAccessStudentsNav) return
-    fetchPayments()
-  }, [canAccessStudentsNav, fetchPayments])
+    void refreshPaymentsBoard()
+  }, [canAccessStudentsNav, refreshPaymentsBoard])
 
   React.useEffect(() => {
     if (!canAccessUsersNav) return
     fetchStaffRequests(requestStatusFilter, { scope: "all" })
   }, [canAccessUsersNav, fetchStaffRequests, requestStatusFilter])
+
+  React.useEffect(() => {
+    if (!showStaffOps) return
+    void fetchPaymentChangeRequests()
+  }, [fetchPaymentChangeRequests, showStaffOps])
 
   React.useEffect(() => {
     if (!isProfileView || !canAccessProfileNav) return
@@ -2446,6 +3795,29 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     if (!isProfileView || !canAccessProfileNav) return
     void fetchStaffRequests(profileRequestStatusFilter, { scope: "mine" })
   }, [canAccessProfileNav, fetchStaffRequests, isProfileView, profileRequestStatusFilter])
+
+  React.useEffect(() => {
+    if (!showStaffOps || schoolCourses.length > 0) return
+    let cancelled = false
+
+    const loadAssignmentCourses = async () => {
+      try {
+        const res = await fetch("/api/staff/school/courses", { headers: { "Content-Type": "application/json" } })
+        if (handleStaffAuthFailure(res.status)) return
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || cancelled) return
+        setSchoolCourses(Array.isArray(data?.items) ? data.items : [])
+      } catch {
+        // Keep the UI functional with the local fallback course catalog.
+      }
+    }
+
+    void loadAssignmentCourses()
+
+    return () => {
+      cancelled = true
+    }
+  }, [handleStaffAuthFailure, schoolCourses.length, showStaffOps])
 
   React.useEffect(() => {
     if (!canAccessSchoolNav || !isSchoolView) return
@@ -2495,11 +3867,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       previewVideoUrl: selected.previewVideoUrl || "",
       dropInPriceCents: centsToUsdInput(selected.dropInPriceCents),
       firstClassPriceCents: centsToUsdInput(selected.firstClassPriceCents),
-      level: selected.level || "",
-      durationMinutes: selected.durationMinutes?.toString() || "",
-      location: selected.location || "",
-      publicationMode,
-      launchDate,
+       level: selected.level || "",
+       durationMinutes: selected.durationMinutes?.toString() || "",
+       location: selected.location || "",
+       defaultRoomId: selected.defaultRoomId || "",
+       publicationMode,
+       launchDate,
       specialDiscountType,
       specialDiscountCustomLabel,
       specialDiscountPrice,
@@ -2920,12 +4293,56 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         setError(typeof data?.error === "string" ? data.error : "Failed to update settlement in bulk")
         return
       }
-      await fetchPayments()
+      await refreshPaymentsBoard()
+      if (searchResultCards !== null && studentSearchQuery.trim().length >= 2) {
+        await triggerGlobalSearch(studentSearchQuery.trim())
+      }
       setSelectedPaymentIds((prev) => prev.filter((id) => !ids.includes(id)))
     } catch {
       setError("Network error while updating settlement in bulk")
     } finally {
       setPaymentsBulkBusyAction(null)
+    }
+  }
+
+  const handleCheckOut = async (payment: PaymentRow) => {
+    if (!payment.attendanceId) {
+      setError("No active attendance found for this student.")
+      return
+    }
+
+    setError(null)
+    setCheckoutBusyAttendanceId(payment.attendanceId)
+    try {
+      const res = await fetch("/api/staff/checkin", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendanceId: payment.attendanceId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setError(typeof data?.error === "string" ? data.error : "Failed to check out student")
+        return
+      }
+
+      const checkedOutAt = typeof data?.attendance?.checkedOutAt === "string" ? data.attendance.checkedOutAt : new Date().toISOString()
+      setPayments((prev) =>
+        prev.map((row) =>
+          row.attendanceId === payment.attendanceId
+            ? {
+                ...row,
+                checkInStatus: "checked_out",
+                checkedOutAt,
+              }
+            : row
+        )
+      )
+      setCheckoutMenuPaymentId(null)
+    } catch {
+      setError("Network error while checking out student")
+    } finally {
+      setCheckoutBusyAttendanceId(null)
     }
   }
 
@@ -2951,6 +4368,46 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }
 
+  const updatePaymentChangeRequestStatus = async (
+    requestId: string,
+    status: Extract<PaymentChangeRequestStatus, "approved" | "rejected">
+  ) => {
+    setPaymentChangeRequestBusyId(requestId)
+    setError(null)
+    try {
+      const res = await fetch(`/api/staff/payroll/change-requests/${requestId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setError(typeof data?.error === "string" ? data.error : "Failed to update payment change request")
+        return
+      }
+      await fetchPaymentChangeRequests()
+    } catch {
+      setError("Network error while updating payment change request")
+    } finally {
+      setPaymentChangeRequestBusyId(null)
+    }
+  }
+
+  const approvalsSummary = React.useMemo(
+    () => buildStaffApprovalsSummary(requestsSummary, paymentChangeRequests),
+    [paymentChangeRequests, requestsSummary]
+  )
+  const approvalFeed = React.useMemo(
+    () =>
+      buildStaffApprovalsFeed(
+        staffRequests,
+        paymentChangeRequests.filter((request) => isVisiblePaymentChangeRequest(request, requestStatusFilter))
+      ),
+    [paymentChangeRequests, requestStatusFilter, staffRequests]
+  )
+  const approvalsLoading = requestsLoading || paymentChangeRequestsLoading
+
   const saveProfileModal = async () => {
     if (!profileTarget) return
     setProfileSaving(true)
@@ -2975,7 +4432,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         data?.user?.category === "front_desk" ||
         data?.user?.category === "manager" ||
         data?.user?.category === "teacher" ||
-        data?.user?.category === "guest_staff" ||
+        data?.user?.category === "guest" ||
         data?.user?.category === "partner"
       ) {
         setProfileForm((prev) => ({ ...prev, category: data.user.category }))
@@ -3075,16 +4532,20 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setError(null)
     setCreateBusy(true)
     try {
+      const body: Record<string, string> = {
+        email,
+        firstName,
+        lastName,
+        role: newRole,
+        category: normalizeCategoryForRole(newRole, newCategory),
+      }
+      if (newPin && /^\d{4}$/.test(newPin)) {
+        body.pin = newPin
+      }
       const res = await fetch("/api/staff/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          firstName,
-          lastName,
-          role: newRole,
-          category: normalizeCategoryForRole(newRole, newCategory),
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -3095,14 +4556,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       if (data?.mode === "invited") {
         setCreateMessage(`Invitation sent to ${data?.invitation?.emailAddress || email}`)
       } else {
-        setCreateMessage("Existing user promoted to staff")
+        setCreateMessage(newPin ? "Existing user promoted to staff with PIN assigned" : "Existing user promoted to staff")
       }
 
       setEmail("")
       setFirstName("")
       setLastName("")
       setNewRole("staff")
-      setNewCategory("guest_staff")
+      setNewCategory("guest")
+      setNewPin("")
       await fetchRows(query, categoryFilter)
     } catch {
       setError("Network error while creating staff user")
@@ -3134,19 +4596,30 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     [scheduleMonth]
   )
 
-  const courseOptions = React.useMemo(() => {
-    const base = demoCourses.map((course) => ({
-      slug: course.slug,
-      title: course.title,
-    }))
-    for (const course of schoolCourses) {
-      if (base.some((item) => item.slug === course.slug)) continue
-      base.push({
+  const courseOptions = React.useMemo<AssignmentCourseOption[]>(() => {
+    const base = new Map<string, AssignmentCourseOption>()
+    for (const course of demoCourses) {
+      base.set(course.slug, {
         slug: course.slug,
         title: course.title,
+        description: course.description || null,
+        imageUrl: course.heroMedia?.image || null,
+        scheduleLabel: [course.schedule.day, course.schedule.time].filter(Boolean).join(" · ") || null,
+        kindLabel: null,
       })
     }
-    return base
+    for (const course of schoolCourses) {
+      const existing = base.get(course.slug)
+      base.set(course.slug, {
+        slug: course.slug,
+        title: course.title || existing?.title || course.slug,
+        description: course.description ?? existing?.description ?? null,
+        imageUrl: course.coverImageUrl ?? existing?.imageUrl ?? null,
+        scheduleLabel: buildAssignmentCourseScheduleLabel(course) || existing?.scheduleLabel || null,
+        kindLabel: buildAssignmentCourseKindLabel(course) || existing?.kindLabel || null,
+      })
+    }
+    return [...base.values()]
   }, [schoolCourses])
 
   const selectedPointsRuleTemplate = React.useMemo(
@@ -3413,6 +4886,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       level: item.level || "",
       durationMinutes: item.durationMinutes?.toString() || "",
       location: item.location || "",
+      defaultRoomId: item.defaultRoomId || "",
       publicationMode,
       launchDate,
       specialDiscountType,
@@ -3615,6 +5089,27 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     () => teacherRows.find((row) => row.id === teacherAssignedUserId) || null,
     [teacherRows, teacherAssignedUserId]
   )
+  const selectedTeacherAssignmentState = React.useMemo(
+    () => (selectedTeacher ? buildTeacherAssignmentFormState(selectedTeacher) : null),
+    [selectedTeacher]
+  )
+  const teacherAssignmentDraftState = React.useMemo<TeacherAssignmentFormState | null>(() => {
+    if (!selectedTeacher) return null
+    return {
+      assignedUserId: teacherAssignedUserId || selectedTeacher.id,
+      recurrenceUnit: teacherRecurrenceUnit,
+      recurrenceInterval: Math.max(1, Math.min(12, Math.round(teacherRecurrenceInterval))),
+      courseSlugs: normalizeTeacherAssignmentCourseSlugs(teacherCourseSlugs),
+    }
+  }, [selectedTeacher, teacherAssignedUserId, teacherRecurrenceUnit, teacherRecurrenceInterval, teacherCourseSlugs])
+  const teacherAssignmentDirty = React.useMemo(() => {
+    if (!selectedTeacherAssignmentState || !teacherAssignmentDraftState) return false
+    return !areTeacherAssignmentStatesEqual(teacherAssignmentDraftState, selectedTeacherAssignmentState)
+  }, [selectedTeacherAssignmentState, teacherAssignmentDraftState])
+  const teacherRecurrenceIntervalHelperText =
+    teacherRecurrenceUnit === "year"
+      ? "Example: Yearly + 2 means this program repeats every 2 years."
+      : "Example: Monthly + 2 means this program repeats every 2 months."
 
   React.useEffect(() => {
     if (teacherRows.length === 0) {
@@ -3635,24 +5130,26 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [selectedTeacher])
 
   React.useEffect(() => {
-    if (!selectedTeacher) return
+    if (!selectedTeacher || !selectedTeacherAssignmentState) return
+    const teacherChanged = lastHydratedTeacherIdRef.current !== selectedTeacher.id
+    if (!teacherChanged && teacherAssignmentDirty) return
     setTeacherReviewCycleDays(
       typeof selectedTeacher.performanceReviewCycleDays === "number" && Number.isFinite(selectedTeacher.performanceReviewCycleDays)
         ? Math.max(7, Math.min(90, Math.round(selectedTeacher.performanceReviewCycleDays)))
         : 30
     )
-    setTeacherAssignedUserId(selectedTeacher.teacherAssignedUserId || selectedTeacher.id)
-    setTeacherRecurrenceUnit(selectedTeacher.teacherRecurrenceUnit === "year" ? "year" : "month")
-    setTeacherRecurrenceInterval(
-      typeof selectedTeacher.teacherRecurrenceInterval === "number" &&
-      Number.isFinite(selectedTeacher.teacherRecurrenceInterval)
-        ? Math.max(1, Math.min(12, Math.round(selectedTeacher.teacherRecurrenceInterval)))
-        : 1
-    )
-    setTeacherCourseSlugs(selectedTeacher.teacherCourseSlugs?.length ? selectedTeacher.teacherCourseSlugs : [])
-    setMetricsSuccess(null)
-    setMetricsError(null)
-  }, [selectedTeacher])
+    setTeacherAssignedUserId(selectedTeacherAssignmentState.assignedUserId)
+    setTeacherRecurrenceUnit(selectedTeacherAssignmentState.recurrenceUnit)
+    setTeacherRecurrenceInterval(selectedTeacherAssignmentState.recurrenceInterval)
+    setTeacherCourseSlugs(selectedTeacherAssignmentState.courseSlugs)
+    lastHydratedTeacherIdRef.current = selectedTeacher.id
+    if (teacherChanged) {
+      setTeacherSuccess(null)
+      setTeacherError(null)
+      setMetricsSuccess(null)
+      setMetricsError(null)
+    }
+  }, [selectedTeacher, selectedTeacherAssignmentState, teacherAssignmentDirty])
 
   const teacherPunctualityScore = React.useMemo(() => {
     if (!selectedTeacher) return 100
@@ -3896,148 +5393,232 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     return { ...totals, fridayCount, exceptions }
   }, [payrollRows])
 
-  const studentCards = React.useMemo(() => {
-    const grouped = new Map<
-      string,
-      {
-        key: string
-        allPayments: PaymentRow[]
-        latestPayment: PaymentRow
-        totalPayments: number
-        totalCollectedCents: number
-        paidPayments: number
-        checkedInPayments: number
-        courseKeys: Set<string>
-      }
-    >()
+  const studentCards = React.useMemo(() => buildHistoryStudentCards(payments), [payments])
 
-    for (const payment of payments) {
-      const key = payment.userId || payment.customerEmail || payment.id
-      const existing = grouped.get(key)
-      const paymentIsPaid = payment.classPaid
-      const paymentIsCheckedIn = isCheckedInStatus(payment.checkInStatus)
-      const courseKey = payment.courseSlug || payment.courseTitle || payment.id
-      if (!existing) {
-        grouped.set(key, {
-          key,
-          allPayments: [payment],
-          latestPayment: payment,
-          totalPayments: 1,
-          totalCollectedCents: paymentIsPaid ? payment.amount : 0,
-          paidPayments: paymentIsPaid ? 1 : 0,
-          checkedInPayments: paymentIsCheckedIn ? 1 : 0,
-          courseKeys: new Set([courseKey]),
-        })
-        continue
-      }
+  const PAGE_SIZE = 9
 
-      const existingCreated = Date.parse(existing.latestPayment.createdAt)
-      const nextCreated = Date.parse(payment.createdAt)
-      if (Number.isFinite(nextCreated) && (!Number.isFinite(existingCreated) || nextCreated > existingCreated)) {
-        existing.latestPayment = payment
-      }
-      existing.allPayments.push(payment)
-      existing.totalPayments += 1
-      existing.courseKeys.add(courseKey)
-      if (paymentIsPaid) {
-        existing.totalCollectedCents += payment.amount
-        existing.paidPayments += 1
-      }
-      if (paymentIsCheckedIn) {
-        existing.checkedInPayments += 1
-      }
-    }
-
-    return [...grouped.values()]
-      .map((item) => {
-        const sortedPayments = [...item.allPayments].sort((a, b) => {
-          const aTime = Date.parse(a.createdAt)
-          const bTime = Date.parse(b.createdAt)
-          if (!Number.isFinite(aTime) && !Number.isFinite(bTime)) return 0
-          if (!Number.isFinite(aTime)) return 1
-          if (!Number.isFinite(bTime)) return -1
-          return bTime - aTime
-        })
-        return {
-          ...item,
-          allPayments: sortedPayments,
-          latestPayment: sortedPayments[0] || item.latestPayment,
-          coursesPurchasedCount: item.courseKeys.size,
-        }
-      })
-      .sort((a, b) => {
-      const aTime = Date.parse(a.latestPayment.createdAt)
-      const bTime = Date.parse(b.latestPayment.createdAt)
-      if (!Number.isFinite(aTime) && !Number.isFinite(bTime)) return 0
-      if (!Number.isFinite(aTime)) return 1
-      if (!Number.isFinite(bTime)) return -1
-      return bTime - aTime
-      })
-  }, [payments])
-
-  const filteredStudentCards = React.useMemo(() => {
-    const searchTerm = studentSearchQuery.trim().toLowerCase()
+  const boardContextStudentCards = React.useMemo(() => {
     return studentCards
       .map((item) => {
-        const matchingPayments = item.allPayments.filter(
-          (payment) => matchesPaymentCategory(payment, paymentCategoryFilter) && matchesStripeStatus(payment, paymentsFilter)
-        )
+        const matchingPayments = resolveStudentCardPayments(item.allPayments, {
+          isHistoryMode,
+          historyClassKey,
+          historyPaymentMethodFilter,
+          historyAttendanceFilter,
+          paymentCategoryFilter,
+          paymentsFilter,
+          studentSearchQuery: "",
+        })
         if (matchingPayments.length === 0) return null
 
-        if (searchTerm) {
-          const hasMatch = matchingPayments.some((payment) => {
-            const haystack = [
-              payment.customerName,
-              payment.customerEmail,
-              payment.customerPhone,
-              payment.courseTitle,
-              payment.courseSlug,
-              payment.location || "",
-              payment.activePackage?.label || "",
-            ]
-              .join(" ")
-              .toLowerCase()
-            return haystack.includes(searchTerm)
-          })
-          if (!hasMatch) return null
-        }
-
         return {
-          ...item,
-          latestPayment: matchingPayments[0],
+          ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key) : item),
+          latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
         }
       })
       .filter((item): item is (typeof studentCards)[number] => Boolean(item))
-  }, [paymentCategoryFilter, paymentsFilter, studentCards, studentSearchQuery])
+  }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentCards])
 
-  const visiblePaymentIds = React.useMemo(
-    () => [...new Set(filteredStudentCards.map((item) => item.latestPayment.id).filter(Boolean))],
-    [filteredStudentCards]
+  const filteredStudentCards = React.useMemo(() => {
+    return boardContextStudentCards
+      .map((item) => {
+        const matchingPayments = resolveStudentCardPayments(item.allPayments, {
+          isHistoryMode,
+          historyClassKey,
+          historyPaymentMethodFilter,
+          historyAttendanceFilter,
+          paymentCategoryFilter,
+          paymentsFilter,
+          studentSearchQuery,
+        })
+        if (matchingPayments.length === 0) return null
+
+        return {
+          ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key) : item),
+          latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
+        }
+      })
+      .filter((item): item is (typeof boardContextStudentCards)[number] => Boolean(item))
+  }, [boardContextStudentCards, historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentSearchQuery])
+
+  const {
+    searchResultCards,
+    isGlobalSearchLoading,
+    globalSearchError,
+    triggerGlobalSearch,
+  } = useStudentGlobalSearch({
+    query: studentSearchQuery,
+    isHistoryMode,
+    hasClientMatches: filteredStudentCards.length > 0,
+    onAuthFailure: handleStaffAuthFailure,
+  })
+
+  const filteredPaymentIds = React.useMemo(() => {
+    if (searchResultCards !== null) {
+      return resolveVisibleProfileSettlementIds(searchResultCards)
+    }
+    if (paymentCategoryFilter !== "cash") return []
+    return [...new Set(filteredStudentCards.map((item) => item.latestPayment.id).filter(Boolean))]
+  }, [filteredStudentCards, paymentCategoryFilter, searchResultCards])
+
+  const cardContext = React.useMemo<CardContext>(
+    () => resolveCardContext(isHistoryMode, searchResultCards !== null),
+    [isHistoryMode, searchResultCards]
+  )
+  const cardVariant = React.useMemo(
+    () => resolveCardVariant(cardContext),
+    [cardContext]
   )
 
-  const selectedVisiblePaymentIds = React.useMemo(
-    () => selectedPaymentIds.filter((id) => visiblePaymentIds.includes(id)),
-    [selectedPaymentIds, visiblePaymentIds]
+  const cardCashPaymentIds = React.useMemo(() => {
+    if (paymentCategoryFilter !== "cash") return []
+    // In global-search mode, use settlement IDs from profile cards
+    if (cardContext === "global-search" && searchResultCards !== null) {
+      return resolveVisibleProfileSettlementIds(searchResultCards)
+    }
+    return [...new Set(filteredStudentCards.map((item) => item.latestPayment.id).filter(Boolean))]
+  }, [cardContext, filteredStudentCards, paymentCategoryFilter, searchResultCards])
+
+  const totalPages = React.useMemo(() => {
+    const activeCount = searchResultCards !== null ? searchResultCards.length : filteredStudentCards.length
+    return Math.max(1, Math.ceil(activeCount / PAGE_SIZE))
+  }, [filteredStudentCards.length, searchResultCards])
+
+  const paginatedStudentCards = React.useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return filteredStudentCards.slice(start, start + PAGE_SIZE)
+  }, [currentPage, filteredStudentCards])
+
+  const paginatedBoardContextStudentCards = React.useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return boardContextStudentCards.slice(start, start + PAGE_SIZE)
+  }, [boardContextStudentCards, currentPage])
+
+  const paginatedSearchResultCards = React.useMemo(() => {
+    if (searchResultCards === null) return []
+    const start = (currentPage - 1) * PAGE_SIZE
+    return searchResultCards.slice(start, start + PAGE_SIZE)
+  }, [currentPage, searchResultCards])
+
+  const shouldPreservePaymentBoard = !isHistoryMode && studentSearchQuery.trim().length >= 2 && filteredStudentCards.length === 0 && searchResultCards === null
+
+  const displayedStudentCards = React.useMemo<Array<(typeof studentCards)[number] | StudentProfileCard>>(() => {
+    if (searchResultCards !== null) return paginatedSearchResultCards
+    if (shouldPreservePaymentBoard) return paginatedBoardContextStudentCards
+    return paginatedStudentCards
+  }, [paginatedBoardContextStudentCards, paginatedSearchResultCards, paginatedStudentCards, searchResultCards, shouldPreservePaymentBoard])
+
+  const visiblePaymentIds = React.useMemo(() => {
+    if (searchResultCards !== null) {
+      return resolveVisibleProfileSettlementIds(paginatedSearchResultCards)
+    }
+    if (paymentCategoryFilter !== "cash") return []
+    return [...new Set(paginatedStudentCards.map((item) => item.latestPayment.id).filter(Boolean))]
+  }, [paginatedSearchResultCards, paginatedStudentCards, paymentCategoryFilter, searchResultCards])
+
+  const selectedFilteredPaymentIds = React.useMemo(
+    () => selectedPaymentIds.filter((id) => filteredPaymentIds.includes(id)),
+    [filteredPaymentIds, selectedPaymentIds]
   )
+
+  // Cash selections (checkboxes only appear for cash payments)
+  const cashSelectedCount = selectedPaymentIds.length
 
   React.useEffect(() => {
-    setSelectedPaymentIds((prev) => prev.filter((id) => visiblePaymentIds.includes(id)))
-  }, [visiblePaymentIds])
+    setSelectedPaymentIds((prev) => prev.filter((id) => filteredPaymentIds.includes(id)))
+  }, [filteredPaymentIds])
+
+  React.useEffect(() => {
+    setCurrentPage(1)
+  }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, searchResultCards, studentSearchQuery])
+
+  React.useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
+
+  const historyDerivedStats = React.useMemo(() => {
+    const studentCount = filteredStudentCards.length
+    const paidCount = filteredStudentCards.filter((item) => isPaymentPaidForUi(item.latestPayment)).length
+    const checkedInCount = filteredStudentCards.filter((item) => isCheckedInStatus(item.latestPayment.checkInStatus)).length
+    const totalCollected = filteredStudentCards.reduce((sum, item) => sum + item.totalCollectedCents, 0)
+    const pendingCount = filteredStudentCards.filter((item) => !isPaymentPaidForUi(item.latestPayment)).length
+    const packages = payments.filter((p) => p.purchaseCategory === "package").length
+    const dropIn = payments.filter((p) => p.purchaseCategory === "dropin").length
+    return { studentCount, paidCount, pendingCount, totalCollected, checkedInCount, packages, dropIn }
+  }, [filteredStudentCards, payments])
+
+  const currentMonthStudentsSummary = React.useMemo(
+    () =>
+      buildCurrentMonthStudentsSummary({
+        summary: paymentsMonthlySummaryApi,
+        studentCount: paymentsMonthlyStudentCount,
+        checkedInStudents: paymentsMonthlyCheckedInStudents,
+      }),
+    [paymentsMonthlyCheckedInStudents, paymentsMonthlyStudentCount, paymentsMonthlySummaryApi]
+  )
 
   const studentsSummary = React.useMemo(() => {
-    const totalRevenueCents = filteredStudentCards.reduce((sum, item) => sum + item.totalCollectedCents, 0)
-    const pendingByContext = filteredStudentCards.filter((item) => {
-      if (paymentCategoryFilter === "cash") return item.latestPayment.settlementStatus === "pending"
-      return !item.latestPayment.classPaid
-    }).length
+    if (paymentCategoryFilter === "history") {
+      return currentMonthStudentsSummary
+    }
     return {
       totalStudents: filteredStudentCards.length,
-      paidStudents: filteredStudentCards.filter((item) => item.latestPayment.classPaid).length,
+      paidStudents: filteredStudentCards.filter((item) => isPaymentPaidForUi(item.latestPayment)).length,
       checkedInStudents: filteredStudentCards.filter((item) => isCheckedInStatus(item.latestPayment.checkInStatus)).length,
-      totalRevenueCents,
-      pendingByContext,
+      totalRevenueCents: filteredStudentCards.reduce((sum, item) => sum + item.totalCollectedCents, 0),
+      pendingByContext: filteredStudentCards.filter((item) => {
+        if (paymentCategoryFilter === "cash") return item.latestPayment.settlementStatus === "pending"
+        return !isPaymentPaidForUi(item.latestPayment)
+      }).length,
     }
-  }, [filteredStudentCards, paymentCategoryFilter])
+  }, [currentMonthStudentsSummary, filteredStudentCards, paymentCategoryFilter])
+
+  const todayDateIso = React.useMemo(() => toLocalIsoDate(new Date()), [])
+
+  // Short date format for history range badge: "wed 25 mar 26"
+  const formatShortDate = (dateIso: string) => {
+    const parsed = parseIsoDate(dateIso)
+    if (!parsed) return dateIso
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "2-digit",
+      }).formatToParts(parsed)
+      const weekday = parts.find((p) => p.type === "weekday")?.value ?? ""
+      const day = parts.find((p) => p.type === "day")?.value ?? ""
+      const month = parts.find((p) => p.type === "month")?.value ?? ""
+      const year = parts.find((p) => p.type === "year")?.value ?? ""
+      return `${weekday} ${day} ${month} ${year}`
+    } catch {
+      return dateIso
+    }
+  }
+
+  const historyReadableRange = React.useMemo(() => {
+    if (!historyFrom || !historyTo) return ""
+    if (historyFrom === historyTo) return formatShortDate(historyFrom)
+    return `${formatShortDate(historyFrom)} → ${formatShortDate(historyTo)}`
+  }, [historyFrom, historyTo])
+
+  const handlePaymentCategoryChange = React.useCallback((nextCategory: PaymentCategoryFilter) => {
+    setPaymentCategoryFilter(nextCategory)
+    const nextIsHistoryMode = nextCategory === "history"
+    setIsHistoryMode(nextIsHistoryMode)
+    if (!nextIsHistoryMode) {
+      setHistoryFrom("")
+      setHistoryTo("")
+      setHistoryPaymentMethodFilter("all")
+      setHistoryAttendanceFilter("all")
+      setHistoryClassKey("")
+      setHistoryClassOptions([])
+    }
+  }, [])
+
+  React.useEffect(() => {
+    setIsHistoryMode(paymentCategoryFilter === "history")
+  }, [paymentCategoryFilter])
 
   const reportFilteredPayments = React.useMemo(() => {
     const rawStartTs = parseDateInputStart(reportsDateFrom)
@@ -4787,7 +6368,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
 
     const update = () => {
-      if (window.innerWidth < 1024) {
+      if (window.innerWidth < 1180) {
         reset(left)
         if (right) reset(right)
         return
@@ -4858,49 +6439,160 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [stickyTop])
 
-  return (
+  const assistantRailContent = (
     <>
-      <div
-        ref={gridRef}
-        className={`relative grid gap-4 lg:items-start ${
-          showRightRail
-            ? "lg:grid-cols-[86px_minmax(0,1fr)_330px] xl:grid-cols-[90px_minmax(0,1fr)_360px]"
-            : "lg:grid-cols-[86px_minmax(0,1fr)] xl:grid-cols-[90px_minmax(0,1fr)]"
+      <div className="flex flex-col gap-2.5 min-[1180px]:gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 pr-1">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-[var(--brand,#b61616)] min-[1180px]:text-xs min-[1180px]:tracking-[0.35em]">AI Assistant</p>
+            <h3 className="mt-1.5 text-lg font-semibold leading-tight text-white min-[1180px]:text-xl min-[1180px]:text-black xl:text-2xl dark:min-[1180px]:text-white">Admin copilot</h3>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsRailCollapsed((prev) => !prev)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/[0.06] text-white/80 transition hover:border-[var(--brand,#b61616)] hover:text-[var(--brand,#ff3c3c)] min-[1180px]:border-black/20 min-[1180px]:bg-white/70 min-[1180px]:text-black/75 dark:min-[1180px]:border-white/20 dark:min-[1180px]:bg-white/5 dark:min-[1180px]:text-white/75"
+              aria-label={isRailCollapsed ? "Show AI assistant" : "Hide AI assistant"}
+            >
+              {isRailCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleNavSelection("assistant")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/12 bg-white/[0.06] text-xs font-semibold text-white transition hover:border-[var(--brand,#b61616)] min-[1180px]:h-auto min-[1180px]:w-auto min-[1180px]:gap-1.5 min-[1180px]:border-black/20 min-[1180px]:bg-white/70 min-[1180px]:px-2.5 min-[1180px]:py-1.5 min-[1180px]:text-black dark:min-[1180px]:border-white/20 dark:min-[1180px]:bg-white/5 dark:min-[1180px]:text-white"
+              aria-label="Open assistant configuration"
+              title="Open assistant configuration"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              <span className="hidden min-[1180px]:inline">Config</span>
+            </button>
+          </div>
+        </div>
+        <p className="max-w-none text-xs leading-relaxed text-white/68 min-[1180px]:text-sm min-[1180px]:text-black/65 dark:min-[1180px]:text-white/65">
+          Live chat for operations. Configure behavior from the AI icon in the left menu.
+        </p>
+      </div>
+
+      <div className="mt-4 flex min-h-0 max-h-[58vh] flex-col rounded-[1.2rem] border border-white/10 bg-black/20 p-3 min-[1180px]:min-h-[60vh] min-[1180px]:max-h-[60vh] min-[1180px]:rounded-xl min-[1180px]:border-black/10 min-[1180px]:bg-white/60 dark:min-[1180px]:border-white/10 dark:min-[1180px]:bg-white/[0.02]">
+        <div className="flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
+          {assistantChatMessages.map((message) => (
+            <div
+              key={message.id}
+              className={`max-w-[92%] rounded-lg border px-3 py-2 ${
+                message.role === "user"
+                  ? "ml-auto border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/12 text-white min-[1180px]:text-black dark:min-[1180px]:text-white"
+                  : "border-white/10 bg-white/[0.05] text-white/82 min-[1180px]:border-black/10 min-[1180px]:bg-black/[0.03] min-[1180px]:text-black/80 dark:min-[1180px]:border-white/10 dark:min-[1180px]:bg-white/[0.03] dark:min-[1180px]:text-white/80"
+              }`}
+            >
+              {message.text}
+            </div>
+          ))}
+        </div>
+
+        <form
+          onSubmit={sendAssistantChatMessage}
+          className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3 min-[1180px]:border-black/10 dark:min-[1180px]:border-white/10"
+        >
+          <input
+            name="assistantPromptRight"
+            value={assistantChatInput}
+            onChange={(event) => setAssistantChatInput(event.target.value)}
+            placeholder={`Message about ${activeNavLabel.toLowerCase()}...`}
+            className="w-full rounded-md border border-white/12 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 focus:border-[var(--brand,#b61616)] min-[1180px]:border-black/15 min-[1180px]:bg-white min-[1180px]:text-black min-[1180px]:placeholder:text-black/35 dark:min-[1180px]:border-white/15 dark:min-[1180px]:bg-white/5 dark:min-[1180px]:text-white dark:min-[1180px]:placeholder:text-white/40"
+          />
+          <button type="submit" className="rounded-md bg-[var(--brand,#b61616)] px-3 py-2 text-sm font-semibold text-white">
+            Send
+          </button>
+        </form>
+      </div>
+    </>
+  )
+
+  const renderStaffNavButton = (item: (typeof visibleNavItems)[number], layout: "rail" | "tabs") => {
+    const Icon = item.icon
+    const active = activeNav === item.key
+
+    if (layout === "tabs") {
+      return (
+        <button
+          key={item.key}
+          type="button"
+          role="tab"
+          aria-selected={active}
+          aria-label={item.label}
+          title={item.label}
+          onFocus={() => handleNavSelection(item.key)}
+          onClick={() => handleNavSelection(item.key)}
+          className={`inline-flex h-8 min-w-0 flex-1 basis-0 items-center justify-center rounded-lg border transition ${
+            active
+              ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/16 text-[var(--brand,#ff3c3c)]"
+              : "border-black/10 bg-white/70 text-black/70 hover:border-[var(--brand,#b61616)]/45 hover:text-[var(--brand,#ff3c3c)] dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70"
+          }`}
+        >
+          <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+        </button>
+      )
+    }
+
+    return (
+      <button
+        key={item.key}
+        type="button"
+        role="tab"
+        aria-selected={active}
+        aria-label={item.label}
+        onFocus={() => handleNavSelection(item.key)}
+        onClick={() => handleNavSelection(item.key)}
+        className={`group relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border transition ${
+          active
+            ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/20 text-[var(--brand,#ff3c3c)]"
+            : "border-black/10 bg-white/70 text-black/70 hover:border-[var(--brand,#b61616)]/45 hover:text-[var(--brand,#ff3c3c)] dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70"
         }`}
       >
-      <aside className="lg:self-start">
+        <Icon className="h-5 w-5" />
+        <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-[200] -translate-y-1/2 whitespace-nowrap rounded-md border border-black/10 bg-white px-2 py-1 text-xs text-black opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-visible:opacity-100 dark:border-white/10 dark:bg-[#0f1117] dark:text-white">
+          {item.label}
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <>
+          <div
+        ref={gridRef}
+        className={`relative grid gap-4 min-[1180px]:items-start ${
+          showInlineRightRail
+            ? "min-[1180px]:grid-cols-[86px_minmax(0,1fr)_330px] xl:grid-cols-[90px_minmax(0,1fr)_360px]"
+            : "min-[1180px]:grid-cols-[86px_minmax(0,1fr)] xl:grid-cols-[90px_minmax(0,1fr)]"
+        }`}
+      >
+      <aside className="hidden min-[1180px]:block min-[1180px]:self-start">
         <div
           ref={leftRailRef}
           className="relative z-40 rounded-2xl border border-black/10 bg-white/80 p-3 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90 lg:h-fit lg:sticky lg:top-0"
         >
-          <div className="flex flex-col items-center gap-2">
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon
-            const active = activeNav === item.key
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onFocus={() => setActiveNav(item.key)}
-                onClick={() => setActiveNav(item.key)}
-                className={`group relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border transition ${
-                  active
-                    ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/20 text-[var(--brand,#ff3c3c)]"
-                    : "border-black/10 bg-white/70 text-black/70 hover:border-[var(--brand,#b61616)]/45 hover:text-[var(--brand,#ff3c3c)] dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70"
-                }`}
-              >
-                <Icon className="h-5 w-5" />
-                <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-[200] -translate-y-1/2 whitespace-nowrap rounded-md border border-black/10 bg-white px-2 py-1 text-xs text-black opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-visible:opacity-100 dark:border-white/10 dark:bg-[#0f1117] dark:text-white">
-                  {item.label}
-                </span>
-              </button>
-            )
-          })}
+          <div className="flex flex-col items-center gap-2" role="tablist" aria-orientation="vertical" aria-label="Staff portal sections">
+            {visibleNavItems.map((item) => renderStaffNavButton(item, "rail"))}
           </div>
         </div>
       </aside>
 
       <section className="space-y-4">
+        <div className="min-[1180px]:hidden">
+          <div className="rounded-xl border border-black/10 bg-white/80 p-1.5 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90 sm:p-2">
+            <div
+              className="overflow-hidden"
+              role="tablist"
+              aria-orientation="horizontal"
+              aria-label="Staff portal sections"
+            >
+              <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5">
+                {visibleNavItems.map((item) => renderStaffNavButton(item, "tabs"))}
+              </div>
+            </div>
+          </div>
+        </div>
         {isProfileView ? (
           <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
             <header className="flex flex-wrap items-start justify-between gap-4">
@@ -5007,6 +6699,238 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </p>
               </div>
             </div>
+
+            <section className="mt-5 rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-[var(--brand,#b61616)]">Payment information</p>
+                  <h4 className="mt-1 text-base font-semibold text-black dark:text-white">How you prefer to get paid</h4>
+                  <p className="text-xs text-black/60 dark:text-white/60">
+                    Keep your cash/card/credits preference and payout details updated.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfilePaymentExpanded((prev) => !prev)
+                    setProfilePaymentError(null)
+                    setProfilePaymentSuccess(null)
+                  }}
+                  className="inline-flex items-center gap-2 rounded-md border border-black/20 px-3 py-2 text-xs font-semibold text-black transition hover:border-[var(--brand,#b61616)] hover:text-[var(--brand,#b61616)] dark:border-white/20 dark:text-white"
+                >
+                  {profilePaymentExpanded ? "Hide payment form" : "Edit payment details"}
+                  <ChevronDown className={`h-4 w-4 transition ${profilePaymentExpanded ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-lg border border-black/10 bg-white/70 px-3 py-2 dark:border-white/10 dark:bg-white/[0.05]">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-black/55 dark:text-white/55">Preference</p>
+                  <p className="mt-1 text-sm font-semibold text-black dark:text-white">
+                    {resolvedSelfProfile.paymentPreference
+                      ? PAYMENT_PREFERENCE_LABELS[resolvedSelfProfile.paymentPreference]
+                      : "Not set"}
+                  </p>
+                </div>
+                {profilePaymentSummaryCards.map((card) => (
+                  <div
+                    key={`self-profile-payment-summary-${card.label}`}
+                    className="rounded-lg border border-black/10 bg-white/70 px-3 py-2 dark:border-white/10 dark:bg-white/[0.05]"
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-black/55 dark:text-white/55">{card.label}</p>
+                    <p className="mt-1 text-sm font-semibold text-black dark:text-white">{card.value}</p>
+                    {card.hint ? (
+                      <p className="text-xs text-black/60 dark:text-white/60">{card.hint}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+
+              {profilePaymentExpanded ? (
+                <form onSubmit={saveProfilePaymentInfo} className="mt-3 space-y-4 rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+
+                  {/* Payment method selector */}
+                  <label className="block space-y-1">
+                    <span className="text-xs font-semibold text-black/65 dark:text-white/65">Payment method</span>
+                    <select
+                      value={profilePaymentForm.paymentPreference}
+                      onChange={(event) => {
+                        setProfilePaymentForm((prev) => ({
+                          ...prev,
+                          paymentPreference: (event.target.value as StaffPaymentPreference | "") || "",
+                        }))
+                        setProfilePaymentSuccess(null)
+                      }}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      <option value="">Select a payment method</option>
+                      {PAYMENT_PREFERENCES.map((preference) => (
+                        <option key={`profile-payment-preference-${preference}`} value={preference}>
+                          {PAYMENT_PREFERENCE_LABELS[preference]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {/* Dynamic fields: Direct Deposit */}
+                  {profilePaymentForm.paymentPreference === "direct_deposit" && (
+                    <div className="space-y-3 rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-black/55 dark:text-white/55">Bank Account Details</p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="space-y-1 md:col-span-2">
+                          <span className="text-xs text-black/65 dark:text-white/65">Bank name</span>
+                          <input
+                            value={profilePaymentForm.bankName}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, bankName: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="e.g. Chase, TD Bank"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-black/65 dark:text-white/65">Routing Number</span>
+                          <input
+                            value={profilePaymentForm.routingNumber}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, routingNumber: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="9 digits"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-black/65 dark:text-white/65">Account Number</span>
+                          <input
+                            value={profilePaymentForm.accountNumber}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, accountNumber: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="Account #"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                        <label className="space-y-1 md:col-span-2">
+                          <span className="text-xs text-black/65 dark:text-white/65">Account Type</span>
+                          <select
+                            value={profilePaymentForm.accountType}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, accountType: event.target.value })); setProfilePaymentSuccess(null) }}
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          >
+                            <option value="">Select account type</option>
+                            <option value="checking">Checking</option>
+                            <option value="savings">Savings</option>
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dynamic fields: Zelle / Venmo */}
+                  {profilePaymentForm.paymentPreference === "zelle" && (
+                    <div className="space-y-3 rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-black/55 dark:text-white/55">Zelle / Venmo</p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="space-y-1">
+                          <span className="text-xs text-black/65 dark:text-white/65">Zelle ID (Email or Phone)</span>
+                          <input
+                            value={profilePaymentForm.zelleId}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, zelleId: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="e.g. email@mail.com"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-black/65 dark:text-white/65">Venmo Username (optional)</span>
+                          <input
+                            value={profilePaymentForm.venmoUser}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, venmoUser: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="@username"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dynamic fields: Mercado Pago */}
+                  {profilePaymentForm.paymentPreference === "mercadopago" && (
+                    <div className="space-y-3 rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-black/55 dark:text-white/55">Mercado Pago</p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="space-y-1">
+                          <span className="text-xs text-black/65 dark:text-white/65">CBU / CVU</span>
+                          <input
+                            value={profilePaymentForm.cbu}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, cbu: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="22 digits"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-black/65 dark:text-white/65">Alias</span>
+                          <input
+                            value={profilePaymentForm.alias}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, alias: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="e.g. nombre.mp.alias"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                        <label className="space-y-1 md:col-span-2">
+                          <span className="text-xs text-black/65 dark:text-white/65">Account Holder</span>
+                          <input
+                            value={profilePaymentForm.accountHolder}
+                            onChange={(event) => { setProfilePaymentForm((prev) => ({ ...prev, accountHolder: event.target.value })); setProfilePaymentSuccess(null) }}
+                            placeholder="Full name as shown in Mercado Pago"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cash: no extra info needed */}
+                  {profilePaymentForm.paymentPreference === "cash" && (
+                    <p className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-400">
+                      No additional information needed for cash payments.
+                    </p>
+                  )}
+
+                  {/* Credits: internship note */}
+                  {profilePaymentForm.paymentPreference === "credits" && (
+                    <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+                      Credits are only available for internship/pasante arrangements. Your manager will set this up.
+                    </p>
+                  )}
+
+                  {/* Stripe: no self-service */}
+                  {profilePaymentForm.paymentPreference === "stripe" && (
+                    <p className="rounded-lg border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-xs text-sky-400">
+                      Stripe payouts are configured by your school admin. No information needed from your side.
+                    </p>
+                  )}
+
+                  {profilePaymentError ? (
+                    <p className="rounded-md border border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 px-2.5 py-1.5 text-xs text-[var(--brand,#ff4b4b)]">
+                      {profilePaymentError}
+                    </p>
+                  ) : null}
+                  {profilePaymentSuccess ? (
+                    <p className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-300">
+                      {profilePaymentSuccess}
+                    </p>
+                  ) : null}
+
+                  <button
+                    type="submit"
+                    disabled={profilePaymentSaving}
+                    className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand,#b61616)]/90 disabled:opacity-50"
+                  >
+                    {profilePaymentSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : profilePaymentForm.paymentPreference !== "" && profilePaymentForm.paymentPreference !== resolvedSelfProfile.assignedPaymentPreference ? (
+                      "Request Payment Method Change"
+                    ) : (
+                      "Save information"
+                    )}
+                  </button>
+                </form>
+              ) : null}
+            </section>
 
             <section className="mt-5 rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -5338,28 +7262,28 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             Assign role and department in one step. If the user exists, we promote directly.
           </p>
 
-          <form onSubmit={createStaff} className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-12">
+          <form onSubmit={createStaff} className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
             <input
               name="staffEmail"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="staff@email.com"
-              className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white xl:col-span-4"
+              className="min-w-0 flex-[1.5] rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
             />
             <input
               name="staffFirstName"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
-              placeholder="First name"
-              className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white xl:col-span-2"
+              placeholder="First"
+              className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-2 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
             />
             <input
               name="staffLastName"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
-              placeholder="Last name"
-              className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white xl:col-span-2"
+              placeholder="Last"
+              className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-2 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
             />
             <select
               name="staffRole"
@@ -5369,7 +7293,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 setNewRole(nextRole)
                 setNewCategory((prev) => normalizeCategoryForRole(nextRole, prev))
               }}
-              className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white xl:col-span-2"
+              className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-2 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
             >
               {assignableRoles.map((role) => (
                 <option key={`create-role-${role}`} value={role}>
@@ -5382,7 +7306,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value as StaffCategory)}
               disabled={Boolean(getFixedCategoryForRole(newRole))}
-              className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white xl:col-span-2"
+              className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-2 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
             >
               {((getFixedCategoryForRole(newRole) ? [getFixedCategoryForRole(newRole)!] : CATEGORY_OPTIONS) as StaffCategory[]).map((category) => (
                 <option key={`create-category-${category}`} value={category}>
@@ -5390,13 +7314,25 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </option>
               ))}
             </select>
+            <input
+              name="staffPin"
+              value={newPin}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, "").slice(0, 4)
+                setNewPin(value)
+              }}
+              placeholder="PIN"
+              maxLength={4}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              className="min-w-0 flex-[0.75] rounded-md border border-black/15 bg-white px-2 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+            />
             <button
               type="submit"
               disabled={createBusy}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50 xl:col-span-12"
+              className="shrink-0 rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50"
             >
-              {createBusy ? "Processing..." : "Create / invite staff user"}
-              <ChevronRight className="h-4 w-4" />
+              {createBusy ? "Processing..." : "Create / invite"}
             </button>
           </form>
 
@@ -5586,8 +7522,24 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </div>
           </header>
 
-          <div className="mb-4 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:gap-3 xl:justify-between">
+            <div className="relative md:w-[180px] md:shrink-0 xl:hidden">
+              <select
+                aria-label="Filter team board by staff category"
+                value={categoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value as StaffCategory | "all")}
+                className="h-10 w-full cursor-pointer appearance-none rounded-md border border-black/15 bg-white px-3 pr-9 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+              >
+                <option value="all">All roles</option>
+                {CATEGORY_OPTIONS.map((category) => (
+                  <option key={`filter-option-${category}`} value={category}>
+                    {CATEGORY_LABELS[category]}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/45 dark:text-white/45" />
+            </div>
+            <div className="hidden min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-x-auto pb-1 xl:flex">
               <button
                 type="button"
                 onClick={() => setCategoryFilter("all")}
@@ -5619,9 +7571,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 e.preventDefault()
                 fetchRows(query, categoryFilter)
               }}
-              className="flex w-full items-center gap-2 xl:w-[420px] xl:flex-none"
+              className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center md:flex-1 xl:w-[420px] xl:flex-none"
             >
-              <div className="relative w-full">
+              <div className="relative w-full sm:min-w-0 sm:flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/45 dark:text-white/45" />
                 <input
                   name="staffSearch"
@@ -5631,14 +7583,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   className="w-full rounded-md border border-black/15 bg-white py-2 pl-9 pr-3 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                 />
               </div>
-              <button type="submit" className="rounded-md border border-black/20 px-3 py-2 text-sm dark:border-white/20">
-                Search
-              </button>
-              <button
-                type="button"
-                onClick={() => fetchRows(query, categoryFilter)}
-                className="inline-flex items-center gap-1 rounded-md border border-black/20 px-3 py-2 text-sm dark:border-white/20"
-              >
+                <button type="submit" className="shrink-0 whitespace-nowrap rounded-md border border-black/20 px-2.5 py-2 text-sm dark:border-white/20 md:px-3">
+                  Search
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fetchRows(query, categoryFilter)}
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-black/20 px-2.5 py-2 text-sm dark:border-white/20 md:px-3"
+                >
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </button>
@@ -5651,7 +7603,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </p>
           ) : null}
 
-          <div className="mt-16 grid grid-cols-1 gap-4 lg:mt-24 xl:grid-cols-3">
+          <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 gap-4 lg:mt-24 xl:grid-cols-3">
             {loading
               ? Array.from({ length: 6 }).map((_, idx) => (
                   <div
@@ -5659,14 +7611,18 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     className="h-72 rounded-xl border border-black/10 bg-black/5 shimmer dark:border-white/10 dark:bg-white/[0.03]"
                   />
                 ))
-              : rows.map((row) => {
+                : rows.map((row) => {
                   const rowBusy = busyUserId === row.id
+                  const payrollModelState = payrollModelActionByUserId[row.id] ?? { status: "idle", message: null }
                   const canManageRow = canManageTarget(row)
                   const initials = getInitials(row.firstName, row.lastName, row.email)
                   const statusTone = getStatusTone(row)
                   const fullName = `${row.firstName} ${row.lastName}`.trim() || "No name"
                   const rowPayroll = payrollRows.find((item) => item.userId === row.id)
                   const liveSessionMinutes = getLiveSessionMinutes(row)
+                  const availablePayrollModels = payrollModelOptions.filter(
+                    (model) => model.active || model.id === row.paymentModelId
+                  )
                   return (
                     <article
                       key={row.id}
@@ -5703,7 +7659,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             <span className="text-2xl font-bold">{initials}</span>
                           )}
                         </div>
-                        <h4 className="mx-auto mt-1 max-w-[220px] truncate text-2xl font-semibold leading-tight">{fullName}</h4>
+                        <h4 className="mx-auto mt-1 w-full max-w-full break-words px-2 text-2xl font-semibold leading-tight">{fullName}</h4>
                         <div className="mt-2 flex items-center justify-center gap-4">
                           <button
                             type="button"
@@ -5791,6 +7747,59 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         </p>
                       </div>
 
+                      <div
+                        className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/65">Payroll Model</p>
+                          {payrollModelState.status === "saving" ? <Loader2 className="h-3.5 w-3.5 animate-spin text-white/70" /> : null}
+                        </div>
+                        <select
+                          value={row.paymentModelId ?? ""}
+                          disabled={payrollModelLoading || payrollModelState.status === "saving" || !canManageRow}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => {
+                            event.stopPropagation()
+                            const nextPaymentModelId = event.target.value || null
+                            void updateStaffPayrollModel(row.id, nextPaymentModelId)
+                          }}
+                          className="mt-2 w-full rounded-md border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none transition focus:border-[var(--brand,#b61616)] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <option value="" className="text-black">
+                            Set to School Default
+                          </option>
+                          {availablePayrollModels.map((model) => (
+                            <option key={`payroll-model-${row.id}-${model.id}`} value={model.id} className="text-black">
+                              {model.name}
+                              {model.isDefault ? " (Default)" : ""}
+                              {!model.active ? " (Inactive)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="mt-2 min-h-4 text-[11px] text-white/70">
+                          {payrollModelError ? <span className="text-[#ff9c9c]">{payrollModelError}</span> : null}
+                          {!payrollModelError && payrollModelState.message ? (
+                            <span
+                              className={`inline-flex items-center gap-1 ${
+                                payrollModelState.status === "error"
+                                  ? "text-[#ff9c9c]"
+                                  : payrollModelState.status === "success"
+                                    ? "text-[#9af0b5]"
+                                    : "text-white/70"
+                              }`}
+                            >
+                              {payrollModelState.status === "success" ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                              {payrollModelState.status === "error" ? <X className="h-3.5 w-3.5" /> : null}
+                              {payrollModelState.message}
+                            </span>
+                          ) : null}
+                          {!payrollModelError && !payrollModelState.message && payrollModelLoading ? (
+                            <span>Loading payroll models...</span>
+                          ) : null}
+                        </div>
+                      </div>
+
                       <div className="mt-3 grid grid-cols-3 gap-2">
                         <button
                           type="button"
@@ -5839,129 +7848,172 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 No teacher-capable staff found yet.
               </p>
             ) : (
-              <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <label htmlFor="teacherSelect" className="text-xs uppercase tracking-[0.25em] text-black/60 dark:text-white/60">
-                    Selected teacher
+              <div className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                <p className="text-xs uppercase tracking-[0.25em] text-black/60 dark:text-white/60">Teaching assignment</p>
+
+                <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,0.85fr)] md:items-end">
+                  <label className="space-y-1">
+                    <span className="text-xs text-black/65 dark:text-white/65">Selected teacher</span>
+                    <select
+                      id="teacherSelect"
+                      name="teacherSelect"
+                      value={teacherUserId}
+                      onChange={(event) => setTeacherUserId(event.target.value)}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      {teacherRows.map((row) => (
+                        <option key={`teacher-row-${row.id}`} value={row.id}>
+                          {`${row.firstName} ${row.lastName}`.trim() || row.email}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                  <select
-                    id="teacherSelect"
-                    name="teacherSelect"
-                    value={teacherUserId}
-                    onChange={(event) => setTeacherUserId(event.target.value)}
-                    className="rounded-md border border-black/15 bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                  >
-                    {teacherRows.map((row) => (
-                      <option key={`teacher-row-${row.id}`} value={row.id}>
-                        {`${row.firstName} ${row.lastName}`.trim() || row.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                  <p className="text-xs uppercase tracking-[0.25em] text-black/60 dark:text-white/60">Teaching assignment</p>
-
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="space-y-1">
+                    <span className="text-xs text-black/65 dark:text-white/65">Assigned teacher (program)</span>
+                    <select
+                      name="teacherAssignedUserId"
+                      value={teacherAssignedUserId}
+                      onChange={(event) => setTeacherAssignedUserId(event.target.value)}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      {teacherRows.map((row) => (
+                        <option key={`assigned-teacher-${row.id}`} value={row.id}>
+                          {`${row.firstName} ${row.lastName}`.trim() || row.email}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
                     <label className="space-y-1">
-                      <span className="text-xs text-black/65 dark:text-white/65">Assigned teacher (program)</span>
+                      <span className="text-xs text-black/65 dark:text-white/65">Recurrence</span>
                       <select
-                        name="teacherAssignedUserId"
-                        value={teacherAssignedUserId}
-                        onChange={(event) => setTeacherAssignedUserId(event.target.value)}
+                        name="teacherRecurrenceUnit"
+                        value={teacherRecurrenceUnit}
+                        onChange={(event) => setTeacherRecurrenceUnit(event.target.value === "year" ? "year" : "month")}
                         className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       >
-                        {teacherRows.map((row) => (
-                          <option key={`assigned-teacher-${row.id}`} value={row.id}>
-                            {`${row.firstName} ${row.lastName}`.trim() || row.email}
-                          </option>
-                        ))}
+                        <option value="month">Monthly</option>
+                        <option value="year">Yearly</option>
                       </select>
                     </label>
-                    <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
-                      <label className="space-y-1">
-                        <span className="text-xs text-black/65 dark:text-white/65">Recurrence</span>
-                        <select
-                          name="teacherRecurrenceUnit"
-                          value={teacherRecurrenceUnit}
-                          onChange={(event) => setTeacherRecurrenceUnit(event.target.value === "year" ? "year" : "month")}
-                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                        >
-                          <option value="month">Monthly</option>
-                          <option value="year">Yearly</option>
-                        </select>
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-xs text-black/65 dark:text-white/65">Every</span>
-                        <input
-                          name="teacherRecurrenceInterval"
-                          type="number"
-                          min={1}
-                          max={12}
-                          step={1}
-                          value={teacherRecurrenceInterval}
-                          onChange={(event) => setTeacherRecurrenceInterval(Math.max(1, Math.min(12, Number(event.target.value) || 1)))}
-                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                        />
-                      </label>
-                    </div>
+                    <label className="space-y-1">
+                      <span className="text-xs text-black/65 dark:text-white/65">Repeat every</span>
+                      <input
+                        name="teacherRecurrenceInterval"
+                        type="number"
+                        min={1}
+                        max={12}
+                        step={1}
+                        value={teacherRecurrenceInterval}
+                        onChange={(event) => setTeacherRecurrenceInterval(Math.max(1, Math.min(12, Number(event.target.value) || 1)))}
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      />
+                    </label>
                   </div>
-
-                  <div className="mt-3 rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                    <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Program courses</p>
-                    <p className="mt-1 text-xs text-black/60 dark:text-white/60">
-                      Add one or many classes to this program template. You can re-assign another teacher later without recreating the program.
-                    </p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      {courseOptions.map((course) => {
-                        const active = teacherCourseSlugs.includes(course.slug)
-                        return (
-                          <button
-                            key={`teacher-course-${course.slug}`}
-                            type="button"
-                            onClick={() => toggleTeacherCourse(course.slug)}
-                            className={`rounded-md border px-3 py-2 text-left text-sm transition ${
-                              active
-                                ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)]"
-                                : "border-black/15 bg-white/80 text-black/80 dark:border-white/15 dark:bg-white/5 dark:text-white/80"
-                            }`}
-                          >
-                            {course.title}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <p className="mt-2 text-xs text-black/60 dark:text-white/60">
-                      {teacherCourseSlugs.length > 0
-                        ? `${teacherCourseSlugs.length} classes assigned to this program.`
-                        : "No classes selected yet."}
-                    </p>
-                  </div>
-
-                  <div className="mt-3 rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
-                    Program owner: <span className="font-semibold text-black dark:text-white">{selectedTeacher ? `${selectedTeacher.firstName} ${selectedTeacher.lastName}`.trim() || selectedTeacher.email : "—"}</span> ·
-                    Assigned teacher:{" "}
-                    <span className="font-semibold text-black dark:text-white">
-                      {assignedTeacher ? `${assignedTeacher.firstName} ${assignedTeacher.lastName}`.trim() || assignedTeacher.email : "—"}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={saveTeacherPerformance}
-                    disabled={teacherSaving || !selectedTeacher}
-                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50"
-                  >
-                    {teacherSaving ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      "Save assignment"
-                    )}
-                  </button>
+                  <p className="mt-2 text-xs text-black/60 dark:text-white/60 md:col-span-3">{teacherRecurrenceIntervalHelperText}</p>
                 </div>
+
+                <div className="mt-3 rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Program courses</p>
+                  <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+                    Add one or many classes to this program template. You can re-assign another teacher later without recreating the program.
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {courseOptions.map((course, index) => {
+                      const active = teacherCourseSlugs.includes(course.slug)
+                      const shouldSpanFullWidth = courseOptions.length % 2 === 1 && index === courseOptions.length - 1
+                      return (
+                        <button
+                          key={`teacher-course-${course.slug}`}
+                          type="button"
+                          onClick={() => toggleTeacherCourse(course.slug)}
+                          className={`rounded-xl border px-3 py-3 text-left text-sm transition ${shouldSpanFullWidth ? "col-span-2" : ""} ${
+                            active
+                              ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)] shadow-[0_10px_24px_-18px_rgba(182,22,22,0.85)]"
+                              : "border-black/15 bg-white/80 text-black/80 dark:border-white/15 dark:bg-white/5 dark:text-white/80"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            {course.imageUrl ? (
+                              <div
+                                role="img"
+                                aria-label={course.title}
+                                className="h-12 w-12 rounded-xl bg-cover bg-center ring-1 ring-black/10 dark:ring-white/10"
+                                style={{ backgroundImage: `url("${course.imageUrl}")` }}
+                              />
+                            ) : (
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-black/5 text-xs font-semibold uppercase text-black/50 ring-1 ring-black/10 dark:bg-white/10 dark:text-white/55 dark:ring-white/10">
+                                {course.title
+                                  .split(" ")
+                                  .slice(0, 2)
+                                  .map((part) => part[0])
+                                  .join("")}
+                              </div>
+                            )}
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                  <p className={`font-semibold ${active ? "text-[var(--brand,#b61616)] dark:text-[var(--brand,#ff7b7b)]" : "text-black dark:text-white"}`}>
+                                    {course.title}
+                                  </p>
+                                  {course.kindLabel ? (
+                                    <p className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-black/45 dark:text-white/45">{course.kindLabel}</p>
+                                  ) : null}
+                                </div>
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+                                    active
+                                      ? "border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 text-[var(--brand,#ff4b4b)]"
+                                      : "border-black/10 bg-black/[0.04] text-black/55 dark:border-white/10 dark:bg-white/[0.06] dark:text-white/55"
+                                  }`}
+                                >
+                                  {active ? "Selected" : "Available"}
+                                </span>
+                              </div>
+
+                              {course.scheduleLabel ? (
+                                <p className="mt-2 text-xs text-black/65 dark:text-white/65">{course.scheduleLabel}</p>
+                              ) : null}
+                              {course.description ? (
+                                <p className="mt-1 line-clamp-2 text-xs text-black/60 dark:text-white/60">{course.description}</p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-black/60 dark:text-white/60">
+                    {teacherCourseSlugs.length > 0
+                      ? `${teacherCourseSlugs.length} classes assigned to this program.`
+                      : "No classes selected yet."}
+                  </p>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
+                  Selected teacher: <span className="font-semibold text-black dark:text-white">{selectedTeacher ? `${selectedTeacher.firstName} ${selectedTeacher.lastName}`.trim() || selectedTeacher.email : "—"}</span> · Assigned teacher:{" "}
+                  <span className="font-semibold text-black dark:text-white">
+                    {assignedTeacher ? `${assignedTeacher.firstName} ${assignedTeacher.lastName}`.trim() || assignedTeacher.email : "—"}
+                  </span>
+                  {teacherAssignmentDirty ? <span className="ml-2 font-semibold text-[var(--brand,#b61616)]">Unsaved local changes</span> : null}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={saveTeacherPerformance}
+                  disabled={teacherSaving || !selectedTeacher}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50"
+                >
+                  {teacherSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save assignment"
+                  )}
+                </button>
               </div>
             )}
 
@@ -5998,10 +8050,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </button>
               </header>
 
-              <div className="mt-5 grid gap-4 sm:grid-cols-3">
+              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Courses</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolCourses.length}</p>
+                </div>
+                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Rooms</p>
+                  <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolRooms.length}</p>
+                  <p className="mt-1 text-xs text-black/55 dark:text-white/55">{activeRoomOptions.length} active</p>
                 </div>
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Packages</p>
@@ -6023,6 +8080,185 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   {schoolSuccess}
                 </p>
               ) : null}
+            </article>
+
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+              <header className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Room management</p>
+                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create, edit, and disable rooms</h3>
+                  <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                    Keep the room catalog clean so course defaults and session conflict checks stay reliable.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetRoomForm}
+                  className="inline-flex items-center justify-center rounded-md border border-black/15 bg-white px-3 py-2 text-sm font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)] hover:text-[var(--brand,#ff4b4b)] dark:border-white/15 dark:bg-white/[0.04] dark:text-white/80"
+                >
+                  New room
+                </button>
+              </header>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.2fr)]">
+                <form onSubmit={saveRoom} className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
+                      {roomForm.id ? "Editing room" : "Create room"}
+                    </p>
+                    <p className="mt-1 text-xs text-black/55 dark:text-white/55">
+                      Names must stay unique and capacity must be greater than zero.
+                    </p>
+                  </div>
+                  <input
+                    name="roomName"
+                    value={roomForm.name}
+                    onChange={(event) => setRoomForm((prev) => ({ ...prev, name: event.target.value }))}
+                    placeholder="Room name"
+                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    required
+                  />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      name="roomCapacity"
+                      type="number"
+                      min={1}
+                      value={roomForm.capacity}
+                      onChange={(event) => setRoomForm((prev) => ({ ...prev, capacity: event.target.value }))}
+                      placeholder="Capacity"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                    />
+                    <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs text-black/75 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/75">
+                      <input
+                        type="checkbox"
+                        checked={roomForm.active}
+                        onChange={(event) => setRoomForm((prev) => ({ ...prev, active: event.target.checked }))}
+                      />
+                      Active room
+                    </label>
+                  </div>
+                  <input
+                    name="roomLocation"
+                    value={roomForm.location}
+                    onChange={(event) => setRoomForm((prev) => ({ ...prev, location: event.target.value }))}
+                    placeholder="Location details (optional)"
+                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                  />
+                  {roomFormError ? (
+                    <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
+                      {roomFormError}
+                    </p>
+                  ) : null}
+                  {roomFormSuccess ? (
+                    <p className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+                      {roomFormSuccess}
+                    </p>
+                  ) : null}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={resetRoomForm}
+                      disabled={roomSaving}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-black/20 bg-white px-4 py-2 text-sm font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-60 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={roomSaving}
+                      className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                    >
+                      {roomSaving ? "Saving..." : roomForm.id ? "Update room" : "Create room"}
+                    </button>
+                  </div>
+                </form>
+
+                <div className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative min-w-[220px] flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/45 dark:text-white/45" />
+                      <input
+                        value={roomSearchQuery}
+                        onChange={(event) => setRoomSearchQuery(event.target.value)}
+                        placeholder="Search by room or location"
+                        className="w-full rounded-md border border-black/15 bg-white py-2 pl-9 pr-3 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      />
+                    </div>
+                    <select
+                      value={roomStatusFilter}
+                      onChange={(event) =>
+                        setRoomStatusFilter(
+                          event.target.value === "active" || event.target.value === "inactive" ? event.target.value : "all"
+                        )
+                      }
+                      className="rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      <option value="all">All statuses</option>
+                      <option value="active">Active only</option>
+                      <option value="inactive">Inactive only</option>
+                    </select>
+                  </div>
+
+                  <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                    {schoolLoading ? (
+                      <div className="space-y-2 animate-pulse">
+                        <div className="h-20 rounded-md bg-black/10 dark:bg-white/10" />
+                        <div className="h-20 rounded-md bg-black/10 dark:bg-white/10" />
+                        <div className="h-20 rounded-md bg-black/10 dark:bg-white/10" />
+                      </div>
+                    ) : visibleRooms.length === 0 ? (
+                      <p className="text-sm text-black/60 dark:text-white/60">No rooms match the current filters.</p>
+                    ) : (
+                      visibleRooms.map((room) => (
+                        <div key={`room-row-${room.id}`} className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-black dark:text-white">{room.name}</p>
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                                    room.active
+                                      ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
+                                      : "border-black/15 bg-black/[0.04] text-black/60 dark:border-white/15 dark:bg-white/[0.04] dark:text-white/60"
+                                  }`}
+                                >
+                                  {room.active ? "Active" : "Inactive"}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                                Capacity {room.capacity} · {room.location || "No location detail"}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => loadRoomIntoForm(room)}
+                                className="rounded border border-[var(--brand,#b61616)]/60 px-2 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void disableRoom(room.id)}
+                                disabled={resolveRoomDisableActionState(room, roomBusyId).disabled}
+                                className="rounded border border-black/15 px-2 py-1 text-[11px] font-semibold text-black/75 transition hover:border-[var(--brand,#b61616)] hover:text-[var(--brand,#ff4b4b)] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/15 dark:text-white/75"
+                              >
+                                {resolveRoomDisableActionState(room, roomBusyId).label}
+                              </button>
+                            </div>
+                          </div>
+                          {roomActionErrors[room.id] ? (
+                            <p className="mt-2 rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-2.5 py-2 text-xs text-[var(--brand,#ff4b4b)]">
+                              {roomActionErrors[room.id]}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
             </article>
 
             <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
@@ -6107,14 +8343,37 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                         />
                       </div>
-                      <input
-                        name="courseLocation"
-                        value={courseForm.location}
-                        onChange={(event) => setCourseForm((prev) => ({ ...prev, location: event.target.value }))}
-                        placeholder="Location"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
-                    </div>
+                       <input
+                         name="courseLocation"
+                         value={courseForm.location}
+                         onChange={(event) => setCourseForm((prev) => ({ ...prev, location: event.target.value }))}
+                         placeholder="Location"
+                         className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                       />
+                       <div className="space-y-2">
+                         <select
+                           name="courseDefaultRoomId"
+                           value={courseForm.defaultRoomId}
+                           onChange={(event) => setCourseForm((prev) => ({ ...prev, defaultRoomId: event.target.value }))}
+                           className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                         >
+                           <option value="">No default room</option>
+                           {courseRoomOptions.map((room) => (
+                             <option key={`course-room-${room.id}`} value={room.id}>
+                               {room.name} · cap {room.capacity}{room.active ? "" : " · inactive"}
+                             </option>
+                           ))}
+                         </select>
+                         <p className="text-xs text-black/55 dark:text-white/55">
+                           Optional. Future sessions can reuse this room as the default assignment.
+                         </p>
+                         {courseForm.defaultRoomId && roomById[courseForm.defaultRoomId] ? (
+                           <p className="text-xs text-black/60 dark:text-white/60">
+                             {roomById[courseForm.defaultRoomId]!.location || "No location detail"} · cap {roomById[courseForm.defaultRoomId]!.capacity}
+                           </p>
+                         ) : null}
+                       </div>
+                     </div>
 
                     <div className="space-y-2">
                       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Prices and special discounts</span>
@@ -6805,10 +9064,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           ? `Launch ${courseForm.launchDate || "—"}`
                                           : "Publish now"}
                                     </p>
-                                    <p className="truncate text-black/75 dark:text-white/75">Address: {courseForm.location || "—"}</p>
-                                    <p className="text-black/65 dark:text-white/65">
-                                      {scheduleDerivedData.times.length > 0
-                                        ? `Times: ${scheduleDerivedData.times.map((time) => formatClockLabel(time)).join(", ")}`
+                                     <p className="truncate text-black/75 dark:text-white/75">Address: {courseForm.location || "—"}</p>
+                                     <p className="truncate text-black/75 dark:text-white/75">
+                                       Default room: {courseForm.defaultRoomId ? roomById[courseForm.defaultRoomId]?.name || "Selected room" : "None"}
+                                     </p>
+                                     <p className="text-black/65 dark:text-white/65">
+                                       {scheduleDerivedData.times.length > 0
+                                         ? `Times: ${scheduleDerivedData.times.map((time) => formatClockLabel(time)).join(", ")}`
                                         : "Times: schedule to be defined"}
                                     </p>
                                   </div>
@@ -6876,6 +9138,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           <p className="truncate font-semibold text-black dark:text-white">{item.title}</p>
                                           <p className="truncate text-black/65 dark:text-white/65">
                                             {item.slug} · {item.kind}
+                                          </p>
+                                          <p className="truncate text-black/55 dark:text-white/55">
+                                            Default room: {item.defaultRoomId ? roomById[item.defaultRoomId]?.name || "Assigned room" : "None"}
                                           </p>
                                         </div>
                                       </div>
@@ -7463,6 +9728,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </div>
               </div>
             </div>
+
+            {currentRole === "owner" ? <StaffPaymentMethodConfigPanel /> : null}
           </article>
         ) : null}
 
@@ -7479,46 +9746,80 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </p>
           </header>
 
-          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-5">
-            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(120,143,255,0.28),rgba(22,30,56,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
-              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">Students</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.totalStudents}</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(16,185,129,0.25),rgba(20,38,53,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
-              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">Total revenue</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">
-                {formatMoney(studentsSummary.totalRevenueCents)}
-              </p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(245,158,11,0.22),rgba(49,30,15,0.9))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
-              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">
-                {paymentCategoryFilter === "cash" ? "Cash pending" : "Stripe pending"}
-              </p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.pendingByContext}</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(99,102,241,0.28),rgba(24,22,54,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
-              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">Paid classes</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.paidStudents}</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-[linear-gradient(145deg,rgba(6,182,212,0.22),rgba(14,36,48,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
-              <p className="whitespace-nowrap text-xs text-black/60 dark:text-white/60">With check-in</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{studentsSummary.checkedInStudents}</p>
-            </div>
+          <div className="mt-1 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+            {[
+              {
+                key: "students",
+                label: "Students",
+                icon: Users,
+                value: studentsSummary.totalStudents,
+                cardClass: "bg-[linear-gradient(145deg,rgba(120,143,255,0.28),rgba(22,30,56,0.92))]",
+              },
+              {
+                key: "revenue",
+                label: "Total revenue",
+                icon: CircleDollarSign,
+                value: formatMoney(studentsSummary.totalRevenueCents),
+                cardClass: "bg-[linear-gradient(145deg,rgba(16,185,129,0.25),rgba(20,38,53,0.92))]",
+              },
+              {
+                key: "pending",
+                label:
+                  paymentCategoryFilter === "history"
+                    ? "Pending in scope"
+                    : paymentCategoryFilter === "cash"
+                      ? "Cash pending"
+                      : "Stripe pending",
+                icon: Clock3,
+                value: studentsSummary.pendingByContext,
+                cardClass: "bg-[linear-gradient(145deg,rgba(245,158,11,0.22),rgba(49,30,15,0.9))]",
+              },
+              {
+                key: "paid",
+                label: "Paid classes",
+                icon: CheckCircle2,
+                value: studentsSummary.paidStudents,
+                cardClass: "bg-[linear-gradient(145deg,rgba(99,102,241,0.28),rgba(24,22,54,0.92))]",
+              },
+              {
+                key: "checkin",
+                label: "With check-in",
+                icon: MapPin,
+                value: studentsSummary.checkedInStudents,
+                cardClass: "bg-[linear-gradient(145deg,rgba(6,182,212,0.22),rgba(14,36,48,0.92))]",
+              },
+            ].map((item) => {
+              const Icon = item.icon
+              return (
+                <div
+                  key={item.key}
+                  title={item.label}
+                  className={`min-w-[104px] flex-1 rounded-xl border border-white/10 p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)] ${item.cardClass}`}
+                >
+                  <div className="flex items-center gap-2 text-black/60 dark:text-white/60">
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                  </div>
+                  <p className="mt-1 text-lg font-semibold text-black dark:text-white">{item.value}</p>
+                </div>
+              )
+            })}
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2 lg:flex-nowrap lg:items-center lg:gap-3">
-            <div className="inline-flex w-full flex-wrap items-center gap-1.5 lg:w-auto lg:shrink-0 lg:flex-nowrap">
+          <div className="mt-4 flex flex-nowrap items-center gap-2">
+            <div className="inline-flex shrink-0 flex-nowrap items-center gap-1.5">
               {([
+                ["all", "All"],
                 ["cash", "Cash"],
                 ["card", "Card"],
                 ["packages", "Packages"],
                 ["dropin", "Drop-in"],
+                ["history", "History"],
               ] as const).map(([category, label]) => (
                 <button
                   key={`category-filter-${category}`}
                   type="button"
-                  onClick={() => setPaymentCategoryFilter(category)}
-                  className={`h-10 cursor-pointer whitespace-nowrap rounded-full border px-4 text-sm font-medium ${
+                  onClick={() => handlePaymentCategoryChange(category)}
+                  className={`h-9 cursor-pointer whitespace-nowrap rounded-full border px-3 text-xs font-medium ${
                     paymentCategoryFilter === category
                       ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#b61616)]"
                       : "border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
@@ -7527,28 +9828,38 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   {label}
                 </button>
               ))}
-            </div>
+              </div>
 
-            <label className="relative block w-full lg:min-w-[18rem] lg:max-w-[22rem] lg:flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/45 dark:text-white/45" />
-              <input
-                type="search"
-                value={studentSearchQuery}
-                onChange={(event) => setStudentSearchQuery(event.target.value)}
-                placeholder="Search student, email, phone or course"
-                className="h-10 w-full rounded-full border border-black/20 bg-white/80 pl-12 pr-3 text-[15px] text-black placeholder:text-black/45 focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-white/[0.06] dark:text-white dark:placeholder:text-white/45"
-              />
-            </label>
+              <label className="block flex-[0_1_18rem] lg:flex-[0_1_20rem]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/45 dark:text-white/45" />
+                  <input
+                    type="search"
+                    value={studentSearchQuery}
+                    onChange={(event) => setStudentSearchQuery(event.target.value)}
+                    placeholder="Search student, email, phone or course"
+                    className="h-9 w-full rounded-full border border-black/20 bg-white/80 pl-10 pr-9 text-sm text-black placeholder:text-black/45 focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-white/[0.06] dark:text-white dark:placeholder:text-white/45"
+                  />
+                  {isGlobalSearchLoading ? (
+                    <div role="status" aria-label="Searching..." className="absolute right-3 top-1/2 -translate-y-1/2 text-black/45 dark:text-white/45">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    </div>
+                  ) : null}
+                </div>
+                {globalSearchError ? (
+                  <p className="mt-1 text-xs text-red-500 dark:text-red-400">{globalSearchError}</p>
+                ) : null}
+              </label>
 
-            <label className="inline-flex h-10 shrink-0 items-center gap-2 text-xs text-black/70 dark:text-white/70">
+            <label className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap text-xs text-black/70 dark:text-white/70">
               <span className="text-[11px] uppercase tracking-[0.16em] text-black/55 dark:text-white/55">Status</span>
               <div className="relative shrink-0">
                 <select
                   value={paymentsFilter}
                   onChange={(event) => setPaymentsFilter(event.target.value as "all" | "pending" | "paid")}
-                  className="h-10 cursor-pointer appearance-none rounded-full border border-black/20 bg-[linear-gradient(145deg,rgba(255,255,255,0.9),rgba(241,241,252,0.76))] px-3.5 pr-8 text-xs font-medium text-black shadow-[0_10px_22px_-18px_rgba(0,0,0,0.85)] focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-[linear-gradient(145deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:text-white"
+                  className="h-9 cursor-pointer appearance-none rounded-full border border-black/20 bg-[linear-gradient(145deg,rgba(255,255,255,0.9),rgba(241,241,252,0.76))] px-3.5 pr-8 text-xs font-medium text-black shadow-[0_10px_22px_-18px_rgba(0,0,0,0.85)] focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-[linear-gradient(145deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:text-white"
                 >
-                  <option value="all">All status</option>
+                  <option value="all">All</option>
                   <option value="pending">Pending</option>
                   <option value="paid">Paid</option>
                 </select>
@@ -7557,29 +9868,274 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </label>
           </div>
 
-          {paymentCategoryFilter === "cash" ? (
+          {isHistoryMode ? (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(15,17,23,0.94),rgba(20,24,33,0.92))] p-4 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[auto_1fr] xl:gap-6">
+                {/* Left column: Calendar */}
+                <div className="w-full xl:w-auto xl:max-w-[20rem]">
+                  <CalendarPicker
+                    rangeMode={true}
+                    rangeStart={historyFrom}
+                    rangeEnd={historyTo}
+                    onRangeChange={(start, end) => {
+                      const nextRange = resolveHistoryRangeState(start, end)
+                      setHistoryFrom(nextRange.historyFrom)
+                      setHistoryTo(nextRange.historyTo)
+                      setHistoryClassKey("")
+                    }}
+                    compact
+                    minDate="1900-01-01"
+                    isDateDisabled={(isoDate) => isoDate > todayDateIso}
+                    getDateDisabledReason={(isoDate) =>
+                      isoDate > todayDateIso ? "History mode only supports today or past dates." : undefined
+                    }
+                  />
+                </div>
+
+                {/* Right column: Filters + Stats */}
+                <div className="flex min-w-0 w-full flex-col">
+                  {/* Range badge - pill horizontal with date range in red */}
+                  <div className="flex flex-wrap items-center rounded-full px-4 py-2 mb-3 bg-[var(--brand,#b61616)]/10 border border-[var(--brand,#b61616)]/25">
+                    <span className="rounded-full w-full px-3 py-1 text-sm font-bold text-[var(--brand,#b61616)] whitespace-nowrap">
+                      {historyReadableRange || "Select date range"}
+                    </span>
+                  </div>
+
+                  {/* Filters - compact row of chips/selects */}
+                  <div className="flex w-full justify-evenly flex-nowrap items-center gap-1 rounded-lg  py-2 mb-3 ">
+                    <div className="relative shrink-0">
+                      <select
+                        value={historyClassKey}
+                        onChange={(event) => setHistoryClassKey(event.target.value)}
+                        disabled={!historyFrom || !historyTo || historyClassOptions.length === 0}
+                        className="h-10 w-28 appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2 pr-6 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">All classes</option>
+                        {historyClassOptions.map((option) => (
+                          <option key={`history-class-${option.slug}`} value={option.slug}>
+                            {option.title}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
+                    </div>
+
+                    <div className="relative shrink-0">
+                      <select
+                        value={historyPaymentMethodFilter}
+                        onChange={(event) => setHistoryPaymentMethodFilter(event.target.value as HistoryPaymentMethodFilter)}
+                        className="h-10 w-28  appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2 pr-6 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50"
+                        style={{ minWidth: "80px" }}
+                      >
+                        <option value="all">All pay</option>
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="package">Pkg</option>
+                        <option value="dropin">Dropin</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
+                    </div>
+
+                    <div className="relative shrink-0">
+                      <select
+                        value={historyAttendanceFilter}
+                        onChange={(event) => setHistoryAttendanceFilter(event.target.value as HistoryAttendanceFilter)}
+                        className="h-10 w-28 appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2 pr-6 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50"
+                        style={{ minWidth: "80px" }}
+                      >
+                        <option value="all">All attend</option>
+                        <option value="attended">Attended</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="no_attendance">No show</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
+                    </div>
+                  </div>
+
+                  {/* Stats - compact history metric cards with decorative rings */}
+                  {historyFrom && historyTo && (
+                    <div className="grid flex-1 grid-cols-2 gap-2.5">
+                      <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--brand,#b61616)]/10 text-[var(--brand,#b61616)]">
+                          <span aria-hidden className="absolute inset-[2.5px] rounded-full border border-[var(--brand,#b61616)]/20" />
+                          <span
+                            aria-hidden
+                            className="absolute inset-0 rounded-full border border-transparent bg-[conic-gradient(from_210deg,transparent_0deg,rgba(182,22,22,0.45)_120deg,transparent_220deg)] opacity-80 motion-safe:animate-[spin_18s_linear_infinite] motion-reduce:animate-none"
+                            style={{ maskImage: "radial-gradient(farthest-side, transparent calc(100% - 1.25px), white calc(100% - 0.9px))" }}
+                          />
+                          <span className="relative text-[1.1rem] font-semibold leading-none">{historyDerivedStats.studentCount}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
+                            <svg aria-hidden className="h-3.5 w-3.5 text-[var(--brand,#b61616)]/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                            <span>Students</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
+                          <span aria-hidden className="absolute inset-[2.5px] rounded-full border border-emerald-400/20" />
+                          <span
+                            aria-hidden
+                            className="absolute inset-0 rounded-full border border-transparent bg-[conic-gradient(from_210deg,transparent_0deg,rgba(52,211,153,0.45)_120deg,transparent_220deg)] opacity-80 motion-safe:animate-[spin_18s_linear_infinite] motion-reduce:animate-none"
+                            style={{ maskImage: "radial-gradient(farthest-side, transparent calc(100% - 1.25px), white calc(100% - 0.9px))" }}
+                          />
+                          <span className="relative text-[1.1rem] font-semibold leading-none">{historyDerivedStats.paidCount}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
+                            <span>Paid</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-500/10 text-orange-400">
+                          <span aria-hidden className="absolute inset-[2.5px] rounded-full border border-orange-400/20" />
+                          <span
+                            aria-hidden
+                            className="absolute inset-0 rounded-full border border-transparent bg-[conic-gradient(from_210deg,transparent_0deg,rgba(251,146,60,0.45)_120deg,transparent_220deg)] opacity-80 motion-safe:animate-[spin_18s_linear_infinite] motion-reduce:animate-none"
+                            style={{ maskImage: "radial-gradient(farthest-side, transparent calc(100% - 1.25px), white calc(100% - 0.9px))" }}
+                          />
+                          <span className="relative text-[1.1rem] font-semibold leading-none">{historyDerivedStats.pendingCount}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
+                            <span>Pending</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
+                        <div className="relative flex h-12 min-w-[3.5rem] shrink-0 items-center justify-center rounded-full bg-blue-500/10 px-2 text-blue-400">
+                          <span aria-hidden className="absolute inset-[2.5px] rounded-full border border-blue-400/20" />
+                          <span
+                            aria-hidden
+                            className="absolute inset-0 rounded-full border border-transparent bg-[conic-gradient(from_210deg,transparent_0deg,rgba(96,165,250,0.45)_120deg,transparent_220deg)] opacity-80 motion-safe:animate-[spin_18s_linear_infinite] motion-reduce:animate-none"
+                            style={{ maskImage: "radial-gradient(farthest-side, transparent calc(100% - 1.25px), white calc(100% - 0.9px))" }}
+                          />
+                          <span className="relative whitespace-nowrap text-[1rem] font-semibold leading-none tracking-[-0.03em] tabular-nums">${Math.round(historyDerivedStats.totalCollected / 100)}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
+                            <span>Collected</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-fuchsia-500/10 text-fuchsia-300">
+                          <span aria-hidden className="absolute inset-[2.5px] rounded-full border border-fuchsia-300/20" />
+                          <span
+                            aria-hidden
+                            className="absolute inset-0 rounded-full border border-transparent bg-[conic-gradient(from_210deg,transparent_0deg,rgba(232,121,249,0.42)_120deg,transparent_220deg)] opacity-80 motion-safe:animate-[spin_18s_linear_infinite] motion-reduce:animate-none"
+                            style={{ maskImage: "radial-gradient(farthest-side, transparent calc(100% - 1.25px), white calc(100% - 0.9px))" }}
+                          />
+                          <span className="relative text-[1.1rem] font-semibold leading-none">{historyDerivedStats.packages}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
+                            <svg aria-hidden className="h-3.5 w-3.5 text-fuchsia-300/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8.5 8.5-4-4L4 15" />
+                            </svg>
+                            <span>Packages</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-cyan-400/10 text-cyan-200">
+                          <span aria-hidden className="absolute inset-[2.5px] rounded-full border border-cyan-200/20" />
+                          <span
+                            aria-hidden
+                            className="absolute inset-0 rounded-full border border-transparent bg-[conic-gradient(from_210deg,transparent_0deg,rgba(34,211,238,0.42)_120deg,transparent_220deg)] opacity-80 motion-safe:animate-[spin_18s_linear_infinite] motion-reduce:animate-none"
+                            style={{ maskImage: "radial-gradient(farthest-side, transparent calc(100% - 1.25px), white calc(100% - 0.9px))" }}
+                          />
+                          <span className="relative text-[1.1rem] font-semibold leading-none">{historyDerivedStats.dropIn}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
+                            <span>Drop-in</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {historyFrom && historyTo && filteredStudentCards.length === 0 && (
+                    <div className="text-xs text-white/40">
+                      No students found in this range
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {(paymentCategoryFilter === "cash" || (searchResultCards !== null && visiblePaymentIds.length > 0)) ? (
             <div className="mt-4 flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
-              <p className="min-w-0 flex-1 rounded-lg border border-emerald-500/30 bg-[linear-gradient(145deg,rgba(16,185,129,0.2),rgba(7,45,39,0.48))] px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300 lg:truncate">
+              <p className="inline-flex h-10 min-w-0 flex-[0_1_28rem] items-center rounded-lg border border-emerald-500/30 bg-[linear-gradient(145deg,rgba(16,185,129,0.2),rgba(7,45,39,0.48))] px-3 text-xs text-emerald-700 dark:text-emerald-300 lg:truncate">
                 Confirm payment / Mark pending only changes the internal cash status (does not modify Stripe).
               </p>
               <div className="ml-auto inline-flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedPaymentIds(visiblePaymentIds)}
-                  className="rounded-full border border-black/20 px-3 py-1 text-xs text-black/75 dark:border-white/20 dark:text-white/75"
+                  onClick={() =>
+                    setSelectedPaymentIds((prev) => [...new Set([...prev, ...visiblePaymentIds])])
+                  }
+                  className="inline-flex h-10 items-center rounded-full border border-black/20 px-3 text-xs text-black/75 dark:border-white/20 dark:text-white/75"
                 >
                   Select visible
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedPaymentIds([])}
-                  className="rounded-full border border-black/20 px-3 py-1 text-xs text-black/75 dark:border-white/20 dark:text-white/75"
+                  className="inline-flex h-10 items-center rounded-full border border-black/20 px-3 text-xs text-black/75 dark:border-white/20 dark:text-white/75"
                 >
                   Clear selection
                 </button>
-                <span className="text-xs text-black/60 dark:text-white/60">Selected: {selectedVisiblePaymentIds.length}</span>
+                 <span className="inline-flex h-10 items-center text-xs text-black/60 dark:text-white/60">Selected: {selectedFilteredPaymentIds.length}</span>
+                </div>
+              </div>
+            ) : null}
+
+          {cashSelectedCount > 0 ? (
+            <div className="sticky bottom-4 z-30 mt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/15 bg-[linear-gradient(145deg,rgba(19,22,34,0.96),rgba(42,18,45,0.92))] px-4 py-3 shadow-[0_22px_40px_-12px_rgba(0,0,0,0.9)] backdrop-blur">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/55">Cash payments</p>
+                  <p className="mt-1 text-sm font-medium text-white">{cashSelectedCount} payment{cashSelectedCount === 1 ? "" : "s"} selected</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={paymentsBulkBusyAction !== null}
+                    onClick={() => updateSettlementBulk("mark_paid", selectedPaymentIds)}
+                    className="rounded-lg border border-emerald-500/60 bg-emerald-500/25 px-4 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/35 disabled:opacity-60 transition-colors"
+                  >
+                    {paymentsBulkBusyAction === "mark_paid" ? "Processing..." : "Mark all paid"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={paymentsBulkBusyAction !== null}
+                    onClick={() => updateSettlementBulk("mark_pending", selectedPaymentIds)}
+                    className="rounded-lg border border-amber-500/60 bg-amber-500/25 px-4 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/35 disabled:opacity-60 transition-colors"
+                  >
+                    {paymentsBulkBusyAction === "mark_pending" ? "Processing..." : "Mark all pending"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPaymentIds([])}
+                    className="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
             </div>
+          ) : null}
+
+          {cardContext === "global-search" ? (
+            <p aria-live="polite" className="mt-5 rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/70 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
+              Search results for &quot;{studentSearchQuery.trim()}&quot;
+            </p>
           ) : null}
 
           <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
@@ -7590,12 +10146,164 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   className="h-[190px] rounded-xl border border-black/10 bg-black/[0.03] shimmer dark:border-white/10 dark:bg-white/[0.03]"
                 />
               ))
-            ) : filteredStudentCards.length === 0 ? (
-              <p className="rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
-                No student payments found.
+            ) : cardContext === "global-search" && searchResultCards!.length === 0 ? (
+              <p className="col-span-full rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
+                No students found.
+              </p>
+            ) : !searchResultCards && !shouldPreservePaymentBoard && filteredStudentCards.length === 0 ? (
+              <p className="col-span-full rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
+                {cardContext === "history" && (!historyFrom || !historyTo)
+                  ? "Select a range to load payment history."
+                  : cardContext === "history" && historyFrom > historyTo
+                    ? "History range must start on or before the end date."
+                    : "No student payments found."}
               </p>
             ) : (
-              filteredStudentCards.map((student) => {
+              displayedStudentCards.map((student) => {
+                if (student.source === "profile") {
+                  const identity = splitCustomerName(student.displayName, student.email)
+                  const initials = getInitials(identity.firstName, identity.lastName, student.email)
+                  const badges = resolveProfileCardBadges(student)
+                  const detailRows = resolveProfileCardDetailRows(student)
+                  const settlementControl = resolveProfileSettlementControl(student)
+                  const isProfileSettlementSelected = settlementControl ? selectedPaymentIds.includes(settlementControl.paymentId) : false
+
+                  return (
+                    <article
+                      key={`student-card-${student.key}`}
+                      className={`relative rounded-[16px] border border-white/10 bg-[linear-gradient(155deg,rgba(182,22,22,0.36)_0%,rgba(56,20,67,0.84)_48%,rgba(18,24,46,0.95)_100%)] p-4 text-white shadow-[0_20px_36px_-22px_rgba(0,0,0,0.75)] ${settlementControl ? "pt-9" : ""}`}
+                    >
+                      {settlementControl ? (
+                        isProfileSettlementSelected ? (
+                          <div className="absolute right-3 top-3 z-10 flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void updateSettlementBulk("mark_paid", [settlementControl.paymentId])}
+                              className="inline-flex items-center gap-1 rounded-md bg-[var(--brand,#b61616)]/20 border border-[var(--brand,#b61616)]/40 px-2 py-1 text-[10px] font-semibold text-[var(--brand,#ff4b4b)] hover:bg-[var(--brand,#b61616)]/30 transition-colors"
+                            >
+                              Mark paid
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPaymentIds((prev) => prev.filter((id) => id !== settlementControl.paymentId))}
+                              className="inline-flex items-center rounded-md bg-black/30 px-1.5 py-1 text-[10px] text-white/60 hover:text-white/80 transition-colors"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="absolute right-3 top-3 z-10 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-black/30 px-2 py-1 text-[10px] text-white/80 backdrop-blur-sm">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-[var(--brand,#b61616)]"
+                              checked={isProfileSettlementSelected}
+                              onChange={(event) => {
+                                const checked = event.target.checked
+                                setSelectedPaymentIds((prev) => {
+                                  if (checked) {
+                                    if (prev.includes(settlementControl.paymentId)) return prev
+                                    return [...prev, settlementControl.paymentId]
+                                  }
+                                  return prev.filter((id) => id !== settlementControl.paymentId)
+                                })
+                              }}
+                            />
+                            Select
+                          </label>
+                        )
+                      ) : null}
+                      <header className="flex items-center gap-3">
+                        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
+                          {student.avatarUrl ? <img src={student.avatarUrl} alt={student.displayName} className="h-full w-full object-cover" /> : initials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="truncate text-lg font-semibold leading-tight">{student.displayName}</h4>
+                          <p className="mt-1 truncate text-[12px] text-white/70">Registered · {formatIsoDateLong(student.registeredAt)}</p>
+                        </div>
+                      </header>
+
+                      <div className="mt-4 w-full grid grid-cols-2 gap-2.5">
+                        {badges.map((badge) => (
+                          <span
+                            key={badge.key}
+                            title={badge.title}
+                            className={`${PROFILE_CARD_BADGE_CLASS} ${badge.tone}`}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 space-y-2.5 border-t border-white/10 pt-3.5 text-xs text-white/85">
+                        {detailRows.map((row) => {
+                          const isOutstandingBalanceRow = row.key === "outstanding-balance"
+                          const baseRowClasses = "inline-flex w-full items-center justify-between gap-2 text-white/75"
+                          const rowClass = isOutstandingBalanceRow
+                            ? `${baseRowClasses} border-b border-[var(--brand,#b61616)]/40 pb-2 text-[var(--brand,#ff8b8b)]`
+                            : baseRowClasses
+                          const labelClass = `inline-flex items-center gap-1 ${
+                            isOutstandingBalanceRow
+                              ? "text-[var(--brand,#ff9e9e)]"
+                              : row.key === "location" || row.key === "email" || row.key === "phone"
+                                ? "text-white/70"
+                                : ""
+                          }`
+                          const valueClass = `truncate text-right ${isOutstandingBalanceRow ? "text-[var(--brand,#ffc0c0)]" : ""}`
+
+                          return (
+                            <p key={row.key} className={rowClass}>
+                              <span className={labelClass}>
+                                {row.key === "location" ? <MapPin className="h-3 w-3" /> : null}
+                                {row.key === "email" ? <Mail className="h-3 w-3" /> : null}
+                                {row.key === "phone" ? <Phone className="h-3 w-3" /> : null}
+                                {row.label}
+                              </span>
+                              <span className={valueClass}>{row.value}</span>
+                            </p>
+                          )
+                        })}
+                      </div>
+
+                      <div className={`mt-4 grid gap-2.5 ${canOperateStudentPins && student.userId ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2"}`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof window === "undefined" || !student.email || student.email === "—") return
+                            const subject = encodeURIComponent(`Student profile update · ${student.displayName}`)
+                            window.location.href = `mailto:${encodeURIComponent(student.email)}?subject=${subject}`
+                          }}
+                          className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
+                        >
+                          Notify
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return
+                            try {
+                              await navigator.clipboard.writeText(student.email || "")
+                            } catch {
+                              setError("Unable to copy student email.")
+                            }
+                          }}
+                          className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
+                        >
+                          Copy email
+                        </button>
+                        {canOperateStudentPins && student.userId ? (
+                          <button
+                            type="button"
+                            onClick={() => openStudentPinModalForProfile(student)}
+                            className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
+                          >
+                            {student.provisionalPinExpiresAt ? "Reissue PIN" : "Provisional PIN"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  )
+                }
+
                 const payment = student.latestPayment
                 const identity = splitCustomerName(payment.customerName, payment.customerEmail)
                 const initials = getInitials(identity.firstName, identity.lastName, payment.customerEmail)
@@ -7603,61 +10311,84 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 const packageValue = payment.activePackage
                   ? payment.activePackage.isUnlimited
                     ? "Unlimited"
-                    : `${Math.max(0, payment.activePackage.remainingCredits || 0)} credits`
+                    : payment.activePackage.totalCredits
+                      ? `${Math.max(0, payment.activePackage.remainingCredits || 0)} of ${payment.activePackage.totalCredits} remaining`
+                      : `${Math.max(0, payment.activePackage.remainingCredits || 0)} credits remaining`
                   : "—"
-                const totalSpentLabel = formatMoney(student.totalCollectedCents, payment.currency)
-                const lastPaymentAtPreciseLabel = formatIsoDateTimePrecise(payment.createdAt)
+                const outstandingBalanceLabel = typeof payment.outstandingBalance === "number" && payment.outstandingBalance > 0
+                  ? formatMoney(payment.outstandingBalance, payment.currency)
+                  : null
+                const paidEntries = cardVariant.context === "daily"
+                  ? buildHistoryStudentPaidEntries(student.allPayments)
+                  : student.allPayments
+                    .filter((entry) => entry.classPaid)
+                    .slice(0, 12)
+                const totalSpentCents = resolveHistoryStudentCardAmountPaidCents(student, cardVariant.context)
+                const totalSpentLabel = formatMoney(totalSpentCents, payment.currency)
+                const subtitleSlotLabel = formatStudentPaymentCardSlotLabel(payment.classDate, payment.classTime)
+                const courseUnion = [...new Set(student.allPayments.map((entry) => entry.courseTitle || entry.courseSlug).filter(Boolean))]
                 const isSelected = selectedPaymentIds.includes(payment.id)
                 const studentPinLabel = payment.studentPin.enabled
                   ? payment.studentPin.provisionalActive
-                    ? "Provisional active"
-                    : payment.studentPin.locked
-                      ? "PIN locked"
-                      : payment.studentPin.needsEnrollment
-                        ? "Needs PIN setup"
-                        : "PIN enrolled"
+                    ? "Provisional PIN"
+                    : "Enrolled PIN"
                   : null
-                const studentPinTone = payment.studentPin.enabled
-                  ? payment.studentPin.provisionalActive
-                    ? "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
-                    : payment.studentPin.locked
-                      ? "border-amber-400/35 bg-amber-400/10 text-amber-200"
-                      : payment.studentPin.needsEnrollment
-                        ? "border-[var(--brand,#ff4b4b)]/50 bg-[var(--brand,#b61616)]/14 text-[var(--brand,#ffd1d1)]"
-                        : "border-emerald-400/35 bg-emerald-400/10 text-emerald-200"
-                  : null
-                const checkInHistory = student.allPayments
-                  .filter((entry) => isCheckedInStatus(entry.checkInStatus))
-                  .slice(0, 10)
-                const purchasedCourseEntries = student.allPayments.slice(0, 12)
+                const studentPinTone = resolveStudentPinTone(payment.studentPin)
+                const checkInHistory = student.allPayments.filter((entry) => entry.checkInStatus !== "none").slice(0, 12)
                 const pointsHistoryEntries = payment.pointsHistory.slice(0, 10)
+                const canCheckOut = cardVariant.showCheckout && Boolean(payment.attendanceId && isCheckedInStatus(payment.checkInStatus))
+                const checkoutMenuOpen = checkoutMenuPaymentId === payment.id
+                const checkoutBusy = payment.attendanceId ? checkoutBusyAttendanceId === payment.attendanceId : false
 
                 return (
                   <article
                     key={`student-card-${student.key}`}
                     className={`relative rounded-[16px] border border-white/10 bg-[linear-gradient(155deg,rgba(182,22,22,0.36)_0%,rgba(56,20,67,0.84)_48%,rgba(18,24,46,0.95)_100%)] p-4 text-white shadow-[0_20px_36px_-22px_rgba(0,0,0,0.75)] ${
-                      paymentCategoryFilter === "cash" ? "pt-9" : ""
+                      payment.paymentChannel === "cash" ? "pt-9" : ""
                     }`}
                   >
-                    {paymentCategoryFilter === "cash" ? (
-                      <label className="absolute right-3 top-3 z-10 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-black/30 px-2 py-1 text-[10px] text-white/80 backdrop-blur-sm">
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 accent-[var(--brand,#b61616)]"
-                          checked={isSelected}
-                          onChange={(event) => {
-                            const checked = event.target.checked
-                            setSelectedPaymentIds((prev) => {
-                              if (checked) {
-                                if (prev.includes(payment.id)) return prev
-                                return [...prev, payment.id]
-                              }
-                              return prev.filter((id) => id !== payment.id)
-                            })
-                          }}
-                        />
-                        Select
-                      </label>
+                    {payment.paymentChannel === "cash" || (typeof payment.outstandingBalance === "number" && payment.outstandingBalance > 0) ? (
+                      isSelected ? (
+                        <div className="absolute right-3 top-3 z-10 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void updateSettlementBulk(payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid", [payment.id])}
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
+                              payment.settlementStatus === "paid"
+                                ? "bg-amber-500/30 border border-amber-500/50 text-amber-200 hover:bg-amber-500/40"
+                                : "bg-emerald-500/30 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/40"
+                            }`}
+                          >
+                            {payment.settlementStatus === "paid" ? "Mark pending" : "Mark paid"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPaymentIds((prev) => prev.filter((id) => id !== payment.id))}
+                            className="inline-flex items-center rounded-md bg-black/40 border border-white/20 px-1.5 py-1 text-[10px] text-white/60 hover:text-white/80 transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="absolute right-3 top-3 z-10 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-black/30 px-2 py-1 text-[10px] text-white/80 backdrop-blur-sm">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 accent-[var(--brand,#b61616)]"
+                            checked={isSelected}
+                            onChange={(event) => {
+                              const checked = event.target.checked
+                              setSelectedPaymentIds((prev) => {
+                                if (checked) {
+                                  if (prev.includes(payment.id)) return prev
+                                  return [...prev, payment.id]
+                                }
+                                return prev.filter((id) => id !== payment.id)
+                              })
+                            }}
+                          />
+                          Select
+                        </label>
+                      )
                     ) : null}
                     <header className="flex items-center gap-3">
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
@@ -7672,24 +10403,46 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         <span className="group relative block cursor-help">
                           <p
                             className="mt-1 truncate text-[12px] text-white/70"
-                            title={`${payment.courseTitle} · ${
-                              payment.classDate && payment.classTime ? `${payment.classDate} ${payment.classTime}` : "No class slot"
-                            }`}
+                            title={cardVariant.showHistoryTooltip ? courseUnion.join(" · ") || "No class slots" : `${payment.courseTitle} · ${subtitleSlotLabel}`}
                           >
-                            {payment.courseTitle} · {payment.classDate && payment.classTime ? `${payment.classDate} ${payment.classTime}` : "No class slot"}
+                            {cardVariant.showHistorySubtitle
+                              ? `${student.totalPayments} records · ${courseUnion.slice(0, 2).join(" · ") || "No class slots"}`
+                              : `${payment.courseTitle} · ${subtitleSlotLabel}`}
                           </p>
                           <span className="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-1 w-max max-w-[18rem] rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100">
-                            {payment.courseTitle} ·{" "}
-                            {payment.classDate && payment.classTime ? `${payment.classDate} ${payment.classTime}` : "No class slot"}
+                            {cardVariant.showHistoryTooltip
+                              ? courseUnion.join(" · ") || "No class slots in range"
+                              : `${payment.courseTitle} · ${subtitleSlotLabel}`}
                           </span>
                         </span>
                       </div>
                     </header>
 
-                    <div className="mt-4 grid grid-cols-2 gap-2.5">
-                      <span className="group relative inline-flex cursor-help items-center justify-center rounded-full border border-amber-400/35 bg-amber-400/10 px-1.5 py-0.5 text-[11px] font-semibold text-amber-200">
+                    <div className="mt-4 w-full grid grid-cols-2 gap-1.5">
+                      <span className={`w-full flex items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold ${paymentStateTone(payment)}`}>
+                        {paymentStateLabel(payment)}
+                      </span>
+                      <span className={`group relative w-full flex cursor-help items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold ${checkInStateTone(payment)}`}>
+                        {checkInStateLabel(payment, { includePurchaseCategory: true })}
+                        {payment.checkInAt && (
+                          <span className="pointer-events-none invisible absolute bottom-full left-1/2 z-[200] max-h-44 w-[14rem] -translate-x-1/2 translate-y-1 overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                            <span className="font-semibold text-white">Last check-in</span>
+                            <span className="mt-1 block text-white/85">{formatStudentPaymentCardDateTimeLabel(payment.checkInAt)}</span>
+                          </span>
+                        )}
+                      </span>
+                      {studentPinLabel && studentPinTone ? (
+                        <span className={`w-full flex items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold ${studentPinTone}`}>
+                          {studentPinLabel}
+                        </span>
+                      ) : (
+                        <span className="w-full flex items-center justify-center rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/30">
+                          —
+                        </span>
+                      )}
+                      <span className="group relative w-full flex cursor-help items-center justify-center rounded-md border border-amber-400/35 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold text-amber-200">
                         Points: {payment.pointsBalance}
-                        <span className="pointer-events-auto invisible absolute bottom-full left-0 z-[200] max-h-44 w-[16rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                        <span className="pointer-events-auto invisible absolute bottom-full left-0 z-[200] max-h-44 w-[16rem] -translate-x-1/2 translate-y-1 overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
                           <span className="font-semibold text-white">Points history</span>
                           <span className="mt-1 block border-t border-white/10" />
                           {pointsHistoryEntries.length === 0 ? (
@@ -7702,61 +10455,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               >
                                 <span className="font-semibold text-amber-200">{entry.points > 0 ? `+${entry.points}` : entry.points}</span>
                                 <span className="ml-1 capitalize">{entry.type.replaceAll("_", " ").toLowerCase()}</span>
-                                <span className="mt-0.5 block text-white/65">{formatIsoDateTimePrecise(entry.createdAt)}</span>
-                              </span>
-                            ))
-                          )}
-                        </span>
-                      </span>
-                      <span className={`group relative inline-flex cursor-help items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${checkInStateTone(payment)}`}>
-                        {checkInStateLabel(payment)}
-                        <span className="pointer-events-auto invisible absolute bottom-full left-1/2 z-[200] max-h-44 w-[16rem] -translate-x-1/2 overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                          <span className="font-semibold text-white">Check-in history</span>
-                          <span className="mt-1 block border-t border-white/10" />
-                          {checkInHistory.length === 0 ? (
-                            <span className="mt-1 block text-white/70">No check-ins recorded yet.</span>
-                          ) : (
-                            checkInHistory.map((entry, index) => (
-                              <span
-                                key={`checkin-history-${entry.id}`}
-                                className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
-                              >
-                                <span className="block">{entry.courseTitle}</span>
-                                <span className="mt-0.5 block text-white/65">
-                                  {entry.classDate && entry.classTime
-                                    ? `${entry.classDate} ${entry.classTime}`
-                                    : formatIsoDateTimePrecise(entry.createdAt)}
-                                </span>
-                              </span>
-                            ))
-                          )}
-                        </span>
-                      </span>
-                      <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${paymentStateTone(payment)}`}>
-                        {paymentStateLabel(payment)}
-                      </span>
-                      {studentPinLabel && studentPinTone ? (
-                        <span className={`inline-flex items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${studentPinTone}`}>
-                          {studentPinLabel}
-                        </span>
-                      ) : null}
-                      <span className="group relative inline-flex cursor-help items-center justify-center rounded-full border border-cyan-400/35 bg-cyan-400/10 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-200">
-                        Spent: {totalSpentLabel}
-                        <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-44 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                          <span className="font-semibold text-white">Purchased classes</span>
-                          <span className="mt-1 block border-t border-white/10" />
-                          {purchasedCourseEntries.length === 0 ? (
-                            <span className="mt-1 block text-white/70">No purchases registered.</span>
-                          ) : (
-                            purchasedCourseEntries.map((entry, index) => (
-                              <span
-                                key={`spent-history-${entry.id}`}
-                                className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
-                              >
-                                <span className="block">{entry.courseTitle}</span>
-                                <span className="mt-0.5 block text-white/65">
-                                  {formatMoney(entry.amount, entry.currency)} · {formatIsoDateTimePrecise(entry.createdAt)}
-                                </span>
+                                <span className="mt-0.5 block text-white/65">{formatStudentPaymentCardDateTimeLabel(entry.createdAt)}</span>
                               </span>
                             ))
                           )}
@@ -7787,23 +10486,44 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         <span className="truncate text-right">{payment.customerPhone || "—"}</span>
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
-                        <span>Student PIN</span>
-                        <span className="truncate text-right">{studentPinLabel || "-"}</span>
-                      </p>
-                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
-                        <span>PIN expiry</span>
-                        <span className="truncate text-right">
-                          {payment.studentPin.provisionalExpiresAt ? formatIsoDate(payment.studentPin.provisionalExpiresAt) : "—"}
-                        </span>
-                      </p>
-                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>Package</span>
                         <span className="truncate text-right">{packageLabel}</span>
+                      </p>
+                      <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
+                        <span>Amount paid</span>
+                        <span className="group relative max-w-[62%] cursor-help text-right">
+                          <span className="truncate text-right">{totalSpentLabel}</span>
+                          <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-52 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                            <span className="font-semibold text-white">Paid entries</span>
+                            <span className="mt-1 block border-t border-white/10" />
+                            {paidEntries.length === 0 ? (
+                              <span className="mt-1 block text-white/70">No paid entries in this selection.</span>
+                            ) : (
+                              paidEntries.slice(0, 12).map((entry, index) => (
+                                <span
+                                  key={`paid-history-${entry.id}`}
+                                  className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
+                                >
+                                  <span className="block">{entry.courseTitle || "Package payment"}</span>
+                                  <span className="mt-0.5 block text-white/65">
+                                    {formatMoney(entry.amount, entry.currency)} · {formatStudentPaymentCardDateTimeLabel(entry.createdAt)}
+                                  </span>
+                                </span>
+                              ))
+                            )}
+                          </span>
+                        </span>
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>Credits</span>
                         <span>{packageValue}</span>
                       </p>
+                      {outstandingBalanceLabel ? (
+                        <p className="inline-flex w-full items-center justify-between gap-2 text-red-200">
+                          <span>Outstanding balance</span>
+                          <span>{outstandingBalanceLabel}</span>
+                        </p>
+                      ) : null}
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>Purchased courses</span>
                         <span>{student.coursesPurchasedCount}</span>
@@ -7813,28 +10533,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         <span>{student.checkedInPayments}</span>
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
-                        <span>Last payment</span>
-                        <span className="group relative max-w-[62%] cursor-help text-right">
-                          <span
-                            className="truncate text-right"
-                            title={`${lastPaymentAtPreciseLabel} · ${formatMoney(payment.amount, payment.currency)}`}
-                          >
-                            {formatMoney(payment.amount, payment.currency)}
-                          </span>
-                          <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] min-w-[14rem] max-w-[18rem] rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                            <span className="font-semibold text-white">Last payment details</span>
-                            <span className="mt-1 block border-t border-white/10" />
-                            <span className="mt-1 block">
-                              <span className="text-white/75">Date / time:</span> {lastPaymentAtPreciseLabel}
-                            </span>
-                            <span className="mt-1 block border-t border-white/10 pt-1">
-                              <span className="text-white/75">Amount:</span> {formatMoney(payment.amount, payment.currency)}
-                            </span>
-                            <span className="mt-1 block border-t border-white/10 pt-1">
-                              <span className="text-white/75">Status:</span> {paymentStateLabel(payment)}
-                            </span>
-                          </span>
-                        </span>
+                        <span>Package classes used</span>
+                        <span>{student.totalPackageClassesConsumed}</span>
                       </p>
                     </div>
 
@@ -7879,26 +10579,27 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               })
             )}
           </div>
-          {paymentCategoryFilter === "cash" && filteredStudentCards.length > 0 ? (
-            <div className="pointer-events-none fixed bottom-6 right-6 z-40">
-              <div className="pointer-events-auto flex flex-col gap-2 rounded-xl border border-white/20 bg-[#131622]/95 p-2 shadow-[0_22px_40px_-20px_rgba(0,0,0,0.8)] backdrop-blur">
-                <button
-                  type="button"
-                  disabled={paymentsBulkBusyAction !== null || selectedVisiblePaymentIds.length === 0}
-                  onClick={() => updateSettlementBulk("mark_paid", selectedVisiblePaymentIds)}
-                  className="rounded-lg border border-[var(--brand,#b61616)]/70 bg-[var(--brand,#b61616)]/15 px-3 py-2 text-xs font-semibold text-[var(--brand,#ff4b4b)] disabled:opacity-60"
-                >
-                  {paymentsBulkBusyAction === "mark_paid" ? "Processing..." : "Confirm payment"}
-                </button>
-                <button
-                  type="button"
-                  disabled={paymentsBulkBusyAction !== null || selectedVisiblePaymentIds.length === 0}
-                  onClick={() => updateSettlementBulk("mark_pending", selectedVisiblePaymentIds)}
-                  className="rounded-lg border border-white/20 bg-black/20 px-3 py-2 text-xs font-semibold text-white/85 disabled:opacity-60"
-                >
-                  {paymentsBulkBusyAction === "mark_pending" ? "Processing..." : "Mark as pending"}
-                </button>
-              </div>
+          {totalPages > 1 ? (
+            <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] px-4 py-3 text-sm text-white/80 shadow-[0_16px_32px_-24px_rgba(0,0,0,0.8)] backdrop-blur">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="rounded-full border border-white/20 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/85 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span className="text-xs uppercase tracking-[0.16em] text-white/55">
+                Page {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="rounded-full border border-white/20 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/85 disabled:opacity-50"
+              >
+                Next
+              </button>
             </div>
           ) : null}
         </article>
@@ -8354,7 +11055,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Staff requests</p>
               <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Notifications and approvals</h3>
               <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                Day off, shift swaps, schedule changes and pay advance requests.
+                Day off, shift swaps, schedule changes, pay advance requests and payment method approvals.
               </p>
             </div>
             <div className="inline-flex flex-wrap items-center gap-2">
@@ -8389,40 +11090,111 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
               <p className="text-xs text-black/60 dark:text-white/60">Total</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{requestsSummary.total}</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{approvalsSummary.total}</p>
             </div>
             <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
               <p className="text-xs text-black/60 dark:text-white/60">Pending</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{requestsSummary.pending}</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{approvalsSummary.pending}</p>
             </div>
             <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
               <p className="text-xs text-black/60 dark:text-white/60">In review</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{requestsSummary.inReview}</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{approvalsSummary.inReview}</p>
             </div>
             <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
               <p className="text-xs text-black/60 dark:text-white/60">Approved</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{requestsSummary.approved}</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{approvalsSummary.approved}</p>
             </div>
             <div className="rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
               <p className="text-xs text-black/60 dark:text-white/60">Rejected</p>
-              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{requestsSummary.rejected}</p>
+              <p className="mt-1 text-lg font-semibold text-black dark:text-white">{approvalsSummary.rejected}</p>
             </div>
           </div>
 
           <div className="mt-4 space-y-2">
-            {requestsLoading ? (
+            {approvalsLoading ? (
               Array.from({ length: 4 }).map((_, index) => (
                 <div
                   key={`requests-skeleton-${index}`}
                   className="h-[74px] rounded-lg border border-black/10 bg-black/[0.03] shimmer dark:border-white/10 dark:bg-white/[0.03]"
                 />
               ))
-            ) : staffRequests.length === 0 ? (
+            ) : approvalFeed.length === 0 ? (
               <p className="rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
-                No staff requests found.
+                No approval items found.
               </p>
             ) : (
-              staffRequests.slice(0, 12).map((request) => {
+              approvalFeed.slice(0, 12).map((item) => {
+                if (item.kind === "payment_change_request") {
+                  const request = item.request
+                  const busy = paymentChangeRequestBusyId === request.id
+                  const fullName = `${request.staffAccount.firstName} ${request.staffAccount.lastName}`.trim() || "Staff member"
+                  const requestedMethodLabel = formatPaymentChangeRequestMethodLabel(request.requestedMethod)
+                  const infoRows = formatPaymentChangeRequestInfoRows(request.requestedInfo)
+
+                  return (
+                    <div
+                      key={request.id}
+                      className="grid gap-2 rounded-lg border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03] lg:grid-cols-[minmax(0,1fr)_auto]"
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-black dark:text-white">
+                            Payment change request · {fullName}
+                          </p>
+                          <span className="rounded-full border border-sky-500/35 bg-sky-500/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-sky-300">
+                            Payroll
+                          </span>
+                        </div>
+                        <p className="text-xs text-black/60 dark:text-white/60">
+                          {request.staffAccount.email} · {formatIsoDate(request.createdAt)}
+                        </p>
+                        <p className="mt-1 text-xs text-black/70 dark:text-white/70">
+                          Requested method: {requestedMethodLabel}
+                        </p>
+                        {request.reason ? (
+                          <p className="mt-1 text-xs text-black/70 dark:text-white/70">{request.reason}</p>
+                        ) : null}
+                        {infoRows.length > 0 ? (
+                          <div className="mt-2 grid gap-1 rounded-md border border-black/10 bg-black/[0.03] p-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
+                            {infoRows.map((row) => (
+                              <div key={`${request.id}-${row.key}`} className="flex items-center justify-between gap-3">
+                                <span className="uppercase tracking-[0.16em] text-black/45 dark:text-white/45">{row.label}</span>
+                                <span className="font-mono text-right">{row.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-white">
+                          {PAYMENT_CHANGE_REQUEST_STATUS_LABELS[request.status]}
+                        </span>
+                        {request.status === "pending" ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => updatePaymentChangeRequestStatus(request.id, "approved")}
+                              className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => updatePaymentChangeRequestStatus(request.id, "rejected")}
+                              className="rounded-md border border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/10 px-2 py-1 text-xs text-[var(--brand,#ff4b4b)]"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                }
+
+                const request = item.request
                 const busy = requestBusyId === request.id
                 return (
                   <div
@@ -8739,66 +11511,54 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         ) : null}
       </section>
 
+      {showRightRail && showInlineRightRail && hasAssistantViewportSync ? (
+        <button
+          type="button"
+          onClick={() => setIsRailCollapsed(true)}
+          className="fixed inset-0 z-[123] bg-[#02040a]/58 backdrop-blur-[3px] min-[1180px]:hidden"
+          aria-label="Close AI assistant"
+        />
+      ) : null}
+
       {showRightRail ? (
-        <aside className="lg:self-start">
+        <aside
+          className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-3 transform-gpu transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform sm:bottom-[5.25rem] sm:px-4 md:bottom-[6rem] md:px-6 min-[1180px]:static min-[1180px]:block min-[1180px]:self-start min-[1180px]:px-0 min-[1180px]:transform-none min-[1180px]:transition-none ${
+            showInlineRightRail
+              ? "translate-y-0 opacity-100"
+              : "pointer-events-none translate-y-10 opacity-0 min-[1180px]:hidden"
+          } ${!hasAssistantViewportSync ? "pointer-events-none translate-y-10 opacity-0 min-[1180px]:pointer-events-auto min-[1180px]:translate-y-0 min-[1180px]:opacity-100" : ""} relative`}
+        >
           <div
             ref={rightRailRef}
-            className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/95 lg:h-[calc(100vh-3.75rem)] lg:sticky lg:top-0"
+            className="w-full max-w-md max-h-[64vh] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#0f121a]/96 p-4 text-white shadow-[0_28px_80px_-36px_rgba(0,0,0,0.82)] backdrop-blur-xl min-[1180px]:max-h-none min-[1180px]:max-w-none min-[1180px]:overflow-visible min-[1180px]:rounded-2xl min-[1180px]:border-black/10 min-[1180px]:bg-white/80 min-[1180px]:text-inherit min-[1180px]:shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] min-[1180px]:dark:border-white/10 min-[1180px]:dark:bg-[#11131a]/95 min-[1180px]:sticky min-[1180px]:top-0"
           >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">AI Assistant</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Admin copilot</h3>
-                <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                  Live chat for operations. Configure behavior from the AI icon in the left menu.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveNav("assistant")}
-                className="inline-flex items-center gap-1.5 rounded-md border border-black/20 bg-white/70 px-2.5 py-1.5 text-xs font-semibold text-black transition hover:border-[var(--brand,#b61616)] dark:border-white/20 dark:bg-white/5 dark:text-white"
-              >
-                <Settings className="h-3.5 w-3.5" />
-                Config
-              </button>
+            <div className="pointer-events-none mb-3 flex justify-center min-[1180px]:hidden">
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-14 rounded-full border border-white/6 bg-[linear-gradient(90deg,rgba(255,255,255,0.08),rgba(255,255,255,0.24),rgba(255,255,255,0.08))] shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)]"
+              />
             </div>
-
-            <div className="mt-4 flex h-[calc(100%-8rem)] flex-col rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-              <div className="flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
-                {assistantChatMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`max-w-[92%] rounded-lg border px-3 py-2 ${
-                      message.role === "user"
-                        ? "ml-auto border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/12 text-black dark:text-white"
-                        : "border-black/10 bg-black/[0.03] text-black/80 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/80"
-                    }`}
-                  >
-                    {message.text}
-                  </div>
-                ))}
-              </div>
-
-              <form
-                onSubmit={sendAssistantChatMessage}
-                className="mt-3 flex items-center gap-2 border-t border-black/10 pt-3 dark:border-white/10"
-              >
-                <input
-                  name="assistantPromptRight"
-                  value={assistantChatInput}
-                  onChange={(event) => setAssistantChatInput(event.target.value)}
-                  placeholder={`Message about ${activeNavLabel.toLowerCase()}...`}
-                  className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                />
-                <button type="submit" className="rounded-md bg-[var(--brand,#b61616)] px-3 py-2 text-sm font-semibold text-white">
-                  Send
-                </button>
-              </form>
-            </div>
+            {assistantRailContent}
           </div>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-0 right-[2.6rem] h-5 w-5 translate-y-[58%] rotate-45 rounded-[0.7rem] border-r border-b border-white/10 bg-[linear-gradient(135deg,rgba(15,18,26,0.98),rgba(19,24,34,0.92))] shadow-[10px_10px_24px_-18px_rgba(0,0,0,0.9)] min-[1180px]:hidden"
+          />
         </aside>
       ) : null}
       </div>
+
+      {showRightRail ? (
+        <button
+          type="button"
+          onClick={() => setIsRailCollapsed((prev) => !prev)}
+          className="fixed bottom-4 right-4 z-[125] flex h-[56px] w-[56px] items-center justify-center rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-all duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 min-[1180px]:hidden"
+          aria-label={isRailCollapsed ? "Show AI assistant" : "Hide AI assistant"}
+          data-assistant-rail-trigger
+        >
+          <Bot className="h-5.5 w-5.5" />
+        </button>
+      ) : null}
 
       {delayModal ? (
         <div className="fixed inset-0 z-[139] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">

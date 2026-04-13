@@ -1,13 +1,13 @@
 "use client"
 
 import React from "react"
-import { ArrowLeft, CheckCircle2, Clock3, Loader2 } from "lucide-react"
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Loader2, MapPin } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { useAuth, useClerk, useSignIn } from "@clerk/nextjs"
 
 type PinCheckInResponse = {
   ok: boolean
-  signInUrl: string
+  signInUrl?: string
   ticket?: string
   checkedInAt: string
   staff: {
@@ -18,10 +18,26 @@ type PinCheckInResponse = {
   }
 }
 
+type StaffCheckInClientProps = {
+  mode?: "checkin" | "login"
+}
+
 const PIN_LENGTH = 4
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
 
-export default function StaffCheckInClient() {
+const formatRoomConflictStartsAt = (value: string | null) => {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsed)
+}
+
+export default function StaffCheckInClient({ mode = "checkin" }: StaffCheckInClientProps) {
   const searchParams = useSearchParams()
   const { userId: activeUserId, sessionId: activeSessionId } = useAuth()
   const { signOut } = useClerk()
@@ -31,9 +47,23 @@ export default function StaffCheckInClient() {
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
   const [now, setNow] = React.useState<Date | null>(null)
-  const terminalMode =
+  
+  // For backward compatibility, support legacy terminalMode query param
+  const legacyTerminalMode =
     (searchParams.get("mode") || "").trim().toLowerCase() === "terminal" ||
     (searchParams.get("terminal") || "").trim() === "1"
+  
+  // In checkin mode: attendance only, no session, no redirect
+  // In login mode: create session and redirect
+  const isCheckinMode = mode === "checkin" || legacyTerminalMode
+  
+  const roomName = (searchParams.get("room") || "").trim()
+  const roomLocation = (searchParams.get("roomLocation") || "").trim()
+  const roomCapacity = (searchParams.get("roomCapacity") || "").trim()
+  const conflictTitle = (searchParams.get("conflictTitle") || "").trim()
+  const conflictCourse = (searchParams.get("conflictCourse") || "").trim()
+  const conflictStartsAt = formatRoomConflictStartsAt(searchParams.get("conflictStartsAt"))
+  const showRoomConflict = Boolean((searchParams.get("error") || "").trim() === "room-conflict" || conflictTitle || conflictCourse)
 
   React.useEffect(() => {
     setNow(new Date())
@@ -90,20 +120,21 @@ export default function StaffCheckInClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pin,
-          preferUserId: terminalMode ? "" : activeUserId || "",
+          preferUserId: isCheckinMode ? "" : activeUserId || "",
+          skipSession: isCheckinMode,
         }),
       })
       const data = (await res.json().catch(() => ({}))) as Partial<PinCheckInResponse> & { error?: string }
-      if (!res.ok || (!terminalMode && !data?.signInUrl)) {
+      if (!res.ok || (!isCheckinMode && !data?.signInUrl)) {
         setError(typeof data?.error === "string" ? data.error : "Invalid PIN.")
         setPin("")
         return
       }
 
       const name = data?.staff?.name || "staff"
-      setSuccess(terminalMode ? `Check-in recorded for ${name}.` : `Check-in recorded for ${name}. Redirecting...`)
+      setSuccess(isCheckinMode ? `Check-in recorded for ${name}.` : `Check-in recorded for ${name}. Redirecting...`)
       setPin("")
-      if (terminalMode) return
+      if (isCheckinMode) return
 
       if (activeUserId && data?.staff?.id === activeUserId) {
         window.location.assign("/staff/resolve")
@@ -143,7 +174,7 @@ export default function StaffCheckInClient() {
     } finally {
       setBusy(false)
     }
-  }, [activeSessionId, activeUserId, isLoaded, pin, setActive, signIn, signOut, terminalMode])
+  }, [activeSessionId, activeUserId, isLoaded, pin, setActive, signIn, signOut, isCheckinMode])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -176,14 +207,45 @@ export default function StaffCheckInClient() {
   return (
     <section className="rounded-2xl border border-black/10 bg-white/80 p-5 shadow-[0_14px_38px_-14px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-white/5 sm:p-6">
       <header className="text-center">
-        <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Check-in</p>
-        <h2 className="mt-2 text-2xl font-semibold text-black dark:text-white">PIN check-in</h2>
+        <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">{isCheckinMode ? "Check-in" : "Log-in"}</p>
+        <h2 className="mt-2 text-2xl font-semibold text-black dark:text-white">{isCheckinMode ? "PIN check-in" : "PIN log-in"}</h2>
         <p className="mt-2 text-sm text-black/65 dark:text-white/65">
-          {terminalMode
+          {isCheckinMode
             ? "Enter your PIN to record check-in. After validation, the terminal registers access without changing the active session."
-            : "Enter your PIN to check in and go directly to your panel based on your role."}
+            : "Enter your PIN to log in and go directly to your panel based on your role."}
         </p>
       </header>
+
+      {roomName || roomLocation || roomCapacity ? (
+        <div className="mt-5 rounded-xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm text-black/75 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/75">
+          <div className="flex items-start gap-3">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand,#b61616)]" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-black/55 dark:text-white/55">Room context</p>
+              <p className="mt-1 font-semibold text-black dark:text-white">{roomName || "Assigned room"}</p>
+              <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                {[roomLocation || null, roomCapacity ? `Capacity ${roomCapacity}` : null].filter(Boolean).join(" · ") || "No extra room details provided."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showRoomConflict ? (
+        <div className="mt-4 rounded-xl border border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 px-4 py-3 text-sm text-[var(--brand,#ffb3b3)]">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-[var(--brand,#ff8a8a)]">Room conflict</p>
+              <p className="mt-1 font-semibold text-white">This room is already booked for the requested time slot.</p>
+              <p className="mt-1 text-xs text-[var(--brand,#ffd0d0)]">
+                {[conflictTitle || null, conflictCourse || null, conflictStartsAt || null].filter(Boolean).join(" · ") ||
+                  "Review the room assignment before retrying the check-in flow."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-5 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
         <div className="mb-4 flex items-center justify-center gap-2">

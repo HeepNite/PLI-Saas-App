@@ -59,3 +59,18 @@ export const shouldAutoOpenExistingPurchase = (input: {
   if (input.hasExistingRegularBookingOverride || input.openNewBooking || input.processingPackageCheckIn) return false
   return !input.hasPackage
 }
+
+export const shouldAutoTriggerPackageCheckIn = (input: {
+  isKioskTerminalFlow: boolean
+  mode: "idle" | "existing" | "new"
+  hasPackage: boolean
+  processingPackageCheckIn: boolean
+  hasPackageCheckInResult: boolean
+  effectiveCheckInWindowOpen: boolean
+  hasActiveSession: boolean
+}) => {
+  if (!input.isKioskTerminalFlow || input.mode !== "existing") return false
+  if (!input.hasPackage || input.processingPackageCheckIn || input.hasPackageCheckInResult) return false
+  if (!input.effectiveCheckInWindowOpen) return false
+  return input.hasActiveSession
+}

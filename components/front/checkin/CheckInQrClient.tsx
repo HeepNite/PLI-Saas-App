@@ -10,12 +10,14 @@ import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import {
   getExistingCustomerInitialStep,
   shouldAutoOpenExistingPurchase,
+  shouldAutoTriggerPackageCheckIn,
 } from "@/lib/checkin/existing-customer-flow"
 import { useKioskCustomerSession } from "@/components/front/checkin/useKioskCustomerSession"
 import { useKioskFlowCompletion } from "@/components/front/checkin/useKioskFlowCompletion"
 import { useKioskPinFlow } from "@/components/front/checkin/useKioskPinFlow"
 import {
   KioskResolvingOverlay,
+  KioskPackageSuccessOverlay,
   ContextWarning,
   QrPromptText,
   EntrySelectionButtons,
@@ -79,8 +81,13 @@ export default function CheckInQrClient({
   const [existingRegularBookingKey, setExistingRegularBookingKey] = React.useState(0)
   const [paymentsModalReady, setPaymentsModalReady] = React.useState(false)
   const [processingPackageCheckIn, setProcessingPackageCheckIn] = React.useState(false)
+  const [packageCheckInResult, setPackageCheckInResult] = React.useState<{
+    remainingCredits: number | null
+    points: number
+  } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
+  const packageCheckInTimeoutRef = React.useRef<number | null>(null)
 
   // ─── Derived error ──────────────────────────────────────────
   const visibleError = React.useMemo(() => {
@@ -185,6 +192,7 @@ export default function CheckInQrClient({
     paymentsModalReady,
     existingRegularBookingOverride,
     openNewBooking,
+    processingPackageCheckIn,
   })
 
   const {
@@ -352,9 +360,19 @@ export default function CheckInQrClient({
     }
   }, [contextIsValid, contextPayload, getToken, hasActiveClerkSession, kioskPinRotationRequired, kioskPinSessionToken, photoFlowContext])
 
+  const completeStationPackageFlow = React.useCallback(() => {
+    if (packageCheckInTimeoutRef.current !== null) {
+      window.clearTimeout(packageCheckInTimeoutRef.current)
+      packageCheckInTimeoutRef.current = null
+    }
+    void handleStationCompletion().finally(() => {
+      setPackageCheckInResult(null)
+    })
+  }, [handleStationCompletion])
+
   const handlePackageCheckIn = React.useCallback(async () => {
     if (!bootstrap) return
-    if (!hasActiveClerkSession) {
+    if (!hasActiveClerkSession && !kioskPinSessionToken) {
       setError("Sign in first to complete package check-in.")
       return
     }
@@ -410,10 +428,15 @@ export default function CheckInQrClient({
       }
 
       if (isStationDeviceFlow) {
-        setSuccess(`${successParts.join(" ")} Preparing terminal for the next student...`)
-        window.setTimeout(() => {
-          void handleStationCompletion()
-        }, 1100)
+        if (packageCheckInTimeoutRef.current !== null) {
+          window.clearTimeout(packageCheckInTimeoutRef.current)
+          packageCheckInTimeoutRef.current = null
+        }
+        setPackageCheckInResult({ remainingCredits, points: awardedPoints })
+        packageCheckInTimeoutRef.current = window.setTimeout(() => {
+          packageCheckInTimeoutRef.current = null
+          completeStationPackageFlow()
+        }, 2500)
         return
       }
 
@@ -429,12 +452,25 @@ export default function CheckInQrClient({
     effectiveCheckInWindowOpen,
     getToken,
     hasActiveClerkSession,
-    handleStationCompletion,
     kioskPinSessionToken,
     isStationDeviceFlow,
     loadBootstrap,
     photoFlowContext,
+    completeStationPackageFlow,
   ])
+
+  const handlePackageSuccessDone = React.useCallback(() => {
+    completeStationPackageFlow()
+  }, [completeStationPackageFlow])
+
+  React.useEffect(() => {
+    return () => {
+      if (packageCheckInTimeoutRef.current !== null) {
+        window.clearTimeout(packageCheckInTimeoutRef.current)
+        packageCheckInTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   // ─── UI handlers ────────────────────────────────────────────
   const handleExistingClick = React.useCallback(() => {
@@ -619,6 +655,34 @@ export default function CheckInQrClient({
     processingPackageCheckIn,
   ])
 
+  // Auto-trigger package check-in on kiosk: PIN identify → bootstrap with package → deduct immediately
+  React.useEffect(() => {
+    if (
+      !shouldAutoTriggerPackageCheckIn({
+        isKioskTerminalFlow,
+        mode,
+        hasPackage: Boolean(bootstrap?.package),
+        processingPackageCheckIn,
+        hasPackageCheckInResult: Boolean(packageCheckInResult),
+        effectiveCheckInWindowOpen,
+        hasActiveSession: hasActiveClerkSession || hasKioskPinSession,
+      })
+    ) {
+      return
+    }
+    void handlePackageCheckIn()
+  }, [
+    bootstrap,
+    effectiveCheckInWindowOpen,
+    handlePackageCheckIn,
+    hasActiveClerkSession,
+    hasKioskPinSession,
+    isKioskTerminalFlow,
+    mode,
+    packageCheckInResult,
+    processingPackageCheckIn,
+  ])
+
   React.useEffect(() => {
     if (showKioskPinPanel) return
     if (!error && !success) return
@@ -789,7 +853,19 @@ export default function CheckInQrClient({
         />
       )}
 
-      {showKioskResolvingOverlay && <KioskResolvingOverlay />}
+      {packageCheckInResult && (
+        <KioskPackageSuccessOverlay
+          remainingCredits={packageCheckInResult.remainingCredits}
+          points={packageCheckInResult.points}
+          onDone={handlePackageSuccessDone}
+        />
+      )}
+
+      {showKioskResolvingOverlay && !packageCheckInResult && (
+        <KioskResolvingOverlay
+          message={processingPackageCheckIn ? "Checking you in\u2026" : undefined}
+        />
+      )}
 
       {showPhoneSignIn && !hasActiveClerkSession && (
         <PhoneSignInModal

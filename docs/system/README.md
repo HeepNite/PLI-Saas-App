@@ -23,6 +23,7 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - Matriz de tests y cobertura actual: `docs/TESTS.md`.
 - Flujo QR check-in (front + APIs): `docs/CHECKIN_QR.md`.
 - Staff portal (roles, permisos, endpoints): `docs/STAFF_PORTAL.md`.
+- Room management (salas, conflictos y default room): `docs/system/ROOM_MANAGEMENT.md`.
 - Checklist de smoke para demo en Vercel: `docs/SMOKE_DEMO_VERCEL.md`.
 
 ## 0. Stack y conceptos
@@ -245,6 +246,7 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
 - **Paquetes y asistencia (fase 1)**: `lib/packages.ts`, `app/api/profile/packages/route.ts`, `app/api/profile/activity/route.ts`, `app/api/staff/checkin/route.ts`.
 - **QR check-in presencial**: `components/front/checkin/CheckInQrClient.tsx`, `app/checkin/page.tsx`, `app/api/checkin/qr/*`, `lib/checkin/qr.ts`.
 - **Staff portal**: `app/staff/*`, `components/front/staff/*`, `app/api/staff/*`, `lib/security/staff-*.ts`.
+- **Salas y conflictos de aula**: `docs/system/ROOM_MANAGEMENT.md`, `app/api/staff/rooms/*`, `lib/class-schedule.ts`, `tests/api/staff-rooms.test.ts`.
 
 ## 11. Backend — usuarios y compras (Clerk + Stripe + Prisma)
 
@@ -260,7 +262,9 @@ Documento base para entender qué hace cada parte del sitio y cómo modificarla.
   - `PackagePlan`: catálogo editable de paquetes (vigencia, créditos, ilimitado).
   - `PackagePurchase`: saldo real por compra de paquete (restantes/estado/vencimiento).
   - `PackageUsageLedger`: débitos/créditos por check-in y ajustes.
-  - `ClassSession` + `Attendance`: sesiones y asistencia real del alumno.
+  - `Room`: catálogo staff de salas físicas con soft-disable y capacidad.
+  - `ClassSession` + `Attendance`: sesiones y asistencia real del alumno, con `roomId` opcional para compatibilidad legacy.
+  - `CourseCatalog`: catálogo editable con `defaultRoomId` opcional.
 - Si agregas nuevos campos, actualiza:
   - `prisma/schema.prisma`
   - `app/api/stripe/webhook/route.ts` (mapeo a DB)

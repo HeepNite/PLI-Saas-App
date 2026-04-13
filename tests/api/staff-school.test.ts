@@ -14,6 +14,9 @@ const mockPrisma = {
     findMany: vi.fn(),
     upsert: vi.fn(),
   },
+  room: {
+    findUnique: vi.fn(),
+  },
   user: {
     findFirst: vi.fn(),
   },
@@ -43,6 +46,7 @@ describe("staff school routes", () => {
     mockPrisma.packagePlan.upsert.mockReset()
     mockPrisma.pointsRule.findMany.mockReset()
     mockPrisma.pointsRule.upsert.mockReset()
+    mockPrisma.room.findUnique.mockReset()
     mockPrisma.user.findFirst.mockReset()
     mockPrisma.pointsLedger.findFirst.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
@@ -51,6 +55,7 @@ describe("staff school routes", () => {
     mockPrisma.courseCatalog.findMany.mockResolvedValue([])
     mockPrisma.packagePlan.findMany.mockResolvedValue([])
     mockPrisma.pointsRule.findMany.mockResolvedValue([])
+    mockPrisma.room.findUnique.mockResolvedValue(null)
     mockPrisma.pointsLedger.aggregate.mockResolvedValue({ _sum: { points: 0 } })
   })
 
@@ -87,6 +92,60 @@ describe("staff school routes", () => {
     expect(mockPrisma.courseCatalog.upsert.mock.calls[0][0]).toMatchObject({
       where: { slug: "salsa-feminine-morning" },
     })
+  })
+
+  it("POST courses persists an active defaultRoomId", async () => {
+    mockPrisma.room.findUnique.mockResolvedValue({ id: "123e4567-e89b-42d3-a456-426614174000", active: true })
+    mockPrisma.courseCatalog.upsert.mockResolvedValue({
+      id: "course_room_1",
+      slug: "salsa-room-course",
+      title: "Salsa Room Course",
+      defaultRoomId: "123e4567-e89b-42d3-a456-426614174000",
+    })
+
+    const { POST } = await import("@/app/api/staff/school/courses/route")
+    const req = new Request("http://localhost/api/staff/school/courses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "salsa-room-course",
+        title: "Salsa Room Course",
+        defaultRoomId: "123e4567-e89b-42d3-a456-426614174000",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.room.findUnique).toHaveBeenCalledWith({
+      where: { id: "123e4567-e89b-42d3-a456-426614174000" },
+      select: { id: true, active: true },
+    })
+    expect(mockPrisma.courseCatalog.upsert.mock.calls[0][0]).toMatchObject({
+      create: { defaultRoomId: "123e4567-e89b-42d3-a456-426614174000" },
+      update: { defaultRoomId: "123e4567-e89b-42d3-a456-426614174000" },
+    })
+  })
+
+  it("POST courses rejects inactive default rooms", async () => {
+    mockPrisma.room.findUnique.mockResolvedValue({ id: "123e4567-e89b-42d3-a456-426614174000", active: false })
+
+    const { POST } = await import("@/app/api/staff/school/courses/route")
+    const req = new Request("http://localhost/api/staff/school/courses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "salsa-room-course",
+        title: "Salsa Room Course",
+        defaultRoomId: "123e4567-e89b-42d3-a456-426614174000",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(404)
+    expect(mockPrisma.courseCatalog.upsert).not.toHaveBeenCalled()
+    await expect(res.json()).resolves.toEqual({ error: "Default room not found or inactive." })
   })
 
   it("POST packages upserts package plan with optional price and credits", async () => {

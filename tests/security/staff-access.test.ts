@@ -19,4 +19,20 @@ describe("staff access helpers", () => {
     expect(hasExplicitStaffPermission("admin", "front_desk", "studentPinOps")).toBe(false)
     expect(hasExplicitStaffPermission("staff", "teacher", "studentPinOps")).toBe(false)
   })
+
+  it("delegates guest teachers to the teacher portal sections", () => {
+    expect(resolveStaffPortalSections("staff", "guest", "teacher")).toEqual(["teacher_dashboard", "profile"])
+  })
+
+  it("delegates guest front-desk staff to the front-desk portal sections", () => {
+    expect(resolveStaffPortalSections("staff", "guest", "front_desk")).toEqual(["students", "terminals", "profile"])
+  })
+
+  it("falls back to profile-only access for guests without a sub-category", () => {
+    expect(resolveStaffPortalSections("staff", "guest")).toEqual(["profile"])
+  })
+
+  it("delegates guest managers to the manager fallback sections", () => {
+    expect(resolveStaffPortalSections("staff", "guest", "manager")).toEqual(["profile"])
+  })
 })

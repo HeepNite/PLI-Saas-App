@@ -181,6 +181,27 @@ export const isStudentPinExpired = (
   return Boolean(credential.expiresAt && credential.expiresAt <= now)
 }
 
+export const isProvisionalStudentPinActive = (
+  credential:
+    | {
+        kind: string
+        status: string
+        expiresAt?: Date | null
+      }
+    | null
+    | undefined,
+  now = new Date()
+) =>
+  Boolean(
+    credential &&
+      credential.kind === "provisional" &&
+      credential.status !== "expired" &&
+      credential.status !== "obsolete" &&
+      credential.status !== "superseded" &&
+      credential.status !== "consumed" &&
+      (!credential.expiresAt || credential.expiresAt > now)
+  )
+
 export const assertStudentPinGlobalUniqueness = async (
   tx: StudentPinDbClient,
   input: { nextPin: string; credentialId?: string; ownerUserId?: string }
@@ -664,14 +685,7 @@ export const getStudentPinStatus = async (userId: string): Promise<StudentPinSum
   const requiresRegeneration = Boolean(permanent && requiresStudentPinRegeneration(permanent))
   const enrolled = Boolean(permanent && !["expired", "obsolete"].includes(permanent.status))
   const locked = Boolean(permanent && isLockedCredential(permanent))
-  const provisionalActive = Boolean(
-    provisional &&
-      provisional.status !== "expired" &&
-      provisional.status !== "obsolete" &&
-      provisional.status !== "superseded" &&
-      provisional.status !== "consumed" &&
-      (!provisional.expiresAt || provisional.expiresAt > new Date())
-  )
+  const provisionalActive = isProvisionalStudentPinActive(provisional)
 
   return {
     enabled: true,

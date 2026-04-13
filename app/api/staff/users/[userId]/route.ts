@@ -12,6 +12,8 @@ import {
   applyStaffCategoryToMetadata,
   extractStaffCategoryFromUserMetadata,
   parseStaffCategory,
+  parseStaffSubCategory,
+  applyStaffSubCategoryToMetadata,
   removeStaffCategoryFromMetadata,
 } from "@/lib/security/staff-category"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -98,11 +100,20 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
       return NextResponse.json({ error: "Only Owner can assign Owner role." }, { status: 403 })
     }
 
-    const currentCategory = extractStaffCategoryFromUserMetadata(targetUser) || "guest_staff"
+    const currentCategory = extractStaffCategoryFromUserMetadata(targetUser) || "guest"
     const normalizedCategory = normalizeCategoryForRole(role, currentCategory) || currentCategory
     const withRole = applyStaffRoleToMetadata(targetUser.publicMetadata, role)
+    const withCategory = applyStaffCategoryToMetadata(withRole, normalizedCategory)
+    
+    // Handle subCategory: clear it when changing category away from guest
+    let subCategory = null
+    if (normalizedCategory === "guest" && typeof payload.subCategory === "string") {
+      subCategory = parseStaffSubCategory(payload.subCategory)
+    }
+    const withSubCategory = applyStaffSubCategoryToMetadata(withCategory, subCategory)
+    
     const updated = await client.users.updateUserMetadata(userId, {
-      publicMetadata: applyStaffCategoryToMetadata(withRole, normalizedCategory),
+      publicMetadata: withSubCategory,
     })
     const nextState = extractStaffRoleSnapshot(updated)
     await syncStaffAccountFromClerkUser(updated, { source: "staff_users_patch" })
@@ -130,8 +141,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
 
   if (action === "remove_staff") {
     const withoutRole = removeStaffRolesFromMetadata(targetUser.publicMetadata)
+    const withoutCategory = removeStaffCategoryFromMetadata(withoutRole)
+    // Also remove subCategory
+    const withoutSubCategory = applyStaffSubCategoryToMetadata(withoutCategory, null)
     const updated = await client.users.updateUserMetadata(userId, {
-      publicMetadata: removeStaffCategoryFromMetadata(withoutRole),
+      publicMetadata: withoutSubCategory,
     })
     const nextState = extractStaffRoleSnapshot(updated)
     await syncStaffAccountFromClerkUser(updated, { source: "staff_users_patch", allowWithoutRole: true })

@@ -6,7 +6,12 @@ export type CheckInPayload = {
   startsAt?: Date
   durationMinutes: number
   location?: string
+  roomId?: string
   notes?: string
+}
+
+export type CheckOutPayload = {
+  attendanceId: string
 }
 
 type CheckInBody = {
@@ -17,13 +22,19 @@ type CheckInBody = {
   startsAt?: unknown
   durationMinutes?: unknown
   location?: unknown
+  roomId?: unknown
   notes?: unknown
+}
+
+type CheckOutBody = {
+  attendanceId?: unknown
 }
 
 type ValidationError = { status: number; error: string }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const sanitizeString = (value: unknown, max = 180) => {
   if (typeof value !== "string") return undefined
@@ -47,6 +58,13 @@ const parseDuration = (value: unknown) => {
   const rounded = Math.round(numeric)
   if (rounded < 15 || rounded > 240) return null
   return rounded
+}
+
+const parseOptionalUuid = (value: unknown) => {
+  if (value === undefined || value === null || value === "") return undefined
+  const normalized = sanitizeString(value, 36)
+  if (!normalized || !UUID_REGEX.test(normalized)) return null
+  return normalized.toLowerCase()
 }
 
 const toCheckInBody = (body: unknown): CheckInBody | null => {
@@ -85,6 +103,10 @@ export const validateCheckInBody = (body: unknown): CheckInPayload | ValidationE
 
   const sessionTitle = sanitizeString(checkInBody.sessionTitle, 140)
   const location = sanitizeString(checkInBody.location, 180)
+  const roomId = parseOptionalUuid(checkInBody.roomId)
+  if (roomId === null) {
+    return { status: 400, error: "Invalid roomId" }
+  }
   const notes = sanitizeString(checkInBody.notes, 500)
 
   return {
@@ -95,6 +117,21 @@ export const validateCheckInBody = (body: unknown): CheckInPayload | ValidationE
     startsAt,
     durationMinutes,
     location,
+    roomId,
     notes,
   }
+}
+
+export const validateCheckOutBody = (body: unknown): CheckOutPayload | ValidationError => {
+  const checkOutBody = toCheckInBody(body) as CheckOutBody | null
+  if (!checkOutBody) {
+    return { status: 400, error: "Invalid request body" }
+  }
+
+  const attendanceId = sanitizeString(checkOutBody.attendanceId, 128)
+  if (!attendanceId) {
+    return { status: 400, error: "Invalid attendanceId" }
+  }
+
+  return { attendanceId }
 }
