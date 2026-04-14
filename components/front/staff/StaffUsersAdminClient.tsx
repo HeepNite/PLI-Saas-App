@@ -6578,7 +6578,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         </div>
       </aside>
 
-      <section className="space-y-4">
+      <section className="min-w-0 space-y-4">
         <div className="min-[1180px]:hidden">
           <div className="rounded-xl border border-black/10 bg-white/80 p-1.5 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90 sm:p-2">
             <div
@@ -10519,9 +10519,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         <span>{packageValue}</span>
                       </p>
                       {outstandingBalanceLabel ? (
-                        <p className="inline-flex w-full items-center justify-between gap-2 text-red-200">
+                        <p className="inline-flex w-full items-center justify-between gap-2 border-b border-[var(--brand,#b61616)]/40 pb-2 text-[var(--brand,#ff9e9e)]">
                           <span>Outstanding balance</span>
-                          <span>{outstandingBalanceLabel}</span>
+                          <span className="text-[var(--brand,#ffc0c0)]">{outstandingBalanceLabel}</span>
                         </p>
                       ) : null}
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">

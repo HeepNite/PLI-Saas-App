@@ -551,9 +551,9 @@ export default function StaffPaymentMethodConfigPanel() {
                         }
 
                         return (
-                          <div key={key} className="flex justify-between border-b border-black/5 pb-1 last:border-0 last:pb-0 dark:border-white/5">
-                            <span className="font-bold uppercase tracking-wider text-black/40 dark:text-white/40">{label}</span>
-                            <span className="font-mono">{displayValue}</span>
+                          <div key={key} className="flex min-w-0 items-start justify-between gap-3 border-b border-black/5 pb-1 last:border-0 last:pb-0 dark:border-white/5">
+                            <span className="shrink-0 font-bold uppercase tracking-wider text-black/40 dark:text-white/40">{label}</span>
+                            <span className="min-w-0 break-all text-right font-mono">{displayValue}</span>
                           </div>
                         )
                       })}
