@@ -36,6 +36,7 @@ import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import StaffTerminalSetupClient from "@/components/front/staff/StaffTerminalSetupClient"
 import StaffPaymentMethodConfigPanel from "@/components/front/staff/payroll/StaffPaymentMethodConfigPanel"
+import PayrollAdminPanel from "@/components/front/staff/payroll/PayrollAdminPanel"
 import {
   buildHistoryStudentCard,
   buildHistoryStudentCards,
@@ -4303,6 +4304,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     } finally {
       setPaymentsBulkBusyAction(null)
     }
+  }
+
+  const getOpenPaymentIds = (allPayments: PaymentRow[]): string[] => {
+    return allPayments
+      .filter((payment) => {
+        const hasOutstandingBalance = typeof payment.outstandingBalance === "number" && payment.outstandingBalance > 0
+        const isPending = payment.settlementStatus === "pending"
+        return hasOutstandingBalance || isPending
+      })
+      .map((payment) => payment.id)
   }
 
   const handleCheckOut = async (payment: PaymentRow) => {
@@ -9730,6 +9741,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </div>
 
             {currentRole === "owner" ? <StaffPaymentMethodConfigPanel /> : null}
+            {currentRole === "owner" ? <PayrollAdminPanel /> : null}
           </article>
         ) : null}
 
@@ -10352,7 +10364,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         <div className="absolute right-3 top-3 z-10 flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => void updateSettlementBulk(payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid", [payment.id])}
+                            onClick={() => void updateSettlementBulk(payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid", payment.settlementStatus === "paid" ? [payment.id] : getOpenPaymentIds(student.allPayments))}
                             className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
                               payment.settlementStatus === "paid"
                                 ? "bg-amber-500/30 border border-amber-500/50 text-amber-200 hover:bg-amber-500/40"
@@ -10521,7 +10533,30 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       {outstandingBalanceLabel ? (
                         <p className="inline-flex w-full items-center justify-between gap-2 border-b border-[var(--brand,#b61616)]/40 pb-2 text-[var(--brand,#ff9e9e)]">
                           <span>Outstanding balance</span>
-                          <span className="text-[var(--brand,#ffc0c0)]">{outstandingBalanceLabel}</span>
+                          <span className="group relative text-[var(--brand,#ffc0c0)]">
+                            <span className="cursor-help">{outstandingBalanceLabel}</span>
+                            <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-52 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                              <span className="font-semibold text-white">Outstanding balance breakdown:</span>
+                              <span className="mt-1 block border-t border-white/10" />
+                              {student.allPayments
+                                .filter((entry) => (typeof entry.outstandingBalance === "number" && entry.outstandingBalance > 0) || entry.settlementStatus === "pending")
+                                .slice(0, 12)
+                                .map((entry, index) => (
+                                  <span
+                                    key={`outstanding-${entry.id}`}
+                                    className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
+                                  >
+                                    <span className="block">{entry.courseTitle || "Package payment"}</span>
+                                    <span className="mt-0.5 block text-white/65">
+                                      {formatMoney(entry.amount, entry.currency)}
+                                    </span>
+                                  </span>
+                                ))}
+                              <span className="mt-2 border-t border-white/10 pt-2 block font-semibold text-white/90">
+                                Total: {outstandingBalanceLabel}
+                              </span>
+                            </span>
+                          </span>
                         </p>
                       ) : null}
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
