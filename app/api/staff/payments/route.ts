@@ -198,8 +198,14 @@ export async function GET(req: Request) {
     : undefined
 
   const todayNY = getTodayNewYork()
-  const startOfTodayNY = new Date(`${todayNY}T00:00:00`)
-  const endOfTodayNY = new Date(`${todayNY}T23:59:59.999`)
+  // Create date range in UTC that corresponds to NY timezone day boundaries
+  // todayNY is in format YYYY-MM-DD in NY timezone
+  // Convert to UTC: NY is UTC-4 (EDT) or UTC-5 (EST)
+  // So 00:00 NY = 04:00 or 05:00 UTC, and 23:59:59 NY = 03:59:59 or 04:59:59 UTC next day
+  const startOfTodayNY = new Date(`${todayNY}T04:00:00Z`) // conservative: assume EDT (UTC-4)
+  const endOfTodayNY = new Date(`${todayNY}T04:00:00Z`)
+  endOfTodayNY.setDate(endOfTodayNY.getDate() + 1)
+  endOfTodayNY.setMilliseconds(-1)
 
   const purchases = await prisma.purchase.findMany({
     where:
