@@ -2,8 +2,8 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 import { jsonError } from "@/lib/payroll/route-helpers"
-import { getAdapter } from "@/lib/payroll/adapters/registry"
-import { PAYROLL_ENTRY_STATUSES, AUDIT_ENTRY_TYPES } from "@/lib/payroll/types"
+import { getAdapter, VALID_ADAPTER_TYPES } from "@/lib/payroll/adapters/registry"
+import { PAYROLL_ENTRY_STATUSES, AUDIT_ENTRY_TYPES, ADAPTER_TYPES, type AdapterType } from "@/lib/payroll/types"
 
 export const runtime = "nodejs"
 
@@ -86,9 +86,17 @@ export async function POST(
       proposedAmount: entry.proposedAmount,
     }
 
-    const adapterType = entry.paymentMethodId
-      ? (await prisma.staffPaymentMethod.findUnique({ where: { id: entry.paymentMethodId } }))?.adapterType ?? "cash"
-      : "cash"
+    let adapterType: AdapterType = ADAPTER_TYPES.CASH
+    if (entry.paymentMethodId) {
+      const paymentMethod = await prisma.staffPaymentMethod.findUnique({
+        where: { id: entry.paymentMethodId },
+        select: { adapterType: true },
+      })
+
+      if (paymentMethod && VALID_ADAPTER_TYPES.includes(paymentMethod.adapterType as AdapterType)) {
+        adapterType = paymentMethod.adapterType as AdapterType
+      }
+    }
 
     const adapter = getAdapter(adapterType)
     const dispatchResult = await adapter.dispatch(snapshot, proposedAmount, baseAuth.userId)
