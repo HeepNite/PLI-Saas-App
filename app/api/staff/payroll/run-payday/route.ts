@@ -91,7 +91,7 @@ async function resolveEffectivePaymentModel(staffAccountId: string, schoolId: st
 }
 
 async function getActiveStaffAccounts(schoolId: string | null) {
-  const whereClause: any = {}
+  const whereClause: { schoolId?: string } = {}
   if (schoolId) {
     whereClause.schoolId = schoolId
   }
@@ -110,12 +110,12 @@ async function getActiveStaffAccounts(schoolId: string | null) {
 }
 
 async function checkForApprovedSuspension(
-  prisma: any,
+  prismaClient: typeof prisma,
   staffAccountId: string,
   periodStart: Date,
   periodEnd: Date
 ): Promise<boolean> {
-  const suspensionCount = await prisma.staffUnavailabilityRequest.count({
+  const suspensionCount = await prismaClient.staffUnavailabilityRequest.count({
     where: {
       staffAccountId,
       type: UNAVAILABILITY_TYPES.SUSPENSION,
