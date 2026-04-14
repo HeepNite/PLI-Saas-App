@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { jsonError, readJsonBody } from "@/lib/payroll/route-helpers"
+import { asOptionalString, jsonError, readJsonBody } from "@/lib/payroll/route-helpers"
 import { deriveHoursWorked } from "@/lib/payroll/hours"
 import { BONUS_TYPES } from "@/lib/payroll/types"
 
@@ -107,8 +107,8 @@ export async function POST(req: Request) {
   const staffAccountId = parsedBody.body.staffAccountId
   const periodStartRaw = parsedBody.body.periodStart
   const periodEndRaw = parsedBody.body.periodEnd
-  const currency = parsedBody.body.currency ?? null
-  const notes = parsedBody.body.notes ?? null
+  const currency = asOptionalString(parsedBody.body.currency)
+  const notes = asOptionalString(parsedBody.body.notes)
 
   if (!staffAccountId || typeof staffAccountId !== "string") {
     return jsonError("staffAccountId is required", 422)
