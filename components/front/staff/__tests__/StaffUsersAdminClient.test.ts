@@ -169,10 +169,19 @@ describe("staff approvals feed", () => {
             email: "grace@example.com",
           },
         },
-      ] as any
-    )
+       ] satisfies Array<{
+         id: string
+         staffAccountId: string
+         requestedMethod: string
+         requestedInfo: unknown
+         reason: string | null
+         status: string
+         createdAt: string
+         staffAccount: { firstName: string; lastName: string; email: string }
+       }>
+     )
 
-    expect(summary).toEqual({
+     expect(summary).toEqual({
       total: 2,
       pending: 2,
       inReview: 0,
@@ -198,7 +207,7 @@ describe("staff approvals feed", () => {
             phone: "",
           },
         },
-      ] as any,
+      ] as unknown,
       [
         {
           id: "payment-1",
@@ -228,7 +237,7 @@ describe("staff approvals feed", () => {
             email: "grace@example.com",
           },
         },
-      ] as any
+      ]
     )
 
     expect(feed).toHaveLength(2)
@@ -245,7 +254,7 @@ describe("staff approvals feed", () => {
         alias: "main-account",
         accountNumber: "998877",
         empty: "   ",
-      } as any)
+      } as unknown)
     ).toEqual([
       { key: "cbu", label: "CBU", value: "•••• 789" },
       { key: "alias", label: "Alias", value: "main-account" },
@@ -419,7 +428,7 @@ describe("resolveStudentCardPayments", () => {
     classPaid: false,
     fundingPayment: null,
     checkInStatus: "scheduled",
-  } as any
+  }
 
   const defaultFilters = {
     isHistoryMode: true,
@@ -506,7 +515,7 @@ describe("isPaymentPaidForUi", () => {
           createdAt: "2026-03-01T18:00:00.000Z",
           courseTitle: "10-Class Package",
         },
-      } as any)
+      } as unknown)
     ).toBe(true)
   })
 
@@ -516,7 +525,7 @@ describe("isPaymentPaidForUi", () => {
         purchaseCategory: "package",
         classPaid: false,
         fundingPayment: null,
-      } as any)
+      } as unknown)
     ).toBe(false)
   })
 
@@ -532,7 +541,7 @@ describe("isPaymentPaidForUi", () => {
           createdAt: "2026-03-01T18:00:00.000Z",
           courseTitle: "10-Class Package",
         },
-      } as any)
+      } as unknown)
     ).toBe(true)
   })
 
@@ -544,7 +553,7 @@ describe("isPaymentPaidForUi", () => {
         fundingPayment: null,
         checkInStatus: "checked_in",
         packageId: "pkg_10",
-      } as any)
+      } as unknown)
     ).toBe(true)
   })
 })
@@ -564,7 +573,7 @@ describe("paymentStateLabel", () => {
           createdAt: "2026-03-01T18:00:00.000Z",
           courseTitle: "10-Class Package",
         },
-      } as any)
+      } as unknown)
     ).toBe("Package paid")
   })
 
@@ -576,7 +585,7 @@ describe("paymentStateLabel", () => {
         purchaseCategory: "dropin",
         classPaid: false,
         fundingPayment: null,
-      } as any)
+      } as unknown)
     ).toBe("Card pending")
   })
 
@@ -590,7 +599,7 @@ describe("paymentStateLabel", () => {
         fundingPayment: null,
         checkInStatus: "checked_in",
         packageId: "pkg_10",
-      } as any)
+      } as unknown)
     ).toBe("Package paid")
   })
 })
@@ -628,7 +637,7 @@ describe("resolveDailyVisiblePayment", () => {
       classDate: "2026-03-20",
       classTime: "18:00",
       classStartsAt: "2026-03-20T18:00:00.000Z",
-    } as any
+    }
 
     const newerPendingCardRow = {
       ...elviraPackageCheckIn,
@@ -640,17 +649,17 @@ describe("resolveDailyVisiblePayment", () => {
       attendanceId: null,
       checkInAt: null,
       createdAt: "2026-03-20T18:05:00.000Z",
-    } as any
+    }
 
     const card = buildHistoryStudentCard([elviraPackageCheckIn, newerPendingCardRow])
 
     expect(card).not.toBeNull()
     expect(card?.latestPayment.id).toBe("elvira_pending_card")
 
-    const visiblePayment = resolveDailyVisiblePayment(card!.allPayments as any)
+    const visiblePayment = resolveDailyVisiblePayment(card!.allPayments as unknown)
 
     expect(visiblePayment?.id).toBe("elvira_pkg_checkin")
-    expect(paymentStateLabel(visiblePayment as any)).toBe("Package paid")
+    expect(paymentStateLabel(visiblePayment as unknown)).toBe("Package paid")
     expect(resolveHistoryStudentCardAmountPaidCents(card!, "daily")).toBe(22000)
   })
 
@@ -680,7 +689,7 @@ describe("resolveDailyVisiblePayment", () => {
       classDate: "2026-03-20",
       classTime: "18:00",
       classStartsAt: "2026-03-20T18:00:00.000Z",
-    } as any
+    }
 
     const newerPendingCardRow = {
       ...elviraVisiblePackageCheckIn,
@@ -692,18 +701,18 @@ describe("resolveDailyVisiblePayment", () => {
       attendanceId: null,
       checkInAt: null,
       createdAt: "2026-03-20T18:05:00.000Z",
-    } as any
+    }
 
     const card = buildHistoryStudentCard([elviraVisiblePackageCheckIn, newerPendingCardRow])
 
     expect(card).not.toBeNull()
     expect(card?.latestPayment.id).toBe("elvira_pending_card_without_package")
 
-    const visiblePayment = resolveDailyVisiblePayment(card!.allPayments as any)
+    const visiblePayment = resolveDailyVisiblePayment(card!.allPayments as unknown)
 
     expect(visiblePayment?.id).toBe("elvira_pkg_checkin_without_funding")
-    expect(paymentStateLabel(visiblePayment as any)).toBe("Package paid")
-    expect(isPaymentPaidForUi(visiblePayment as any)).toBe(true)
+    expect(paymentStateLabel(visiblePayment as unknown)).toBe("Package paid")
+    expect(isPaymentPaidForUi(visiblePayment as unknown)).toBe(true)
   })
 
   it("uses real completed and package usage totals when the daily payload provides them", () => {
@@ -764,7 +773,7 @@ describe("resolveDailyVisiblePayment", () => {
         completedClassesTotal: 6,
         packageClassesUsedTotal: 6,
       },
-    ] as any)
+    ] as unknown)
 
     expect(card).not.toBeNull()
     expect(card?.checkedInPayments).toBe(6)
@@ -801,7 +810,7 @@ describe("resolveDailyVisiblePayment", () => {
         completedClassesTotal: 2,
         packageClassesUsedTotal: 6,
       },
-    ] as any)
+    ] as unknown)
 
     expect(card).not.toBeNull()
     expect(card?.checkedInPayments).toBe(6)
@@ -812,14 +821,14 @@ describe("resolveDailyVisiblePayment", () => {
     expect(
       checkInStateTone({
         checkInStatus: "checked_in",
-      } as any)
+      } as unknown)
     ).toBe("border-violet-400/40 bg-violet-400/12 text-violet-200")
 
     expect(
       resolveStudentPinTone({
         enabled: true,
         provisionalActive: false,
-      } as any)
+      } as unknown)
     ).toBe("border-blue-400/40 bg-blue-400/12 text-blue-200")
   })
 })
@@ -836,7 +845,7 @@ describe("matchesStudentSearchQuery", () => {
           courseSlug: "bachata-int",
           location: "Palermo",
           activePackage: { label: "8 classes" },
-        } as any,
+        } as unknown,
         "JANE@EXAMPLE"
       )
     ).toBe(true)
@@ -938,14 +947,14 @@ describe("resolveProfileCardDetails", () => {
       pointsBalance: 3,
     } as const
 
-    expect(resolveProfileCardBadges(student as any).map((badge) => badge.label)).toEqual([
+    expect(resolveProfileCardBadges(student as unknown).map((badge) => badge.label)).toEqual([
       "Points: 3",
       "Paid in full",
       "Last check-in",
       "PIN enrolled",
     ])
-    expect(resolveProfileCardBadges(student as any)[2]).not.toHaveProperty("title")
-    expect(resolveProfileCashSettlementControl(student as any)).toBeNull()
+    expect(resolveProfileCardBadges(student as unknown)[2]).not.toHaveProperty("title")
+    expect(resolveProfileCashSettlementControl(student as unknown)).toBeNull()
   })
 
   it("shows a payment due badge when the profile has an outstanding balance", () => {
@@ -971,7 +980,7 @@ describe("resolveProfileCardDetails", () => {
         pinStatus: "none",
         cashSettlement: null,
         pointsBalance: 0,
-      } as any)[1]
+      } as unknown)[1]
     ).toMatchObject({
       key: "payment",
       label: "Payment due",
@@ -1006,7 +1015,7 @@ describe("resolveProfileCardDetails", () => {
           settlementNote: "awaiting desk",
         },
         pointsBalance: 0,
-      } as any)
+      } as unknown)
     ).toEqual({
       paymentId: "purchase_cash_pending",
       settlementStatus: "pending",
@@ -1042,7 +1051,7 @@ describe("resolveProfileCardDetails", () => {
           settlementNote: "",
         },
         pointsBalance: 0,
-      } as any)
+      } as unknown)
     ).toEqual({
       paymentId: "purchase_card_pending_1",
       settlementStatus: "pending",
@@ -1074,7 +1083,7 @@ describe("resolveProfileCardDetails", () => {
         cashSettlement: null,
         pendingSettlement: null,
         pointsBalance: 0,
-      } as any)
+      } as unknown)
     ).toBeNull()
   })
 
@@ -1106,7 +1115,7 @@ describe("resolveProfileCardDetails", () => {
         },
         pendingSettlement: null,
         pointsBalance: 0,
-      } as any)
+      } as unknown)
     ).toBeNull()
   })
 
@@ -1138,7 +1147,7 @@ describe("resolveProfileCardDetails", () => {
           settlementNote: "",
         },
         pointsBalance: 0,
-      } as any)
+      } as unknown)
     ).toBeNull()
   })
 
@@ -1174,7 +1183,7 @@ describe("resolveProfileCardDetails", () => {
           settlementNote: "",
         },
         pointsBalance: 0,
-      } as any)
+      } as unknown)
     ).toEqual({
       paymentId: "purchase_cash_3",
       settlementStatus: "pending",
@@ -1204,7 +1213,7 @@ describe("resolveProfileCardDetails", () => {
       pinStatus: "none",
       cashSettlement: null,
       pointsBalance: 0,
-    } as any)[2]
+    } as unknown)[2]
 
     expect(checkInBadge).toMatchObject({
       key: "check-in",
@@ -1235,7 +1244,7 @@ describe("resolveProfileCardDetails", () => {
       pinStatus: "none",
       cashSettlement: null,
       pointsBalance: 0,
-    } as any)[2]
+    } as unknown)[2]
 
     expect(badge).toMatchObject({
       key: "check-in",
@@ -1284,7 +1293,7 @@ describe("resolveProfileCardDetails", () => {
       pinStatus: "none",
       cashSettlement: null,
       pointsBalance: 1,
-    } as any).map((row) => row.label)
+    } as unknown).map((row) => row.label)
 
     expect(labels).toEqual([
       "Location",
@@ -1306,7 +1315,7 @@ describe("room helpers", () => {
   ]
 
   it("keeps an inactive selected room visible in default-room selectors", () => {
-    expect(buildCourseRoomOptions(rooms as any, "room-inactive").map((room) => room.id)).toEqual([
+    expect(buildCourseRoomOptions(rooms as unknown, "room-inactive").map((room) => room.id)).toEqual([
       "room-inactive",
       "room-active-1",
       "room-active-2",
@@ -1314,20 +1323,20 @@ describe("room helpers", () => {
   })
 
   it("builds room lookup maps and room list filters consistently", () => {
-    expect(buildRoomLookup(rooms as any)["room-active-1"]?.name).toBe("Studio A")
-    expect(filterVisibleRooms(rooms as any, "upstairs", "inactive").map((room) => room.id)).toEqual(["room-inactive"])
-    expect(filterVisibleRooms(rooms as any, "studio", "active").map((room) => room.id)).toEqual([
+    expect(buildRoomLookup(rooms as unknown)["room-active-1"]?.name).toBe("Studio A")
+    expect(filterVisibleRooms(rooms as unknown, "upstairs", "inactive").map((room) => room.id)).toEqual(["room-inactive"])
+    expect(filterVisibleRooms(rooms as unknown, "studio", "active").map((room) => room.id)).toEqual([
       "room-active-1",
       "room-active-2",
     ])
   })
 
   it("resolves disable button state for busy and inactive rooms", () => {
-    expect(resolveRoomDisableActionState(rooms[0] as any, "room-active-1")).toEqual({
+    expect(resolveRoomDisableActionState(rooms[0] as unknown, "room-active-1")).toEqual({
       disabled: true,
       label: "Disabling...",
     })
-    expect(resolveRoomDisableActionState(rooms[1] as any, null)).toEqual({
+    expect(resolveRoomDisableActionState(rooms[1] as unknown, null)).toEqual({
       disabled: true,
       label: "Disabled",
     })
