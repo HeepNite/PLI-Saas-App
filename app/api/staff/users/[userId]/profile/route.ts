@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createHash, randomBytes } from "crypto"
+import { Prisma } from "@prisma/client"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
