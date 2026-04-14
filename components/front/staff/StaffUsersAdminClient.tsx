@@ -36,7 +36,6 @@ import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import StaffTerminalSetupClient from "@/components/front/staff/StaffTerminalSetupClient"
 import StaffPaymentMethodConfigPanel from "@/components/front/staff/payroll/StaffPaymentMethodConfigPanel"
-import PayrollAdminPanel from "@/components/front/staff/payroll/PayrollAdminPanel"
 import {
   buildHistoryStudentCard,
   buildHistoryStudentCards,
@@ -9741,7 +9740,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </div>
 
             {currentRole === "owner" ? <StaffPaymentMethodConfigPanel /> : null}
-            {currentRole === "owner" ? <PayrollAdminPanel /> : null}
           </article>
         ) : null}
 
