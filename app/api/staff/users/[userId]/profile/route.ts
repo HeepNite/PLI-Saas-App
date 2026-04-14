@@ -603,7 +603,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
       where: { clerkUserId: userId },
        data: {
          ...(hasPaymentPreference ? { paymentPreference: parsedPaymentPreference ?? null } : {}),
-         ...(hasPaymentInfo ? { paymentInfo: parsedPaymentInfo ?? null } : {}),
+         ...(hasPaymentInfo ? { paymentInfo: parsedPaymentInfo ?? Prisma.JsonNull } : {}),
        },
       select: {
         paymentPreference: true,
