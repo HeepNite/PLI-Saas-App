@@ -4,7 +4,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone, getDateKeyInTimeZone } from "@/lib/class-schedule"
 import {
   COMPLETED_PAYMENT_STATUSES,
   asObject,
@@ -197,6 +197,16 @@ export async function GET(req: Request) {
       }
     : undefined
 
+  const todayNY = getTodayNewYork()
+  // Create date range in UTC that corresponds to NY timezone day boundaries
+  // todayNY is in format YYYY-MM-DD in NY timezone
+  // Convert to UTC: NY is UTC-4 (EDT) or UTC-5 (EST)
+  // So 00:00 NY = 04:00 or 05:00 UTC, and 23:59:59 NY = 03:59:59 or 04:59:59 UTC next day
+  const startOfTodayNY = new Date(`${todayNY}T04:00:00Z`) // conservative: assume EDT (UTC-4)
+  const endOfTodayNY = new Date(`${todayNY}T04:00:00Z`)
+  endOfTodayNY.setDate(endOfTodayNY.getDate() + 1)
+  endOfTodayNY.setMilliseconds(-1)
+
   const purchases = await prisma.purchase.findMany({
     where:
       mode === "history"
@@ -207,15 +217,20 @@ export async function GET(req: Request) {
               { metadata: { path: ["date"], lte: historyRange!.to } },
             ],
           }
-        : where,
+        : mode === "today"
+          ? {
+              AND: [
+                ...(where ? [where] : []),
+                { createdAt: { gte: startOfTodayNY, lte: endOfTodayNY } },
+              ],
+            }
+          : where,
     orderBy: { createdAt: "desc" },
     take: mode === "history" ? HISTORY_MODE_TAKE_LIMIT + 1 : TODAY_MODE_TAKE_LIMIT,
   })
 
   const historyTruncated = mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT
   const scopedBasePurchases = historyTruncated ? purchases.slice(0, HISTORY_MODE_TAKE_LIMIT) : purchases
-
-  const todayNY = getTodayNewYork()
 
   const enrichedPurchases = scopedBasePurchases.map((purchase) => {
     const metadata = asObject(purchase.metadata)
