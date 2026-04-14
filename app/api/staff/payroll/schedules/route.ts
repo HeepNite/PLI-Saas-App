@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerRequest, authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { jsonError, readJsonBody } from "@/lib/payroll/route-helpers"
+import { asOptionalNumber, jsonError, readJsonBody } from "@/lib/payroll/route-helpers"
 
 export const runtime = "nodejs"
 
@@ -37,7 +37,8 @@ export async function POST(req: Request) {
   const parsedBody = await readJsonBody(req)
   if (!parsedBody.ok) return parsedBody.response
 
-  const { staffAccountId, paydayWeekday, time, timezone, active } = parsedBody.body
+  const { staffAccountId, time, timezone, active } = parsedBody.body
+  const paydayWeekday = asOptionalNumber(parsedBody.body.paydayWeekday)
 
   // Validate required fields
   if (!staffAccountId || typeof staffAccountId !== "string") {
