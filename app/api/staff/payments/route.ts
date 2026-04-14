@@ -4,7 +4,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone, getDateKeyInTimeZone } from "@/lib/class-schedule"
 import {
   COMPLETED_PAYMENT_STATUSES,
   asObject,
@@ -198,6 +198,8 @@ export async function GET(req: Request) {
     : undefined
 
   const todayNY = getTodayNewYork()
+  const startOfTodayNY = new Date(`${todayNY}T00:00:00`)
+  const endOfTodayNY = new Date(`${todayNY}T23:59:59.999`)
 
   const purchases = await prisma.purchase.findMany({
     where:
@@ -213,7 +215,7 @@ export async function GET(req: Request) {
           ? {
               AND: [
                 ...(where ? [where] : []),
-                { metadata: { path: ["date"], equals: todayNY } },
+                { createdAt: { gte: startOfTodayNY, lte: endOfTodayNY } },
               ],
             }
           : where,
