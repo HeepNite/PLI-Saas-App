@@ -197,6 +197,8 @@ export async function GET(req: Request) {
       }
     : undefined
 
+  const todayNY = getTodayNewYork()
+
   const purchases = await prisma.purchase.findMany({
     where:
       mode === "history"
@@ -207,15 +209,20 @@ export async function GET(req: Request) {
               { metadata: { path: ["date"], lte: historyRange!.to } },
             ],
           }
-        : where,
+        : mode === "today"
+          ? {
+              AND: [
+                ...(where ? [where] : []),
+                { metadata: { path: ["date"], equals: todayNY } },
+              ],
+            }
+          : where,
     orderBy: { createdAt: "desc" },
     take: mode === "history" ? HISTORY_MODE_TAKE_LIMIT + 1 : TODAY_MODE_TAKE_LIMIT,
   })
 
   const historyTruncated = mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT
   const scopedBasePurchases = historyTruncated ? purchases.slice(0, HISTORY_MODE_TAKE_LIMIT) : purchases
-
-  const todayNY = getTodayNewYork()
 
   const enrichedPurchases = scopedBasePurchases.map((purchase) => {
     const metadata = asObject(purchase.metadata)
