@@ -237,7 +237,7 @@ export async function GET(req: Request) {
     }
   })
 
-  let standaloneItems: typeof enrichedPurchases = []
+  const standaloneItems: typeof enrichedPurchases = []
   const todayAttendanceByPurchaseId = new Map<
     string,
     {
@@ -358,8 +358,8 @@ export async function GET(req: Request) {
             },
             createdAt: att.checkedInAt,
             updatedAt: att.checkedInAt,
-          } as any,
-          id: `att-${att.id}`,
+          } as unknown as typeof enrichedPurchases[number]["purchase"],
+           id: `att-${att.id}`,
           metadata: {
             attendanceId: att.id,
             packageId,

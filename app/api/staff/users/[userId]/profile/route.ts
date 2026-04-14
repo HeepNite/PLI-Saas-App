@@ -388,22 +388,27 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   let assignedPaymentPreference: StaffPaymentPreference | null = null
   let paymentInfo: StaffPaymentInfo | null = null
   try {
-    const staffAccount = (await prisma.staffAccount.findUnique({
-      where: { clerkUserId: userId },
-      select: {
-        paymentPreference: true,
-        paymentInfo: true,
-        paymentModel: {
-          select: {
-            defaultPaymentMethod: {
-              select: {
-                adapterType: true,
-              },
-            },
-          },
-        },
-      },
-    } as any)) as any
+     type StaffAccountPaymentData = {
+       paymentPreference: string | null
+       paymentInfo: unknown
+       paymentModel?: { defaultPaymentMethod?: { adapterType?: string } } | null
+     }
+     const staffAccount = (await prisma.staffAccount.findUnique({
+       where: { clerkUserId: userId },
+       select: {
+         paymentPreference: true,
+         paymentInfo: true,
+         paymentModel: {
+           select: {
+             defaultPaymentMethod: {
+               select: {
+                 adapterType: true,
+               },
+             },
+           },
+         },
+       },
+     })) as StaffAccountPaymentData | null
     if (staffAccount) {
       paymentPreference = parsePaymentPreference(staffAccount.paymentPreference) ?? null
       paymentInfo = normalizePaymentInfo(staffAccount.paymentInfo) ?? null
@@ -596,10 +601,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
   if (hasPaymentPreference || hasPaymentInfo) {
     const updatedStaffAccount = await prisma.staffAccount.update({
       where: { clerkUserId: userId },
-      data: {
-        ...(hasPaymentPreference ? { paymentPreference: parsedPaymentPreference ?? null } : {}),
-        ...(hasPaymentInfo ? { paymentInfo: (parsedPaymentInfo as any) ?? null } : {}),
-      },
+       data: {
+         ...(hasPaymentPreference ? { paymentPreference: parsedPaymentPreference ?? null } : {}),
+         ...(hasPaymentInfo ? { paymentInfo: parsedPaymentInfo ?? null } : {}),
+       },
       select: {
         paymentPreference: true,
         paymentInfo: true,
