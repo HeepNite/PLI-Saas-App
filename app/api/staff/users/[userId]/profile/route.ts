@@ -227,11 +227,6 @@ const isValidPinHash = (pin: string, pinHash: string) => {
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 
-type StaffPaymentRecord = {
-  paymentPreference: string | null
-  paymentInfo: unknown
-}
-
 
 const parseRole = (value: unknown): StaffRole | null => {
   if (typeof value !== "string") return null

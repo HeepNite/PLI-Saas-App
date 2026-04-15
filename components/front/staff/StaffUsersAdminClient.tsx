@@ -46,7 +46,7 @@ import {
   type CardContext,
 } from "@/components/front/staff/historyCardAggregates"
 import { useStudentGlobalSearch } from "@/components/front/staff/useStudentGlobalSearch"
-import { formatReadableDate, parseIsoDate } from "@/lib/class-schedule"
+import { parseIsoDate } from "@/lib/class-schedule"
 import {
   normalizeStaffProfilePaymentInfo,
   resolveStaffProfilePaymentSummaryCards,
@@ -2707,7 +2707,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     try {
       if (isHistoryMode && (!historyFrom || !historyTo || historyFrom > historyTo)) {
         setPayments([])
-        setPaymentsSummaryApi(createEmptyPaymentsSummary())
+        setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
         setHistoryClassOptions([])
         return
       }
@@ -2725,12 +2725,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         if (handleStaffAuthFailure(res.status)) return
         setError(typeof data?.error === "string" ? data.error : "Failed to load payments")
         setPayments([])
-        setPaymentsSummaryApi(createEmptyPaymentsSummary())
+        setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
         setHistoryClassOptions([])
         return
       }
       setPayments(Array.isArray(data?.items) ? data.items : [])
-      setPaymentsSummaryApi(normalizePaymentsSummary(data?.summary))
+      setPaymentsMonthlySummaryApi(normalizePaymentsSummary(data?.summary))
       setHistoryClassOptions(
         isHistoryMode && Array.isArray(data?.classOptions)
           ? data.classOptions
@@ -2746,7 +2746,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     } catch {
       setError("Network error while loading payments")
       setPayments([])
-      setPaymentsSummaryApi(createEmptyPaymentsSummary())
+      setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
       setHistoryClassOptions([])
     } finally {
       await ensureMinimumLoadingTime(startedAt)
@@ -2765,7 +2765,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
         setPaymentsMonthlyStudentCount(0)
         setPaymentsMonthlyCheckedInStudents(0)
-        setPaymentsMonthlyPurchaseSummary({ packages: 0, dropIn: 0 })
         return
       }
 
@@ -2775,21 +2774,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setPaymentsMonthlySummaryApi(normalizePaymentsSummary(data?.summary))
       setPaymentsMonthlyStudentCount(monthlyStudentCards.length)
       setPaymentsMonthlyCheckedInStudents(monthlyStudentCards.filter((item) => Boolean(item.latestAttendedPayment)).length)
-      setPaymentsMonthlyPurchaseSummary(
-        monthlyPayments.reduce(
-          (acc, payment) => {
-            if (payment.purchaseCategory === "package") acc.packages += 1
-            if (payment.purchaseCategory === "dropin") acc.dropIn += 1
-            return acc
-          },
-          { packages: 0, dropIn: 0 }
-        )
-      )
     } catch {
       setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
       setPaymentsMonthlyStudentCount(0)
       setPaymentsMonthlyCheckedInStudents(0)
-      setPaymentsMonthlyPurchaseSummary({ packages: 0, dropIn: 0 })
     }
   }, [handleStaffAuthFailure])
 
@@ -4297,47 +4285,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       .map((payment) => payment.id)
   }
 
-  const _handleCheckOut = async (payment: PaymentRow) => {
-    if (!payment.attendanceId) {
-      setError("No active attendance found for this student.")
-      return
-    }
-
-    setError(null)
-    setCheckoutBusyAttendanceId(payment.attendanceId)
-    try {
-      const res = await fetch("/api/staff/checkin", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attendanceId: payment.attendanceId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setError(typeof data?.error === "string" ? data.error : "Failed to check out student")
-        return
-      }
-
-      const checkedOutAt = typeof data?.attendance?.checkedOutAt === "string" ? data.attendance.checkedOutAt : new Date().toISOString()
-      setPayments((prev) =>
-        prev.map((row) =>
-          row.attendanceId === payment.attendanceId
-            ? {
-                ...row,
-                checkInStatus: "checked_out",
-                checkedOutAt,
-              }
-            : row
-        )
-      )
-      setCheckoutMenuPaymentId(null)
-    } catch {
-      setError("Network error while checking out student")
-    } finally {
-      setCheckoutBusyAttendanceId(null)
-    }
-  }
-
   const updateRequestStatus = async (requestId: string, status: StaffRequestStatus) => {
     setRequestBusyId(requestId)
     setError(null)
@@ -4802,14 +4749,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       return undefined
     },
     [externalRecurringSlotsMap, externalSpecialEventSlotMap]
-  )
-
-  const _getSpecialEventDateDisabledReason = React.useCallback(
-    (isoDate: string) => {
-      if (!isSpecialEventCourse) return undefined
-      return getSpecialEventConflictReason(isoDate, courseScheduleTime)
-    },
-    [courseScheduleTime, getSpecialEventConflictReason, isSpecialEventCourse]
   )
 
   const scheduleTimeOptions = React.useMemo(() => {
@@ -5461,15 +5400,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     () => resolveCardVariant(cardContext),
     [cardContext]
   )
-
-  const _cardCashPaymentIds = React.useMemo(() => {
-    if (paymentCategoryFilter !== "cash") return []
-    // In global-search mode, use settlement IDs from profile cards
-    if (cardContext === "global-search" && searchResultCards !== null) {
-      return resolveVisibleProfileSettlementIds(searchResultCards)
-    }
-    return [...new Set(filteredStudentCards.map((item) => item.latestPayment.id).filter(Boolean))]
-  }, [cardContext, filteredStudentCards, paymentCategoryFilter, searchResultCards])
 
   const totalPages = React.useMemo(() => {
     const activeCount = searchResultCards !== null ? searchResultCards.length : filteredStudentCards.length
@@ -10326,11 +10256,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     : "Enrolled PIN"
                   : null
                 const studentPinTone = resolveStudentPinTone(payment.studentPin)
-                const _checkInHistory = student.allPayments.filter((entry) => entry.checkInStatus !== "none").slice(0, 12)
                 const pointsHistoryEntries = payment.pointsHistory.slice(0, 10)
-                const _canCheckOut = cardVariant.showCheckout && Boolean(payment.attendanceId && isCheckedInStatus(payment.checkInStatus))
-                const _checkoutMenuOpen = checkoutMenuPaymentId === payment.id
-                const _checkoutBusy = payment.attendanceId ? checkoutBusyAttendanceId === payment.attendanceId : false
 
                 return (
                   <article

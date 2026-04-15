@@ -48,7 +48,6 @@ import {
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
   isKioskQrPendingPhase,
-  KIOSK_PAYMENT_TRANSITION_MIN_MS,
   KIOSK_QR_POLL_INTERVAL_MS,
   resolveKioskQrPhaseFromStatus,
   shouldAutoAdvanceKioskInfoStep,
@@ -398,7 +397,6 @@ export default function EnrollModal({
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
   const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
-  const isTerminalNewFlow = isCheckInNewFlow && isKioskTerminalFlow
   const isStationCompletion = isCheckInFlow && completionMode === "station"
   const isPersonalCompletion = isCheckInFlow && completionMode === "personal"
   const photoPolicy = React.useMemo(() => getPhotoPolicy(photoFlowContext), [photoFlowContext])
