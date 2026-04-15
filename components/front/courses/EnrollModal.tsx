@@ -951,6 +951,8 @@ export default function EnrollModal({
     course.enrollment.packages,
     isCheckInNewFlow,
     isCheckInFlow,
+    isCheckInExistingFlow,
+    isKioskTerminalFlow,
     checkInContextDate,
     checkInContextTime,
     effectiveInitialStep,
@@ -1379,7 +1381,6 @@ export default function EnrollModal({
   }, [
     contact.phone,
     isCheckInFlow,
-    isCheckInNewFlow,
     isSignedIn,
     paymentsStepIndex,
     photoPolicy,
@@ -1407,7 +1408,7 @@ export default function EnrollModal({
     return { res, data }
   }
 
-  const requestKioskCheckoutSession = async (token?: string | null) => {
+  const requestKioskCheckoutSession = React.useCallback(async (token?: string | null) => {
     const res = await fetch("/api/checkout/session", {
       method: "POST",
       headers: {
@@ -1419,7 +1420,7 @@ export default function EnrollModal({
     })
     const data = await res.json().catch(() => ({}))
     return { res, data }
-  }
+  }, [buildCheckoutPayload])
 
   const requestCashCheckout = async (token?: string | null) => {
     const res = await fetch("/api/checkout/cash", {
@@ -2092,7 +2093,7 @@ export default function EnrollModal({
         window.clearTimeout(timeoutId)
       }
     }
-  }, [isKioskTerminalFlow, kioskQrCheckout.sessionId, kioskQrCheckoutPending, open])
+  }, [completeDropInCheckInAfterCardPayment, isKioskTerminalFlow, kioskQrCheckout.sessionId, kioskQrCheckoutPending, open])
 
   const stepValid = (s: number) => {
     const stepKey = steps[s]?.key

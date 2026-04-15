@@ -601,7 +601,7 @@ export default function ProfilePageClient() {
       if (!occupied || occupied.size === 0) return false
       return futureTimes.every((time) => occupied.has(time))
     },
-    [rescheduleBookedTimesByDate, selectedBooking?.courseSlug]
+    [rescheduleBookedTimesByDate, selectedBooking?.courseSlug, sourceCourses]
   )
   const getRescheduleDateBlockReason = React.useCallback(
     (dateIso: string) => {

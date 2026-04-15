@@ -2152,7 +2152,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [paymentsBulkBusyAction, setPaymentsBulkBusyAction] = React.useState<"mark_paid" | "mark_pending" | null>(null)
   const [currentPage, setCurrentPage] = React.useState(1)
   const [checkoutMenuPaymentId, setCheckoutMenuPaymentId] = React.useState<string | null>(null)
-  const [checkoutBusyAttendanceId, setCheckoutBusyAttendanceId] = React.useState<string | null>(null)
 
   const [staffRequests, setStaffRequests] = React.useState<StaffRequestRow[]>([])
   const [requestsSummary, setRequestsSummary] = React.useState<StaffRequestSummary>({
