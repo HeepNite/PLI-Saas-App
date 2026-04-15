@@ -4089,6 +4089,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     courseRecurringWeekdays,
     courseScheduleDates,
     courseScheduleTime,
+    getSpecialEventConflictReason,
     isSpecialEventCourse,
     quickScheduleTimes,
     setSchoolError,
