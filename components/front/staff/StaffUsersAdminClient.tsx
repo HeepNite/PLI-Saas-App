@@ -4009,6 +4009,116 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     [courseForm.title, getCourseShareUrl]
   )
 
+  const externalRecurringSlotsMap = React.useMemo(() => {
+    const map = new Map<string, { title: string; slug: string }[]>()
+    const currentSlug = courseForm.slug.trim()
+    for (const course of schoolCourses) {
+      if (currentSlug && course.slug === currentSlug) continue
+      const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
+      const fallbackRules =
+        !parsedRules && course.availableWeekdays.length > 0 && course.availableTimes.length > 0
+          ? course.availableWeekdays.map((weekday) => ({
+              weekday,
+              times: course.availableTimes,
+            }))
+          : []
+      const rules = parsedRules?.rules || fallbackRules
+      for (const rule of rules) {
+        for (const rawTime of rule.times) {
+          const time = normalizeClockTime(rawTime)
+          if (!time) continue
+          const key = `${rule.weekday}|${time}`
+          const current = map.get(key) || []
+          current.push({ title: course.title, slug: course.slug })
+          map.set(key, current)
+        }
+      }
+    }
+    return map
+  }, [courseForm.slug, schoolCourses])
+
+  const externalSpecialEventSlots = React.useMemo(() => {
+    const items: Array<{ date: string; time: string; title: string; slug: string }> = []
+    const currentSlug = courseForm.slug.trim()
+    for (const course of schoolCourses) {
+      if (currentSlug && course.slug === currentSlug) continue
+      const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
+      if (!parsedRules || parsedRules.specialEvents.length === 0) continue
+      for (const event of parsedRules.specialEvents) {
+        for (const rawTime of event.times) {
+          const time = normalizeClockTime(rawTime)
+          if (!time) continue
+          if (!ISO_DATE_REGEX.test(event.date)) continue
+          items.push({ date: event.date, time, title: course.title, slug: course.slug })
+        }
+      }
+    }
+    return items
+  }, [courseForm.slug, schoolCourses])
+
+  const externalSpecialEventSlotMap = React.useMemo(() => {
+    const map = new Map<string, { title: string; slug: string }[]>()
+    for (const item of externalSpecialEventSlots) {
+      const key = `${item.date}|${item.time}`
+      const current = map.get(key) || []
+      current.push({ title: item.title, slug: item.slug })
+      map.set(key, current)
+    }
+    return map
+  }, [externalSpecialEventSlots])
+
+  const regularSlotsBlockedByEvents = React.useMemo(() => {
+    if (isSpecialEventCourse) return [] as Array<{ date: string; time: string; title: string }>
+    const recurringSlots = courseScheduleSlots.filter(
+      (slot): slot is CourseScheduleSlot & { weekday: number } =>
+        typeof slot.weekday === "number" && slot.weekday >= 0 && slot.weekday <= 6
+    )
+    if (recurringSlots.length === 0) return [] as Array<{ date: string; time: string; title: string }>
+    const entries: Array<{ date: string; time: string; title: string }> = []
+    const seen = new Set<string>()
+    for (const recurringSlot of recurringSlots) {
+      const time = normalizeClockTime(recurringSlot.time)
+      if (!time) continue
+      for (const specialSlot of externalSpecialEventSlots) {
+        if (specialSlot.time !== time) continue
+        const eventWeekday = toCourseScheduleWeekday(specialSlot.date)
+        if (eventWeekday !== recurringSlot.weekday) continue
+        const key = `${specialSlot.date}|${time}|${specialSlot.slug}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        entries.push({ date: specialSlot.date, time, title: specialSlot.title })
+      }
+    }
+    return entries.sort((a, b) => `${a.date}|${a.time}`.localeCompare(`${b.date}|${b.time}`))
+  }, [courseScheduleSlots, externalSpecialEventSlots, isSpecialEventCourse])
+
+  const regularScheduleWarningMessage = React.useMemo(() => {
+    if (regularSlotsBlockedByEvents.length === 0) return null
+    const first = regularSlotsBlockedByEvents[0]
+    const next = regularSlotsBlockedByEvents.length > 1 ? ` +${regularSlotsBlockedByEvents.length - 1} more` : ""
+    return `Warning: there are special events that conflict with this time slot (${first.date} · ${formatClockLabel(first.time)} · ${first.title}${next}). That day skips the regular class and continues on the next available day.`
+  }, [regularSlotsBlockedByEvents])
+
+  const getSpecialEventConflictReason = React.useCallback(
+    (isoDate: string, rawTime: string) => {
+      const time = normalizeClockTime(rawTime)
+      if (!time || !ISO_DATE_REGEX.test(isoDate)) return undefined
+      const existingDateSlot = externalSpecialEventSlotMap.get(`${isoDate}|${time}`)
+      if (existingDateSlot && existingDateSlot.length > 0) {
+        return `Blocked: ${existingDateSlot[0].title} already uses ${formatClockLabel(time)} that day.`
+      }
+      const weekday = toCourseScheduleWeekday(isoDate)
+      if (weekday !== null) {
+        const recurring = externalRecurringSlotsMap.get(`${weekday}|${time}`)
+        if (recurring && recurring.length > 0) {
+          return `Blocked: ${recurring[0].title} has a regular class at ${formatClockLabel(time)}.`
+        }
+      }
+      return undefined
+    },
+    [externalRecurringSlotsMap, externalSpecialEventSlotMap]
+  )
+
   const addCourseScheduleSlot = React.useCallback(() => {
     const time = normalizeClockTime(courseScheduleTime)
     if (!time) return
@@ -4640,116 +4750,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
     return counter
   }, [schoolCourses])
-
-  const externalRecurringSlotsMap = React.useMemo(() => {
-    const map = new Map<string, { title: string; slug: string }[]>()
-    const currentSlug = courseForm.slug.trim()
-    for (const course of schoolCourses) {
-      if (currentSlug && course.slug === currentSlug) continue
-      const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
-      const fallbackRules =
-        !parsedRules && course.availableWeekdays.length > 0 && course.availableTimes.length > 0
-          ? course.availableWeekdays.map((weekday) => ({
-              weekday,
-              times: course.availableTimes,
-            }))
-          : []
-      const rules = parsedRules?.rules || fallbackRules
-      for (const rule of rules) {
-        for (const rawTime of rule.times) {
-          const time = normalizeClockTime(rawTime)
-          if (!time) continue
-          const key = `${rule.weekday}|${time}`
-          const current = map.get(key) || []
-          current.push({ title: course.title, slug: course.slug })
-          map.set(key, current)
-        }
-      }
-    }
-    return map
-  }, [courseForm.slug, schoolCourses])
-
-  const externalSpecialEventSlots = React.useMemo(() => {
-    const items: Array<{ date: string; time: string; title: string; slug: string }> = []
-    const currentSlug = courseForm.slug.trim()
-    for (const course of schoolCourses) {
-      if (currentSlug && course.slug === currentSlug) continue
-      const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
-      if (!parsedRules || parsedRules.specialEvents.length === 0) continue
-      for (const event of parsedRules.specialEvents) {
-        for (const rawTime of event.times) {
-          const time = normalizeClockTime(rawTime)
-          if (!time) continue
-          if (!ISO_DATE_REGEX.test(event.date)) continue
-          items.push({ date: event.date, time, title: course.title, slug: course.slug })
-        }
-      }
-    }
-    return items
-  }, [courseForm.slug, schoolCourses])
-
-  const externalSpecialEventSlotMap = React.useMemo(() => {
-    const map = new Map<string, { title: string; slug: string }[]>()
-    for (const item of externalSpecialEventSlots) {
-      const key = `${item.date}|${item.time}`
-      const current = map.get(key) || []
-      current.push({ title: item.title, slug: item.slug })
-      map.set(key, current)
-    }
-    return map
-  }, [externalSpecialEventSlots])
-
-  const regularSlotsBlockedByEvents = React.useMemo(() => {
-    if (isSpecialEventCourse) return [] as Array<{ date: string; time: string; title: string }>
-    const recurringSlots = courseScheduleSlots.filter(
-      (slot): slot is CourseScheduleSlot & { weekday: number } =>
-        typeof slot.weekday === "number" && slot.weekday >= 0 && slot.weekday <= 6
-    )
-    if (recurringSlots.length === 0) return [] as Array<{ date: string; time: string; title: string }>
-    const entries: Array<{ date: string; time: string; title: string }> = []
-    const seen = new Set<string>()
-    for (const recurringSlot of recurringSlots) {
-      const time = normalizeClockTime(recurringSlot.time)
-      if (!time) continue
-      for (const specialSlot of externalSpecialEventSlots) {
-        if (specialSlot.time !== time) continue
-        const eventWeekday = toCourseScheduleWeekday(specialSlot.date)
-        if (eventWeekday !== recurringSlot.weekday) continue
-        const key = `${specialSlot.date}|${time}|${specialSlot.slug}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        entries.push({ date: specialSlot.date, time, title: specialSlot.title })
-      }
-    }
-    return entries.sort((a, b) => `${a.date}|${a.time}`.localeCompare(`${b.date}|${b.time}`))
-  }, [courseScheduleSlots, externalSpecialEventSlots, isSpecialEventCourse])
-
-  const regularScheduleWarningMessage = React.useMemo(() => {
-    if (regularSlotsBlockedByEvents.length === 0) return null
-    const first = regularSlotsBlockedByEvents[0]
-    const next = regularSlotsBlockedByEvents.length > 1 ? ` +${regularSlotsBlockedByEvents.length - 1} more` : ""
-    return `Warning: there are special events that conflict with this time slot (${first.date} · ${formatClockLabel(first.time)} · ${first.title}${next}). That day skips the regular class and continues on the next available day.`
-  }, [regularSlotsBlockedByEvents])
-
-  const getSpecialEventConflictReason = React.useCallback(
-    (isoDate: string, rawTime: string) => {
-      const time = normalizeClockTime(rawTime)
-      if (!time || !ISO_DATE_REGEX.test(isoDate)) return undefined
-      const existingDateSlot = externalSpecialEventSlotMap.get(`${isoDate}|${time}`)
-      if (existingDateSlot && existingDateSlot.length > 0) {
-        return `Blocked: ${existingDateSlot[0].title} already uses ${formatClockLabel(time)} that day.`
-      }
-      const weekday = toCourseScheduleWeekday(isoDate)
-      if (weekday !== null) {
-        const recurring = externalRecurringSlotsMap.get(`${weekday}|${time}`)
-        if (recurring && recurring.length > 0) {
-          return `Blocked: ${recurring[0].title} has a regular class at ${formatClockLabel(time)}.`
-        }
-      }
-      return undefined
-    },
-    [externalRecurringSlotsMap, externalSpecialEventSlotMap]
-  )
 
   const scheduleTimeOptions = React.useMemo(() => {
     const options: string[] = []
