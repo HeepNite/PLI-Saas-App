@@ -28,7 +28,6 @@ import {
   Sparkles,
   Star,
   Trash2,
-  User,
   Users,
   X,
 } from "lucide-react"
@@ -40,13 +39,11 @@ import {
   buildHistoryStudentCard,
   buildHistoryStudentCards,
   buildHistoryStudentPaidEntries,
-  isHistoryAttendanceMatch,
   resolveCardContext,
   resolveHistoryStudentCardAmountPaidCents,
   resolveCardVariant,
   type StudentProfileCard,
   type CardContext,
-  type CardVariantConfig,
 } from "@/components/front/staff/historyCardAggregates"
 import { useStudentGlobalSearch } from "@/components/front/staff/useStudentGlobalSearch"
 import { formatReadableDate, parseIsoDate } from "@/lib/class-schedule"
@@ -1565,13 +1562,6 @@ export const resolveHistoryRangeState = (start: string, end?: string | null) => 
   historyTo: end ?? "",
 })
 
-const paymentMethodLabel = (row: PaymentRow) => {
-  if (row.paymentChannel === "cash") return "Cash"
-  if (row.paymentChannel === "card") return row.purchaseCategory === "package" ? "Card / package" : "Card"
-  if (row.purchaseCategory === "package") return "Package"
-  return "Unknown"
-}
-
 export const isPaymentPaidForUi = (
   row: {
     classPaid: PaymentRow["classPaid"]
@@ -1686,13 +1676,6 @@ const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
   if (status === "provisional") return "Provisional PIN"
   if (status === "enrolled") return "PIN enrolled"
   return "No PIN"
-}
-
-const formatProfileLatestClassAttended = (student: StudentProfileCard) => {
-  if (!student.latestClassAttended) return "No attended classes"
-  const dateOnly = student.latestClassAttended.startsAt.split("T")[0]
-  const formattedDate = dateOnly ? formatReadableDate(dateOnly) : formatIsoDate(student.latestClassAttended.startsAt)
-  return formattedDate
 }
 
 type ProfileBadge = {
@@ -2142,11 +2125,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [scheduleEventsByDay, setScheduleEventsByDay] = React.useState<Record<string, ScheduleEvent[]>>({})
 
   const [payments, setPayments] = React.useState<PaymentRow[]>([])
-  const [paymentsSummaryApi, setPaymentsSummaryApi] = React.useState<PaymentsApiSummary>(() => createEmptyPaymentsSummary())
   const [paymentsMonthlySummaryApi, setPaymentsMonthlySummaryApi] = React.useState<PaymentsApiSummary>(() => createEmptyPaymentsSummary())
   const [paymentsMonthlyStudentCount, setPaymentsMonthlyStudentCount] = React.useState(0)
   const [paymentsMonthlyCheckedInStudents, setPaymentsMonthlyCheckedInStudents] = React.useState(0)
-  const [paymentsMonthlyPurchaseSummary, setPaymentsMonthlyPurchaseSummary] = React.useState({ packages: 0, dropIn: 0 })
   const [paymentsLoading, setPaymentsLoading] = React.useState(false)
   const [paymentsFilter, setPaymentsFilter] = React.useState<"all" | "pending" | "paid">("all")
   const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("all")
@@ -4315,7 +4296,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       .map((payment) => payment.id)
   }
 
-  const handleCheckOut = async (payment: PaymentRow) => {
+  const _handleCheckOut = async (payment: PaymentRow) => {
     if (!payment.attendanceId) {
       setError("No active attendance found for this student.")
       return
@@ -4822,7 +4803,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     [externalRecurringSlotsMap, externalSpecialEventSlotMap]
   )
 
-  const getSpecialEventDateDisabledReason = React.useCallback(
+  const _getSpecialEventDateDisabledReason = React.useCallback(
     (isoDate: string) => {
       if (!isSpecialEventCourse) return undefined
       return getSpecialEventConflictReason(isoDate, courseScheduleTime)
@@ -5480,7 +5461,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     [cardContext]
   )
 
-  const cardCashPaymentIds = React.useMemo(() => {
+  const _cardCashPaymentIds = React.useMemo(() => {
     if (paymentCategoryFilter !== "cash") return []
     // In global-search mode, use settlement IDs from profile cards
     if (cardContext === "global-search" && searchResultCards !== null) {
@@ -10344,11 +10325,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     : "Enrolled PIN"
                   : null
                 const studentPinTone = resolveStudentPinTone(payment.studentPin)
-                const checkInHistory = student.allPayments.filter((entry) => entry.checkInStatus !== "none").slice(0, 12)
+                const _checkInHistory = student.allPayments.filter((entry) => entry.checkInStatus !== "none").slice(0, 12)
                 const pointsHistoryEntries = payment.pointsHistory.slice(0, 10)
-                const canCheckOut = cardVariant.showCheckout && Boolean(payment.attendanceId && isCheckedInStatus(payment.checkInStatus))
-                const checkoutMenuOpen = checkoutMenuPaymentId === payment.id
-                const checkoutBusy = payment.attendanceId ? checkoutBusyAttendanceId === payment.attendanceId : false
+                const _canCheckOut = cardVariant.showCheckout && Boolean(payment.attendanceId && isCheckedInStatus(payment.checkInStatus))
+                const _checkoutMenuOpen = checkoutMenuPaymentId === payment.id
+                const _checkoutBusy = payment.attendanceId ? checkoutBusyAttendanceId === payment.attendanceId : false
 
                 return (
                   <article

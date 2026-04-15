@@ -7,12 +7,6 @@ import { UNAVAILABILITY_TYPES, UNAVAILABILITY_STATUSES } from "@/lib/payroll/typ
 
 export const runtime = "nodejs"
 
-interface RunPaydayRequest {
-  periodStart: string
-  periodEnd: string
-  dryRun?: boolean
-}
-
 interface SkippedStaff {
   staffId: string
   reason: string

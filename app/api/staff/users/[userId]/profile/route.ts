@@ -232,14 +232,6 @@ type StaffPaymentRecord = {
   paymentInfo: unknown
 }
 
-const staffAccountDelegate = prisma.staffAccount as unknown as {
-  findUnique(args: { where: { clerkUserId: string }; select: { paymentPreference: true; paymentInfo: true } }): Promise<StaffPaymentRecord | null>
-  update(args: {
-    where: { clerkUserId: string }
-    data: { paymentPreference?: string | null; paymentInfo?: StaffPaymentInfo | null }
-    select: { paymentPreference: true; paymentInfo: true }
-  }): Promise<StaffPaymentRecord>
-}
 
 const parseRole = (value: unknown): StaffRole | null => {
   if (typeof value !== "string") return null

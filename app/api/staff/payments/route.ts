@@ -4,9 +4,8 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone, getDateKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import {
-  COMPLETED_PAYMENT_STATUSES,
   asObject,
   asText,
   attendanceSlotKey,
@@ -15,7 +14,6 @@ import {
   normalizePaymentChannel,
   normalizeSettlementStatus,
   selectActivePackagesByUser,
-  type SettlementStatus,
 } from "@/app/api/staff/payments/shared"
 import {
   isLockedCredential,

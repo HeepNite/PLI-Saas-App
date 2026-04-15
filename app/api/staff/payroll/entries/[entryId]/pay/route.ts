@@ -5,7 +5,6 @@ import { PAYROLL_ENTRY_STATUSES } from "@/lib/payroll/types"
 import { ADAPTER_TYPES, type AdapterType } from "@/lib/payroll/types"
 import { getAdapter } from "@/lib/payroll/adapters/registry"
 import { jsonError, readJsonBody, resolveSchoolIdForClerkUser, asOptionalString } from "@/lib/payroll/route-helpers"
-import { writePayrollAudit } from "@/lib/payroll/audit"
 import type { PayrollEntrySnapshot, PayrollEntryStatus } from "@/lib/payroll/types"
 
 export const runtime = "nodejs"

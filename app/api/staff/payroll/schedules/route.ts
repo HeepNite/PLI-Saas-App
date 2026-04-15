@@ -129,7 +129,7 @@ export async function POST(req: Request) {
   }
 }
 
-export async function GET(req: Request) {
+export async function GET(_req: Request) {
   // Allow both owner and staff portal access
   const authResult = await authorizeOwnerRequest()
   let staffAuthResult = null

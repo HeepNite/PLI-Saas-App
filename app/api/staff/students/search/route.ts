@@ -7,7 +7,7 @@ import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { isProvisionalStudentPinActive, isStudentPinLifecycleEnabled } from "@/lib/security/student-pin"
 import type { ActivePackage, ProfileLatestClassAttended, StudentProfileCard } from "@/components/front/staff/historyCardAggregates"
-import { resolveStudentIdentity, type ClerkUserData, type IdentityInput } from "@/app/api/staff/students/search/shared"
+import { resolveStudentIdentity, type ClerkUserData } from "@/app/api/staff/students/search/shared"
 import {
   asObject,
   asText,
@@ -594,15 +594,6 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
     const latestOpenPurchase = latestOpenPurchaseByUser.get(user.id)
     const outstandingBalance = outstandingBalanceByUser.get(user.id)
     const provisionalPinExpiresAt = provisionalPinByUser.get(user.id)
-    const latestPurchaseMetadata = asObject(latestPurchase?.metadata)
-    const latestPurchasePaymentChannel = latestPurchase
-      ? normalizePaymentChannel({
-          metadata: latestPurchase.metadata,
-          status: latestPurchase.status,
-          stripePaymentIntentId: latestPurchase.stripePaymentIntentId,
-          stripeCheckoutSessionId: latestPurchase.stripeCheckoutSessionId,
-        })
-      : "unknown"
     const pinStatus = provisionalPinExpiresAt
       ? "provisional"
       : permanentPinByUser.has(user.id)

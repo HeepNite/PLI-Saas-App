@@ -16,7 +16,6 @@ import {
   applyStaffSubCategoryToMetadata,
   STAFF_CATEGORIES,
   type StaffCategory,
-  type StaffSubCategory,
 } from "@/lib/security/staff-category"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import {
