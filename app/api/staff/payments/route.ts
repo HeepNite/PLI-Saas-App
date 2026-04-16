@@ -4,7 +4,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone, getStartOfDayNY } from "@/lib/class-schedule"
 import {
   asObject,
   asText,
@@ -196,14 +196,10 @@ export async function GET(req: Request) {
     : undefined
 
   const todayNY = getTodayNewYork()
-  // Create date range in UTC that corresponds to NY timezone day boundaries
-  // todayNY is in format YYYY-MM-DD in NY timezone
-  // Convert to UTC: NY is UTC-4 (EDT) or UTC-5 (EST)
-  // So 00:00 NY = 04:00 or 05:00 UTC, and 23:59:59 NY = 03:59:59 or 04:59:59 UTC next day
-  const startOfTodayNY = new Date(`${todayNY}T04:00:00Z`) // conservative: assume EDT (UTC-4)
-  const endOfTodayNY = new Date(`${todayNY}T04:00:00Z`)
-  endOfTodayNY.setDate(endOfTodayNY.getDate() + 1)
-  endOfTodayNY.setMilliseconds(-1)
+  // Compute today's NY day boundaries as UTC Date objects.
+  // Dynamically handles EDT (UTC-4) and EST (UTC-5).
+  const startOfTodayNY = getStartOfDayNY(todayNY)
+  const endOfTodayNY = new Date(startOfTodayNY.getTime() + 24 * 60 * 60 * 1000 - 1)
 
   const purchases = await prisma.purchase.findMany({
     where:
@@ -316,7 +312,11 @@ export async function GET(req: Request) {
 
     const purchaseDedupKeys = new Set(
       enrichedPurchases
-        .filter((item) => item.classDate === todayNY)
+        .filter(
+          (item) =>
+            item.classDate === todayNY ||
+            (item.purchase.createdAt >= startOfTodayNY && item.purchase.createdAt <= endOfTodayNY)
+        )
         .map((item) =>
           buildPurchaseAttendanceDedupKey({
             purchaseId: item.purchase.id,
@@ -412,7 +412,14 @@ export async function GET(req: Request) {
   const scopedPurchases =
     mode === "history"
       ? historyDatePurchases.filter((item) => !selectedClass || item.purchase.courseSlug === selectedClass)
-      : [...enrichedPurchases.filter((item) => item.classDate === todayNY), ...standaloneItems].sort((a, b) => {
+      : [
+          ...enrichedPurchases.filter(
+            (item) =>
+              item.classDate === todayNY ||
+              (item.purchase.createdAt >= startOfTodayNY && item.purchase.createdAt <= endOfTodayNY)
+          ),
+          ...standaloneItems,
+        ].sort((a, b) => {
           const aTime = a.classStartsAt?.getTime() || a.purchase.createdAt.getTime()
           const bTime = b.classStartsAt?.getTime() || b.purchase.createdAt.getTime()
           return bTime - aTime

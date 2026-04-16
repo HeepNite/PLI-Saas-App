@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
@@ -82,6 +83,7 @@ export async function POST(req: Request) {
       id: true,
       userId: true,
       courseSlug: true,
+      courseTitle: true,
       packageId: true,
       status: true,
       createdAt: true,
@@ -124,6 +126,74 @@ export async function POST(req: Request) {
     for (const purchase of purchases) {
       if (!purchase.userId || !isCashPurchase(purchase)) continue
       const metadata = asObject(purchase.metadata)
+
+      // Create Attendance record for cash drop-in when marked as paid
+      if (action === "mark_paid") {
+        const existingAttendanceId = asText(metadata.attendanceId)
+        if (!existingAttendanceId) {
+          const classDate = asText(metadata.date)
+          const classTime = asText(metadata.time)
+          const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
+
+          if (classDate && classTime && courseSlug) {
+            const startsAt = buildSessionStartsAt(classDate, classTime)
+            if (startsAt) {
+              try {
+                const now = new Date()
+                const session = await prisma.classSession.upsert({
+                  where: {
+                    courseSlug_startsAt: { courseSlug, startsAt },
+                  },
+                  update: {},
+                  create: {
+                    courseSlug,
+                    title: purchase.courseTitle || courseSlug,
+                    startsAt,
+                  },
+                })
+
+                const attendance = await prisma.attendance.upsert({
+                  where: {
+                    userId_sessionId: { userId: purchase.userId, sessionId: session.id },
+                  },
+                  update: {},
+                  create: {
+                    userId: purchase.userId,
+                    sessionId: session.id,
+                    status: "checked_in_no_package",
+                    checkedInAt: now,
+                    metadata: {
+                      source: "cash_settlement",
+                      date: classDate,
+                      time: classTime,
+                    },
+                  },
+                })
+
+                // Link attendance ID to purchase metadata
+                await prisma.purchase.update({
+                  where: { id: purchase.id },
+                  data: {
+                    metadata: {
+                      ...metadata,
+                      settlementStatus,
+                      settledAt,
+                      settlementUpdatedBy: authResult.userId,
+                      attendanceId: attendance.id,
+                    },
+                  },
+                })
+              } catch (error) {
+                console.warn("Unable to create attendance for cash settlement", {
+                  purchaseId: purchase.id,
+                  error: error instanceof Error ? error.message : String(error),
+                })
+              }
+            }
+          }
+        }
+      }
+
       const packageId = purchase.packageId || asText(metadata.packageId)
       if (!packageId) continue
       try {

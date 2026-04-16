@@ -205,6 +205,26 @@ export const doUtcIntervalsOverlap = (
   return leftStartMs < rightEndMs && leftEndMs > rightStartMs
 }
 
+/**
+ * Compute the start of a given day in America/New_York as a UTC Date.
+ * Dynamically handles EDT (UTC-4) and EST (UTC-5).
+ */
+export function getStartOfDayNY(dateStr: string): Date {
+  // Use noon UTC as reference point (safe from DST transition edges)
+  const ref = new Date(`${dateStr}T12:00:00Z`)
+  // Determine what hour it is in NY when it's noon UTC
+  const nyHourStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    hour12: false,
+  }).format(ref)
+  const nyHour = parseInt(nyHourStr, 10)
+  // At noon UTC (12:00), NY shows 8 (EDT=UTC-4) or 7 (EST=UTC-5)
+  const offsetHours = 12 - nyHour
+  // Midnight NY = offsetHours:00:00 UTC on that date
+  return new Date(`${dateStr}T${String(offsetHours).padStart(2, "0")}:00:00Z`)
+}
+
 export const findOverlappingRoomSession = <Session extends RoomOverlapSessionLike>(
   sessions: Session[],
   options: {

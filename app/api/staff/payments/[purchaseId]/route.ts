@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
@@ -97,6 +98,76 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
     where: { id: purchaseId },
     data,
   })
+
+  // Create Attendance record for cash drop-in when marked as paid
+  if (action === "mark_paid" && purchase.userId && isCashPurchase(purchase)) {
+    const existingAttendanceId = asText(metadata.attendanceId)
+    if (!existingAttendanceId) {
+      const classDate = asText(metadata.date)
+      const classTime = asText(metadata.time)
+      const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
+
+      if (classDate && classTime && courseSlug) {
+        const startsAt = buildSessionStartsAt(classDate, classTime)
+        if (startsAt) {
+          try {
+            const now = new Date()
+            const session = await prisma.classSession.upsert({
+              where: {
+                courseSlug_startsAt: {
+                  courseSlug,
+                  startsAt,
+                },
+              },
+              update: {},
+              create: {
+                courseSlug,
+                title: purchase.courseTitle || courseSlug,
+                startsAt,
+              },
+            })
+
+            const attendance = await prisma.attendance.upsert({
+              where: {
+                userId_sessionId: {
+                  userId: purchase.userId,
+                  sessionId: session.id,
+                },
+              },
+              update: {},
+              create: {
+                userId: purchase.userId,
+                sessionId: session.id,
+                status: "checked_in_no_package",
+                checkedInAt: now,
+                metadata: {
+                  source: "cash_settlement",
+                  date: classDate,
+                  time: classTime,
+                },
+              },
+            })
+
+            // Link attendance ID to purchase metadata
+            await prisma.purchase.update({
+              where: { id: purchaseId },
+              data: {
+                metadata: {
+                  ...asObject(updated.metadata),
+                  attendanceId: attendance.id,
+                },
+              },
+            })
+          } catch (error) {
+            console.warn("Unable to create attendance for cash settlement", {
+              purchaseId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+      }
+    }
+  }
 
   let packageSynced = false
   if (action === "mark_paid" && purchase.userId && isCashPurchase(purchase)) {
