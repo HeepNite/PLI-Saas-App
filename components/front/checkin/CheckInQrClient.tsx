@@ -43,6 +43,8 @@ export default function CheckInQrClient({
   forcedCourseSlug = "",
   hideQrPanel = false,
   shellVariant = "qr",
+  terminalName,
+  terminalLocation,
   qrPathOverride,
 }: CheckInQrClientProps) {
   const { courses: catalogCourses } = useCatalogCourses()
@@ -695,17 +697,21 @@ export default function CheckInQrClient({
   }, [error, showKioskPinPanel, success])
 
   // ─── Render ─────────────────────────────────────────────────
+  const isTerminal = shellVariant === "terminal"
+
   return (
     <main className={`relative min-h-screen overflow-hidden bg-[#13141d] px-3 ${mainSpacingClass} sm:px-4`}>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_55%_at_50%_0%,rgba(182,22,22,0.2),transparent_70%)]" />
       <div className="relative mx-auto w-full max-w-[68rem]">
-        <section className="flex min-h-[60rem] flex-col rounded-2xl border border-white/15 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.26),transparent_55%),linear-gradient(145deg,rgba(15,19,35,0.97),rgba(20,25,45,0.97))] p-4 shadow-[0_16px_48px_-18px_rgba(0,0,0,0.6)] backdrop-blur sm:p-6">
+        <section className={`flex flex-col ${isTerminal ? "" : "min-h-[60rem] rounded-2xl border border-white/15 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.26),transparent_55%),linear-gradient(145deg,rgba(15,19,35,0.97),rgba(20,25,45,0.97))] p-4 shadow-[0_16px_48px_-18px_rgba(0,0,0,0.6)] backdrop-blur sm:p-6"}`}>
           <CheckInHeader
             variant={shellVariant === "terminal" ? "terminal" : "personal"}
             eyebrow={shellEyebrow}
             welcomeLabel={welcomeLabel}
             showWelcome={showSignedInBootstrapPanel && Boolean(bootstrap)}
             breadcrumbItems={breadcrumbItems}
+            terminalName={terminalName}
+            terminalLocation={terminalLocation}
           />
 
           <div className="mt-6 flex flex-1 flex-col justify-center">
@@ -722,6 +728,7 @@ export default function CheckInQrClient({
                 displayDate={checkInDisplayDate}
                 displayTime={checkInDisplayTime}
                 qrImage={checkInQrImage}
+                compact={isTerminal}
               />
             )}
             {showCourseCardPanel && !showQrPanel && (
@@ -736,6 +743,7 @@ export default function CheckInQrClient({
                 teacher={checkInCardTeacher}
                 displayDate={checkInDisplayDate}
                 displayTime={checkInDisplayTime}
+                compact={isTerminal}
               />
             )}
             {showQrPanel && <QrPromptText variant={shellVariant === "terminal" ? "terminal" : "personal"} />}

@@ -116,7 +116,8 @@ const openPreparedCheckoutFlow = async (page: import("@playwright/test").Page) =
   })
 
   await page.goto(TERMINAL_URL, { waitUntil: "domcontentloaded" })
-  await expect(page.getByText(/Active terminal/i)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/Student check-in/i)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/E2E Terminal/)).toBeVisible({ timeout: 5_000 })
 
   await page.getByRole("button", { name: /I am already a customer/i }).first().click({ force: true })
 

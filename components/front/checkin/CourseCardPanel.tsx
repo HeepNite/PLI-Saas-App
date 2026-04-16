@@ -1,4 +1,42 @@
 import Image from "next/image"
+import { cn } from "@/lib/utils"
+
+/**
+ * Design tokens for kiosk terminal layout
+ * These values are extracted here for maintainability and consistency
+ */
+const KIOSK_TOKENS = {
+  // Grid ratio: 60% course content / 40% QR
+  gridColumns: "3fr auto 2fr",
+  
+  // Divider styling - subtle gray separator
+  divider: {
+    height: "20rem",                           // 320px - visual height of separator
+    offsetTop: "3rem",                         // 48px - distance from top
+    offsetLeft: "0.6rem",                      // ~10px - horizontal positioning
+    width: "0.15rem",                          // ~2.4px - line thickness
+    color: "rgba(255, 255, 255, 0.15)",        // Subtle gray/white at 15% opacity
+  },
+  
+  // Spacing
+  gap: "0.75rem",         // gap-3
+  padding: "1.5rem",      // p-6
+} as const
+
+interface CourseCardPanelProps {
+  cardImage: string
+  courseTitle: string
+  category: string
+  badge: string
+  duration: string
+  students: string
+  description: string
+  teacher: string
+  displayDate: string
+  displayTime: string
+  qrImage?: string
+  compact?: boolean
+}
 
 export function CourseCardPanel({
   cardImage,
@@ -12,56 +50,50 @@ export function CourseCardPanel({
   displayDate,
   displayTime,
   qrImage,
-}: {
-  cardImage: string
-  courseTitle: string
-  category: string
-  badge: string
-  duration: string
-  students: string
-  description: string
-  teacher: string
-  displayDate: string
-  displayTime: string
-  qrImage?: string
-}) {
+  compact = false,
+}: CourseCardPanelProps) {
   const hasQr = Boolean(qrImage)
 
   if (hasQr) {
     return (
-      <div className="mt-6 rounded-2xl border border-white/15 bg-white/[0.02] px-4 py-5 sm:px-6">
-        <div className="grid items-stretch gap-5 md:grid-cols-[minmax(0,1fr)_1px_16rem] md:gap-5 lg:grid-cols-[minmax(0,1fr)_1px_18rem] lg:gap-6">
-          <CourseCardContent
-            cardImage={cardImage}
-            courseTitle={courseTitle}
-            category={category}
-            badge={badge}
-            duration={duration}
-            students={students}
-            description={description}
-            teacher={teacher}
-            displayDate={displayDate}
-            displayTime={displayTime}
-            variant="split"
-          />
-          <div className="hidden h-full w-px bg-white/15 md:block" aria-hidden />
-          <div className="flex h-full flex-col items-center justify-center text-center md:pt-2 lg:pt-6">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/60">QR Code</p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={qrImage}
-              alt="Check-in QR"
-              className="mt-4 h-48 w-48 rounded-2xl border border-white/15 bg-white object-contain lg:h-56 lg:w-56"
+      <div 
+        className={cn(
+          "mt-6 rounded-2xl border border-white/15 bg-white/[0.02]",
+          compact 
+            ? "mx-[2.5rem] my-[1rem] p-6" 
+            : "px-4 py-5 sm:px-6"
+        )}
+      >
+        <SplitLayout compact={compact}>
+          {/* Course Content Column (60%) */}
+          <div className={cn("h-full", compact && "pr-4")}>
+            <CourseCardContent
+              cardImage={cardImage}
+              courseTitle={courseTitle}
+              category={category}
+              badge={badge}
+              duration={duration}
+              students={students}
+              description={description}
+              teacher={teacher}
+              displayDate={displayDate}
+              displayTime={displayTime}
+              variant="split"
+              compact={compact}
             />
-            <p className="mt-4 max-w-[17rem] text-base font-medium leading-relaxed text-white/82">
-              scan this code to continue the check-in process
-            </p>
           </div>
-        </div>
+          
+          {/* Visual Divider */}
+          <Divider compact={compact} />
+          
+          {/* QR Code Column (40%) */}
+          <QrSection qrImage={qrImage} compact={compact} />
+        </SplitLayout>
       </div>
     )
   }
 
+  // Fallback: compact course card without QR
   return (
     <div className="mt-6">
       <CourseCardContent
@@ -76,7 +108,109 @@ export function CourseCardPanel({
         displayDate={displayDate}
         displayTime={displayTime}
         variant="compact"
+        compact={compact}
       />
+    </div>
+  )
+}
+
+/**
+ * Split layout container with configurable grid
+ */
+function SplitLayout({ 
+  children, 
+  compact 
+}: { 
+  children: React.ReactNode
+  compact: boolean 
+}) {
+  if (compact) {
+    return (
+      <div 
+        className="grid items-stretch"
+        style={{
+          gridTemplateColumns: KIOSK_TOKENS.gridColumns,
+          gap: KIOSK_TOKENS.gap,
+        }}
+      >
+        {children}
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid items-stretch gap-5 md:grid-cols-[minmax(0,1fr)_1px_16rem] md:gap-5 lg:grid-cols-[minmax(0,1fr)_1px_18rem] lg:gap-6">
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Visual divider with kiosk-specific accent styling
+ */
+function Divider({ compact }: { compact: boolean }) {
+  // Standard divider for non-kiosk mode
+  if (!compact) {
+    return (
+      <div 
+        className="hidden h-full w-px bg-white/15 md:block" 
+        aria-hidden="true"
+      />
+    )
+  }
+
+  // Kiosk terminal accent divider
+  return (
+    <div
+      className="hidden md:block"
+      aria-hidden="true"
+      style={{
+        height: KIOSK_TOKENS.divider.height,
+        width: KIOSK_TOKENS.divider.width,
+        marginTop: KIOSK_TOKENS.divider.offsetTop,
+        marginLeft: KIOSK_TOKENS.divider.offsetLeft,
+        backgroundColor: KIOSK_TOKENS.divider.color,
+      }}
+    />
+  )
+}
+
+/**
+ * QR Code section with scan instructions
+ */
+function QrSection({ 
+  qrImage, 
+  compact 
+}: { 
+  qrImage: string | undefined
+  compact: boolean 
+}) {
+  if (!qrImage) return null
+  return (
+    <div className={cn(
+      "flex h-full flex-col items-center justify-center text-center",
+      compact ? "md:pt-1 lg:pt-2" : "md:pt-2 lg:pt-6"
+    )}>
+      <p className="text-xs uppercase tracking-[0.2em] text-white/60">
+        QR Code
+      </p>
+      
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={qrImage}
+        alt="Check-in QR code"
+        className={cn(
+          "mt-4 rounded-2xl border border-white/15 bg-white object-contain",
+          compact ? "h-56 w-56" : "h-48 w-48 lg:h-56 lg:w-56"
+        )}
+      />
+      
+      <p className={cn(
+        "mt-4 max-w-[17rem] font-medium leading-relaxed text-white/82",
+        compact ? "text-xs" : "text-base"
+      )}>
+        scan this code to continue the check-in process
+      </p>
     </div>
   )
 }
@@ -93,6 +227,7 @@ function CourseCardContent({
   displayDate,
   displayTime,
   variant,
+  compact = false,
 }: {
   cardImage: string
   courseTitle: string
@@ -105,15 +240,16 @@ function CourseCardContent({
   displayDate: string
   displayTime: string
   variant: "split" | "compact"
+  compact?: boolean
 }) {
   const isSplit = variant === "split"
 
   return (
     <article className={`flex h-full flex-col ${isSplit ? "" : "overflow-hidden rounded-2xl border border-white/15 bg-[linear-gradient(150deg,rgba(3,5,12,0.96),rgba(10,14,28,0.96))]"}`}>
-      {isSplit && <p className="text-xs uppercase tracking-[0.2em] text-white/60">Home card preview</p>}
+      {isSplit && <p className="text-xs uppercase tracking-[0.2em] text-white/60">Current Course</p>}
       <div className={`${isSplit ? "mt-2 flex-1 overflow-hidden rounded-2xl border border-white/15 bg-[linear-gradient(150deg,rgba(3,5,12,0.96),rgba(10,14,28,0.96))]" : ""}`}>
         <div className={`grid h-full ${isSplit ? "grid-cols-1 xl:grid-cols-[0.9fr_1.1fr]" : "grid-cols-[0.92fr_1.08fr] sm:grid-cols-[0.9fr_1.1fr]"}`}>
-          <div className={`relative ${isSplit ? "min-h-[220px] xl:h-full xl:min-h-0" : "min-h-[18rem]"}`}>
+          <div className={`relative ${isSplit ? (compact ? "min-h-[160px] xl:h-full xl:min-h-0" : "min-h-[220px] xl:h-full xl:min-h-0") : "min-h-[18rem]"}`}>
             <Image
               src={cardImage}
               alt={courseTitle}

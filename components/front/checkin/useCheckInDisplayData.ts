@@ -356,7 +356,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   // ─── Misc labels ────────────────────────────────────────────
   const welcomeLabel = bootstrap?.customer.firstName || bootstrap?.customer.name || "student"
   const shellEyebrow = "QR Check-in"
-  const mainSpacingClass = shellVariant === "terminal" ? "pt-28 pb-6 sm:pt-32 sm:pb-10" : "py-6 sm:py-10"
+  const mainSpacingClass = shellVariant === "terminal" ? "pt-4 pb-4 sm:pt-6 sm:pb-6" : "py-6 sm:py-10"
   const checkInDisplayDate = activeDate
   const checkInDisplayTime = activeTime
   const effectiveCheckInWindowOpen = Boolean(bootstrap?.context.checkInWindow.isOpen)

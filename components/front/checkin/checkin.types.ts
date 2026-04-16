@@ -78,5 +78,6 @@ export type CheckInQrClientProps = {
   hideQrPanel?: boolean
   shellVariant?: "qr" | "terminal"
   terminalName?: string
+  terminalLocation?: string
   qrPathOverride?: string
 }

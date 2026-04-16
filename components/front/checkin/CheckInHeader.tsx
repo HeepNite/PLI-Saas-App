@@ -9,13 +9,19 @@ export function CheckInHeader({
   welcomeLabel,
   showWelcome,
   breadcrumbItems,
+  terminalName,
+  terminalLocation,
 }: {
   variant: "terminal" | "personal"
   eyebrow: string
   welcomeLabel: string
   showWelcome: boolean
   breadcrumbItems: string[]
+  terminalName?: string
+  terminalLocation?: string
 }) {
+  const terminalInfo = [terminalName, terminalLocation].filter(Boolean).join(" · ")
+
   if (variant === "terminal") {
     return (
       <div className="mt-4 grid grid-cols-1 items-center gap-5 md:grid-cols-[1fr_auto_1fr] md:gap-6">
@@ -34,15 +40,20 @@ export function CheckInHeader({
           <p className="mt-1 text-sm text-white/72">{showWelcome ? `Welcome, ${welcomeLabel}` : "Welcome"}</p>
         </div>
         <nav
-          className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-white/55 md:justify-self-end md:justify-end"
+          className="flex flex-col items-center gap-1 text-[11px] md:justify-self-end md:items-end md:text-right"
           aria-label="Breadcrumb"
         >
-          {breadcrumbItems.map((item, index) => (
-            <React.Fragment key={`${item}-${index}`}>
-              {index > 0 && <span className="text-white/35">/</span>}
-              <span className={index === breadcrumbItems.length - 1 ? "text-white/80" : ""}>{item}</span>
-            </React.Fragment>
-          ))}
+          <div className="flex flex-wrap items-center gap-2 text-white/55">
+            {breadcrumbItems.map((item, index) => (
+              <React.Fragment key={`${item}-${index}`}>
+                {index > 0 && <span className="text-white/35">/</span>}
+                <span className={index === breadcrumbItems.length - 1 ? "text-white/80" : ""}>{item}</span>
+              </React.Fragment>
+            ))}
+          </div>
+          {terminalInfo && (
+            <p className="max-w-[200px] truncate text-[10px] text-white/45">{terminalInfo}</p>
+          )}
         </nav>
       </div>
     )
