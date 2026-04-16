@@ -9787,6 +9787,17 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/55 dark:text-white/55" />
               </div>
             </label>
+
+            <button
+              type="button"
+              onClick={() => void refreshPaymentsBoard()}
+              disabled={paymentsLoading}
+              className="inline-flex shrink-0 items-center gap-1 h-9 whitespace-nowrap rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70 dark:hover:border-[var(--brand,#b61616)]/60 dark:hover:text-[var(--brand,#b61616)]"
+              aria-label="Refresh payments board"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${paymentsLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
           </div>
 
           {isHistoryMode ? (

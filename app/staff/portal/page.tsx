@@ -9,11 +9,18 @@ export const metadata: Metadata = {
   description: "Manage staff users, roles, and access",
 }
 
-export default async function StaffUsersAdminPage() {
+export default async function StaffUsersAdminPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const params = (await searchParams) || {}
+  const navParam = Array.isArray(params.nav) ? params.nav[0] : params.nav
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) {
     if (authResult.status === 401) {
-      redirect("/staff/checkin")
+      const redirectUrl = navParam ? `/staff/checkin?nav=${encodeURIComponent(navParam)}` : "/staff/checkin"
+      redirect(redirectUrl)
     }
     redirect("/staff/resolve")
   }

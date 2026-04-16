@@ -17,7 +17,13 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic"
 
-export default async function StaffResolvePage() {
+export default async function StaffResolvePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const params = (await searchParams) || {}
+  const navParam = Array.isArray(params.nav) ? params.nav[0] : params.nav
   const authResult = await auth()
   if (!authResult.userId) {
     redirect("/staff/log-in")
@@ -56,5 +62,6 @@ export default async function StaffResolvePage() {
     redirect("/staff/checkin")
   }
 
-  redirect(`/staff/portal?nav=${encodeURIComponent(defaultSection)}`)
+  const resolvedSection = navParam || defaultSection
+  redirect(`/staff/portal?nav=${encodeURIComponent(resolvedSection)}`)
 }

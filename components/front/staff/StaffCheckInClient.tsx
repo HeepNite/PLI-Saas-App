@@ -136,8 +136,11 @@ export default function StaffCheckInClient({ mode = "checkin" }: StaffCheckInCli
       setPin("")
       if (isCheckinMode) return
 
+      const navParam = searchParams.get("nav")
+      const resolveUrl = navParam ? `/staff/resolve?nav=${encodeURIComponent(navParam)}` : "/staff/resolve"
+
       if (activeUserId && data?.staff?.id === activeUserId) {
-        window.location.assign("/staff/resolve")
+        window.location.assign(resolveUrl)
         return
       }
 
@@ -158,7 +161,7 @@ export default function StaffCheckInClient({ mode = "checkin" }: StaffCheckInCli
           })) as { status?: string; createdSessionId?: string | null }
           if (attempt.status === "complete" && attempt.createdSessionId) {
             await setActive({ session: attempt.createdSessionId })
-            window.location.assign("/staff/resolve")
+            window.location.assign(resolveUrl)
             return
           }
         } catch {
