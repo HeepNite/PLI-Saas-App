@@ -2538,14 +2538,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
   const handleStaffAuthFailure = React.useCallback((status: number) => {
     if (typeof window === "undefined") return false
+    const navParam = typeof window !== "undefined" ? new URL(window.location.href).searchParams.get("nav") : null
+    const navSuffix = navParam ? `?nav=${encodeURIComponent(navParam)}` : ""
     if (status === 401) {
       setError("Staff session expired. Please validate your PIN again.")
-      window.location.href = "/staff/checkin"
+      window.location.href = `/staff/checkin${navSuffix}`
       return true
     }
     if (status === 403) {
       setError("Insufficient staff permissions. Resolving access...")
-      window.location.href = "/staff/resolve"
+      window.location.href = `/staff/resolve${navSuffix}`
       return true
     }
     return false
@@ -9659,12 +9661,24 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             id="students-payments"
             className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5"
           >
-          <header className="mb-4">
-            <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Students</p>
-            <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Student payment board</h3>
-            <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-              Grid view by student with class payment status, check-in and active package.
-            </p>
+          <header className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Students</p>
+              <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Student payment board</h3>
+              <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                Grid view by student with class payment status, check-in and active package.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshPaymentsBoard()}
+              disabled={paymentsLoading}
+              className="mt-2 inline-flex shrink-0 items-center gap-1 h-9 whitespace-nowrap rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70 dark:hover:border-[var(--brand,#b61616)]/60 dark:hover:text-[var(--brand,#b61616)]"
+              aria-label="Refresh payments board"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${paymentsLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
           </header>
 
           <div className="mt-1 flex flex-nowrap gap-2 overflow-x-auto pb-1">
@@ -9787,17 +9801,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/55 dark:text-white/55" />
               </div>
             </label>
-
-            <button
-              type="button"
-              onClick={() => void refreshPaymentsBoard()}
-              disabled={paymentsLoading}
-              className="inline-flex shrink-0 items-center gap-1 h-9 whitespace-nowrap rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70 dark:hover:border-[var(--brand,#b61616)]/60 dark:hover:text-[var(--brand,#b61616)]"
-              aria-label="Refresh payments board"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${paymentsLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
           </div>
 
           {isHistoryMode ? (

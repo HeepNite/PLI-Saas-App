@@ -29,7 +29,9 @@ export default async function StaffUsersAdminPage({
   }
   const allowedSections = resolveStaffPortalSections(authResult.role, authResult.category)
   if (allowedSections.length === 0) {
-    redirect("/staff/panel")
+    // Preserve nav param when redirecting to panel
+    const panelRedirectUrl = navParam ? `/staff/panel?nav=${encodeURIComponent(navParam)}` : "/staff/panel"
+    redirect(panelRedirectUrl)
   }
 
   return (
