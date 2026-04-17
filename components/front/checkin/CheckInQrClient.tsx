@@ -11,7 +11,15 @@ import {
   getExistingCustomerInitialStep,
   shouldAutoOpenExistingPurchase,
   shouldAutoTriggerPackageCheckIn,
+  shouldPreserveOfferOnBootstrapClear,
+  resolvePackageOfferDeclineAction,
 } from "@/lib/checkin/existing-customer-flow"
+import {
+  resolvePackageOfferScenario,
+  buildPackageOfferContext,
+  pickEnrollPrefill,
+} from "@/lib/checkin/package-offer-integration"
+import KioskPackageOfferScreen from "@/components/front/checkin/KioskPackageOfferScreen"
 import { useKioskCustomerSession } from "@/components/front/checkin/useKioskCustomerSession"
 import { useKioskFlowCompletion } from "@/components/front/checkin/useKioskFlowCompletion"
 import { useKioskPinFlow } from "@/components/front/checkin/useKioskPinFlow"
@@ -36,7 +44,7 @@ import {
 } from "@/lib/checkin/checkin-helpers"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
-import type { EntryMode, BootstrapResponse, CheckInQrClientProps } from "@/components/front/checkin/checkin.types"
+import type { EntryMode, BootstrapResponse, CheckInQrClientProps, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 
 export default function CheckInQrClient({
   forcedDeviceMode,
@@ -89,6 +97,8 @@ export default function CheckInQrClient({
   } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
+  const [packageOfferContext, setPackageOfferContext] = React.useState<PackageOfferContext>(null)
+  const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
   const packageCheckInTimeoutRef = React.useRef<number | null>(null)
 
   // ─── Derived error ──────────────────────────────────────────
@@ -195,6 +205,7 @@ export default function CheckInQrClient({
     existingRegularBookingOverride,
     openNewBooking,
     processingPackageCheckIn,
+    packageOfferContext,
   })
 
   const {
@@ -247,6 +258,7 @@ export default function CheckInQrClient({
     isLatePaymentContext,
     latePaymentCourse,
     latePaymentQrImage,
+    showPackageOfferScreen,
   } = display
 
   // ─── Booking contexts ───────────────────────────────────────
@@ -323,6 +335,8 @@ export default function CheckInQrClient({
     setPendingLoginPhone,
     setShowPhoneSignIn,
     setSuccess,
+    setPackageOfferContext,
+    setPackageOfferSelectedId,
   })
 
   // ─── API callbacks ──────────────────────────────────────────
@@ -552,6 +566,79 @@ export default function CheckInQrClient({
     setExistingRegularBookingOverride(context)
   }, [])
 
+  const fetchPreviousPackage = React.useCallback(async ({ userId, courseSlug }: { userId: string; courseSlug: string }) => {
+    const token = await getToken({ skipCache: true })
+    const res = await fetch("/api/checkin/previous-package", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify({ userId, courseSlug }),
+    })
+    if (!res.ok) throw new Error(`previous-package endpoint returned ${res.status}`)
+    const data = await res.json().catch(() => null)
+    return data?.previousPackageId ?? null
+  }, [getToken])
+
+  const handlePackageOfferSelect = React.useCallback((packageId: string) => {
+    const ctx = packageOfferContext
+    if (!ctx) return
+    setPackageOfferContext(null)
+    setPackageOfferSelectedId(packageId)
+    openExistingPurchaseFlow({
+      courseSlug: ctx.courseSlug,
+      date: ctx.date,
+      time: ctx.time,
+    })
+  }, [packageOfferContext, openExistingPurchaseFlow])
+
+  const handlePackageOfferDecline = React.useCallback(() => {
+    const action = resolvePackageOfferDeclineAction(packageOfferContext?.scenario ?? null)
+    setPackageOfferContext(null)
+    if (action === "station-completion") {
+      void handleStationCompletion()
+      return
+    }
+    if (bootstrap) {
+      openExistingPurchaseFlow({
+        courseSlug: bootstrap.context.courseSlug,
+        date: bootstrap.context.date,
+        time: bootstrap.context.time,
+      })
+    }
+  }, [bootstrap, handleStationCompletion, openExistingPurchaseFlow, packageOfferContext?.scenario])
+
+  const handlePackageOfferTimeout = React.useCallback(() => {
+    setPackageOfferContext(null)
+    void handleStationCompletion()
+  }, [handleStationCompletion])
+
+  const handleNewUserPostPurchase = React.useCallback(() => {
+    const availablePackages = newBookingCourse?.enrollment.packages ?? []
+    if (availablePackages.length > 0) {
+      setPackageOfferContext({
+        scenario: "new-user-upsell",
+        previousPackageId: null,
+        courseSlug: newBookingCourse!.slug,
+        date: newBookingContext.date,
+        time: newBookingContext.time,
+      })
+      setOpenNewBooking(false)
+      setNewBookingOverride(null)
+      setMode("existing")
+      setExistingRegularBookingKey((prev) => prev + 1)
+      setExistingRegularBookingOverride({
+        courseSlug: newBookingCourse!.slug,
+        date: newBookingContext.date,
+        time: newBookingContext.time,
+      })
+    } else {
+      void handleStationCompletion()
+    }
+  }, [handleStationCompletion, newBookingContext.date, newBookingContext.time, newBookingCourse])
+
   const handleBootstrapAction = React.useCallback(() => {
     if (processingPackageCheckIn) return
     if (!effectiveCheckInWindowOpen) {
@@ -575,6 +662,17 @@ export default function CheckInQrClient({
     setBootstrap(null)
     setMode("idle")
   }, [])
+
+  React.useEffect(() => {
+    if (!bootstrap && packageOfferContext) {
+      // Scenario 3 (new-user-upsell): offer is set AFTER first purchase completes,
+      // when bootstrap may be null. Don't clear it.
+      if (!shouldPreserveOfferOnBootstrapClear(packageOfferContext.scenario)) {
+        setPackageOfferContext(null)
+        setPackageOfferSelectedId(null)
+      }
+    }
+  }, [bootstrap, packageOfferContext])
 
   // ─── Effects ────────────────────────────────────────────────
   React.useEffect(() => {
@@ -623,6 +721,7 @@ export default function CheckInQrClient({
   React.useEffect(() => {
     if (!isKioskTerminalFlow) return
     if (!bootstrap) return
+    if (packageOfferContext) return
     if (
       !shouldAutoOpenExistingPurchase({
         mode,
@@ -639,14 +738,41 @@ export default function CheckInQrClient({
       return
     }
 
-    openExistingPurchaseFlow({
-      courseSlug: bootstrap.context.courseSlug,
-      date: bootstrap.context.date,
-      time: bootstrap.context.time,
+    // Check for package offer before opening existing purchase flow
+    const availablePackages = selectedCourse?.enrollment.packages ?? []
+    resolvePackageOfferScenario({
+      isKioskTerminalFlow,
+      bootstrap,
+      availablePackages,
+      fetchPreviousPackage,
+    }).then((result) => {
+      if (result) {
+        const ctx = buildPackageOfferContext({
+          scenario: result.scenario,
+          previousPackageId: result.previousPackageId,
+          courseSlug: bootstrap.context.courseSlug,
+          date: bootstrap.context.date,
+          time: bootstrap.context.time,
+        })
+        setPackageOfferContext(ctx)
+        return
+      }
+      openExistingPurchaseFlow({
+        courseSlug: bootstrap.context.courseSlug,
+        date: bootstrap.context.date,
+        time: bootstrap.context.time,
+      })
+    }).catch(() => {
+      openExistingPurchaseFlow({
+        courseSlug: bootstrap.context.courseSlug,
+        date: bootstrap.context.date,
+        time: bootstrap.context.time,
+      })
     })
   }, [
     bootstrap,
     existingRegularBookingOverride,
+    fetchPreviousPackage,
     hasActiveClerkSession,
     hasKioskPinSession,
     isKioskTerminalFlow,
@@ -654,7 +780,9 @@ export default function CheckInQrClient({
     mode,
     openExistingPurchaseFlow,
     openNewBooking,
+    packageOfferContext,
     processingPackageCheckIn,
+    selectedCourse?.enrollment.packages,
   ])
 
   // Auto-trigger package check-in on kiosk: PIN identify → bootstrap with package → deduct immediately
@@ -700,10 +828,10 @@ export default function CheckInQrClient({
   const isTerminal = shellVariant === "terminal"
 
   return (
-    <main className={`relative min-h-screen overflow-hidden bg-[#13141d] px-3 ${mainSpacingClass} sm:px-4`}>
+    <main className={`relative ${isTerminal ? "h-dvh" : "min-h-screen"} overflow-hidden bg-[#13141d] px-3 ${mainSpacingClass} sm:px-4`}>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_55%_at_50%_0%,rgba(182,22,22,0.2),transparent_70%)]" />
       <div className="relative mx-auto w-full max-w-[68rem]">
-        <section className={`flex flex-col ${isTerminal ? "" : "min-h-[60rem] rounded-2xl border border-white/15 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.26),transparent_55%),linear-gradient(145deg,rgba(15,19,35,0.97),rgba(20,25,45,0.97))] p-4 shadow-[0_16px_48px_-18px_rgba(0,0,0,0.6)] backdrop-blur sm:p-6"}`}>
+        <section className={`flex flex-col ${isTerminal ? "flex-1 min-h-0" : "min-h-[60rem] rounded-2xl border border-white/15 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.26),transparent_55%),linear-gradient(145deg,rgba(15,19,35,0.97),rgba(20,25,45,0.97))] p-4 shadow-[0_16px_48px_-18px_rgba(0,0,0,0.6)] backdrop-blur sm:p-6"}`}>
           <CheckInHeader
             variant={shellVariant === "terminal" ? "terminal" : "personal"}
             eyebrow={shellEyebrow}
@@ -714,7 +842,7 @@ export default function CheckInQrClient({
             terminalLocation={terminalLocation}
           />
 
-          <div className="mt-6 flex flex-1 flex-col justify-center">
+          <div className={`${isTerminal ? "mt-3 min-h-0 overflow-hidden" : "mt-6"} flex flex-1 flex-col justify-center`}>
             {showCourseCardPanel && showQrPanel && (
               <CourseCardPanel
                 cardImage={checkInCardImage}
@@ -855,9 +983,11 @@ export default function CheckInQrClient({
           completionMode={completionMode}
           checkInContext={newBookingContext}
           photoFlowContext={photoFlowContext}
+          kioskSessionToken={!hasActiveClerkSession && kioskPinSessionToken ? kioskPinSessionToken : undefined}
           useDraft={false}
           mode="modal"
-          onCompletedAction={isStationDeviceFlow ? handleStationCompletion : undefined}
+          onCompletedAction={isStationDeviceFlow ? handleNewUserPostPurchase : undefined}
+          onTimeoutAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
         />
       )}
 
@@ -866,6 +996,21 @@ export default function CheckInQrClient({
           remainingCredits={packageCheckInResult.remainingCredits}
           points={packageCheckInResult.points}
           onDone={handlePackageSuccessDone}
+        />
+      )}
+
+      {showPackageOfferScreen && packageOfferContext && (
+        <KioskPackageOfferScreen
+          scenario={packageOfferContext.scenario}
+          packages={(selectedCourse?.enrollment.packages ?? []).map((pkg) => ({
+            ...pkg,
+            description: pkg.description,
+          }))}
+          previousPackageId={packageOfferContext.previousPackageId}
+          courseName={selectedCourse?.title || bootstrap?.context.courseTitle || ""}
+          onSelectPackage={handlePackageOfferSelect}
+          onDecline={handlePackageOfferDecline}
+          onTimeout={handlePackageOfferTimeout}
         />
       )}
 
@@ -903,17 +1048,10 @@ export default function CheckInQrClient({
             isKioskTerminalFlow,
             hasPrefilledContact: hasBootstrapPrefilledContact,
           })}
-          prefillSelection={
-            bootstrap?.quickCheckout
-              ? {
-                  service: bootstrap.quickCheckout.serviceId,
-                  packageId: bootstrap.quickCheckout.packageId || "",
-                  addons: bootstrap.quickCheckout.addons,
-                  participants: bootstrap.quickCheckout.participants,
-                  paymentMethod: "stripe",
-                }
-              : undefined
-          }
+          prefillSelection={pickEnrollPrefill({
+            quickCheckout: bootstrap?.quickCheckout ?? null,
+            selectedPackageId: packageOfferSelectedId,
+          })}
           flowVariant="checkin-existing"
           completionMode={completionMode}
           checkInContext={existingRegularBookingContext}

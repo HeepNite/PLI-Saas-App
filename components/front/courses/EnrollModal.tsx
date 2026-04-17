@@ -346,6 +346,7 @@ export default function EnrollModal({
   onCloseAction,
   onCompletedAction,
   onPaymentsStepReadyAction,
+  onTimeoutAction,
   initialStep,
   mode = "modal",
   prefillContact,
@@ -368,6 +369,11 @@ export default function EnrollModal({
    * full-screen resolving overlay.
    */
   onPaymentsStepReadyAction?: () => void
+  /**
+   * Called when the inactivity timeout fires instead of onCompletedAction.
+   * Use to reset to a different state (e.g. idle chooser) on timeout.
+   */
+  onTimeoutAction?: () => void
   initialStep?: number
   mode?: "modal" | "inline"
   prefillContact?: Partial<EnrollmentContact>
@@ -750,16 +756,17 @@ export default function EnrollModal({
     if (
       !open ||
       !isStationCompletion ||
-      !onCompletedAction ||
+      (!onCompletedAction && !onTimeoutAction) ||
       success ||
       shouldPauseKioskInactivityForQrPhase(kioskQrCheckout.phase)
     ) {
       return
     }
 
+    const timeoutAction = onTimeoutAction ?? onCompletedAction
     const controller = createKioskInactivityController({
       onTimeout: () => {
-        void onCompletedAction()
+        void timeoutAction?.()
       },
     })
     const handleActivity = () => controller.arm()
@@ -776,7 +783,7 @@ export default function EnrollModal({
       }
       controller.dispose()
     }
-  }, [isStationCompletion, kioskQrCheckout.phase, onCompletedAction, open, success])
+  }, [isStationCompletion, kioskQrCheckout.phase, onCompletedAction, onTimeoutAction, open, success])
 
   React.useEffect(() => {
     if (isInline) return
@@ -2185,7 +2192,7 @@ export default function EnrollModal({
           isInline
             ? "rounded-3xl overflow-hidden"
             : [
-              "mx-0 sm:mx-4 sm:max-w-5xl lg:max-w-6xl h-full rounded-none sm:rounded-2xl",
+              "mx-0 sm:mx-4 sm:max-w-5xl lg:max-w-6xl h-full sm:max-h-[92vh] rounded-none sm:rounded-2xl",
               showStripeModal
                 ? "sm:h-auto sm:min-h-[50rem] overflow-hidden"
                 : "sm:h-auto overflow-y-auto",
@@ -2824,6 +2831,7 @@ export default function EnrollModal({
                     </div>
                     {isKioskTerminalFlow && (
                       <KioskNumericKeypad
+                        size="compact"
                         className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
                         onDigit={(digit) => {
                           setActiveNumericField(selectKioskNumericField("phone"))
@@ -2846,10 +2854,12 @@ export default function EnrollModal({
                       <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
                     )}
                   </fieldset>
+                  {!isKioskTerminalFlow && (
                   <fieldset className="space-y-2 sm:col-span-2">
                     <label className="text-sm font-medium">{t("label_notes")}</label>
                     <textarea value={contact.note} onChange={(e)=>setContact((c)=>({...c, note: e.target.value}))} rows={3} placeholder={t("placeholder_notes")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                   </fieldset>
+                  )}
                 </div>
                   )
                 )}

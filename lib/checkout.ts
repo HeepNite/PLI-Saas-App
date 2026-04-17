@@ -187,6 +187,7 @@ export const prepareCheckoutAccount = async (
     kioskSessionToken?: string
     terminalAuth?: Extract<StaffTerminalSessionAuthResult, { ok: true }> | null
     touchKioskSession?: boolean
+    serviceId?: string
   } = {}
 ): Promise<ApiError | PreparedCheckoutAccount> => {
   const authUser = await resolveAuthUser(req, input)
@@ -198,7 +199,8 @@ export const prepareCheckoutAccount = async (
   const userId = kioskCustomerAuth ? kioskCustomerAuth.userId : authUser.userId
   const clerkUser = kioskCustomerAuth?.clerkUser || authUser.clerkUser
 
-  if (options.photoContext === "kiosk_terminal" && kioskCustomerAuth?.blocked && !options.kioskSessionToken) {
+  const isNewStudentKioskFlow = options.serviceId ? NEW_STUDENT_SERVICE_IDS.has(options.serviceId) : false
+  if (options.photoContext === "kiosk_terminal" && kioskCustomerAuth?.blocked && !options.kioskSessionToken && !isNewStudentKioskFlow) {
     return {
       status: 401,
       error: "Kiosk customer identification is required before checkout.",
@@ -398,6 +400,7 @@ export const resolveCheckoutPreparation = async (
     photoContext?: PhotoFlowContext
     allowExistingAccountLookup?: boolean
     kioskSessionToken?: string
+    serviceId?: string
     validation: Pick<CheckoutValidation, "courseSlug" | "date" | "time"> & { durationMinutes?: number | null }
   }
 ): Promise<ApiError | CheckoutPreparationResolution> => {
@@ -409,6 +412,7 @@ export const resolveCheckoutPreparation = async (
       photoContext: options.photoContext,
       allowExistingAccountLookup: options.allowExistingAccountLookup,
       kioskSessionToken: options.kioskSessionToken,
+      serviceId: options.serviceId,
     })
     if ("status" in preparedAccount) return preparedAccount
 
@@ -452,6 +456,7 @@ export const resolveCheckoutPreparation = async (
     photoContext: options.photoContext,
     allowExistingAccountLookup: options.allowExistingAccountLookup,
     kioskSessionToken: options.kioskSessionToken,
+    serviceId: options.serviceId,
     terminalAuth,
     touchKioskSession: false,
   })

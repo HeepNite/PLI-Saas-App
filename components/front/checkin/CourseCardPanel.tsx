@@ -7,12 +7,12 @@ import { cn } from "@/lib/utils"
  */
 const KIOSK_TOKENS = {
   // Grid ratio: 60% course content / 40% QR
-  gridColumns: "3fr auto 2fr",
+  gridColumns: "4fr auto 1.5fr",
   
   // Divider styling - subtle gray separator
   divider: {
-    height: "20rem",                           // 320px - visual height of separator
-    offsetTop: "3rem",                         // 48px - distance from top
+    height: "12rem",                           // 192px - visual height of separator
+    offsetTop: "1.5rem",                       // 24px - distance from top
     offsetLeft: "0.6rem",                      // ~10px - horizontal positioning
     width: "0.15rem",                          // ~2.4px - line thickness
     color: "rgba(255, 255, 255, 0.15)",        // Subtle gray/white at 15% opacity
@@ -58,10 +58,10 @@ export function CourseCardPanel({
     return (
       <div 
         className={cn(
-          "mt-6 rounded-2xl border border-white/15 bg-white/[0.02]",
-          compact 
-            ? "mx-[2.5rem] my-[1rem] p-6" 
-            : "px-4 py-5 sm:px-6"
+          "rounded-2xl border border-white/15 bg-white/[0.02]",
+          compact
+            ? "mx-[1.25rem] my-0 mt-3 p-4"
+            : "mt-6 px-4 py-5 sm:px-6"
         )}
       >
         <SplitLayout compact={compact}>
@@ -117,17 +117,17 @@ export function CourseCardPanel({
 /**
  * Split layout container with configurable grid
  */
-function SplitLayout({ 
-  children, 
-  compact 
-}: { 
+function SplitLayout({
+  children,
+  compact
+}: {
   children: React.ReactNode
-  compact: boolean 
+  compact: boolean
 }) {
   if (compact) {
     return (
-      <div 
-        className="grid items-stretch"
+      <div
+        className="grid items-center"
         style={{
           gridTemplateColumns: KIOSK_TOKENS.gridColumns,
           gap: KIOSK_TOKENS.gap,
@@ -159,15 +159,14 @@ function Divider({ compact }: { compact: boolean }) {
     )
   }
 
-  // Kiosk terminal accent divider
+  // Kiosk terminal accent divider - centered vertically
   return (
     <div
-      className="hidden md:block"
+      className="hidden self-center md:block"
       aria-hidden="true"
       style={{
         height: KIOSK_TOKENS.divider.height,
         width: KIOSK_TOKENS.divider.width,
-        marginTop: KIOSK_TOKENS.divider.offsetTop,
         marginLeft: KIOSK_TOKENS.divider.offsetLeft,
         backgroundColor: KIOSK_TOKENS.divider.color,
       }}
@@ -201,13 +200,13 @@ function QrSection({
         alt="Check-in QR code"
         className={cn(
           "mt-4 rounded-2xl border border-white/15 bg-white object-contain",
-          compact ? "h-56 w-56" : "h-48 w-48 lg:h-56 lg:w-56"
+          compact ? "h-44 w-44" : "h-48 w-48 lg:h-56 lg:w-56"
         )}
       />
       
       <p className={cn(
-        "mt-4 max-w-[17rem] font-medium leading-relaxed text-white/82",
-        compact ? "text-xs" : "text-base"
+        "max-w-[17rem] font-medium leading-relaxed text-white/82",
+        compact ? "mt-2 text-xs" : "mt-4 text-base"
       )}>
         scan this code to continue the check-in process
       </p>
@@ -249,7 +248,7 @@ function CourseCardContent({
       {isSplit && <p className="text-xs uppercase tracking-[0.2em] text-white/60">Current Course</p>}
       <div className={`${isSplit ? "mt-2 flex-1 overflow-hidden rounded-2xl border border-white/15 bg-[linear-gradient(150deg,rgba(3,5,12,0.96),rgba(10,14,28,0.96))]" : ""}`}>
         <div className={`grid h-full ${isSplit ? "grid-cols-1 xl:grid-cols-[0.9fr_1.1fr]" : "grid-cols-[0.92fr_1.08fr] sm:grid-cols-[0.9fr_1.1fr]"}`}>
-          <div className={`relative ${isSplit ? (compact ? "min-h-[160px] xl:h-full xl:min-h-0" : "min-h-[220px] xl:h-full xl:min-h-0") : "min-h-[18rem]"}`}>
+          <div className={`relative ${isSplit ? (compact ? "min-h-[120px] xl:h-full xl:min-h-0" : "min-h-[220px] xl:h-full xl:min-h-0") : "min-h-[18rem]"}`}>
             <Image
               src={cardImage}
               alt={courseTitle}

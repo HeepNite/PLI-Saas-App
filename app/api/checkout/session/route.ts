@@ -86,6 +86,7 @@ export async function POST(req: Request) {
       photoContext,
       allowExistingAccountLookup: photoContext === "kiosk_terminal",
       kioskSessionToken,
+      serviceId: validation.serviceId,
       validation,
     }
   )

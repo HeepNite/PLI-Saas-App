@@ -21,7 +21,7 @@ export default function KioskNumericKeypad({
   className?: string
   activeKey?: string | null
   framed?: boolean
-  size?: "default" | "large" | "modal"
+  size?: "default" | "large" | "modal" | "compact"
 }) {
   const [pressedKey, setPressedKey] = React.useState<string | null>(null)
 
@@ -45,30 +45,39 @@ export default function KioskNumericKeypad({
 
   const isLarge = size === "large"
   const isModal = size === "modal"
+  const isCompact = size === "compact"
   const frameClassName = framed
     ? isLarge
       ? "rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-4 sm:p-5"
       : isModal
         ? "rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-3 sm:p-4"
+        : isCompact
+          ? "rounded-xl border border-white/10 bg-white/[0.03] p-2"
       : "rounded-2xl border border-white/10 bg-white/[0.03] p-3"
     : ""
   const gridClassName = isLarge
     ? "grid grid-cols-3 gap-3 sm:gap-4"
       : isModal
         ? "grid grid-cols-3 gap-2 sm:gap-2.5"
+        : isCompact
+          ? "grid grid-cols-3 gap-1.5"
       : "grid grid-cols-3 gap-2"
   const digitClassName = isLarge
     ? "h-20 text-[1.75rem] font-semibold sm:h-24"
     : isModal
       ? "h-14 text-[1.2rem] font-semibold sm:h-16 sm:text-[1.35rem]"
+      : isCompact
+        ? "h-10 text-sm font-semibold"
       : "py-3 text-lg font-semibold"
   const clearClassName = isLarge
     ? "h-20 text-base font-semibold sm:h-24"
     : isModal
       ? "h-14 text-sm font-semibold sm:h-16"
+      : isCompact
+        ? "h-10 text-xs font-semibold"
       : "py-3 text-sm font-semibold"
-  const backspaceClassName = isLarge ? "h-20 sm:h-24" : isModal ? "h-14 sm:h-16" : "py-3"
-  const iconClassName = isLarge ? "h-7 w-7" : isModal ? "h-5 w-5 sm:h-6 sm:w-6" : "h-5 w-5"
+  const backspaceClassName = isLarge ? "h-20 sm:h-24" : isModal ? "h-14 sm:h-16" : isCompact ? "h-10" : "py-3"
+  const iconClassName = isLarge ? "h-7 w-7" : isModal ? "h-5 w-5 sm:h-6 sm:w-6" : isCompact ? "h-4 w-4" : "h-5 w-5"
 
   return (
     <div className={`${frameClassName} ${className}`.trim()}>
