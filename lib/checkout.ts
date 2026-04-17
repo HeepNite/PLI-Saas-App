@@ -196,10 +196,19 @@ export const prepareCheckoutAccount = async (
       ? await resolveKioskCustomerClerkAuth(authUser.userId)
       : null
 
-  const userId = kioskCustomerAuth ? kioskCustomerAuth.userId : authUser.userId
-  const clerkUser = kioskCustomerAuth?.clerkUser || authUser.clerkUser
+  let userId = kioskCustomerAuth ? kioskCustomerAuth.userId : authUser.userId
+  let clerkUser = kioskCustomerAuth?.clerkUser || authUser.clerkUser
 
   const isNewStudentKioskFlow = options.serviceId ? NEW_STUDENT_SERVICE_IDS.has(options.serviceId) : false
+
+  // For new-student kiosk flows, ignore the staff's Clerk session entirely.
+  // The new student's identity comes from the form input, not from the
+  // authenticated staff member operating the kiosk.
+  if (isNewStudentKioskFlow) {
+    userId = null
+    clerkUser = null
+  }
+
   if (options.photoContext === "kiosk_terminal" && kioskCustomerAuth?.blocked && !options.kioskSessionToken && !isNewStudentKioskFlow) {
     return {
       status: 401,
