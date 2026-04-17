@@ -2216,7 +2216,7 @@ export default function EnrollModal({
             <aside
               className={[
                 "bg-neutral-900/90 text-white p-3 sm:p-4 space-y-3 sm:space-y-4",
-                isInline ? "md:col-span-1" : "md:col-span-4 lg:col-span-3",
+                isInline ? "md:col-span-1" : "md:col-span-5",
               ].join(" ")}
             >
               {success ? (
@@ -2426,7 +2426,7 @@ export default function EnrollModal({
                 ? "relative p-4 sm:p-6"
                 : hideCalendarSidebar
                   ? "relative md:col-span-12 p-3 sm:p-6"
-                  : "relative md:col-span-8 lg:col-span-9 p-3 sm:p-6"
+                  : "relative md:col-span-7 p-3 sm:p-6"
             }
           >
             <div className={isInline ? "" : "mx-auto w-full max-w-2xl"}>
@@ -2830,25 +2830,27 @@ export default function EnrollModal({
                       </div>
                     </div>
                     {isKioskTerminalFlow && (
-                      <KioskNumericKeypad
-                        size="compact"
-                        className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
-                        onDigit={(digit) => {
-                          setActiveNumericField(selectKioskNumericField("phone"))
-                          setPhoneTouched(true)
-                          setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
-                        }}
-                        onBackspace={() => {
-                          setActiveNumericField(selectKioskNumericField("phone"))
-                          setPhoneTouched(true)
-                          setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
-                        }}
-                        onClear={() => {
-                          setActiveNumericField(selectKioskNumericField("phone"))
-                          setPhoneTouched(true)
-                          setContact((c) => ({ ...c, phone: clearPhoneDigits() }))
-                        }}
-                      />
+                      <div className="mx-auto w-full max-w-[260px]">
+                        <KioskNumericKeypad
+                          size="compact"
+                          className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
+                          onDigit={(digit) => {
+                            setActiveNumericField(selectKioskNumericField("phone"))
+                            setPhoneTouched(true)
+                            setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
+                          }}
+                          onBackspace={() => {
+                            setActiveNumericField(selectKioskNumericField("phone"))
+                            setPhoneTouched(true)
+                            setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
+                          }}
+                          onClear={() => {
+                            setActiveNumericField(selectKioskNumericField("phone"))
+                            setPhoneTouched(true)
+                            setContact((c) => ({ ...c, phone: clearPhoneDigits() }))
+                          }}
+                        />
+                      </div>
                     )}
                     {phoneTouched && !isCompleteUSPhone(contact.phone) && (
                       <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
