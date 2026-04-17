@@ -104,22 +104,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
   }
 
-  // Skip phone-verification enforcement for kiosk terminal flows —
-  // kiosk new-student checkout verifies the phone via SMS in the UI,
-  // not at the Stripe intent creation step.
-  if (photoContext !== "kiosk_terminal") {
-    const newStudentError = await enforceNewStudentRules({
-      serviceId: validation.serviceId,
-      safeParticipants: validation.safeParticipants,
-      clerkUserForVerification: clerkUser,
-      hasVerifiedPhone: verification.hasVerifiedPhone,
-      resolvedUserId: resolvedUserId || undefined,
-      resolvedEmail: identity.resolvedEmail,
-      phoneNormalized: identity.phoneNormalized,
-    })
-    if (newStudentError) {
-      return toErrorResponse(newStudentError)
-    }
+  const newStudentError = await enforceNewStudentRules({
+    serviceId: validation.serviceId,
+    safeParticipants: validation.safeParticipants,
+    clerkUserForVerification: clerkUser,
+    hasVerifiedPhone: verification.hasVerifiedPhone,
+    resolvedUserId: resolvedUserId || undefined,
+    resolvedEmail: identity.resolvedEmail,
+    phoneNormalized: identity.phoneNormalized,
+  })
+  if (newStudentError) {
+    return toErrorResponse(newStudentError)
   }
 
   const studentPinEnrollment = await enrollStudentPinForCheckout({
