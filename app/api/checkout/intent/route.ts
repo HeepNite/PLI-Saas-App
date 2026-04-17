@@ -11,6 +11,8 @@ import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/valid
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
+const NEW_STUDENT_SERVICE_IDS = new Set(["new-student"])
+
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
   ? new Stripe(secret, {
@@ -76,6 +78,8 @@ export async function POST(req: Request) {
       allowExistingAccountLookup: prepareOnly || photoContext === "kiosk_terminal",
       kioskSessionToken,
       serviceId: validation.serviceId,
+      deferUserCreation:
+        prepareOnly && photoContext === "kiosk_terminal" && NEW_STUDENT_SERVICE_IDS.has(validation.serviceId),
       validation,
     }
   )

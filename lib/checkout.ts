@@ -188,6 +188,7 @@ export const prepareCheckoutAccount = async (
     terminalAuth?: Extract<StaffTerminalSessionAuthResult, { ok: true }> | null
     touchKioskSession?: boolean
     serviceId?: string
+    deferUserCreation?: boolean
   } = {}
 ): Promise<ApiError | PreparedCheckoutAccount> => {
   const authUser = await resolveAuthUser(req, input)
@@ -280,6 +281,10 @@ export const prepareCheckoutAccount = async (
 
     if (existing) {
       resolvedClerkUser = existing
+    } else if (options.deferUserCreation) {
+      // Kiosk new-student flow: do NOT create Clerk user yet.
+      // SMS verification must complete first. The actual user creation
+      // will happen during the real checkout call (deferUserCreation=false).
     } else {
       try {
         resolvedClerkUser = await ensureClerkUser({
@@ -406,6 +411,7 @@ export const resolveCheckoutPreparation = async (
     allowExistingAccountLookup?: boolean
     kioskSessionToken?: string
     serviceId?: string
+    deferUserCreation?: boolean
     validation: Pick<CheckoutValidation, "courseSlug" | "date" | "time"> & { durationMinutes?: number | null }
   }
 ): Promise<ApiError | CheckoutPreparationResolution> => {
@@ -418,6 +424,7 @@ export const resolveCheckoutPreparation = async (
       allowExistingAccountLookup: options.allowExistingAccountLookup,
       kioskSessionToken: options.kioskSessionToken,
       serviceId: options.serviceId,
+      deferUserCreation: options.deferUserCreation,
     })
     if ("status" in preparedAccount) return preparedAccount
 
@@ -464,6 +471,7 @@ export const resolveCheckoutPreparation = async (
     serviceId: options.serviceId,
     terminalAuth,
     touchKioskSession: false,
+    deferUserCreation: options.deferUserCreation,
   })
   if ("status" in preparedAccount) return preparedAccount
 

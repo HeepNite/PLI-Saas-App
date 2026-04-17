@@ -1182,16 +1182,16 @@ export default function EnrollModal({
     if (!isCompleteUSPhone(contact.phone)) {
       return { step: 2, message: "Enter a valid US phone number." }
     }
-    if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {
-      return { step: paymentsStepIndex >= 0 ? paymentsStepIndex : 3, message: "Select a payment method." }
-    }
     if (service === "new-student") {
       if (!/^\d{4}$/.test(studentPin)) {
-        return { step: steps.length - 1, message: "Create a 4-digit PIN to continue." }
+        return { step: 2, message: "Create a 4-digit PIN to continue." }
       }
       if (studentPin !== studentPinConfirm) {
-        return { step: steps.length - 1, message: "PIN confirmation does not match." }
+        return { step: 2, message: "PIN confirmation does not match." }
       }
+    }
+    if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {
+      return { step: paymentsStepIndex >= 0 ? paymentsStepIndex : 3, message: "Select a payment method." }
     }
     const addonsValid = addons.every((id) => course.enrollment.addons?.some((a) => a.id === id))
     if (!addonsValid) {
@@ -1328,7 +1328,6 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      let kioskPreparedAccount: PreparedAccountState | null = null
       if (service === "new-student" && isCompleteUSPhone(contact.phone)) {
         const verification = await requestNewStudentOutcome()
         if (!verification) return
@@ -1339,40 +1338,29 @@ export default function EnrollModal({
         }
 
         if (verification.requiresSmsVerification || verification.outcome === "requires_sms_verification") {
-          if (isKioskTerminalFlow) {
-            // Kiosk mode: staff is present to verify identity. Skip SMS —
-            // Clerk can't do student phone verification while staff is signed in.
-            // The verify endpoint already confirmed the phone is unknown,
-            // so proceed with new-student price.
-            const kioskAccount = await requestAccountPreparation()
-            if (!kioskAccount) return
-            // Skip to photo/payment — preparedAccount is set by requestAccountPreparation
-            // but React state hasn't updated yet, so pass it explicitly below.
-            kioskPreparedAccount = kioskAccount
-          } else {
-            const account = await requestAccountPreparation()
-            if (!account) return
+          const account = await requestAccountPreparation()
+          if (!account) return
 
-            if (!isSignedIn || account.requiresSignIn) {
-              setSignInPurpose("sms_verification")
-              setRequiresSignIn(true)
-              setExistingAccountDetected(false)
-              setResumeAfterSignInStep(null)
-              setPendingAutoPay(false)
-              setResumeContactFlowAfterSignIn(true)
-              return
-            }
+          const needsSmsModal = !isSignedIn || account.requiresSignIn || isKioskTerminalFlow
+          if (needsSmsModal) {
+            setSignInPurpose("sms_verification")
+            setRequiresSignIn(true)
+            setExistingAccountDetected(false)
+            setResumeAfterSignInStep(null)
+            setPendingAutoPay(false)
+            setResumeContactFlowAfterSignIn(true)
+            return
+          }
 
-            const verifiedAgain = await requestNewStudentOutcome()
-            if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
-              showRegularFallbackPopup(verifiedAgain?.message)
-              return
-            }
+          const verifiedAgain = await requestNewStudentOutcome()
+          if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
+            showRegularFallbackPopup(verifiedAgain?.message)
+            return
           }
         }
       }
 
-      const account = kioskPreparedAccount || preparedAccount || (await requestAccountPreparation())
+      const account = preparedAccount || (await requestAccountPreparation())
       if (!account) return
 
       if (photoPolicy.uploadMode === "customer_self" && account.requiresSignIn && !isSignedIn) {
@@ -2124,7 +2112,12 @@ export default function EnrollModal({
       case "datetime":
         return Boolean(date) && Boolean(time)
       case "info":
-        return contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
+        const baseValid = contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
+        if (!baseValid) return false
+        if (service === "new-student") {
+          return /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm
+        }
+        return true
       case "photo":
         return !requiresPhotoStep || photoSaved
       case "payments":
@@ -2875,6 +2868,38 @@ export default function EnrollModal({
                     <textarea value={contact.note} onChange={(e)=>setContact((c)=>({...c, note: e.target.value}))} rows={3} placeholder={t("placeholder_notes")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                   </fieldset>
                   )}
+
+                  {/* PIN for new students */}
+                  {service === "new-student" && (
+                    <div className="sm:col-span-2 rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3 space-y-3">
+                      <div>
+                        <div className="text-sm font-semibold">Create student PIN</div>
+                        <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
+                          This 4-digit PIN is required for future kiosk check-ins and account recovery.
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <input
+                          inputMode="numeric"
+                          maxLength={4}
+                          type="password"
+                          value={studentPin}
+                          onChange={(e) => setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                          className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                          placeholder="4-digit PIN"
+                        />
+                        <input
+                          inputMode="numeric"
+                          maxLength={4}
+                          type="password"
+                          value={studentPinConfirm}
+                          onChange={(e) => setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                          className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                          placeholder="Confirm PIN"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                   )
                 )}
@@ -3019,33 +3044,21 @@ export default function EnrollModal({
                       </div>
                     </div>
 
+                    {/* PIN reminder for new students */}
                     {service === "new-student" && (
-                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3 space-y-3">
-                        <div>
-                          <div className="text-sm font-semibold">Create student PIN</div>
-                          <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
-                            This 4-digit PIN is required for future kiosk check-ins and account recovery.
+                      <div className="rounded-md border border-amber-200/50 dark:border-amber-500/30 bg-amber-50/80 dark:bg-amber-500/10 p-3">
+                        <div className="flex items-start gap-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0">
+                            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                            <path d="M12 9v4"/>
+                            <path d="M12 17h.01"/>
+                          </svg>
+                          <div>
+                            <div className="text-sm font-medium text-amber-800 dark:text-amber-200">Recuerda tu PIN</div>
+                            <div className="mt-0.5 text-xs text-amber-700 dark:text-amber-300/80">
+                              Lo usarás para poder hacer el proceso más rápido después.
+                            </div>
                           </div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <input
-                            inputMode="numeric"
-                            maxLength={4}
-                            type="password"
-                            value={studentPin}
-                            onChange={(e) => setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
-                            placeholder="4-digit PIN"
-                          />
-                          <input
-                            inputMode="numeric"
-                            maxLength={4}
-                            type="password"
-                            value={studentPinConfirm}
-                            onChange={(e) => setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
-                            placeholder="Confirm PIN"
-                          />
                         </div>
                       </div>
                     )}
@@ -3072,34 +3085,7 @@ export default function EnrollModal({
                         <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
                       </div>
                     </GlassyCard>
-                    {service === "new-student" && (
-                      <GlassyCard className="p-4">
-                        <div className="text-sm font-medium">Create student PIN</div>
-                        <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
-                          New students must finish signup with a personal 4-digit PIN.
-                        </div>
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <input
-                            inputMode="numeric"
-                            maxLength={4}
-                            type="password"
-                            value={studentPin}
-                            onChange={(e) => setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
-                            placeholder="4-digit PIN"
-                          />
-                          <input
-                            inputMode="numeric"
-                            maxLength={4}
-                            type="password"
-                            value={studentPinConfirm}
-                            onChange={(e) => setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                            className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
-                            placeholder="Confirm PIN"
-                          />
-                        </div>
-                      </GlassyCard>
-                    )}
+
                   </div>
                 )}
 
