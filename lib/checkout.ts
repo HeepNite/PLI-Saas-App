@@ -248,7 +248,12 @@ export const prepareCheckoutAccount = async (
     }
   }
 
-  const identity = resolveContactIdentity({ clerkUser, email: input.email, phone: input.phone })
+  // For new-student kiosk flows, ignore the staff's Clerk user so the
+  // new student's form data (email/phone) is used instead of the staff's.
+  const skipStaffIdentity = options.photoContext === "kiosk_terminal" &&
+    options.serviceId != null && NEW_STUDENT_SERVICE_IDS.has(options.serviceId)
+  const identityClerkUser = skipStaffIdentity ? null : clerkUser
+  const identity = resolveContactIdentity({ clerkUser: identityClerkUser, email: input.email, phone: input.phone })
   if ("status" in identity) {
     return identity
   }
