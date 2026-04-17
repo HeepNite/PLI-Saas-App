@@ -18,10 +18,6 @@ export default async function StaffUsersAdminPage({
   const navParam = Array.isArray(params.nav) ? params.nav[0] : params.nav
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) {
-    if (authResult.status === 401) {
-      const redirectUrl = navParam ? `/staff/checkin?nav=${encodeURIComponent(navParam)}` : "/staff/checkin"
-      redirect(redirectUrl)
-    }
     redirect("/staff/resolve")
   }
   if (!authResult.role) {

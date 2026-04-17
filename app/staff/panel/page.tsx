@@ -10,12 +10,8 @@ export const metadata: Metadata = {
 
 export default async function StaffPanelPage() {
   const authResult = await authorizeStaffPortalBaseRequest()
-  if (!authResult.ok) {
-    redirect("/staff/checkin")
-  }
-
-  if (!authResult.userId) {
-    redirect("/staff/checkin")
+  if (!authResult.ok || !authResult.userId) {
+    redirect("/staff/resolve")
   }
 
   const role = authResult.role
