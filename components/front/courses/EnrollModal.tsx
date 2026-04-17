@@ -1328,6 +1328,7 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
+      let kioskPreparedAccount: PreparedAccountState | null = null
       if (service === "new-student" && isCompleteUSPhone(contact.phone)) {
         const verification = await requestNewStudentOutcome()
         if (!verification) return
@@ -1338,31 +1339,40 @@ export default function EnrollModal({
         }
 
         if (verification.requiresSmsVerification || verification.outcome === "requires_sms_verification") {
-          const account = await requestAccountPreparation()
-          if (!account) return
+          if (isKioskTerminalFlow) {
+            // Kiosk mode: staff is present to verify identity. Skip SMS —
+            // Clerk can't do student phone verification while staff is signed in.
+            // The verify endpoint already confirmed the phone is unknown,
+            // so proceed with new-student price.
+            const kioskAccount = await requestAccountPreparation()
+            if (!kioskAccount) return
+            // Skip to photo/payment — preparedAccount is set by requestAccountPreparation
+            // but React state hasn't updated yet, so pass it explicitly below.
+            kioskPreparedAccount = kioskAccount
+          } else {
+            const account = await requestAccountPreparation()
+            if (!account) return
 
-          // In kiosk mode, the staff is signed in but we need SMS verification
-          // for the STUDENT's phone — always show the verification modal.
-          const needsSmsModal = !isSignedIn || account.requiresSignIn || isKioskTerminalFlow
-          if (needsSmsModal) {
-            setSignInPurpose("sms_verification")
-            setRequiresSignIn(true)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setResumeContactFlowAfterSignIn(true)
-            return
-          }
+            if (!isSignedIn || account.requiresSignIn) {
+              setSignInPurpose("sms_verification")
+              setRequiresSignIn(true)
+              setExistingAccountDetected(false)
+              setResumeAfterSignInStep(null)
+              setPendingAutoPay(false)
+              setResumeContactFlowAfterSignIn(true)
+              return
+            }
 
-          const verifiedAgain = await requestNewStudentOutcome()
-          if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
-            showRegularFallbackPopup(verifiedAgain?.message)
-            return
+            const verifiedAgain = await requestNewStudentOutcome()
+            if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
+              showRegularFallbackPopup(verifiedAgain?.message)
+              return
+            }
           }
         }
       }
 
-      const account = preparedAccount || (await requestAccountPreparation())
+      const account = kioskPreparedAccount || preparedAccount || (await requestAccountPreparation())
       if (!account) return
 
       if (photoPolicy.uploadMode === "customer_self" && account.requiresSignIn && !isSignedIn) {
