@@ -1,9 +1,7 @@
-import { clerkMiddleware, getAuth } from "@clerk/nextjs/server"
-import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server"
+import { clerkMiddleware } from "@clerk/nextjs/server"
+import { NextResponse, type NextRequest } from "next/server"
 
-const clerk = clerkMiddleware()
-
-export default function middleware(req: NextRequest, evt: NextFetchEvent) {
+export default clerkMiddleware(async (auth, req: NextRequest) => {
   const allowE2eBypass =
     process.env.NODE_ENV !== "production" && req.nextUrl.searchParams.get("e2eAuth") === "1"
 
@@ -13,10 +11,10 @@ export default function middleware(req: NextRequest, evt: NextFetchEvent) {
 
   const { pathname } = req.nextUrl
 
-  // Protected staff routes — check auth before Clerk middleware
+  // Protected staff routes — auth is already populated by clerkMiddleware callback
   if (pathname.startsWith("/staff/portal") || pathname.startsWith("/staff/panel")) {
-    const auth = getAuth(req)
-    if (!auth.userId) {
+    const { userId } = await auth()
+    if (!userId) {
       const nav = req.nextUrl.searchParams.get("nav")
       const redirectUrl = nav
         ? `/staff/checkin?nav=${encodeURIComponent(nav)}`
@@ -25,8 +23,8 @@ export default function middleware(req: NextRequest, evt: NextFetchEvent) {
     }
   }
 
-  return clerk(req, evt)
-}
+  return NextResponse.next()
+})
 
 export const config = {
   matcher: [
