@@ -89,17 +89,20 @@ export async function POST(req: Request) {
   const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
   const { userId, clerkUser, resolvedUserId, identity, account } = preparedAccount
 
-  const newStudentError = await enforceNewStudentRules({
-    serviceId: validation.serviceId,
-    safeParticipants: validation.safeParticipants,
-    clerkUserForVerification: clerkUser,
-    hasVerifiedPhone: verification.hasVerifiedPhone,
-    resolvedUserId: resolvedUserId || undefined,
-    resolvedEmail: identity.resolvedEmail,
-    phoneNormalized: identity.phoneNormalized,
-  })
-  if (newStudentError) {
-    return toErrorResponse(newStudentError)
+  // Skip phone-verification enforcement for kiosk terminal flows
+  if (photoContext !== "kiosk_terminal") {
+    const newStudentError = await enforceNewStudentRules({
+      serviceId: validation.serviceId,
+      safeParticipants: validation.safeParticipants,
+      clerkUserForVerification: clerkUser,
+      hasVerifiedPhone: verification.hasVerifiedPhone,
+      resolvedUserId: resolvedUserId || undefined,
+      resolvedEmail: identity.resolvedEmail,
+      phoneNormalized: identity.phoneNormalized,
+    })
+    if (newStudentError) {
+      return toErrorResponse(newStudentError)
+    }
   }
 
   const studentPinEnrollment = await enrollStudentPinForCheckout({
