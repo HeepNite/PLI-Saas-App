@@ -1341,7 +1341,10 @@ export default function EnrollModal({
           const account = await requestAccountPreparation()
           if (!account) return
 
-          if (!isSignedIn || account.requiresSignIn) {
+          // In kiosk mode, the staff is signed in but we need SMS verification
+          // for the STUDENT's phone — always show the verification modal.
+          const needsSmsModal = !isSignedIn || account.requiresSignIn || isKioskTerminalFlow
+          if (needsSmsModal) {
             setSignInPurpose("sms_verification")
             setRequiresSignIn(true)
             setExistingAccountDetected(false)
@@ -2192,10 +2195,10 @@ export default function EnrollModal({
           isInline
             ? "rounded-3xl overflow-hidden"
             : [
-              "mx-0 sm:mx-4 sm:max-w-5xl lg:max-w-6xl h-full sm:max-h-[92vh] rounded-none sm:rounded-2xl",
+              "w-full md:w-[50rem] max-w-[95vw] md:max-w-[50rem] mx-auto h-full sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-2xl",
               showStripeModal
                 ? "sm:h-auto sm:min-h-[50rem] overflow-hidden"
-                : "sm:h-auto overflow-y-auto",
+                : "overflow-y-auto",
             ].join(" "),
         ].join(" ")}
       >
@@ -2331,7 +2334,7 @@ export default function EnrollModal({
                     })()}
                   </nav>
                 ) : (
-                  <nav aria-label="Breadcrumb" className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/80">
+                  <nav aria-label="Breadcrumb" className="mt-2 flex flex-nowrap items-center gap-1.5 text-[11px] text-white/80 overflow-x-auto">
                     {steps.map((st, idx) => {
                       const done = idx < step && stepValid(idx)
                       const active = idx === step
@@ -2345,7 +2348,7 @@ export default function EnrollModal({
                               setStep(idx)
                             }}
                             disabled={!canJump}
-                            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 transition ${
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 transition whitespace-nowrap ${
                               active ? "border-white/40 bg-white/10" : "border-white/10 bg-transparent"
                             } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
                           >
@@ -2830,7 +2833,7 @@ export default function EnrollModal({
                       </div>
                     </div>
                     {isKioskTerminalFlow && (
-                      <div className="mx-auto w-full max-w-[260px]">
+                      <div className="my-4 w-full">
                         <KioskNumericKeypad
                           size="compact"
                           className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
