@@ -215,7 +215,7 @@ export async function POST(req: Request) {
   // Login mode: create session token and return sign-in URL
   const signInToken = await client.signInTokens.createSignInToken({
     userId: matchedUser.id,
-    expiresInSeconds: 60,
+    expiresInSeconds: 300,
   })
 
   const requestUrl = new URL(req.url)

@@ -3,10 +3,13 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
 import {
   extractStaffCategoryWithSubCategoryFromUser,
+  parseStaffCategory,
 } from "@/lib/security/staff-category"
 import {
+  extractStaffRoleFromMetadata,
   extractStaffRoleFromUserMetadata,
 } from "@/lib/security/staff-role"
+import { prisma } from "@/lib/prisma"
 import { getDefaultStaffPortalSection } from "@/lib/security/staff-access"
 import { syncStaffAccountFromClerkUser } from "@/lib/security/staff-account-sync"
 
@@ -44,6 +47,20 @@ export default async function StaffResolvePage({
   // Extract normalized category + subCategory (handles legacy teacher → guest normalization)
   const { category: normalizedCategory, subCategory } = extractStaffCategoryWithSubCategoryFromUser(currentUser)
   category = normalizedCategory
+
+  // Fallback: check DB if Clerk metadata has no role
+  if (!role) {
+    try {
+      const mirrored = await prisma.staffAccount.findUnique({
+        where: { clerkUserId: authResult.userId },
+        select: { role: true, category: true },
+      })
+      if (!role) role = extractStaffRoleFromMetadata({ role: mirrored?.role })
+      if (!category) category = parseStaffCategory(mirrored?.category)
+    } catch (error) {
+      console.warn("staff/resolve: failed to read staff mirror, continuing with Clerk metadata", error)
+    }
+  }
 
   if (role && currentUser) {
     try {

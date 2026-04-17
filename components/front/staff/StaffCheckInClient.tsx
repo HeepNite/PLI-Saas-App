@@ -155,12 +155,14 @@ export default function StaffCheckInClient({ mode = "checkin" }: StaffCheckInCli
       const ticket = typeof data.ticket === "string" ? data.ticket.trim() : ""
       if (isLoaded && signIn && setActive && ticket) {
         try {
-          const attempt = (await signIn.create({
+          const attempt = await signIn.create({
             strategy: "ticket",
             ticket,
-          })) as { status?: string; createdSessionId?: string | null }
-          if (attempt.status === "complete" && attempt.createdSessionId) {
-            await setActive({ session: attempt.createdSessionId })
+          })
+          if (attempt.status === "complete") {
+            if (attempt.createdSessionId) {
+              await setActive({ session: attempt.createdSessionId })
+            }
             window.location.assign(resolveUrl)
             return
           }
