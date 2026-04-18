@@ -1338,11 +1338,22 @@ export default function EnrollModal({
         }
 
         if (verification.requiresSmsVerification || verification.outcome === "requires_sms_verification") {
+          if (isKioskTerminalFlow) {
+            // Kiosk: Clerk can't do SMS verification for a student while staff
+            // is signed in. Show regular-price fallback — the student can verify
+            // their phone on a personal device via the web flow if they want the
+            // new-student discount.
+            showRegularFallbackPopup(
+              "SMS phone verification is required for the new-student price. " +
+              "This booking will continue with the regular price."
+            )
+            return
+          }
+
           const account = await requestAccountPreparation()
           if (!account) return
 
-          const needsSmsModal = !isSignedIn || account.requiresSignIn || isKioskTerminalFlow
-          if (needsSmsModal) {
+          if (!isSignedIn || account.requiresSignIn) {
             setSignInPurpose("sms_verification")
             setRequiresSignIn(true)
             setExistingAccountDetected(false)
