@@ -280,11 +280,26 @@ export const prepareCheckoutAccount = async (
     })
 
     if (existing) {
+      // Existing Clerk user found — reuse without creating anything.
       resolvedClerkUser = existing
     } else if (options.deferUserCreation) {
-      // Kiosk new-student flow: do NOT create Clerk user yet.
+      // Kiosk new-student prepareOnly: do NOT create Clerk user yet.
       // SMS verification must complete first. The actual user creation
       // will happen during the real checkout call (deferUserCreation=false).
+      // Return early with no Clerk user — the frontend will open the
+      // SMS verification modal based on this metadata alone.
+      return {
+        userId: null,
+        clerkUser: null,
+        resolvedUserId: null,
+        identity,
+        account: {
+          clerkUserId: null,
+          created: false,
+          requiresSignIn: false,
+          hasAvatar: false,
+        },
+      }
     } else {
       try {
         resolvedClerkUser = await ensureClerkUser({
@@ -301,6 +316,24 @@ export const prepareCheckoutAccount = async (
       }
     }
   } else {
+    // Safety net: if deferUserCreation is set (kiosk new-student prepareOnly),
+    // never call ensureGuestClerkUser — it returns 409 for existing accounts
+    // which blocks the kiosk flow instead of allowing a regular-price fallback.
+    if (options.deferUserCreation) {
+      return {
+        userId: userId || null,
+        clerkUser: resolvedClerkUser || null,
+        resolvedUserId: userId || resolvedClerkUser?.id || null,
+        identity,
+        account: {
+          clerkUserId: userId || resolvedClerkUser?.id || null,
+          created: false,
+          requiresSignIn: false,
+          hasAvatar: Boolean(resolveAvatarState(resolvedClerkUser).hasAvatar),
+        },
+      }
+    }
+
     const guestResult = await ensureGuestClerkUser({
       userId: userId || undefined,
       resolvedEmail: identity.resolvedEmail,
