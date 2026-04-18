@@ -201,7 +201,15 @@ export const prepareCheckoutAccount = async (
   const clerkUser = kioskCustomerAuth?.clerkUser || authUser.clerkUser
 
   const isNewStudentKioskFlow = options.serviceId ? NEW_STUDENT_SERVICE_IDS.has(options.serviceId) : false
-  if (options.photoContext === "kiosk_terminal" && kioskCustomerAuth?.blocked && !options.kioskSessionToken && !isNewStudentKioskFlow) {
+  // The blocked check prevents staff from checking out as customers.
+  // Skip it when: (a) it's a new-student flow, OR (b) the form provides
+  // customer email/phone that differ from the staff's — meaning the staff
+  // is operating the kiosk on behalf of a customer, not buying for themselves.
+  const isStaffOperatingForCustomer = options.photoContext === "kiosk_terminal" &&
+    kioskCustomerAuth?.blocked &&
+    input.email && clerkUser?.primaryEmailAddress?.emailAddress &&
+    input.email.toLowerCase() !== clerkUser.primaryEmailAddress.emailAddress.toLowerCase()
+  if (options.photoContext === "kiosk_terminal" && kioskCustomerAuth?.blocked && !options.kioskSessionToken && !isNewStudentKioskFlow && !isStaffOperatingForCustomer) {
     return {
       status: 401,
       error: "Kiosk customer identification is required before checkout.",
