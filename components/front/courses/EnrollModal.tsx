@@ -2130,13 +2130,6 @@ export default function EnrollModal({
   }
 
   const canContinue = stepValid(step)
-  const renderKioskCursorHint = (field: KioskNumericField) =>
-    isKioskTerminalFlow && activeNumericField === field ? (
-      <span
-        aria-hidden
-        className="pointer-events-none absolute right-3 top-1/2 h-5 w-[2px] -translate-y-1/2 animate-pulse rounded-full bg-white"
-      />
-    ) : null
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
   const signInModalTitle =
     signInPurpose === "sms_verification"
@@ -2814,50 +2807,15 @@ export default function EnrollModal({
                             setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
                           }}
                           onBlur={() => setPhoneTouched(true)}
-                        onFocus={() => {
-                          if (isKioskTerminalFlow) setActiveNumericField(selectKioskNumericField("phone"))
-                        }}
-                        onClick={() => {
-                          if (isKioskTerminalFlow) setActiveNumericField(selectKioskNumericField("phone"))
-                        }}
                           placeholder="(929) 387-6584"
-                          readOnly={isKioskTerminalFlow}
                           inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
                           autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
                           enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
                           aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
-                          className={`w-full rounded-md border bg-white/80 px-3 py-2 dark:bg-white/10 ${
-                            isKioskTerminalFlow && activeNumericField === "phone"
-                              ? "border-sky-400/70 ring-2 ring-sky-300/20"
-                              : "border-black/10 dark:border-white/10"
-                          }`}
+                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 px-3 py-2 dark:bg-white/10"
                         />
-                        {renderKioskCursorHint("phone")}
                       </div>
                     </div>
-                    {isKioskTerminalFlow && (
-                      <div className="my-4 w-full">
-                        <KioskNumericKeypad
-                          size="compact"
-                          className="border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]"
-                          onDigit={(digit) => {
-                            setActiveNumericField(selectKioskNumericField("phone"))
-                            setPhoneTouched(true)
-                            setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
-                          }}
-                          onBackspace={() => {
-                            setActiveNumericField(selectKioskNumericField("phone"))
-                            setPhoneTouched(true)
-                            setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
-                          }}
-                          onClear={() => {
-                            setActiveNumericField(selectKioskNumericField("phone"))
-                            setPhoneTouched(true)
-                            setContact((c) => ({ ...c, phone: clearPhoneDigits() }))
-                          }}
-                        />
-                      </div>
-                    )}
                     {phoneTouched && !isCompleteUSPhone(contact.phone) && (
                       <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
                     )}

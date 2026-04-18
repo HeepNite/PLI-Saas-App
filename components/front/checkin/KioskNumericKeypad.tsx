@@ -52,7 +52,7 @@ export default function KioskNumericKeypad({
       : isModal
         ? "rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-3 sm:p-4"
         : isCompact
-          ? "rounded-xl border border-white/10 bg-white/[0.03] p-2"
+          ? "rounded-xl border border-white/10 bg-white/[0.03] p-4"
       : "rounded-2xl border border-white/10 bg-white/[0.03] p-3"
     : ""
   const gridClassName = isLarge
