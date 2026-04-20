@@ -62,17 +62,8 @@ import {
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
 import {
-  INITIAL_KIOSK_NUMERIC_FIELD,
   PHONE_INPUT_ATTRIBUTES,
-  selectKioskNumericField,
 } from "@/lib/checkin/sign-in-inputs"
-import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
-import {
-  appendPhoneDigit,
-  clearPhoneDigits,
-  type KioskNumericField,
-  removePhoneDigit,
-} from "@/lib/checkin/numeric-keypad"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -485,7 +476,7 @@ export default function EnrollModal({
   )
   const [preparedAccount, setPreparedAccount] = React.useState<PreparedAccountState | null>(null)
   const [photoSaved, setPhotoSaved] = React.useState<boolean>(false)
-  const [activeNumericField, setActiveNumericField] = React.useState<KioskNumericField>(INITIAL_KIOSK_NUMERIC_FIELD)
+
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
   const [signInPurpose, setSignInPurpose] = React.useState<"existing" | "sms_verification" | "account_preparation">("existing")
@@ -713,7 +704,6 @@ export default function EnrollModal({
     setStudentPinConfirm("")
     setPinAvailabilityError(null)
     setCheckingPinAvailability(false)
-    setActiveNumericField(null)
     setNewStudentFallbackPhoneKey(null)
     setFlowPopup(null)
     setSignInPurpose("existing")
@@ -2047,12 +2037,6 @@ export default function EnrollModal({
     }, remaining)
   }, [activeStepKey, open, showKioskPaymentTransition])
 
-  React.useEffect(() => {
-    if (!isKioskTerminalFlow || !open || activeStepKey !== "info") {
-      setActiveNumericField(null)
-      return
-    }
-  }, [activeStepKey, isKioskTerminalFlow, open])
 
   React.useEffect(() => {
     if (!kioskInfoAutoAdvanceReady) return
@@ -2967,7 +2951,7 @@ export default function EnrollModal({
                         <p className="text-xs text-red-600">{pinAvailabilityError}</p>
                       )}
                       <p className="text-xs text-neutral-500 dark:text-white/50">
-                        Remember your PIN — you'll use it for a faster check-in next time.
+                         Remember your PIN — you&apos;ll use it for a faster check-in next time.
                       </p>
                     </div>
                   )}
