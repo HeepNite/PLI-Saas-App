@@ -25,6 +25,7 @@ import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
 import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
+import { useNewStudentVerification } from "./hooks/useNewStudentVerification"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import ProfilePhotoCapture from "@/components/front/checkin/ProfilePhotoCapture"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
@@ -347,6 +348,7 @@ export default function EnrollModal({
   onCompletedAction,
   onPaymentsStepReadyAction,
   onTimeoutAction,
+  onExistingUserDetected,
   initialStep,
   mode = "modal",
   prefillContact,
@@ -374,6 +376,7 @@ export default function EnrollModal({
    * Use to reset to a different state (e.g. idle chooser) on timeout.
    */
   onTimeoutAction?: () => void
+  onExistingUserDetected?: () => void
   initialStep?: number
   mode?: "modal" | "inline"
   prefillContact?: Partial<EnrollmentContact>
@@ -395,6 +398,11 @@ export default function EnrollModal({
   const router = useRouter()
   const { isLoaded, isSignedIn, user } = useUser()
   const { getToken } = useAuth()
+  const verification = useNewStudentVerification()
+  const verificationState = verification.state
+  const verifyNewStudent = verification.verify
+  const resetVerification = verification.reset
+  const markSmsVerified = verification.onSmsVerified
   const isInline = mode === "inline"
   const checkInContextDate = normalizeIsoDate(checkInContext?.date)
   const checkInContextTime = normalizeTime24(checkInContext?.time)
@@ -732,8 +740,9 @@ export default function EnrollModal({
   React.useEffect(() => {
     if (!open && !isInline) {
       resetForm()
+      resetVerification()
     }
-  }, [open, isInline, resetForm])
+  }, [open, isInline, resetForm, resetVerification])
 
   React.useEffect(() => {
     if (!success || !isStationCompletion || !onCompletedAction) return
@@ -1328,28 +1337,35 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      if (service === "new-student" && isCompleteUSPhone(contact.phone)) {
-        const verification = await requestNewStudentOutcome()
-        if (!verification) return
+      if (service === "new-student" && isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
+        // Kiosk new-student flow: use the verification state machine
+        const result = await verifyNewStudent(contact.phone, contact.email)
+        if (result === "existing_detected") {
+          // Parent (CheckInQrClient) handles transition to PIN flow
+          onExistingUserDetected?.()
+          return
+        }
+        if (result === "sms_pending") {
+          // Create the Clerk user via backend BEFORE showing EmbeddedSignIn.
+          // This ensures signIn.create() works (user must exist in Clerk first).
+          const account = await requestAccountPreparation()
+          if (!account) return
+          // EmbeddedSignIn will render via JSX conditional on verification.state
+          // Flow continues after SMS verification via the verified effect below
+          return
+        }
+        // If somehow already verified, continue to account prep below
+      } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
+        // Non-kiosk new-student flow: keep existing behavior
+        const verifyResult = await requestNewStudentOutcome()
+        if (!verifyResult) return
 
-        if (verification.shouldFallbackToRegular || verification.outcome === "fallback_regular") {
-          showRegularFallbackPopup(verification.message)
+        if (verifyResult.shouldFallbackToRegular || verifyResult.outcome === "fallback_regular") {
+          showRegularFallbackPopup(verifyResult.message)
           return
         }
 
-        if (verification.requiresSmsVerification || verification.outcome === "requires_sms_verification") {
-          if (isKioskTerminalFlow) {
-            // Kiosk: Clerk can't do SMS verification for a student while staff
-            // is signed in. Show regular-price fallback — the student can verify
-            // their phone on a personal device via the web flow if they want the
-            // new-student discount.
-            showRegularFallbackPopup(
-              "SMS phone verification is required for the new-student price. " +
-              "This booking will continue with the regular price."
-            )
-            return
-          }
-
+        if (verifyResult.requiresSmsVerification || verifyResult.outcome === "requires_sms_verification") {
           const account = await requestAccountPreparation()
           if (!account) return
 
@@ -1398,9 +1414,12 @@ export default function EnrollModal({
       setIdentityCheckBusy(false)
     }
   }, [
+    contact.email,
     contact.phone,
     isCheckInFlow,
+    isKioskTerminalFlow,
     isSignedIn,
+    onExistingUserDetected,
     paymentsStepIndex,
     photoPolicy,
     photoSaved,
@@ -1411,6 +1430,7 @@ export default function EnrollModal({
     service,
     showRegularFallbackPopup,
     step,
+    verifyNewStudent,
   ])
 
   const requestStripeIntent = async (token?: string | null) => {
@@ -1880,6 +1900,24 @@ export default function EnrollModal({
     if (!open) return
     setStep((prev) => Math.max(0, Math.min(prev, steps.length - 1)))
   }, [open, steps.length])
+
+  // Kiosk new-student: after SMS verification succeeds, continue to account prep
+  React.useEffect(() => {
+    if (verificationState !== "verified" || !isKioskTerminalFlow) return
+    let cancelled = false
+    void (async () => {
+      const account = preparedAccount || (await requestAccountPreparation())
+      if (cancelled || !account) return
+      const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
+      if (needsPhoto && photoStepIndex >= 0) {
+        setStep(photoStepIndex)
+      } else if (paymentsStepIndex >= 0) {
+        setStep(paymentsStepIndex)
+      }
+      resetVerification()
+    })()
+    return () => { cancelled = true }
+  }, [verificationState, isKioskTerminalFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, paymentsStepIndex, resetVerification])
 
   const activeStepKey = steps[step]?.key || ""
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
@@ -3200,6 +3238,49 @@ export default function EnrollModal({
               >
                 Continue
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {(verificationState === "sms_pending" || verificationState === "sms_verifying") && isKioskTerminalFlow && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center px-4 py-4">
+          <button
+            type="button"
+            aria-label={t("aria_close")}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => {
+              resetVerification()
+            }}
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+            <div className="flex items-start justify-between gap-4">
+              <div className="pr-10">
+                <h3 className="text-lg font-semibold text-white">Verify your phone</h3>
+                <p className="text-sm text-white/68">Enter the SMS code sent to your phone to confirm your new-student discount.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
+                onClick={() => {
+                  resetVerification()
+                }}
+              >
+                {t("cancel")}
+              </button>
+            </div>
+            <div className="mt-4 flex justify-center">
+              <EmbeddedSignIn
+                redirectUrl={signInReturnTo}
+                phoneNumber={toE164Phone(contact.phone)}
+                useNumericKeypad={isKioskTerminalFlow}
+                activateSessionOnSuccess={false}
+                onCodeSent={() => {
+                  verification.onSmsSent()
+                }}
+                onSuccessAction={async () => {
+                  markSmsVerified()
+                }}
+              />
             </div>
           </div>
         </div>

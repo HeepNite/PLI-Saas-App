@@ -3,6 +3,7 @@
 import React, { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it } from "vitest"
+import type { PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
 import { demoCourses } from "@/constants/courses"
 
@@ -20,6 +21,7 @@ const renderDisplay = async ({
   hasActiveClerkSession = false,
   hasKioskPinSession = false,
   kioskPinRotationRequired = false,
+  packageOfferContext = null,
 }: {
   shellVariant: "qr" | "terminal"
   search?: string
@@ -28,6 +30,7 @@ const renderDisplay = async ({
   hasActiveClerkSession?: boolean
   hasKioskPinSession?: boolean
   kioskPinRotationRequired?: boolean
+  packageOfferContext?: PackageOfferContext
 }) => {
   let snapshot: DisplaySnapshot | null = null
 
@@ -59,6 +62,7 @@ const renderDisplay = async ({
       existingRegularBookingOverride: null,
       openNewBooking: false,
       processingPackageCheckIn: false,
+      packageOfferContext,
     })
 
     return null
@@ -95,6 +99,99 @@ describe("useCheckInDisplayData", () => {
     container?.remove()
     root = null
     container = null
+  })
+
+  it("sets showPackageOfferScreen to false when packageOfferContext is null", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasActiveClerkSession: true,
+      packageOfferContext: null,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showPackageOfferScreen).toBe(false)
+  })
+
+  it("sets showPackageOfferScreen to true when packageOfferContext is set", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasActiveClerkSession: true,
+      packageOfferContext: {
+        scenario: "dropin-upsell",
+        previousPackageId: null,
+        courseSlug: "salsa-nocturno",
+        date: "2026-04-02",
+        time: "20:10",
+      },
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showPackageOfferScreen).toBe(true)
+  })
+
+  it("appends Package offer to breadcrumbs when package offer is active", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasActiveClerkSession: true,
+      packageOfferContext: {
+        scenario: "expired-rebuy",
+        previousPackageId: "pkg-abc",
+        courseSlug: "salsa-nocturno",
+        date: "2026-04-02",
+        time: "20:10",
+      },
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().breadcrumbItems).toEqual([
+      "Terminal",
+      "Existing customer",
+      "Current course",
+      "Package offer",
+    ])
+  })
+
+  it("does not append Package offer to breadcrumbs when packageOfferContext is null", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasActiveClerkSession: true,
+      packageOfferContext: null,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().breadcrumbItems).toEqual([
+      "Terminal",
+      "Existing customer",
+      "Current course",
+    ])
+  })
+
+  it("handles new-user-upsell scenario for showPackageOfferScreen", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasActiveClerkSession: true,
+      packageOfferContext: {
+        scenario: "new-user-upsell",
+        previousPackageId: null,
+        courseSlug: "salsa-nocturno",
+        date: "2026-04-02",
+        time: "20:10",
+      },
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showPackageOfferScreen).toBe(true)
+    expect(rendered.getSnapshot().breadcrumbItems).toContain("Package offer")
   })
 
   it("hides the QR missing-data warning on terminal shells without QR params", async () => {

@@ -28,6 +28,7 @@ type PhoneCodeFactor = {
 
 const CODE_LENGTH = 6
 const PHONE_CODE_RATE_LIMIT_RE = /too many verification code requests|wait at least\s+\d+\s+seconds?/i
+const ALREADY_SIGNED_IN_RE = /already signed in|active session/i
 
 const getPhoneCodeFactor = (factors: unknown): PhoneCodeFactor | null => {
   if (!Array.isArray(factors)) return null
@@ -57,13 +58,17 @@ export default function EmbeddedSignIn({
   phoneNumber,
   onSuccessAction,
   onSessionCreated,
+  onCodeSent,
   useNumericKeypad = false,
+  activateSessionOnSuccess = true,
 }: {
   redirectUrl: string
   phoneNumber?: string
   onSuccessAction?: () => void | Promise<void>
   onSessionCreated?: (sessionId: string) => void | Promise<void>
+  onCodeSent?: () => void
   useNumericKeypad?: boolean
+  activateSessionOnSuccess?: boolean
 }) {
   const { isLoaded, signIn, setActive } = useSignIn()
   const [phone, setPhone] = React.useState(() => formatUSPhone(phoneNumber || ""))
@@ -157,6 +162,7 @@ export default function EmbeddedSignIn({
       setPhoneNumberId(factor.phoneNumberId)
       setCode("")
       setStep("code")
+      onCodeSent?.()
     } catch (err) {
       const message = getClerkErrorMessage(err)
       if (moveToCodeStepFromCurrentAttempt() || (message && PHONE_CODE_RATE_LIMIT_RE.test(message))) {
@@ -164,11 +170,15 @@ export default function EmbeddedSignIn({
         setError("We already sent a code. Enter the one you received or wait 30 seconds to resend.")
         return
       }
+      if (message && ALREADY_SIGNED_IN_RE.test(message)) {
+        setError("An active session was detected. Please close this modal and try again, or contact staff for help.")
+        return
+      }
       setError(message || "We couldn't send the code to your phone.")
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, phone, signIn])
+  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, onCodeSent, phone, signIn])
 
   const verifyCode = React.useCallback(async () => {
     if (!isLoaded || !signIn || !setActive) {
@@ -189,7 +199,9 @@ export default function EmbeddedSignIn({
       })
 
       if (attempt.status === "complete" && attempt.createdSessionId) {
-        await setActive({ session: attempt.createdSessionId })
+        if (activateSessionOnSuccess) {
+          await setActive({ session: attempt.createdSessionId })
+        }
         if (onSessionCreated) {
           await onSessionCreated(attempt.createdSessionId)
         }
@@ -208,7 +220,7 @@ export default function EmbeddedSignIn({
     } finally {
       setBusy(false)
     }
-  }, [code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, setActive, signIn])
+  }, [activateSessionOnSuccess, code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, setActive, signIn])
 
   const resendCode = React.useCallback(async () => {
     if (!isLoaded || !signIn || !phoneNumberId) return
@@ -219,6 +231,7 @@ export default function EmbeddedSignIn({
         strategy: "phone_code",
         phoneNumberId,
       })
+      onCodeSent?.()
     } catch (err) {
       const message = getClerkErrorMessage(err)
       if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
@@ -229,7 +242,7 @@ export default function EmbeddedSignIn({
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, phoneNumberId, signIn])
+  }, [isLoaded, onCodeSent, phoneNumberId, signIn])
 
   if (!isLoaded) {
     return (

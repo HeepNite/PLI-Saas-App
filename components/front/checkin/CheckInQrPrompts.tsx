@@ -11,7 +11,7 @@ export function QrPromptText({ variant }: { variant: "terminal" | "personal" }) 
     <p
       className={
         variant === "terminal"
-          ? "mt-7 text-center text-base font-medium tracking-[0.02em] text-white/78"
+          ? "mt-8 text-center text-sm font-medium tracking-[0.02em] text-white/78"
           : "mt-7 text-center text-lg font-semibold tracking-[0.14em] text-[var(--brand,#ff3f3f)]"
       }
     >

@@ -1,5 +1,15 @@
 export type EntryMode = "idle" | "existing" | "new"
 
+export type PackageOfferScenario = "dropin-upsell" | "expired-rebuy" | "new-user-upsell"
+
+export type PackageOfferContext = {
+  scenario: PackageOfferScenario
+  previousPackageId: string | null
+  courseSlug: string
+  date: string
+  time: string
+} | null
+
 export type BootstrapResponse = {
   context: {
     courseSlug: string

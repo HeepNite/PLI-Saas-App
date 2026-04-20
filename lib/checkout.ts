@@ -268,7 +268,12 @@ export const prepareCheckoutAccount = async (
   }
 
   const allowExistingAccountLookup = Boolean(options.allowExistingAccountLookup)
-  if (allowExistingAccountLookup && !userId && options.photoContext === "kiosk_terminal") {
+  // Skip terminal auth + existing account lookup when blocked staff is operating
+  // the kiosk for a customer — we're using form data, not the staff identity.
+  const skipExistingLookupForBlockedStaff = Boolean(
+    options.photoContext === "kiosk_terminal" && kioskCustomerAuth?.blocked && isStaffOperatingForCustomer
+  )
+  if (allowExistingAccountLookup && !userId && !skipExistingLookupForBlockedStaff && options.photoContext === "kiosk_terminal") {
     const terminalAuth = options.terminalAuth || (await authorizeStaffTerminalSession({ touchLastSeen: false }))
     if (!terminalAuth.ok) {
       return {
@@ -328,34 +333,77 @@ export const prepareCheckoutAccount = async (
     // never call ensureGuestClerkUser — it returns 409 for existing accounts
     // which blocks the kiosk flow instead of allowing a regular-price fallback.
     if (options.deferUserCreation) {
+      // Guard: in kiosk new-student flow, staff Clerk session may leak into
+      // userId/resolvedClerkUser via resolveAuthUser(). If there's no real
+      // kiosk customer session, force all identity fields to null so the
+      // prepared account never claims the staff user as the student.
+      const isKioskNewStudent = options.photoContext === "kiosk_terminal" &&
+        isNewStudentKioskFlow
+      const safeUserId = isKioskNewStudent ? null : (userId || null)
+      const safeClerkUser = isKioskNewStudent ? null : (resolvedClerkUser || null)
+      const safeResolvedUserId = isKioskNewStudent ? null : (userId || resolvedClerkUser?.id || null)
+
       return {
-        userId: userId || null,
-        clerkUser: resolvedClerkUser || null,
-        resolvedUserId: userId || resolvedClerkUser?.id || null,
+        userId: safeUserId,
+        clerkUser: safeClerkUser,
+        resolvedUserId: safeResolvedUserId,
         identity,
         account: {
-          clerkUserId: userId || resolvedClerkUser?.id || null,
+          clerkUserId: safeResolvedUserId,
           created: false,
           requiresSignIn: false,
-          hasAvatar: Boolean(resolveAvatarState(resolvedClerkUser).hasAvatar),
+          hasAvatar: isKioskNewStudent ? false : Boolean(resolveAvatarState(resolvedClerkUser).hasAvatar),
         },
       }
     }
 
-    const guestResult = await ensureGuestClerkUser({
-      userId: userId || undefined,
-      resolvedEmail: identity.resolvedEmail,
-      phoneRaw: identity.phoneRaw,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      name: input.name,
-      phone: input.phone,
-    })
-    if ("status" in guestResult && typeof guestResult.status === "number") {
-      return guestResult
+    // Full checkout path (deferUserCreation=false): same staff-session guard.
+    // For kiosk new-student, staff identity must not leak into the resolved
+    // account. Force resolvedClerkUser to null so the lookup branch below
+    // finds the student's Clerk user (created during prepareOnly).
+    const isKioskNewStudentFullCheckout = options.photoContext === "kiosk_terminal" &&
+      isNewStudentKioskFlow
+    if (isKioskNewStudentFullCheckout) {
+      // Lookup the student's Clerk user directly (skip ensureGuestClerkUser —
+      // it returns 409 for existing accounts, which blocks this flow).
+      const studentClerkUser = await findClerkUserByIdentifiers({
+        email: identity.resolvedEmail,
+        phone: identity.phoneRaw || input.phone,
+      })
+      if (studentClerkUser) {
+        resolvedClerkUser = studentClerkUser
+      } else {
+        // Student's Clerk user not found — create it.
+        try {
+          resolvedClerkUser = await ensureClerkUser({
+            email: identity.resolvedEmail,
+            firstName: input.firstName,
+            lastName: input.lastName,
+            name: input.name,
+            phone: input.phone,
+          })
+          created = Boolean(resolvedClerkUser)
+        } catch (err) {
+          console.warn("Clerk user creation failed for kiosk new-student", err)
+          return { status: 502, error: "Unable to create user" } satisfies ApiError
+        }
+      }
+    } else {
+      const guestResult = await ensureGuestClerkUser({
+        userId: userId || undefined,
+        resolvedEmail: identity.resolvedEmail,
+        phoneRaw: identity.phoneRaw,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        name: input.name,
+        phone: input.phone,
+      })
+      if ("status" in guestResult && typeof guestResult.status === "number") {
+        return guestResult
+      }
+      resolvedClerkUser = resolvedClerkUser || guestResult.ensuredClerkUser
+      created = Boolean(guestResult.ensuredClerkUser && !userId)
     }
-    resolvedClerkUser = resolvedClerkUser || guestResult.ensuredClerkUser
-    created = Boolean(guestResult.ensuredClerkUser && !userId)
   }
 
   let avatarState = resolveAvatarState(resolvedClerkUser)
@@ -372,7 +420,9 @@ export const prepareCheckoutAccount = async (
 
   const hasAvatar = Boolean(avatarState.hasAvatar ?? resolveAvatarState(clerkUser).hasAvatar)
 
-  const resolvedUserId = userId || resolvedClerkUser?.id || null
+  // For kiosk new-student, skip the staff userId — use the student's Clerk ID instead.
+  const shouldSkipStaffUserId = options.photoContext === "kiosk_terminal" && isNewStudentKioskFlow
+  const resolvedUserId = (shouldSkipStaffUserId ? null : userId) || resolvedClerkUser?.id || null
 
   return {
     userId: userId || null,

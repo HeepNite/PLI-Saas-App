@@ -258,4 +258,79 @@ describe("StaffPaymentMethodConfigPanel", () => {
       expect.anything()
     )
   })
+
+  it("fetches currencies with cache: no-store", async () => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root?.render(<StaffPaymentMethodConfigPanel />)
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(testGlobal.fetch).toHaveBeenCalledWith(
+      "/api/staff/payroll/currencies",
+      expect.objectContaining({ cache: "no-store" })
+    )
+  })
+
+  it("renders config values with overflow-safe classes (min-w-0 and break-all)", async () => {
+    const longUnbrokenValue = "a".repeat(200)
+
+    testGlobal.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.includes("/api/staff/payroll/payment-methods")) {
+        return new Response(JSON.stringify({
+          items: [
+            {
+              id: "pm_1",
+              name: "Bank Transfer",
+              adapterType: "bank_transfer",
+              currency: "ARS",
+              active: true,
+              configJson: { accountAlias: longUnbrokenValue },
+            },
+          ],
+        }), { status: 200 })
+      }
+
+      if (url.includes("/api/staff/payroll/payment-models")) {
+        return new Response(JSON.stringify({ items: [] }), { status: 200 })
+      }
+
+      if (url.includes("/api/staff/payroll/currencies")) {
+        return new Response(JSON.stringify({
+          items: [{ id: "curr_ars", code: "ARS", symbol: "$", decimals: 2, active: true }],
+        }), { status: 200 })
+      }
+
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 })
+    }) as typeof fetch
+
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root?.render(<StaffPaymentMethodConfigPanel />)
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // The panel defaults to the Methods tab so the config key/value rows render on mount.
+    const valueSpan = Array.from(container.querySelectorAll("span")).find(
+      (span) => span.textContent === longUnbrokenValue
+    )
+
+    expect(valueSpan).toBeTruthy()
+    expect(valueSpan?.className).toContain("min-w-0")
+    expect(valueSpan?.className).toContain("break-all")
+  })
 })

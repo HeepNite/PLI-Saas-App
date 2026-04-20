@@ -10,11 +10,11 @@ export function EntrySelectionButtons({
   onNew: () => void
 }) {
   return (
-    <div className="mx-auto mt-5 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+    <div className="mx-auto mt-8 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
       <button
         type="button"
         onClick={onExisting}
-        className={`min-h-[104px] rounded-2xl border px-4 py-4 text-left sm:min-h-[112px] sm:px-5 sm:py-5 ${
+        className={`min-h-[80px] rounded-2xl border px-4 py-3 text-left sm:min-h-[88px] sm:px-5 sm:py-3 ${
           mode === "existing"
             ? "border-[rgba(182,22,22,0.55)] bg-[rgba(182,22,22,0.12)] text-white shadow-[0_0_0_1px_rgba(182,22,22,0.16)]"
             : "border-white/15 bg-black/20 text-white/80"
@@ -28,7 +28,7 @@ export function EntrySelectionButtons({
       <button
         type="button"
         onClick={onNew}
-        className={`min-h-[104px] rounded-2xl border px-4 py-4 text-left sm:min-h-[112px] sm:px-5 sm:py-5 ${
+        className={`min-h-[80px] rounded-2xl border px-4 py-3 text-left sm:min-h-[88px] sm:px-5 sm:py-3 ${
           mode === "new"
             ? "border-[rgba(182,22,22,0.55)] bg-[rgba(182,22,22,0.12)] text-white shadow-[0_0_0_1px_rgba(182,22,22,0.16)]"
             : "border-white/15 bg-black/20 text-white/80"

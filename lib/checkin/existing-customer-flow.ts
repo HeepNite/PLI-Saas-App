@@ -1,3 +1,5 @@
+import type { PackageOfferScenario } from "@/components/front/checkin/checkin.types"
+
 const EXISTING_CUSTOMER_INFO_STEP = 2
 
 export const hasExistingCustomerPrefillContact = (input?: {
@@ -60,6 +62,29 @@ export const shouldAutoOpenExistingPurchase = (input: {
   return !input.hasPackage
 }
 
+export const shouldShowPackageOffer = (input: {
+  isKioskTerminalFlow: boolean
+  hasPackage: boolean
+  quickCheckoutServiceId: string | null
+  quickCheckoutPackageId: string | null
+  previousPackageId: string | null
+  availablePackages: Array<{ id: string }>
+}): "dropin-upsell" | "expired-rebuy" | "new-user-upsell" | null => {
+  if (!input.isKioskTerminalFlow) return null
+  if (input.hasPackage) return null
+  if (input.availablePackages.length === 0) return null
+
+  if (input.previousPackageId || input.quickCheckoutPackageId) {
+    return "expired-rebuy"
+  }
+
+  if (input.quickCheckoutServiceId === "dropin") {
+    return "dropin-upsell"
+  }
+
+  return null
+}
+
 export const shouldAutoTriggerPackageCheckIn = (input: {
   isKioskTerminalFlow: boolean
   mode: "idle" | "existing" | "new"
@@ -74,3 +99,22 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   if (!input.effectiveCheckInWindowOpen) return false
   return input.hasActiveSession
 }
+
+/**
+ * Determines whether packageOfferContext should be preserved when bootstrap becomes null.
+ * In scenario 3 (new-user-upsell), the offer is set AFTER the first purchase completes,
+ * when bootstrap may be null. Clearing it would make the offer screen disappear immediately.
+ */
+export const shouldPreserveOfferOnBootstrapClear = (
+  scenario: PackageOfferScenario | null
+): boolean => scenario === "new-user-upsell"
+
+/**
+ * Resolves the action to take when the user declines a package offer.
+ * - new-user-upsell: "No thanks, I'm done" → station completion
+ * - existing customer (expired-rebuy, dropin-upsell): → existing purchase flow
+ */
+export const resolvePackageOfferDeclineAction = (
+  scenario: PackageOfferScenario | null
+): "station-completion" | "existing-purchase" =>
+  scenario === "new-user-upsell" ? "station-completion" : "existing-purchase"

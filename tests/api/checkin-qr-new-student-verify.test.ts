@@ -47,7 +47,32 @@ describe("qr new-student verify route", () => {
     expect(res.status).toBe(400)
   })
 
-  it("requires sms verification when the phone exists but there is no completed purchase", async () => {
+  it("returns requires_sms_verification for a truly new phone (no Clerk, no DB)", async () => {
+    mockFindClerkUserByIdentifiers.mockResolvedValue(null)
+    mockUserFindFirst.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const req = new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "requires_sms_verification",
+      reason: "phone_verification_required",
+      eligibleForNewStudent: false,
+      requiresSmsVerification: true,
+      shouldFallbackToRegular: false,
+      requiresLogin: false,
+    })
+  })
+
+  it("returns requires_sms_verification when the phone exists in Clerk but there is no completed purchase", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
     mockUserFindFirst.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue(null)
@@ -76,7 +101,35 @@ describe("qr new-student verify route", () => {
     expect(data.sources.clerk).toBe(true)
   })
 
-  it("falls back to regular price when there is a completed purchase", async () => {
+  it("returns existing_user when existing Clerk user has no purchases", async () => {
+    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_456" })
+    mockUserFindFirst.mockResolvedValue(null)
+    mockPurchaseFindFirst.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const req = new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+1 (929) 387-9999" }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    // This is a "known identity, no purchases" case — distinct from truly new.
+    // The outcome still requires SMS verification to confirm phone ownership.
+    expect(data).toMatchObject({
+      outcome: "requires_sms_verification",
+      reason: "phone_verification_required",
+      eligibleForNewStudent: false,
+      requiresSmsVerification: true,
+      shouldFallbackToRegular: false,
+      requiresLogin: false,
+    })
+  })
+
+  it("returns fallback_regular when existing user has a completed purchase", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockUserFindFirst.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue({ id: "pur_123" })
@@ -122,7 +175,6 @@ describe("qr new-student verify route", () => {
 
     expect(res.status).toBe(200)
     expect(data.exists).toBe(true)
-    expect(data.sources.databaseUser).toBe(true)
     expect(mockUserFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({

@@ -615,6 +615,11 @@ export default function CheckInQrClient({
     void handleStationCompletion()
   }, [handleStationCompletion])
 
+  const handleExistingUserDetected = React.useCallback(() => {
+    setOpenNewBooking(false)
+    setMode("existing")
+  }, [])
+
   const handleNewUserPostPurchase = React.useCallback(() => {
     const availablePackages = newBookingCourse?.enrollment.packages ?? []
     if (availablePackages.length > 0) {
@@ -988,6 +993,7 @@ export default function CheckInQrClient({
           mode="modal"
           onCompletedAction={isStationDeviceFlow ? handleNewUserPostPurchase : undefined}
           onTimeoutAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
+          onExistingUserDetected={isKioskTerminalFlow ? handleExistingUserDetected : undefined}
         />
       )}
 

@@ -537,4 +537,6 @@ describe("qr check-in bootstrap route", () => {
     consoleInfo.mockRestore()
     dateNow.mockRestore()
   })
+
+
 })

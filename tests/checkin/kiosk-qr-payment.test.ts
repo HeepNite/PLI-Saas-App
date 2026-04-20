@@ -276,6 +276,7 @@ describe("kiosk QR payment helpers", () => {
       processingPackageCheckIn: false,
       hasExistingRegularBookingOverride: false,
       hasVisibleError: false,
+      hasPackageOffer: false,
       paymentsStepReady: false,
     }
 
@@ -359,6 +360,38 @@ describe("kiosk QR payment helpers", () => {
           loadingBootstrap: false,
           hasBootstrap: false,
           hasExistingRegularBookingOverride: false,
+        })
+      ).toBe(false)
+    })
+
+    it("hides the overlay when hasPackageOffer is true (package offer screen is visible)", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: true,
+          hasPackageOffer: true,
+          hasExistingRegularBookingOverride: false,
+        })
+      ).toBe(false)
+    })
+
+    it("shows the overlay when hasPackageOffer is false (normal flow continues)", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: true,
+          hasPackageOffer: false,
+        })
+      ).toBe(true)
+    })
+
+    it("hides the overlay when hasPackageOffer is true even if bootstrap is loading", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: true,
+          hasPackageOffer: true,
         })
       ).toBe(false)
     })

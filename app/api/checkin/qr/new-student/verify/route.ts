@@ -1,15 +1,36 @@
 import { NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
+import { auth } from "@clerk/nextjs/server"
 import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
 import { normalizePhone } from "@/lib/checkout/validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
 
-const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"] as const
+type VerifyOutcome = "eligible" | "requires_sms_verification" | "existing_user" | "fallback_regular"
 
-type NewStudentVerifyOutcome = "eligible" | "requires_sms_verification" | "fallback_regular"
+type ExistingIdentifier = "phone" | "email" | "both"
+
+type VerifyResponse = {
+  outcome: VerifyOutcome
+  reason: string
+  message?: string
+  eligibleForNewStudent: boolean
+  requiresSmsVerification: boolean
+  shouldFallbackToRegular: boolean
+  requiresLogin: boolean
+  sessionOwnsPhone?: boolean
+  exists?: boolean
+  hasCompletedPurchase?: boolean
+  existingIdentifier?: ExistingIdentifier
+  sources?: {
+    clerk?: boolean
+    databaseUser?: boolean
+    completedPurchase?: boolean
+  }
+}
+
+const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"]
 
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
@@ -45,10 +66,18 @@ const buildPhoneQueryFilters = (phoneVariants: string[]) => {
   return filters
 }
 
+const resolveExistingIdentifier = (
+  phoneMatch: boolean,
+  emailMatch: boolean
+): ExistingIdentifier | undefined => {
+  if (phoneMatch && emailMatch) return "both"
+  if (phoneMatch) return "phone"
+  if (emailMatch) return "email"
+  return undefined
+}
+
 export async function POST(req: Request) {
   try {
-    const authResult = await auth()
-    const sessionUserId = authResult.userId || null
     const rateLimit = consumeRateLimit({
       key: buildRateLimitKey("checkin:qr:new-student:verify:post", getClientIp(req)),
       limit: 30,
@@ -70,99 +99,136 @@ export async function POST(req: Request) {
 
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
     const phoneInput = normalizeString(payload?.phone)
+    const emailInput = normalizeString(payload?.email)
 
     const phoneNormalized = normalizePhone(phoneInput) || ""
     const phoneVariants = buildPhoneVariants(phoneNormalized)
 
-    if (!phoneNormalized) {
-      return NextResponse.json({ error: "Missing or invalid phone" }, { status: 400 })
+    if (!phoneNormalized && !emailInput) {
+      return NextResponse.json({ error: "Missing or invalid phone or email" }, { status: 400 })
     }
 
+    // Current session — used to detect if the session already owns the phone
+    const { userId: sessionUserId } = await auth()
+
+    // Clerk lookup by phone and/or email
     const us10Phone = phoneVariants.find((value) => value.length === 10) || ""
     const clerkLookupPhone = phoneInput.startsWith("+")
       ? phoneInput
       : us10Phone
         ? `+1${us10Phone}`
         : phoneInput
+
     const existingClerkUser = await findClerkUserByIdentifiers({
       phone: clerkLookupPhone || undefined,
+      email: emailInput || undefined,
     })
 
-    const identityFilters: Array<Record<string, unknown>> = buildPhoneQueryFilters(phoneVariants)
+    // Build DB identity filters from phone variants + email
+    const identityFilters: Array<Record<string, unknown>> = []
+    if (phoneVariants.length > 0) {
+      identityFilters.push(...buildPhoneQueryFilters(phoneVariants))
+    }
     if (existingClerkUser?.id) identityFilters.push({ clerkId: existingClerkUser.id })
+    if (emailInput) identityFilters.push({ email: emailInput })
 
-    let existingDbUser = null as null | { id: string; clerkId: string | null }
-    let existingPaidPurchase = null as null | { id: string; user: { clerkId: string | null } | null }
+    let existingDbUser = null as null | { id: string; clerkId: string | null; email: string; phone: string | null } | null
 
     if (identityFilters.length > 0) {
       existingDbUser = await prisma.user.findFirst({
         where: { OR: identityFilters },
-        select: { id: true, clerkId: true },
+        select: { id: true, clerkId: true, email: true, phone: true },
       })
-
-      const purchaseFilters: Array<Record<string, unknown>> = buildPhoneQueryFilters(phoneVariants)
-      if (existingClerkUser?.id) purchaseFilters.push({ user: { clerkId: existingClerkUser.id } })
-      if (existingDbUser?.id) purchaseFilters.push({ userId: existingDbUser.id })
-
-      if (purchaseFilters.length > 0) {
-        existingPaidPurchase = await prisma.purchase.findFirst({
-          where: {
-            status: { in: [...COMPLETED_PURCHASE_STATUSES] },
-            OR: purchaseFilters,
-          },
-          select: {
-            id: true,
-            user: {
-              select: {
-                clerkId: true,
-              },
-            },
-          },
-        })
-      }
     }
 
-    const exists = Boolean(existingClerkUser || existingDbUser || existingPaidPurchase)
-    const hasCompletedPurchase = Boolean(existingPaidPurchase)
-    const matchedClerkIds = new Set<string>()
-    if (existingClerkUser?.id) matchedClerkIds.add(existingClerkUser.id)
-    if (existingDbUser?.clerkId) matchedClerkIds.add(existingDbUser.clerkId)
-    if (existingPaidPurchase?.user?.clerkId) matchedClerkIds.add(existingPaidPurchase.user.clerkId)
-    const sessionOwnsPhone = Boolean(sessionUserId && matchedClerkIds.has(sessionUserId))
-    const outcome: NewStudentVerifyOutcome = hasCompletedPurchase
-      ? "fallback_regular"
-      : sessionOwnsPhone
-        ? "eligible"
-        : "requires_sms_verification"
-    const reason = hasCompletedPurchase
-      ? "existing_customer"
-      : sessionOwnsPhone
-        ? "verified_phone_session"
-        : "phone_verification_required"
-    const message =
-      outcome === "fallback_regular"
-        ? "This customer is not eligible for the new-student price. The flow should continue with the regular $20 price."
-        : outcome === "eligible"
-          ? "This customer can continue with the new-student price."
-          : "SMS phone verification is required before continuing with the new-student price."
+    const exists = Boolean(existingClerkUser || existingDbUser)
 
-    return NextResponse.json({
-      outcome,
-      reason,
-      message,
+    // Determine which identifiers matched
+    const phoneMatch = Boolean(
+      existingClerkUser || (existingDbUser?.phone && phoneVariants.length > 0)
+    )
+    const emailMatch = Boolean(
+      existingDbUser?.email && emailInput && existingDbUser.email === emailInput
+    )
+
+    const existingIdentifier = resolveExistingIdentifier(phoneMatch, emailMatch)
+
+    // --- Unified outcome contract ---
+
+    // Case 1: Current session already owns this phone → eligible (skip verification)
+    if (sessionUserId && existingClerkUser?.id === sessionUserId) {
+      const response: VerifyResponse = {
+        outcome: "eligible",
+        reason: "verified_phone_session",
+        eligibleForNewStudent: true,
+        requiresSmsVerification: false,
+        shouldFallbackToRegular: false,
+        requiresLogin: false,
+        sessionOwnsPhone: true,
+        existingIdentifier,
+        sources: { clerk: true },
+      }
+      return NextResponse.json(response)
+    }
+
+    // Case 2: Identity exists — check purchase history.
+    // Returning customers (with completed purchases) get fallback to regular price.
+    // Everyone else (truly new OR existing-but-no-purchases) requires SMS verification.
+    const purchaseFilters: Array<Record<string, unknown>> = []
+    if (existingClerkUser?.id) purchaseFilters.push({ user: { clerkId: existingClerkUser.id } })
+    if (existingDbUser?.id) purchaseFilters.push({ userId: existingDbUser.id })
+    if (phoneVariants.length > 0) purchaseFilters.push(...buildPhoneQueryFilters(phoneVariants))
+    if (emailInput) purchaseFilters.push({ email: emailInput })
+
+    let hasCompletedPurchase = false
+    if (purchaseFilters.length > 0 && process.env.DATABASE_URL) {
+      const completedPurchase = await prisma.purchase.findFirst({
+        where: { OR: purchaseFilters, status: { in: COMPLETED_PURCHASE_STATUSES } },
+        select: { id: true },
+      })
+      hasCompletedPurchase = Boolean(completedPurchase)
+    }
+
+    if (hasCompletedPurchase) {
+      // Returning customer — fallback to regular price
+      const response: VerifyResponse = {
+        outcome: "fallback_regular",
+        reason: "existing_customer",
+        message: "This phone number is associated with an existing customer. Regular pricing will be applied.",
+        eligibleForNewStudent: false,
+        requiresSmsVerification: false,
+        shouldFallbackToRegular: true,
+        requiresLogin: true,
+        exists: true,
+        hasCompletedPurchase: true,
+        existingIdentifier,
+        sources: {
+          clerk: Boolean(existingClerkUser),
+          databaseUser: Boolean(existingDbUser),
+          completedPurchase: true,
+        },
+      }
+      return NextResponse.json(response)
+    }
+
+    // Case 3: No completed purchases — requires SMS verification.
+    // Covers both truly new (no identity) and existing-but-no-purchases.
+    const response: VerifyResponse = {
+      outcome: "requires_sms_verification",
+      reason: "phone_verification_required",
+      eligibleForNewStudent: false,
+      requiresSmsVerification: true,
+      shouldFallbackToRegular: false,
+      requiresLogin: false,
       exists,
-      hasCompletedPurchase,
-      sessionOwnsPhone,
-      requiresLogin: Boolean(hasCompletedPurchase && !sessionOwnsPhone),
-      eligibleForNewStudent: outcome === "eligible",
-      requiresSmsVerification: outcome === "requires_sms_verification",
-      shouldFallbackToRegular: outcome === "fallback_regular",
-      sources: {
+      hasCompletedPurchase: false,
+      existingIdentifier,
+      sources: exists ? {
         clerk: Boolean(existingClerkUser),
         databaseUser: Boolean(existingDbUser),
-        completedPurchase: Boolean(existingPaidPurchase),
-      },
-    })
+      } : undefined,
+    }
+    return NextResponse.json(response)
   } catch (error) {
     console.error("QR new-student verify failed", error)
     return NextResponse.json({ error: "Unable to verify customer identity" }, { status: 500 })

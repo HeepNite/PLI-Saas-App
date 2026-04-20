@@ -3,6 +3,7 @@
 import React from "react"
 import type { KioskPinRotationMode } from "@/components/front/checkin/checkin-kiosk.types"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
+import type { PackageOfferContext } from "@/components/front/checkin/checkin.types"
 
 type EntryMode = "idle" | "existing" | "new"
 
@@ -38,6 +39,8 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setPendingLoginPhone: React.Dispatch<React.SetStateAction<string>>
   setShowPhoneSignIn: React.Dispatch<React.SetStateAction<boolean>>
   setSuccess: React.Dispatch<React.SetStateAction<string | null>>
+  setPackageOfferContext: React.Dispatch<React.SetStateAction<PackageOfferContext>>
+  setPackageOfferSelectedId: React.Dispatch<React.SetStateAction<string | null>>
 }
 
 export const useKioskFlowCompletion = <TBootstrap,>({
@@ -66,6 +69,8 @@ export const useKioskFlowCompletion = <TBootstrap,>({
   setPendingLoginPhone,
   setShowPhoneSignIn,
   setSuccess,
+  setPackageOfferContext,
+  setPackageOfferSelectedId,
 }: UseKioskFlowCompletionParams<TBootstrap>) => {
   const resetCustomerFlowState = React.useCallback(() => {
     setOpenNewBooking(false)
@@ -87,6 +92,8 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setKioskPinAttemptsRemaining(null)
     setKioskPinBlockedUntil(null)
     resetKioskCustomerSession()
+    setPackageOfferContext(null)
+    setPackageOfferSelectedId(null)
   }, [
     resetKioskCustomerSession,
     setBootstrap,
@@ -103,6 +110,8 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setMode,
     setNewBookingOverride,
     setOpenNewBooking,
+    setPackageOfferContext,
+    setPackageOfferSelectedId,
     setPaymentsModalReady,
     setPendingLoginPhone,
     setShowPhoneSignIn,

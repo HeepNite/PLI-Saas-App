@@ -11,8 +11,6 @@ import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/valid
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
-const NEW_STUDENT_SERVICE_IDS = new Set(["new-student"])
-
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
   ? new Stripe(secret, {
@@ -78,8 +76,12 @@ export async function POST(req: Request) {
       allowExistingAccountLookup: prepareOnly || photoContext === "kiosk_terminal",
       kioskSessionToken,
       serviceId: validation.serviceId,
-      deferUserCreation:
-        prepareOnly && photoContext === "kiosk_terminal" && NEW_STUDENT_SERVICE_IDS.has(validation.serviceId),
+      // NOTE: deferUserCreation is intentionally FALSE for kiosk new-student prepareOnly.
+      // EmbeddedSignIn uses signIn.create({ strategy: "phone_code" }) which requires an
+      // existing Clerk user. Without creating the Clerk user here, SMS verification cannot
+      // work for truly new students. The staff-session isolation guard in lib/checkout.ts
+      // ensures the new user uses the STUDENT's identity, not the staff's.
+      deferUserCreation: false,
       validation,
     }
   )

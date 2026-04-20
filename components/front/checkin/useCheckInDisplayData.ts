@@ -14,7 +14,7 @@ import {
 } from "@/lib/checkin/existing-customer-flow"
 import { shouldShowKioskResolvingOverlay } from "@/lib/checkin/kiosk-qr-payment"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
-import type { BootstrapResponse } from "@/components/front/checkin/checkin.types"
+import type { BootstrapResponse, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
 
 type UseCheckInDisplayDataArgs = {
@@ -40,6 +40,7 @@ type UseCheckInDisplayDataArgs = {
   existingRegularBookingOverride: { courseSlug: string; date: string; time: string } | null
   openNewBooking: boolean
   processingPackageCheckIn: boolean
+  packageOfferContext: PackageOfferContext
 }
 
 export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
@@ -66,6 +67,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     existingRegularBookingOverride,
     openNewBooking,
     processingPackageCheckIn,
+    packageOfferContext,
   } = args
 
   // ─── URL params ─────────────────────────────────────────────
@@ -270,6 +272,9 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&format=png&data=${encodeURIComponent(latePaymentQrLink)}`
   }, [latePaymentQrLink])
 
+  // ─── Package offer ──────────────────────────────────────
+  const showPackageOfferScreen = packageOfferContext !== null
+
   // ─── Visibility flags ───────────────────────────────────────
   const showQrPanel = shouldShowCheckInQrPanel({
     hideQrPanel,
@@ -303,6 +308,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     processingPackageCheckIn,
     hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
     hasVisibleError: Boolean(visibleError),
+    hasPackageOffer: showPackageOfferScreen,
     paymentsStepReady: paymentsModalReady,
   })
 
@@ -338,6 +344,9 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
       } else if (existingRegularBookingOverride) {
         items.push("Regular purchase")
       }
+      if (showPackageOfferScreen) {
+        items.push("Package offer")
+      }
     }
     return items
   }, [
@@ -351,6 +360,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     openNewBooking,
     shellVariant,
     showKioskPinPanel,
+    showPackageOfferScreen,
   ])
 
   // ─── Misc labels ────────────────────────────────────────────
@@ -446,6 +456,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     showLatePaymentOffer,
     showContextWarning,
     showKioskResolvingOverlay,
+    showPackageOfferScreen,
 
     // Labels / misc
     welcomeLabel,

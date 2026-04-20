@@ -176,6 +176,7 @@ type KioskResolvingOverlayInput = {
   processingPackageCheckIn: boolean
   hasExistingRegularBookingOverride: boolean
   hasVisibleError: boolean
+  hasPackageOffer: boolean
   /**
    * True once EnrollModal has reached the payments step and is ready to display.
    * When false (and override is set), the overlay stays up to cover the
@@ -199,6 +200,8 @@ export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInpu
     return false
   }
   if (input.hasPendingPinRotation) return false
+  // Package offer screen is the visible UI — hide the overlay to prevent flash.
+  if (input.hasPackageOffer) return false
   if (input.loadingBootstrap) return true
   if (input.hasVisibleError) return false
   // Package flow: keep overlay while auto-deduct is in progress, hide once done.

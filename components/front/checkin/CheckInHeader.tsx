@@ -24,7 +24,7 @@ export function CheckInHeader({
 
   if (variant === "terminal") {
     return (
-      <div className="mt-4 grid grid-cols-1 items-center gap-5 md:grid-cols-[1fr_auto_1fr] md:gap-6">
+      <div className="mt-2 grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto_1fr] md:gap-4">
         <div className="mx-auto inline-flex items-center md:mx-0 md:justify-self-start">
           <Image
             src="/logo/logo-white.png"

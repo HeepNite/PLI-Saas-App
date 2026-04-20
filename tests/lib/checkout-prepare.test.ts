@@ -417,11 +417,285 @@ describe("prepareCheckoutAccount", () => {
       hasAvatar: true,
     })
   })
+
+  it("does not leak staff clerkUser into new-student prepareOnly when no kiosk session exists", async () => {
+    const staffUser = makeClerkUser({
+      id: "staff_user_leak_guard",
+      firstName: "Staff",
+      lastName: "Member",
+      primaryEmailAddress: { emailAddress: "staff@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 999 1111" },
+      phoneNumbers: [
+        {
+          id: "pn_staff",
+          phoneNumber: "+15559991111",
+          verification: { status: "verified" },
+        },
+      ],
+      primaryPhoneNumberId: "pn_staff",
+    })
+
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(staffUser)
+    client.users.getUserList.mockResolvedValue({ data: [] })
+    mockAuth.mockResolvedValue({ userId: staffUser.id })
+    mockClerkClient.mockResolvedValue(client)
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(
+      new Request("http://localhost/checkout"),
+      {
+        email: "newstudent@example.com",
+        phone: "+1 555 222 3333",
+      },
+      {
+        photoContext: "kiosk_terminal",
+        allowExistingAccountLookup: true,
+        serviceId: "new-student",
+        deferUserCreation: true,
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    if ("status" in result) throw new Error("Expected prepared checkout account, got error: " + result.error)
+
+    // The critical assertions: staff session must NOT leak into prepared account
+    expect(result.userId).toBeNull()
+    expect(result.clerkUser).toBeNull()
+    expect(result.resolvedUserId).toBeNull()
+    expect(result.account.clerkUserId).toBeNull()
+    expect(result.account.hasAvatar).toBe(false)
+    expect(result.account.requiresSignIn).toBe(false)
+
+    // Identity should come from form data, not staff session
+    expect(result.identity.resolvedEmail).toBe("newstudent@example.com")
+    expect(result.identity.phoneNormalized).toBe("15552223333")
+  })
+
+  it("does not leak blocked-staff clerkUser into new-student prepareOnly", async () => {
+    const staffUser = makeClerkUser({
+      id: "staff_blocked_leak",
+      firstName: "Admin",
+      lastName: "User",
+      primaryEmailAddress: { emailAddress: "admin@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 888 0000" },
+      phoneNumbers: [
+        {
+          id: "pn_admin",
+          phoneNumber: "+15558880000",
+          verification: { status: "verified" },
+        },
+      ],
+      primaryPhoneNumberId: "pn_admin",
+    }) as MockClerkUser & {
+      publicMetadata: { role: string }
+      privateMetadata: Record<string, never>
+      unsafeMetadata: Record<string, never>
+    }
+    staffUser.publicMetadata = { role: "staff" }
+    staffUser.privateMetadata = {}
+    staffUser.unsafeMetadata = {}
+
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(staffUser)
+    client.users.getUserList.mockResolvedValue({ data: [] })
+    mockAuth.mockResolvedValue({ userId: staffUser.id })
+    mockClerkClient.mockResolvedValue(client)
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(
+      new Request("http://localhost/checkout"),
+      {
+        email: "brandnew@example.com",
+        phone: "+1 555 444 5555",
+      },
+      {
+        photoContext: "kiosk_terminal",
+        allowExistingAccountLookup: true,
+        serviceId: "new-student",
+        deferUserCreation: true,
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    if ("status" in result) throw new Error("Expected prepared checkout account, got error: " + result.error)
+
+    // Even with blocked staff role, staff session must NOT leak
+    expect(result.userId).toBeNull()
+    expect(result.clerkUser).toBeNull()
+    expect(result.resolvedUserId).toBeNull()
+    expect(result.account.clerkUserId).toBeNull()
+    expect(result.account.hasAvatar).toBe(false)
+    expect(result.identity.resolvedEmail).toBe("brandnew@example.com")
+    expect(result.identity.phoneNormalized).toBe("15554445555")
+  })
+
+  it("full checkout with staff session resolves to STUDENT identity, not staff", async () => {
+    const staffUser = makeClerkUser({
+      id: "staff_user_full_checkout",
+      firstName: "Staff",
+      lastName: "Member",
+      primaryEmailAddress: { emailAddress: "staff@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 999 1111" },
+      phoneNumbers: [
+        {
+          id: "pn_staff",
+          phoneNumber: "+15559991111",
+          verification: { status: "verified" },
+        },
+      ],
+      primaryPhoneNumberId: "pn_staff",
+    })
+
+    // Student's Clerk user (created during prepareOnly in Task 5)
+    const studentClerkUser = makeClerkUser({
+      id: "student_clerk_from_prepareonly",
+      firstName: "New",
+      lastName: "Student",
+      primaryEmailAddress: { emailAddress: "newstudent@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 222 3333" },
+      phoneNumbers: [
+        {
+          id: "pn_student",
+          phoneNumber: "+15552223333",
+          verification: { status: "verified" },
+        },
+      ],
+      primaryPhoneNumberId: "pn_student",
+    })
+
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(staffUser)
+    // findClerkUserByIdentifiers uses getUserList — return the student
+    client.users.getUserList.mockImplementation(async (params?: { emailAddress?: string[] }) => {
+      if (params?.emailAddress?.includes("newstudent@example.com")) {
+        return { data: [studentClerkUser] }
+      }
+      return { data: [] }
+    })
+    mockAuth.mockResolvedValue({ userId: staffUser.id })
+    mockClerkClient.mockResolvedValue(client)
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(
+      new Request("http://localhost/checkout"),
+      {
+        email: "newstudent@example.com",
+        phone: "+1 555 222 3333",
+      },
+      {
+        photoContext: "kiosk_terminal",
+        allowExistingAccountLookup: true,
+        serviceId: "new-student",
+        // deferUserCreation is FALSE — this is the full checkout path
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    if ("status" in result) throw new Error("Expected prepared checkout account, got error: " + result.error)
+
+    // resolvedUserId must be the student's, not the staff's
+    expect(result.resolvedUserId).toBe("student_clerk_from_prepareonly")
+    expect(result.resolvedUserId).not.toBe(staffUser.id)
+
+    // Identity must come from form data (student), not staff session
+    expect(result.identity.resolvedEmail).toBe("newstudent@example.com")
+    expect(result.identity.phoneNormalized).toBe("15552223333")
+
+    // account.clerkUserId must be the student's
+    expect(result.account.clerkUserId).toBe("student_clerk_from_prepareonly")
+    expect(result.account.created).toBe(false)
+  })
+
+  it("full checkout with staff session creates student Clerk user if not found", async () => {
+    const staffUser = makeClerkUser({
+      id: "staff_user_create_student",
+      firstName: "Staff",
+      lastName: "Member",
+      primaryEmailAddress: { emailAddress: "staff@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 999 1111" },
+      phoneNumbers: [
+        {
+          id: "pn_staff2",
+          phoneNumber: "+15559991111",
+          verification: { status: "verified" },
+        },
+      ],
+      primaryPhoneNumberId: "pn_staff2",
+    })
+
+    const createdStudent = makeClerkUser({
+      id: "student_clerk_created",
+      firstName: "New",
+      lastName: "Student",
+      primaryEmailAddress: { emailAddress: "brandnew2@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 666 7777" },
+      phoneNumbers: [
+        {
+          id: "pn_created_student",
+          phoneNumber: "+15556667777",
+          verification: { status: "unverified" },
+        },
+      ],
+      primaryPhoneNumberId: "pn_created_student",
+    })
+
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(staffUser)
+    // No existing student found
+    client.users.getUserList.mockResolvedValue({ data: [] })
+    // ensureClerkUser creates the student
+    client.users.createUser.mockResolvedValue(createdStudent)
+    mockAuth.mockResolvedValue({ userId: staffUser.id })
+    mockClerkClient.mockResolvedValue(client)
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(
+      new Request("http://localhost/checkout"),
+      {
+        email: "brandnew2@example.com",
+        firstName: "New",
+        lastName: "Student",
+        phone: "+1 555 666 7777",
+      },
+      {
+        photoContext: "kiosk_terminal",
+        allowExistingAccountLookup: true,
+        serviceId: "new-student",
+        // deferUserCreation is FALSE — full checkout path
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    if ("status" in result) throw new Error("Expected prepared checkout account, got error: " + result.error)
+
+    // resolvedUserId must be the newly created student's, not the staff's
+    expect(result.resolvedUserId).toBe("student_clerk_created")
+    expect(result.resolvedUserId).not.toBe(staffUser.id)
+
+    // Identity must come from form data
+    expect(result.identity.resolvedEmail).toBe("brandnew2@example.com")
+    expect(result.identity.phoneNormalized).toBe("15556667777")
+
+    // The student's Clerk user should be resolved
+    expect(result.clerkUser).not.toBeNull()
+    expect(result.clerkUser?.id).toBe("student_clerk_created")
+
+    // account.clerkUserId must be the student's
+    expect(result.account.clerkUserId).toBe("student_clerk_created")
+  })
 })
 
 describe("resolveCheckoutPreparation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockAuth.mockReset()
+    mockAuth.mockResolvedValue({ userId: null })
+    mockClerkClient.mockReset()
     process.env.PREPARED_CHECKOUT_CONTEXT = "0"
     mockVerifyToken.mockResolvedValue({ data: {} })
     mockResolveTerminalKioskSession.mockResolvedValue({
