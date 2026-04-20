@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server"
 import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
 import { normalizePhone } from "@/lib/checkout/validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 export const runtime = "nodejs"
 
@@ -29,8 +30,6 @@ type VerifyResponse = {
     completedPurchase?: boolean
   }
 }
-
-const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"]
 
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
@@ -183,7 +182,7 @@ export async function POST(req: Request) {
     let hasCompletedPurchase = false
     if (purchaseFilters.length > 0 && process.env.DATABASE_URL) {
       const completedPurchase = await prisma.purchase.findFirst({
-        where: { OR: purchaseFilters, status: { in: COMPLETED_PURCHASE_STATUSES } },
+        where: { OR: purchaseFilters, status: { in: SUCCESSFUL_PURCHASE_STATUSES } },
         select: { id: true },
       })
       hasCompletedPurchase = Boolean(completedPurchase)

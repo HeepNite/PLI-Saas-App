@@ -158,6 +158,46 @@ describe("qr new-student verify route", () => {
     expect(data.sources.completedPurchase).toBe(true)
   })
 
+  it("returns fallback_regular when existing user has a purchase with status 'completed'", async () => {
+    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_789" })
+    mockUserFindFirst.mockResolvedValue(null)
+    mockPurchaseFindFirst.mockResolvedValue({ id: "pur_456" })
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const req = new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+1 (929) 387-6584" }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "fallback_regular",
+      reason: "existing_customer",
+      exists: true,
+      hasCompletedPurchase: true,
+      eligibleForNewStudent: false,
+      requiresSmsVerification: false,
+      shouldFallbackToRegular: true,
+      requiresLogin: true,
+    })
+    expect(data.sources.clerk).toBe(true)
+    expect(data.sources.completedPurchase).toBe(true)
+    // Verify the query includes "completed" in the status filter
+    expect(mockPurchaseFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: expect.objectContaining({
+            in: expect.arrayContaining(["completed"]),
+          }),
+        }),
+      })
+    )
+  })
+
   it("matches phone variants with and without country code", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockUserFindFirst.mockResolvedValue({ id: "usr_123" })

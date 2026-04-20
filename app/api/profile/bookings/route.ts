@@ -5,6 +5,7 @@ import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { getCatalogFrontData } from "@/lib/catalog-courses"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 export const runtime = "nodejs"
 
@@ -50,7 +51,7 @@ export async function GET(req: Request) {
     const paidPurchases = await prisma.purchase.findMany({
       where: {
         userId: dbUser.id,
-        status: { in: ["paid", "succeeded"] },
+        status: { in: SUCCESSFUL_PURCHASE_STATUSES },
       },
       include: {
         packagePurchases: {

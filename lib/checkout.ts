@@ -27,9 +27,9 @@ import {
 } from "@/lib/security/student-pin"
 import { writeStudentPinAudit, STUDENT_PIN_AUDIT_ACTIONS } from "@/lib/security/student-pin-audit"
 import { upsertUserByIdentifiers } from "@/lib/users"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 const NEW_STUDENT_SERVICE_IDS = new Set(["new-student"])
-const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"]
 
 const hasVerifiedPhone = (user: ClerkUser | null) => {
   if (!user) return false
@@ -475,7 +475,7 @@ export const enforceNewStudentRules = async (input: {
   }
 
   const existing = await prisma.purchase.findFirst({
-    where: { OR: or, status: { in: COMPLETED_PURCHASE_STATUSES } },
+    where: { OR: or, status: { in: SUCCESSFUL_PURCHASE_STATUSES } },
   })
   if (existing) {
     return {

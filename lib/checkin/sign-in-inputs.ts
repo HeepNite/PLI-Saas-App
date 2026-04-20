@@ -2,7 +2,7 @@ import type { KioskNumericField } from "@/lib/checkin/numeric-keypad"
 
 export const PHONE_INPUT_ATTRIBUTES = {
   type: "text" as const,
-  inputMode: "numeric" as const,
+  inputMode: "tel" as const,
   autoComplete: "tel-national" as const,
   enterKeyHint: "next" as const,
 }

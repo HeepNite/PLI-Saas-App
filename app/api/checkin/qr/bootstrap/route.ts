@@ -10,6 +10,7 @@ import type { CourseData } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 export const runtime = "nodejs"
 
@@ -317,7 +318,7 @@ export async function POST(req: Request) {
         where: {
           userId: dbUser.id,
           courseSlug: context.courseSlug,
-          status: { in: ["paid", "succeeded"] },
+          status: { in: SUCCESSFUL_PURCHASE_STATUSES },
         },
         orderBy: { createdAt: "desc" },
         take: 8,
@@ -327,7 +328,7 @@ export async function POST(req: Request) {
         : prisma.purchase.findFirst({
             where: {
               userId: dbUser.id,
-              status: { in: ["paid", "succeeded"] },
+              status: { in: SUCCESSFUL_PURCHASE_STATUSES },
             },
             select: { id: true },
           }),

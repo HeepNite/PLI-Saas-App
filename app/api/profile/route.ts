@@ -6,9 +6,9 @@ import { validateProfileUpdatePayload } from "@/lib/security/profile-validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { awardPointsFromRule, getPointsBalance } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 export const runtime = "nodejs"
-const COMPLETED_PURCHASE_STATUSES = ["paid", "succeeded"]
 const profileCompletedEventKey = (userId: string) => `profile-completed:${userId}`
 
 const isCompleteProfile = (profile: {
@@ -74,7 +74,7 @@ export async function GET(req: Request) {
     const completedPurchases = await prisma.purchase.count({
       where: {
         userId: dbUser.id,
-        status: { in: COMPLETED_PURCHASE_STATUSES },
+        status: { in: SUCCESSFUL_PURCHASE_STATUSES },
       },
     })
 

@@ -360,6 +360,7 @@ export default function EnrollModal({
   checkInContext,
   kioskSessionToken,
   useDraft = true,
+  preventOutsideClose = false,
 }: {
   course: CourseEnrollmentData
   open: boolean
@@ -388,6 +389,7 @@ export default function EnrollModal({
   checkInContext?: EnrollCheckInContext
   kioskSessionToken?: string
   useDraft?: boolean
+  preventOutsideClose?: boolean
 }) {
   const { courses: catalogCourses } = useCatalogCourses()
   const sourceCourses = React.useMemo(
@@ -449,6 +451,8 @@ export default function EnrollModal({
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>("")
   const [studentPin, setStudentPin] = React.useState("")
   const [studentPinConfirm, setStudentPinConfirm] = React.useState("")
+  const [pinAvailabilityError, setPinAvailabilityError] = React.useState<string | null>(null)
+  const [checkingPinAvailability, setCheckingPinAvailability] = React.useState(false)
   // Paso 2: datos de contacto (modular, sin teléfono)
   const [contact, setContact] = React.useState<EnrollmentContact>(
     {
@@ -707,6 +711,8 @@ export default function EnrollModal({
     setPhotoSaved(false)
     setStudentPin("")
     setStudentPinConfirm("")
+    setPinAvailabilityError(null)
+    setCheckingPinAvailability(false)
     setActiveNumericField(null)
     setNewStudentFallbackPhoneKey(null)
     setFlowPopup(null)
@@ -1328,6 +1334,30 @@ export default function EnrollModal({
     [contact.phone, regularServiceId, regularServicePrice, service]
   )
 
+  const checkPinAvailability = React.useCallback(async (pin: string): Promise<boolean> => {
+    try {
+      setCheckingPinAvailability(true)
+      const res = await fetch("/api/checkin/pin/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
+      })
+      const data = await res.json()
+      if (!data.available) {
+        setPinAvailabilityError(data.message || "This PIN is already in use. Please choose a different one.")
+        return false
+      }
+      setPinAvailabilityError(null)
+      return true
+    } catch {
+      // Network error — proceed anyway, don't block on availability check failure
+      setPinAvailabilityError(null)
+      return true
+    } finally {
+      setCheckingPinAvailability(false)
+    }
+  }, [])
+
   const advanceFromContactStep = React.useCallback(async () => {
     if (!isCheckInFlow) {
       setStep(step + 1)
@@ -1387,6 +1417,12 @@ export default function EnrollModal({
         }
       }
 
+      // PIN availability check for new students (non-blocking on failure)
+      if (service === "new-student" && /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm) {
+        const pinAvailable = await checkPinAvailability(studentPin)
+        if (!pinAvailable) return
+      }
+
       const account = preparedAccount || (await requestAccountPreparation())
       if (!account) return
 
@@ -1414,6 +1450,7 @@ export default function EnrollModal({
       setIdentityCheckBusy(false)
     }
   }, [
+    checkPinAvailability,
     contact.email,
     contact.phone,
     isCheckInFlow,
@@ -1430,6 +1467,8 @@ export default function EnrollModal({
     service,
     showRegularFallbackPopup,
     step,
+    studentPin,
+    studentPinConfirm,
     verifyNewStudent,
   ])
 
@@ -2228,7 +2267,7 @@ export default function EnrollModal({
       {!isInline && (
         <button
           aria-label={t("aria_close")}
-          onClick={handleClose}
+          onClick={preventOutsideClose ? undefined : handleClose}
           className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         />
       )}
@@ -2890,8 +2929,13 @@ export default function EnrollModal({
                           inputMode="numeric"
                           maxLength={4}
                           type="password"
+                          autoComplete="one-time-code"
+                          name="kiosk-pin"
                           value={studentPin}
-                          onChange={(e) => setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                          onChange={(e) => {
+                            setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                            setPinAvailabilityError(null)
+                          }}
                           className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
                           placeholder="4-digit PIN"
                         />
@@ -2899,12 +2943,32 @@ export default function EnrollModal({
                           inputMode="numeric"
                           maxLength={4}
                           type="password"
+                          autoComplete="one-time-code"
+                          name="kiosk-pin-confirm"
                           value={studentPinConfirm}
-                          onChange={(e) => setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                          onChange={(e) => {
+                            setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))
+                            setPinAvailabilityError(null)
+                          }}
+                          onBlur={() => {
+                            if (
+                              service === "new-student" &&
+                              /^\d{4}$/.test(studentPin) &&
+                              studentPin === studentPinConfirm
+                            ) {
+                              void checkPinAvailability(studentPin)
+                            }
+                          }}
                           className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
                           placeholder="Confirm PIN"
                         />
-                      </div>
+                       </div>
+                      {pinAvailabilityError && (
+                        <p className="text-xs text-red-600">{pinAvailabilityError}</p>
+                      )}
+                      <p className="text-xs text-neutral-500 dark:text-white/50">
+                        Remember your PIN — you'll use it for a faster check-in next time.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -3050,25 +3114,6 @@ export default function EnrollModal({
                         </button>
                       </div>
                     </div>
-
-                    {/* PIN reminder for new students */}
-                    {service === "new-student" && (
-                      <div className="rounded-md border border-amber-200/50 dark:border-amber-500/30 bg-amber-50/80 dark:bg-amber-500/10 p-3">
-                        <div className="flex items-start gap-2">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0">
-                            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                            <path d="M12 9v4"/>
-                            <path d="M12 17h.01"/>
-                          </svg>
-                          <div>
-                            <div className="text-sm font-medium text-amber-800 dark:text-amber-200">Recuerda tu PIN</div>
-                            <div className="mt-0.5 text-xs text-amber-700 dark:text-amber-300/80">
-                              Lo usarás para poder hacer el proceso más rápido después.
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -3126,10 +3171,10 @@ export default function EnrollModal({
                     {step < steps.length - 1 ? (
                       <button
                         type="submit"
-                        disabled={!canContinue || identityCheckBusy}
+                        disabled={!canContinue || identityCheckBusy || checkingPinAvailability}
                         className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
-                        {identityCheckBusy ? t("verifyingAccount") : t("continue")}
+                        {identityCheckBusy ? t("verifyingAccount") : checkingPinAvailability ? "Checking PIN..." : t("continue")}
                       </button>
                     ) : (
                         <button

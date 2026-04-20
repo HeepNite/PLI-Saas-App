@@ -620,29 +620,26 @@ export default function CheckInQrClient({
     setMode("existing")
   }, [])
 
+  const postPurchaseResetRef = React.useRef<number | null>(null)
+
   const handleNewUserPostPurchase = React.useCallback(() => {
-    const availablePackages = newBookingCourse?.enrollment.packages ?? []
-    if (availablePackages.length > 0) {
-      setPackageOfferContext({
-        scenario: "new-user-upsell",
-        previousPackageId: null,
-        courseSlug: newBookingCourse!.slug,
-        date: newBookingContext.date,
-        time: newBookingContext.time,
-      })
-      setOpenNewBooking(false)
-      setNewBookingOverride(null)
-      setMode("existing")
-      setExistingRegularBookingKey((prev) => prev + 1)
-      setExistingRegularBookingOverride({
-        courseSlug: newBookingCourse!.slug,
-        date: newBookingContext.date,
-        time: newBookingContext.time,
-      })
-    } else {
+    // After new-student purchase, always reset to idle.
+    // The success message is already visible from the payment completion UI.
+    postPurchaseResetRef.current = window.setTimeout(() => {
+      postPurchaseResetRef.current = null
       void handleStationCompletion()
+    }, 3000)
+  }, [handleStationCompletion])
+
+  // Cleanup post-purchase reset timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (postPurchaseResetRef.current !== null) {
+        window.clearTimeout(postPurchaseResetRef.current)
+        postPurchaseResetRef.current = null
+      }
     }
-  }, [handleStationCompletion, newBookingContext.date, newBookingContext.time, newBookingCourse])
+  }, [])
 
   const handleBootstrapAction = React.useCallback(() => {
     if (processingPackageCheckIn) return
@@ -991,6 +988,7 @@ export default function CheckInQrClient({
           kioskSessionToken={!hasActiveClerkSession && kioskPinSessionToken ? kioskPinSessionToken : undefined}
           useDraft={false}
           mode="modal"
+          preventOutsideClose={isKioskTerminalFlow}
           onCompletedAction={isStationDeviceFlow ? handleNewUserPostPurchase : undefined}
           onTimeoutAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
           onExistingUserDetected={isKioskTerminalFlow ? handleExistingUserDetected : undefined}
