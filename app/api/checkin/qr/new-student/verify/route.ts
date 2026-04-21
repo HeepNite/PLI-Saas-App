@@ -40,11 +40,27 @@ const buildPhoneVariants = (normalizedPhone: string) => {
   const digits = normalizedPhone.replace(/\D/g, "")
   if (!digits) return [] as string[]
   const variants = new Set<string>([digits])
+
+  // Extract last 10 digits as the core US number
+  const last10 = digits.length >= 10 ? digits.slice(-10) : ""
+
   if (digits.length === 11 && digits.startsWith("1")) {
-    variants.add(digits.slice(1))
+    variants.add(digits.slice(1)) // 10-digit without country code
   } else if (digits.length === 10) {
-    variants.add(`1${digits}`)
+    variants.add(`1${digits}`) // 11-digit with country code
   }
+
+  // Always include last 10 digits to catch formatted variants like "+1 (929) 387-6584"
+  if (last10) {
+    variants.add(last10)
+    variants.add(`1${last10}`)
+  }
+
+  // Include E.164 format (+1XXXXXXXXXX) for direct DB matches
+  if (last10) {
+    variants.add(`+1${last10}`)
+  }
+
   return [...variants]
 }
 
@@ -129,7 +145,7 @@ export async function POST(req: Request) {
       identityFilters.push(...buildPhoneQueryFilters(phoneVariants))
     }
     if (existingClerkUser?.id) identityFilters.push({ clerkId: existingClerkUser.id })
-    if (emailInput) identityFilters.push({ email: emailInput })
+    if (emailInput) identityFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
 
     let existingDbUser = null as null | { id: string; clerkId: string | null; email: string; phone: string | null } | null
 
@@ -147,7 +163,7 @@ export async function POST(req: Request) {
       existingClerkUser || (existingDbUser?.phone && phoneVariants.length > 0)
     )
     const emailMatch = Boolean(
-      existingDbUser?.email && emailInput && existingDbUser.email === emailInput
+      existingDbUser?.email && emailInput && existingDbUser.email.toLowerCase() === emailInput.toLowerCase()
     )
 
     const existingIdentifier = resolveExistingIdentifier(phoneMatch, emailMatch)
@@ -177,7 +193,7 @@ export async function POST(req: Request) {
     if (existingClerkUser?.id) purchaseFilters.push({ user: { clerkId: existingClerkUser.id } })
     if (existingDbUser?.id) purchaseFilters.push({ userId: existingDbUser.id })
     if (phoneVariants.length > 0) purchaseFilters.push(...buildPhoneQueryFilters(phoneVariants))
-    if (emailInput) purchaseFilters.push({ email: emailInput })
+    if (emailInput) purchaseFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
 
     let hasCompletedPurchase = false
     if (purchaseFilters.length > 0 && process.env.DATABASE_URL) {
@@ -190,6 +206,14 @@ export async function POST(req: Request) {
 
     if (hasCompletedPurchase) {
       // Returning customer — fallback to regular price
+      console.log("[new-student-verify]", {
+        phoneInput,
+        phoneVariants,
+        clerkUserFound: !!existingClerkUser,
+        dbUserFound: !!existingDbUser,
+        purchaseFound: true,
+        outcome: "fallback_regular",
+      })
       const response: VerifyResponse = {
         outcome: "fallback_regular",
         reason: "existing_customer",
@@ -212,6 +236,14 @@ export async function POST(req: Request) {
 
     // Case 3: No completed purchases — requires SMS verification.
     // Covers both truly new (no identity) and existing-but-no-purchases.
+    console.log("[new-student-verify]", {
+      phoneInput,
+      phoneVariants,
+      clerkUserFound: !!existingClerkUser,
+      dbUserFound: !!existingDbUser,
+      purchaseFound: false,
+      outcome: exists ? "requires_sms_verification" : "requires_sms_verification",
+    })
     const response: VerifyResponse = {
       outcome: "requires_sms_verification",
       reason: "phone_verification_required",

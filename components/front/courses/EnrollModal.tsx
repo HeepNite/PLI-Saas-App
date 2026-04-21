@@ -2910,24 +2910,27 @@ export default function EnrollModal({
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <input
+                          type="tel"
                           inputMode="numeric"
+                          pattern="[0-9]*"
                           maxLength={4}
-                          type="password"
-                          autoComplete="one-time-code"
+                          autoComplete="off"
                           name="kiosk-pin"
                           value={studentPin}
                           onChange={(e) => {
                             setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))
                             setPinAvailabilityError(null)
                           }}
+                          style={{ WebkitTextSecurity: "disc" as const }}
                           className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
                           placeholder="4-digit PIN"
                         />
                         <input
+                          type="tel"
                           inputMode="numeric"
+                          pattern="[0-9]*"
                           maxLength={4}
-                          type="password"
-                          autoComplete="one-time-code"
+                          autoComplete="off"
                           name="kiosk-pin-confirm"
                           value={studentPinConfirm}
                           onChange={(e) => {
@@ -2943,6 +2946,7 @@ export default function EnrollModal({
                               void checkPinAvailability(studentPin)
                             }
                           }}
+                          style={{ WebkitTextSecurity: "disc" as const }}
                           className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
                           placeholder="Confirm PIN"
                         />
