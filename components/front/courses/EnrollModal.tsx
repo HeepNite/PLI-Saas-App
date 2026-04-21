@@ -2921,17 +2921,17 @@ export default function EnrollModal({
                             setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))
                             setPinAvailabilityError(null)
                           }}
-                          style={{ WebkitTextSecurity: "disc" as const }}
-                          className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
-                          placeholder="4-digit PIN"
-                        />
-                        <input
-                          type="tel"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          maxLength={4}
-                          autoComplete="off"
-                          name="kiosk-pin-confirm"
+                           style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
+                           className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                           placeholder="4-digit PIN"
+                         />
+                         <input
+                           type="tel"
+                           inputMode="numeric"
+                           pattern="[0-9]*"
+                           maxLength={4}
+                           autoComplete="off"
+                           name="kiosk-pin-confirm"
                           value={studentPinConfirm}
                           onChange={(e) => {
                             setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))
@@ -2946,7 +2946,7 @@ export default function EnrollModal({
                               void checkPinAvailability(studentPin)
                             }
                           }}
-                          style={{ WebkitTextSecurity: "disc" as const }}
+                           style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
                           className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
                           placeholder="Confirm PIN"
                         />
