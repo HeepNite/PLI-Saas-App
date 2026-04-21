@@ -48,10 +48,22 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
   if (stripeCustomerId) data.stripeCustomerId = stripeCustomerId
 
   if (existing) {
-    return prisma.user.update({
-      where: { id: existing.id },
-      data,
-    })
+    // Only fill empty fields — do NOT overwrite existing identity data
+    const updateData: Record<string, unknown> = {}
+    if (!existing.clerkId && clerkId) updateData.clerkId = clerkId
+    if (!existing.email && email) updateData.email = email
+    if (!existing.name && name) updateData.name = name
+    if (!existing.phone && phone) updateData.phone = phone
+    if (!existing.stripeCustomerId && stripeCustomerId) {
+      updateData.stripeCustomerId = stripeCustomerId
+    }
+    if (Object.keys(updateData).length > 0) {
+      return prisma.user.update({
+        where: { id: existing.id },
+        data: updateData,
+      })
+    }
+    return existing
   }
 
   if (!email) {

@@ -304,8 +304,8 @@ export default function CheckInQrClient({
   )
 
   const signOutKioskCustomerSession = React.useCallback(
-    (sessionId: string) => clerk.signOut({ sessionId }),
-    [clerk]
+    (sessionId: string) => clerk.signOut({ sessionId, redirectUrl: stationRedirectUrl }),
+    [clerk, stationRedirectUrl]
   )
   const replaceStationUrl = React.useCallback((url: string) => router.replace(url), [router])
 
@@ -615,10 +615,18 @@ export default function CheckInQrClient({
     void handleStationCompletion()
   }, [handleStationCompletion])
 
+  const [returnedFromNewStudentFlow, setReturnedFromNewStudentFlow] = React.useState(false)
+
   const handleExistingUserDetected = React.useCallback(() => {
     setOpenNewBooking(false)
+    setReturnedFromNewStudentFlow(true)
     setMode("existing")
   }, [])
+
+  // Clear the "returned from new student" flag when leaving existing mode
+  React.useEffect(() => {
+    if (mode !== "existing") setReturnedFromNewStudentFlow(false)
+  }, [mode])
 
   const postPurchaseResetRef = React.useRef<number | null>(null)
 
@@ -902,8 +910,8 @@ export default function CheckInQrClient({
 
             {showKioskPinPanel && (
               <KioskPinModal
-                title={kioskPinPanelCopy.title}
-                description={kioskPinPanelCopy.description}
+                title={returnedFromNewStudentFlow ? "Welcome back!" : kioskPinPanelCopy.title}
+                description={returnedFromNewStudentFlow ? "You\u0027re already a registered customer. Enter your PIN to continue with regular pricing." : kioskPinPanelCopy.description}
                 onClose={handleExistingCustomerDismiss}
                 hasSession={hasKioskPinSession}
                 entryPin={kioskPin}
@@ -992,6 +1000,7 @@ export default function CheckInQrClient({
           onCompletedAction={isStationDeviceFlow ? handleNewUserPostPurchase : undefined}
           onTimeoutAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
           onExistingUserDetected={isKioskTerminalFlow ? handleExistingUserDetected : undefined}
+          onKioskSessionCreated={isKioskTerminalFlow ? registerKioskClerkSession : undefined}
         />
       )}
 

@@ -170,30 +170,26 @@ export async function POST(req: Request) {
 
     // --- Unified outcome contract ---
 
-    // Case 1: Current session already owns this phone → eligible (skip verification)
-    if (sessionUserId && existingClerkUser?.id === sessionUserId) {
-      const response: VerifyResponse = {
-        outcome: "eligible",
-        reason: "verified_phone_session",
-        eligibleForNewStudent: true,
-        requiresSmsVerification: false,
-        shouldFallbackToRegular: false,
-        requiresLogin: false,
-        sessionOwnsPhone: true,
-        existingIdentifier,
-        sources: { clerk: true },
-      }
-      return NextResponse.json(response)
-    }
-
-    // Case 2: Identity exists — check purchase history.
-    // Returning customers (with completed purchases) get fallback to regular price.
-    // Everyone else (truly new OR existing-but-no-purchases) requires SMS verification.
+    // Purchase-history check runs FIRST to prevent session shortcut from bypassing
+    // returning-customer detection. A staff session matching the phone must still
+    // see fallback_regular if the phone owner has completed purchases.
     const purchaseFilters: Array<Record<string, unknown>> = []
     if (existingClerkUser?.id) purchaseFilters.push({ user: { clerkId: existingClerkUser.id } })
     if (existingDbUser?.id) purchaseFilters.push({ userId: existingDbUser.id })
     if (phoneVariants.length > 0) purchaseFilters.push(...buildPhoneQueryFilters(phoneVariants))
     if (emailInput) purchaseFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
+
+    console.log("[new-student-verify] purchase-check-input", {
+      phoneInput,
+      phoneNormalized,
+      phoneVariants,
+      clerkLookupPhone,
+      existingClerkUserId: existingClerkUser?.id ?? null,
+      existingDbUserId: existingDbUser?.id ?? null,
+      existingDbUserPhone: existingDbUser?.phone ?? null,
+      purchaseFilterCount: purchaseFilters.length,
+      purchaseFilters: JSON.stringify(purchaseFilters).slice(0, 500),
+    })
 
     let hasCompletedPurchase = false
     if (purchaseFilters.length > 0 && process.env.DATABASE_URL) {
@@ -205,13 +201,15 @@ export async function POST(req: Request) {
     }
 
     if (hasCompletedPurchase) {
-      // Returning customer — fallback to regular price
+      // Returning customer — fallback to regular price (even if session matches)
       console.log("[new-student-verify]", {
         phoneInput,
         phoneVariants,
         clerkUserFound: !!existingClerkUser,
         dbUserFound: !!existingDbUser,
         purchaseFound: true,
+        sessionUserId: sessionUserId ?? null,
+        shortCircuitReason: "purchase_found_before_session_check",
         outcome: "fallback_regular",
       })
       const response: VerifyResponse = {
@@ -234,6 +232,28 @@ export async function POST(req: Request) {
       return NextResponse.json(response)
     }
 
+    // Case 1: No completed purchase, current session already owns this phone → eligible (skip verification)
+    if (sessionUserId && existingClerkUser?.id === sessionUserId) {
+      console.log("[new-student-verify]", {
+        phoneInput,
+        sessionUserId,
+        shortCircuitReason: "session_owns_phone_no_purchase",
+        outcome: "eligible",
+      })
+      const response: VerifyResponse = {
+        outcome: "eligible",
+        reason: "verified_phone_session",
+        eligibleForNewStudent: true,
+        requiresSmsVerification: false,
+        shouldFallbackToRegular: false,
+        requiresLogin: false,
+        sessionOwnsPhone: true,
+        existingIdentifier,
+        sources: { clerk: true },
+      }
+      return NextResponse.json(response)
+    }
+
     // Case 3: No completed purchases — requires SMS verification.
     // Covers both truly new (no identity) and existing-but-no-purchases.
     console.log("[new-student-verify]", {
@@ -241,8 +261,9 @@ export async function POST(req: Request) {
       phoneVariants,
       clerkUserFound: !!existingClerkUser,
       dbUserFound: !!existingDbUser,
+      sessionUserId: sessionUserId ?? null,
       purchaseFound: false,
-      outcome: exists ? "requires_sms_verification" : "requires_sms_verification",
+      outcome: "requires_sms_verification",
     })
     const response: VerifyResponse = {
       outcome: "requires_sms_verification",
