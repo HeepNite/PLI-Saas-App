@@ -64,6 +64,8 @@ import {
 import {
   PHONE_INPUT_ATTRIBUTES,
 } from "@/lib/checkin/sign-in-inputs"
+import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
+import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; instead, it logs the payload
@@ -444,6 +446,7 @@ export default function EnrollModal({
   const [studentPinConfirm, setStudentPinConfirm] = React.useState("")
   const [pinAvailabilityError, setPinAvailabilityError] = React.useState<string | null>(null)
   const [checkingPinAvailability, setCheckingPinAvailability] = React.useState(false)
+  const [activeNumericField, setActiveNumericField] = React.useState<"phone" | "pin" | "pin-confirm" | null>(null)
   // Paso 2: datos de contacto (modular, sin teléfono)
   const [contact, setContact] = React.useState<EnrollmentContact>(
     {
@@ -1347,6 +1350,45 @@ export default function EnrollModal({
       setCheckingPinAvailability(false)
     }
   }, [])
+
+  const handleNumpadDigit = React.useCallback((digit: string) => {
+    if (activeNumericField === "phone") {
+      setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
+      setPhoneTouched(true)
+    } else if (activeNumericField === "pin") {
+      setStudentPin((prev) => (prev + digit).slice(0, 4))
+      setPinAvailabilityError(null)
+    } else if (activeNumericField === "pin-confirm") {
+      setStudentPinConfirm((prev) => (prev + digit).slice(0, 4))
+      setPinAvailabilityError(null)
+    }
+  }, [activeNumericField])
+
+  const handleNumpadBackspace = React.useCallback(() => {
+    if (activeNumericField === "phone") {
+      setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
+    } else if (activeNumericField === "pin") {
+      setStudentPin((prev) => prev.slice(0, -1))
+    } else if (activeNumericField === "pin-confirm") {
+      setStudentPinConfirm((prev) => prev.slice(0, -1))
+    }
+  }, [activeNumericField])
+
+  const handleNumpadClear = React.useCallback(() => {
+    if (activeNumericField === "phone") {
+      setContact((c) => ({ ...c, phone: "+1 " }))
+    } else if (activeNumericField === "pin") {
+      setStudentPin("")
+    } else if (activeNumericField === "pin-confirm") {
+      setStudentPinConfirm("")
+    }
+  }, [activeNumericField])
+
+  const activateNumericField = React.useCallback((field: "phone" | "pin" | "pin-confirm") => {
+    if (isKioskTerminalFlow) {
+      setActiveNumericField(field)
+    }
+  }, [isKioskTerminalFlow])
 
   const advanceFromContactStep = React.useCallback(async () => {
     if (!isCheckInFlow) {
@@ -2836,15 +2878,15 @@ export default function EnrollModal({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("label_firstName")}</label>
-                      <input value={contact.firstName} onChange={(e)=>setContact((c)=>({...c, firstName: e.target.value}))} placeholder={t("placeholder_firstName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                      <input value={contact.firstName} onChange={(e)=>setContact((c)=>({...c, firstName: e.target.value}))} onFocus={() => setActiveNumericField(null)} placeholder={t("placeholder_firstName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                     </fieldset>
                     <fieldset className="space-y-2">
                       <label className="text-sm font-medium">{t("label_lastName")}</label>
-                      <input value={contact.lastName} onChange={(e)=>setContact((c)=>({...c, lastName: e.target.value}))} placeholder={t("placeholder_lastName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                      <input value={contact.lastName} onChange={(e)=>setContact((c)=>({...c, lastName: e.target.value}))} onFocus={() => setActiveNumericField(null)} placeholder={t("placeholder_lastName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                     </fieldset>
                   <fieldset className="space-y-2 sm:col-span-2">
                     <label className="text-sm font-medium">{t("label_email")}</label>
-                    <input type="email" value={contact.email} onChange={(e)=>setContact((c)=>({...c, email: e.target.value}))} placeholder={t("placeholder_email")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
+                      <input type="email" value={contact.email} onChange={(e)=>setContact((c)=>({...c, email: e.target.value}))} onFocus={() => setActiveNumericField(null)} placeholder={t("placeholder_email")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
                     {!isCheckInFlow && (
                       <p className="text-xs text-neutral-500">
                         Already have an account?{" "}
@@ -2879,13 +2921,16 @@ export default function EnrollModal({
                             setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
                           }}
                           onBlur={() => setPhoneTouched(true)}
+                          onFocus={() => { if (isKioskTerminalFlow) setActiveNumericField("phone") }}
+                          readOnly={isKioskTerminalFlow}
+                          onClick={() => { if (isKioskTerminalFlow) setActiveNumericField("phone") }}
                           placeholder="(929) 387-6584"
                           inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
                           autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
                           enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
                           pattern={PHONE_INPUT_ATTRIBUTES.pattern}
                           aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
-                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 px-3 py-2 dark:bg-white/10"
+                          className={`w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 px-3 py-2 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "phone" ? " ring-2 ring-[var(--brand,#ff3f3f)]" : ""}`}
                         />
                       </div>
                     </div>
@@ -2922,35 +2967,41 @@ export default function EnrollModal({
                             setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))
                             setPinAvailabilityError(null)
                           }}
-                           style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
-                           className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                          readOnly={isKioskTerminalFlow}
+                          onClick={() => { if (isKioskTerminalFlow) setActiveNumericField("pin") }}
+                          onFocus={() => { if (isKioskTerminalFlow) setActiveNumericField("pin") }}
+                           style={!isKioskTerminalFlow ? { WebkitTextSecurity: "disc" } as React.CSSProperties : undefined}
+                           className={`rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm${isKioskTerminalFlow && activeNumericField === "pin" ? " ring-2 ring-[var(--brand,#ff3f3f)]" : ""}`}
                            placeholder="4-digit PIN"
                          />
                          <input
-                           type="tel"
-                           inputMode="numeric"
-                           pattern="[0-9]*"
-                           maxLength={4}
-                           autoComplete="off"
-                           name="kiosk-pin-confirm"
-                          value={studentPinConfirm}
-                          onChange={(e) => {
-                            setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))
-                            setPinAvailabilityError(null)
-                          }}
-                          onBlur={() => {
-                            if (
-                              service === "new-student" &&
-                              /^\d{4}$/.test(studentPin) &&
-                              studentPin === studentPinConfirm
-                            ) {
-                              void checkPinAvailability(studentPin)
-                            }
-                          }}
-                           style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
-                          className="rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
-                          placeholder="Confirm PIN"
-                        />
+                            type="tel"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={4}
+                            autoComplete="off"
+                            name="kiosk-pin-confirm"
+                           value={studentPinConfirm}
+                           onChange={(e) => {
+                             setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))
+                             setPinAvailabilityError(null)
+                           }}
+                           readOnly={isKioskTerminalFlow}
+                           onClick={() => { if (isKioskTerminalFlow) setActiveNumericField("pin-confirm") }}
+                           onFocus={() => { if (isKioskTerminalFlow) setActiveNumericField("pin-confirm") }}
+                           onBlur={() => {
+                             if (
+                               service === "new-student" &&
+                               /^\d{4}$/.test(studentPin) &&
+                               studentPin === studentPinConfirm
+                             ) {
+                               void checkPinAvailability(studentPin)
+                             }
+                           }}
+                            style={!isKioskTerminalFlow ? { WebkitTextSecurity: "disc" } as React.CSSProperties : undefined}
+                           className={`rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm${isKioskTerminalFlow && activeNumericField === "pin-confirm" ? " ring-2 ring-[var(--brand,#ff3f3f)]" : ""}`}
+                           placeholder="Confirm PIN"
+                         />
                        </div>
                       {pinAvailabilityError && (
                         <p className="text-xs text-red-600">{pinAvailabilityError}</p>
@@ -2958,6 +3009,17 @@ export default function EnrollModal({
                       <p className="text-xs text-neutral-500 dark:text-white/50">
                          Remember your PIN — you&apos;ll use it for a faster check-in next time.
                       </p>
+                    </div>
+                  )}
+
+                  {activeNumericField !== null && isKioskTerminalFlow && (
+                    <div className="sm:col-span-2">
+                      <KioskNumericKeypad
+                        onDigit={handleNumpadDigit}
+                        onBackspace={handleNumpadBackspace}
+                        onClear={handleNumpadClear}
+                        size="modal"
+                      />
                     </div>
                   )}
                 </div>
