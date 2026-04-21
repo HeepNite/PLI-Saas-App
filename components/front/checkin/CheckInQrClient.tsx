@@ -575,7 +575,7 @@ export default function CheckInQrClient({
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       credentials: "include",
-      body: JSON.stringify({ userId, courseSlug }),
+      body: JSON.stringify({ customerUserId: userId, courseSlug }),
     })
     if (!res.ok) throw new Error(`previous-package endpoint returned ${res.status}`)
     const data = await res.json().catch(() => null)

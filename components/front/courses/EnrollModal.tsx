@@ -3070,6 +3070,44 @@ export default function EnrollModal({
 
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
+                    {/* Package picker for kiosk flows (party step is skipped) */}
+                    {isCheckInFlow && !pkg && course.enrollment.packages.length > 0 && (
+                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium">{t("optionalPackages")}</h4>
+                        </div>
+                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">{t("packagesHint")}</p>
+                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {course.enrollment.packages.map((p) => {
+                            const selected = pkg === p.id
+                            const metaLine = formatPackageMeta(p)
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setPkg(p.id)}
+                                className={`h-full rounded-md border px-3 py-3 text-left transition ${
+                                  selected
+                                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] text-white"
+                                    : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 text-neutral-700 dark:text-white/80 hover:border-white/30"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-sm font-medium">{p.label}</span>
+                                  {p.price && <span className="text-sm font-semibold">${p.price}</span>}
+                                </div>
+                                {metaLine && (
+                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
+                                )}
+                                {p.description && (
+                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{p.description}</p>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {/* Payments step */}
                     <div>
                       <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 space-y-2.5">
