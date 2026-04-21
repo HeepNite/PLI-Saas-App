@@ -2883,6 +2883,7 @@ export default function EnrollModal({
                           inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
                           autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
                           enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
+                          pattern={PHONE_INPUT_ATTRIBUTES.pattern}
                           aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
                           className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 px-3 py-2 dark:bg-white/10"
                         />

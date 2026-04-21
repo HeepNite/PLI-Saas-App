@@ -283,9 +283,10 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     isQrEntry,
     shellVariant,
   })
-  const showSignedInBootstrapPanel = mode === "existing" && (hasActiveClerkSession || hasKioskPinSession)
+  const effectiveClerkSession = hasActiveClerkSession && !isKioskTerminalFlow
+  const showSignedInBootstrapPanel = mode === "existing" && (effectiveClerkSession || hasKioskPinSession)
   const showKioskPinPanel =
-    mode === "existing" && isKioskTerminalFlow && !hasActiveClerkSession && (!hasKioskPinSession || kioskPinRotationRequired)
+    mode === "existing" && isKioskTerminalFlow && (!hasKioskPinSession || kioskPinRotationRequired)
   const hideEntrySelection = showSignedInBootstrapPanel || showKioskPinPanel
   const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const showLatePaymentOffer = Boolean(

@@ -105,7 +105,7 @@ describe("useCheckInDisplayData", () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
-      hasActiveClerkSession: true,
+      hasKioskPinSession: true,
       packageOfferContext: null,
     })
     root = rendered.root
@@ -118,7 +118,7 @@ describe("useCheckInDisplayData", () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
-      hasActiveClerkSession: true,
+      hasKioskPinSession: true,
       packageOfferContext: {
         scenario: "dropin-upsell",
         previousPackageId: null,
@@ -137,7 +137,7 @@ describe("useCheckInDisplayData", () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
-      hasActiveClerkSession: true,
+      hasKioskPinSession: true,
       packageOfferContext: {
         scenario: "expired-rebuy",
         previousPackageId: "pkg-abc",
@@ -161,7 +161,7 @@ describe("useCheckInDisplayData", () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
-      hasActiveClerkSession: true,
+      hasKioskPinSession: true,
       packageOfferContext: null,
     })
     root = rendered.root
@@ -178,7 +178,7 @@ describe("useCheckInDisplayData", () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
-      hasActiveClerkSession: true,
+      hasKioskPinSession: true,
       packageOfferContext: {
         scenario: "new-user-upsell",
         previousPackageId: null,

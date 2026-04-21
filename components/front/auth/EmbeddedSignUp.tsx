@@ -2,7 +2,7 @@
 
 import React from "react"
 import { Loader2 } from "lucide-react"
-import { useSignIn } from "@clerk/nextjs"
+import { useSignUp } from "@clerk/nextjs"
 import { formatUSPhone, isCompleteUSPhone, toE164Phone } from "@/components/front/courses/utils/phone"
 import {
   CODE_INPUT_ATTRIBUTES,
@@ -21,28 +21,8 @@ import {
   removePhoneDigit,
 } from "@/lib/checkin/numeric-keypad"
 
-type PhoneCodeFactor = {
-  strategy: "phone_code"
-  phoneNumberId: string
-}
-
 const CODE_LENGTH = 6
 const PHONE_CODE_RATE_LIMIT_RE = /too many verification code requests|wait at least\s+\d+\s+seconds?/i
-const ALREADY_SIGNED_IN_RE = /already signed in|active session/i
-
-const getPhoneCodeFactor = (factors: unknown): PhoneCodeFactor | null => {
-  if (!Array.isArray(factors)) return null
-  const factor = factors.find(
-    (item) =>
-      item &&
-      typeof item === "object" &&
-      "strategy" in item &&
-      "phoneNumberId" in item &&
-      (item as { strategy?: string }).strategy === "phone_code"
-  )
-  if (!factor) return null
-  return factor as PhoneCodeFactor
-}
 
 const getClerkErrorMessage = (err: unknown) => {
   if (!err || typeof err !== "object" || !("errors" in err)) return null
@@ -53,30 +33,21 @@ const getClerkErrorMessage = (err: unknown) => {
   )
 }
 
-export default function EmbeddedSignIn({
-  redirectUrl,
+export default function EmbeddedSignUp({
   phoneNumber,
   onSuccessAction,
-  onSessionCreated,
-  onCodeSent,
   useNumericKeypad = false,
-  activateSessionOnSuccess = true,
 }: {
-  redirectUrl: string
   phoneNumber?: string
   onSuccessAction?: () => void | Promise<void>
-  onSessionCreated?: (sessionId: string) => void | Promise<void>
-  onCodeSent?: () => void
   useNumericKeypad?: boolean
-  activateSessionOnSuccess?: boolean
 }) {
-  const { isLoaded, signIn, setActive } = useSignIn()
+  const { isLoaded, signUp } = useSignUp()
   const [phone, setPhone] = React.useState(() => formatUSPhone(phoneNumber || ""))
   const [code, setCode] = React.useState("")
   const [step, setStep] = React.useState<"phone" | "code">("phone")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [phoneNumberId, setPhoneNumberId] = React.useState<string>("")
   const [activeField, setActiveField] = React.useState<KioskNumericField>(INITIAL_KIOSK_NUMERIC_FIELD)
 
   React.useEffect(() => {
@@ -98,36 +69,18 @@ export default function EmbeddedSignIn({
       />
     ) : null
 
-  const moveToCodeStepFromCurrentAttempt = React.useCallback(() => {
-    if (!signIn) return false
-    const factor = getPhoneCodeFactor(signIn.supportedFirstFactors)
-    if (!factor?.phoneNumberId) return false
-    setPhoneNumberId(factor.phoneNumberId)
-    setCode("")
-    setStep("code")
-    return true
-  }, [signIn])
-
   const resetToPhoneStep = React.useCallback(() => {
     setStep("phone")
     setCode("")
-    setPhoneNumberId("")
     setError(null)
   }, [])
-
-  React.useEffect(() => {
-    if (!isLoaded || !signIn || step === "code" || !normalizedPhone) return
-    if (signIn.status !== "needs_first_factor") return
-    if (signIn.identifier !== normalizedPhone) return
-    moveToCodeStepFromCurrentAttempt()
-  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, signIn, step])
 
   const sendCode = React.useCallback(async () => {
     if (!normalizedPhone || !isCompleteUSPhone(phone)) {
       setError("Enter a valid US phone number.")
       return
     }
-    if (!isLoaded || !signIn) {
+    if (!isLoaded || !signUp) {
       setError("Access is still loading. Please try again.")
       return
     }
@@ -135,53 +88,38 @@ export default function EmbeddedSignIn({
     setBusy(true)
     setError(null)
     try {
-      if (
-        signIn.identifier === normalizedPhone &&
-        signIn.status === "needs_first_factor" &&
-        moveToCodeStepFromCurrentAttempt()
-      ) {
-        return
-      }
-
-      const created = await signIn.create({
-        strategy: "phone_code",
-        identifier: normalizedPhone,
+      await signUp.create({
+        phoneNumber: normalizedPhone,
       })
 
-      const factor = getPhoneCodeFactor(created.supportedFirstFactors)
-      if (!factor?.phoneNumberId) {
-        setError("We couldn't prepare phone sign-in.")
-        return
-      }
+      await signUp.preparePhoneNumberVerification()
 
-      await created.prepareFirstFactor({
-        strategy: "phone_code",
-        phoneNumberId: factor.phoneNumberId,
-      })
-
-      setPhoneNumberId(factor.phoneNumberId)
       setCode("")
       setStep("code")
-      onCodeSent?.()
     } catch (err) {
       const message = getClerkErrorMessage(err)
-      if (moveToCodeStepFromCurrentAttempt() || (message && PHONE_CODE_RATE_LIMIT_RE.test(message))) {
+      if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
         setStep("code")
         setError("We already sent a code. Enter the one you received or wait 30 seconds to resend.")
         return
       }
-      if (message && ALREADY_SIGNED_IN_RE.test(message)) {
-        setError("An active session was detected. Please close this modal and try again, or contact staff for help.")
+      if (
+        message &&
+        (message.toLowerCase().includes("already exists") ||
+          message.toLowerCase().includes("already been taken") ||
+          message.toLowerCase().includes("identifier is already"))
+      ) {
+        setError("This phone number already has an account. Use the sign-in flow instead.")
         return
       }
       setError(message || "We couldn't send the code to your phone.")
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, onCodeSent, phone, signIn])
+  }, [isLoaded, normalizedPhone, phone, signUp])
 
   const verifyCode = React.useCallback(async () => {
-    if (!isLoaded || !signIn || !setActive) {
+    if (!isLoaded || !signUp) {
       setError("Access is still loading. Please try again.")
       return
     }
@@ -193,45 +131,34 @@ export default function EmbeddedSignIn({
     setBusy(true)
     setError(null)
     try {
-      const attempt = await signIn.attemptFirstFactor({
-        strategy: "phone_code",
+      const attempt = await signUp.attemptPhoneNumberVerification({
         code: code.trim(),
       })
 
-      if (attempt.status === "complete" && attempt.createdSessionId) {
-        if (activateSessionOnSuccess) {
-          await setActive({ session: attempt.createdSessionId })
-        }
-        if (onSessionCreated) {
-          await onSessionCreated(attempt.createdSessionId)
-        }
+      if (attempt.status === "complete" || attempt.status === "missing_requirements") {
+        // Phone verified successfully. Do NOT set an active session here —
+        // the checkout intent server endpoint handles account creation.
         if (onSuccessAction) {
           await onSuccessAction()
-        } else {
-          window.location.assign(redirectUrl)
         }
         return
       }
 
-      setError("We couldn't complete sign-in. Please try again.")
+      setError("We couldn't complete phone verification. Please try again.")
     } catch (err) {
       const message = getClerkErrorMessage(err)
       setError(message || "The code is invalid.")
     } finally {
       setBusy(false)
     }
-  }, [activateSessionOnSuccess, code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, setActive, signIn])
+  }, [code, isLoaded, onSuccessAction, signUp])
 
   const resendCode = React.useCallback(async () => {
-    if (!isLoaded || !signIn || !phoneNumberId) return
+    if (!isLoaded || !signUp) return
     setBusy(true)
     setError(null)
     try {
-      await signIn.prepareFirstFactor({
-        strategy: "phone_code",
-        phoneNumberId,
-      })
-      onCodeSent?.()
+      await signUp.preparePhoneNumberVerification()
     } catch (err) {
       const message = getClerkErrorMessage(err)
       if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
@@ -242,7 +169,7 @@ export default function EmbeddedSignIn({
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, onCodeSent, phoneNumberId, signIn])
+  }, [isLoaded, signUp])
 
   if (!isLoaded) {
     return (
@@ -266,8 +193,10 @@ export default function EmbeddedSignIn({
       {step === "phone" ? (
         <div className="space-y-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Phone access</p>
-            <p className="mt-1 text-sm text-white/82">Enter your number and we will send you an SMS code.</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verify your phone</p>
+            <p className="mt-1 text-sm text-white/82">
+              We will send you an SMS code to verify your number.
+            </p>
           </div>
           <label className="block space-y-2">
             <span className="text-xs font-medium text-white/85">Phone</span>
@@ -334,8 +263,10 @@ export default function EmbeddedSignIn({
       ) : (
         <div className="space-y-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verify your access</p>
-            <p className="mt-1 text-sm text-white/82">Enter the code we sent to {formatUSPhone(phone)}.</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verify your phone</p>
+            <p className="mt-1 text-sm text-white/82">
+              Enter the code we sent to {formatUSPhone(phone)}.
+            </p>
           </div>
           <label className="block space-y-2">
             <span className="text-xs font-medium text-white/85">Code</span>
@@ -412,7 +343,7 @@ export default function EmbeddedSignIn({
             className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Continue
+            Verify
           </button>
         </div>
       )}
