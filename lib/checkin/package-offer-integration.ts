@@ -7,9 +7,11 @@ type FetchPreviousPackage = (input: {
 
 type ResolveInput = {
   isKioskTerminalFlow: boolean
-  bootstrap: BootstrapResponse
+  bootstrap: BootstrapResponse | null
   availablePackages: Array<{ id: string }>
   fetchPreviousPackage: FetchPreviousPackage
+  /** "new" for new-user flow (no bootstrap), "existing" for existing-user flow */
+  flow?: "existing" | "new"
 }
 
 type ResolveResult = {
@@ -22,13 +24,23 @@ type ResolveResult = {
  * For "expired-rebuy" when quickCheckoutPackageId is missing,
  * calls the lazy endpoint to look up previous package history.
  * Falls back gracefully if the endpoint fails.
+ * 
+ * For new-user flow (flow: "new"), returns "new-user-upsell" when packages available.
  */
 export async function resolvePackageOfferScenario(input: ResolveInput): Promise<ResolveResult> {
-  const { isKioskTerminalFlow, bootstrap, availablePackages, fetchPreviousPackage } = input
+  const { isKioskTerminalFlow, bootstrap, availablePackages, fetchPreviousPackage, flow = "existing" } = input
 
   if (!isKioskTerminalFlow) return null
-  if (bootstrap.package !== null) return null
   if (availablePackages.length === 0) return null
+
+  // New-user flow: no bootstrap, just check if packages available
+  if (flow === "new") {
+    return { scenario: "new-user-upsell", previousPackageId: null }
+  }
+
+  // Existing-user flow: requires bootstrap
+  if (!bootstrap) return null
+  if (bootstrap.package !== null) return null
 
   const quickCheckoutServiceId = bootstrap.quickCheckout?.serviceId ?? null
   const quickCheckoutPackageId = bootstrap.quickCheckout?.packageId ?? null

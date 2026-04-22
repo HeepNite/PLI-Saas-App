@@ -355,6 +355,7 @@ export default function EnrollModal({
   kioskSessionToken,
   useDraft = true,
   preventOutsideClose = false,
+  suppressInlinePackagePicker = false,
 }: {
   course: CourseEnrollmentData
   open: boolean
@@ -385,6 +386,8 @@ export default function EnrollModal({
   kioskSessionToken?: string
   useDraft?: boolean
   preventOutsideClose?: boolean
+  /** When true, hides the inline package picker (user already chose via offer screen) */
+  suppressInlinePackagePicker?: boolean
 }) {
   const { courses: catalogCourses } = useCatalogCourses()
   const sourceCourses = React.useMemo(
@@ -2289,7 +2292,7 @@ export default function EnrollModal({
       className={
         isInline
           ? "w-full"
-          : "fixed inset-0 z-[10000] flex items-stretch sm:items-center justify-center"
+          : "fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-4"
       }
     >
       {!isInline && (
@@ -2307,7 +2310,7 @@ export default function EnrollModal({
           isInline
             ? "rounded-3xl overflow-hidden"
             : [
-              "w-full md:w-[50rem] max-w-[90vw] md:max-w-[50rem] mx-auto h-full sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-2xl",
+              "w-full md:w-[50rem] max-w-[min(50rem,92vw)] mx-auto max-h-[90vh] rounded-2xl",
               showStripeModal
                 ? "sm:h-auto sm:min-h-[50rem] overflow-hidden"
                 : "overflow-y-auto",
@@ -3070,8 +3073,27 @@ export default function EnrollModal({
 
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
+                    {/* Selected package chip with remove action (kiosk flows) */}
+                    {isCheckInFlow && pkg && (
+                      <div className="flex items-center gap-2 rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 px-3 py-2">
+                        <span className="text-sm text-neutral-600 dark:text-neutral-400">Selected package:</span>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(182,22,22,0.12)] px-2.5 py-1 text-sm font-medium text-[var(--brand,#b61616)]">
+                          {course.enrollment.packages.find((p) => p.id === pkg)?.label}
+                          <button
+                            type="button"
+                            onClick={() => setPkg("")}
+                            className="ml-0.5 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                            aria-label="Remove package"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
+                              <path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/>
+                            </svg>
+                          </button>
+                        </span>
+                      </div>
+                    )}
                     {/* Package picker for kiosk flows (party step is skipped) */}
-                    {isCheckInFlow && !pkg && course.enrollment.packages.length > 0 && (
+                    {isCheckInFlow && !pkg && !suppressInlinePackagePicker && course.enrollment.packages.length > 0 && (
                       <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3">
                         <div className="flex items-center justify-between">
                           <h4 className="text-sm font-medium">{t("optionalPackages")}</h4>
