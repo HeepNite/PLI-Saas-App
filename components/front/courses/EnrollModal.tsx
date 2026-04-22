@@ -3468,7 +3468,7 @@ export default function EnrollModal({
         </div>
       )}
       {(verificationState === "sms_pending" || verificationState === "sms_verifying") && isKioskTerminalFlow && (
-        <div className="fixed inset-0 z-[10020] flex items-center justify-center px-4 py-4">
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
           <button
             type="button"
             aria-label={t("aria_close")}
@@ -3477,38 +3477,45 @@ export default function EnrollModal({
               resetVerification()
             }}
           />
-          <div className="relative z-10 w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
-            <div className="flex items-start justify-between gap-4">
-              <div className="pr-10">
-                <h3 className="text-lg font-semibold text-white">Verify your phone</h3>
-                <p className="text-sm text-white/68">Enter the SMS code sent to your phone to confirm your new-student discount.</p>
+          <div className="relative z-10 w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-6 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {/* Left column: Info */}
+              <div className="flex flex-col justify-center">
+                <h3 className="text-xl font-semibold text-white">Verify your phone</h3>
+                <p className="mt-2 text-sm text-white/68">
+                  Enter the SMS code sent to your phone to confirm your new-student discount.
+                </p>
+                <p className="mt-4 text-xs text-white/50">
+                  Phone: {contact.phone}
+                </p>
+                <button
+                  type="button"
+                  className="mt-6 self-start rounded-lg border border-white/15 px-4 py-2 text-sm text-white/75 hover:bg-white/[0.04] transition"
+                  onClick={() => {
+                    resetVerification()
+                  }}
+                >
+                  {t("cancel")}
+                </button>
               </div>
-              <button
-                type="button"
-                className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
-                onClick={() => {
-                  resetVerification()
-                }}
-              >
-                {t("cancel")}
-              </button>
-            </div>
-            <div className="mt-4 flex justify-center">
-              <EmbeddedSignIn
-                redirectUrl={signInReturnTo}
-                phoneNumber={toE164Phone(contact.phone)}
-                useNumericKeypad={isKioskTerminalFlow}
-                activateSessionOnSuccess={false}
-                onCodeSent={() => {
-                  verification.onSmsSent()
-                }}
-                onSessionCreated={(sessionId) => {
-                  onKioskSessionCreated?.(sessionId)
-                }}
-                onSuccessAction={async () => {
-                  markSmsVerified()
-                }}
-              />
+              {/* Right column: Code input + numpad */}
+              <div className="flex flex-col items-center justify-center">
+                <EmbeddedSignIn
+                  redirectUrl={signInReturnTo}
+                  phoneNumber={toE164Phone(contact.phone)}
+                  useNumericKeypad={isKioskTerminalFlow}
+                  activateSessionOnSuccess={false}
+                  onCodeSent={() => {
+                    verification.onSmsSent()
+                  }}
+                  onSessionCreated={(sessionId) => {
+                    onKioskSessionCreated?.(sessionId)
+                  }}
+                  onSuccessAction={async () => {
+                    markSmsVerified()
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
