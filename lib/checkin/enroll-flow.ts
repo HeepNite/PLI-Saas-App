@@ -27,6 +27,13 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
   return Math.max(0, Math.min(maxStep, Math.floor(input.initialStep)))
 }
 
+/**
+ * Resolves the step keys for the enrollment flow based on context.
+ *
+ * For kiosk terminal flows, the package picker is embedded within the
+ * `payments` step (Option B design) rather than having a separate step.
+ * This keeps the kiosk flow compact: info → [photo] → payments.
+ */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
     return [
