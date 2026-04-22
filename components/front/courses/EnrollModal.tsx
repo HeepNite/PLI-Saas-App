@@ -3505,6 +3505,7 @@ export default function EnrollModal({
                   phoneNumber={toE164Phone(contact.phone)}
                   useNumericKeypad={isKioskTerminalFlow}
                   activateSessionOnSuccess={false}
+                  autoSend
                   onCodeSent={() => {
                     verification.onSmsSent()
                   }}

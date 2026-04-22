@@ -61,6 +61,7 @@ export default function EmbeddedSignIn({
   onCodeSent,
   useNumericKeypad = false,
   activateSessionOnSuccess = true,
+  autoSend = false,
 }: {
   redirectUrl: string
   phoneNumber?: string
@@ -69,6 +70,8 @@ export default function EmbeddedSignIn({
   onCodeSent?: () => void
   useNumericKeypad?: boolean
   activateSessionOnSuccess?: boolean
+  /** When true, automatically sends SMS code on mount if phoneNumber is valid */
+  autoSend?: boolean
 }) {
   const { isLoaded, signIn, setActive } = useSignIn()
   const [phone, setPhone] = React.useState(() => formatUSPhone(phoneNumber || ""))
@@ -88,6 +91,23 @@ export default function EmbeddedSignIn({
       setActiveField(INITIAL_KIOSK_NUMERIC_FIELD)
     }
   }, [useNumericKeypad])
+
+  // Auto-send SMS code on mount when autoSend is enabled and phone is valid
+  const autoSendTriggeredRef = React.useRef(false)
+  React.useEffect(() => {
+    if (
+      autoSend &&
+      !autoSendTriggeredRef.current &&
+      isLoaded &&
+      signIn &&
+      step === "phone" &&
+      phoneNumber &&
+      isCompleteUSPhone(phoneNumber)
+    ) {
+      autoSendTriggeredRef.current = true
+      void sendCode()
+    }
+  }, [autoSend, isLoaded, signIn, step, phoneNumber, sendCode])
 
   const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
   const renderCursorHint = (field: KioskNumericField) =>
