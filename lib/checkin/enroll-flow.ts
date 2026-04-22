@@ -3,13 +3,15 @@ type ResolveEnrollInitialStepInput = {
   stepsLength: number
 }
 
-export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "payments" | "review"
+export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "payments" | "review"
 
 type ResolveEnrollStepKeysInput = {
   isCheckInFlow: boolean
   isCheckInNewFlow: boolean
   isKioskTerminalFlow: boolean
   requiresPhotoStep: boolean
+  /** Whether the course has packages available (shows packages step in kiosk) */
+  hasPackages?: boolean
 }
 
 type ShouldIncludePhotoStepInput = {
@@ -30,15 +32,16 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
 /**
  * Resolves the step keys for the enrollment flow based on context.
  *
- * For kiosk terminal flows, the package picker is embedded within the
- * `payments` step (Option B design) rather than having a separate step.
- * This keeps the kiosk flow compact: info → [photo] → payments.
+ * For kiosk terminal flows, packages are shown in a dedicated step AFTER
+ * user info collection (so we know if they're new/existing for pricing).
+ * Kiosk flow: info → [photo] → [packages] → payments
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
     return [
       "info",
       ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+      ...(input.hasPackages ? (["packages"] as const) : []),
       "payments",
     ]
   }

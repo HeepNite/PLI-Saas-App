@@ -355,7 +355,6 @@ export default function EnrollModal({
   kioskSessionToken,
   useDraft = true,
   preventOutsideClose = false,
-  suppressInlinePackagePicker = false,
 }: {
   course: CourseEnrollmentData
   open: boolean
@@ -386,8 +385,6 @@ export default function EnrollModal({
   kioskSessionToken?: string
   useDraft?: boolean
   preventOutsideClose?: boolean
-  /** When true, hides the inline package picker (user already chose via offer screen) */
-  suppressInlinePackagePicker?: boolean
 }) {
   const { courses: catalogCourses } = useCatalogCourses()
   const sourceCourses = React.useMemo(
@@ -526,8 +523,9 @@ export default function EnrollModal({
         isCheckInNewFlow,
         isKioskTerminalFlow,
         requiresPhotoStep,
+        hasPackages: course.enrollment.packages.length > 0,
       }),
-    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep]
+    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, course.enrollment.packages.length]
   )
   const steps = React.useMemo(
     () =>
@@ -540,11 +538,13 @@ export default function EnrollModal({
               ? t("step_datetime")
               : key === "info"
                 ? t("step_info")
-                : key === "payments"
-                  ? t("step_payments")
-                  : key === "review"
-                    ? t("step_review")
-                    : "Photo",
+                : key === "packages"
+                  ? "Packages"
+                  : key === "payments"
+                    ? t("step_payments")
+                    : key === "review"
+                      ? t("step_review")
+                      : "Photo",
       })),
     [stepKeys, t]
   )
@@ -553,6 +553,7 @@ export default function EnrollModal({
     datetime: CalendarIcon,
     info: FileText,
     photo: Camera,
+    packages: Building2,
     payments: CreditCard,
     review: CheckCircle2,
   }
@@ -3071,62 +3072,96 @@ export default function EnrollModal({
                   </div>
                 )}
 
+                {/* Packages step (kiosk only, after user info) */}
+                {activeStepKey === "packages" && (
+                  <div className="space-y-4">
+                    <div className="text-center mb-4">
+                      <h3 className="text-lg font-semibold">{t("optionalPackages") || "Choose a Package"}</h3>
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+                        {t("packagesHint") || "Save money with a class package, or continue with a single class"}
+                      </p>
+                    </div>
+                    {/* Grid: 4 cols landscape, 3 cols portrait on tablets */}
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 [@media(orientation:landscape)]:sm:grid-cols-4">
+                      {course.enrollment.packages.map((p) => {
+                        const selected = pkg === p.id
+                        const metaLine = formatPackageMeta(p)
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setPkg(selected ? "" : p.id)}
+                            className={`rounded-xl border px-4 py-4 text-left transition ${
+                              selected
+                                ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] ring-1 ring-[var(--brand,#b61616)]"
+                                : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 hover:border-black/20 dark:hover:border-white/20"
+                            }`}
+                          >
+                            <div className="text-sm font-semibold">{p.label}</div>
+                            {metaLine && (
+                              <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
+                            )}
+                            {p.description && (
+                              <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{p.description}</p>
+                            )}
+                            {p.price != null && (
+                              <p className="mt-2 text-base font-semibold">${(p.price / 100).toFixed(0)}</p>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPkg("")
+                        setStep((prev) => Math.min(prev + 1, steps.length - 1))
+                      }}
+                      className="mt-4 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 px-4 py-3 text-sm font-medium text-neutral-700 dark:text-white/80 transition hover:bg-white/70 dark:hover:bg-white/10"
+                    >
+                      Continue without a package
+                    </button>
+                  </div>
+                )}
+
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
-                    {/* Selected package chip with remove action (kiosk flows) */}
+                    {/* Selected package card with remove action (kiosk flows) */}
                     {isCheckInFlow && pkg && (
-                      <div className="flex items-center gap-2 rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 px-3 py-2">
-                        <span className="text-sm text-neutral-600 dark:text-neutral-400">Selected package:</span>
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(182,22,22,0.12)] px-2.5 py-1 text-sm font-medium text-[var(--brand,#b61616)]">
-                          {course.enrollment.packages.find((p) => p.id === pkg)?.label}
+                      <div className="rounded-xl border border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.08)] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Selected Package</p>
+                            <p className="text-base font-semibold">{course.enrollment.packages.find((p) => p.id === pkg)?.label}</p>
+                            {course.enrollment.packages.find((p) => p.id === pkg)?.price != null && (
+                              <p className="mt-1 text-sm font-medium">${(course.enrollment.packages.find((p) => p.id === pkg)!.price! / 100).toFixed(0)}</p>
+                            )}
+                          </div>
                           <button
                             type="button"
                             onClick={() => setPkg("")}
-                            className="ml-0.5 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-                            aria-label="Remove package"
+                            className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
                           >
-                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
-                              <path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/>
-                            </svg>
+                            Change
                           </button>
-                        </span>
+                        </div>
                       </div>
                     )}
-                    {/* Package picker for kiosk flows (party step is skipped) */}
-                    {isCheckInFlow && !pkg && !suppressInlinePackagePicker && course.enrollment.packages.length > 0 && (
-                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-medium">{t("optionalPackages")}</h4>
-                        </div>
-                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">{t("packagesHint")}</p>
-                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          {course.enrollment.packages.map((p) => {
-                            const selected = pkg === p.id
-                            const metaLine = formatPackageMeta(p)
-                            return (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => setPkg(p.id)}
-                                className={`h-full rounded-md border px-3 py-3 text-left transition ${
-                                  selected
-                                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] text-white"
-                                    : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 text-neutral-700 dark:text-white/80 hover:border-white/30"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-sm font-medium">{p.label}</span>
-                                  {p.price && <span className="text-sm font-semibold">${p.price}</span>}
-                                </div>
-                                {metaLine && (
-                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
-                                )}
-                                {p.description && (
-                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{p.description}</p>
-                                )}
-                              </button>
-                            )
-                          })}
+                    {/* No package selected info (kiosk flows) */}
+                    {isCheckInFlow && !pkg && isKioskTerminalFlow && course.enrollment.packages.length > 0 && (
+                      <div className="rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Package</p>
+                            <p className="text-sm text-neutral-600 dark:text-white/70">Single class (no package)</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setStep(stepKeys.indexOf("packages"))}
+                            className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
+                          >
+                            Add Package
+                          </button>
                         </div>
                       </div>
                     )}

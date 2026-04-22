@@ -99,10 +99,6 @@ export default function CheckInQrClient({
   const [success, setSuccess] = React.useState<string | null>(null)
   const [packageOfferContext, setPackageOfferContext] = React.useState<PackageOfferContext>(null)
   const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
-  /** Package selected via offer screen for new-user flow */
-  const [newUserPackageSelectedId, setNewUserPackageSelectedId] = React.useState<string | null>(null)
-  /** Whether to suppress inline package picker in EnrollModal (offer screen was already shown) */
-  const [suppressInlinePackagePickerForNewUser, setSuppressInlinePackagePickerForNewUser] = React.useState(false)
   const packageCheckInTimeoutRef = React.useRef<number | null>(null)
 
   // ─── Derived error ──────────────────────────────────────────
@@ -513,12 +509,10 @@ export default function CheckInQrClient({
     void loadBootstrap()
   }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, resetKioskPinFlow, selectedCourse])
 
-  const handleNewClick = React.useCallback(async () => {
+  const handleNewClick = React.useCallback(() => {
     setMode("new")
     setError(null)
     setSuccess(null)
-    setNewUserPackageSelectedId(null)
-    setSuppressInlinePackagePickerForNewUser(false)
     if (!selectedCourse || !contextIsValid) {
       setError("We couldn't open the purchase because QR data is missing.")
       return
@@ -529,30 +523,10 @@ export default function CheckInQrClient({
       time: activeTime,
     })
 
-    // For kiosk terminal with available packages, show offer screen first
-    if (isKioskTerminalFlow && selectedCourse.enrollment.packages.length > 0) {
-      const result = await resolvePackageOfferScenario({
-        isKioskTerminalFlow,
-        bootstrap: null,
-        availablePackages: selectedCourse.enrollment.packages,
-        fetchPreviousPackage: async () => null,
-        flow: "new",
-      })
-      if (result) {
-        const ctx = buildPackageOfferContext({
-          scenario: result.scenario,
-          previousPackageId: result.previousPackageId,
-          courseSlug: selectedCourse.slug,
-          date: activeDate,
-          time: activeTime,
-        })
-        setPackageOfferContext(ctx)
-        return // Don't open modal yet, offer screen will handle it
-      }
-    }
-
+    // New users go directly to EnrollModal — packages are selected in a dedicated
+    // step AFTER user info is collected (to determine new vs existing pricing)
     setOpenNewBooking(true)
-  }, [activeDate, activeTime, contextIsValid, isKioskTerminalFlow, selectedCourse])
+  }, [activeDate, activeTime, contextIsValid, selectedCourse])
 
   const handleLatePaymentTablet = React.useCallback(() => {
     if (!latePaymentRecommendation) return
@@ -616,15 +590,7 @@ export default function CheckInQrClient({
     if (!ctx) return
     setPackageOfferContext(null)
 
-    // Handle new-user-upsell scenario: open new booking modal with package
-    if (ctx.scenario === "new-user-upsell") {
-      setNewUserPackageSelectedId(packageId)
-      setSuppressInlinePackagePickerForNewUser(true)
-      setOpenNewBooking(true)
-      return
-    }
-
-    // Existing user flow
+    // Existing user flow only (new users select packages in EnrollModal)
     setPackageOfferSelectedId(packageId)
     openExistingPurchaseFlow({
       courseSlug: ctx.courseSlug,
@@ -635,16 +601,9 @@ export default function CheckInQrClient({
 
   const handlePackageOfferDecline = React.useCallback(() => {
     const action = resolvePackageOfferDeclineAction(packageOfferContext?.scenario ?? null)
-    const scenario = packageOfferContext?.scenario
     setPackageOfferContext(null)
 
     if (action === "station-completion") {
-      // For new-user-upsell decline, open modal without package instead of station reset
-      if (scenario === "new-user-upsell") {
-        setSuppressInlinePackagePickerForNewUser(true)
-        setOpenNewBooking(true)
-        return
-      }
       void handleStationCompletion()
       return
     }
@@ -1048,8 +1007,6 @@ export default function CheckInQrClient({
           onTimeoutAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
           onExistingUserDetected={isKioskTerminalFlow ? handleExistingUserDetected : undefined}
           onKioskSessionCreated={isKioskTerminalFlow ? registerKioskClerkSession : undefined}
-          prefillSelection={newUserPackageSelectedId ? { packageId: newUserPackageSelectedId } : undefined}
-          suppressInlinePackagePicker={suppressInlinePackagePickerForNewUser}
         />
       )}
 

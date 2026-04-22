@@ -84,4 +84,40 @@ describe("enroll flow helpers", () => {
   it("does not run the contact gate outside check-in flows", () => {
     expect(isCheckInContactGateStep({ isCheckInFlow: false, activeStepKey: "info" })).toBe(false)
   })
+
+  it("includes packages step in kiosk flow when hasPackages is true", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: false,
+        hasPackages: true,
+      })
+    ).toEqual(["info", "packages", "payments"])
+  })
+
+  it("includes packages step with photo in kiosk flow when both are needed", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: true,
+        hasPackages: true,
+      })
+    ).toEqual(["info", "photo", "packages", "payments"])
+  })
+
+  it("skips packages step in kiosk flow when hasPackages is false", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: false,
+        hasPackages: false,
+      })
+    ).toEqual(["info", "payments"])
+  })
 })
