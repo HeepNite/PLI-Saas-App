@@ -572,6 +572,10 @@ export default function EnrollModal({
     () => steps.findIndex((item) => item.key === "photo"),
     [steps]
   )
+  const packagesStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "packages"),
+    [steps]
+  )
   const regularServicePrice = React.useMemo(
     () => availableServices.find((item) => item.id === regularServiceId)?.price || 20,
     [availableServices, regularServiceId]
@@ -1480,6 +1484,12 @@ export default function EnrollModal({
         return
       }
 
+      // Go to packages step if it exists, otherwise payments
+      if (packagesStepIndex >= 0) {
+        setStep(packagesStepIndex)
+        return
+      }
+
       if (paymentsStepIndex >= 0) {
         setStep(paymentsStepIndex)
         return
@@ -1495,6 +1505,7 @@ export default function EnrollModal({
     isKioskTerminalFlow,
     isSignedIn,
     onExistingUserDetected,
+    packagesStepIndex,
     paymentsStepIndex,
     photoPolicy,
     photoSaved,
@@ -1988,13 +1999,15 @@ export default function EnrollModal({
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
+      } else if (packagesStepIndex >= 0) {
+        setStep(packagesStepIndex)
       } else if (paymentsStepIndex >= 0) {
         setStep(paymentsStepIndex)
       }
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, paymentsStepIndex, resetVerification])
+  }, [verificationState, isKioskTerminalFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification])
 
   const activeStepKey = steps[step]?.key || ""
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
@@ -3081,8 +3094,8 @@ export default function EnrollModal({
                         {t("packagesHint") || "Save money with a class package, or continue with a single class"}
                       </p>
                     </div>
-                    {/* Grid: 4 cols landscape, 3 cols portrait on tablets */}
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 [@media(orientation:landscape)]:sm:grid-cols-4">
+                    {/* Grid: 2 cols to match info step layout */}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {course.enrollment.packages.map((p) => {
                         const selected = pkg === p.id
                         const metaLine = formatPackageMeta(p)
