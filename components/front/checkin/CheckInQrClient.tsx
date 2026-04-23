@@ -996,14 +996,14 @@ export default function CheckInQrClient({
           }}
           initialStep={0}
           flowVariant="checkin-new"
-          completionMode={completionMode}
+          completionMode={isKioskTerminalFlow ? "station" : completionMode}
           checkInContext={newBookingContext}
           photoFlowContext={photoFlowContext}
           kioskSessionToken={!hasActiveClerkSession && kioskPinSessionToken ? kioskPinSessionToken : undefined}
           useDraft={false}
           mode="modal"
           preventOutsideClose={isKioskTerminalFlow}
-          onCompletedAction={isStationDeviceFlow ? handleNewUserPostPurchase : undefined}
+          onCompletedAction={isKioskTerminalFlow ? handleNewUserPostPurchase : undefined}
           onTimeoutAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
           onExistingUserDetected={isKioskTerminalFlow ? handleExistingUserDetected : undefined}
           onKioskSessionCreated={isKioskTerminalFlow ? registerKioskClerkSession : undefined}
@@ -1072,14 +1072,14 @@ export default function CheckInQrClient({
             selectedPackageId: packageOfferSelectedId,
           })}
           flowVariant="checkin-existing"
-          completionMode={completionMode}
+          completionMode={isKioskTerminalFlow ? "station" : completionMode}
           checkInContext={existingRegularBookingContext}
           kioskSessionToken={!hasActiveClerkSession && kioskPinSessionToken ? kioskPinSessionToken : undefined}
           photoFlowContext={photoFlowContext}
           prefillHasAvatar={bootstrap?.customer.hasAvatar}
           useDraft={false}
           mode="modal"
-          onCompletedAction={isStationDeviceFlow ? handleStationCompletion : undefined}
+          onCompletedAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
           prefillContact={bootstrapContact || undefined}
         />
       )}

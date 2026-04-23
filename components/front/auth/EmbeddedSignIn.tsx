@@ -92,7 +92,10 @@ export default function EmbeddedSignIn({
     }
   }, [useNumericKeypad])
 
+  const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
+
   // Auto-send SMS code on mount when autoSend is enabled and phone is valid
+  // Small delay ensures Clerk is fully initialized before attempting to send
   const autoSendTriggeredRef = React.useRef(false)
   React.useEffect(() => {
     if (
@@ -101,15 +104,17 @@ export default function EmbeddedSignIn({
       isLoaded &&
       signIn &&
       step === "phone" &&
-      phoneNumber &&
-      isCompleteUSPhone(phoneNumber)
+      normalizedPhone &&
+      isCompleteUSPhone(phone)
     ) {
       autoSendTriggeredRef.current = true
-      void sendCode()
+      // Small delay to ensure Clerk's internal state is ready
+      const timer = setTimeout(() => {
+        void sendCode()
+      }, 100)
+      return () => clearTimeout(timer)
     }
-  }, [autoSend, isLoaded, signIn, step, phoneNumber, sendCode])
-
-  const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
+  }, [autoSend, isLoaded, signIn, step, normalizedPhone, phone, sendCode])
   const renderCursorHint = (field: KioskNumericField) =>
     useNumericKeypad && activeField === field ? (
       <span

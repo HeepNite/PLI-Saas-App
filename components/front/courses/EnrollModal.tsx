@@ -2491,8 +2491,8 @@ export default function EnrollModal({
                   </nav>
                 )}
 
-                {/* Summary */}
-                {activeStepKey !== "payments" && (
+                {/* Summary - show booking summary or business info based on step */}
+                {activeStepKey !== "payments" ? (
                   <>
                     <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
                       <div className="font-semibold mb-2">{t("summary")}</div>
@@ -2543,6 +2543,32 @@ export default function EnrollModal({
                       </details>
                     </div>
                   </>
+                ) : (
+                  /* Business info for payments step (especially kiosk) */
+                  <div className="mt-4 space-y-4">
+                    {/* Business Contact */}
+                    <div className="rounded-md border border-white/10 p-3 text-xs">
+                      <div className="font-semibold mb-2">Contact Us</div>
+                      <div className="space-y-2">
+                        {renderSummaryItem("Location", "16 Water St, Jersey City, NJ")}
+                        {renderSummaryItem("Phone", "(201) 555-0123")}
+                        {renderSummaryItem("Email", "info@plidancing.com")}
+                      </div>
+                    </div>
+                    {/* Hours */}
+                    <div className="rounded-md border border-white/10 p-3 text-xs">
+                      <div className="font-semibold mb-2">Studio Hours</div>
+                      <div className="space-y-1 text-white/70">
+                        <div className="flex justify-between"><span>Mon - Fri</span><span>6:00 AM - 10:00 PM</span></div>
+                        <div className="flex justify-between"><span>Saturday</span><span>8:00 AM - 8:00 PM</span></div>
+                        <div className="flex justify-between"><span>Sunday</span><span>9:00 AM - 6:00 PM</span></div>
+                      </div>
+                    </div>
+                    {/* Add to Calendar hint */}
+                    <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-center">
+                      <p className="text-white/60">After completing your booking, you&apos;ll be able to add it to your calendar</p>
+                    </div>
+                  </div>
                 )}
 
                 {/* Sin bloque de contacto; el chat vive en el UI global */}
@@ -3124,16 +3150,28 @@ export default function EnrollModal({
                         )
                       })}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPkg("")
-                        setStep((prev) => Math.min(prev + 1, steps.length - 1))
-                      }}
-                      className="mt-4 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 px-4 py-3 text-sm font-medium text-neutral-700 dark:text-white/80 transition hover:bg-white/70 dark:hover:bg-white/10"
-                    >
-                      Continue without a package
-                    </button>
+                    {/* Continue button - changes based on selection */}
+                    {pkg ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep((prev) => Math.min(prev + 1, steps.length - 1))
+                        }}
+                        className="mt-4 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b]"
+                      >
+                        Continue with {course.enrollment.packages.find((p) => p.id === pkg)?.label}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep((prev) => Math.min(prev + 1, steps.length - 1))
+                        }}
+                        className="mt-4 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 px-4 py-3 text-sm font-medium text-neutral-700 dark:text-white/80 transition hover:bg-white/70 dark:hover:bg-white/10"
+                      >
+                        Continue without a package
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -3477,47 +3515,42 @@ export default function EnrollModal({
               resetVerification()
             }}
           />
-          <div className="relative z-10 w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-6 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              {/* Left column: Info */}
-              <div className="flex flex-col justify-center">
-                <h3 className="text-xl font-semibold text-white">Verify your phone</h3>
-                <p className="mt-2 text-sm text-white/68">
-                  Enter the SMS code sent to your phone to confirm your new-student discount.
+          <div className="relative z-10 w-full max-w-md max-h-[85vh] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+            {/* Header */}
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Verify your phone</h3>
+                <p className="mt-1 text-sm text-white/68">
+                  Enter the code sent to {contact.phone}
                 </p>
-                <p className="mt-4 text-xs text-white/50">
-                  Phone: {contact.phone}
-                </p>
-                <button
-                  type="button"
-                  className="mt-6 self-start rounded-lg border border-white/15 px-4 py-2 text-sm text-white/75 hover:bg-white/[0.04] transition"
-                  onClick={() => {
-                    resetVerification()
-                  }}
-                >
-                  {t("cancel")}
-                </button>
               </div>
-              {/* Right column: Code input + numpad */}
-              <div className="flex flex-col items-center justify-center">
-                <EmbeddedSignIn
-                  redirectUrl={signInReturnTo}
-                  phoneNumber={toE164Phone(contact.phone)}
-                  useNumericKeypad={isKioskTerminalFlow}
-                  activateSessionOnSuccess={false}
-                  autoSend
-                  onCodeSent={() => {
-                    verification.onSmsSent()
-                  }}
-                  onSessionCreated={(sessionId) => {
-                    onKioskSessionCreated?.(sessionId)
-                  }}
-                  onSuccessAction={async () => {
-                    markSmsVerified()
-                  }}
-                />
-              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04] transition"
+                onClick={() => {
+                  resetVerification()
+                }}
+              >
+                {t("cancel")}
+              </button>
             </div>
+            {/* Code input + numpad */}
+            <EmbeddedSignIn
+              redirectUrl={signInReturnTo}
+              phoneNumber={toE164Phone(contact.phone)}
+              useNumericKeypad={isKioskTerminalFlow}
+              activateSessionOnSuccess={false}
+              autoSend
+              onCodeSent={() => {
+                verification.onSmsSent()
+              }}
+              onSessionCreated={(sessionId) => {
+                onKioskSessionCreated?.(sessionId)
+              }}
+              onSuccessAction={async () => {
+                markSmsVerified()
+              }}
+            />
           </div>
         </div>
       )}
