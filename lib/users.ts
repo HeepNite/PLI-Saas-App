@@ -25,13 +25,15 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
   const phone = normalizePhone(input.phone)
   const stripeCustomerId = normalize(input.stripeCustomerId)
 
-  if (!clerkId && !email) {
+  if (!clerkId && !email && !phone) {
     return null
   }
 
-  const or: { clerkId?: string; email?: string; stripeCustomerId?: string }[] = []
+  const or: { clerkId?: string; email?: string; phone?: string; stripeCustomerId?: string }[] = []
   if (clerkId) or.push({ clerkId })
   if (email) or.push({ email })
+  // Include phone in identity lookup to prevent duplicates from same phone with different email
+  if (phone) or.push({ phone })
   if (stripeCustomerId) or.push({ stripeCustomerId })
 
   const existing = or.length
@@ -66,13 +68,16 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
     return existing
   }
 
-  if (!email) {
+  // Require at least email or phone to create a new user
+  if (!email && !phone) {
     return null
   }
 
   return prisma.user.create({
     data: {
-      email,
+      // Email is required by schema — use placeholder if only phone is available
+      // Format: phone digits + timestamp to ensure uniqueness
+      email: email || `phone-${phone}-${Date.now()}@placeholder.pli.local`,
       ...data,
     },
   })

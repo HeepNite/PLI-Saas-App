@@ -1002,7 +1002,11 @@ export default function EnrollModal({
       : appliedCoupon.value
     : 0
   const total = Math.max(0, subtotal - discount)
-  const hideCalendarSidebar = Boolean(success && isCheckInFlow)
+  // Hide sidebar: on success for check-in flows, or during payments step for kiosk terminal
+  const hideCalendarSidebar = Boolean(
+    (success && isCheckInFlow) ||
+    (isKioskTerminalFlow && activeStepKey === "payments")
+  )
   const paymentMethodLabel =
     paymentMethod === "stripe"
       ? t("payments_stripe")
@@ -3150,28 +3154,22 @@ export default function EnrollModal({
                         )
                       })}
                     </div>
-                    {/* Continue button - changes based on selection */}
-                    {pkg ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStep((prev) => Math.min(prev + 1, steps.length - 1))
-                        }}
-                        className="mt-4 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b]"
-                      >
-                        Continue with {course.enrollment.packages.find((p) => p.id === pkg)?.label}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStep((prev) => Math.min(prev + 1, steps.length - 1))
-                        }}
-                        className="mt-4 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 px-4 py-3 text-sm font-medium text-neutral-700 dark:text-white/80 transition hover:bg-white/70 dark:hover:bg-white/10"
-                      >
-                        Continue without a package
-                      </button>
-                    )}
+                    {/* Continue button - always visible, text changes based on selection */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStep((prev) => Math.min(prev + 1, steps.length - 1))
+                      }}
+                      className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                        pkg
+                          ? "bg-[var(--brand,#b61616)] text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] hover:bg-[#d91b1b]"
+                          : "border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 text-neutral-700 dark:text-white/80 hover:bg-white/70 dark:hover:bg-white/10"
+                      }`}
+                    >
+                      {pkg
+                        ? `Continue with ${course.enrollment.packages.find((p) => p.id === pkg)?.label || "package"}`
+                        : "Continue without a package"}
+                    </button>
                   </div>
                 )}
 
