@@ -3132,6 +3132,11 @@ export default function EnrollModal({
                         )
                         setFormError(null)
                       }}
+                      onSkipped={() => {
+                        // Skip photo and go to next step (packages or payments)
+                        setPhotoSaved(true) // Mark as "done" even if skipped
+                        setStep((prev) => Math.min(prev + 1, steps.length - 1))
+                      }}
                     />
                   </div>
                 )}

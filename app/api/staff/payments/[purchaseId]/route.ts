@@ -107,8 +107,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
       const classTime = asText(metadata.time)
       const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
 
-      if (classDate && classTime && courseSlug) {
-        const startsAt = buildSessionStartsAt(classDate, classTime)
+      if (courseSlug) {
+        // Use date/time if available, otherwise fall back to purchase creation time
+        const startsAt = (classDate && classTime)
+          ? buildSessionStartsAt(classDate, classTime)
+          : purchase.createdAt
         if (startsAt) {
           try {
             const now = new Date()
@@ -161,6 +164,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
           } catch (error) {
             console.warn("Unable to create attendance for cash settlement", {
               purchaseId,
+              classDate,
+              classTime,
+              courseSlug,
+              usedFallback: !classDate || !classTime,
               error: error instanceof Error ? error.message : String(error),
             })
           }

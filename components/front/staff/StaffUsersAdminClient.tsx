@@ -10484,7 +10484,31 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>Completed classes</span>
-                        <span>{student.checkedInPayments}</span>
+                        <span className="group relative cursor-help">
+                          <span>{student.checkedInPayments}</span>
+                          <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-52 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                            <span className="font-semibold text-white">Completed classes</span>
+                            <span className="mt-1 block border-t border-white/10" />
+                            {student.allPayments.filter((p) => p.checkInStatus === "checked_in" || p.checkInStatus === "checked_in_no_package" || p.checkInStatus === "checked_out").length === 0 ? (
+                              <span className="mt-1 block text-white/70">No completed classes yet.</span>
+                            ) : (
+                              student.allPayments
+                                .filter((p) => p.checkInStatus === "checked_in" || p.checkInStatus === "checked_in_no_package" || p.checkInStatus === "checked_out")
+                                .slice(0, 12)
+                                .map((entry, index) => (
+                                  <span
+                                    key={`completed-${entry.id}`}
+                                    className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
+                                  >
+                                    <span className="block">{entry.courseTitle || "Class"}</span>
+                                    <span className="mt-0.5 block text-white/65">
+                                      {formatStudentPaymentCardSlotLabel(entry.classDate, entry.classTime)}
+                                    </span>
+                                  </span>
+                                ))
+                            )}
+                          </span>
+                        </span>
                       </p>
                       <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
                         <span>Package classes used</span>

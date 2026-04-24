@@ -11,6 +11,7 @@ import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 export const runtime = "nodejs"
 
@@ -124,6 +125,37 @@ export async function POST(req: Request) {
 
   if (!dbUser) {
     return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+  }
+
+  // Prevent duplicate purchases for the same user + class + date/time (drop-in only)
+  if (validation.serviceId && validation.date && validation.time) {
+    const existingPurchase = await prisma.purchase.findFirst({
+      where: {
+        userId: dbUser.id,
+        serviceId: validation.serviceId,
+        status: { in: SUCCESSFUL_PURCHASE_STATUSES },
+        metadata: {
+          path: ["date"],
+          equals: validation.date,
+        },
+      },
+      select: { id: true, metadata: true },
+    })
+    // Check time in metadata (Prisma doesn't support AND on same path)
+    if (existingPurchase) {
+      const existingTime =
+        existingPurchase.metadata &&
+        typeof existingPurchase.metadata === "object" &&
+        "time" in existingPurchase.metadata
+          ? existingPurchase.metadata.time
+          : null
+      if (existingTime === validation.time) {
+        return NextResponse.json(
+          { error: "You already have a purchase for this class", code: "DUPLICATE_PURCHASE" },
+          { status: 409 }
+        )
+      }
+    }
   }
 
   const purchase = await prisma.purchase.create({
