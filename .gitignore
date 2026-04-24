@@ -53,3 +53,6 @@ public/uploads/
 
 # test artifacts
 test-results/
+
+# agent teams / atl
+.atl/

@@ -321,6 +321,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     hasVisibleError: Boolean(visibleError),
     hasPackageOffer: showPackageOfferScreen,
     paymentsStepReady: paymentsModalReady,
+    hasExistingPurchaseForSession: Boolean(bootstrap?.hasExistingPurchaseForSession),
   })
 
   // ─── Breadcrumbs ────────────────────────────────────────────
