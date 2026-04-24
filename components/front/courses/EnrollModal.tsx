@@ -1005,7 +1005,7 @@ export default function EnrollModal({
   // Hide sidebar: on success for check-in flows, or during payments step for kiosk terminal
   const hideCalendarSidebar = Boolean(
     (success && isCheckInFlow) ||
-    (isKioskTerminalFlow && activeStepKey === "payments")
+    (isKioskTerminalFlow && steps[step]?.key === "payments")
   )
   const paymentMethodLabel =
     paymentMethod === "stripe"
