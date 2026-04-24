@@ -15,11 +15,8 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   if (pathname.startsWith("/staff/portal") || pathname.startsWith("/staff/panel")) {
     const { userId } = await auth()
     if (!userId) {
-      const nav = req.nextUrl.searchParams.get("nav")
-      const redirectUrl = nav
-        ? `/staff/checkin?nav=${encodeURIComponent(nav)}`
-        : "/staff/checkin"
-      return NextResponse.redirect(new URL(redirectUrl, req.url))
+      // Redirect to sign-in page, not checkin (which could cause loops)
+      return NextResponse.redirect(new URL("/staff/sign-in", req.url))
     }
   }
 

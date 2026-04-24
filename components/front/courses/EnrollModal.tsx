@@ -1413,6 +1413,13 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
+      // PIN availability check FIRST for new students - before any SMS verification
+      // This prevents wasting the user's time verifying SMS only to find the PIN is taken
+      if (service === "new-student" && /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm) {
+        const pinAvailable = await checkPinAvailability(studentPin)
+        if (!pinAvailable) return
+      }
+
       if (service === "new-student" && isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
         // Kiosk new-student flow: use the verification state machine
         const result = await verifyNewStudent(contact.phone, contact.email)
@@ -1463,11 +1470,7 @@ export default function EnrollModal({
         }
       }
 
-      // PIN availability check for new students (non-blocking on failure)
-      if (service === "new-student" && /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm) {
-        const pinAvailable = await checkPinAvailability(studentPin)
-        if (!pinAvailable) return
-      }
+      // PIN check was already done at the beginning of this function
 
       const account = preparedAccount || (await requestAccountPreparation())
       if (!account) return
