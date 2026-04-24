@@ -938,9 +938,9 @@ export default function CheckInQrClient({
         </section>
       </div>
 
-      {/* Duplicate purchase popup */}
+      {/* Duplicate purchase popup - z-index higher than KioskResolvingOverlay (z-11000) */}
       {showDuplicatePurchasePopup && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="mx-4 max-w-md rounded-2xl bg-[#1a1d2e] p-6 text-center shadow-2xl">
             <div className="mb-4 text-5xl">✓</div>
             <h2 className="mb-2 text-xl font-semibold text-white">
@@ -1002,7 +1002,7 @@ export default function CheckInQrClient({
 
       {/* KioskPackageOfferScreen removed - packages step is now integrated in EnrollModal flow */}
 
-      {showKioskResolvingOverlay && !packageCheckInResult && (
+      {showKioskResolvingOverlay && !packageCheckInResult && !showDuplicatePurchasePopup && (
         <KioskResolvingOverlay
           message={processingPackageCheckIn ? "Checking you in\u2026" : undefined}
         />
