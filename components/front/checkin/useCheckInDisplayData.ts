@@ -122,13 +122,23 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   }, [pathname, searchParams])
 
   const stationRedirectUrl = React.useMemo(() => {
+    // For kiosk terminal flow, redirect to /staff/log-in to restart the flow
+    // This preserves qr=true so the terminal mode stays active
+    if (shellVariant === "terminal") {
+      const params = new URLSearchParams()
+      const qrValue = searchParams.get("qr")
+      if (qrValue) params.set("qr", qrValue)
+      const query = params.toString()
+      return query ? `/staff/log-in?${query}` : "/staff/log-in"
+    }
+    // For other flows, stay on the same page but clear entry params
     const params = new URLSearchParams(searchParams.toString())
     params.delete("entry")
     params.delete("fromQr")
     params.delete("scan")
     const query = params.toString()
     return query ? `${pathname}?${query}` : pathname
-  }, [pathname, searchParams])
+  }, [pathname, searchParams, shellVariant])
 
   const entryMode = (searchParams.get("entry") || "").trim().toLowerCase()
 

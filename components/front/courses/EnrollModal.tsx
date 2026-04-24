@@ -2471,31 +2471,45 @@ export default function EnrollModal({
                     })()}
                   </nav>
                 ) : (
-                  <nav aria-label="Breadcrumb" className="mt-2 flex flex-nowrap items-center gap-1.5 text-[11px] text-white/80 overflow-x-auto">
-                    {steps.map((st, idx) => {
-                      const done = idx < step && stepValid(idx)
-                      const active = idx === step
-                      const canJump = idx <= step
+                  <nav aria-label="Breadcrumb" className="mt-2 text-[11px] text-white/80 overflow-hidden">
+                    {(() => {
+                      // Show max 3 steps at a time, sliding window based on current step
+                      const maxVisible = 3
+                      const start = Math.max(0, Math.min(step - 1, steps.length - maxVisible))
+                      const visible = steps.slice(start, start + maxVisible)
                       return (
-                        <React.Fragment key={st.key}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!canJump) return
-                              setStep(idx)
-                            }}
-                            disabled={!canJump}
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 transition whitespace-nowrap ${
-                              active ? "border-white/40 bg-white/10" : "border-white/10 bg-transparent"
-                            } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
-                          >
-                            <span className={`h-1.5 w-1.5 rounded-full ${done ? "bg-green-400" : active ? "bg-white" : "bg-white/30"}`} />
-                            <span>{st.label}</span>
-                          </button>
-                          {idx < steps.length - 1 && <span className="text-white/30">/</span>}
-                        </React.Fragment>
+                        <div 
+                          className="flex items-center gap-1.5 transition-transform duration-300 ease-out"
+                          style={{ transform: `translateX(0)` }}
+                        >
+                          {visible.map((st, idx) => {
+                            const realIndex = start + idx
+                            const done = realIndex < step && stepValid(realIndex)
+                            const active = realIndex === step
+                            const canJump = realIndex <= step
+                            return (
+                              <React.Fragment key={st.key}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!canJump) return
+                                    setStep(realIndex)
+                                  }}
+                                  disabled={!canJump}
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 transition whitespace-nowrap ${
+                                    active ? "border-white/40 bg-white/10" : "border-white/10 bg-transparent"
+                                  } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
+                                >
+                                  <span className={`h-1.5 w-1.5 rounded-full ${done ? "bg-green-400" : active ? "bg-white" : "bg-white/30"}`} />
+                                  <span>{st.label}</span>
+                                </button>
+                                {idx < visible.length - 1 && <span className="text-white/30">/</span>}
+                              </React.Fragment>
+                            )
+                          })}
+                        </div>
                       )
-                    })}
+                    })()}
                   </nav>
                 )}
 
@@ -3158,21 +3172,16 @@ export default function EnrollModal({
                         )
                       })}
                     </div>
-                    {/* Continue button - always visible, text changes based on selection */}
+                    {/* Skip package button - always "Continue without a package", clears selection and advances */}
                     <button
                       type="button"
                       onClick={() => {
+                        setPkg("")
                         setStep((prev) => Math.min(prev + 1, steps.length - 1))
                       }}
-                      className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold transition ${
-                        pkg
-                          ? "bg-[var(--brand,#b61616)] text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] hover:bg-[#d91b1b]"
-                          : "border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 text-neutral-700 dark:text-white/80 hover:bg-white/70 dark:hover:bg-white/10"
-                      }`}
+                      className="mt-4 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 px-4 py-3 text-sm font-semibold text-neutral-700 dark:text-white/80 transition hover:bg-white/70 dark:hover:bg-white/10"
                     >
-                      {pkg
-                        ? `Continue with ${course.enrollment.packages.find((p) => p.id === pkg)?.label || "package"}`
-                        : "Continue without a package"}
+                      Continue without a package
                     </button>
                   </div>
                 )}

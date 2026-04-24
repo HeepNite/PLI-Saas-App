@@ -634,25 +634,12 @@ export default function CheckInQrClient({
     if (mode !== "existing") setReturnedFromNewStudentFlow(false)
   }, [mode])
 
-  const postPurchaseResetRef = React.useRef<number | null>(null)
-
   const handleNewUserPostPurchase = React.useCallback(() => {
-    // After new-student purchase, always reset to idle.
-    // The success message is already visible from the payment completion UI.
-    postPurchaseResetRef.current = window.setTimeout(() => {
-      postPurchaseResetRef.current = null
-      void handleStationCompletion()
-    }, 3000)
+    // After new-student purchase, reset immediately.
+    // The EnrollModal handles its own 10s auto-reset timeout, but when
+    // the user explicitly presses Finish, we should complete immediately.
+    void handleStationCompletion()
   }, [handleStationCompletion])
-
-  // Cleanup post-purchase reset timeout on unmount
-  React.useEffect(() => {
-    return () => {
-      if (postPurchaseResetRef.current !== null) {
-        window.clearTimeout(postPurchaseResetRef.current)
-        postPurchaseResetRef.current = null
-      }
-    }
   }, [])
 
   const handleBootstrapAction = React.useCallback(() => {

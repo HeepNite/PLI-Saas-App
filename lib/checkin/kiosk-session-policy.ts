@@ -34,8 +34,9 @@ export const hasActiveKioskClerkSession = (input: ResolveActiveKioskSessionInput
 export const resolveSuppressedClerkSessionIdOnCompletion = (
   input: ResolveSuppressedClerkSessionInput
 ): KioskSuppressedClerkSessionId => {
+  // Only suppress the customer's kiosk session, never the staff session
+  // If there's no kiosk customer session, there's nothing to suppress
   if (input.kioskClerkSessionId) return input.kioskClerkSessionId
-  if (input.isSignedIn) return input.activeSessionId || CURRENT_CLERK_SESSION_SUPPRESSION
   return null
 }
 
