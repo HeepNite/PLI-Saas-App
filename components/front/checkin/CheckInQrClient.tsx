@@ -640,7 +640,6 @@ export default function CheckInQrClient({
     // the user explicitly presses Finish, we should complete immediately.
     void handleStationCompletion()
   }, [handleStationCompletion])
-  }, [])
 
   const handleBootstrapAction = React.useCallback(() => {
     if (processingPackageCheckIn) return
