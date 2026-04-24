@@ -26,6 +26,7 @@ import { useKioskPinFlow } from "@/components/front/checkin/useKioskPinFlow"
 import {
   KioskResolvingOverlay,
   KioskPackageSuccessOverlay,
+  KioskDuplicatePurchaseOverlay,
   ContextWarning,
   QrPromptText,
   EntrySelectionButtons,
@@ -938,30 +939,16 @@ export default function CheckInQrClient({
         </section>
       </div>
 
-      {/* Duplicate purchase popup - z-index higher than KioskResolvingOverlay (z-11000) */}
-      {showDuplicatePurchasePopup && (
-        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="mx-4 max-w-md rounded-2xl bg-[#1a1d2e] p-6 text-center shadow-2xl">
-            <div className="mb-4 text-5xl">✓</div>
-            <h2 className="mb-2 text-xl font-semibold text-white">
-              You already purchased this class
-            </h2>
-            <p className="mb-6 text-white/70">
-              {bootstrap?.customer?.firstName ? `${bootstrap.customer.firstName}, you` : "You"} already have a successful purchase for{" "}
-              <span className="font-medium text-white">{bootstrap?.context?.courseTitle || "this class"}</span> on this date and time.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setShowDuplicatePurchasePopup(false)
-                void handleStationCompletion()
-              }}
-              className="w-full rounded-xl bg-white px-6 py-3 font-medium text-[#1a1d2e] transition-colors hover:bg-white/90"
-            >
-              Done
-            </button>
-          </div>
-        </div>
+      {/* Duplicate purchase overlay - show immediately when bootstrap has the flag */}
+      {(showDuplicatePurchasePopup || bootstrap?.hasExistingPurchaseForSession) && (
+        <KioskDuplicatePurchaseOverlay
+          customerName={bootstrap?.customer?.firstName}
+          courseTitle={bootstrap?.context?.courseTitle}
+          onDone={() => {
+            setShowDuplicatePurchasePopup(false)
+            void handleStationCompletion()
+          }}
+        />
       )}
 
       {newBookingCourse && (
@@ -1002,7 +989,7 @@ export default function CheckInQrClient({
 
       {/* KioskPackageOfferScreen removed - packages step is now integrated in EnrollModal flow */}
 
-      {showKioskResolvingOverlay && !packageCheckInResult && !showDuplicatePurchasePopup && (
+      {showKioskResolvingOverlay && !packageCheckInResult && !showDuplicatePurchasePopup && !bootstrap?.hasExistingPurchaseForSession && (
         <KioskResolvingOverlay
           message={processingPackageCheckIn ? "Checking you in\u2026" : undefined}
         />
