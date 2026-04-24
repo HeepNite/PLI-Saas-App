@@ -19,34 +19,54 @@ export const hasExistingCustomerPrefillContact = (input?: {
  * Returns the initial step index for existing customer kiosk flow.
  * 
  * For kiosk terminal flows, the step order is: info → [photo] → [packages] → payments
- * When contact is prefilled, we skip info and start at the appropriate step.
- * When going directly to payments, we need to calculate the correct index based on
- * whether photo/packages steps exist.
+ * 
+ * Logic:
+ * - If contact is NOT prefilled → start at info (0)
+ * - If contact IS prefilled:
+ *   - If needs photo → go to photo step
+ *   - Else if packages available AND no active package → go to packages step
+ *   - Else → go to payments step
  */
 export const getExistingCustomerInitialStep = (input?: {
   isKioskTerminalFlow?: boolean
   hasPrefilledContact?: boolean
   /** Whether photo step is included in the flow */
   requiresPhotoStep?: boolean
-  /** Whether packages step is included in the flow */
+  /** Whether packages step is included in the flow (course has packages) */
   hasPackages?: boolean
-  /** Whether to skip directly to payments (existing customers with all data) */
-  skipToPayments?: boolean
+  /** Whether the user already has an active package */
+  hasActivePackage?: boolean
 }) => {
   if (!input?.isKioskTerminalFlow) {
     return EXISTING_CUSTOMER_INFO_STEP
   }
 
-  // If we should skip directly to payments, calculate the correct index
-  if (input.skipToPayments || input.hasPrefilledContact) {
-    // Steps: info(0) → [photo(1)] → [packages] → payments
-    let paymentsIndex = 1 // after info
-    if (input.requiresPhotoStep) paymentsIndex++
-    if (input.hasPackages) paymentsIndex++
-    return paymentsIndex
+  // No prefilled contact → start at info
+  if (!input.hasPrefilledContact) {
+    return 0
   }
 
-  return 0 // start at info
+  // Steps after info: [photo] → [packages] → payments
+  // Calculate the target step index
+  
+  // If needs photo, that's the first step after info
+  if (input.requiresPhotoStep) {
+    return 1 // photo step
+  }
+
+  // If packages available AND user doesn't have active package, go to packages
+  if (input.hasPackages && !input.hasActivePackage) {
+    // packages step index = 1 (no photo) or would be 2 (with photo, but we handled that above)
+    return 1
+  }
+
+  // Otherwise go to payments
+  // payments index = 1 (no photo, no packages) 
+  //                = 2 (with packages but user has active package)
+  //                = 2 (with photo, no packages) - handled above
+  let paymentsIndex = 1
+  if (input.hasPackages) paymentsIndex++ // packages step exists, skip it
+  return paymentsIndex
 }
 
 export const shouldShowCheckInQrPanel = (input: {

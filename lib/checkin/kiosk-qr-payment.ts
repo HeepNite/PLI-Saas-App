@@ -178,9 +178,10 @@ type KioskResolvingOverlayInput = {
   hasVisibleError: boolean
   hasPackageOffer: boolean
   /**
-   * True once EnrollModal has reached the payments step and is ready to display.
+   * True once EnrollModal has reached its target step and is ready to display.
+   * For existing customers this could be packages or payments step.
    * When false (and override is set), the overlay stays up to cover the
-   * info→payments transition inside the modal.
+   * transition inside the modal.
    */
   paymentsStepReady: boolean
 }
@@ -191,8 +192,7 @@ type KioskResolvingOverlayInput = {
  * - bootstrap just resolved but the EnrollModal hasn't opened yet (covers the
  *   React flush gap between setState(bootstrap) and the useEffect that sets
  *   existingRegularBookingOverride), OR
- * - EnrollModal is open but hasn't reached the payments step yet (covers the
- *   internal info→payments transition gap inside the modal).
+ * - EnrollModal is open but hasn't reached its target step yet (packages or payments).
  * Used to render a full-screen spinner that covers the intermediate UI.
  */
 export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInput): boolean => {
@@ -208,8 +208,8 @@ export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInpu
   if (input.hasPackage) return input.processingPackageCheckIn
   // Keep the overlay until the EnrollModal is actually open (override set).
   if (!input.hasExistingRegularBookingOverride) return true
-  // EnrollModal is open but hasn't reached payments yet — keep covering the
-  // internal transition (info skip → payments render).
+  // EnrollModal is open but hasn't reached target step yet — keep covering the
+  // transition (info skip → packages/payments render).
   if (!input.paymentsStepReady) return true
   return false
 }

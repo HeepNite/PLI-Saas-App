@@ -1066,11 +1066,10 @@ export default function CheckInQrClient({
           initialStep={getExistingCustomerInitialStep({
             isKioskTerminalFlow,
             hasPrefilledContact: hasBootstrapPrefilledContact,
-            // For existing customers with prefilled contact, we need to know
-            // how many steps to skip to reach payments
             requiresPhotoStep: !bootstrap?.customer.hasAvatar && photoFlowContext === "kiosk_terminal",
             hasPackages: (existingRegularBookingCourse?.enrollment.packages.length ?? 0) > 0,
-            skipToPayments: hasBootstrapPrefilledContact,
+            // User has active package if bootstrap.package exists
+            hasActivePackage: Boolean(bootstrap?.package),
           })}
           prefillSelection={pickEnrollPrefill({
             quickCheckout: bootstrap?.quickCheckout ?? null,

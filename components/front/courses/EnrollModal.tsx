@@ -2057,9 +2057,9 @@ export default function EnrollModal({
   // Track whether we already fired onPaymentsStepReadyAction for this open session
   const paymentsReadyFiredRef = React.useRef(false)
 
-  // Notify the parent (e.g. CheckInQrClient) once payments is the active step
-  // AND the internal kiosk transition overlay has cleared. This lets the
-  // outer full-screen resolving overlay stay up until the payment UI is truly
+  // Notify the parent (e.g. CheckInQrClient) once we reach a target step
+  // (packages or payments) AND the internal kiosk transition overlay has cleared.
+  // This lets the outer full-screen resolving overlay stay up until the UI is truly
   // visible — not just until the EnrollModal has been opened.
   React.useEffect(() => {
     if (!open) {
@@ -2067,7 +2067,8 @@ export default function EnrollModal({
       return
     }
     if (paymentsReadyFiredRef.current) return
-    if (activeStepKey !== "payments") return
+    // Fire when we reach packages OR payments step (the target steps for existing customers)
+    if (activeStepKey !== "payments" && activeStepKey !== "packages") return
     if (showKioskPaymentTransition) return
     paymentsReadyFiredRef.current = true
     onPaymentsStepReadyAction?.()

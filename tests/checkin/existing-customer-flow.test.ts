@@ -12,48 +12,60 @@ describe("existing customer kiosk helpers", () => {
     expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true, hasPrefilledContact: false })).toBe(0)
   })
 
-  it("skips to payments when the identified student is prefilled (no photo, no packages)", () => {
+  it("goes to payments when prefilled, no photo needed, no packages available", () => {
     // Steps: info(0) → payments(1)
     expect(getExistingCustomerInitialStep({
       isKioskTerminalFlow: true,
       hasPrefilledContact: true,
       requiresPhotoStep: false,
       hasPackages: false,
-      skipToPayments: true,
     })).toBe(1)
   })
 
-  it("skips to payments accounting for photo step", () => {
+  it("goes to photo step when prefilled but needs photo", () => {
     // Steps: info(0) → photo(1) → payments(2)
     expect(getExistingCustomerInitialStep({
       isKioskTerminalFlow: true,
       hasPrefilledContact: true,
       requiresPhotoStep: true,
       hasPackages: false,
-      skipToPayments: true,
-    })).toBe(2)
+    })).toBe(1) // photo step
   })
 
-  it("skips to payments accounting for packages step", () => {
+  it("goes to packages step when prefilled, packages available, but NO active package", () => {
     // Steps: info(0) → packages(1) → payments(2)
+    // User doesn't have active package, so offer them packages
     expect(getExistingCustomerInitialStep({
       isKioskTerminalFlow: true,
       hasPrefilledContact: true,
       requiresPhotoStep: false,
       hasPackages: true,
-      skipToPayments: true,
-    })).toBe(2)
+      hasActivePackage: false,
+    })).toBe(1) // packages step
   })
 
-  it("skips to payments accounting for both photo and packages steps", () => {
+  it("skips packages to payments when prefilled and user HAS active package", () => {
+    // Steps: info(0) → packages(1) → payments(2)
+    // User already has package, skip to payments
+    expect(getExistingCustomerInitialStep({
+      isKioskTerminalFlow: true,
+      hasPrefilledContact: true,
+      requiresPhotoStep: false,
+      hasPackages: true,
+      hasActivePackage: true,
+    })).toBe(2) // payments step (skipping packages)
+  })
+
+  it("goes to photo first when both photo and packages needed", () => {
     // Steps: info(0) → photo(1) → packages(2) → payments(3)
+    // Photo comes before packages
     expect(getExistingCustomerInitialStep({
       isKioskTerminalFlow: true,
       hasPrefilledContact: true,
       requiresPhotoStep: true,
       hasPackages: true,
-      skipToPayments: true,
-    })).toBe(3)
+      hasActivePackage: false,
+    })).toBe(1) // photo step first
   })
 
   it("keeps the non-kiosk entry step stable for the full wizard", () => {
