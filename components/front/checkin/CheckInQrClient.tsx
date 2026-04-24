@@ -304,8 +304,10 @@ export default function CheckInQrClient({
   )
 
   const signOutKioskCustomerSession = React.useCallback(
-    (sessionId: string) => clerk.signOut({ sessionId, redirectUrl: stationRedirectUrl }),
-    [clerk, stationRedirectUrl]
+    // Don't pass redirectUrl to clerk.signOut - we handle redirect ourselves in completeKioskCustomerFlow
+    // Passing redirectUrl causes Clerk to redirect before our code can run
+    (sessionId: string) => clerk.signOut({ sessionId }),
+    [clerk]
   )
   const replaceStationUrl = React.useCallback((url: string) => router.replace(url), [router])
 
