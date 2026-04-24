@@ -97,6 +97,7 @@ export default function CheckInQrClient({
   } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
+  const [showDuplicatePurchasePopup, setShowDuplicatePurchasePopup] = React.useState(false)
   const [packageOfferContext, setPackageOfferContext] = React.useState<PackageOfferContext>(null)
   const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
   const packageCheckInTimeoutRef = React.useRef<number | null>(null)
@@ -711,6 +712,13 @@ export default function CheckInQrClient({
   React.useEffect(() => {
     if (!isKioskTerminalFlow) return
     if (!bootstrap) return
+
+    // Check for duplicate purchase BEFORE opening the flow
+    if (bootstrap.hasExistingPurchaseForSession) {
+      setShowDuplicatePurchasePopup(true)
+      return
+    }
+
     // Package offer screen removed - packages step is now in EnrollModal
     if (
       !shouldAutoOpenExistingPurchase({
@@ -929,6 +937,32 @@ export default function CheckInQrClient({
           </div>
         </section>
       </div>
+
+      {/* Duplicate purchase popup */}
+      {showDuplicatePurchasePopup && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 max-w-md rounded-2xl bg-[#1a1d2e] p-6 text-center shadow-2xl">
+            <div className="mb-4 text-5xl">✓</div>
+            <h2 className="mb-2 text-xl font-semibold text-white">
+              You already purchased this class
+            </h2>
+            <p className="mb-6 text-white/70">
+              {bootstrap?.customer?.firstName ? `${bootstrap.customer.firstName}, you` : "You"} already have a successful purchase for{" "}
+              <span className="font-medium text-white">{bootstrap?.context?.courseTitle || "this class"}</span> on this date and time.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setShowDuplicatePurchasePopup(false)
+                void handleStationCompletion()
+              }}
+              className="w-full rounded-xl bg-white px-6 py-3 font-medium text-[#1a1d2e] transition-colors hover:bg-white/90"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {newBookingCourse && (
         <EnrollModal

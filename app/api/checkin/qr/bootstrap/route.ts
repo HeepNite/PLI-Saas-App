@@ -335,6 +335,14 @@ export async function POST(req: Request) {
     ])
     const lastPurchase = recentPurchases[0] || null
 
+    // Check if user already has a successful purchase for this exact session (date + time)
+    const hasExistingPurchaseForSession = recentPurchases.some((purchase) => {
+      const metadata = toRecord(purchase.metadata)
+      const purchaseDate = normalizeString(metadata?.date)
+      const purchaseTime = normalizeString(metadata?.time)
+      return purchaseDate === context.date && purchaseTime === context.time
+    })
+
     const preferredPackage = pickPreferredPackage({
       courseSlug: context.courseSlug,
       packages: activePackages,
@@ -458,11 +466,12 @@ export async function POST(req: Request) {
           }
         : null,
       ...(terminalPayload
-        ? {}
+        ? { hasExistingPurchaseForSession }
         : {
             purchaseHistory,
             hasPreviousPurchase: Boolean(lastPurchase),
             hasAnyCompletedPurchase: Boolean(anyCompletedPurchase),
+            hasExistingPurchaseForSession,
           }),
     })
   } catch (error) {

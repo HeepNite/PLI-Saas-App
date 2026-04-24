@@ -80,6 +80,8 @@ export type BootstrapResponse = {
   }>
   hasPreviousPurchase: boolean
   hasAnyCompletedPurchase: boolean
+  /** True if user already has a successful purchase for this exact class session (date + time) */
+  hasExistingPurchaseForSession?: boolean
 }
 
 export type CheckInQrClientProps = {
