@@ -94,27 +94,9 @@ export default function EmbeddedSignIn({
 
   const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
 
-  // Auto-send SMS code on mount when autoSend is enabled and phone is valid
-  // Small delay ensures Clerk is fully initialized before attempting to send
+  // Ref for auto-send - declared here but effect runs after sendCode is defined
   const autoSendTriggeredRef = React.useRef(false)
-  React.useEffect(() => {
-    if (
-      autoSend &&
-      !autoSendTriggeredRef.current &&
-      isLoaded &&
-      signIn &&
-      step === "phone" &&
-      normalizedPhone &&
-      isCompleteUSPhone(phone)
-    ) {
-      autoSendTriggeredRef.current = true
-      // Small delay to ensure Clerk's internal state is ready
-      const timer = setTimeout(() => {
-        void sendCode()
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [autoSend, isLoaded, signIn, step, normalizedPhone, phone, sendCode])
+
   const renderCursorHint = (field: KioskNumericField) =>
     useNumericKeypad && activeField === field ? (
       <span
@@ -204,6 +186,27 @@ export default function EmbeddedSignIn({
       setBusy(false)
     }
   }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, onCodeSent, phone, signIn])
+
+  // Auto-send SMS code on mount when autoSend is enabled and phone is valid
+  // Small delay ensures Clerk is fully initialized before attempting to send
+  React.useEffect(() => {
+    if (
+      autoSend &&
+      !autoSendTriggeredRef.current &&
+      isLoaded &&
+      signIn &&
+      step === "phone" &&
+      normalizedPhone &&
+      isCompleteUSPhone(phone)
+    ) {
+      autoSendTriggeredRef.current = true
+      // Small delay to ensure Clerk's internal state is ready
+      const timer = setTimeout(() => {
+        void sendCode()
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [autoSend, isLoaded, signIn, step, normalizedPhone, phone, sendCode])
 
   const verifyCode = React.useCallback(async () => {
     if (!isLoaded || !signIn || !setActive) {
