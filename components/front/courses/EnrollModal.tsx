@@ -3189,7 +3189,7 @@ export default function EnrollModal({
                           </div>
                           <button
                             type="button"
-                            onClick={() => setPkg("")}
+                            onClick={() => setStep(stepKeys.indexOf("packages"))}
                             className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
                           >
                             Change
