@@ -15,15 +15,38 @@ export const hasExistingCustomerPrefillContact = (input?: {
       input?.phone?.trim()
   )
 
+/**
+ * Returns the initial step index for existing customer kiosk flow.
+ * 
+ * For kiosk terminal flows, the step order is: info → [photo] → [packages] → payments
+ * When contact is prefilled, we skip info and start at the appropriate step.
+ * When going directly to payments, we need to calculate the correct index based on
+ * whether photo/packages steps exist.
+ */
 export const getExistingCustomerInitialStep = (input?: {
   isKioskTerminalFlow?: boolean
   hasPrefilledContact?: boolean
+  /** Whether photo step is included in the flow */
+  requiresPhotoStep?: boolean
+  /** Whether packages step is included in the flow */
+  hasPackages?: boolean
+  /** Whether to skip directly to payments (existing customers with all data) */
+  skipToPayments?: boolean
 }) => {
   if (!input?.isKioskTerminalFlow) {
     return EXISTING_CUSTOMER_INFO_STEP
   }
 
-  return input.hasPrefilledContact ? 1 : 0
+  // If we should skip directly to payments, calculate the correct index
+  if (input.skipToPayments || input.hasPrefilledContact) {
+    // Steps: info(0) → [photo(1)] → [packages] → payments
+    let paymentsIndex = 1 // after info
+    if (input.requiresPhotoStep) paymentsIndex++
+    if (input.hasPackages) paymentsIndex++
+    return paymentsIndex
+  }
+
+  return 0 // start at info
 }
 
 export const shouldShowCheckInQrPanel = (input: {

@@ -12,8 +12,48 @@ describe("existing customer kiosk helpers", () => {
     expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true, hasPrefilledContact: false })).toBe(0)
   })
 
-  it("skips the kiosk contact form when the identified student is already prefilled", () => {
-    expect(getExistingCustomerInitialStep({ isKioskTerminalFlow: true, hasPrefilledContact: true })).toBe(1)
+  it("skips to payments when the identified student is prefilled (no photo, no packages)", () => {
+    // Steps: info(0) → payments(1)
+    expect(getExistingCustomerInitialStep({
+      isKioskTerminalFlow: true,
+      hasPrefilledContact: true,
+      requiresPhotoStep: false,
+      hasPackages: false,
+      skipToPayments: true,
+    })).toBe(1)
+  })
+
+  it("skips to payments accounting for photo step", () => {
+    // Steps: info(0) → photo(1) → payments(2)
+    expect(getExistingCustomerInitialStep({
+      isKioskTerminalFlow: true,
+      hasPrefilledContact: true,
+      requiresPhotoStep: true,
+      hasPackages: false,
+      skipToPayments: true,
+    })).toBe(2)
+  })
+
+  it("skips to payments accounting for packages step", () => {
+    // Steps: info(0) → packages(1) → payments(2)
+    expect(getExistingCustomerInitialStep({
+      isKioskTerminalFlow: true,
+      hasPrefilledContact: true,
+      requiresPhotoStep: false,
+      hasPackages: true,
+      skipToPayments: true,
+    })).toBe(2)
+  })
+
+  it("skips to payments accounting for both photo and packages steps", () => {
+    // Steps: info(0) → photo(1) → packages(2) → payments(3)
+    expect(getExistingCustomerInitialStep({
+      isKioskTerminalFlow: true,
+      hasPrefilledContact: true,
+      requiresPhotoStep: true,
+      hasPackages: true,
+      skipToPayments: true,
+    })).toBe(3)
   })
 
   it("keeps the non-kiosk entry step stable for the full wizard", () => {
