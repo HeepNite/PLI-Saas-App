@@ -15,12 +15,7 @@ type CheckInContextOverride = {
 
 type UseKioskFlowCompletionParams<TBootstrap> = {
   isKioskTerminalFlow: boolean
-  kioskClerkSessionId: string | null
-  replaceUrl: (url: string) => Promise<unknown> | unknown
   resetKioskCustomerSession: () => void
-  signOutKioskCustomerSession: (sessionId: string) => Promise<unknown> | unknown
-  stationRedirectUrl: string
-  suppressClerkSessionOnCompletion: () => void
   setBootstrap: React.Dispatch<React.SetStateAction<TBootstrap | null>>
   setError: React.Dispatch<React.SetStateAction<string | null>>
   setExistingRegularBookingOverride: React.Dispatch<React.SetStateAction<CheckInContextOverride | null>>
@@ -45,12 +40,7 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
 
 export const useKioskFlowCompletion = <TBootstrap,>({
   isKioskTerminalFlow,
-  kioskClerkSessionId,
-  replaceUrl,
   resetKioskCustomerSession,
-  signOutKioskCustomerSession,
-  stationRedirectUrl,
-  suppressClerkSessionOnCompletion,
   setBootstrap,
   setError,
   setExistingRegularBookingOverride,
@@ -118,27 +108,15 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setSuccess,
   ])
 
-  const handleStationCompletion = React.useCallback(async () => {
-    suppressClerkSessionOnCompletion()
-
-    await completeKioskCustomerFlow({
+  const handleStationCompletion = React.useCallback(() => {
+    // For kiosk terminal: just reset customer state, stay on the same page
+    // NEVER sign out - staff session must remain active
+    // NEVER redirect - kiosk stays on terminal page
+    completeKioskCustomerFlow({
       resetCustomerState: resetCustomerFlowState,
       isKioskTerminalFlow,
-      resetUrl: stationRedirectUrl,
-      replaceUrl,
-      signOutCustomerSession: kioskClerkSessionId
-        ? () => signOutKioskCustomerSession(kioskClerkSessionId)
-        : undefined,
     })
-  }, [
-    isKioskTerminalFlow,
-    kioskClerkSessionId,
-    replaceUrl,
-    resetCustomerFlowState,
-    signOutKioskCustomerSession,
-    stationRedirectUrl,
-    suppressClerkSessionOnCompletion,
-  ])
+  }, [isKioskTerminalFlow, resetCustomerFlowState])
 
   const dismissExistingCustomer = React.useCallback(() => {
     if (isKioskTerminalFlow) {

@@ -1,23 +1,11 @@
 type CompleteKioskCustomerFlowInput = {
   resetCustomerState: () => void
   isKioskTerminalFlow: boolean
-  resetUrl?: string
-  replaceUrl?: (url: string) => Promise<unknown> | unknown
-  signOutCustomerSession?: () => Promise<unknown> | unknown
 }
 
-export const completeKioskCustomerFlow = async (input: CompleteKioskCustomerFlowInput) => {
-  try {
-    if (input.isKioskTerminalFlow && input.signOutCustomerSession) {
-      await input.signOutCustomerSession()
-    }
-  } finally {
-    input.resetCustomerState()
-
-    if (!input.isKioskTerminalFlow || !input.resetUrl || !input.replaceUrl) {
-      return
-    }
-
-    await input.replaceUrl(input.resetUrl)
-  }
+export const completeKioskCustomerFlow = (input: CompleteKioskCustomerFlowInput) => {
+  // Kiosk terminal flow: just reset the customer state, stay on the same page
+  // NEVER sign out of Clerk - the staff session must remain active
+  // NEVER redirect - the kiosk stays on the same terminal page
+  input.resetCustomerState()
 }

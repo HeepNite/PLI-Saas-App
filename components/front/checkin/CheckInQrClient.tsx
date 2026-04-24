@@ -303,22 +303,9 @@ export default function CheckInQrClient({
     [activeDate, activeTime, durationMinutes, existingRegularBookingOverride?.date, existingRegularBookingOverride?.time]
   )
 
-  const signOutKioskCustomerSession = React.useCallback(
-    // Don't pass redirectUrl to clerk.signOut - we handle redirect ourselves in completeKioskCustomerFlow
-    // Passing redirectUrl causes Clerk to redirect before our code can run
-    (sessionId: string) => clerk.signOut({ sessionId }),
-    [clerk]
-  )
-  const replaceStationUrl = React.useCallback((url: string) => router.replace(url), [router])
-
   const { handleStationCompletion, dismissExistingCustomer: handleExistingCustomerDismiss } = useKioskFlowCompletion({
     isKioskTerminalFlow,
-    kioskClerkSessionId,
-    replaceUrl: replaceStationUrl,
     resetKioskCustomerSession,
-    signOutKioskCustomerSession,
-    stationRedirectUrl,
-    suppressClerkSessionOnCompletion,
     setBootstrap,
     setError,
     setExistingRegularBookingOverride,
@@ -383,9 +370,8 @@ export default function CheckInQrClient({
       window.clearTimeout(packageCheckInTimeoutRef.current)
       packageCheckInTimeoutRef.current = null
     }
-    void handleStationCompletion().finally(() => {
-      setPackageCheckInResult(null)
-    })
+    handleStationCompletion()
+    setPackageCheckInResult(null)
   }, [handleStationCompletion])
 
   const handlePackageCheckIn = React.useCallback(async () => {
