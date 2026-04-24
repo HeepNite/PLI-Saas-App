@@ -9,10 +9,18 @@ export const metadata: Metadata = {
   description: "Staff PIN log-in with session creation.",
 }
 
-export default async function StaffLogInPage() {
-  // If already authenticated, redirect to resolve
+export default async function StaffLogInPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const params = (await searchParams) || {}
+  const error = Array.isArray(params.error) ? params.error[0] : params.error
+  
+  // If already authenticated AND no error, redirect to resolve
+  // Don't redirect if there's an error (prevents loop when user lacks staff role)
   const { userId } = await auth()
-  if (userId) {
+  if (userId && !error) {
     redirect("/staff/resolve")
   }
 

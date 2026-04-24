@@ -12,13 +12,8 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   const { pathname } = req.nextUrl
 
   // Protected staff routes — auth is already populated by clerkMiddleware callback
-  if (pathname.startsWith("/staff/portal") || pathname.startsWith("/staff/panel")) {
-    const { userId } = await auth()
-    if (!userId) {
-      // Redirect to sign-in page, not checkin (which could cause loops)
-      return NextResponse.redirect(new URL("/staff/sign-in", req.url))
-    }
-  }
+  // Let pages handle their own auth to avoid redirect loops
+  // The pages will redirect to log-in if needed
 
   return NextResponse.next()
 })
