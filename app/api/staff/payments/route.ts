@@ -231,7 +231,7 @@ export async function GET(req: Request) {
     const settlementStatus = normalizeSettlementStatus(metadata.settlementStatus)
     const classDate = asText(metadata.date)
     const classTime = asText(metadata.time)
-    const classStartsAt = classDate && classTime ? buildSessionStartsAt(classDate, classTime) : null
+    const classStartsAt = classDate && classTime ? buildSessionStartsAt(classDate, classTime) : purchase.createdAt
     return {
       purchase,
       id: purchase.id,

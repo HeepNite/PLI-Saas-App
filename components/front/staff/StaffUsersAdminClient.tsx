@@ -5345,6 +5345,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
         return {
           ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key) : item),
+          // Preserve original allPayments for tooltip history display
+          allPayments: item.allPayments,
           latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
         }
       })
@@ -5367,6 +5369,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
         return {
           ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key) : item),
+          // Preserve original allPayments for tooltip history display
+          allPayments: item.allPayments,
           latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
         }
       })

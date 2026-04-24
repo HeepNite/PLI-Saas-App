@@ -145,8 +145,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
                 checkedInAt: now,
                 metadata: {
                   source: "cash_settlement",
-                  date: classDate,
-                  time: classTime,
+                  purchaseId,
+                  date: classDate || "",
+                  time: classTime || "",
                 },
               },
             })
