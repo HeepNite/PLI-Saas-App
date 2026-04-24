@@ -611,6 +611,16 @@ export const enrollStudentPinForCheckout = async (input: EnrollStudentPinInput):
     return confirmationError
   }
 
+  // Check PIN availability BEFORE creating/updating user to prevent
+  // persisting user data when PIN enrollment will fail
+  const pinAvailable = await prisma.studentPin.findFirst({
+    where: { pin: input.studentPin as string },
+    select: { id: true },
+  })
+  if (pinAvailable) {
+    return { status: 409, error: "This PIN is already in use. Please choose a different one." }
+  }
+
   const dbUser = await upsertUserByIdentifiers({
     clerkId: input.resolvedClerkUserId || undefined,
     email: input.resolvedEmail,
