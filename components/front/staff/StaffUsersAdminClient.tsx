@@ -9740,8 +9740,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             })}
           </div>
 
-          <div className="mt-4 flex flex-nowrap items-center gap-2">
-            <div className="inline-flex shrink-0 flex-nowrap items-center gap-1.5">
+          <div className="mt-4 flex flex-wrap items-center gap-2 xl:flex-nowrap">
+            <div className="inline-flex shrink-0 flex-wrap items-center gap-1.5 xl:flex-nowrap">
               {([
                 ["all", "All"],
                 ["cash", "Cash"],
@@ -9765,7 +9765,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               ))}
               </div>
 
-              <label className="block flex-[0_1_18rem] lg:flex-[0_1_20rem]">
+              <label className="block min-w-0 flex-1 basis-full md:basis-[16rem] xl:basis-0">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/45 dark:text-white/45" />
                   <input
