@@ -19,7 +19,7 @@ import {
   buildPackageOfferContext,
   pickEnrollPrefill,
 } from "@/lib/checkin/package-offer-integration"
-import KioskPackageOfferScreen from "@/components/front/checkin/KioskPackageOfferScreen"
+// KioskPackageOfferScreen removed - packages step is now in EnrollModal
 import { useKioskCustomerSession } from "@/components/front/checkin/useKioskCustomerSession"
 import { useKioskFlowCompletion } from "@/components/front/checkin/useKioskFlowCompletion"
 import { useKioskPinFlow } from "@/components/front/checkin/useKioskPinFlow"
@@ -723,7 +723,7 @@ export default function CheckInQrClient({
   React.useEffect(() => {
     if (!isKioskTerminalFlow) return
     if (!bootstrap) return
-    if (packageOfferContext) return
+    // Package offer screen removed - packages step is now in EnrollModal
     if (
       !shouldAutoOpenExistingPurchase({
         mode,
@@ -740,41 +740,15 @@ export default function CheckInQrClient({
       return
     }
 
-    // Check for package offer before opening existing purchase flow
-    const availablePackages = selectedCourse?.enrollment.packages ?? []
-    resolvePackageOfferScenario({
-      isKioskTerminalFlow,
-      bootstrap,
-      availablePackages,
-      fetchPreviousPackage,
-    }).then((result) => {
-      if (result) {
-        const ctx = buildPackageOfferContext({
-          scenario: result.scenario,
-          previousPackageId: result.previousPackageId,
-          courseSlug: bootstrap.context.courseSlug,
-          date: bootstrap.context.date,
-          time: bootstrap.context.time,
-        })
-        setPackageOfferContext(ctx)
-        return
-      }
-      openExistingPurchaseFlow({
-        courseSlug: bootstrap.context.courseSlug,
-        date: bootstrap.context.date,
-        time: bootstrap.context.time,
-      })
-    }).catch(() => {
-      openExistingPurchaseFlow({
-        courseSlug: bootstrap.context.courseSlug,
-        date: bootstrap.context.date,
-        time: bootstrap.context.time,
-      })
+    // Go directly to existing purchase flow - packages step is now integrated there
+    openExistingPurchaseFlow({
+      courseSlug: bootstrap.context.courseSlug,
+      date: bootstrap.context.date,
+      time: bootstrap.context.time,
     })
   }, [
     bootstrap,
     existingRegularBookingOverride,
-    fetchPreviousPackage,
     hasActiveClerkSession,
     hasKioskPinSession,
     isKioskTerminalFlow,
@@ -782,10 +756,10 @@ export default function CheckInQrClient({
     mode,
     openExistingPurchaseFlow,
     openNewBooking,
-    packageOfferContext,
     processingPackageCheckIn,
-    selectedCourse?.enrollment.packages,
   ])
+
+
 
   // Auto-trigger package check-in on kiosk: PIN identify → bootstrap with package → deduct immediately
   React.useEffect(() => {
@@ -1004,20 +978,7 @@ export default function CheckInQrClient({
         />
       )}
 
-      {showPackageOfferScreen && packageOfferContext && (
-        <KioskPackageOfferScreen
-          scenario={packageOfferContext.scenario}
-          packages={(selectedCourse?.enrollment.packages ?? []).map((pkg) => ({
-            ...pkg,
-            description: pkg.description,
-          }))}
-          previousPackageId={packageOfferContext.previousPackageId}
-          courseName={selectedCourse?.title || bootstrap?.context.courseTitle || ""}
-          onSelectPackage={handlePackageOfferSelect}
-          onDecline={handlePackageOfferDecline}
-          onTimeout={handlePackageOfferTimeout}
-        />
-      )}
+      {/* KioskPackageOfferScreen removed - packages step is now integrated in EnrollModal flow */}
 
       {showKioskResolvingOverlay && !packageCheckInResult && (
         <KioskResolvingOverlay
