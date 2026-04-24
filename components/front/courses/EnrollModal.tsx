@@ -2258,6 +2258,9 @@ export default function EnrollModal({
         return true
       case "photo":
         return !requiresPhotoStep || photoSaved
+      case "packages":
+        // Packages step is always valid - package selection is optional
+        return true
       case "payments":
         return paymentMethod !== ""
       case "review":
