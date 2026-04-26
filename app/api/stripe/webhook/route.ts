@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
 import Stripe from "stripe"
+import { Prisma } from "@prisma/client"
 import type { ClerkClient } from "@clerk/backend"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
@@ -152,8 +153,9 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   })
   const incomingMeta = session.metadata as Record<string, unknown> | null | undefined
   const baseMeta = mergeMetadataPreservingFailure(existingPurchase?.metadata, incomingMeta)
-  const mergedMetadata =
+  const mergedMetadata = (
     status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta
+  ) as Prisma.InputJsonValue
 
   const purchase = await prisma.purchase.upsert({
     where: { stripeCheckoutSessionId: session.id },

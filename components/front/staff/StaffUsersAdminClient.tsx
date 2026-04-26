@@ -9671,22 +9671,22 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             </span>
                           </div>
                         </div>
-                        <div className="mt-4 grid w-full grid-cols-2 gap-x-8 gap-y-4 text-[11px] text-black/70 dark:text-white/70">
-                          <div className="min-w-0">
+                        <div className="mt-4 grid w-full grid-cols-2 gap-x-8 gap-y-4 text-xs text-black/70 dark:text-white/70">
+                          <div className="min-w-0 text-center">
                             <p className="font-medium text-black/55 dark:text-white/55">Price</p>
-                            <p className="mt-0.5 text-black/90 dark:text-white/90">{item.priceCents === null ? "—" : formatMoney(item.priceCents)}</p>
+                            <p className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">{item.priceCents === null ? "—" : formatMoney(item.priceCents)}</p>
                           </div>
-                          <div className="min-w-0 justify-self-stretch text-left">
+                          <div className="min-w-0 text-center">
                             <p className="font-medium text-black/55 dark:text-white/55">Classes</p>
-                            <p className="mt-0.5 text-black/90 dark:text-white/90">{item.totalCredits ?? "∞"}</p>
+                            <p className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">{item.totalCredits ?? "∞"}</p>
                           </div>
-                          <div className="min-w-0">
+                          <div className="min-w-0 text-center">
                             <p className="font-medium text-black/55 dark:text-white/55">Make-ups</p>
-                            <p className="mt-0.5 text-black/90 dark:text-white/90">{item.makeUps}</p>
+                            <p className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">{item.makeUps}</p>
                           </div>
-                          <div className="min-w-0 justify-self-stretch text-left">
+                          <div className="min-w-0 text-center">
                             <p className="font-medium text-black/55 dark:text-white/55">Valid</p>
-                            <p className="mt-0.5 text-black/90 dark:text-white/90">{item.validDays} days</p>
+                            <p className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">{item.validDays} days</p>
                           </div>
                         </div>
                         <div className="mt-4 space-y-2 border-t border-black/10 pt-3 dark:border-white/10">
