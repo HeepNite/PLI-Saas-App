@@ -1826,7 +1826,7 @@ function transformPaymentRowsToAttendance(
   const events: AttendanceEvent[] = []
   let totalAttended = 0
   let noShows = 0
-  let cancelled = 0
+  let booked = 0
 
   for (const row of rows) {
     // Package credit consumption = class attended (even without explicit attendanceId)
@@ -1854,11 +1854,21 @@ function transformPaymentRowsToAttendance(
 
     if (status === "attended") totalAttended++
     else if (status === "no-show") noShows++
-    else if (status === "booked") cancelled++
+    else if (status === "booked") booked++
+
+    // Parse date correctly - classDate is YYYY-MM-DD string, treat as local date
+    let eventDate: Date
+    if (row.classDate) {
+      // Parse as local date to avoid timezone shifting
+      const [year, month, day] = row.classDate.split("-").map(Number)
+      eventDate = new Date(year, month - 1, day)
+    } else {
+      eventDate = new Date(row.createdAt)
+    }
 
     events.push({
       id: row.attendanceId || row.id,
-      date: row.classDate ? new Date(row.classDate) : new Date(row.createdAt),
+      date: eventDate,
       time: row.classTime || "00:00",
       className: row.courseTitle || row.courseSlug || "Class",
       classType: isPackageCredit ? "Package" : row.purchaseCategory === "dropin" ? "Drop-in" : "Package",
@@ -1871,7 +1881,7 @@ function transformPaymentRowsToAttendance(
   const summary: AttendanceSummary = {
     totalAttended,
     noShows,
-    cancelled,
+    cancelled: 0, // Only count actual cancellations, not scheduled/booked
     activePackage: latestPkg
       ? {
           name: latestPkg.label,
