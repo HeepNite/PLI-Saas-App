@@ -274,9 +274,10 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
     select: { metadata: true },
   })
   const incomingMeta = intent.metadata as Record<string, unknown> | null | undefined
-  const baseMeta = mergeFailureIntoMetadata(existingPurchase?.metadata, incomingMeta ?? {})
-  const mergedMetadata =
+  const baseMeta = mergeMetadataPreservingFailure(existingPurchase?.metadata, incomingMeta)
+  const mergedMetadata = (
     status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta
+  ) as Prisma.InputJsonValue
 
   const purchase = await prisma.purchase.upsert({
     where: { stripePaymentIntentId: intent.id },
@@ -374,7 +375,7 @@ async function handlePaymentIntentFailure(event: Stripe.Event) {
     where: { id: purchase.id },
     data: {
       status: "failed",
-      metadata: mergeFailureIntoMetadata(purchase.metadata, failure),
+      metadata: mergeFailureIntoMetadata(purchase.metadata, failure) as Prisma.InputJsonValue,
     },
   })
 }
@@ -393,7 +394,7 @@ async function handleCheckoutSessionTerminal(event: Stripe.Event, status: "expir
     where: { id: purchase.id },
     data: {
       status,
-      metadata: mergeFailureIntoMetadata(purchase.metadata, failure),
+      metadata: mergeFailureIntoMetadata(purchase.metadata, failure) as Prisma.InputJsonValue,
     },
   })
 }
