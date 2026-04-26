@@ -613,11 +613,11 @@ export const enrollStudentPinForCheckout = async (input: EnrollStudentPinInput):
 
   // Check PIN availability BEFORE creating/updating user to prevent
   // persisting user data when PIN enrollment will fail
-  const pinAvailable = await prisma.studentPin.findFirst({
+  const pinTaken = await prisma.studentPinCredential.findFirst({
     where: { pin: input.studentPin as string },
     select: { id: true },
   })
-  if (pinAvailable) {
+  if (pinTaken) {
     return { status: 409, error: "This PIN is already in use. Please choose a different one." }
   }
 
