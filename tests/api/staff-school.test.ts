@@ -189,6 +189,19 @@ describe("staff school routes", () => {
     })
   })
 
+  it("GET packages supports filtering by lifecycle status", async () => {
+    mockPrisma.packagePlan.findMany.mockResolvedValue([])
+
+    const { GET } = await import("@/app/api/staff/school/packages/route")
+    const res = await GET(new Request("http://localhost/api/staff/school/packages?status=SCHEDULED"))
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.findMany).toHaveBeenCalledWith({
+      where: { status: "SCHEDULED" },
+      orderBy: [{ createdAt: "desc" }],
+    })
+  })
+
   it("POST packages accepts decimal price input and preserves informational cadence", async () => {
     mockPrisma.packagePlan.upsert.mockResolvedValue({
       id: "pkg_2",
@@ -224,6 +237,60 @@ describe("staff school routes", () => {
         cadence: "3/week",
       }),
     })
+  })
+
+  it("POST packages stores scheduled lifecycle with launch date and keeps active false", async () => {
+    mockPrisma.packagePlan.upsert.mockResolvedValue({
+      id: "pkg_sched",
+      key: "night-pack-launch",
+      label: "Night pack launch",
+    })
+
+    const { POST } = await import("@/app/api/staff/school/packages/route")
+    const req = new Request("http://localhost/api/staff/school/packages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: "night-pack-launch",
+        courseSlug: "salsa-night",
+        label: "Night pack launch",
+        status: "SCHEDULED",
+        launchAt: "2026-05-01T10:00:00.000Z",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.upsert.mock.calls[0][0]).toMatchObject({
+      create: expect.objectContaining({
+        status: "SCHEDULED",
+        active: false,
+      }),
+      update: expect.objectContaining({
+        status: "SCHEDULED",
+        active: false,
+      }),
+    })
+  })
+
+  it("POST packages rejects scheduled lifecycle without launch date", async () => {
+    const { POST } = await import("@/app/api/staff/school/packages/route")
+    const req = new Request("http://localhost/api/staff/school/packages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: "night-pack-launch",
+        label: "Night pack launch",
+        status: "SCHEDULED",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(400)
+    expect(mockPrisma.packagePlan.upsert).not.toHaveBeenCalled()
+    await expect(res.json()).resolves.toEqual({ error: "Scheduled packages require a launch date." })
   })
 
   it("POST packages rejects malformed decimal price input", async () => {

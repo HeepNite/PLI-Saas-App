@@ -613,18 +613,21 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
       latestClassAttended: latestClassAttendedByUser.get(user.id) || null,
       latestCheckInAt: latestCheckInAtByUser.get(user.id) || null,
       lastPayment: lastPayment && lastPaymentPurchaseCategory && lastPaymentPurchaseCategory !== "other"
-        ? {
-            date: lastPayment.createdAt.toISOString(),
-            amountCents: lastPayment.amount,
-            purchaseCategory: lastPaymentPurchaseCategory,
-            courseTitle: lastPayment.courseTitle,
-            paymentChannel: normalizePaymentChannel({
+        ? (() => {
+            const channel = normalizePaymentChannel({
               metadata: lastPayment.metadata,
               status: lastPayment.status,
               stripePaymentIntentId: lastPayment.stripePaymentIntentId,
               stripeCheckoutSessionId: lastPayment.stripeCheckoutSessionId,
-            }),
-          }
+            })
+            return {
+              date: lastPayment.createdAt.toISOString(),
+              amountCents: lastPayment.amount,
+              purchaseCategory: lastPaymentPurchaseCategory,
+              courseTitle: lastPayment.courseTitle,
+              paymentChannel: channel === "package_credit" ? "unknown" as const : channel,
+            }
+          })()
         : null,
       lastCourse: latestPurchase
         ? {

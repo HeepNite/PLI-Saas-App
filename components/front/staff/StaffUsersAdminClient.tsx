@@ -470,7 +470,8 @@ type RoomRow = {
 }
 
 type RoomStatusFilter = "all" | "active" | "inactive"
-type PackageStatusFilter = "all" | "active" | "inactive"
+type PackagePlanStatus = "ACTIVE" | "SUSPENDED" | "SCHEDULED" | "DELETED"
+type PackageStatusFilter = "all" | PackagePlanStatus
 
 type RoomFormState = {
   id: string
@@ -497,6 +498,8 @@ type SchoolPackageRow = {
   description: string | null
   priceCents: number | null
   cadence: string | null
+   status?: PackagePlanStatus | null
+   launchAt?: string | null
   totalCredits: number | null
   makeUps: number
   validDays: number
@@ -590,6 +593,8 @@ type PackageFormState = {
   description: string
   priceCents: string
   cadence: string
+  status: PackagePlanStatus
+  launchAt: string
   totalCredits: string
   makeUps: string
   validDays: string
@@ -1435,6 +1440,8 @@ function createEmptyPackageForm(): PackageFormState {
     description: "",
     priceCents: "",
     cadence: "",
+    status: "ACTIVE",
+    launchAt: "",
     totalCredits: "",
     makeUps: "0",
     validDays: "180",
@@ -1451,11 +1458,30 @@ function packageRowToFormState(item: SchoolPackageRow): PackageFormState {
     description: item.description || "",
     priceCents: centsToUsdInput(item.priceCents),
     cadence: item.cadence || "",
+    status: item.status || (item.active ? "ACTIVE" : "SUSPENDED"),
+    launchAt: item.launchAt ? String(item.launchAt).slice(0, 16) : "",
     totalCredits: item.totalCredits === null ? "" : String(item.totalCredits),
     makeUps: String(item.makeUps),
     validDays: String(item.validDays),
     isUnlimited: item.isUnlimited,
     active: item.active,
+  }
+}
+
+function getPackageLifecycleStatus(item: SchoolPackageRow): PackagePlanStatus {
+  return item.status || (item.active ? "ACTIVE" : "SUSPENDED")
+}
+
+function getPackageLifecycleBadgeClass(status: PackagePlanStatus) {
+  switch (status) {
+    case "ACTIVE":
+      return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+    case "SCHEDULED":
+      return "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+    case "DELETED":
+      return "bg-rose-500/15 text-rose-700 dark:text-rose-300"
+    default:
+      return "bg-black/10 text-black/60 dark:bg-white/10 dark:text-white/60"
   }
 }
 
@@ -2512,16 +2538,17 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   )
 
   const filteredSchoolPackages = React.useMemo(() => {
-    if (packageStatusFilter === "active") return schoolPackages.filter((item) => item.active)
-    if (packageStatusFilter === "inactive") return schoolPackages.filter((item) => !item.active)
-    return schoolPackages
+    if (packageStatusFilter === "all") return schoolPackages
+    return schoolPackages.filter((item) => getPackageLifecycleStatus(item) === packageStatusFilter)
   }, [packageStatusFilter, schoolPackages])
 
   const packageCounts = React.useMemo(
     () => ({
       all: schoolPackages.length,
-      active: schoolPackages.filter((item) => item.active).length,
-      inactive: schoolPackages.filter((item) => !item.active).length,
+      ACTIVE: schoolPackages.filter((item) => getPackageLifecycleStatus(item) === "ACTIVE").length,
+      SUSPENDED: schoolPackages.filter((item) => getPackageLifecycleStatus(item) === "SUSPENDED").length,
+      SCHEDULED: schoolPackages.filter((item) => getPackageLifecycleStatus(item) === "SCHEDULED").length,
+      DELETED: schoolPackages.filter((item) => getPackageLifecycleStatus(item) === "DELETED").length,
     }),
     [schoolPackages]
   )
@@ -3698,6 +3725,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           description: packageForm.description,
           priceCents: packageForm.priceCents,
           cadence: packageForm.cadence,
+          status: packageForm.status,
+          launchAt: packageForm.launchAt || null,
           totalCredits: packageForm.totalCredits,
           makeUps: packageForm.makeUps,
           validDays: packageForm.validDays,
@@ -3721,8 +3750,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [fetchSchoolData, packageForm])
 
-  const togglePackageActiveState = React.useCallback(
-    async (item: SchoolPackageRow) => {
+  const setPackageLifecycleState = React.useCallback(
+    async (item: SchoolPackageRow, nextStatus: PackagePlanStatus) => {
       setSchoolError(null)
       setSchoolSuccess(null)
       setSchoolBusy("package")
@@ -3737,11 +3766,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             description: item.description || "",
             priceCents: item.priceCents,
             cadence: item.cadence || "",
+            status: nextStatus,
+            launchAt: nextStatus === "SCHEDULED" ? item.launchAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
             totalCredits: item.totalCredits,
             makeUps: item.makeUps,
             validDays: item.validDays,
             isUnlimited: item.isUnlimited,
-            active: !item.active,
+            active: nextStatus === "ACTIVE",
           }),
         })
         const data = await res.json().catch(() => ({}))
@@ -3749,7 +3780,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           setSchoolError(typeof data?.error === "string" ? data.error : "Unable to update package state.")
           return
         }
-        setSchoolSuccess(typeof data?.message === "string" ? data.message : item.active ? "Package paused." : "Package activated.")
+        setSchoolSuccess(typeof data?.message === "string" ? data.message : `Package moved to ${nextStatus.toLowerCase()}.`)
         await fetchSchoolData({ showLoader: false })
       } catch {
         setSchoolError("Network error while updating package state.")
@@ -9522,9 +9553,33 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       placeholder="Validity days"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
-                    <div className="flex items-center rounded-md border border-dashed border-black/15 bg-black/[0.02] px-3 py-2 text-xs text-black/60 dark:border-white/15 dark:bg-white/[0.03] dark:text-white/60">
-                      Legacy cadence removed from active editing.
-                    </div>
+                    <select
+                      name="packageStatus"
+                      value={packageForm.status}
+                      onChange={(event) => {
+                        const nextStatus = event.target.value as PackagePlanStatus
+                        setPackageForm((prev) => ({
+                          ...prev,
+                          status: nextStatus,
+                          active: nextStatus === "ACTIVE",
+                          launchAt: nextStatus === "SCHEDULED" ? prev.launchAt : "",
+                        }))
+                      }}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      <option value="ACTIVE">Active</option>
+                      <option value="SUSPENDED">Suspended</option>
+                      <option value="SCHEDULED">Scheduled</option>
+                      <option value="DELETED">Deleted</option>
+                    </select>
+                    <input
+                      name="packageLaunchAt"
+                      type="datetime-local"
+                      value={packageForm.launchAt}
+                      onChange={(event) => setPackageForm((prev) => ({ ...prev, launchAt: event.target.value, status: "SCHEDULED", active: false }))}
+                      disabled={packageForm.status !== "SCHEDULED"}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
@@ -9537,13 +9592,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       Unlimited
                     </label>
                     <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
-                      <input
-                        name="packageActive"
-                        type="checkbox"
-                        checked={packageForm.active}
-                        onChange={(event) => setPackageForm((prev) => ({ ...prev, active: event.target.checked }))}
-                      />
-                      Active
+                      Lifecycle: <span className="font-semibold">{packageForm.status}</span>
                     </label>
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
@@ -9572,8 +9621,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   <div className="mb-2 flex flex-wrap gap-2">
                     {([
                       ["all", `All (${packageCounts.all})`],
-                      ["active", `Active (${packageCounts.active})`],
-                      ["inactive", `Inactive (${packageCounts.inactive})`],
+                      ["ACTIVE", `Active (${packageCounts.ACTIVE})`],
+                      ["SUSPENDED", `Suspended (${packageCounts.SUSPENDED})`],
+                      ["SCHEDULED", `Scheduled (${packageCounts.SCHEDULED})`],
+                      ["DELETED", `Deleted (${packageCounts.DELETED})`],
                     ] as const).map(([value, label]) => {
                       const selected = packageStatusFilter === value
                       return (
@@ -9606,8 +9657,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             <p className="truncate text-black/65 dark:text-white/65">{item.key} · {item.courseSlug || "no course"}</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.active ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-black/10 text-black/60 dark:bg-white/10 dark:text-white/60"}`}>
-                              {item.active ? "Active" : "Inactive"}
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getPackageLifecycleBadgeClass(getPackageLifecycleStatus(item))}`}>
+                              {getPackageLifecycleStatus(item)}
                             </span>
                             <button
                               type="button"
@@ -9631,8 +9682,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">Cadence: {item.cadence}</p>
                         ) : null}
                         <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">
-                          Public visibility: {item.active ? "Shown in catalog" : "Hidden from catalog"}
+                          Public visibility: {getPackageLifecycleStatus(item) === "ACTIVE" ? "Shown in catalog" : "Hidden from catalog"}
                         </p>
+                        {item.launchAt ? (
+                          <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">Launch date: {String(item.launchAt).replace("T", " ").slice(0, 16)}</p>
+                        ) : null}
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -9647,10 +9701,18 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           <button
                             type="button"
                             disabled={schoolBusy !== null}
-                            onClick={() => void togglePackageActiveState(item)}
+                            onClick={() => void setPackageLifecycleState(item, getPackageLifecycleStatus(item) === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
                             className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
                           >
-                            {item.active ? "Deactivate" : "Activate"}
+                            {getPackageLifecycleStatus(item) === "ACTIVE" ? "Suspend" : "Activate"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={schoolBusy !== null}
+                            onClick={() => void setPackageLifecycleState(item, "DELETED")}
+                            className="rounded-md border border-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-500/10 disabled:opacity-60 dark:border-rose-400/20 dark:text-rose-300 dark:hover:bg-rose-400/10"
+                          >
+                            Delete
                           </button>
                         </div>
                       </div>

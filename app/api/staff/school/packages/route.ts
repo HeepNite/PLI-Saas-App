@@ -54,6 +54,23 @@ const toOptionalPriceCents = (value: unknown) => {
   return { ok: true as const, value: cents }
 }
 
+const PACKAGE_PLAN_STATUSES = ["ACTIVE", "SUSPENDED", "SCHEDULED", "DELETED"] as const
+type PackagePlanStatus = (typeof PACKAGE_PLAN_STATUSES)[number]
+
+const normalizePackagePlanStatus = (value: unknown): PackagePlanStatus | null => {
+  if (typeof value !== "string") return null
+  const normalized = value.trim().toUpperCase()
+  return PACKAGE_PLAN_STATUSES.includes(normalized as PackagePlanStatus) ? (normalized as PackagePlanStatus) : null
+}
+
+const toOptionalDate = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return null
+  if (typeof value !== "string") return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed
+}
+
 const prismaRouteError = (error: unknown, fallbackMessage: string) => {
   if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2021" || error.code === "P2022")) {
     return NextResponse.json(
@@ -81,9 +98,15 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url)
     const activeFilter = searchParams.get("active")
+    const statusFilter = normalizePackagePlanStatus(searchParams.get("status"))
     const items = await prisma.packagePlan.findMany({
-      ...(activeFilter === "true" || activeFilter === "false"
-        ? { where: { active: activeFilter === "true" } }
+      ...((activeFilter === "true" || activeFilter === "false") || statusFilter
+        ? {
+            where: {
+              ...(activeFilter === "true" || activeFilter === "false" ? { active: activeFilter === "true" } : {}),
+              ...(statusFilter ? { status: statusFilter } : {}),
+            },
+          }
         : {}),
       orderBy: [{ createdAt: "desc" }],
     })
@@ -124,7 +147,10 @@ export async function POST(req: Request) {
   const validDays = toOptionalInt(body.validDays, 1, 3650) ?? 180
   const parsedPriceCents = toOptionalPriceCents(body.priceCents)
   const isUnlimited = Boolean(body.isUnlimited)
+  const explicitStatus = normalizePackagePlanStatus(body.status)
+  const launchAt = toOptionalDate(body.launchAt)
   const active = typeof body.active === "boolean" ? body.active : true
+  const status = explicitStatus || (active ? "ACTIVE" : "SUSPENDED")
 
   if (!key || key.length < 3) {
     return NextResponse.json({ error: "Package key is required (min 3 chars)." }, { status: 400 })
@@ -135,6 +161,11 @@ export async function POST(req: Request) {
   if (!parsedPriceCents.ok) {
     return NextResponse.json({ error: parsedPriceCents.error }, { status: 400 })
   }
+  if (status === "SCHEDULED" && !launchAt) {
+    return NextResponse.json({ error: "Scheduled packages require a launch date." }, { status: 400 })
+  }
+
+  const persistedActive = status === "ACTIVE"
 
   try {
     const item = await prisma.packagePlan.upsert({
@@ -145,24 +176,28 @@ export async function POST(req: Request) {
         label,
         description,
         cadence,
+        status,
+        launchAt: status === "SCHEDULED" ? launchAt : null,
         totalCredits: isUnlimited ? null : totalCredits,
         makeUps,
         validDays,
         priceCents: parsedPriceCents.value,
         isUnlimited,
-        active,
+        active: persistedActive,
       },
       update: {
         courseSlug,
         label,
         description,
         cadence,
+        status,
+        launchAt: status === "SCHEDULED" ? launchAt : null,
         totalCredits: isUnlimited ? null : totalCredits,
         makeUps,
         validDays,
         priceCents: parsedPriceCents.value,
         isUnlimited,
-        active,
+        active: persistedActive,
       },
     })
 
