@@ -1,5 +1,5 @@
 import type Stripe from "stripe"
-import type { JsonValue, InputJsonValue } from "@prisma/client/runtime/library"
+import type { JsonValue } from "@prisma/client/runtime/library"
 
 /**
  * Allowlisted failure info persisted in Purchase.metadata.stripeFailure.
@@ -75,20 +75,23 @@ export function mergeFailureIntoMetadata(
   return { ...base, stripeFailure: failure }
 }
 
+/** Prisma-compatible JSON object type */
+type JsonObject = Record<string, unknown>
+
 /**
  * Remove stripeFailure from metadata. Returns null when metadata becomes empty (Prisma-compatible).
  */
 export function clearFailureFromMetadata(
-  existing: JsonValue | Record<string, unknown> | null | undefined
-): InputJsonValue | null {
-  const obj = toPlainObject(existing as JsonValue | null | undefined)
+  existing: unknown
+): JsonObject | null {
+  const obj = toPlainObjectFromUnknown(existing)
   if (!obj || !("stripeFailure" in obj)) {
-    return obj && Object.keys(obj).length > 0 ? (obj as InputJsonValue) : null
+    return obj && Object.keys(obj).length > 0 ? obj : null
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { stripeFailure: _removed, ...rest } = obj
-  return Object.keys(rest).length > 0 ? (rest as InputJsonValue) : null
+  return Object.keys(rest).length > 0 ? rest : null
 }
 
 /**
@@ -96,12 +99,19 @@ export function clearFailureFromMetadata(
  * Use this when updating a Purchase with new Stripe session metadata.
  */
 export function mergeMetadataPreservingFailure(
-  existing: JsonValue | null | undefined,
-  incoming: Record<string, unknown> | null | undefined
-): InputJsonValue {
-  const base = toPlainObject(existing)
+  existing: unknown,
+  incoming: JsonObject | null | undefined
+): JsonObject {
+  const base = toPlainObjectFromUnknown(existing)
   const stripeFailure = base.stripeFailure
-  return { ...base, ...(incoming ?? {}), ...(stripeFailure ? { stripeFailure } : {}) } as InputJsonValue
+  return { ...base, ...(incoming ?? {}), ...(stripeFailure ? { stripeFailure } : {}) }
+}
+
+function toPlainObjectFromUnknown(value: unknown): JsonObject {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as JsonObject
+  }
+  return {}
 }
 
 /**
