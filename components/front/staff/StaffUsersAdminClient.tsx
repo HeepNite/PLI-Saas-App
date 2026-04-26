@@ -470,6 +470,7 @@ type RoomRow = {
 }
 
 type RoomStatusFilter = "all" | "active" | "inactive"
+type PackageStatusFilter = "all" | "active" | "inactive"
 
 type RoomFormState = {
   id: string
@@ -2373,6 +2374,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [schoolCourses, setSchoolCourses] = React.useState<SchoolCourseRow[]>([])
   const [schoolRooms, setSchoolRooms] = React.useState<RoomRow[]>([])
   const [schoolPackages, setSchoolPackages] = React.useState<SchoolPackageRow[]>([])
+  const [packageStatusFilter, setPackageStatusFilter] = React.useState<PackageStatusFilter>("all")
   const [editingPackageId, setEditingPackageId] = React.useState<string | null>(null)
   const [schoolPointsRules, setSchoolPointsRules] = React.useState<PointsRuleRow[]>([])
   const [roomForm, setRoomForm] = React.useState<RoomFormState>({
@@ -2507,6 +2509,21 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const visibleNavItems = React.useMemo(
     () => NAV_ITEMS.filter((item) => allowedNavSections.includes(item.key)),
     [allowedNavSections]
+  )
+
+  const filteredSchoolPackages = React.useMemo(() => {
+    if (packageStatusFilter === "active") return schoolPackages.filter((item) => item.active)
+    if (packageStatusFilter === "inactive") return schoolPackages.filter((item) => !item.active)
+    return schoolPackages
+  }, [packageStatusFilter, schoolPackages])
+
+  const packageCounts = React.useMemo(
+    () => ({
+      all: schoolPackages.length,
+      active: schoolPackages.filter((item) => item.active).length,
+      inactive: schoolPackages.filter((item) => !item.active).length,
+    }),
+    [schoolPackages]
   )
   const canAccessUsersNav = allowedNavSections.includes("users")
   const canAccessStudentsNav = allowedNavSections.includes("students")
@@ -9552,13 +9569,36 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </form>
 
                 <div className="mt-3 max-h-[32rem] overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {([
+                      ["all", `All (${packageCounts.all})`],
+                      ["active", `Active (${packageCounts.active})`],
+                      ["inactive", `Inactive (${packageCounts.inactive})`],
+                    ] as const).map(([value, label]) => {
+                      const selected = packageStatusFilter === value
+                      return (
+                        <button
+                          key={`package-filter-${value}`}
+                          type="button"
+                          onClick={() => setPackageStatusFilter(value)}
+                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                            selected
+                              ? "border-[var(--brand,#b61616)] bg-[var(--brand,#b61616)] text-white"
+                              : "border-black/10 text-black/70 hover:bg-black/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/5"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
                   {schoolLoading ? (
                     <p className="text-black/60 dark:text-white/60">Loading packages...</p>
-                  ) : schoolPackages.length === 0 ? (
+                  ) : filteredSchoolPackages.length === 0 ? (
                     <p className="text-black/60 dark:text-white/60">No packages created yet.</p>
                   ) : (
                     <div className="grid gap-2 md:grid-cols-3">
-                      {schoolPackages.map((item) => (
+                      {filteredSchoolPackages.map((item) => (
                       <div key={`package-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 dark:border-white/10 dark:bg-white/[0.02]">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -9590,6 +9630,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         {item.cadence ? (
                           <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">Cadence: {item.cadence}</p>
                         ) : null}
+                        <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">
+                          Public visibility: {item.active ? "Shown in catalog" : "Hidden from catalog"}
+                        </p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"

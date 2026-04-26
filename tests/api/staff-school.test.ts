@@ -176,6 +176,77 @@ describe("staff school routes", () => {
     })
   })
 
+  it("GET packages supports filtering inactive visibility", async () => {
+    mockPrisma.packagePlan.findMany.mockResolvedValue([])
+
+    const { GET } = await import("@/app/api/staff/school/packages/route")
+    const res = await GET(new Request("http://localhost/api/staff/school/packages?active=false"))
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.findMany).toHaveBeenCalledWith({
+      where: { active: false },
+      orderBy: [{ createdAt: "desc" }],
+    })
+  })
+
+  it("POST packages accepts decimal price input and preserves informational cadence", async () => {
+    mockPrisma.packagePlan.upsert.mockResolvedValue({
+      id: "pkg_2",
+      key: "night-pack",
+      label: "Night pack",
+    })
+
+    const { POST } = await import("@/app/api/staff/school/packages/route")
+    const req = new Request("http://localhost/api/staff/school/packages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: "night-pack",
+        courseSlug: "salsa-night",
+        label: "Night pack",
+        priceCents: "145.50",
+        cadence: "3/week",
+        totalCredits: 12,
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.upsert).toHaveBeenCalled()
+    expect(mockPrisma.packagePlan.upsert.mock.calls[0][0]).toMatchObject({
+      create: expect.objectContaining({
+        priceCents: 14550,
+        cadence: "3/week",
+      }),
+      update: expect.objectContaining({
+        priceCents: 14550,
+        cadence: "3/week",
+      }),
+    })
+  })
+
+  it("POST packages rejects malformed decimal price input", async () => {
+    const { POST } = await import("@/app/api/staff/school/packages/route")
+    const req = new Request("http://localhost/api/staff/school/packages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: "night-pack",
+        label: "Night pack",
+        priceCents: "145.509",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(400)
+    expect(mockPrisma.packagePlan.upsert).not.toHaveBeenCalled()
+    await expect(res.json()).resolves.toEqual({
+      error: "Package price must use up to 2 decimals (example: 145.50).",
+    })
+  })
+
   it("POST points rules upserts points rule", async () => {
     mockPrisma.pointsRule.upsert.mockResolvedValue({
       id: "rule_1",

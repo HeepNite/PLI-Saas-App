@@ -1008,8 +1008,8 @@ export async function GET(req: Request) {
           ? packageClassNumberByUsageKey.get(`${linkedPackagePurchaseId}|${slotAttendance.id}`) ?? null
           : null,
       fundingPayment: linkedPackagePurchaseId ? fundingPurchaseByPackagePurchaseId.get(linkedPackagePurchaseId) || null : null,
-      stripeFailure: isStripeFailureInfo(purchase.metadata?.stripeFailure)
-        ? (purchase.metadata.stripeFailure as StripeFailureInfo)
+      stripeFailure: isStripeFailureInfo((purchase.metadata as Record<string, unknown> | null)?.stripeFailure)
+        ? ((purchase.metadata as Record<string, unknown>).stripeFailure as StripeFailureInfo)
         : null,
     }
   })

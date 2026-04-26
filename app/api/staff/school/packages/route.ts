@@ -21,6 +21,39 @@ const toOptionalInt = (value: unknown, min: number, max: number) => {
   return Math.max(min, Math.min(max, Math.round(out)))
 }
 
+const toOptionalPriceCents = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return { ok: true as const, value: null }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+      return { ok: false as const, error: "Package price must be a valid non-negative amount." }
+    }
+    return { ok: true as const, value }
+  }
+
+  if (typeof value !== "string") {
+    return { ok: false as const, error: "Package price must be a valid non-negative amount." }
+  }
+
+  const normalized = value.trim().replace(",", ".")
+  if (!normalized) return { ok: true as const, value: null }
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
+    return { ok: false as const, error: "Package price must use up to 2 decimals (example: 145.50)." }
+  }
+
+  const parsed = Number(normalized)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { ok: false as const, error: "Package price must be a valid non-negative amount." }
+  }
+
+  const cents = Math.round(parsed * 100)
+  if (cents > 2_000_000) {
+    return { ok: false as const, error: "Package price exceeds the allowed maximum." }
+  }
+
+  return { ok: true as const, value: cents }
+}
+
 const prismaRouteError = (error: unknown, fallbackMessage: string) => {
   if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2021" || error.code === "P2022")) {
     return NextResponse.json(
@@ -46,7 +79,12 @@ export async function GET(req: Request) {
   if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   try {
+    const { searchParams } = new URL(req.url)
+    const activeFilter = searchParams.get("active")
     const items = await prisma.packagePlan.findMany({
+      ...(activeFilter === "true" || activeFilter === "false"
+        ? { where: { active: activeFilter === "true" } }
+        : {}),
       orderBy: [{ createdAt: "desc" }],
     })
     return NextResponse.json({ items })
@@ -84,7 +122,7 @@ export async function POST(req: Request) {
   const totalCredits = toOptionalInt(body.totalCredits, 0, 9999)
   const makeUps = toOptionalInt(body.makeUps, 0, 9999) ?? 0
   const validDays = toOptionalInt(body.validDays, 1, 3650) ?? 180
-  const priceCents = toOptionalInt(body.priceCents, 0, 2_000_000)
+  const parsedPriceCents = toOptionalPriceCents(body.priceCents)
   const isUnlimited = Boolean(body.isUnlimited)
   const active = typeof body.active === "boolean" ? body.active : true
 
@@ -93,6 +131,9 @@ export async function POST(req: Request) {
   }
   if (!label) {
     return NextResponse.json({ error: "Package label is required." }, { status: 400 })
+  }
+  if (!parsedPriceCents.ok) {
+    return NextResponse.json({ error: parsedPriceCents.error }, { status: 400 })
   }
 
   try {
@@ -107,7 +148,7 @@ export async function POST(req: Request) {
         totalCredits: isUnlimited ? null : totalCredits,
         makeUps,
         validDays,
-        priceCents,
+        priceCents: parsedPriceCents.value,
         isUnlimited,
         active,
       },
@@ -119,7 +160,7 @@ export async function POST(req: Request) {
         totalCredits: isUnlimited ? null : totalCredits,
         makeUps,
         validDays,
-        priceCents,
+        priceCents: parsedPriceCents.value,
         isUnlimited,
         active,
       },

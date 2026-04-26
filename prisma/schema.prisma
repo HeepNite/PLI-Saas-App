@@ -78,6 +78,8 @@ model PackagePlan {
   description  String?
   priceCents   Int?
   cadence      String?
+  status       String            @default("ACTIVE")
+  launchAt     DateTime?
   totalCredits Int?
   makeUps      Int               @default(0)
   validDays    Int               @default(180)
@@ -89,6 +91,8 @@ model PackagePlan {
 
   @@index([courseSlug])
   @@index([active])
+  @@index([status])
+  @@index([launchAt])
 }
 
 model CourseCatalog {
