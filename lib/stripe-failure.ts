@@ -30,7 +30,7 @@ export function normalizeFailureFromPaymentIntent(
   intent: Stripe.PaymentIntent,
   event: Stripe.Event
 ): StripeFailureInfo {
-  const lastError = intent.last_payment_error as Stripe.StripeError | null | undefined
+  const lastError = intent.last_payment_error as Record<string, unknown> | null | undefined
 
   const card = extractCardFromError(lastError)
 
@@ -157,30 +157,30 @@ export function isStripeFailureInfo(value: unknown): value is StripeFailureInfo 
 
 // ─── Private helpers ───────────────────────────────────────────────
 
-function extractErrorFields(error: Stripe.StripeError | null | undefined) {
+function extractErrorFields(error: Record<string, unknown> | null | undefined) {
   if (!error) return undefined
 
   const result: StripeFailureInfo["error"] = {}
-  if (error.message) result.message = error.message
-  if (error.code) result.code = error.code
-  if ("decline_code" in error && error.decline_code) result.declineCode = error.decline_code as string
-  if (error.type) result.type = error.type
+  if (typeof error.message === "string") result.message = error.message
+  if (typeof error.code === "string") result.code = error.code
+  if (typeof error.decline_code === "string") result.declineCode = error.decline_code
+  if (typeof error.type === "string") result.type = error.type
 
   return Object.keys(result).length > 0 ? result : undefined
 }
 
-function extractCardFromError(error: Stripe.StripeError | null | undefined) {
-  if (!error || !("payment_method" in error) || !error.payment_method) return undefined
+function extractCardFromError(error: Record<string, unknown> | null | undefined) {
+  if (!error || !error.payment_method) return undefined
 
-  const pm = error.payment_method as Stripe.PaymentIntent.LastPaymentError.PaymentMethod | undefined
+  const pm = error.payment_method as Record<string, unknown> | undefined
   if (!pm || typeof pm !== "object") return undefined
 
-  const card = "card" in pm ? pm.card : undefined
+  const card = pm.card as Record<string, unknown> | undefined
   if (!card || typeof card !== "object") return undefined
 
   const result: StripeFailureInfo["card"] = {}
-  if (card.brand) result.brand = card.brand
-  if (card.last4) result.last4 = card.last4
+  if (typeof card.brand === "string") result.brand = card.brand
+  if (typeof card.last4 === "string") result.last4 = card.last4
 
   return Object.keys(result).length > 0 ? result : undefined
 }

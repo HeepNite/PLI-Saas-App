@@ -4,7 +4,7 @@ export type HistoryCardPaymentLike = {
   customerEmail: string
   courseSlug: string
   courseTitle: string
-  paymentChannel: "cash" | "card" | "unknown"
+  paymentChannel: "cash" | "card" | "unknown" | "package_credit"
   purchaseCategory: "package" | "dropin" | "other"
   amount: number
   currency: string

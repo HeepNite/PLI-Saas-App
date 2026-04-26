@@ -219,7 +219,7 @@ type HistoryPaymentMethodFilter = "all" | "cash" | "card" | "package" | "dropin"
 type HistoryAttendanceFilter = "all" | "attended" | "scheduled" | "no_attendance"
 type HistoryContentFilterInput = {
   courseSlug: string
-  paymentChannel: "cash" | "card" | "unknown"
+  paymentChannel: "cash" | "card" | "unknown" | "package_credit"
   purchaseCategory: "package" | "dropin" | "other"
   packageId?: string | null
   classPaid: boolean
