@@ -22,6 +22,7 @@ import { isEmail, normalizePhone, type ApiError, type CheckoutBody, type Checkou
 import {
   replacePermanentStudentPin,
   assertStudentPinConfirmation,
+  assertStudentPinGlobalUniqueness,
   isStudentPinConflictError,
   isStudentPinLifecycleEnabled,
 } from "@/lib/security/student-pin"
@@ -613,12 +614,13 @@ export const enrollStudentPinForCheckout = async (input: EnrollStudentPinInput):
 
   // Check PIN availability BEFORE creating/updating user to prevent
   // persisting user data when PIN enrollment will fail
-  const pinTaken = await prisma.studentPinCredential.findFirst({
-    where: { pin: input.studentPin as string },
-    select: { id: true },
-  })
-  if (pinTaken) {
-    return { status: 409, error: "This PIN is already in use. Please choose a different one." }
+  try {
+    await assertStudentPinGlobalUniqueness(prisma, { nextPin: input.studentPin as string })
+  } catch (err) {
+    if (isStudentPinConflictError(err)) {
+      return { status: 409, error: "This PIN is already in use. Please choose a different one." }
+    }
+    throw err
   }
 
   const dbUser = await upsertUserByIdentifiers({
