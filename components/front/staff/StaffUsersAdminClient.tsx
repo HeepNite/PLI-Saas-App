@@ -9659,7 +9659,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   ) : (
                     <div className="grid gap-2 md:grid-cols-3">
                       {filteredSchoolPackages.map((item) => (
-                      <div key={`package-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 dark:border-white/10 dark:bg-white/[0.02]">
+                      <div key={`package-row-${item.id}`} className="flex h-full flex-col rounded-md border border-black/10 bg-black/[0.03] px-3 py-3 dark:border-white/10 dark:bg-white/[0.02]">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-black dark:text-white">{item.label}</p>
@@ -9671,34 +9671,36 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             </span>
                           </div>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-[11px] text-black/70 dark:text-white/70">
-                          <div className="min-w-0 flex-1">
+                        <div className="mt-4 grid w-full grid-cols-2 gap-x-8 gap-y-4 text-[11px] text-black/70 dark:text-white/70">
+                          <div className="min-w-0">
                             <p className="font-medium text-black/55 dark:text-white/55">Price</p>
                             <p className="mt-0.5 text-black/90 dark:text-white/90">{item.priceCents === null ? "—" : formatMoney(item.priceCents)}</p>
                           </div>
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0 justify-self-stretch text-left">
                             <p className="font-medium text-black/55 dark:text-white/55">Classes</p>
                             <p className="mt-0.5 text-black/90 dark:text-white/90">{item.totalCredits ?? "∞"}</p>
                           </div>
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0">
                             <p className="font-medium text-black/55 dark:text-white/55">Make-ups</p>
                             <p className="mt-0.5 text-black/90 dark:text-white/90">{item.makeUps}</p>
                           </div>
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0 justify-self-stretch text-left">
                             <p className="font-medium text-black/55 dark:text-white/55">Valid</p>
                             <p className="mt-0.5 text-black/90 dark:text-white/90">{item.validDays} days</p>
                           </div>
                         </div>
-                        {item.cadence ? (
-                          <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">Cadence: {item.cadence}</p>
-                        ) : null}
-                        <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">
-                          Public visibility: {getPackageLifecycleStatus(item) === "ACTIVE" ? "Shown in catalog" : "Hidden from catalog"}
-                        </p>
-                        {item.launchAt ? (
-                          <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">Launch date: {String(item.launchAt).replace("T", " ").slice(0, 16)}</p>
-                        ) : null}
-                        <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="mt-4 space-y-2 border-t border-black/10 pt-3 dark:border-white/10">
+                          {item.cadence ? (
+                            <p className="text-[11px] text-black/55 dark:text-white/55">Cadence: {item.cadence}</p>
+                          ) : null}
+                          <p className="text-[11px] text-black/55 dark:text-white/55">
+                            Public visibility: {getPackageLifecycleStatus(item) === "ACTIVE" ? "Shown in catalog" : "Hidden from catalog"}
+                          </p>
+                          {item.launchAt ? (
+                            <p className="text-[11px] text-black/55 dark:text-white/55">Launch date: {String(item.launchAt).replace("T", " ").slice(0, 16)}</p>
+                          ) : null}
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2 border-t border-black/10 pt-3 dark:border-white/10">
                           <button
                             type="button"
                             onClick={() => {

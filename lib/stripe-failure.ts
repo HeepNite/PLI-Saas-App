@@ -79,19 +79,19 @@ export function mergeFailureIntoMetadata(
 type JsonObject = Record<string, unknown>
 
 /**
- * Remove stripeFailure from metadata. Returns null when metadata becomes empty (Prisma-compatible).
+ * Remove stripeFailure from metadata. Returns empty object when metadata becomes empty (Prisma-compatible).
  */
 export function clearFailureFromMetadata(
   existing: unknown
-): JsonObject | null {
+): JsonObject {
   const obj = toPlainObjectFromUnknown(existing)
   if (!obj || !("stripeFailure" in obj)) {
-    return obj && Object.keys(obj).length > 0 ? obj : null
+    return obj && Object.keys(obj).length > 0 ? obj : {}
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { stripeFailure: _removed, ...rest } = obj
-  return Object.keys(rest).length > 0 ? rest : null
+  return rest
 }
 
 /**
