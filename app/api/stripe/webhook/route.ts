@@ -12,6 +12,7 @@ import {
   normalizeFailureFromCheckoutSession,
   mergeFailureIntoMetadata,
   clearFailureFromMetadata,
+  mergeMetadataPreservingFailure,
 } from "@/lib/stripe-failure"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { awardPointsFromRule } from "@/lib/points/service"
@@ -150,7 +151,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
     select: { metadata: true },
   })
   const incomingMeta = session.metadata as Record<string, unknown> | null | undefined
-  const baseMeta = mergeFailureIntoMetadata(existingPurchase?.metadata, incomingMeta ?? {})
+  const baseMeta = mergeMetadataPreservingFailure(existingPurchase?.metadata, incomingMeta)
   const mergedMetadata =
     status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta
 

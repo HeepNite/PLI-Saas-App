@@ -84,8 +84,22 @@ export function clearFailureFromMetadata(
   const obj = toPlainObject(existing)
   if (!obj || !("stripeFailure" in obj)) return obj && Object.keys(obj).length > 0 ? obj : undefined
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { stripeFailure: _removed, ...rest } = obj
   return Object.keys(rest).length > 0 ? rest : undefined
+}
+
+/**
+ * Merge incoming metadata with existing, preserving stripeFailure from existing.
+ * Use this when updating a Purchase with new Stripe session metadata.
+ */
+export function mergeMetadataPreservingFailure(
+  existing: JsonValue | null | undefined,
+  incoming: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const base = toPlainObject(existing)
+  const stripeFailure = base.stripeFailure
+  return { ...base, ...(incoming ?? {}), ...(stripeFailure ? { stripeFailure } : {}) }
 }
 
 /**

@@ -93,6 +93,16 @@ const applyCourseServicePricing = (
 const toMapUrl = (address: string, fallback?: string) =>
   fallback || `https://maps.google.com/?q=${encodeURIComponent(address)}`
 
+const isPackagePlanPubliclyAvailable = (plan: PackagePlan, now = new Date()) => {
+  if (!plan.active) return false
+  if (plan.status === "DELETED") return false
+  if (plan.status === "SUSPENDED") return false
+  if (plan.status === "SCHEDULED") {
+    return Boolean(plan.launchAt && plan.launchAt.getTime() <= now.getTime())
+  }
+  return true
+}
+
 const mapPackagePlanToOption = (plan: PackagePlan): EnrollmentOption => ({
   id: plan.key,
   label: plan.label,
@@ -107,7 +117,7 @@ const mapPackagePlanToOption = (plan: PackagePlan): EnrollmentOption => ({
 
 const getPackageOptionsForCourse = (courseSlug: string, allPlans: PackagePlan[]) => {
   const scoped = allPlans
-    .filter((plan) => plan.active)
+    .filter((plan) => isPackagePlanPubliclyAvailable(plan))
     .filter((plan) => !plan.courseSlug || plan.courseSlug === courseSlug)
 
   const deduped = new Map<string, EnrollmentOption>()
@@ -208,7 +218,7 @@ const mapCourseToHomeCourse = (course: CourseData, row?: CourseCatalog | null): 
 const loadCatalogRows = async () => {
   const [catalogRows, packagePlans] = await Promise.all([
     prisma.courseCatalog.findMany({ orderBy: [{ createdAt: "desc" }] }),
-    prisma.packagePlan.findMany({ where: { active: true }, orderBy: [{ createdAt: "desc" }] }),
+    prisma.packagePlan.findMany({ where: { active: true, status: { in: ["ACTIVE", "SCHEDULED"] } }, orderBy: [{ createdAt: "desc" }] }),
   ])
   return { catalogRows, packagePlans }
 }
@@ -231,7 +241,11 @@ export const getCatalogCourseBySlug = async (slug: string): Promise<CourseData |
     const [row, packagePlans] = await Promise.all([
       prisma.courseCatalog.findUnique({ where: { slug: normalized } }),
       prisma.packagePlan.findMany({
-        where: { active: true, OR: [{ courseSlug: normalized }, { courseSlug: null }] },
+        where: {
+          active: true,
+          status: { in: ["ACTIVE", "SCHEDULED"] },
+          OR: [{ courseSlug: normalized }, { courseSlug: null }],
+        },
         orderBy: [{ createdAt: "desc" }],
       }),
     ])
