@@ -64,6 +64,7 @@ export interface AttendanceHistoryTimelineProps {
   anchorEl: HTMLElement | null
   isOpen: boolean
   onClose: () => void
+  loading?: boolean
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -315,6 +316,7 @@ export default function AttendanceHistoryTimeline({
   anchorEl,
   isOpen,
   onClose,
+  loading = false,
 }: AttendanceHistoryTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -507,7 +509,12 @@ export default function AttendanceHistoryTimeline({
 
           {/* Timeline content */}
           <div className="flex-1 overflow-y-auto px-5 py-4 no-scrollbar">
-            {sortedAttendance.length === 0 ? (
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-3" />
+                <p className="text-sm text-white/50">Loading history...</p>
+              </div>
+            ) : sortedAttendance.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <CalendarDays className="w-10 h-10 text-white/20 mb-3" />
                 <p className="text-sm text-white/50">No attendance history found</p>

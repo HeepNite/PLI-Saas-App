@@ -44,9 +44,10 @@ export interface PaymentEvent {
   id: string
   date: Date
   amount: number
-  method: "card" | "cash" | "other"
+  method: "card" | "cash" | "package" | "other"
   product: string
-  status: "paid" | "pending" | "refunded"
+  productType: "package" | "dropin" | "other"
+  status: "paid" | "pending" | "refunded" | "cancelled"
   debt?: number
   discount?: number
   staffName?: string
@@ -58,6 +59,10 @@ export interface PaymentEvent {
     cardBrand?: string
     cardLast4?: string
   } | null
+  /** For package credit usage, shows the package name */
+  packageName?: string
+  /** Class number within the package (e.g., "Class 3 of 10") */
+  packageClassNumber?: number | null
 }
 
 export interface PaymentHistoryTimelineProps {
@@ -65,6 +70,7 @@ export interface PaymentHistoryTimelineProps {
   anchorEl: HTMLElement | null
   isOpen: boolean
   onClose: () => void
+  loading?: boolean
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -94,11 +100,20 @@ const STATUS_CONFIG = {
     border: "border-red-400/20",
     dot: "bg-red-400",
   },
+  cancelled: {
+    label: "Cancelled",
+    icon: X,
+    color: "text-zinc-400",
+    bg: "bg-zinc-400/10",
+    border: "border-zinc-400/20",
+    dot: "bg-zinc-400",
+  },
 } as const
 
 const METHOD_CONFIG = {
   card: { label: "Card", icon: CreditCard },
   cash: { label: "Cash", icon: Banknote },
+  package: { label: "Package", icon: Package },
   other: { label: "Other", icon: DollarSign },
 } as const
 
@@ -187,7 +202,27 @@ function TimelineItem({ payment, isLast }: TimelineItemProps) {
         <div className="flex items-center gap-2 mb-2 text-white/80">
           <Package className="w-3.5 h-3.5 flex-shrink-0 text-white/50" />
           <span className="text-sm truncate">{payment.product}</span>
+          {payment.productType === "package" && (
+            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-500/20 text-purple-300 rounded">
+              PACKAGE
+            </span>
+          )}
+          {payment.productType === "dropin" && (
+            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/20 text-sky-300 rounded">
+              DROP-IN
+            </span>
+          )}
         </div>
+
+        {/* Package class number (for package credit usage) */}
+        {payment.method === "package" && payment.packageName && (
+          <div className="flex items-center gap-2 mb-2 text-xs text-purple-300/80">
+            <span>⊛ {payment.packageName}</span>
+            {payment.packageClassNumber != null && (
+              <span className="text-white/50">• Class #{payment.packageClassNumber}</span>
+            )}
+          </div>
+        )}
 
         {/* Meta row */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/50">
@@ -278,6 +313,7 @@ export default function PaymentHistoryTimeline({
   anchorEl,
   isOpen,
   onClose,
+  loading = false,
 }: PaymentHistoryTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -453,7 +489,12 @@ export default function PaymentHistoryTimeline({
 
           {/* Timeline content */}
           <div className="flex-1 overflow-y-auto px-5 py-4 no-scrollbar">
-            {sortedPayments.length === 0 ? (
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-3" />
+                <p className="text-sm text-white/50">Loading history...</p>
+              </div>
+            ) : sortedPayments.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Package className="w-10 h-10 text-white/20 mb-3" />
                 <p className="text-sm text-white/50">No payment history found</p>

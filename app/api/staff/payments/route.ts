@@ -28,7 +28,7 @@ import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failur
 export const runtime = "nodejs"
 
 type CheckInStatus = "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
-type PaymentsMode = "today" | "history"
+type PaymentsMode = "today" | "history" | "userHistory"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TODAY_MODE_TAKE_LIMIT = 200
@@ -168,7 +168,8 @@ export async function GET(req: Request) {
   const query = url.searchParams.get("q")?.trim() || ""
   const settlementFilter = url.searchParams.get("settlement")?.trim().toLowerCase() || "all"
   const requestedMode = url.searchParams.get("mode")?.trim().toLowerCase()
-  const mode: PaymentsMode = requestedMode === "history" ? "history" : "today"
+  const userHistoryId = url.searchParams.get("userId")?.trim() || ""
+  const mode: PaymentsMode = userHistoryId ? "userHistory" : requestedMode === "history" ? "history" : "today"
   const selectedDate = url.searchParams.get("date")?.trim() || ""
   const selectedFrom = url.searchParams.get("from")?.trim() || ""
   const selectedTo = url.searchParams.get("to")?.trim() || ""
@@ -206,24 +207,26 @@ export async function GET(req: Request) {
 
   const purchases = await prisma.purchase.findMany({
     where:
-      mode === "history"
-        ? {
-            AND: [
-              ...(where ? [where] : []),
-              { metadata: { path: ["date"], gte: historyRange!.from } },
-              { metadata: { path: ["date"], lte: historyRange!.to } },
-            ],
-          }
-        : mode === "today"
+      mode === "userHistory"
+        ? { userId: userHistoryId }
+        : mode === "history"
           ? {
               AND: [
                 ...(where ? [where] : []),
-                { createdAt: { gte: startOfTodayNY, lte: endOfTodayNY } },
+                { metadata: { path: ["date"], gte: historyRange!.from } },
+                { metadata: { path: ["date"], lte: historyRange!.to } },
               ],
             }
-          : where,
+          : mode === "today"
+            ? {
+                AND: [
+                  ...(where ? [where] : []),
+                  { createdAt: { gte: startOfTodayNY, lte: endOfTodayNY } },
+                ],
+              }
+            : where,
     orderBy: { createdAt: "desc" },
-    take: mode === "history" ? HISTORY_MODE_TAKE_LIMIT + 1 : TODAY_MODE_TAKE_LIMIT,
+    take: mode === "userHistory" ? 100 : mode === "history" ? HISTORY_MODE_TAKE_LIMIT + 1 : TODAY_MODE_TAKE_LIMIT,
   })
 
   const historyTruncated = mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT

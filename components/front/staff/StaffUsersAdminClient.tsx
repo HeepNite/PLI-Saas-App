@@ -1764,27 +1764,65 @@ const PROFILE_CARD_BADGE_CLASS = "w-full flex items-center justify-center rounde
 // ─── Timeline data transformers ──────────────────────────────────────────────
 
 function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
-  // Filter out package credit consumption (not real monetary payments)
-  const monetaryPayments = rows.filter((row) => row.paymentChannel !== "package_credit")
-
-  return monetaryPayments.map((row) => ({
-    id: row.id,
-    date: new Date(row.createdAt),
-    amount: row.amount / 100, // API stores cents, timeline expects dollars
-    method: row.paymentChannel === "cash" ? "cash" : row.paymentChannel === "card" ? "card" : "other",
-    product: row.courseTitle || row.purchaseCategory || "Payment",
-    status: row.settlementStatus === "paid" ? "paid" : row.paymentStatus === "refunded" ? "refunded" : "pending",
-    debt: typeof row.outstandingBalance === "number" && row.outstandingBalance > 0 ? row.outstandingBalance / 100 : undefined,
-    failureInfo: row.stripeFailure
-      ? {
-          message: row.stripeFailure.error?.message,
-          code: row.stripeFailure.error?.code,
-          declineCode: row.stripeFailure.error?.declineCode,
-          cardBrand: row.stripeFailure.card?.brand,
-          cardLast4: row.stripeFailure.card?.last4,
-        }
-      : null,
-  }))
+  // Include ALL payment types: monetary payments AND package credit usage
+  return rows.map((row) => {
+    const isPackageCredit = row.paymentChannel === "package_credit"
+    
+    // Determine method
+    let method: PaymentEvent["method"]
+    if (isPackageCredit) {
+      method = "package"
+    } else if (row.paymentChannel === "cash") {
+      method = "cash"
+    } else if (row.paymentChannel === "card") {
+      method = "card"
+    } else {
+      method = "other"
+    }
+    
+    // Determine product type
+    let productType: PaymentEvent["productType"]
+    if (row.purchaseCategory === "package" || row.packageId) {
+      productType = "package"
+    } else if (row.purchaseCategory === "dropin" || row.serviceId) {
+      productType = "dropin"
+    } else {
+      productType = "other"
+    }
+    
+    // Determine status
+    let status: PaymentEvent["status"]
+    if (row.paymentStatus === "refunded" || row.paymentStatus === "cancelled") {
+      status = row.paymentStatus === "cancelled" ? "cancelled" : "refunded"
+    } else if (row.settlementStatus === "paid" || row.paymentStatus === "paid" || row.paymentStatus === "succeeded") {
+      status = "paid"
+    } else {
+      status = "pending"
+    }
+    
+    return {
+      id: row.id,
+      date: new Date(row.createdAt),
+      amount: row.amount / 100, // API stores cents, timeline expects dollars
+      method,
+      product: row.courseTitle || row.purchaseCategory || "Payment",
+      productType,
+      status,
+      debt: typeof row.outstandingBalance === "number" && row.outstandingBalance > 0 ? row.outstandingBalance / 100 : undefined,
+      failureInfo: row.stripeFailure
+        ? {
+            message: row.stripeFailure.error?.message,
+            code: row.stripeFailure.error?.code,
+            declineCode: row.stripeFailure.error?.declineCode,
+            cardBrand: row.stripeFailure.card?.brand,
+            cardLast4: row.stripeFailure.card?.last4,
+          }
+        : null,
+      // Package credit specific fields
+      packageName: isPackageCredit ? row.activePackage?.label : undefined,
+      packageClassNumber: isPackageCredit ? row.packageClassNumber : undefined,
+    }
+  })
 }
 
 function transformPaymentRowsToAttendance(
@@ -2333,6 +2371,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [paymentHistoryStudentId, setPaymentHistoryStudentId] = React.useState<string | null>(null)
   const [attendanceHistoryAnchor, setAttendanceHistoryAnchor] = React.useState<HTMLElement | null>(null)
   const [attendanceHistoryStudentId, setAttendanceHistoryStudentId] = React.useState<string | null>(null)
+  const [userHistoryPayments, setUserHistoryPayments] = React.useState<PaymentRow[]>([])
+  const [userHistoryLoading, setUserHistoryLoading] = React.useState(false)
 
   const [staffRequests, setStaffRequests] = React.useState<StaffRequestRow[]>([])
   const [requestsSummary, setRequestsSummary] = React.useState<StaffRequestSummary>({
@@ -2541,6 +2581,40 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       // ignore storage write failures
     }
   }, [quickScheduleTimes])
+
+  // Load user payment history when opening timeline popovers
+  React.useEffect(() => {
+    const userId = paymentHistoryStudentId || attendanceHistoryStudentId
+    if (!userId) {
+      setUserHistoryPayments([])
+      return
+    }
+    
+    let cancelled = false
+    setUserHistoryLoading(true)
+    
+    fetch(`/api/staff/payments?userId=${encodeURIComponent(userId)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return
+        if (data.payments && Array.isArray(data.payments)) {
+          setUserHistoryPayments(data.payments as PaymentRow[])
+        }
+      })
+      .catch(() => {
+        // Fallback to current payments if API fails
+        if (!cancelled) {
+          setUserHistoryPayments(payments.filter((p) => p.userId === userId))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setUserHistoryLoading(false)
+      })
+    
+    return () => {
+      cancelled = true
+    }
+  }, [paymentHistoryStudentId, attendanceHistoryStudentId, payments])
 
   const allowedNavSections = React.useMemo(
     () => resolveStaffPortalSections(currentRole, resolvedCurrentCategory),
@@ -12601,10 +12675,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         payments={
           paymentHistoryStudentId
             ? transformPaymentRowsToEvents(
-                payments.filter((p) => p.userId === paymentHistoryStudentId),
+                userHistoryPayments.length > 0 
+                  ? userHistoryPayments 
+                  : payments.filter((p) => p.userId === paymentHistoryStudentId),
               )
             : []
         }
+        loading={userHistoryLoading}
         anchorEl={paymentHistoryAnchor}
         isOpen={!!paymentHistoryStudentId}
         onClose={() => {
@@ -12615,15 +12692,17 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
       {/* Attendance History Timeline Popover */}
       {(() => {
+        const sourcePayments = userHistoryPayments.length > 0 
+          ? userHistoryPayments 
+          : payments.filter((p) => p.userId === attendanceHistoryStudentId)
         const { events, summary } = attendanceHistoryStudentId
-          ? transformPaymentRowsToAttendance(
-              payments.filter((p) => p.userId === attendanceHistoryStudentId),
-            )
+          ? transformPaymentRowsToAttendance(sourcePayments)
           : { events: [] as AttendanceEvent[], summary: { totalAttended: 0, noShows: 0, cancelled: 0 } as AttendanceSummary }
         return (
           <AttendanceHistoryTimeline
             attendance={events}
             summary={summary}
+            loading={userHistoryLoading}
             anchorEl={attendanceHistoryAnchor}
             isOpen={!!attendanceHistoryStudentId}
             onClose={() => {
