@@ -1,7 +1,7 @@
 import type { CardCheckInStatus } from "@/components/front/staff/historyCardAggregates"
 
 export type SettlementStatus = "pending" | "paid"
-export type PaymentChannel = "cash" | "card" | "unknown"
+export type PaymentChannel = "cash" | "card" | "package_credit" | "unknown"
 export type PurchaseCategory = "package" | "dropin" | "other"
 
 export const COMPLETED_PAYMENT_STATUSES = new Set(["succeeded", "paid", "completed"])
@@ -30,6 +30,7 @@ export const normalizePaymentChannel = (input: {
 }): PaymentChannel => {
   const metadata = asObject(input.metadata)
   const paymentChannelRaw = asText(metadata.paymentChannel || metadata.payment_channel).toLowerCase()
+  if (paymentChannelRaw === "package_credit") return "package_credit"
   if (paymentChannelRaw === "cash") return "cash"
   if (paymentChannelRaw === "card" || paymentChannelRaw === "stripe") return "card"
 
@@ -204,4 +205,38 @@ export const buildLatestOpenPurchaseByUser = <TPurchase extends OpenPurchase>(pu
   }
 
   return latestByUser
+}
+
+/**
+ * Resolve the canonical display name using a fallback chain:
+ * 1. Clerk name (firstName + lastName) — most authoritative
+ * 2. DB User record (user.name) — second choice
+ * 3. Purchase snapshot (purchase.name) — last resort (historical)
+ */
+export const resolveCanonicalName = (
+  clerkName: string | null | undefined,
+  dbName: string | null | undefined,
+  purchaseName: string | null | undefined,
+): string => {
+  const clerk = asText(clerkName)
+  if (clerk) return clerk
+
+  const db = asText(dbName)
+  if (db) return db
+
+  const purchase = asText(purchaseName)
+  if (purchase) return purchase
+
+  return "—"
+}
+
+/**
+ * Build a full display name from Clerk firstName + lastName.
+ * Returns empty string if both are missing.
+ */
+export const buildClerkDisplayName = (
+  firstName: string | null | undefined,
+  lastName: string | null | undefined,
+): string => {
+  return [asText(firstName), asText(lastName)].filter(Boolean).join(" ")
 }

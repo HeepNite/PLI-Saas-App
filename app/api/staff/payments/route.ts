@@ -9,10 +9,12 @@ import {
   asObject,
   asText,
   attendanceSlotKey,
+  buildClerkDisplayName,
   buildOutstandingBalanceByUser,
   isCompletedPaymentStatus,
   normalizePaymentChannel,
   normalizeSettlementStatus,
+  resolveCanonicalName,
   selectActivePackagesByUser,
 } from "@/app/api/staff/payments/shared"
 import {
@@ -21,6 +23,7 @@ import {
   isStudentPinLifecycleEnabled,
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
+import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failure"
 
 export const runtime = "nodejs"
 
@@ -594,7 +597,7 @@ export async function GET(req: Request) {
     userIds.length
       ? prisma.user.findMany({
           where: { id: { in: userIds } },
-          select: { id: true, clerkId: true },
+          select: { id: true, clerkId: true, name: true },
         })
       : Promise.resolve([]),
     loadStudentPinCredentials(userIds),
@@ -807,6 +810,7 @@ export async function GET(req: Request) {
   }
 
   const avatarByUserId = new Map<string, string>()
+  const clerkNameByUserId = new Map<string, string>()
   if (purchaseUsers.length) {
     try {
       const client = await clerkClient()
@@ -831,9 +835,14 @@ export async function GET(req: Request) {
           users = []
         }
         const imageByClerkId = new Map<string, string>()
+        const nameByClerkId = new Map<string, string>()
         for (const user of users) {
           if (user.imageUrl) {
             imageByClerkId.set(user.id, user.imageUrl)
+          }
+          const displayName = buildClerkDisplayName(user.firstName, user.lastName)
+          if (displayName) {
+            nameByClerkId.set(user.id, displayName)
           }
         }
         for (const row of batch) {
@@ -841,11 +850,21 @@ export async function GET(req: Request) {
           if (imageUrl) {
             avatarByUserId.set(row.userId, imageUrl)
           }
+          const clerkName = nameByClerkId.get(row.clerkId)
+          if (clerkName) {
+            clerkNameByUserId.set(row.userId, clerkName)
+          }
         }
       }
     } catch {
-      // if Clerk fetch fails we still return payments list without avatars
+      // if Clerk fetch fails we still return payments list without avatars or canonical names
     }
+  }
+
+  // Build DB name lookup from purchaseUsers
+  const dbNameByUserId = new Map<string, string | null>()
+  for (const row of purchaseUsers) {
+    dbNameByUserId.set(row.id, row.name)
   }
 
   const studentPinByUserId = new Map<
@@ -927,7 +946,11 @@ export async function GET(req: Request) {
       userId: item.userId,
       courseSlug,
       courseTitle: purchase.courseTitle || courseSlug,
-      customerName: purchase.name || "—",
+      customerName: resolveCanonicalName(
+        clerkNameByUserId.get(item.userId),
+        dbNameByUserId.get(item.userId),
+        purchase.name,
+      ),
       customerEmail: purchase.email || "—",
       customerPhone: purchase.phone || "—",
       customerAvatarUrl: avatarByUserId.get(item.userId) || null,
@@ -985,6 +1008,9 @@ export async function GET(req: Request) {
           ? packageClassNumberByUsageKey.get(`${linkedPackagePurchaseId}|${slotAttendance.id}`) ?? null
           : null,
       fundingPayment: linkedPackagePurchaseId ? fundingPurchaseByPackagePurchaseId.get(linkedPackagePurchaseId) || null : null,
+      stripeFailure: isStripeFailureInfo(purchase.metadata?.stripeFailure)
+        ? (purchase.metadata.stripeFailure as StripeFailureInfo)
+        : null,
     }
   })
 

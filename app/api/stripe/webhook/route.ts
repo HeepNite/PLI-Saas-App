@@ -6,7 +6,13 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
-import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
+import { normalizePersistedPurchaseStatus, SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
+import {
+  normalizeFailureFromPaymentIntent,
+  normalizeFailureFromCheckoutSession,
+  mergeFailureIntoMetadata,
+  clearFailureFromMetadata,
+} from "@/lib/stripe-failure"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
@@ -138,6 +144,16 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
 
+  // Fetch existing metadata to avoid clobbering stripeFailure on success
+  const existingPurchase = await prisma.purchase.findUnique({
+    where: { stripeCheckoutSessionId: session.id },
+    select: { metadata: true },
+  })
+  const incomingMeta = session.metadata as Record<string, unknown> | null | undefined
+  const baseMeta = mergeFailureIntoMetadata(existingPurchase?.metadata, incomingMeta ?? {})
+  const mergedMetadata =
+    status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta
+
   const purchase = await prisma.purchase.upsert({
     where: { stripeCheckoutSessionId: session.id },
     update: {
@@ -155,7 +171,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
       addonsCsv: meta.addons,
       courseSlug,
       courseTitle: meta.courseTitle,
-      metadata: session.metadata ?? undefined,
+      metadata: mergedMetadata,
     },
     create: {
       userId: user.id,
@@ -174,7 +190,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
       addonsCsv: meta.addons,
       courseSlug,
       courseTitle: meta.courseTitle,
-      metadata: session.metadata ?? undefined,
+      metadata: mergedMetadata,
     },
   })
 
@@ -249,6 +265,16 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
 
+  // Fetch existing metadata to avoid clobbering stripeFailure on success
+  const existingPurchase = await prisma.purchase.findUnique({
+    where: { stripePaymentIntentId: intent.id },
+    select: { metadata: true },
+  })
+  const incomingMeta = intent.metadata as Record<string, unknown> | null | undefined
+  const baseMeta = mergeFailureIntoMetadata(existingPurchase?.metadata, incomingMeta ?? {})
+  const mergedMetadata =
+    status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta
+
   const purchase = await prisma.purchase.upsert({
     where: { stripePaymentIntentId: intent.id },
     update: {
@@ -265,7 +291,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
       addonsCsv: meta.addons,
       courseSlug,
       courseTitle: meta.courseTitle,
-      metadata: intent.metadata ?? undefined,
+      metadata: mergedMetadata,
     },
     create: {
       userId: user.id,
@@ -283,7 +309,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
       addonsCsv: meta.addons,
       courseSlug,
       courseTitle: meta.courseTitle,
-      metadata: intent.metadata ?? undefined,
+      metadata: mergedMetadata,
     },
   })
 
@@ -331,6 +357,44 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   }
 }
 
+async function handlePaymentIntentFailure(event: Stripe.Event) {
+  const intent = event.data.object as Stripe.PaymentIntent
+  const failure = normalizeFailureFromPaymentIntent(intent, event)
+
+  const purchase = await prisma.purchase.findUnique({
+    where: { stripePaymentIntentId: intent.id },
+  })
+  if (!purchase) return // failure events never create purchases
+  if (SUCCESSFUL_PURCHASE_STATUSES.includes(purchase.status)) return // status guard: never downgrade paid
+
+  await prisma.purchase.update({
+    where: { id: purchase.id },
+    data: {
+      status: "failed",
+      metadata: mergeFailureIntoMetadata(purchase.metadata, failure),
+    },
+  })
+}
+
+async function handleCheckoutSessionTerminal(event: Stripe.Event, status: "expired" | "failed") {
+  const session = event.data.object as Stripe.Checkout.Session
+  const failure = normalizeFailureFromCheckoutSession(session, event)
+
+  const purchase = await prisma.purchase.findUnique({
+    where: { stripeCheckoutSessionId: session.id },
+  })
+  if (!purchase) return // failure events never create purchases
+  if (SUCCESSFUL_PURCHASE_STATUSES.includes(purchase.status)) return // status guard: never downgrade paid
+
+  await prisma.purchase.update({
+    where: { id: purchase.id },
+    data: {
+      status,
+      metadata: mergeFailureIntoMetadata(purchase.metadata, failure),
+    },
+  })
+}
+
 export async function POST(req: Request) {
   if (!stripe || !webhookSecret) {
     return new NextResponse("Stripe not configured", { status: 500 })
@@ -357,6 +421,15 @@ export async function POST(req: Request) {
         break
       case "payment_intent.succeeded":
         await handlePaymentIntent(event.data.object as Stripe.PaymentIntent)
+        break
+      case "payment_intent.payment_failed":
+        await handlePaymentIntentFailure(event)
+        break
+      case "checkout.session.expired":
+        await handleCheckoutSessionTerminal(event, "expired")
+        break
+      case "checkout.session.async_payment_failed":
+        await handleCheckoutSessionTerminal(event, "failed")
         break
       default:
         break

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockAuthorizePortalSection = vi.fn()
 const mockGetTodayNewYork = vi.fn()
 const mockBuildSessionStartsAt = vi.fn()
+const mockClerkGetUserList = vi.fn(async () => ({ data: [] }))
 
 const mockPrisma = {
   purchase: {
@@ -51,6 +52,8 @@ vi.mock("@/lib/security/rate-limit", () => ({
 vi.mock("@/lib/class-schedule", () => ({
   buildSessionStartsAt: (...args: unknown[]) => mockBuildSessionStartsAt(...args),
   getTodayNewYork: () => mockGetTodayNewYork(),
+  getStartOfDayNY: (date: string) => new Date(`${date}T04:00:00.000Z`),
+  getTimeKeyInTimeZone: (date: Date) => date.toISOString().slice(11, 16),
 }))
 
 vi.mock("@/lib/security/student-pin", () => ({
@@ -71,7 +74,7 @@ vi.mock("@/lib/security/student-pin", () => ({
 vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: vi.fn(async () => ({
     users: {
-      getUserList: vi.fn(async () => ({ data: [] })),
+      getUserList: (...args: unknown[]) => mockClerkGetUserList(...args),
     },
   })),
 }))
@@ -119,6 +122,7 @@ describe("staff payments route", () => {
     mockAuthorizePortalSection.mockReset()
     mockGetTodayNewYork.mockReset()
     mockBuildSessionStartsAt.mockReset()
+    mockClerkGetUserList.mockReset()
     mockPrisma.purchase.findMany.mockReset()
     mockPrisma.pointsLedger.groupBy.mockReset()
     mockPrisma.pointsLedger.findMany.mockReset()
@@ -229,7 +233,7 @@ describe("staff payments route", () => {
 
   it("excludes purchases whose metadata.date is yesterday", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
-      buildPurchase({ id: "yesterday_1", userId: "user_1", amount: 2500, metadata: { date: "2026-03-19" } }),
+      buildPurchase({ id: "yesterday_1", userId: "user_1", amount: 2500, metadata: { date: "2026-03-19" }, createdAt: "2026-03-19T15:00:00.000Z" }),
     ])
 
     const { GET } = await import("@/app/api/staff/payments/route")
@@ -243,7 +247,7 @@ describe("staff payments route", () => {
 
   it("excludes legacy purchases without metadata.date", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
-      buildPurchase({ id: "legacy_1", userId: "user_1", amount: 2500, metadata: {} }),
+      buildPurchase({ id: "legacy_1", userId: "user_1", amount: 2500, metadata: {}, createdAt: "2026-03-19T15:00:00.000Z" }),
     ])
 
     const { GET } = await import("@/app/api/staff/payments/route")
@@ -259,8 +263,8 @@ describe("staff payments route", () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({ id: "today_paid", userId: "user_1", amount: 2500, status: "paid", metadata: { date: "2026-03-20", paymentChannel: "card" } }),
       buildPurchase({ id: "today_cash", userId: "user_2", amount: 1800, status: "pending", metadata: { date: "2026-03-20", paymentChannel: "cash", settlementStatus: "pending" } }),
-      buildPurchase({ id: "yesterday_paid", userId: "user_3", amount: 9900, status: "paid", metadata: { date: "2026-03-19", paymentChannel: "card" } }),
-      buildPurchase({ id: "legacy_paid", userId: "user_4", amount: 4700, status: "paid", metadata: { paymentChannel: "cash", settlementStatus: "paid" } }),
+      buildPurchase({ id: "yesterday_paid", userId: "user_3", amount: 9900, status: "paid", metadata: { date: "2026-03-19", paymentChannel: "card" }, createdAt: "2026-03-19T15:00:00.000Z" }),
+      buildPurchase({ id: "legacy_paid", userId: "user_4", amount: 4700, status: "paid", metadata: { paymentChannel: "cash", settlementStatus: "paid" }, createdAt: "2026-03-18T10:00:00.000Z" }),
     ])
 
     const { GET } = await import("@/app/api/staff/payments/route")
@@ -283,7 +287,7 @@ describe("staff payments route", () => {
     mockGetTodayNewYork.mockReturnValue("2026-03-20")
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({ id: "late_night_today", userId: "user_1", amount: 2500, metadata: { date: "2026-03-20" } }),
-      buildPurchase({ id: "next_day", userId: "user_2", amount: 2500, metadata: { date: "2026-03-21" } }),
+      buildPurchase({ id: "next_day", userId: "user_2", amount: 2500, metadata: { date: "2026-03-21" }, createdAt: "2026-03-21T05:00:00.000Z" }),
     ])
 
     const { GET } = await import("@/app/api/staff/payments/route")
@@ -320,12 +324,22 @@ describe("staff payments route", () => {
     expect(mockPrisma.purchase.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          OR: [
-            { email: { contains: "elvira", mode: "insensitive" } },
-            { name: { contains: "elvira", mode: "insensitive" } },
-            { phone: { contains: "elvira", mode: "insensitive" } },
-            { courseTitle: { contains: "elvira", mode: "insensitive" } },
-            { courseSlug: { contains: "elvira", mode: "insensitive" } },
+          AND: [
+            {
+              OR: [
+                { email: { contains: "elvira", mode: "insensitive" } },
+                { name: { contains: "elvira", mode: "insensitive" } },
+                { phone: { contains: "elvira", mode: "insensitive" } },
+                { courseTitle: { contains: "elvira", mode: "insensitive" } },
+                { courseSlug: { contains: "elvira", mode: "insensitive" } },
+              ],
+            },
+            expect.objectContaining({
+              createdAt: expect.objectContaining({
+                gte: expect.any(Date),
+                lte: expect.any(Date),
+              }),
+            }),
           ],
         },
       })
@@ -352,8 +366,8 @@ describe("staff payments route", () => {
       buildPurchase({ id: "today_card_paid", userId: "user_1", amount: 1200, status: "paid", metadata: { date: "2026-03-20", paymentChannel: "card" } }),
       buildPurchase({ id: "today_cash_paid", userId: "user_2", amount: 800, status: "paid", metadata: { date: "2026-03-20", paymentChannel: "cash", settlementStatus: "paid" } }),
       buildPurchase({ id: "today_cash_pending", userId: "user_3", amount: 600, status: "pending", metadata: { date: "2026-03-20", paymentChannel: "cash", settlementStatus: "pending" } }),
-      buildPurchase({ id: "yesterday_large_paid", userId: "user_4", amount: 20000, status: "paid", metadata: { date: "2026-03-19", paymentChannel: "card" } }),
-      buildPurchase({ id: "legacy_large_paid", userId: "user_5", amount: 15000, status: "paid", metadata: { paymentChannel: "cash", settlementStatus: "paid" } }),
+      buildPurchase({ id: "yesterday_large_paid", userId: "user_4", amount: 20000, status: "paid", metadata: { date: "2026-03-19", paymentChannel: "card" }, createdAt: "2026-03-19T15:00:00.000Z" }),
+      buildPurchase({ id: "legacy_large_paid", userId: "user_5", amount: 15000, status: "paid", metadata: { paymentChannel: "cash", settlementStatus: "paid" }, createdAt: "2026-03-18T10:00:00.000Z" }),
     ])
 
     const { GET } = await import("@/app/api/staff/payments/route")
@@ -1305,5 +1319,61 @@ describe("staff payments route", () => {
       to: "2026-03-18",
       truncated: true,
     })
+  })
+
+  it("resolves canonical customerName from Clerk when available, falling back to DB name then purchase name", async () => {
+    mockClerkGetUserList.mockResolvedValue({
+      data: [
+        {
+          id: "clerk_user_1",
+          firstName: "Palladium",
+          lastName: "Latin Art",
+          imageUrl: "https://example.com/avatar1.jpg",
+          hasImage: true,
+        },
+      ],
+    })
+
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "purchase_clerk",
+        userId: "user_1",
+        amount: 2500,
+        metadata: { date: "2026-03-20" },
+      }),
+      buildPurchase({
+        id: "purchase_no_clerk",
+        userId: "user_2",
+        amount: 1800,
+        metadata: { date: "2026-03-20" },
+      }),
+      buildPurchase({
+        id: "purchase_no_user",
+        userId: "user_3",
+        amount: 900,
+        metadata: { date: "2026-03-20" },
+      }),
+    ])
+    mockPrisma.user.findMany.mockResolvedValue([
+      { id: "user_1", clerkId: "clerk_user_1", name: "DB Name One" },
+      { id: "user_2", clerkId: null, name: "DB Name Two" },
+      { id: "user_3", clerkId: null, name: null },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(3)
+
+    // user_1: has Clerk data → should show "Palladium Latin Art" (not purchase name "Student purchase_clerk")
+    expect(data.items.find((i: { id: string }) => i.id === "purchase_clerk")?.customerName).toBe("Palladium Latin Art")
+
+    // user_2: no Clerk, has DB name → should show "DB Name Two"
+    expect(data.items.find((i: { id: string }) => i.id === "purchase_no_clerk")?.customerName).toBe("DB Name Two")
+
+    // user_3: no Clerk, no DB name → should fall back to purchase name
+    expect(data.items.find((i: { id: string }) => i.id === "purchase_no_user")?.customerName).toBe("Student purchase_no_user")
   })
 })

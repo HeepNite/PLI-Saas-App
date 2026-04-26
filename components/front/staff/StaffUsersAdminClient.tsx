@@ -67,6 +67,14 @@ import {
   type StaffPortalSection,
 } from "@/lib/security/staff-access"
 import { POINTS_RULE_DEFINITIONS } from "@/lib/points/constants"
+import PaymentHistoryTimeline, {
+  type PaymentEvent,
+} from "@/components/front/staff/PaymentHistoryTimeline"
+import AttendanceHistoryTimeline, {
+  type AttendanceEvent,
+  type AttendanceSummary,
+} from "@/components/front/staff/AttendanceHistoryTimeline"
+import type { StripeFailureInfo } from "@/lib/stripe-failure"
 
 type StaffUserRow = {
   id: string
@@ -131,7 +139,7 @@ type PaymentRow = {
   customerAvatarUrl: string | null
   packageId: string | null
   serviceId: string | null
-  paymentChannel: "cash" | "card" | "unknown"
+  paymentChannel: "cash" | "card" | "unknown" | "package_credit"
   purchaseCategory: "package" | "dropin" | "other"
   amount: number
   currency: string
@@ -189,6 +197,7 @@ type PaymentRow = {
   completedClassesTotal: number
   packageClassesUsedTotal: number
   outstandingBalance: number | null
+  stripeFailure?: StripeFailureInfo | null
 }
 
 type HistoryClassOption = {
@@ -1417,6 +1426,46 @@ const formatUsdInputLabel = (value: string) => {
   return `$${parsed.toFixed(2)}`
 }
 
+function createEmptyPackageForm(): PackageFormState {
+  return {
+    key: "",
+    courseSlug: "",
+    label: "",
+    description: "",
+    priceCents: "",
+    cadence: "",
+    totalCredits: "",
+    makeUps: "0",
+    validDays: "180",
+    isUnlimited: false,
+    active: true,
+  }
+}
+
+function packageRowToFormState(item: SchoolPackageRow): PackageFormState {
+  return {
+    key: item.key,
+    courseSlug: item.courseSlug || "",
+    label: item.label,
+    description: item.description || "",
+    priceCents: centsToUsdInput(item.priceCents),
+    cadence: item.cadence || "",
+    totalCredits: item.totalCredits === null ? "" : String(item.totalCredits),
+    makeUps: String(item.makeUps),
+    validDays: String(item.validDays),
+    isUnlimited: item.isUnlimited,
+    active: item.active,
+  }
+}
+
+function duplicatePackageRowToFormState(item: SchoolPackageRow): PackageFormState {
+  return {
+    ...packageRowToFormState(item),
+    key: `${item.key}-copy`,
+    label: `${item.label} Copy`,
+  }
+}
+
 const formatMinutesLabel = (minutes: number) => {
   if (minutes <= 0) return "On time"
   const hours = Math.floor(minutes / 60)
@@ -1671,6 +1720,84 @@ const profilePinBadgeTone = (status: StudentProfileCard["pinStatus"]) => {
 
 const LAST_CHECK_IN_BADGE_TONE = "border-sky-400/40 bg-sky-400/12 text-sky-200"
 const PROFILE_CARD_BADGE_CLASS = "w-full flex items-center justify-center rounded-md border px-2 py-1.5 text-xs font-semibold"
+
+// ─── Timeline data transformers ──────────────────────────────────────────────
+
+function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
+  // Filter out package credit consumption (not real monetary payments)
+  const monetaryPayments = rows.filter((row) => row.paymentChannel !== "package_credit")
+
+  return monetaryPayments.map((row) => ({
+    id: row.id,
+    date: new Date(row.createdAt),
+    amount: row.amount / 100, // API stores cents, timeline expects dollars
+    method: row.paymentChannel === "cash" ? "cash" : row.paymentChannel === "card" ? "card" : "other",
+    product: row.courseTitle || row.purchaseCategory || "Payment",
+    status: row.settlementStatus === "paid" ? "paid" : row.paymentStatus === "refunded" ? "refunded" : "pending",
+    debt: typeof row.outstandingBalance === "number" && row.outstandingBalance > 0 ? row.outstandingBalance / 100 : undefined,
+    failureInfo: row.stripeFailure
+      ? {
+          message: row.stripeFailure.error?.message,
+          code: row.stripeFailure.error?.code,
+          declineCode: row.stripeFailure.error?.declineCode,
+          cardBrand: row.stripeFailure.card?.brand,
+          cardLast4: row.stripeFailure.card?.last4,
+        }
+      : null,
+  }))
+}
+
+function transformPaymentRowsToAttendance(
+  rows: PaymentRow[],
+): { events: AttendanceEvent[]; summary: AttendanceSummary } {
+  const events: AttendanceEvent[] = []
+  let totalAttended = 0
+  let noShows = 0
+  let cancelled = 0
+
+  for (const row of rows) {
+    if (!row.attendanceId && row.checkInStatus === "none") continue
+
+    const status =
+      row.checkInStatus === "checked_in" || row.checkInStatus === "checked_in_no_package" || row.checkInStatus === "checked_out"
+        ? "attended"
+        : row.checkInStatus === "scheduled"
+          ? "booked"
+          : "no-show"
+
+    if (status === "attended") totalAttended++
+    else if (status === "no-show") noShows++
+    else if (status === "booked") cancelled++
+
+    events.push({
+      id: row.attendanceId || row.id,
+      date: row.classDate ? new Date(row.classDate) : new Date(row.createdAt),
+      time: row.classTime || "00:00",
+      className: row.courseTitle || row.courseSlug || "Class",
+      classType: row.purchaseCategory === "dropin" ? "Drop-in" : "Package",
+      packageName: row.activePackage?.label,
+      status,
+    })
+  }
+
+  const latestPkg = rows.find((r) => r.activePackage)?.activePackage
+  const summary: AttendanceSummary = {
+    totalAttended,
+    noShows,
+    cancelled,
+    activePackage: latestPkg
+      ? {
+          name: latestPkg.label,
+          totalClasses: latestPkg.isUnlimited ? null : latestPkg.totalCredits,
+          classesUsed: latestPkg.totalCredits && latestPkg.remainingCredits != null ? latestPkg.totalCredits - latestPkg.remainingCredits : 0,
+          classesRemaining: latestPkg.isUnlimited ? null : latestPkg.remainingCredits,
+          isUnlimited: latestPkg.isUnlimited,
+        }
+      : undefined,
+  }
+
+  return { events, summary }
+}
 
 const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
   if (status === "provisional") return "Provisional PIN"
@@ -2139,6 +2266,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [historyClassKey, setHistoryClassKey] = React.useState("")
   const [historyClassOptions, setHistoryClassOptions] = React.useState<HistoryClassOption[]>([])
   const [studentSearchQuery, setStudentSearchQuery] = React.useState("")
+  const studentSearchQueryRef = React.useRef("")
+  const [isHistorySearchLoading, setIsHistorySearchLoading] = React.useState(false)
+  const historySearchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep ref in sync with state for stable fetchPayments dependency
+  React.useEffect(() => {
+    studentSearchQueryRef.current = studentSearchQuery
+  }, [studentSearchQuery])
   const [reportsDateFrom, setReportsDateFrom] = React.useState("")
   const [reportsDateTo, setReportsDateTo] = React.useState("")
   const [reportsObjectiveFilter, setReportsObjectiveFilter] = React.useState<ReportsObjectiveFilter>("all")
@@ -2152,6 +2287,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [paymentsBulkBusyAction, setPaymentsBulkBusyAction] = React.useState<"mark_paid" | "mark_pending" | null>(null)
   const [currentPage, setCurrentPage] = React.useState(1)
   const [checkoutMenuPaymentId, setCheckoutMenuPaymentId] = React.useState<string | null>(null)
+
+  // Timeline popover state
+  const [paymentHistoryAnchor, setPaymentHistoryAnchor] = React.useState<HTMLElement | null>(null)
+  const [paymentHistoryStudentId, setPaymentHistoryStudentId] = React.useState<string | null>(null)
+  const [attendanceHistoryAnchor, setAttendanceHistoryAnchor] = React.useState<HTMLElement | null>(null)
+  const [attendanceHistoryStudentId, setAttendanceHistoryStudentId] = React.useState<string | null>(null)
 
   const [staffRequests, setStaffRequests] = React.useState<StaffRequestRow[]>([])
   const [requestsSummary, setRequestsSummary] = React.useState<StaffRequestSummary>({
@@ -2232,6 +2373,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [schoolCourses, setSchoolCourses] = React.useState<SchoolCourseRow[]>([])
   const [schoolRooms, setSchoolRooms] = React.useState<RoomRow[]>([])
   const [schoolPackages, setSchoolPackages] = React.useState<SchoolPackageRow[]>([])
+  const [editingPackageId, setEditingPackageId] = React.useState<string | null>(null)
   const [schoolPointsRules, setSchoolPointsRules] = React.useState<PointsRuleRow[]>([])
   const [roomForm, setRoomForm] = React.useState<RoomFormState>({
     id: "",
@@ -2295,19 +2437,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const courseVideoInputRef = React.useRef<HTMLInputElement>(null)
   const scheduleTimePickerRef = React.useRef<HTMLDivElement>(null)
   const courseFormFieldsRef = React.useRef<HTMLDivElement>(null)
-  const [packageForm, setPackageForm] = React.useState<PackageFormState>({
-    key: "",
-    courseSlug: "",
-    label: "",
-    description: "",
-    priceCents: "",
-    cadence: "",
-    totalCredits: "",
-    makeUps: "0",
-    validDays: "180",
-    isUnlimited: false,
-    active: true,
-  })
+  const [packageForm, setPackageForm] = React.useState<PackageFormState>(() => createEmptyPackageForm())
   const [pointsRuleForm, setPointsRuleForm] = React.useState<PointsRuleFormState>({
     templateKey: POINTS_RULE_DEFINITIONS[0]?.key || "profile-completed",
     points: "10",
@@ -2702,9 +2832,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
-  const fetchPayments = React.useCallback(async () => {
+  const fetchPayments = React.useCallback(async (overrideSearchQuery?: string) => {
     const startedAt = Date.now()
     setPaymentsLoading(true)
+    if (isHistoryMode && overrideSearchQuery !== undefined) {
+      setIsHistorySearchLoading(true)
+    }
     try {
       if (isHistoryMode && (!historyFrom || !historyTo || historyFrom > historyTo)) {
         setPayments([])
@@ -2718,6 +2851,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         isHistoryMode,
         historyFrom,
         historyTo,
+        studentSearchQuery: overrideSearchQuery ?? studentSearchQueryRef.current,
       })
       url.search = searchParams.toString()
       const res = await fetch(url.toString(), { headers: { "Content-Type": "application/json" } })
@@ -2752,8 +2886,41 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     } finally {
       await ensureMinimumLoadingTime(startedAt)
       setPaymentsLoading(false)
+      if (isHistoryMode && overrideSearchQuery !== undefined) {
+        setIsHistorySearchLoading(false)
+      }
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure, historyFrom, historyTo, isHistoryMode])
+
+  // Debounced server-side search for history mode
+  React.useEffect(() => {
+    if (historySearchDebounceRef.current) {
+      clearTimeout(historySearchDebounceRef.current)
+      historySearchDebounceRef.current = null
+    }
+
+    const trimmedQuery = studentSearchQuery.trim()
+
+    // In history mode, trigger server-side search with debounce
+    if (isHistoryMode) {
+      if (trimmedQuery.length < 2) {
+        // If query is too short, refetch without search param
+        void fetchPayments("")
+        return
+      }
+
+      historySearchDebounceRef.current = setTimeout(() => {
+        void fetchPayments(trimmedQuery)
+      }, 350)
+
+      return () => {
+        if (historySearchDebounceRef.current) {
+          clearTimeout(historySearchDebounceRef.current)
+          historySearchDebounceRef.current = null
+        }
+      }
+    }
+  }, [isHistoryMode, studentSearchQuery, fetchPayments])
 
   const fetchPaymentsMonthlySummary = React.useCallback(async () => {
     try {
@@ -3528,13 +3695,53 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       }
       setSchoolSuccess(typeof data?.message === "string" ? data.message : "Package saved.")
       await fetchSchoolData({ showLoader: false })
-      setPackageForm((prev) => ({ ...prev, key: "", label: "", description: "" }))
+      setEditingPackageId(null)
+      setPackageForm(createEmptyPackageForm())
     } catch {
       setSchoolError("Network error while saving package.")
     } finally {
       setSchoolBusy(null)
     }
   }, [fetchSchoolData, packageForm])
+
+  const togglePackageActiveState = React.useCallback(
+    async (item: SchoolPackageRow) => {
+      setSchoolError(null)
+      setSchoolSuccess(null)
+      setSchoolBusy("package")
+      try {
+        const res = await fetch("/api/staff/school/packages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: item.key,
+            courseSlug: item.courseSlug || "",
+            label: item.label,
+            description: item.description || "",
+            priceCents: item.priceCents,
+            cadence: item.cadence || "",
+            totalCredits: item.totalCredits,
+            makeUps: item.makeUps,
+            validDays: item.validDays,
+            isUnlimited: item.isUnlimited,
+            active: !item.active,
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setSchoolError(typeof data?.error === "string" ? data.error : "Unable to update package state.")
+          return
+        }
+        setSchoolSuccess(typeof data?.message === "string" ? data.message : item.active ? "Package paused." : "Package activated.")
+        await fetchSchoolData({ showLoader: false })
+      } catch {
+        setSchoolError("Network error while updating package state.")
+      } finally {
+        setSchoolBusy(null)
+      }
+    },
+    [fetchSchoolData]
+  )
 
   const savePointsRule = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
@@ -9199,34 +9406,52 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create or update package</h3>
 
                 <form onSubmit={savePackagePlan} className="mt-3 space-y-2">
-                  <input
-                    name="packageKey"
-                    value={packageForm.key}
-                    onChange={(event) => setPackageForm((prev) => ({ ...prev, key: event.target.value }))}
-                    placeholder="Key (e.g., morning-3-week)"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    required
-                  />
-                  <input
-                    name="packageLabel"
-                    value={packageForm.label}
-                    onChange={(event) => setPackageForm((prev) => ({ ...prev, label: event.target.value }))}
-                    placeholder="Label"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    required
-                  />
-                  <select
-                    name="packageCourseSlug"
-                    value={packageForm.courseSlug}
-                    onChange={(event) => setPackageForm((prev) => ({ ...prev, courseSlug: event.target.value }))}
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                  >
-                    {courseOptions.map((course) => (
-                      <option key={`package-course-${course.slug}`} value={course.slug}>
-                        {course.title}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
+                    <span>{editingPackageId ? "Editing existing package" : "Create a package tied to one course."}</span>
+                    {editingPackageId ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPackageId(null)
+                          setPackageForm(createEmptyPackageForm())
+                        }}
+                        className="font-semibold text-[var(--brand,#b61616)]"
+                      >
+                        New package
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <input
+                      name="packageKey"
+                      value={packageForm.key}
+                      onChange={(event) => setPackageForm((prev) => ({ ...prev, key: event.target.value }))}
+                      placeholder="Key (e.g., morning-3-week)"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                      disabled={editingPackageId !== null}
+                    />
+                    <input
+                      name="packageLabel"
+                      value={packageForm.label}
+                      onChange={(event) => setPackageForm((prev) => ({ ...prev, label: event.target.value }))}
+                      placeholder="Label"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                    />
+                    <select
+                      name="packageCourseSlug"
+                      value={packageForm.courseSlug}
+                      onChange={(event) => setPackageForm((prev) => ({ ...prev, courseSlug: event.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      {courseOptions.map((course) => (
+                        <option key={`package-course-${course.slug}`} value={course.slug}>
+                          {course.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <input
                     name="packageDescription"
                     value={packageForm.description}
@@ -9234,14 +9459,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     placeholder="Description"
                     className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                   />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid gap-2 md:grid-cols-3">
                     <input
                       name="packagePriceCents"
-                      type="number"
-                      min={0}
+                      type="text"
+                      inputMode="decimal"
                       value={packageForm.priceCents}
                       onChange={(event) => setPackageForm((prev) => ({ ...prev, priceCents: event.target.value }))}
-                      placeholder="Price in cents"
+                      placeholder="Price (e.g., 145.50)"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
                     <input
@@ -9250,21 +9475,27 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       min={0}
                       value={packageForm.totalCredits}
                       onChange={(event) => setPackageForm((prev) => ({ ...prev, totalCredits: event.target.value }))}
-                      placeholder="Credits"
+                      placeholder="Classes included"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       disabled={packageForm.isUnlimited}
                     />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
                     <input
                       name="packageMakeUps"
                       type="number"
                       min={0}
                       value={packageForm.makeUps}
                       onChange={(event) => setPackageForm((prev) => ({ ...prev, makeUps: event.target.value }))}
-                      placeholder="Make-ups"
+                      placeholder="Extra make-up classes"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
+                  </div>
+                  <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
+                    Public price preview: <span className="font-semibold text-black dark:text-white">{formatUsdInputLabel(packageForm.priceCents)}</span>
+                  </div>
+                  <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
+                    <span className="font-semibold text-black dark:text-white">Classes included</span> is the base number of classes in the package. <span className="font-semibold text-black dark:text-white">Make-ups</span> add extra usable classes on top of that total.
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-3">
                     <input
                       name="packageValidDays"
                       type="number"
@@ -9274,13 +9505,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       placeholder="Validity days"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
-                    <input
-                      name="packageCadence"
-                      value={packageForm.cadence}
-                      onChange={(event) => setPackageForm((prev) => ({ ...prev, cadence: event.target.value }))}
-                      placeholder="Cadencia"
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    />
+                    <div className="flex items-center rounded-md border border-dashed border-black/15 bg-black/[0.02] px-3 py-2 text-xs text-black/60 dark:border-white/15 dark:bg-white/[0.03] dark:text-white/60">
+                      Legacy cadence removed from active editing.
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
@@ -9302,29 +9529,90 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       Active
                     </label>
                   </div>
-                  <button
-                    type="submit"
-                    disabled={schoolBusy !== null}
-                    className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                  >
-                    {schoolBusy === "package" ? "Saving..." : "Save package"}
-                  </button>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={schoolBusy !== null}
+                      className="inline-flex items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                    >
+                      {schoolBusy === "package" ? "Saving..." : editingPackageId ? "Update package" : "Save package"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPackageId(null)
+                        setPackageForm(createEmptyPackageForm())
+                      }}
+                      disabled={schoolBusy !== null}
+                      className="inline-flex items-center justify-center rounded-md border border-black/10 px-4 py-2 text-sm font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                    >
+                      Reset
+                    </button>
+                  </div>
                 </form>
 
-                <div className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
+                <div className="mt-3 max-h-[32rem] overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                   {schoolLoading ? (
                     <p className="text-black/60 dark:text-white/60">Loading packages...</p>
                   ) : schoolPackages.length === 0 ? (
                     <p className="text-black/60 dark:text-white/60">No packages created yet.</p>
                   ) : (
-                    schoolPackages.map((item) => (
-                      <div key={`package-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]">
-                        <p className="font-semibold text-black dark:text-white">{item.label}</p>
-                        <p className="text-black/65 dark:text-white/65">
-                          {item.key} · {item.courseSlug || "global"} · {item.totalCredits ?? "∞"} credits
-                        </p>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      {schoolPackages.map((item) => (
+                      <div key={`package-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 dark:border-white/10 dark:bg-white/[0.02]">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-black dark:text-white">{item.label}</p>
+                            <p className="truncate text-black/65 dark:text-white/65">{item.key} · {item.courseSlug || "no course"}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.active ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-black/10 text-black/60 dark:bg-white/10 dark:text-white/60"}`}>
+                              {item.active ? "Active" : "Inactive"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPackageId(item.id)
+                                setPackageForm(packageRowToFormState(item))
+                              }}
+                              className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-black/70 dark:text-white/70">
+                          <span><span className="font-medium text-black/85 dark:text-white/85">Price:</span> {item.priceCents === null ? "—" : formatMoney(item.priceCents)}</span>
+                          <span><span className="font-medium text-black/85 dark:text-white/85">Classes:</span> {item.totalCredits ?? "∞"}</span>
+                          <span><span className="font-medium text-black/85 dark:text-white/85">Make-ups:</span> {item.makeUps}</span>
+                          <span><span className="font-medium text-black/85 dark:text-white/85">Valid:</span> {item.validDays} days</span>
+                        </div>
+                        {item.cadence ? (
+                          <p className="mt-1 text-[11px] text-black/55 dark:text-white/55">Cadence: {item.cadence}</p>
+                        ) : null}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPackageId(null)
+                              setPackageForm(duplicatePackageRowToFormState(item))
+                            }}
+                            className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                          >
+                            Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            disabled={schoolBusy !== null}
+                            onClick={() => void togglePackageActiveState(item)}
+                            className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                          >
+                            {item.active ? "Deactivate" : "Activate"}
+                          </button>
+                        </div>
                       </div>
-                    ))
+                    ))}
+                    </div>
                   )}
                 </div>
               </article>
@@ -9779,7 +10067,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     placeholder="Search student, email, phone or course"
                     className="h-9 w-full rounded-full border border-black/20 bg-white/80 pl-10 pr-9 text-sm text-black placeholder:text-black/45 focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-white/[0.06] dark:text-white dark:placeholder:text-white/45"
                   />
-                  {isGlobalSearchLoading ? (
+                  {isGlobalSearchLoading || isHistorySearchLoading ? (
                     <div role="status" aria-label="Searching..." className="absolute right-3 top-1/2 -translate-y-1/2 text-black/45 dark:text-white/45">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     </div>
@@ -10082,7 +10370,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               Array.from({ length: 6 }).map((_, index) => (
                 <div
                   key={`students-skeleton-${index}`}
-                  className="h-[190px] rounded-xl border border-black/10 bg-black/[0.03] shimmer dark:border-white/10 dark:bg-white/[0.03]"
+                  className="h-[190px] rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 shimmer"
                 />
               ))
             ) : cardContext === "global-search" && searchResultCards!.length === 0 ? (
@@ -10110,7 +10398,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   return (
                     <article
                       key={`student-card-${student.key}`}
-                      className={`relative rounded-[16px] border border-white/10 bg-[linear-gradient(155deg,rgba(182,22,22,0.36)_0%,rgba(56,20,67,0.84)_48%,rgba(18,24,46,0.95)_100%)] p-4 text-white shadow-[0_20px_36px_-22px_rgba(0,0,0,0.75)] ${settlementControl ? "pt-9" : ""}`}
+                      className={`relative rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-4 text-white ${settlementControl ? "pt-9" : ""}`}
                     >
                       {settlementControl ? (
                         isProfileSettlementSelected ? (
@@ -10278,7 +10566,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 return (
                   <article
                     key={`student-card-${student.key}`}
-                    className={`relative rounded-[16px] border border-white/10 bg-[linear-gradient(155deg,rgba(182,22,22,0.36)_0%,rgba(56,20,67,0.84)_48%,rgba(18,24,46,0.95)_100%)] p-4 text-white shadow-[0_20px_36px_-22px_rgba(0,0,0,0.75)] ${
+                    className={`relative rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-4 text-white ${
                       payment.paymentChannel === "cash" ? "pt-9" : ""
                     }`}
                   >
@@ -10354,18 +10642,38 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </header>
 
                     <div className="mt-4 w-full grid grid-cols-2 gap-1.5">
-                      <span className={`w-full flex items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold ${paymentStateTone(payment)}`}>
-                        {paymentStateLabel(payment)}
-                      </span>
-                      <span className={`group relative w-full flex cursor-help items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold ${checkInStateTone(payment)}`}>
-                        {checkInStateLabel(payment, { includePurchaseCategory: true })}
-                        {payment.checkInAt && (
-                          <span className="pointer-events-none invisible absolute bottom-full left-1/2 z-[200] max-h-44 w-[14rem] -translate-x-1/2 translate-y-1 overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                            <span className="font-semibold text-white">Last check-in</span>
-                            <span className="mt-1 block text-white/85">{formatStudentPaymentCardDateTimeLabel(payment.checkInAt)}</span>
-                          </span>
-                        )}
-                      </span>
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          if (el && paymentHistoryStudentId === payment.userId) {
+                            setPaymentHistoryAnchor(el)
+                          }
+                        }}
+                        onClick={() => {
+                          setPaymentHistoryStudentId(payment.userId)
+                          setAttendanceHistoryStudentId(null)
+                          setAttendanceHistoryAnchor(null)
+                        }}
+                        className={`w-full flex cursor-pointer items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold hover:opacity-80 transition-opacity ${paymentStateTone(payment)}`}
+                      >
+                        Pmt History
+                      </button>
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          if (el && attendanceHistoryStudentId === payment.userId) {
+                            setAttendanceHistoryAnchor(el)
+                          }
+                        }}
+                        onClick={() => {
+                          setAttendanceHistoryStudentId(payment.userId)
+                          setPaymentHistoryStudentId(null)
+                          setPaymentHistoryAnchor(null)
+                        }}
+                        className={`w-full flex cursor-pointer items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold hover:opacity-80 transition-opacity ${checkInStateTone(payment)}`}
+                      >
+                        Attendance
+                      </button>
                       {studentPinLabel && studentPinTone ? (
                         <span className={`w-full flex items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold ${studentPinTone}`}>
                           {studentPinLabel}
@@ -12087,6 +12395,44 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           </div>
         </div>
       ) : null}
+
+      {/* Payment History Timeline Popover */}
+      <PaymentHistoryTimeline
+        payments={
+          paymentHistoryStudentId
+            ? transformPaymentRowsToEvents(
+                payments.filter((p) => p.userId === paymentHistoryStudentId),
+              )
+            : []
+        }
+        anchorEl={paymentHistoryAnchor}
+        isOpen={!!paymentHistoryStudentId}
+        onClose={() => {
+          setPaymentHistoryStudentId(null)
+          setPaymentHistoryAnchor(null)
+        }}
+      />
+
+      {/* Attendance History Timeline Popover */}
+      {(() => {
+        const { events, summary } = attendanceHistoryStudentId
+          ? transformPaymentRowsToAttendance(
+              payments.filter((p) => p.userId === attendanceHistoryStudentId),
+            )
+          : { events: [] as AttendanceEvent[], summary: { totalAttended: 0, noShows: 0, cancelled: 0 } as AttendanceSummary }
+        return (
+          <AttendanceHistoryTimeline
+            attendance={events}
+            summary={summary}
+            anchorEl={attendanceHistoryAnchor}
+            isOpen={!!attendanceHistoryStudentId}
+            onClose={() => {
+              setAttendanceHistoryStudentId(null)
+              setAttendanceHistoryAnchor(null)
+            }}
+          />
+        )
+      })()}
     </>
   )
 }

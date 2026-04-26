@@ -7,11 +7,13 @@ const mockSyncPackagePurchaseFromPaidPurchase = vi.fn()
 const mockSyncScheduledAttendanceFromPurchase = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockPurchaseUpsert = vi.fn()
+const mockPurchaseFindUnique = vi.fn()
 const mockConstructEvent = vi.fn()
 
 const mockPrisma = {
   purchase: {
     upsert: (...args: unknown[]) => mockPurchaseUpsert(...args),
+    findUnique: (...args: unknown[]) => mockPurchaseFindUnique(...args),
   },
 }
 
@@ -65,6 +67,7 @@ describe("stripe webhook checkout session persistence", () => {
     mockSyncScheduledAttendanceFromPurchase.mockReset()
     mockAwardPointsFromRule.mockReset()
     mockPurchaseUpsert.mockReset()
+    mockPurchaseFindUnique.mockReset()
     mockConstructEvent.mockReset()
 
     mockHeaders.mockResolvedValue({
@@ -76,6 +79,7 @@ describe("stripe webhook checkout session persistence", () => {
       id: "purchase_123",
       createdAt: new Date("2026-03-24T12:00:00.000Z"),
     })
+    mockPurchaseFindUnique.mockResolvedValue(null)
     mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "pkg_123" })
     mockSyncScheduledAttendanceFromPurchase.mockResolvedValue(undefined)
     mockAwardPointsFromRule.mockResolvedValue(undefined)
