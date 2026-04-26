@@ -79,9 +79,9 @@ export function mergeFailureIntoMetadata(
  * Remove stripeFailure from metadata. Returns undefined when metadata becomes empty.
  */
 export function clearFailureFromMetadata(
-  existing: JsonValue | null | undefined
+  existing: JsonValue | Record<string, unknown> | null | undefined
 ): Record<string, unknown> | undefined {
-  const obj = toPlainObject(existing)
+  const obj = toPlainObject(existing as JsonValue | null | undefined)
   if (!obj || !("stripeFailure" in obj)) return obj && Object.keys(obj).length > 0 ? obj : undefined
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

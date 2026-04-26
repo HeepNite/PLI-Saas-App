@@ -2538,13 +2538,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   )
 
   const filteredSchoolPackages = React.useMemo(() => {
-    if (packageStatusFilter === "all") return schoolPackages
+    if (packageStatusFilter === "all") return schoolPackages.filter((item) => getPackageLifecycleStatus(item) !== "DELETED")
     return schoolPackages.filter((item) => getPackageLifecycleStatus(item) === packageStatusFilter)
   }, [packageStatusFilter, schoolPackages])
 
   const packageCounts = React.useMemo(
     () => ({
       all: schoolPackages.length,
+      live: schoolPackages.filter((item) => getPackageLifecycleStatus(item) !== "DELETED").length,
       ACTIVE: schoolPackages.filter((item) => getPackageLifecycleStatus(item) === "ACTIVE").length,
       SUSPENDED: schoolPackages.filter((item) => getPackageLifecycleStatus(item) === "SUSPENDED").length,
       SCHEDULED: schoolPackages.filter((item) => getPackageLifecycleStatus(item) === "SCHEDULED").length,
@@ -9595,6 +9596,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       Lifecycle: <span className="font-semibold">{packageForm.status}</span>
                     </label>
                   </div>
+                  <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
+                    <span className="font-semibold text-black dark:text-white">Active</span> shows in the catalog. <span className="font-semibold text-black dark:text-white">Suspended</span> hides it. <span className="font-semibold text-black dark:text-white">Scheduled</span> waits for the launch date. <span className="font-semibold text-black dark:text-white">Deleted</span> hides it from the default admin view.
+                  </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
                       type="submit"
@@ -9620,7 +9624,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <div className="mt-3 max-h-[32rem] overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                   <div className="mb-2 flex flex-wrap gap-2">
                     {([
-                      ["all", `All (${packageCounts.all})`],
+                      ["all", `Live (${packageCounts.live})`],
                       ["ACTIVE", `Active (${packageCounts.ACTIVE})`],
                       ["SUSPENDED", `Suspended (${packageCounts.SUSPENDED})`],
                       ["SCHEDULED", `Scheduled (${packageCounts.SCHEDULED})`],
@@ -9643,6 +9647,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       )
                     })}
                   </div>
+                  {packageStatusFilter === "all" && packageCounts.DELETED > 0 ? (
+                    <p className="mb-2 text-[11px] text-black/55 dark:text-white/55">
+                      Deleted packages are hidden from the default view. Open the <span className="font-semibold">Deleted</span> filter to review or restore them.
+                    </p>
+                  ) : null}
                   {schoolLoading ? (
                     <p className="text-black/60 dark:text-white/60">Loading packages...</p>
                   ) : filteredSchoolPackages.length === 0 ? (
@@ -9698,22 +9707,35 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           >
                             Duplicate
                           </button>
-                          <button
-                            type="button"
-                            disabled={schoolBusy !== null}
-                            onClick={() => void setPackageLifecycleState(item, getPackageLifecycleStatus(item) === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
-                            className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
-                          >
-                            {getPackageLifecycleStatus(item) === "ACTIVE" ? "Suspend" : "Activate"}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={schoolBusy !== null}
-                            onClick={() => void setPackageLifecycleState(item, "DELETED")}
-                            className="rounded-md border border-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-500/10 disabled:opacity-60 dark:border-rose-400/20 dark:text-rose-300 dark:hover:bg-rose-400/10"
-                          >
-                            Delete
-                          </button>
+                          {getPackageLifecycleStatus(item) === "DELETED" ? (
+                            <button
+                              type="button"
+                              disabled={schoolBusy !== null}
+                              onClick={() => void setPackageLifecycleState(item, "ACTIVE")}
+                              className="rounded-md border border-emerald-500/20 px-2 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-500/10 disabled:opacity-60 dark:border-emerald-400/20 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                disabled={schoolBusy !== null}
+                                onClick={() => void setPackageLifecycleState(item, getPackageLifecycleStatus(item) === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
+                                className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                              >
+                                {getPackageLifecycleStatus(item) === "ACTIVE" ? "Suspend" : "Activate"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={schoolBusy !== null}
+                                onClick={() => void setPackageLifecycleState(item, "DELETED")}
+                                className="rounded-md border border-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-500/10 disabled:opacity-60 dark:border-rose-400/20 dark:text-rose-300 dark:hover:bg-rose-400/10"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
