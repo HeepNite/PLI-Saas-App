@@ -1,5 +1,5 @@
 import type Stripe from "stripe"
-import type { JsonValue } from "@prisma/client/runtime/library"
+import type { JsonValue, InputJsonValue } from "@prisma/client/runtime/library"
 
 /**
  * Allowlisted failure info persisted in Purchase.metadata.stripeFailure.
@@ -76,17 +76,19 @@ export function mergeFailureIntoMetadata(
 }
 
 /**
- * Remove stripeFailure from metadata. Returns undefined when metadata becomes empty.
+ * Remove stripeFailure from metadata. Returns null when metadata becomes empty (Prisma-compatible).
  */
 export function clearFailureFromMetadata(
   existing: JsonValue | Record<string, unknown> | null | undefined
-): Record<string, unknown> | undefined {
+): InputJsonValue | null {
   const obj = toPlainObject(existing as JsonValue | null | undefined)
-  if (!obj || !("stripeFailure" in obj)) return obj && Object.keys(obj).length > 0 ? obj : undefined
+  if (!obj || !("stripeFailure" in obj)) {
+    return obj && Object.keys(obj).length > 0 ? (obj as InputJsonValue) : null
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { stripeFailure: _removed, ...rest } = obj
-  return Object.keys(rest).length > 0 ? rest : undefined
+  return Object.keys(rest).length > 0 ? (rest as InputJsonValue) : null
 }
 
 /**
@@ -96,10 +98,10 @@ export function clearFailureFromMetadata(
 export function mergeMetadataPreservingFailure(
   existing: JsonValue | null | undefined,
   incoming: Record<string, unknown> | null | undefined
-): Record<string, unknown> {
+): InputJsonValue {
   const base = toPlainObject(existing)
   const stripeFailure = base.stripeFailure
-  return { ...base, ...(incoming ?? {}), ...(stripeFailure ? { stripeFailure } : {}) }
+  return { ...base, ...(incoming ?? {}), ...(stripeFailure ? { stripeFailure } : {}) } as InputJsonValue
 }
 
 /**
