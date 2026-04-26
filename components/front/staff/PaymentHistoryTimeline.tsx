@@ -44,7 +44,7 @@ export interface PaymentEvent {
   id: string
   date: Date
   amount: number
-  method: "card" | "cash" | "package" | "other"
+  method: "card" | "cash" | "other"
   product: string
   productType: "package" | "dropin" | "other"
   status: "paid" | "pending" | "refunded" | "cancelled"
@@ -59,10 +59,6 @@ export interface PaymentEvent {
     cardBrand?: string
     cardLast4?: string
   } | null
-  /** For package credit usage, shows the package name */
-  packageName?: string
-  /** Class number within the package (e.g., "Class 3 of 10") */
-  packageClassNumber?: number | null
 }
 
 export interface PaymentHistoryTimelineProps {
@@ -113,7 +109,6 @@ const STATUS_CONFIG = {
 const METHOD_CONFIG = {
   card: { label: "Card", icon: CreditCard },
   cash: { label: "Cash", icon: Banknote },
-  package: { label: "Package", icon: Package },
   other: { label: "Other", icon: DollarSign },
 } as const
 
@@ -213,16 +208,6 @@ function TimelineItem({ payment, isLast }: TimelineItemProps) {
             </span>
           )}
         </div>
-
-        {/* Package class number (for package credit usage) */}
-        {payment.method === "package" && payment.packageName && (
-          <div className="flex items-center gap-2 mb-2 text-xs text-purple-300/80">
-            <span>⊛ {payment.packageName}</span>
-            {payment.packageClassNumber != null && (
-              <span className="text-white/50">• Class #{payment.packageClassNumber}</span>
-            )}
-          </div>
-        )}
 
         {/* Meta row */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/50">

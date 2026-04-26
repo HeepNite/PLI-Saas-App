@@ -1764,15 +1764,13 @@ const PROFILE_CARD_BADGE_CLASS = "w-full flex items-center justify-center rounde
 // ─── Timeline data transformers ──────────────────────────────────────────────
 
 function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
-  // Include ALL payment types: monetary payments AND package credit usage
-  return rows.map((row) => {
-    const isPackageCredit = row.paymentChannel === "package_credit"
-    
+  // Only show REAL monetary payments (cash, card) — NOT package credit consumption
+  const monetaryPayments = rows.filter((row) => row.paymentChannel !== "package_credit")
+  
+  return monetaryPayments.map((row) => {
     // Determine method
     let method: PaymentEvent["method"]
-    if (isPackageCredit) {
-      method = "package"
-    } else if (row.paymentChannel === "cash") {
+    if (row.paymentChannel === "cash") {
       method = "cash"
     } else if (row.paymentChannel === "card") {
       method = "card"
@@ -1818,9 +1816,6 @@ function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
             cardLast4: row.stripeFailure.card?.last4,
           }
         : null,
-      // Package credit specific fields
-      packageName: isPackageCredit ? row.activePackage?.label : undefined,
-      packageClassNumber: isPackageCredit ? row.packageClassNumber : undefined,
     }
   })
 }
@@ -1834,14 +1829,28 @@ function transformPaymentRowsToAttendance(
   let cancelled = 0
 
   for (const row of rows) {
-    if (!row.attendanceId && row.checkInStatus === "none") continue
+    // Package credit consumption = class attended (even without explicit attendanceId)
+    const isPackageCredit = row.paymentChannel === "package_credit"
+    
+    // Skip rows that have no attendance info AND are not package credit
+    if (!isPackageCredit && !row.attendanceId && row.checkInStatus === "none") continue
 
-    const status =
-      row.checkInStatus === "checked_in" || row.checkInStatus === "checked_in_no_package" || row.checkInStatus === "checked_out"
-        ? "attended"
-        : row.checkInStatus === "scheduled"
-          ? "booked"
-          : "no-show"
+    // Determine attendance status
+    let status: AttendanceEvent["status"]
+    if (isPackageCredit) {
+      // Package credit = attended (they used a credit for a class)
+      status = "attended"
+    } else if (
+      row.checkInStatus === "checked_in" || 
+      row.checkInStatus === "checked_in_no_package" || 
+      row.checkInStatus === "checked_out"
+    ) {
+      status = "attended"
+    } else if (row.checkInStatus === "scheduled") {
+      status = "booked"
+    } else {
+      status = "no-show"
+    }
 
     if (status === "attended") totalAttended++
     else if (status === "no-show") noShows++
@@ -1852,7 +1861,7 @@ function transformPaymentRowsToAttendance(
       date: row.classDate ? new Date(row.classDate) : new Date(row.createdAt),
       time: row.classTime || "00:00",
       className: row.courseTitle || row.courseSlug || "Class",
-      classType: row.purchaseCategory === "dropin" ? "Drop-in" : "Package",
+      classType: isPackageCredit ? "Package" : row.purchaseCategory === "dropin" ? "Drop-in" : "Package",
       packageName: row.activePackage?.label,
       status,
     })
