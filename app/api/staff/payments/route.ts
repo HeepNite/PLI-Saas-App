@@ -927,7 +927,9 @@ export async function GET(req: Request) {
     })
     const purchaseCategory = normalizePurchaseCategory({ packageId, serviceId })
     const isPaid = isCompletedPaymentStatus(paymentStatus)
-    const inferredCashCheckIn = !resolvedAttendance && paymentChannel === "cash"
+    // Only infer cash check-in if settlement is paid (not pending)
+    const isCashSettled = paymentChannel === "cash" && item.settlementStatus === "paid"
+    const inferredCashCheckIn = !resolvedAttendance && isCashSettled
     const checkInStatus: CheckInStatus =
       resolvedAttendance?.status === "checked_in" ||
       resolvedAttendance?.status === "checked_in_no_package" ||

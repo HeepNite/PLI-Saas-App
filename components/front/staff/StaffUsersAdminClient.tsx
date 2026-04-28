@@ -1835,9 +1835,15 @@ function transformPaymentRowsToAttendance(
     // Skip rows that have no attendance info AND are not package credit
     if (!isPackageCredit && !row.attendanceId && row.checkInStatus === "none") continue
 
+    // Cash payments with pending settlement should NOT count as attended yet
+    const isCashPendingSettlement = row.paymentChannel === "cash" && row.settlementStatus === "pending"
+
     // Determine attendance status
     let status: AttendanceEvent["status"]
-    if (isPackageCredit) {
+    if (isCashPendingSettlement) {
+      // Cash pending = booked (waiting for payment approval)
+      status = "booked"
+    } else if (isPackageCredit) {
       // Package credit = attended (they used a credit for a class)
       status = "attended"
     } else if (
