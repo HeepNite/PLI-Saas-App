@@ -927,18 +927,15 @@ export async function GET(req: Request) {
     })
     const purchaseCategory = normalizePurchaseCategory({ packageId, serviceId })
     const isPaid = isCompletedPaymentStatus(paymentStatus)
-    // Only infer cash check-in if settlement is paid (not pending)
-    const isCashSettled = paymentChannel === "cash" && item.settlementStatus === "paid"
-    const inferredCashCheckIn = !resolvedAttendance && isCashSettled
+    // Don't infer check-in without an actual attendance record
+    // Cash payments without attendance linkage should show as "none", not assumed attended
     const checkInStatus: CheckInStatus =
       resolvedAttendance?.status === "checked_in" ||
       resolvedAttendance?.status === "checked_in_no_package" ||
       resolvedAttendance?.status === "checked_out" ||
       resolvedAttendance?.status === "scheduled"
         ? (resolvedAttendance.status as CheckInStatus)
-        : inferredCashCheckIn
-          ? "checked_in_no_package"
-          : "none"
+        : "none"
     const packageClassesUsedTotal = activePackage
       ? activePackage.isUnlimited
         ? activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0
@@ -980,7 +977,7 @@ export async function GET(req: Request) {
       classPaid: isPaid,
       attendanceId: resolvedAttendance?.id ?? null,
       checkInStatus,
-      checkInAt: resolvedAttendance?.checkedInAt || (inferredCashCheckIn ? purchase.createdAt.toISOString() : null),
+      checkInAt: resolvedAttendance?.checkedInAt ?? null,
       checkedOutAt: resolvedAttendance?.checkedOutAt ?? null,
       activePackage: activePackage
         ? {
