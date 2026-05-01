@@ -10,6 +10,16 @@ export type PackageOfferContext = {
   time: string
 } | null
 
+export type ConsecutiveOffer = {
+  linkedCourseSlug: string
+  linkedCourseTitle: string
+  dropInConsecutiveCents: number | null
+  packageHolderConsecutiveCents: number | null
+  regularDropInCents: number
+  discountPercent: number
+  hasAttendedFirstClass: boolean
+}
+
 export type BootstrapResponse = {
   context: {
     courseSlug: string
@@ -82,11 +92,14 @@ export type BootstrapResponse = {
   hasAnyCompletedPurchase: boolean
   /** True if user already has a successful purchase for this exact class session (date + time) */
   hasExistingPurchaseForSession?: boolean
+  /** Consecutive class offer, present when student attended Class A and a CourseLink exists */
+  consecutiveOffer?: ConsecutiveOffer | null
 }
 
 export type CheckInQrClientProps = {
   forcedDeviceMode?: "station" | "personal"
   forcedCourseSlug?: string
+  selectedCourseSlug?: string
   hideQrPanel?: boolean
   shellVariant?: "qr" | "terminal"
   terminalName?: string

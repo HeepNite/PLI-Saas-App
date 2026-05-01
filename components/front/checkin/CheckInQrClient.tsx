@@ -9,6 +9,7 @@ import { toE164Phone } from "@/components/front/courses/utils/phone"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import {
   getExistingCustomerInitialStep,
+  shouldSurfaceClosedWindowPackageError,
   shouldAutoOpenExistingPurchase,
   shouldAutoTriggerPackageCheckIn,
   shouldPreserveOfferOnBootstrapClear,
@@ -27,6 +28,9 @@ import {
   KioskResolvingOverlay,
   KioskPackageSuccessOverlay,
   KioskDuplicatePurchaseOverlay,
+  ConsecutiveClassOffer,
+  ConsecutiveOfferSuccess,
+  ConsecutiveOfferError,
   ContextWarning,
   QrPromptText,
   EntrySelectionButtons,
@@ -45,18 +49,21 @@ import {
 } from "@/lib/checkin/checkin-helpers"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
-import type { EntryMode, BootstrapResponse, CheckInQrClientProps, PackageOfferContext } from "@/components/front/checkin/checkin.types"
+import { hasTerminalSensitiveCustomerState } from "@/lib/checkin/terminal-sensitive-state"
+import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
+import type { EntryMode, BootstrapResponse, CheckInQrClientProps, PackageOfferContext, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
 
 export default function CheckInQrClient({
   forcedDeviceMode,
   forcedCourseSlug = "",
+  selectedCourseSlug,
   hideQrPanel = false,
   shellVariant = "qr",
   terminalName,
   terminalLocation,
   qrPathOverride,
-}: CheckInQrClientProps) {
-  const { courses: catalogCourses } = useCatalogCourses()
+}: CheckInQrClientProps & { selectedCourseSlug?: string }) {
+  const { courses: catalogCourses, reload: reloadCatalogCourses } = useCatalogCourses()
   const sourceCourses = React.useMemo(
     () => (catalogCourses.length ? catalogCourses : demoCourses),
     [catalogCourses]
@@ -103,6 +110,12 @@ export default function CheckInQrClient({
   const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
   const packageCheckInTimeoutRef = React.useRef<number | null>(null)
 
+  // ─── Consecutive offer state ────────────────────────────────
+  const [consecutiveOffer, setConsecutiveOffer] = React.useState<ConsecutiveOffer | null>(null)
+  const [consecutiveProcessing, setConsecutiveProcessing] = React.useState(false)
+  const [consecutiveSuccess, setConsecutiveSuccess] = React.useState<{ courseTitle: string } | null>(null)
+  const [consecutiveError, setConsecutiveError] = React.useState<string | null>(null)
+
   // ─── Derived error ──────────────────────────────────────────
   const visibleError = React.useMemo(() => {
     if (!error) return null
@@ -144,6 +157,7 @@ export default function CheckInQrClient({
     kioskPin,
     kioskPinAttemptsRemaining,
     kioskPinBlockedUntil,
+    kioskPinThrottleSeverity,
     kioskPinConfirm,
     kioskPinLoading,
     kioskPinNext,
@@ -193,6 +207,7 @@ export default function CheckInQrClient({
     searchParams,
     forcedDeviceMode,
     forcedCourseSlug,
+    selectedCourseSlug,
     nowTick,
     origin,
     isCompactViewport,
@@ -441,7 +456,8 @@ export default function CheckInQrClient({
         setPackageCheckInResult({ remainingCredits, points: awardedPoints })
         packageCheckInTimeoutRef.current = window.setTimeout(() => {
           packageCheckInTimeoutRef.current = null
-          completeStationPackageFlow()
+          // Check for consecutive offer before resetting
+          void checkConsecutiveOfferAfterCheckIn()
         }, 2500)
         return
       }
@@ -469,6 +485,122 @@ export default function CheckInQrClient({
     completeStationPackageFlow()
   }, [completeStationPackageFlow])
 
+  // ─── Consecutive offer handlers ─────────────────────────────
+  const checkConsecutiveOfferAfterCheckIn = React.useCallback(async () => {
+    if (!isKioskTerminalFlow) return
+    if (!activeCourseSlug) return
+    if (!hasActiveClerkSession && !kioskPinSessionToken) return
+
+    try {
+      const token = await getToken({ skipCache: true })
+      const res = await fetch("/api/checkin/qr/bootstrap", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          courseSlug: activeCourseSlug,
+          date: activeDate,
+          time: activeTime,
+          durationMinutes,
+          linkedFromCourseSlug: activeCourseSlug,
+          flowContext: photoFlowContext,
+          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.consecutiveOffer) {
+        setConsecutiveOffer(data.consecutiveOffer as ConsecutiveOffer)
+      }
+    } catch {
+      // Silently ignore — not critical
+    }
+  }, [isKioskTerminalFlow, activeCourseSlug, activeDate, activeTime, durationMinutes, getToken, hasActiveClerkSession, kioskPinSessionToken, photoFlowContext])
+
+  const handleConsecutiveAccept = React.useCallback(async () => {
+    if (!consecutiveOffer) return
+    setConsecutiveProcessing(true)
+    setConsecutiveError(null)
+
+    try {
+      const token = await getToken({ skipCache: true })
+      const isPackage = Boolean(bootstrap?.package)
+
+      const endpoint = isPackage
+        ? "/api/checkin/qr/package"
+        : "/api/checkin/qr/dropin"
+
+      const priceCents = isPackage
+        ? consecutiveOffer.packageHolderConsecutiveCents
+        : consecutiveOffer.dropInConsecutiveCents
+
+      const body: Record<string, unknown> = {
+        courseSlug: consecutiveOffer.linkedCourseSlug,
+        date: activeDate,
+        time: activeTime,
+        durationMinutes,
+        flowContext: photoFlowContext,
+        ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+      }
+
+      if (isPackage) {
+        body.consecutiveAddOn = true
+        body.linkedFromCourseSlug = activeCourseSlug
+        if (priceCents != null) body.consecutivePriceCents = priceCents
+      } else {
+        body.consecutiveDiscountApplied = true
+        body.linkedFromCourseSlug = activeCourseSlug
+        if (priceCents != null) body.consecutivePriceCents = priceCents
+      }
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify(body),
+      })
+
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setConsecutiveError(typeof data?.error === "string" ? data.error : "Unable to add consecutive class.")
+        return
+      }
+
+      setConsecutiveOffer(null)
+      setConsecutiveSuccess({ courseTitle: consecutiveOffer.linkedCourseTitle })
+    } catch {
+      setConsecutiveError("Unable to add consecutive class.")
+    } finally {
+      setConsecutiveProcessing(false)
+    }
+  }, [consecutiveOffer, activeCourseSlug, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken])
+
+  const handleConsecutiveDecline = React.useCallback(() => {
+    setConsecutiveOffer(null)
+    void handleStationCompletion()
+  }, [handleStationCompletion])
+
+  const handleConsecutiveSuccessDone = React.useCallback(() => {
+    setConsecutiveSuccess(null)
+    void handleStationCompletion()
+  }, [handleStationCompletion])
+
+  const handleConsecutiveRetry = React.useCallback(() => {
+    setConsecutiveError(null)
+    void handleConsecutiveAccept()
+  }, [handleConsecutiveAccept])
+
+  const handleConsecutiveErrorDismiss = React.useCallback(() => {
+    setConsecutiveError(null)
+    setConsecutiveOffer(null)
+    void handleStationCompletion()
+  }, [handleStationCompletion])
+
   React.useEffect(() => {
     return () => {
       if (packageCheckInTimeoutRef.current !== null) {
@@ -480,6 +612,7 @@ export default function CheckInQrClient({
 
   // ─── UI handlers ────────────────────────────────────────────
   const handleExistingClick = React.useCallback(() => {
+    void reloadCatalogCourses()
     setMode("existing")
     setError(null)
     setSuccess(null)
@@ -497,9 +630,10 @@ export default function CheckInQrClient({
       return
     }
     void loadBootstrap()
-  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, resetKioskPinFlow, selectedCourse])
+  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse])
 
   const handleNewClick = React.useCallback(() => {
+    void reloadCatalogCourses()
     setMode("new")
     setError(null)
     setSuccess(null)
@@ -516,7 +650,7 @@ export default function CheckInQrClient({
     // New users go directly to EnrollModal — packages are selected in a dedicated
     // step AFTER user info is collected (to determine new vs existing pricing)
     setOpenNewBooking(true)
-  }, [activeDate, activeTime, contextIsValid, selectedCourse])
+  }, [activeDate, activeTime, contextIsValid, reloadCatalogCourses, selectedCourse])
 
   const handleLatePaymentTablet = React.useCallback(() => {
     if (!latePaymentRecommendation) return
@@ -615,6 +749,9 @@ export default function CheckInQrClient({
 
   const handleExistingUserDetected = React.useCallback(() => {
     setOpenNewBooking(false)
+    setNewBookingOverride(null)
+    setPendingLoginPhone("")
+    setShowPhoneSignIn(false)
     setReturnedFromNewStudentFlow(true)
     setMode("existing")
   }, [])
@@ -625,11 +762,13 @@ export default function CheckInQrClient({
   }, [mode])
 
   const handleNewUserPostPurchase = React.useCallback(() => {
-    // After new-student purchase, reset immediately.
-    // The EnrollModal handles its own 10s auto-reset timeout, but when
-    // the user explicitly presses Finish, we should complete immediately.
+    // After new-student purchase, check for consecutive offer before resetting.
+    if (isKioskTerminalFlow) {
+      void checkConsecutiveOfferAfterCheckIn()
+      return
+    }
     void handleStationCompletion()
-  }, [handleStationCompletion])
+  }, [isKioskTerminalFlow, checkConsecutiveOfferAfterCheckIn, handleStationCompletion])
 
   const handleBootstrapAction = React.useCallback(() => {
     if (processingPackageCheckIn) return
@@ -787,6 +926,33 @@ export default function CheckInQrClient({
   ])
 
   React.useEffect(() => {
+    if (
+      !shouldSurfaceClosedWindowPackageError({
+        isKioskTerminalFlow,
+        mode,
+        hasBootstrap: Boolean(bootstrap),
+        hasPackage: Boolean(bootstrap?.package),
+        effectiveCheckInWindowOpen,
+        processingPackageCheckIn,
+        hasPackageCheckInResult: Boolean(packageCheckInResult),
+        hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
+      })
+    ) {
+      return
+    }
+
+    setError("The check-in window for this class is closed.")
+  }, [
+    bootstrap,
+    effectiveCheckInWindowOpen,
+    existingRegularBookingOverride,
+    isKioskTerminalFlow,
+    mode,
+    packageCheckInResult,
+    processingPackageCheckIn,
+  ])
+
+  React.useEffect(() => {
     if (showKioskPinPanel) return
     if (!error && !success) return
     const timeoutId = window.setTimeout(() => {
@@ -797,8 +963,80 @@ export default function CheckInQrClient({
     return () => window.clearTimeout(timeoutId)
   }, [error, showKioskPinPanel, success])
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const hasSensitiveState = hasTerminalSensitiveCustomerState({
+      isKioskTerminalFlow,
+      mode,
+      bootstrapOpen: Boolean(bootstrap),
+      newBookingOpen: openNewBooking || Boolean(newBookingOverride),
+      existingBookingOpen: Boolean(existingRegularBookingOverride),
+      phoneSignInOpen: showPhoneSignIn,
+      packageOfferOpen: Boolean(packageOfferContext),
+      duplicatePurchaseOpen: showDuplicatePurchasePopup || Boolean(bootstrap?.hasExistingPurchaseForSession),
+      packageSuccessOpen: Boolean(packageCheckInResult),
+      kioskPinOpen: showKioskPinPanel,
+      kioskPinSessionActive: hasKioskPinSession,
+      pendingLoginPhone: Boolean(pendingLoginPhone),
+      consecutiveOfferOpen: Boolean(consecutiveOffer),
+      consecutiveSuccessOpen: Boolean(consecutiveSuccess),
+      consecutiveErrorOpen: Boolean(consecutiveError),
+    })
+
+    if (!hasSensitiveState) return
+
+    const controller = createKioskInactivityController({
+      onTimeout: () => {
+        void handleStationCompletion()
+      },
+    })
+    const handleActivity = () => controller.arm()
+    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart"]
+
+    controller.arm()
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, handleActivity, { passive: true })
+    }
+
+    return () => {
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, handleActivity)
+      }
+      controller.dispose()
+    }
+  }, [
+    bootstrap,
+    consecutiveError,
+    consecutiveOffer,
+    consecutiveSuccess,
+    existingRegularBookingOverride,
+    handleStationCompletion,
+    hasKioskPinSession,
+    isKioskTerminalFlow,
+    mode,
+    newBookingOverride,
+    openNewBooking,
+    packageCheckInResult,
+    packageOfferContext,
+    pendingLoginPhone,
+    showDuplicatePurchasePopup,
+    showKioskPinPanel,
+    showPhoneSignIn,
+  ])
+
   // ─── Render ─────────────────────────────────────────────────
   const isTerminal = shellVariant === "terminal"
+  const entrySelectionButtons = !hideEntrySelection ? (
+    <EntrySelectionButtons
+      mode={mode}
+      isKioskTerminalFlow={isKioskTerminalFlow}
+      onExisting={handleExistingClick}
+      onNew={handleNewClick}
+      variant={showCourseCardPanel && showQrPanel ? "embedded" : "standalone"}
+    />
+  ) : null
+  const hasEmbeddedEntrySelection = Boolean(entrySelectionButtons && showCourseCardPanel && showQrPanel)
 
   return (
     <main className={`relative ${isTerminal ? "h-dvh" : "min-h-screen"} overflow-hidden bg-[#13141d] px-3 ${mainSpacingClass} sm:px-4`}>
@@ -815,7 +1053,7 @@ export default function CheckInQrClient({
             terminalLocation={terminalLocation}
           />
 
-          <div className={`${isTerminal ? "mt-3 min-h-0 overflow-hidden" : "mt-6"} flex flex-1 flex-col justify-center`}>
+          <div className={`${isTerminal ? "mt-8 min-h-0 overflow-hidden" : "mt-6"} flex flex-1 flex-col justify-center`}>
             {showCourseCardPanel && showQrPanel && (
               <CourseCardPanel
                 cardImage={checkInCardImage}
@@ -830,6 +1068,7 @@ export default function CheckInQrClient({
                 displayTime={checkInDisplayTime}
                 qrImage={checkInQrImage}
                 compact={isTerminal}
+                actionSlot={hasEmbeddedEntrySelection ? entrySelectionButtons : undefined}
               />
             )}
             {showCourseCardPanel && !showQrPanel && (
@@ -847,7 +1086,9 @@ export default function CheckInQrClient({
                 compact={isTerminal}
               />
             )}
-            {showQrPanel && <QrPromptText variant={shellVariant === "terminal" ? "terminal" : "personal"} />}
+            {showQrPanel && !hasEmbeddedEntrySelection && (
+              <QrPromptText variant={shellVariant === "terminal" ? "terminal" : "personal"} />
+            )}
 
             {showContextWarning && <ContextWarning />}
 
@@ -862,14 +1103,7 @@ export default function CheckInQrClient({
               />
             )}
 
-            {!hideEntrySelection && (
-              <EntrySelectionButtons
-                mode={mode}
-                isKioskTerminalFlow={isKioskTerminalFlow}
-                onExisting={handleExistingClick}
-                onNew={handleNewClick}
-              />
-            )}
+            {!hasEmbeddedEntrySelection && entrySelectionButtons}
 
             {showKioskPinPanel && (
               <KioskPinModal
@@ -882,7 +1116,12 @@ export default function CheckInQrClient({
                 entryActiveSlot={entryActiveSlot}
                 isEntryActive={activePinField === "entry"}
                 attemptsRemaining={kioskPinAttemptsRemaining}
-                blockedUntilLabel={kioskPinBlockedUntil ? `This terminal is temporarily blocked until ${toEsDateTime(kioskPinBlockedUntil)}.` : null}
+                throttleSeverity={kioskPinThrottleSeverity}
+                blockedUntilLabel={kioskPinBlockedUntil
+                  ? kioskPinThrottleSeverity === "emergency"
+                    ? `This terminal is temporarily protected until ${toEsDateTime(kioskPinBlockedUntil)}.`
+                    : `Please wait until ${toEsDateTime(kioskPinBlockedUntil)} before trying this PIN again.`
+                  : null}
                 onIdentify={handleKioskPinIdentify}
                 canIdentify={canIdentify}
                 isIdentifying={kioskPinLoading}
@@ -995,6 +1234,32 @@ export default function CheckInQrClient({
         />
       )}
 
+      {/* ─── Consecutive offer flow ──────────────────────────── */}
+      {consecutiveOffer && !consecutiveSuccess && !consecutiveError && (
+        <ConsecutiveClassOffer
+          offer={consecutiveOffer}
+          isPackageHolder={Boolean(bootstrap?.package)}
+          onAccept={handleConsecutiveAccept}
+          onDecline={handleConsecutiveDecline}
+          isProcessing={consecutiveProcessing}
+        />
+      )}
+
+      {consecutiveSuccess && (
+        <ConsecutiveOfferSuccess
+          courseTitle={consecutiveSuccess.courseTitle}
+          onDone={handleConsecutiveSuccessDone}
+        />
+      )}
+
+      {consecutiveError && consecutiveOffer && (
+        <ConsecutiveOfferError
+          error={consecutiveError}
+          onRetry={handleConsecutiveRetry}
+          onDismiss={handleConsecutiveErrorDismiss}
+        />
+      )}
+
       {showPhoneSignIn && !hasActiveClerkSession && (
         <PhoneSignInModal
           redirectUrl={forceRedirectUrl}
@@ -1039,7 +1304,8 @@ export default function CheckInQrClient({
           prefillHasAvatar={bootstrap?.customer.hasAvatar}
           useDraft={false}
           mode="modal"
-          onCompletedAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
+          onCompletedAction={isKioskTerminalFlow ? () => void checkConsecutiveOfferAfterCheckIn() : undefined}
+          onTimeoutAction={isKioskTerminalFlow ? handleStationCompletion : undefined}
           prefillContact={bootstrapContact || undefined}
         />
       )}

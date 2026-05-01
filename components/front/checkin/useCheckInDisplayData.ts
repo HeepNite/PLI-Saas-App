@@ -26,6 +26,7 @@ type UseCheckInDisplayDataArgs = {
   searchParams: URLSearchParams
   forcedDeviceMode?: "station" | "personal"
   forcedCourseSlug: string
+  selectedCourseSlug?: string
   nowTick: Date
   origin: string
   isCompactViewport: boolean
@@ -53,6 +54,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     searchParams,
     forcedDeviceMode,
     forcedCourseSlug,
+    selectedCourseSlug,
     nowTick,
     origin,
     isCompactViewport,
@@ -76,8 +78,9 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   const qrTime = (searchParams.get("time") || "").trim()
   const qrView = (searchParams.get("fromQr") || searchParams.get("scan") || "").trim().toLowerCase()
   const deviceMode = (searchParams.get("device") || searchParams.get("terminal") || "").trim().toLowerCase()
-  const preferredCourseSlug = forcedCourseSlug.trim().toLowerCase()
-  const baseCourseSlug = qrCourseSlug || preferredCourseSlug
+  // Terminal multi-class picker takes precedence over forcedCourseSlug
+  const effectivePreferredSlug = selectedCourseSlug?.trim().toLowerCase() || forcedCourseSlug.trim().toLowerCase()
+  const baseCourseSlug = qrCourseSlug || effectivePreferredSlug
   const hasExplicitContext = Boolean(qrCourseSlug && qrDate && qrTime)
 
   // ─── Recommendations ────────────────────────────────────────
@@ -101,9 +104,9 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
       hasExplicitContext
         ? { courseSlug: qrCourseSlug, date: qrDate, time: qrTime }
         : shellVariant === "terminal"
-          ? pickTerminalContextRecommendation(sourceCourses, nowTick, preferredCourseSlug)
+          ? pickTerminalContextRecommendation(sourceCourses, nowTick, effectivePreferredSlug)
         : null,
-    [hasExplicitContext, nowTick, preferredCourseSlug, qrCourseSlug, qrDate, qrTime, shellVariant, sourceCourses]
+    [hasExplicitContext, nowTick, effectivePreferredSlug, qrCourseSlug, qrDate, qrTime, shellVariant, sourceCourses]
   )
 
   const activeCourseSlug = fixedContextRecommendation?.courseSlug || baseCourseSlug
@@ -183,7 +186,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   const checkInCardStudents =
     (typeof currentHomeCourse?.students === "string" && currentHomeCourse.students) ||
     (typeof currentHomeCourse?.students === "number" ? `${currentHomeCourse.students}` : "") ||
-    "Groups reducidos"
+    "Open level"
   const checkInCardBadge = currentHomeCourse?.badge || "Check-in presencial"
   const checkInCardCategory = currentHomeCourse?.category || toCategoryLabel(checkInDisplayCourse?.slug || activeCourseSlug)
   const checkInCardDescription =
