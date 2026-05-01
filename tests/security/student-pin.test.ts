@@ -275,7 +275,7 @@ describe("student PIN helpers", () => {
     })
   })
 
-  it("tracks terminal miss counters and blocks on the fifth unresolved miss", async () => {
+  it("tracks terminal miss counters and starts a short cooldown on the fifth unresolved miss", async () => {
     const now = new Date("2026-03-26T12:00:00.000Z")
     mockPrisma.kioskTerminalMissCounter.findUnique.mockResolvedValue({
       id: "counter_1",
@@ -285,7 +285,7 @@ describe("student PIN helpers", () => {
       blockedUntil: null,
     })
     mockPrisma.kioskTerminalMissCounter.update.mockResolvedValue({
-      blockedUntil: new Date("2026-03-26T12:05:00.000Z"),
+      blockedUntil: new Date("2026-03-26T12:01:00.000Z"),
       missCount: 5,
     })
 
@@ -293,18 +293,20 @@ describe("student PIN helpers", () => {
 
     expect(result).toEqual({
       blocked: true,
-      blockedUntil: new Date("2026-03-26T12:05:00.000Z"),
+      terminalBlocked: false,
+      cooldownActive: true,
+      blockedUntil: new Date("2026-03-26T12:01:00.000Z"),
       attemptsRemaining: 0,
       missCount: 5,
     })
     expect(mockPrisma.kioskTerminalMissCounter.update).toHaveBeenCalledWith({
       where: { terminalId: "terminal_1" },
-      data: {
-        missCount: 5,
-        windowStart: new Date("2026-03-26T11:55:00.000Z"),
-        blockedUntil: new Date("2026-03-26T12:05:00.000Z"),
-      },
-    })
+        data: {
+          missCount: 5,
+          windowStart: new Date("2026-03-26T11:55:00.000Z"),
+          blockedUntil: new Date("2026-03-26T12:01:00.000Z"),
+        },
+      })
   })
 
   it("reports a terminal as unblocked once the miss window has expired", async () => {
@@ -323,6 +325,8 @@ describe("student PIN helpers", () => {
 
     expect(result).toEqual({
       blocked: false,
+      terminalBlocked: false,
+      cooldownActive: false,
       blockedUntil: null,
       attemptsRemaining: 5,
       missCount: 0,
@@ -402,7 +406,7 @@ describe("student PIN helpers", () => {
       isProvisionalStudentPinActive({
         kind: "provisional",
         status: "consumed",
-        expiresAt: new Date("2026-03-27T23:59:59.999Z"),
+        expiresAt: new Date("2027-03-27T23:59:59.999Z"),
       })
     ).toBe(false)
 
@@ -410,7 +414,7 @@ describe("student PIN helpers", () => {
       isProvisionalStudentPinActive({
         kind: "provisional",
         status: "rotation_required",
-        expiresAt: new Date("2026-03-27T23:59:59.999Z"),
+        expiresAt: new Date("2027-03-27T23:59:59.999Z"),
       })
     ).toBe(true)
   })

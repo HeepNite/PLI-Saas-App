@@ -99,6 +99,8 @@ describe("checkin PIN identify route", () => {
     mockCreateStudentPinLookupDigest.mockReturnValue("digest_1234")
     mockIsTerminalBlocked.mockResolvedValue({
       blocked: false,
+      terminalBlocked: false,
+      cooldownActive: false,
       blockedUntil: null,
       attemptsRemaining: 5,
       missCount: 0,
@@ -107,6 +109,8 @@ describe("checkin PIN identify route", () => {
     mockVerifyStudentPinHash.mockResolvedValue(true)
     mockRecordTerminalMiss.mockResolvedValue({
       blocked: false,
+      terminalBlocked: false,
+      cooldownActive: false,
       blockedUntil: null,
       attemptsRemaining: 4,
       missCount: 1,
@@ -132,12 +136,14 @@ describe("checkin PIN identify route", () => {
     })
   })
 
-  it("returns a blocked response before lookup when the terminal is throttled", async () => {
+  it("returns an emergency response before lookup when the terminal is hard-blocked", async () => {
     mockIsTerminalBlocked.mockResolvedValue({
       blocked: true,
-      blockedUntil: new Date("2026-03-26T12:05:00.000Z"),
+      terminalBlocked: true,
+      cooldownActive: false,
+      blockedUntil: new Date("2026-05-26T12:05:00.000Z"),
       attemptsRemaining: 0,
-      missCount: 5,
+      missCount: 10,
     })
 
     const { POST } = await import("@/app/api/checkin/pin/identify/route")
@@ -153,10 +159,42 @@ describe("checkin PIN identify route", () => {
     await expect(res.json()).resolves.toEqual({
       identified: false,
       terminalBlocked: true,
-      blockedUntil: "2026-03-26T12:05:00.000Z",
+      blockedUntil: "2026-05-26T12:05:00.000Z",
       attemptsRemaining: 0,
+      severity: "emergency",
+      message: "This terminal is temporarily protected due to repeated PIN failures. Please contact the front desk.",
     })
     expect(mockLookupActiveCredentialByDigest).not.toHaveBeenCalled()
+  })
+
+  it("returns a cooldown response before lookup when the terminal needs a short pause", async () => {
+    mockIsTerminalBlocked.mockResolvedValue({
+      blocked: true,
+      terminalBlocked: false,
+      cooldownActive: true,
+      blockedUntil: new Date("2026-05-26T12:01:00.000Z"),
+      attemptsRemaining: 0,
+      missCount: 5,
+    })
+
+    const { POST } = await import("@/app/api/checkin/pin/identify/route")
+    const res = await POST(
+      new Request("http://localhost/api/checkin/pin/identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: "1234" }),
+      })
+    )
+
+    expect(res.status).toBe(423)
+    await expect(res.json()).resolves.toEqual({
+      identified: false,
+      terminalBlocked: false,
+      blockedUntil: "2026-05-26T12:01:00.000Z",
+      attemptsRemaining: 0,
+      severity: "cooldown",
+      message: "Too many failed attempts on this terminal. Please wait a minute or ask the front desk for help.",
+    })
   })
 
   it("records a terminal miss when no active credential matches the PIN digest", async () => {
@@ -175,6 +213,8 @@ describe("checkin PIN identify route", () => {
       terminalBlocked: false,
       blockedUntil: null,
       attemptsRemaining: 4,
+      severity: "normal",
+      message: "We couldn't verify that PIN. Please try again.",
     })
     expect(mockCreateStudentPinLookupDigest).toHaveBeenCalledWith("1234")
     expect(mockLookupActiveCredentialByDigest).toHaveBeenCalledWith(mockPrisma, "digest_1234")
@@ -207,6 +247,8 @@ describe("checkin PIN identify route", () => {
       terminalBlocked: false,
       blockedUntil: null,
       attemptsRemaining: 4,
+      severity: "normal",
+      message: "We couldn't verify that PIN. Please try again.",
     })
     expect(mockVerifyStudentPinHash).toHaveBeenCalledWith("1234", {
       pinHash: "hash",
@@ -280,6 +322,8 @@ describe("checkin PIN identify route", () => {
     })
     mockRecordTerminalMiss.mockResolvedValue({
       blocked: false,
+      terminalBlocked: false,
+      cooldownActive: false,
       blockedUntil: null,
       attemptsRemaining: 4,
       missCount: 1,
@@ -300,6 +344,8 @@ describe("checkin PIN identify route", () => {
       terminalBlocked: false,
       blockedUntil: null,
       attemptsRemaining: 4,
+      severity: "normal",
+      message: "We couldn't verify that PIN. Please try again.",
     })
     expect(mockSyncStudentPinLifecycleForCredential).toHaveBeenCalledWith(
       mockPrisma,

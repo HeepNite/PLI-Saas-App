@@ -2,6 +2,15 @@ import { createHmac } from "crypto"
 import argon2 from "argon2"
 import { Prisma, type StudentPinCredential } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import {
+  getTerminalAttemptsRemaining,
+  resolveKioskPinThrottleSeverity,
+  resolveTerminalMissWindowActive,
+  STUDENT_PIN_TERMINAL_BLOCK_MS,
+  STUDENT_PIN_TERMINAL_COOLDOWN_MS,
+  STUDENT_PIN_TERMINAL_COOLDOWN_THRESHOLD,
+  STUDENT_PIN_TERMINAL_EMERGENCY_BLOCK_THRESHOLD,
+} from "@/lib/security/kiosk-pin-throttle"
 import { STUDENT_PIN_AUDIT_ACTIONS, writeStudentPinAudit } from "@/lib/security/student-pin-audit"
 
 export const STUDENT_PIN_KINDS = ["permanent", "provisional"] as const
@@ -19,8 +28,6 @@ export const STUDENT_PIN_STATUS = [
 export type StudentPinStatusValue = (typeof STUDENT_PIN_STATUS)[number]
 
 export const STUDENT_PIN_MAX_FAILED_ATTEMPTS = 5
-export const STUDENT_PIN_TERMINAL_MISS_WINDOW_MS = 10 * 60 * 1000
-export const STUDENT_PIN_TERMINAL_BLOCK_MS = 5 * 60 * 1000
 export const STUDENT_PIN_OBSOLETE_AFTER_MONTHS = 6
 
 const STUDENT_PIN_ACTIVE_LOOKUP_STATUSES = ["active", "rotation_required"] as const
@@ -58,6 +65,8 @@ export type StudentPinSummary = {
 
 export type StudentPinTerminalThrottleState = {
   blocked: boolean
+  terminalBlocked: boolean
+  cooldownActive: boolean
   blockedUntil: Date | null
   attemptsRemaining: number
   missCount: number
@@ -389,20 +398,25 @@ export const isTerminalBlocked = async (
   if (!counter) {
     return {
       blocked: false,
+      terminalBlocked: false,
+      cooldownActive: false,
       blockedUntil: null,
-      attemptsRemaining: STUDENT_PIN_MAX_FAILED_ATTEMPTS,
+      attemptsRemaining: getTerminalAttemptsRemaining(0),
       missCount: 0,
     }
   }
 
   const blocked = Boolean(counter.blockedUntil && counter.blockedUntil > now)
-  const withinWindow = counter.windowStart > new Date(now.getTime() - STUDENT_PIN_TERMINAL_MISS_WINDOW_MS)
+  const withinWindow = resolveTerminalMissWindowActive(counter.windowStart, now)
   const missCount = withinWindow ? counter.missCount : 0
+  const severity = resolveKioskPinThrottleSeverity({ missCount, blockedUntil: blocked ? counter.blockedUntil : null, now })
 
   return {
-    blocked,
+    blocked: severity === "cooldown" || severity === "emergency",
+    terminalBlocked: severity === "emergency",
+    cooldownActive: severity === "cooldown",
     blockedUntil: blocked ? counter.blockedUntil : null,
-    attemptsRemaining: blocked ? 0 : Math.max(0, STUDENT_PIN_MAX_FAILED_ATTEMPTS - missCount),
+    attemptsRemaining: blocked ? 0 : getTerminalAttemptsRemaining(missCount),
     missCount,
   }
 }
@@ -421,18 +435,22 @@ export const recordTerminalMiss = async (tx: StudentPinDbClient, terminalId: str
   if (existing?.blockedUntil && existing.blockedUntil > now) {
     return {
       blocked: true,
+      terminalBlocked: existing.missCount >= STUDENT_PIN_TERMINAL_EMERGENCY_BLOCK_THRESHOLD,
+      cooldownActive: existing.missCount >= STUDENT_PIN_TERMINAL_COOLDOWN_THRESHOLD,
       blockedUntil: existing.blockedUntil,
       attemptsRemaining: 0,
       missCount: existing.missCount,
     }
   }
 
-  const withinWindow = existing
-    ? existing.windowStart > new Date(now.getTime() - STUDENT_PIN_TERMINAL_MISS_WINDOW_MS)
-    : false
+  const withinWindow = existing ? resolveTerminalMissWindowActive(existing.windowStart, now) : false
   const nextMissCount = existing && withinWindow ? existing.missCount + 1 : 1
   const blockedUntil =
-    nextMissCount >= STUDENT_PIN_MAX_FAILED_ATTEMPTS ? new Date(now.getTime() + STUDENT_PIN_TERMINAL_BLOCK_MS) : null
+    nextMissCount >= STUDENT_PIN_TERMINAL_EMERGENCY_BLOCK_THRESHOLD
+      ? new Date(now.getTime() + STUDENT_PIN_TERMINAL_BLOCK_MS)
+      : nextMissCount >= STUDENT_PIN_TERMINAL_COOLDOWN_THRESHOLD
+        ? new Date(now.getTime() + STUDENT_PIN_TERMINAL_COOLDOWN_MS)
+        : null
 
   const counter = existing
     ? await tx.kioskTerminalMissCounter.update({
@@ -454,11 +472,15 @@ export const recordTerminalMiss = async (tx: StudentPinDbClient, terminalId: str
 
   return {
     blocked: Boolean(counter.blockedUntil && counter.blockedUntil > now),
+    terminalBlocked: nextMissCount >= STUDENT_PIN_TERMINAL_EMERGENCY_BLOCK_THRESHOLD,
+    cooldownActive:
+      nextMissCount >= STUDENT_PIN_TERMINAL_COOLDOWN_THRESHOLD &&
+      nextMissCount < STUDENT_PIN_TERMINAL_EMERGENCY_BLOCK_THRESHOLD,
     blockedUntil: counter.blockedUntil,
     attemptsRemaining:
       counter.blockedUntil && counter.blockedUntil > now
         ? 0
-        : Math.max(0, STUDENT_PIN_MAX_FAILED_ATTEMPTS - counter.missCount),
+        : getTerminalAttemptsRemaining(counter.missCount),
     missCount: counter.missCount,
   }
 }

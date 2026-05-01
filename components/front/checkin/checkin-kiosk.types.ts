@@ -21,6 +21,7 @@ export type KioskPinIdentifyFailure = {
   terminalBlocked?: boolean
   blockedUntil?: string | null
   attemptsRemaining?: number
+  severity?: "normal" | "warning" | "cooldown" | "emergency"
   requiresPinRegeneration?: boolean
   reason?: string
   message?: string
@@ -31,5 +32,6 @@ export type KioskPinIdentifyError = {
   message?: string
   blockedUntil?: string | null
   attemptsRemaining?: number
+  severity?: "normal" | "warning" | "cooldown" | "emergency"
   requiresPinRegeneration?: boolean
 }

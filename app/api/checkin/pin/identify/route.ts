@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { createKioskIdentificationSession } from "@/lib/checkin/kiosk-session"
+import { getKioskPinThrottleMessage, resolveKioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 import {
   createStudentPinLookupDigest,
   clearTerminalMisses,
@@ -59,14 +60,20 @@ export async function POST(req: Request) {
 
   const terminalState = await isTerminalBlocked(prisma, terminalAuth.terminal.id)
   if (terminalState.blocked) {
+    const severity = resolveKioskPinThrottleSeverity({
+      missCount: terminalState.missCount,
+      blockedUntil: terminalState.blockedUntil,
+    })
     return NextResponse.json(
       {
         identified: false,
-        terminalBlocked: true,
+        terminalBlocked: terminalState.terminalBlocked,
         blockedUntil: terminalState.blockedUntil?.toISOString() || null,
         attemptsRemaining: terminalState.attemptsRemaining,
+        severity,
+        message: getKioskPinThrottleMessage(severity),
       },
-      { status: 429 }
+      { status: terminalState.terminalBlocked ? 429 : 423 }
     )
   }
 
@@ -82,14 +89,17 @@ export async function POST(req: Request) {
     }))
   ) {
     const miss = await recordTerminalMiss(prisma, terminalAuth.terminal.id, now)
+    const severity = resolveKioskPinThrottleSeverity({ missCount: miss.missCount, blockedUntil: miss.blockedUntil, now })
     return NextResponse.json(
       {
         identified: false,
-        terminalBlocked: miss.blocked,
+        terminalBlocked: miss.terminalBlocked,
         blockedUntil: miss.blockedUntil?.toISOString() || null,
         attemptsRemaining: miss.attemptsRemaining,
+        severity,
+        message: getKioskPinThrottleMessage(severity),
       },
-      { status: miss.blocked ? 429 : 401 }
+      { status: miss.terminalBlocked ? 429 : miss.cooldownActive ? 423 : 401 }
     )
   }
 
@@ -103,14 +113,17 @@ export async function POST(req: Request) {
     })
 
     const miss = await recordTerminalMiss(prisma, terminalAuth.terminal.id, now)
+    const severity = resolveKioskPinThrottleSeverity({ missCount: miss.missCount, blockedUntil: miss.blockedUntil, now })
     return NextResponse.json(
       {
         identified: false,
-        terminalBlocked: miss.blocked,
+        terminalBlocked: miss.terminalBlocked,
         blockedUntil: miss.blockedUntil?.toISOString() || null,
         attemptsRemaining: miss.attemptsRemaining,
+        severity,
+        message: getKioskPinThrottleMessage(severity),
       },
-      { status: miss.blocked ? 429 : 401 }
+      { status: miss.terminalBlocked ? 429 : miss.cooldownActive ? 423 : 401 }
     )
   }
 

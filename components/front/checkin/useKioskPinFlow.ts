@@ -8,6 +8,7 @@ import type {
   KioskPinIdentifySuccess,
   KioskPinRotationMode,
 } from "@/components/front/checkin/checkin-kiosk.types"
+import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 import {
   getActivePinSlotIndex,
   getKioskPinIdentifySuccessMessage,
@@ -43,6 +44,7 @@ export const useKioskPinFlow = <TBootstrap,>({
   const [kioskPinRotating, setKioskPinRotating] = React.useState(false)
   const [kioskPinAttemptsRemaining, setKioskPinAttemptsRemaining] = React.useState<number | null>(null)
   const [kioskPinBlockedUntil, setKioskPinBlockedUntil] = React.useState<string | null>(null)
+  const [kioskPinThrottleSeverity, setKioskPinThrottleSeverity] = React.useState<KioskPinThrottleSeverity | null>(null)
   const [pinReveal, setPinReveal] = React.useState<null | { field: KioskPinField; index: number }>(null)
   const pinRevealTimeoutRef = React.useRef<number | null>(null)
 
@@ -102,6 +104,7 @@ export const useKioskPinFlow = <TBootstrap,>({
     setKioskPinRotating(false)
     setKioskPinAttemptsRemaining(null)
     setKioskPinBlockedUntil(null)
+    setKioskPinThrottleSeverity(null)
   }, [clearPinRevealTimeout])
 
   const handlePinDigitInput = React.useCallback(
@@ -209,19 +212,21 @@ export const useKioskPinFlow = <TBootstrap,>({
         setBootstrap(null)
         setKioskPinAttemptsRemaining(typeof failure?.attemptsRemaining === "number" ? failure.attemptsRemaining : null)
         setKioskPinBlockedUntil(typeof failure?.blockedUntil === "string" ? failure.blockedUntil : null)
+        setKioskPinThrottleSeverity(failure?.severity || errorPayload?.severity || null)
         const failureMessage = typeof failure?.message === "string" ? failure.message : null
         const errorMessage = typeof errorPayload?.message === "string" ? errorPayload.message : null
         if ((failure?.requiresPinRegeneration || errorPayload?.requiresPinRegeneration) && (failureMessage || errorMessage)) {
           setError(failureMessage || errorMessage)
           return
         }
-        setError(typeof errorPayload?.error === "string" ? errorPayload.error : "Unable to identify this student PIN.")
+        setError(failureMessage || errorMessage || (typeof errorPayload?.error === "string" ? errorPayload.error : "Unable to identify this student PIN."))
         return
       }
 
       if (!data || !("identified" in data)) {
         setKioskPinAttemptsRemaining(null)
         setKioskPinBlockedUntil(null)
+        setKioskPinThrottleSeverity(null)
         setError("We couldn't match that PIN. Please try again.")
         return
       }
@@ -229,6 +234,7 @@ export const useKioskPinFlow = <TBootstrap,>({
       if (!data.identified) {
         setKioskPinAttemptsRemaining(typeof data.attemptsRemaining === "number" ? data.attemptsRemaining : null)
         setKioskPinBlockedUntil(typeof data.blockedUntil === "string" ? data.blockedUntil : null)
+        setKioskPinThrottleSeverity(data.severity || null)
         setError(typeof data.message === "string" ? data.message : "We couldn't match that PIN. Please try again.")
         return
       }
@@ -240,6 +246,7 @@ export const useKioskPinFlow = <TBootstrap,>({
       setKioskPinRotationMode(nextRotationMode)
       setKioskPinAttemptsRemaining(null)
       setKioskPinBlockedUntil(null)
+      setKioskPinThrottleSeverity(null)
       setKioskPin("")
 
       setSuccess(
@@ -317,6 +324,7 @@ export const useKioskPinFlow = <TBootstrap,>({
     kioskPin,
     kioskPinAttemptsRemaining,
     kioskPinBlockedUntil,
+    kioskPinThrottleSeverity,
     kioskPinConfirm,
     kioskPinLoading,
     kioskPinNext,
@@ -331,6 +339,7 @@ export const useKioskPinFlow = <TBootstrap,>({
     setKioskPin,
     setKioskPinAttemptsRemaining,
     setKioskPinBlockedUntil,
+    setKioskPinThrottleSeverity,
     setKioskPinConfirm,
     setKioskPinNext,
     setKioskPinRotationMode,

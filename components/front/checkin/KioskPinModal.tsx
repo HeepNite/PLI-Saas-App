@@ -1,4 +1,5 @@
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
+import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 
 export function KioskPinModal({
   title,
@@ -10,6 +11,7 @@ export function KioskPinModal({
   entryActiveSlot,
   isEntryActive,
   attemptsRemaining,
+  throttleSeverity,
   blockedUntilLabel,
   onIdentify,
   canIdentify,
@@ -41,6 +43,7 @@ export function KioskPinModal({
   entryActiveSlot: number
   isEntryActive: boolean
   attemptsRemaining?: number | null
+  throttleSeverity?: KioskPinThrottleSeverity | null
   blockedUntilLabel?: string | null
   onIdentify: () => void
   canIdentify: boolean
@@ -115,7 +118,11 @@ export function KioskPinModal({
                     The highlighted slot shows where the next digit will land.
                   </p>
                   {typeof attemptsRemaining === "number" && attemptsRemaining >= 0 && (
-                    <p className="mt-4 text-xs text-white/58">Attempts remaining on this terminal: {attemptsRemaining}</p>
+                    <p className="mt-4 text-xs text-white/58">
+                      {throttleSeverity === "warning" || throttleSeverity === "cooldown"
+                        ? `Attempts before staff assistance is recommended: ${attemptsRemaining}`
+                        : `Attempts remaining on this terminal: ${attemptsRemaining}`}
+                    </p>
                   )}
                   {blockedUntilLabel && (
                     <p className="mt-2 text-xs text-amber-200/90">{blockedUntilLabel}</p>
