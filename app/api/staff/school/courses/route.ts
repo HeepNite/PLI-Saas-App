@@ -363,3 +363,60 @@ export async function POST(req: Request) {
     return prismaRouteError(error, "Unable to save course.")
   }
 }
+
+export async function DELETE(req: Request) {
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:courses:delete", getClientIp(req)),
+    limit: 30,
+    windowMs: 60_000,
+  })
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+
+  // Only owner can delete courses
+  if (authResult.role !== "owner") {
+    return NextResponse.json({ error: "Only owners can delete courses." }, { status: 403 })
+  }
+
+  let payload: unknown
+  try {
+    payload = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  const body = payload as Record<string, unknown>
+  const slug = typeof body.slug === "string" ? body.slug.trim() : ""
+
+  if (!slug) {
+    return NextResponse.json({ error: "Slug is required." }, { status: 400 })
+  }
+
+  try {
+    // Check if course exists
+    const existing = await prisma.courseCatalog.findUnique({
+      where: { slug },
+      select: { id: true, title: true },
+    })
+
+    if (!existing) {
+      return NextResponse.json({ error: "Course not found." }, { status: 404 })
+    }
+
+    // Delete the course
+    await prisma.courseCatalog.delete({
+      where: { slug },
+    })
+
+    return NextResponse.json({
+      ok: true,
+      message: `Course "${existing.title}" deleted.`,
+    })
+  } catch (error) {
+    return prismaRouteError(error, "Unable to delete course.")
+  }
+}

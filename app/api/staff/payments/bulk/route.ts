@@ -85,6 +85,7 @@ export async function POST(req: Request) {
       courseSlug: true,
       courseTitle: true,
       packageId: true,
+      amount: true,
       status: true,
       createdAt: true,
       metadata: true,
@@ -101,6 +102,22 @@ export async function POST(req: Request) {
   const settledAt = settlementStatus === "paid" ? new Date().toISOString() : null
   const nextCashPurchaseStatus = settlementStatus === "paid" ? "paid" : "pending"
 
+  // When marking as paid, fetch drop-in prices for purchases with amount = 0
+  let courseDropInPrices = new Map<string, number>()
+  if (action === "mark_paid") {
+    const zeroAmountPurchases = purchases.filter((p) => p.amount === 0 && p.courseSlug)
+    const courseSlugs = [...new Set(zeroAmountPurchases.map((p) => p.courseSlug).filter(Boolean))] as string[]
+    if (courseSlugs.length > 0) {
+      const courses = await prisma.course.findMany({
+        where: { slug: { in: courseSlugs } },
+        select: { slug: true, dropInPriceCents: true },
+      })
+      courseDropInPrices = new Map(
+        courses.filter((c) => c.dropInPriceCents !== null).map((c) => [c.slug, c.dropInPriceCents!])
+      )
+    }
+  }
+
   await prisma.$transaction(
     purchases.map((purchase) => {
       const metadata = asObject(purchase.metadata)
@@ -113,6 +130,13 @@ export async function POST(req: Request) {
       const data: Prisma.PurchaseUpdateInput = { metadata: nextMetadata }
       if (isCashPurchase(purchase)) {
         data.status = nextCashPurchaseStatus
+      }
+      // Fix zero-amount purchases when marking as paid
+      if (action === "mark_paid" && purchase.amount === 0 && purchase.courseSlug) {
+        const dropInPrice = courseDropInPrices.get(purchase.courseSlug)
+        if (dropInPrice && dropInPrice > 0) {
+          data.amount = dropInPrice
+        }
       }
       return prisma.purchase.update({
         where: { id: purchase.id },

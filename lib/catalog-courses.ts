@@ -4,6 +4,11 @@ import type { PackagePlan, CourseCatalog } from "@prisma/client"
 import type { CourseData, EnrollmentOption } from "@/constants/courses"
 import { demoCourses } from "@/constants/courses"
 import { homeCourseCategories as staticHomeCourseCategories, homeCourses as staticHomeCourses } from "@/constants/home-content"
+import {
+  isPackagePlanLifecycleValidationError,
+  isPackagePlanPubliclyAvailable,
+  withDerivedPackagePlanLifecycle,
+} from "@/lib/package-plan-lifecycle"
 import { prisma } from "@/lib/prisma"
 import type { HomeCourse } from "@/types/home"
 
@@ -90,18 +95,16 @@ const applyCourseServicePricing = (
   return mapped
 }
 
+const removeStaticPackagesFromCourse = (course: CourseData): CourseData => ({
+  ...course,
+  enrollment: {
+    ...course.enrollment,
+    packages: [],
+  },
+})
+
 const toMapUrl = (address: string, fallback?: string) =>
   fallback || `https://maps.google.com/?q=${encodeURIComponent(address)}`
-
-const isPackagePlanPubliclyAvailable = (plan: PackagePlan, now = new Date()) => {
-  if (!plan.active) return false
-  if (plan.status === "DELETED") return false
-  if (plan.status === "SUSPENDED") return false
-  if (plan.status === "SCHEDULED") {
-    return Boolean(plan.launchAt && plan.launchAt.getTime() <= now.getTime())
-  }
-  return true
-}
 
 const mapPackagePlanToOption = (plan: PackagePlan): EnrollmentOption => ({
   id: plan.key,
@@ -118,7 +121,19 @@ const mapPackagePlanToOption = (plan: PackagePlan): EnrollmentOption => ({
 const getPackageOptionsForCourse = (courseSlug: string, allPlans: PackagePlan[]) => {
   const scoped = allPlans
     .filter((plan) => isPackagePlanPubliclyAvailable(plan))
-    .filter((plan) => !plan.courseSlug || plan.courseSlug === courseSlug)
+    .filter((plan) => {
+      // Task 3.2: Handle both old and new field during transition
+      const courseSlugs = (plan as Record<string, unknown>).courseSlugs
+      const legacySlug = (plan as Record<string, unknown>).courseSlug
+      if (Array.isArray(courseSlugs) && courseSlugs.length > 0) {
+        return courseSlugs.includes(courseSlug)
+      }
+      // Fallback to legacy single courseSlug field
+      if (legacySlug != null) {
+        return legacySlug === courseSlug
+      }
+      return false
+    })
 
   const deduped = new Map<string, EnrollmentOption>()
   for (const plan of scoped) {
@@ -128,6 +143,41 @@ const getPackageOptionsForCourse = (courseSlug: string, allPlans: PackagePlan[])
   }
 
   return [...deduped.values()]
+}
+
+const applyDynamicPackagesToCourse = (course: CourseData, packagePlans: PackagePlan[]): CourseData => ({
+  ...course,
+  enrollment: {
+    ...course.enrollment,
+    packages: getPackageOptionsForCourse(course.slug, packagePlans),
+  },
+})
+
+const findPublicPackagePlans = async (courseSlug?: string): Promise<PackagePlan[]> => {
+  try {
+    const items = await prisma.packagePlan.findMany({
+      where: {
+        active: true,
+        status: { in: ["ACTIVE", "SCHEDULED"] },
+        ...(courseSlug ? { courseSlugs: { has: courseSlug } } : {}),
+      },
+      orderBy: [{ createdAt: "desc" }],
+    })
+
+    return items.map((item) => withDerivedPackagePlanLifecycle(item) as PackagePlan)
+  } catch (error) {
+    if (!isPackagePlanLifecycleValidationError(error)) throw error
+
+    const items = await prisma.packagePlan.findMany({
+      where: {
+        active: true,
+        ...(courseSlug ? { courseSlugs: { has: courseSlug } } : {}),
+      },
+      orderBy: [{ createdAt: "desc" }],
+    })
+
+    return items.map((item) => withDerivedPackagePlanLifecycle(item) as PackagePlan)
+  }
 }
 
 const mapCatalogRowToCourseData = (
@@ -177,7 +227,7 @@ const mapCatalogRowToCourseData = (
     },
     enrollment: {
       services,
-      packages: packageOptions.length > 0 ? packageOptions : base?.enrollment.packages || [],
+      packages: packageOptions,
       addons: base?.enrollment.addons || [],
     },
   }
@@ -218,7 +268,7 @@ const mapCourseToHomeCourse = (course: CourseData, row?: CourseCatalog | null): 
 const loadCatalogRows = async () => {
   const [catalogRows, packagePlans] = await Promise.all([
     prisma.courseCatalog.findMany({ orderBy: [{ createdAt: "desc" }] }),
-    prisma.packagePlan.findMany({ where: { active: true, status: { in: ["ACTIVE", "SCHEDULED"] } }, orderBy: [{ createdAt: "desc" }] }),
+    findPublicPackagePlans(),
   ])
   return { catalogRows, packagePlans }
 }
@@ -227,7 +277,10 @@ const buildCatalogCoursesFromRows = (catalogRows: CourseCatalog[], packagePlans:
   const rowBySlug = new Map(catalogRows.map((row) => [row.slug, row]))
   const activeRows = catalogRows.filter((row) => row.active)
   const dynamicCourses = activeRows.map((row) => mapCatalogRowToCourseData(row, packagePlans))
-  const fallbackStatic = demoCourses.filter((course) => !rowBySlug.has(course.slug))
+  const fallbackStatic = demoCourses
+    .filter((course) => !rowBySlug.has(course.slug))
+    .map(removeStaticPackagesFromCourse)
+    .map((course) => applyDynamicPackagesToCourse(course, packagePlans))
   const courses = [...dynamicCourses, ...fallbackStatic]
 
   return { courses, rowBySlug }
@@ -240,14 +293,7 @@ export const getCatalogCourseBySlug = async (slug: string): Promise<CourseData |
   try {
     const [row, packagePlans] = await Promise.all([
       prisma.courseCatalog.findUnique({ where: { slug: normalized } }),
-      prisma.packagePlan.findMany({
-        where: {
-          active: true,
-          status: { in: ["ACTIVE", "SCHEDULED"] },
-          OR: [{ courseSlug: normalized }, { courseSlug: null }],
-        },
-        orderBy: [{ createdAt: "desc" }],
-      }),
+      findPublicPackagePlans(normalized),
     ])
 
     if (row) {
@@ -255,9 +301,11 @@ export const getCatalogCourseBySlug = async (slug: string): Promise<CourseData |
       return mapCatalogRowToCourseData(row, packagePlans)
     }
 
-    return demoCourses.find((course) => course.slug === normalized) || null
+    const fallbackCourse = demoCourses.find((course) => course.slug === normalized)
+    return fallbackCourse ? applyDynamicPackagesToCourse(removeStaticPackagesFromCourse(fallbackCourse), packagePlans) : null
   } catch {
-    return demoCourses.find((course) => course.slug === normalized) || null
+    const fallbackCourse = demoCourses.find((course) => course.slug === normalized)
+    return fallbackCourse ? removeStaticPackagesFromCourse(fallbackCourse) : null
   }
 }
 
@@ -295,7 +343,7 @@ export const getCatalogFrontData = async (): Promise<{
     }
   } catch {
     return {
-      courses: demoCourses,
+      courses: demoCourses.map(removeStaticPackagesFromCourse),
       homeCourses: staticHomeCourses,
       homeCourseCategories: staticHomeCourseCategories,
     }

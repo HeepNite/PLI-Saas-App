@@ -148,7 +148,7 @@ export async function GET(req: Request) {
       id: pkg.id,
       packageId: pkg.packageId,
       label: pkg.packageLabel || pkg.packagePlan?.label || pkg.packageId,
-      courseSlug: pkg.courseSlug || pkg.packagePlan?.courseSlug || null,
+      courseSlug: pkg.courseSlug || (pkg.packagePlan?.courseSlugs as string[] | undefined)?.[0] || null,
       remainingCredits: pkg.isUnlimited ? null : pkg.remainingCredits,
       totalCredits: pkg.isUnlimited ? null : pkg.totalCredits,
       isUnlimited: pkg.isUnlimited,

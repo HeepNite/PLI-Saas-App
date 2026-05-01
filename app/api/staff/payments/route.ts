@@ -600,7 +600,7 @@ export async function GET(req: Request) {
     userIds.length
       ? prisma.user.findMany({
           where: { id: { in: userIds } },
-          select: { id: true, clerkId: true, name: true },
+          select: { id: true, clerkId: true, name: true, completedClassesOverride: true, packageClassesUsedOverride: true },
         })
       : Promise.resolve([]),
     loadStudentPinCredentials(userIds),
@@ -692,6 +692,14 @@ export async function GET(req: Request) {
   const completedClassesByUser = new Map<string, number>()
   for (const row of completedAttendances) {
     completedClassesByUser.set(row.userId, row._count._all)
+  }
+
+  // Build override maps from user data
+  const completedOverrideByUser = new Map<string, number | null>()
+  const packageUsedOverrideByUser = new Map<string, number | null>()
+  for (const u of purchaseUsers) {
+    completedOverrideByUser.set(u.id, u.completedClassesOverride ?? null)
+    packageUsedOverrideByUser.set(u.id, u.packageClassesUsedOverride ?? null)
   }
 
   const selectedActivePackages = selectActivePackagesByUser(activePackages)
@@ -848,6 +856,21 @@ export async function GET(req: Request) {
             nameByClerkId.set(user.id, displayName)
           }
         }
+        const missingClerkIds = clerkIds.filter((clerkId) => !imageByClerkId.has(clerkId) && !nameByClerkId.has(clerkId))
+        for (const clerkId of missingClerkIds) {
+          try {
+            const user = await client.users.getUser(clerkId)
+            if (user.imageUrl) {
+              imageByClerkId.set(user.id, user.imageUrl)
+            }
+            const displayName = buildClerkDisplayName(user.firstName, user.lastName)
+            if (displayName) {
+              nameByClerkId.set(user.id, displayName)
+            }
+          } catch {
+            // Keep this payment row usable even if an individual Clerk lookup fails.
+          }
+        }
         for (const row of batch) {
           const imageUrl = imageByClerkId.get(row.clerkId)
           if (imageUrl) {
@@ -936,12 +959,14 @@ export async function GET(req: Request) {
       resolvedAttendance?.status === "scheduled"
         ? (resolvedAttendance.status as CheckInStatus)
         : "none"
-    const packageClassesUsedTotal = activePackage
-      ? activePackage.isUnlimited
-        ? activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0
-        : Math.max(0, (activePackage.totalCredits || 0) - (activePackage.remainingCredits || 0))
-      : 0
-    const completedClassesTotal = Math.max(completedClassesByUser.get(item.userId) || 0, packageClassesUsedTotal)
+    const packageClassesUsedTotal = packageUsedOverrideByUser.get(item.userId)
+      ?? (activePackage
+        ? activePackage.isUnlimited
+          ? activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0
+          : Math.max(0, (activePackage.totalCredits || 0) - (activePackage.remainingCredits || 0))
+        : 0)
+    const completedClassesTotal = completedOverrideByUser.get(item.userId)
+      ?? Math.max(completedClassesByUser.get(item.userId) || 0, packageClassesUsedTotal)
 
     return {
       id: purchase.id,

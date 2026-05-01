@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { buildTerminalPinAlert } from "@/lib/security/kiosk-pin-throttle"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { hashStaffTerminalPin, toTerminalSlug, verifyStaffTerminalPin } from "@/lib/security/staff-terminal"
@@ -20,6 +21,11 @@ const serializeTerminal = (terminal: {
   lastUsedAt: Date | null
   createdAt: Date
   updatedAt: Date
+  kioskMissCounter?: {
+    missCount: number
+    windowStart: Date
+    blockedUntil: Date | null
+  } | null
 }) => ({
   id: terminal.id,
   slug: terminal.slug,
@@ -32,6 +38,13 @@ const serializeTerminal = (terminal: {
   lastUsedAt: terminal.lastUsedAt?.toISOString() || null,
   createdAt: terminal.createdAt.toISOString(),
   updatedAt: terminal.updatedAt.toISOString(),
+  pinAlert: terminal.kioskMissCounter
+    ? buildTerminalPinAlert({
+        missCount: terminal.kioskMissCounter.missCount,
+        windowStart: terminal.kioskMissCounter.windowStart,
+        blockedUntil: terminal.kioskMissCounter.blockedUntil,
+      })
+    : null,
 })
 
 const ensureUniqueTerminalPin = async (pin: string, excludedTerminalId = "") => {
@@ -66,6 +79,15 @@ export async function GET(req: Request) {
   }
 
   const items = await prisma.staffTerminal.findMany({
+    include: {
+      kioskMissCounter: {
+        select: {
+          missCount: true,
+          windowStart: true,
+          blockedUntil: true,
+        },
+      },
+    },
     orderBy: [{ createdAt: "desc" }],
   })
 

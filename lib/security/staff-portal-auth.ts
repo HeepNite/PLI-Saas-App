@@ -19,11 +19,11 @@ import {
 import { prisma } from "@/lib/prisma"
 
 export type StaffPortalAuthResult =
-  | { ok: true; userId: string; role: StaffRole; category: StaffCategory | null }
+  | { ok: true; userId: string; role: StaffRole; category: StaffCategory | null; staffName: string | null }
   | { ok: false; status: number; error: string }
 
 export type StaffPortalBaseAuthResult =
-  | { ok: true; userId: string; role: StaffRole | null; category: StaffCategory | null }
+  | { ok: true; userId: string; role: StaffRole | null; category: StaffCategory | null; staffName: string | null }
   | { ok: false; status: number; error: string }
 
 const STAFF_SCAN_PAGE_SIZE = 100
@@ -110,11 +110,15 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
     return { ok: false, status: 401, error: "Staff session expired" }
   }
 
+  // Build staff display name from Clerk user data
+  const staffName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.emailAddresses?.[0]?.emailAddress || null
+
   return {
     ok: true,
     userId: authResult.userId,
     role: metadataRole,
     category: metadataCategory,
+    staffName,
   }
 }
 
@@ -124,7 +128,7 @@ export const authorizeStaffPortalRequest = async (): Promise<StaffPortalAuthResu
   if (!canManageStaffPortal(authResult.role, authResult.category)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
-  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category }
+  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, staffName: authResult.staffName }
 }
 
 export const authorizeStaffPortalSectionRequest = async (
@@ -138,7 +142,7 @@ export const authorizeStaffPortalSectionRequest = async (
   if (!canAccessStaffPortalSection(authResult.role, authResult.category, section)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
-  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
 }
 
 export const authorizeOwnerRequest = async (): Promise<StaffPortalAuthResult> => {
@@ -148,7 +152,21 @@ export const authorizeOwnerRequest = async (): Promise<StaffPortalAuthResult> =>
     return { ok: false, status: 403, error: "Owner role required" }
   }
 
-  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
+}
+
+/**
+ * Authorize requests that require owner OR admin role.
+ * Uses `isStaffAdminRole()` internally to allow both owner and admin.
+ */
+export const authorizeOwnerOrAdminRequest = async (): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!isStaffAdminRole(authResult.role)) {
+    return { ok: false, status: 403, error: "Owner or Admin role required" }
+  }
+
+  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, staffName: authResult.staffName }
 }
 
 export const authorizeStaffPermissionRequest = async (permission: StaffPermission): Promise<StaffPortalAuthResult> => {
@@ -157,5 +175,5 @@ export const authorizeStaffPermissionRequest = async (permission: StaffPermissio
   if (!authResult.role || !hasExplicitStaffPermission(authResult.role, authResult.category, permission)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
-  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
 }

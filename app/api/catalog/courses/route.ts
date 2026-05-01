@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { getCatalogFrontData } from "@/lib/catalog-courses"
 
 export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 export async function GET() {
   try {

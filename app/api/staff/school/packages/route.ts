@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
+import {
+  getEffectivePackagePlanStatus,
+  isPackagePlanLifecycleValidationError,
+  normalizePackagePlanStatus,
+  omitPackagePlanLifecycleFields,
+  withDerivedPackagePlanLifecycle,
+} from "@/lib/package-plan-lifecycle"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { prisma } from "@/lib/prisma"
@@ -54,13 +61,17 @@ const toOptionalPriceCents = (value: unknown) => {
   return { ok: true as const, value: cents }
 }
 
-const PACKAGE_PLAN_STATUSES = ["ACTIVE", "SUSPENDED", "SCHEDULED", "DELETED"] as const
-type PackagePlanStatus = (typeof PACKAGE_PLAN_STATUSES)[number]
-
-const normalizePackagePlanStatus = (value: unknown): PackagePlanStatus | null => {
-  if (typeof value !== "string") return null
-  const normalized = value.trim().toUpperCase()
-  return PACKAGE_PLAN_STATUSES.includes(normalized as PackagePlanStatus) ? (normalized as PackagePlanStatus) : null
+const toSlugsArray = (value: unknown, max = 80): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => toSlug(item, max))
+      .filter((s): s is string => s.length > 0)
+  }
+  if (typeof value === "string") {
+    const slug = toSlug(value, max)
+    return slug ? [slug] : []
+  }
+  return []
 }
 
 const toOptionalDate = (value: unknown) => {
@@ -99,18 +110,34 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url)
     const activeFilter = searchParams.get("active")
     const statusFilter = normalizePackagePlanStatus(searchParams.get("status"))
-    const items = await prisma.packagePlan.findMany({
-      ...((activeFilter === "true" || activeFilter === "false") || statusFilter
-        ? {
-            where: {
-              ...(activeFilter === "true" || activeFilter === "false" ? { active: activeFilter === "true" } : {}),
-              ...(statusFilter ? { status: statusFilter } : {}),
-            },
-          }
-        : {}),
-      orderBy: [{ createdAt: "desc" }],
-    })
-    return NextResponse.json({ items })
+    const where = {
+      ...(activeFilter === "true" || activeFilter === "false" ? { active: activeFilter === "true" } : {}),
+      ...(statusFilter ? { status: statusFilter } : {}),
+    }
+
+    try {
+      const items = await prisma.packagePlan.findMany({
+        ...(Object.keys(where).length ? { where } : {}),
+        orderBy: [{ createdAt: "desc" }],
+      })
+
+      return NextResponse.json({ items: items.map(withDerivedPackagePlanLifecycle) })
+    } catch (error) {
+      if (!isPackagePlanLifecycleValidationError(error)) throw error
+
+      const compatWhere = {
+        ...(activeFilter === "true" || activeFilter === "false" ? { active: activeFilter === "true" } : {}),
+        ...(statusFilter === "ACTIVE" ? { active: true } : {}),
+        ...(statusFilter && statusFilter !== "ACTIVE" ? { active: false } : {}),
+      }
+
+      const items = await prisma.packagePlan.findMany({
+        ...(Object.keys(compatWhere).length ? { where: compatWhere } : {}),
+        orderBy: [{ createdAt: "desc" }],
+      })
+
+      return NextResponse.json({ items: items.map(withDerivedPackagePlanLifecycle) })
+    }
   } catch (error) {
     return prismaRouteError(error, "Failed to load package plans.")
   }
@@ -137,8 +164,8 @@ export async function POST(req: Request) {
   }
 
   const body = payload as Record<string, unknown>
+  const packageId = typeof body.id === "string" ? body.id.trim() : ""
   const key = toSlug(body.key, 80)
-  const courseSlug = toSlug(body.courseSlug, 80) || null
   const label = toSafeText(body.label, 120)
   const description = toSafeText(body.description, 300) || null
   const cadence = toSafeText(body.cadence, 80) || null
@@ -151,6 +178,18 @@ export async function POST(req: Request) {
   const launchAt = toOptionalDate(body.launchAt)
   const active = typeof body.active === "boolean" ? body.active : true
   const status = explicitStatus || (active ? "ACTIVE" : "SUSPENDED")
+
+  // Task 2.3: Backward compatibility — accept legacy courseSlug (singular) and convert to array
+  const rawCourseSlugs = body.courseSlugs
+  const rawCourseSlug = body.courseSlug
+  let courseSlugs: string[]
+  if (rawCourseSlugs !== undefined && rawCourseSlugs !== null) {
+    courseSlugs = toSlugsArray(rawCourseSlugs, 80)
+  } else if (rawCourseSlug !== undefined && rawCourseSlug !== null) {
+    courseSlugs = toSlugsArray(rawCourseSlug, 80)
+  } else {
+    courseSlugs = []
+  }
 
   if (!key || key.length < 3) {
     return NextResponse.json({ error: "Package key is required (min 3 chars)." }, { status: 400 })
@@ -167,43 +206,67 @@ export async function POST(req: Request) {
 
   const persistedActive = status === "ACTIVE"
 
+  const writeData = {
+    key,
+    courseSlugs,
+    label,
+    description,
+    cadence,
+    status,
+    launchAt: status === "SCHEDULED" ? launchAt : null,
+    totalCredits: isUnlimited ? null : totalCredits,
+    makeUps,
+    validDays,
+    priceCents: parsedPriceCents.value,
+    isUnlimited,
+    active: persistedActive,
+  }
+
   try {
-    const item = await prisma.packagePlan.upsert({
-      where: { key },
-      create: {
-        key,
-        courseSlug,
-        label,
-        description,
-        cadence,
-        status,
-        launchAt: status === "SCHEDULED" ? launchAt : null,
-        totalCredits: isUnlimited ? null : totalCredits,
-        makeUps,
-        validDays,
-        priceCents: parsedPriceCents.value,
-        isUnlimited,
-        active: persistedActive,
-      },
-      update: {
-        courseSlug,
-        label,
-        description,
-        cadence,
-        status,
-        launchAt: status === "SCHEDULED" ? launchAt : null,
-        totalCredits: isUnlimited ? null : totalCredits,
-        makeUps,
-        validDays,
-        priceCents: parsedPriceCents.value,
-        isUnlimited,
-        active: persistedActive,
-      },
-    })
+    let item: {
+      id?: string
+      active?: boolean | null
+      launchAt?: Date | null
+      status?: string | null
+    } & Record<string, unknown>
+    try {
+      if (packageId) {
+        item = await prisma.packagePlan.update({
+          where: { id: packageId },
+          data: writeData,
+        })
+      } else {
+        item = await prisma.packagePlan.upsert({
+          where: { key },
+          create: writeData,
+          update: writeData,
+        })
+      }
+    } catch (error) {
+      if (!isPackagePlanLifecycleValidationError(error)) throw error
+
+      if (packageId) {
+        item = await prisma.packagePlan.update({
+          where: { id: packageId },
+          data: omitPackagePlanLifecycleFields(writeData),
+        })
+      } else {
+        item = await prisma.packagePlan.upsert({
+          where: { key },
+          create: omitPackagePlanLifecycleFields(writeData),
+          update: omitPackagePlanLifecycleFields(writeData),
+        })
+      }
+    }
 
     return NextResponse.json({
       ok: true,
-      item,
+      item: withDerivedPackagePlanLifecycle({
+        ...item,
+        status: getEffectivePackagePlanStatus(item),
+        ...(status !== "ACTIVE" && !("status" in item) ? { status } : {}),
+        ...(status === "SCHEDULED" && !item.launchAt ? { launchAt } : {}),
+      }),
       message: "Package saved.",
     })
   } catch (error) {

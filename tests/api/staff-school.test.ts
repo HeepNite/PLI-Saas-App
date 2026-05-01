@@ -9,6 +9,7 @@ const mockPrisma = {
   packagePlan: {
     findMany: vi.fn(),
     upsert: vi.fn(),
+    update: vi.fn(),
   },
   pointsRule: {
     findMany: vi.fn(),
@@ -44,6 +45,7 @@ describe("staff school routes", () => {
     mockPrisma.courseCatalog.upsert.mockReset()
     mockPrisma.packagePlan.findMany.mockReset()
     mockPrisma.packagePlan.upsert.mockReset()
+    mockPrisma.packagePlan.update.mockReset()
     mockPrisma.pointsRule.findMany.mockReset()
     mockPrisma.pointsRule.upsert.mockReset()
     mockPrisma.room.findUnique.mockReset()
@@ -176,6 +178,42 @@ describe("staff school routes", () => {
     })
   })
 
+  it("POST packages updates an existing package by id so the key can be renamed", async () => {
+    mockPrisma.packagePlan.update = vi.fn().mockResolvedValue({
+      id: "pkg_existing",
+      key: "evening-pro",
+      label: "Evening Pro",
+      courseSlugs: ["salsa-nocturno"],
+    })
+
+    const { POST } = await import("@/app/api/staff/school/packages/route")
+    const req = new Request("http://localhost/api/staff/school/packages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "pkg_existing",
+        key: "evening-pro",
+        courseSlugs: ["salsa-nocturno"],
+        label: "Evening Pro",
+        priceCents: 95,
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.update).toHaveBeenCalledWith({
+      where: { id: "pkg_existing" },
+      data: expect.objectContaining({
+        key: "evening-pro",
+        courseSlugs: ["salsa-nocturno"],
+        label: "Evening Pro",
+        priceCents: 95,
+      }),
+    })
+    expect(mockPrisma.packagePlan.upsert).not.toHaveBeenCalled()
+  })
+
   it("GET packages supports filtering inactive visibility", async () => {
     mockPrisma.packagePlan.findMany.mockResolvedValue([])
 
@@ -271,6 +309,107 @@ describe("staff school routes", () => {
         status: "SCHEDULED",
         active: false,
       }),
+    })
+  })
+
+  it("POST packages falls back to active-only persistence when Prisma runtime rejects lifecycle fields", async () => {
+    const lifecycleValidationError = Object.assign(new Error("Unknown argument `status` in prisma.packagePlan.upsert() invocation"), {
+      name: "PrismaClientValidationError",
+    })
+
+    mockPrisma.packagePlan.upsert
+      .mockRejectedValueOnce(lifecycleValidationError)
+      .mockResolvedValueOnce({
+        id: "pkg_compat",
+        key: "night-flex",
+        label: "Night Flex",
+        active: false,
+      })
+
+    const { POST } = await import("@/app/api/staff/school/packages/route")
+    const req = new Request("http://localhost/api/staff/school/packages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: "night-flex",
+        label: "Night Flex",
+        status: "DELETED",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.upsert).toHaveBeenCalledTimes(2)
+    expect(mockPrisma.packagePlan.upsert.mock.calls[1][0]).toMatchObject({
+      create: expect.not.objectContaining({ status: expect.anything(), launchAt: expect.anything() }),
+      update: expect.not.objectContaining({ status: expect.anything(), launchAt: expect.anything() }),
+    })
+    await expect(res.json()).resolves.toMatchObject({
+      item: expect.objectContaining({
+        key: "night-flex",
+        status: "DELETED",
+        active: false,
+      }),
+    })
+  })
+
+  it("POST packages updates by id even when lifecycle fields are rejected by Prisma runtime", async () => {
+    const lifecycleValidationError = Object.assign(new Error("Unknown argument `status` in prisma.packagePlan.update() invocation"), {
+      name: "PrismaClientValidationError",
+    })
+
+    mockPrisma.packagePlan.update = vi
+      .fn()
+      .mockRejectedValueOnce(lifecycleValidationError)
+      .mockResolvedValueOnce({
+        id: "pkg_existing",
+        key: "evening-pro",
+        label: "Evening Pro",
+        active: false,
+      })
+
+    const { POST } = await import("@/app/api/staff/school/packages/route")
+    const req = new Request("http://localhost/api/staff/school/packages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "pkg_existing",
+        key: "evening-pro",
+        label: "Evening Pro",
+        status: "DELETED",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.update).toHaveBeenCalledTimes(2)
+    expect(mockPrisma.packagePlan.update.mock.calls[1][0]).toMatchObject({
+      where: { id: "pkg_existing" },
+      data: expect.not.objectContaining({ status: expect.anything(), launchAt: expect.anything() }),
+    })
+  })
+
+  it("GET packages falls back to active filter when Prisma runtime rejects status filter", async () => {
+    const lifecycleValidationError = Object.assign(new Error("Unknown argument `status` in prisma.packagePlan.findMany() invocation"), {
+      name: "PrismaClientValidationError",
+    })
+
+    mockPrisma.packagePlan.findMany
+      .mockRejectedValueOnce(lifecycleValidationError)
+      .mockResolvedValueOnce([{ id: "pkg_compat", key: "night-flex", label: "Night Flex", active: false }])
+
+    const { GET } = await import("@/app/api/staff/school/packages/route")
+    const res = await GET(new Request("http://localhost/api/staff/school/packages?status=SUSPENDED"))
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePlan.findMany.mock.calls[1][0]).toEqual({
+      where: { active: false },
+      orderBy: [{ createdAt: "desc" }],
+    })
+    await expect(res.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ key: "night-flex", status: "SUSPENDED", active: false })],
     })
   })
 

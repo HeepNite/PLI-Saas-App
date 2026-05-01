@@ -120,7 +120,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Package not available" }, { status: 404 })
     }
 
-    const courseSlug = packagePurchase.courseSlug || packagePurchase.packagePlan?.courseSlug || ""
+    const courseSlug = packagePurchase.courseSlug || (packagePurchase.packagePlan?.courseSlugs as string[] | undefined)?.[0] || ""
     if (!courseSlug) {
       return NextResponse.json({ error: "This package is not linked to a specific class" }, { status: 400 })
     }
