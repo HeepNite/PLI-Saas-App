@@ -16,6 +16,13 @@ type TerminalRow = {
   lastUsedAt: string | null
   createdAt: string
   updatedAt: string
+  pinAlert?: {
+    severity: "warning" | "cooldown" | "emergency"
+    label: string
+    message: string
+    blockedUntil: string | null
+    missCount: number
+  } | null
 }
 
 type FormState = {
@@ -338,12 +345,18 @@ export default function StaffTerminalSetupClient() {
                       </div>
                       <span
                         className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                          item.active
+                          item.pinAlert?.severity === "emergency"
+                            ? "bg-[var(--brand,#b61616)]/15 text-red-200"
+                            : item.pinAlert?.severity === "cooldown"
+                              ? "bg-amber-500/15 text-amber-200"
+                              : item.pinAlert?.severity === "warning"
+                                ? "bg-yellow-500/15 text-yellow-200"
+                                : item.active
                             ? "bg-emerald-500/15 text-emerald-300"
                             : "bg-white/8 text-white/55"
                         }`}
                       >
-                        {item.active ? "Active" : "Inactive"}
+                        {item.pinAlert?.label || (item.active ? "Active" : "Inactive")}
                       </span>
                     </div>
                     <dl className="mt-3 grid gap-2 text-sm text-white/72">
@@ -363,6 +376,15 @@ export default function StaffTerminalSetupClient() {
                         <dt className="text-white/45">Last used</dt>
                         <dd>{formatDateTime(item.lastUsedAt)}</dd>
                       </div>
+                      {item.pinAlert ? (
+                        <div>
+                          <dt className="text-white/45">PIN activity</dt>
+                          <dd>
+                            {item.pinAlert.message}
+                            {item.pinAlert.blockedUntil ? ` Until ${formatDateTime(item.pinAlert.blockedUntil)}.` : ""}
+                          </dd>
+                        </div>
+                      ) : null}
                     </dl>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button

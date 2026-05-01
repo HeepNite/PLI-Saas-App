@@ -337,7 +337,7 @@ export default function AttendanceHistoryTimeline({
     if (!isOpen || !anchorEl) return
 
     const updatePosition = () => {
-      setPosition(computePopoverPosition(anchorEl))
+      setPosition(computePopoverPosition(anchorEl, 408, 560, 8))
     }
 
     // Initial position
@@ -475,8 +475,9 @@ export default function AttendanceHistoryTimeline({
             ? {
                 top: position.top,
                 left: position.left,
-                width: "420px",
-                maxHeight: "min(520px, calc(100vh - 24px))",
+                width: "min(408px, calc(100vw - 24px))",
+                maxHeight: "calc(100vh - 32px)",
+                height: "min(560px, calc(100vh - 32px))",
               }
             : { visibility: "hidden" }
         }
@@ -488,7 +489,7 @@ export default function AttendanceHistoryTimeline({
           aria-hidden
         />
 
-        <div className="relative rounded-2xl border border-zinc-700/50 bg-gradient-to-br from-zinc-900/95 to-black/95 shadow-2xl shadow-black/50 overflow-hidden h-full flex flex-col">
+        <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-700/70 bg-zinc-950 shadow-2xl shadow-black/65 ring-1 ring-black/60 backdrop-blur-md">
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
             <div className="flex items-center gap-2">
@@ -508,7 +509,7 @@ export default function AttendanceHistoryTimeline({
           </div>
 
           {/* Timeline content */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 no-scrollbar">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 no-scrollbar">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-3" />
