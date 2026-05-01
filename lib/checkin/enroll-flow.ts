@@ -66,3 +66,16 @@ export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) =>
 
 export const getCheckInSignInModalVariant = (isCheckInFlow: boolean) =>
   isCheckInFlow ? "compact" : "sheet"
+
+export const resolvePostPhotoStepIndex = (input: {
+  packagesStepIndex: number
+  paymentsStepIndex: number
+  currentStep: number
+  stepsLength: number
+}) => {
+  if (input.packagesStepIndex >= 0) return input.packagesStepIndex
+  if (input.paymentsStepIndex >= 0) return input.paymentsStepIndex
+
+  const maxStep = Math.max(0, input.stepsLength - 1)
+  return Math.max(0, Math.min(maxStep, input.currentStep + 1))
+}

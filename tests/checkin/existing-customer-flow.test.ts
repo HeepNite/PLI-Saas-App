@@ -3,6 +3,7 @@ import {
   getExistingCustomerInitialStep,
   hasExistingCustomerPrefillContact,
   shouldAutoOpenExistingPurchase,
+  shouldSurfaceClosedWindowPackageError,
   shouldAutoTriggerPackageCheckIn,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
@@ -185,5 +186,35 @@ describe("existing customer kiosk helpers", () => {
         hasActiveSession: true,
       })
     ).toBe(true)
+  })
+
+  it("surfaces a closed-window error instead of leaving the customer on loading", () => {
+    expect(
+      shouldSurfaceClosedWindowPackageError({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        effectiveCheckInWindowOpen: false,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: false,
+        hasExistingRegularBookingOverride: false,
+      })
+    ).toBe(true)
+  })
+
+  it("does not surface the closed-window error once the purchase modal is already open", () => {
+    expect(
+      shouldSurfaceClosedWindowPackageError({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        effectiveCheckInWindowOpen: false,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: false,
+        hasExistingRegularBookingOverride: true,
+      })
+    ).toBe(false)
   })
 })

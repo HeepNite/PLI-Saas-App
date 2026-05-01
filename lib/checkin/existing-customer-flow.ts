@@ -143,6 +143,23 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   return input.hasActiveSession
 }
 
+export const shouldSurfaceClosedWindowPackageError = (input: {
+  isKioskTerminalFlow: boolean
+  mode: "idle" | "existing" | "new"
+  hasBootstrap: boolean
+  hasPackage: boolean
+  effectiveCheckInWindowOpen: boolean
+  processingPackageCheckIn: boolean
+  hasPackageCheckInResult: boolean
+  hasExistingRegularBookingOverride: boolean
+}) => {
+  if (!input.isKioskTerminalFlow || input.mode !== "existing") return false
+  if (!input.hasBootstrap || !input.hasPackage) return false
+  if (input.effectiveCheckInWindowOpen) return false
+  if (input.processingPackageCheckIn || input.hasPackageCheckInResult) return false
+  return !input.hasExistingRegularBookingOverride
+}
+
 /**
  * Determines whether packageOfferContext should be preserved when bootstrap becomes null.
  * In scenario 3 (new-user-upsell), the offer is set AFTER the first purchase completes,

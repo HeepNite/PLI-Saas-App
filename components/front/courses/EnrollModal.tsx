@@ -27,6 +27,7 @@ import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZ
 import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { useNewStudentVerification } from "./hooks/useNewStudentVerification"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
+import { formatEnrollmentOptionPrice } from "@/components/front/courses/utils/package-pricing"
 import ProfilePhotoCapture from "@/components/front/checkin/ProfilePhotoCapture"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
 import {
@@ -39,6 +40,7 @@ import {
   getCheckInSignInModalVariant,
   isCheckInContactGateStep,
   resolveEnrollInitialStep,
+  resolvePostPhotoStepIndex,
   resolveEnrollStepKeys,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
@@ -2626,7 +2628,7 @@ export default function EnrollModal({
                     </button>
                   )}
                   <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
-                    {steps[step]?.label} • {course.title}
+                    {activeStepKey === "packages" ? course.title : `${steps[step]?.label} • ${course.title}`}
                   </h3>
                 </div>
               )}
@@ -2799,7 +2801,7 @@ export default function EnrollModal({
                               >
                                 <div className="flex items-center justify-between gap-3">
                                   <span className="text-sm font-medium">{p.label}</span>
-                                  {p.price && <span className="text-sm font-semibold">${p.price}</span>}
+                                  {p.price != null && <span className="text-sm font-semibold">{formatEnrollmentOptionPrice(p.price)}</span>}
                                 </div>
                                 {metaLine && (
                                   <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
@@ -3133,9 +3135,15 @@ export default function EnrollModal({
                         setFormError(null)
                       }}
                       onSkipped={() => {
-                        // Skip photo and go to next step (packages or payments)
-                        setPhotoSaved(true) // Mark as "done" even if skipped
-                        setStep((prev) => Math.min(prev + 1, steps.length - 1))
+                        setPhotoSaved(true)
+                        setStep((currentStep) =>
+                          resolvePostPhotoStepIndex({
+                            currentStep,
+                            packagesStepIndex,
+                            paymentsStepIndex,
+                            stepsLength: steps.length,
+                          })
+                        )
                       }}
                     />
                   </div>
@@ -3144,53 +3152,52 @@ export default function EnrollModal({
                 {/* Packages step (kiosk only, after user info) */}
                 {activeStepKey === "packages" && (
                   <div className="space-y-4">
-                    <div className="text-center mb-4">
-                      <h3 className="text-lg font-semibold">{t("optionalPackages") || "Choose a Package"}</h3>
-                      <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
-                        {t("packagesHint") || "Save money with a class package, or continue with a single class"}
-                      </p>
-                    </div>
                     {/* Grid: 2 cols to match info step layout */}
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {course.enrollment.packages.map((p) => {
+                    <div className={`grid grid-cols-1 gap-3 ${course.enrollment.packages.length > 1 ? "sm:grid-cols-2" : ""}`}>
+                      {course.enrollment.packages.map((p, index) => {
                         const selected = pkg === p.id
                         const metaLine = formatPackageMeta(p)
+                        const descriptionLine = p.description || metaLine
+                        const shouldShowMetaLine = Boolean(p.description && metaLine && metaLine !== p.description)
+                        const packageCardBackgrounds = [
+                          "bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.28),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_34%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))]",
+                          "bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(182,22,22,0.18),transparent_36%),linear-gradient(145deg,rgba(48,49,55,0.94),rgba(20,21,28,0.98))]",
+                          "bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.22),transparent_34%),radial-gradient(circle_at_center_right,rgba(255,255,255,0.09),transparent_38%),linear-gradient(145deg,rgba(50,48,54,0.95),rgba(19,18,25,0.99))]",
+                        ]
+                        const packageCardBackground = packageCardBackgrounds[index % packageCardBackgrounds.length]
+                        const isLastOddPackage = course.enrollment.packages.length > 1 &&
+                          course.enrollment.packages.length % 2 === 1 &&
+                          index === course.enrollment.packages.length - 1
                         return (
                           <button
                             key={p.id}
                             type="button"
                             onClick={() => setPkg(selected ? "" : p.id)}
-                            className={`rounded-xl border px-4 py-4 text-left transition ${
+                            className={`relative min-h-[10.5rem] w-full overflow-hidden rounded-[1.35rem] border px-5 py-5 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition ${isLastOddPackage ? "sm:col-span-2" : ""} ${packageCardBackground} ${
                               selected
-                                ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] ring-1 ring-[var(--brand,#b61616)]"
-                                : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 hover:border-black/20 dark:hover:border-white/20"
+                                ? "border-[rgba(220,38,38,0.72)] ring-2 ring-[rgba(182,22,22,0.38)]"
+                                : "border-white/14 hover:border-white/24 hover:brightness-110"
                             }`}
                           >
-                            <div className="text-sm font-semibold">{p.label}</div>
-                            {metaLine && (
-                              <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
-                            )}
-                            {p.description && (
-                              <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{p.description}</p>
-                            )}
-                            {p.price != null && (
-                              <p className="mt-2 text-base font-semibold">${(p.price / 100).toFixed(0)}</p>
-                            )}
+                            <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
+                            <div className="relative flex h-full flex-col gap-4">
+                              <div className="flex items-start justify-between gap-4">
+                                <p className="min-w-0 text-base font-semibold uppercase tracking-[-0.01em] text-white">{p.label}</p>
+                                {p.price != null && (
+                                  <p className="shrink-0 text-right text-xl font-semibold text-white">{formatEnrollmentOptionPrice(p.price)}</p>
+                                )}
+                              </div>
+                              {descriptionLine && (
+                                <p className="w-full text-sm leading-relaxed text-white/68">{descriptionLine}</p>
+                              )}
+                              {shouldShowMetaLine && (
+                                <p className="mt-auto w-full text-xs text-white/48">{metaLine}</p>
+                              )}
+                            </div>
                           </button>
                         )
                       })}
                     </div>
-                    {/* Skip package button - always "Continue without a package", clears selection and advances */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPkg("")
-                        setStep((prev) => Math.min(prev + 1, steps.length - 1))
-                      }}
-                      className="mt-4 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 px-4 py-3 text-sm font-semibold text-neutral-700 dark:text-white/80 transition hover:bg-white/70 dark:hover:bg-white/10"
-                    >
-                      Continue without a package
-                    </button>
                   </div>
                 )}
 
@@ -3204,7 +3211,7 @@ export default function EnrollModal({
                             <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Selected Package</p>
                             <p className="text-base font-semibold">{course.enrollment.packages.find((p) => p.id === pkg)?.label}</p>
                             {course.enrollment.packages.find((p) => p.id === pkg)?.price != null && (
-                              <p className="mt-1 text-sm font-medium">${(course.enrollment.packages.find((p) => p.id === pkg)!.price! / 100).toFixed(0)}</p>
+                              <p className="mt-1 text-sm font-medium">{formatEnrollmentOptionPrice(course.enrollment.packages.find((p) => p.id === pkg)?.price)}</p>
                             )}
                           </div>
                           <button
@@ -3236,49 +3243,53 @@ export default function EnrollModal({
                       </div>
                     )}
                     {/* Payments step */}
-                    <div>
-                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 space-y-2.5">
+                    <div className="relative overflow-hidden rounded-[1.15rem] border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_30%),linear-gradient(145deg,rgba(44,45,55,0.96),rgba(19,20,27,0.99))] p-4 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
+                      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
+                      <div className="relative space-y-4">
                         {isCheckInFlow && (
-                          <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3">
-                            <div className="text-sm font-semibold">{t("reviewAndConfirm")}</div>
-                            <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-neutral-600 dark:text-white/70 sm:grid-cols-2">
-                              <div>{t("course")}: <span className="text-neutral-900 dark:text-white">{course.title}</span></div>
-                              <div>{t("service")}: <span className="text-neutral-900 dark:text-white">{course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (included in package)" : ""}</span></div>
-                              <div>{t("dateTime")}: <span className="text-neutral-900 dark:text-white">{date} {to12h(time)}</span></div>
-                              <div>{t("people")}: <span className="text-neutral-900 dark:text-white">{participants}</span></div>
-                              <div>{t("name")}: <span className="text-neutral-900 dark:text-white">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</span></div>
-                              <div>{t("email")}: <span className="text-neutral-900 dark:text-white">{contact.email || "—"}</span></div>
-                              <div>Phone: <span className="text-neutral-900 dark:text-white">{contact.phone || "—"}</span></div>
-                              {!!addons.length && (
-                                <div>{t("extras")}: <span className="text-neutral-900 dark:text-white">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</span></div>
-                              )}
-                              {pkg && (
-                                <div>{t("package")}: <span className="text-neutral-900 dark:text-white">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</span></div>
-                              )}
-                              {contact.note && <div className="sm:col-span-2">{t("notes")}: <span className="text-neutral-900 dark:text-white">{contact.note}</span></div>}
+                          <>
+                            <div>
+                              <div className="text-sm font-semibold text-white">{t("reviewAndConfirm")}</div>
+                              <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-white/68 sm:grid-cols-2">
+                                <div>{t("course")}: <span className="text-white">{course.title}</span></div>
+                                <div>{t("service")}: <span className="text-white">{course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (included in package)" : ""}</span></div>
+                                <div>{t("dateTime")}: <span className="text-white">{date} {to12h(time)}</span></div>
+                                <div>{t("people")}: <span className="text-white">{participants}</span></div>
+                                <div>{t("name")}: <span className="text-white">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</span></div>
+                                <div>{t("email")}: <span className="text-white">{contact.email || "—"}</span></div>
+                                <div>Phone: <span className="text-white">{contact.phone || "—"}</span></div>
+                                {!!addons.length && (
+                                  <div>{t("extras")}: <span className="text-white">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</span></div>
+                                )}
+                                {pkg && (
+                                  <div>{t("package")}: <span className="text-white">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</span></div>
+                                )}
+                                {contact.note && <div className="sm:col-span-2">{t("notes")}: <span className="text-white">{contact.note}</span></div>}
+                              </div>
                             </div>
-                          </div>
+                            <div className="h-px bg-white/12" aria-hidden />
+                          </>
                         )}
 
-                        <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/70 p-2.5 dark:bg-white/10">
-                          <div className="text-[11px] uppercase tracking-[0.14em] text-neutral-500">{t("payments_classes")}</div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.14em] text-white/48">{t("payments_classes")}</div>
                           <div className="mt-1 flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="text-sm font-medium leading-snug">
+                              <div className="text-sm font-semibold leading-snug text-white">
                                 {course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}
                               </div>
-                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-neutral-500 dark:text-white/60">
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
                                 <span>{participants} {participants===1?t("onePerson"):t("manyPeople")}</span>
                                 <span>Service: {serviceOpt?.label || "—"}{pkgOpt ? " (included)" : ""}</span>
                                 {pkgOpt && <span>Package: {pkgOpt.label}</span>}
                                 {!!addonsOpts.length && <span>Extras: {addonsOpts.map((a)=>a.label).join(", ")}</span>}
                               </div>
                             </div>
-                            <span className="shrink-0 text-sm font-semibold">${subtotal.toFixed(2)}</span>
+                            <span className="shrink-0 text-sm font-semibold text-white">${subtotal.toFixed(2)}</span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3 pt-1">
                           <label className="text-sm font-medium" htmlFor="coupon">{t("payments_coupon")}</label>
                           <input
                             id="coupon"
@@ -3315,7 +3326,7 @@ export default function EnrollModal({
                           )}
                         </div>
 
-                        <div className="flex items-center justify-between text-sm pt-1">
+                        <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm">
                           <span className="font-medium">{t("payments_totalAmount")}</span>
                           <span className="font-semibold">${total.toFixed(2)}</span>
                         </div>
@@ -3411,7 +3422,13 @@ export default function EnrollModal({
                         disabled={!canContinue || identityCheckBusy || checkingPinAvailability}
                         className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
-                        {identityCheckBusy ? t("verifyingAccount") : checkingPinAvailability ? "Checking PIN..." : t("continue")}
+                        {identityCheckBusy
+                          ? t("verifyingAccount")
+                          : checkingPinAvailability
+                            ? "Checking PIN..."
+                            : activeStepKey === "packages" && !pkg
+                              ? "Continue without a package"
+                              : t("continue")}
                       </button>
                     ) : (
                         <button

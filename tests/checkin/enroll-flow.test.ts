@@ -3,6 +3,7 @@ import {
   getCheckInSignInModalVariant,
   isCheckInContactGateStep,
   resolveEnrollInitialStep,
+  resolvePostPhotoStepIndex,
   resolveEnrollStepKeys,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
@@ -119,5 +120,27 @@ describe("enroll flow helpers", () => {
         hasPackages: false,
       })
     ).toEqual(["info", "payments"])
+  })
+
+  it("routes photo skip to packages before payments when packages are available", () => {
+    expect(
+      resolvePostPhotoStepIndex({
+        currentStep: 1,
+        packagesStepIndex: 2,
+        paymentsStepIndex: 3,
+        stepsLength: 4,
+      })
+    ).toBe(2)
+  })
+
+  it("routes photo skip to payments when packages are unavailable", () => {
+    expect(
+      resolvePostPhotoStepIndex({
+        currentStep: 1,
+        packagesStepIndex: -1,
+        paymentsStepIndex: 2,
+        stepsLength: 3,
+      })
+    ).toBe(2)
   })
 })
