@@ -11,6 +11,8 @@ import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
+import { findConsecutiveLink, computeDiscountPercent } from "@/lib/course-links"
+import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
 
 export const runtime = "nodejs"
 
@@ -290,6 +292,53 @@ export async function POST(req: Request) {
 
     const isTerminalFlow = flowContext === "kiosk_terminal"
 
+    // ─── Consecutive offer detection ─────────────────────────
+    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    let consecutiveOffer: {
+      linkedCourseSlug: string
+      linkedCourseTitle: string
+      dropInConsecutiveCents: number | null
+      packageHolderConsecutiveCents: number | null
+      regularDropInCents: number
+      discountPercent: number
+      hasAttendedFirstClass: boolean
+    } | null = null
+
+    if (linkedFromCourseSlug && dbUser) {
+      const links = await prisma.courseLink.findMany({
+        where: {
+          courseSlugA: linkedFromCourseSlug.toLowerCase(),
+          active: true,
+        },
+      })
+
+      if (links.length > 0) {
+        const link = links[0]
+        const linkedCourse = await getCatalogCourseBySlug(link.courseSlugB)
+
+        const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, now)
+        const hasAlreadyB = await hasPurchaseForCourseToday(dbUser.id, link.courseSlugB, now)
+
+        if (linkedCourse && hasAttendedA && !hasAlreadyB) {
+          const regularDropIn = linkedCourse.enrollment.services.find((s) => s.id === "dropin")?.price ?? 0
+          const discountPercent = computeDiscountPercent(
+            regularDropIn * 100,
+            link.dropInConsecutiveCents
+          )
+
+          consecutiveOffer = {
+            linkedCourseSlug: link.courseSlugB,
+            linkedCourseTitle: linkedCourse.title,
+            dropInConsecutiveCents: link.dropInConsecutiveCents,
+            packageHolderConsecutiveCents: link.packageHolderConsecutiveCents,
+            regularDropInCents: regularDropIn * 100,
+            discountPercent,
+            hasAttendedFirstClass: hasAttendedA,
+          }
+        }
+      }
+    }
+
     const [activePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
       prisma.packagePurchase.findMany({
         where: {
@@ -473,6 +522,7 @@ export async function POST(req: Request) {
             hasAnyCompletedPurchase: Boolean(anyCompletedPurchase),
             hasExistingPurchaseForSession,
           }),
+      consecutiveOffer,
     })
   } catch (error) {
     console.error("QR check-in bootstrap failed", error)

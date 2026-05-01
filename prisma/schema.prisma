@@ -40,6 +40,8 @@ model User {
   studentPinCredentials       StudentPinCredential[]
   studentPinAudits            StudentPinAudit[]
   kioskIdentificationSessions KioskIdentificationSession[]
+  completedClassesOverride    Int?
+  packageClassesUsedOverride  Int?
 }
 
 model Purchase {
@@ -74,6 +76,7 @@ model PackagePlan {
   id           String            @id @default(cuid())
   key          String            @unique
   courseSlug   String?
+  courseSlugs  String[]        @default([])
   label        String
   description  String?
   priceCents   Int?
@@ -90,6 +93,7 @@ model PackagePlan {
   purchases    PackagePurchase[]
 
   @@index([courseSlug])
+  @@index([courseSlugs])
   @@index([active])
   @@index([status])
   @@index([launchAt])
@@ -704,6 +708,40 @@ model PreparedCheckoutContext {
   @@unique([terminalId, kioskSessionId, classSlotKey])
   @@index([terminalId, kioskSessionId, expiresAt])
   @@index([expiresAt])
+}
+
+model StudentDataAudit {
+  id             String   @id @default(cuid())
+  targetUserId   String
+  staffClerkId   String
+  staffName      String?
+  entity         String // attendance | payment | package | stats
+  entityId       String?
+  field          String
+  valueBefore    Json?
+  valueAfter     Json?
+  reason         String
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  @@index([targetUserId, createdAt])
+  @@index([staffClerkId, createdAt])
+  @@index([entity, createdAt])
+}
+
+model CourseLink {
+  id                            String   @id @default(cuid())
+  courseSlugA                   String   // early class
+  courseSlugB                   String   // consecutive class
+  dropInConsecutiveCents        Int      // discounted drop-in price for B
+  packageHolderConsecutiveCents Int      // discounted price for package holders
+  active                        Boolean  @default(true)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  @@unique([courseSlugA, courseSlugB])
+  @@index([courseSlugA])
+  @@index([courseSlugB])
 }
 
 model StaffClockEntry {

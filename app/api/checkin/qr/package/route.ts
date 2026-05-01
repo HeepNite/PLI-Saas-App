@@ -11,6 +11,8 @@ import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
+import { findConsecutiveLink } from "@/lib/course-links"
+import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 
 export const runtime = "nodejs"
 
@@ -22,6 +24,11 @@ const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milesto
 const normalizePhoneDigits = (value: string) => {
   const digits = value.replace(/\D/g, "")
   return digits.length >= 6 ? digits : ""
+}
+
+const normalizeString = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim()
 }
 
 const toRecord = (value: unknown) =>
@@ -126,6 +133,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
+    // ─── Resolve user (needed for both consecutive add-on and normal flow) ──
     let email = kioskSessionResult?.ok ? kioskSessionResult.session.user.email : ""
     let phone = kioskSessionResult?.ok ? normalizePhoneDigits(kioskSessionResult.session.user.phone || "") : ""
     let name = kioskSessionResult?.ok ? kioskSessionResult.session.user.name || "" : ""
@@ -152,6 +160,186 @@ export async function POST(req: Request) {
         : null
     if (!dbUser) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+    }
+
+    // ─── Consecutive package-holder add-on ───────────────────
+    const consecutiveAddOn = payload?.consecutiveAddOn === true
+    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const consecutivePriceCents = payload?.consecutivePriceCents != null
+      ? Number(payload.consecutivePriceCents)
+      : null
+
+    if (consecutiveAddOn) {
+      if (!linkedFromCourseSlug) {
+        return NextResponse.json(
+          { error: "linkedFromCourseSlug is required for consecutive add-on" },
+          { status: 400 }
+        )
+      }
+
+      const link = await findConsecutiveLink(linkedFromCourseSlug, context.courseSlug)
+      if (!link) {
+        return NextResponse.json(
+          { error: "No active consecutive link found for this course pair" },
+          { status: 400 }
+        )
+      }
+
+      if (consecutivePriceCents !== null && consecutivePriceCents !== link.packageHolderConsecutiveCents) {
+        return NextResponse.json(
+          { error: "Price mismatch: consecutive price does not match configured price" },
+          { status: 400 }
+        )
+      }
+
+      // Verify student attended Class A today
+      const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
+      if (!hasAttendedA) {
+        return NextResponse.json(
+          { error: "You must attend the first class before adding the consecutive class" },
+          { status: 403 }
+        )
+      }
+
+      // Verify student has an active package (any package — the consecutive charge is separate)
+      const activePackages = await prisma.packagePurchase.findMany({
+        where: {
+          userId: dbUser.id,
+          status: "active",
+          AND: [
+            { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+            { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
+          ],
+        },
+        select: {
+          id: true,
+          packageId: true,
+          packageLabel: true,
+          courseSlug: true,
+          isUnlimited: true,
+          remainingCredits: true,
+          expiresAt: true,
+          status: true,
+        },
+        take: 10,
+      })
+
+      if (activePackages.length === 0) {
+        return NextResponse.json(
+          { error: "No active package found. Consecutive add-on requires an active package." },
+          { status: 409 }
+        )
+      }
+
+      // Create attendance for Class B WITHOUT deducting package credits
+      // This is a SEPARATE monetary charge (consecutivePriceCents)
+      const result = await prisma.$transaction(async (tx) => {
+        const session = await tx.classSession.upsert({
+          where: {
+            courseSlug_startsAt: {
+              courseSlug: context.courseSlug,
+              startsAt: context.startsAt,
+            },
+          },
+          update: {
+            title: course.title,
+            durationMinutes: context.durationMinutes,
+          },
+          create: {
+            courseSlug: context.courseSlug,
+            title: course.title,
+            startsAt: context.startsAt,
+            durationMinutes: context.durationMinutes,
+          },
+        })
+
+        const existingAttendance = await tx.attendance.findUnique({
+          where: {
+            userId_sessionId: {
+              userId: dbUser.id,
+              sessionId: session.id,
+            },
+          },
+        })
+
+        if (existingAttendance) {
+          return {
+            attendance: existingAttendance,
+            consecutive: true,
+            packagePurchase: null,
+          }
+        }
+
+        const attendance = await tx.attendance.create({
+          data: {
+            userId: dbUser.id,
+            sessionId: session.id,
+            status: "checked_in_no_package",
+            checkedInAt: now,
+            metadata: {
+              source: "qr_package_consecutive_addon",
+              linkedFromCourseSlug,
+              consecutivePriceCents,
+              qrDate: context.date,
+              qrTime: context.time,
+            },
+          },
+        })
+
+        // Create a purchase record for the consecutive monetary charge
+        // This is NOT a package credit deduction — it's a separate charge
+        await tx.purchase.create({
+          data: {
+            userId: dbUser.id,
+            courseSlug: context.courseSlug,
+            courseTitle: course.title,
+            amount: consecutivePriceCents ? consecutivePriceCents / 100 : 0,
+            currency: "usd",
+            status: "paid",
+            participants: 1,
+            metadata: {
+              paymentChannel: "consecutive_addon",
+              settlementStatus: "paid",
+              date: context.date,
+              time: context.time,
+              source: "qr_package_consecutive_addon",
+              attendanceId: attendance.id,
+              linkedFromCourseSlug,
+              consecutivePriceCents,
+              packagePurchaseId: activePackages[0].id,
+            },
+          },
+        })
+
+        return {
+          attendance,
+          consecutive: true,
+          packagePurchase: null,
+        }
+      })
+
+      return NextResponse.json({
+        attendance: {
+          id: result.attendance.id,
+          status: result.attendance.status,
+          checkedInAt: result.attendance.checkedInAt.toISOString(),
+          courseSlug: context.courseSlug,
+          courseTitle: course.title,
+          startsAt: context.startsAt.toISOString(),
+        },
+        consecutive: {
+          isConsecutiveAddOn: true,
+          linkedFromCourseSlug,
+          priceCents: consecutivePriceCents,
+        },
+        package: null,
+        points: {
+          awarded: 0,
+          milestone: null,
+          attendanceCount: 0,
+          milestoneEvery: 0,
+        },
+      })
     }
 
     const activePackages = await prisma.packagePurchase.findMany({

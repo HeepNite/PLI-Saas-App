@@ -8,6 +8,8 @@ import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/q
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { findConsecutiveLink } from "@/lib/course-links"
+import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 
 export const runtime = "nodejs"
 
@@ -108,6 +110,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
+    // ─── Consecutive discount validation ─────────────────────
+    const consecutiveDiscountApplied = payload?.consecutiveDiscountApplied === true
+    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const consecutivePriceCents = payload?.consecutivePriceCents != null
+      ? Number(payload.consecutivePriceCents)
+      : null
+
+    if (consecutiveDiscountApplied) {
+      if (!linkedFromCourseSlug) {
+        return NextResponse.json(
+          { error: "linkedFromCourseSlug is required when consecutiveDiscountApplied is true" },
+          { status: 400 }
+        )
+      }
+
+      const link = await findConsecutiveLink(linkedFromCourseSlug, context.courseSlug)
+      if (!link) {
+        return NextResponse.json(
+          { error: "No active consecutive link found for this course pair" },
+          { status: 400 }
+        )
+      }
+
+      if (consecutivePriceCents !== null && consecutivePriceCents !== link.dropInConsecutiveCents) {
+        return NextResponse.json(
+          { error: "Price mismatch: consecutive price does not match configured price" },
+          { status: 400 }
+        )
+      }
+    }
+
     let dbUser: { id: string } | null = null
     let durableKioskPurchase:
       | {
@@ -180,6 +213,17 @@ export async function POST(req: Request) {
       })
       if (!dbUser) {
         return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+      }
+    }
+
+    // ─── Verify attendance for Class A when using consecutive discount ──
+    if (consecutiveDiscountApplied && linkedFromCourseSlug) {
+      const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
+      if (!hasAttendedA) {
+        return NextResponse.json(
+          { error: "You must attend the first class before purchasing the consecutive class at a discount" },
+          { status: 403 }
+        )
       }
     }
 
