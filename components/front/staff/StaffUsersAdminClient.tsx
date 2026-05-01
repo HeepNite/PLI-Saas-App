@@ -74,6 +74,8 @@ import AttendanceHistoryTimeline, {
   type AttendanceEvent,
   type AttendanceSummary,
 } from "@/components/front/staff/AttendanceHistoryTimeline"
+import StudentDataOverrideModal from "@/components/front/staff/StudentDataOverrideModal"
+import AuditHistoryPopover from "@/components/front/staff/AuditHistoryPopover"
 import type { StripeFailureInfo } from "@/lib/stripe-failure"
 
 type StaffUserRow = {
@@ -494,6 +496,7 @@ type SchoolPackageRow = {
   id: string
   key: string
   courseSlug: string | null
+  courseSlugs: string[]
   label: string
   description: string | null
   priceCents: number | null
@@ -542,6 +545,22 @@ type CourseFormState = {
   active: boolean
 }
 
+type CourseLinkRow = {
+  id: string
+  courseSlugA: string
+  courseSlugB: string
+  dropInConsecutiveCents: number
+  packageHolderConsecutiveCents: number
+  active: boolean
+}
+
+type CourseLinkFormState = {
+  courseSlugB: string
+  dropInConsecutiveCents: string
+  packageHolderConsecutiveCents: string
+  active: boolean
+}
+
 type CourseScheduleSlot = {
   date?: string
   weekday?: number
@@ -587,8 +606,9 @@ type CourseScheduleRulesPayload = {
 }
 
 type PackageFormState = {
+  id: string
   key: string
-  courseSlug: string
+  courseSlugs: string[]
   label: string
   description: string
   priceCents: string
@@ -1434,8 +1454,9 @@ const formatUsdInputLabel = (value: string) => {
 
 function createEmptyPackageForm(): PackageFormState {
   return {
+    id: "",
     key: "",
-    courseSlug: "",
+    courseSlugs: [],
     label: "",
     description: "",
     priceCents: "",
@@ -1452,8 +1473,9 @@ function createEmptyPackageForm(): PackageFormState {
 
 function packageRowToFormState(item: SchoolPackageRow): PackageFormState {
   return {
+    id: item.id,
     key: item.key,
-    courseSlug: item.courseSlug || "",
+    courseSlugs: item.courseSlugs ?? (item.courseSlug ? [item.courseSlug] : []),
     label: item.label,
     description: item.description || "",
     priceCents: centsToUsdInput(item.priceCents),
@@ -1501,6 +1523,7 @@ function formatPackageLaunchLabel(value: string | null | undefined) {
 function duplicatePackageRowToFormState(item: SchoolPackageRow): PackageFormState {
   return {
     ...packageRowToFormState(item),
+    id: "",
     key: `${item.key}-copy`,
     label: `${item.label} Copy`,
   }
@@ -1873,7 +1896,7 @@ function transformPaymentRowsToAttendance(
     }
 
     events.push({
-      id: row.attendanceId || row.id,
+      id: [row.attendanceId || "no-attendance", row.id].join(":"),
       date: eventDate,
       time: row.classTime || "00:00",
       className: row.courseTitle || row.courseSlug || "Class",
@@ -2290,7 +2313,35 @@ const previousWeekday = (base: Date, weekday: number) => {
 
 const MIN_LOADING_DELAY_MS = 3000
 const STAFF_PRESENCE_REFRESH_MS = 5_000
+const TERMINAL_ALERTS_ACTIVE_REFRESH_MS = 5_000
+const TERMINAL_ALERTS_REFRESH_MS = 10_000
+const TERMINAL_ALERT_PRIORITY: Record<"warning" | "cooldown" | "emergency", number> = {
+  emergency: 0,
+  cooldown: 1,
+  warning: 2,
+}
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const formatTerminalAlertDateTime = (value: string | null) => {
+  if (!value) return "—"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/New_York",
+  }).format(parsed)
+}
+
+const formatTerminalAlertRelative = (value: string | null, nowTs: number) => {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) return null
+  const diffMs = parsed - nowTs
+  if (diffMs <= 0) return "ending now"
+  const diffMinutes = Math.max(1, Math.ceil(diffMs / 60_000))
+  return diffMinutes === 1 ? "ends in 1 min" : `ends in ${diffMinutes} min`
+}
 
 type StaffUsersAdminClientProps = {
   currentRole: StaffRole
@@ -2359,6 +2410,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [paymentsMonthlyStudentCount, setPaymentsMonthlyStudentCount] = React.useState(0)
   const [paymentsMonthlyCheckedInStudents, setPaymentsMonthlyCheckedInStudents] = React.useState(0)
   const [paymentsLoading, setPaymentsLoading] = React.useState(false)
+  const [terminalPinAlerts, setTerminalPinAlerts] = React.useState<Array<{
+    terminalId: string
+    terminalName: string
+    terminalLocation: string | null
+    severity: "warning" | "cooldown" | "emergency"
+    label: string
+    message: string
+    blockedUntil: string | null
+    missCount: number
+  }>>([])
   const [paymentsFilter, setPaymentsFilter] = React.useState<"all" | "pending" | "paid">("all")
   const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("all")
   const [isHistoryMode, setIsHistoryMode] = React.useState(false)
@@ -2396,6 +2457,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [paymentHistoryStudentId, setPaymentHistoryStudentId] = React.useState<string | null>(null)
   const [attendanceHistoryAnchor, setAttendanceHistoryAnchor] = React.useState<HTMLElement | null>(null)
   const [attendanceHistoryStudentId, setAttendanceHistoryStudentId] = React.useState<string | null>(null)
+  const [auditHistoryAnchor, setAuditHistoryAnchor] = React.useState<HTMLElement | null>(null)
+  const [auditHistoryStudentId, setAuditHistoryStudentId] = React.useState<string | null>(null)
+  const [auditHistoryStudentName, setAuditHistoryStudentName] = React.useState<string | null>(null)
   const [userHistoryPayments, setUserHistoryPayments] = React.useState<PaymentRow[]>([])
   const [userHistoryLoading, setUserHistoryLoading] = React.useState(false)
 
@@ -2457,6 +2521,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     expiresAt: string | null
   } | null>(null)
   const [studentPinRevealIssued, setStudentPinRevealIssued] = React.useState(false)
+  const [overrideModalOpen, setOverrideModalOpen] = React.useState(false)
+  const [overrideModalStudent, setOverrideModalStudent] = React.useState<{ id: string; name: string } | null>(null)
+  const [usersWithAuditEntries, setUsersWithAuditEntries] = React.useState<Set<string>>(new Set())
   const [teacherUserId, setTeacherUserId] = React.useState("")
   const [teacherReviewCycleDays, setTeacherReviewCycleDays] = React.useState(30)
   const [teacherAssignedUserId, setTeacherAssignedUserId] = React.useState("")
@@ -2540,10 +2607,40 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [courseLocalVideoName, setCourseLocalVideoName] = React.useState("")
   const [courseMediaUploading, setCourseMediaUploading] = React.useState<null | "image" | "video">(null)
   const [courseHydratedFromQuery, setCourseHydratedFromQuery] = React.useState(false)
+  const [courseEditingSlug, setCourseEditingSlug] = React.useState<string | null>(null) // The original slug when editing
+  const [courseSlugConflict, setCourseSlugConflict] = React.useState<{ exists: boolean; suggestion: string | null; existingTitle: string | null }>({
+    exists: false,
+    suggestion: null,
+    existingTitle: null,
+  })
+  // CourseLink (consecutive classes) state
+  const [courseLinksAsA, setCourseLinksAsA] = React.useState<CourseLinkRow[]>([])
+  const [courseLinksAsB, setCourseLinksAsB] = React.useState<CourseLinkRow[]>([])
+  const [courseLinkForm, setCourseLinkForm] = React.useState<CourseLinkFormState>({
+    courseSlugB: "",
+    dropInConsecutiveCents: "",
+    packageHolderConsecutiveCents: "",
+    active: true,
+  })
+  const [courseLinkEditingId, setCourseLinkEditingId] = React.useState<string | null>(null)
+  const [courseLinkSaving, setCourseLinkSaving] = React.useState(false)
+  const [courseLinkError, setCourseLinkError] = React.useState<string | null>(null)
+  const [courseLinkSuccess, setCourseLinkSuccess] = React.useState<string | null>(null)
   const courseImageInputRef = React.useRef<HTMLInputElement>(null)
   const courseVideoInputRef = React.useRef<HTMLInputElement>(null)
   const scheduleTimePickerRef = React.useRef<HTMLDivElement>(null)
   const courseFormFieldsRef = React.useRef<HTMLDivElement>(null)
+  const resetCourseLinkForm = React.useCallback(() => {
+    setCourseLinkForm({
+      courseSlugB: "",
+      dropInConsecutiveCents: "",
+      packageHolderConsecutiveCents: "",
+      active: true,
+    })
+    setCourseLinkEditingId(null)
+    setCourseLinkError(null)
+    setCourseLinkSuccess(null)
+  }, [])
   const [packageForm, setPackageForm] = React.useState<PackageFormState>(() => createEmptyPackageForm())
   const [pointsRuleForm, setPointsRuleForm] = React.useState<PointsRuleFormState>({
     templateKey: POINTS_RULE_DEFINITIONS[0]?.key || "profile-completed",
@@ -3117,9 +3214,54 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [handleStaffAuthFailure])
 
+  const fetchTerminalPinAlerts = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/staff/terminals", { headers: { "Content-Type": "application/json" } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setTerminalPinAlerts([])
+        return
+      }
+
+      const nextAlerts = Array.isArray(data?.items)
+        ? data.items
+            .flatMap((item: {
+              id: string
+              name: string
+              location: string | null
+              pinAlert?: {
+                severity: "warning" | "cooldown" | "emergency"
+                label: string
+                message: string
+                blockedUntil: string | null
+                missCount: number
+              } | null
+            }) =>
+              item.pinAlert
+                ? [{
+                    terminalId: item.id,
+                    terminalName: item.name,
+                    terminalLocation: item.location,
+                    severity: item.pinAlert.severity,
+                    label: item.pinAlert.label,
+                    message: item.pinAlert.message,
+                    blockedUntil: item.pinAlert.blockedUntil,
+                    missCount: item.pinAlert.missCount,
+                  }]
+                : []
+            )
+        : []
+
+      setTerminalPinAlerts(nextAlerts)
+    } catch {
+      setTerminalPinAlerts([])
+    }
+  }, [handleStaffAuthFailure])
+
   const refreshPaymentsBoard = React.useCallback(async () => {
-    await Promise.all([fetchPayments(), fetchPaymentsMonthlySummary()])
-  }, [fetchPayments, fetchPaymentsMonthlySummary])
+    await Promise.all([fetchPayments(), fetchPaymentsMonthlySummary(), fetchTerminalPinAlerts()])
+  }, [fetchPayments, fetchPaymentsMonthlySummary, fetchTerminalPinAlerts])
 
   React.useEffect(() => {
     if (!historyClassKey) return
@@ -3174,6 +3316,41 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setStudentPinIssued(null)
     setStudentPinRevealIssued(false)
   }, [])
+
+  const openOverrideModal = React.useCallback((studentId: string, studentName: string) => {
+    setOverrideModalStudent({ id: studentId, name: studentName })
+    setOverrideModalOpen(true)
+  }, [])
+
+  const closeOverrideModal = React.useCallback(() => {
+    setOverrideModalOpen(false)
+    setOverrideModalStudent(null)
+  }, [])
+
+  // Check if a user has audit entries in the current month (for showing the change-history button)
+  const checkUserHasAuditEntries = React.useCallback(async (userId: string) => {
+    if (usersWithAuditEntries.has(userId)) return
+    try {
+      const res = await fetch(`/api/staff/students/${encodeURIComponent(userId)}/audit-log?pageSize=50`)
+      if (res.ok) {
+        const json = await res.json()
+        const payload = json.data ?? json
+        const entries = Array.isArray(payload?.entries) ? payload.entries : []
+        const now = new Date()
+        const hasCurrentMonthEntries = entries.some((entry: { createdAt?: string }) => {
+          if (!entry.createdAt) return false
+          const createdAt = new Date(entry.createdAt)
+          return createdAt.getFullYear() === now.getFullYear() && createdAt.getMonth() === now.getMonth()
+        })
+
+        if (hasCurrentMonthEntries) {
+          setUsersWithAuditEntries((prev) => new Set(prev).add(userId))
+        }
+      }
+    } catch {
+      // Silently fail — user just won't see the button
+    }
+  }, [usersWithAuditEntries])
 
   const submitStudentPinIssue = React.useCallback(async () => {
     if (!studentPinModal?.userId) return
@@ -3692,6 +3869,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setQuickTimeDraft("")
     setScheduleTimePickerOpen(false)
     setCourseHydratedFromQuery(false)
+    setCourseEditingSlug(null) // Clear editing state
+    setCourseLinksAsA([])
+    setCourseLinksAsB([])
+    resetCourseLinkForm()
     setCourseLocalImagePreview((prev) => {
       if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
       return ""
@@ -3702,12 +3883,17 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     })
     setCourseLocalImageName("")
     setCourseLocalVideoName("")
-  }, [quickScheduleTimes])
+  }, [quickScheduleTimes, resetCourseLinkForm])
 
   const saveCourseCatalog = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
     setSchoolError(null)
     setSchoolSuccess(null)
+    // Block save if there's a slug conflict (user must choose an action)
+    if (courseSlugConflict.exists) {
+      setSchoolError("This slug already exists. Use the suggested slug or choose to edit the existing course.")
+      return
+    }
     setSchoolBusy("course")
     try {
       const derivedSchedule = deriveCourseScheduleData(courseScheduleSlots)
@@ -3827,24 +4013,39 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     courseRecurringWeekdays,
     courseRepeatAllMonth,
     courseScheduleSlots,
+    courseSlugConflict.exists,
     courseWeekdays,
     fetchSchoolData,
     isSpecialEventCourse,
     resetCourseBuilder,
   ])
 
+  const togglePackageCourse = React.useCallback((courseSlug: string) => {
+    setPackageForm((prev) => {
+      if (prev.courseSlugs.includes(courseSlug)) {
+        return { ...prev, courseSlugs: prev.courseSlugs.filter((slug) => slug !== courseSlug) }
+      }
+      return { ...prev, courseSlugs: [...prev.courseSlugs, courseSlug] }
+    })
+  }, [])
+
   const savePackagePlan = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
     setSchoolError(null)
     setSchoolSuccess(null)
+    if (packageForm.courseSlugs.length === 0) {
+      setSchoolError("Select at least one course for this package.")
+      return
+    }
     setSchoolBusy("package")
     try {
       const res = await fetch("/api/staff/school/packages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: packageForm.id || null,
           key: packageForm.key,
-          courseSlug: packageForm.courseSlug,
+          courseSlugs: packageForm.courseSlugs,
           label: packageForm.label,
           description: packageForm.description,
           priceCents: packageForm.priceCents,
@@ -3885,7 +4086,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             key: item.key,
-            courseSlug: item.courseSlug || "",
+            courseSlugs: item.courseSlugs ?? (item.courseSlug ? [item.courseSlug] : []),
             label: item.label,
             description: item.description || "",
             priceCents: item.priceCents,
@@ -4137,6 +4338,30 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [canAccessStudentsNav, refreshPaymentsBoard])
 
   React.useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isStudentsView) return
+
+    const refreshAlerts = () => {
+      if (document.visibilityState !== "visible") return
+      void fetchTerminalPinAlerts()
+    }
+
+    const refreshMs = terminalPinAlerts.length > 0 ? TERMINAL_ALERTS_ACTIVE_REFRESH_MS : TERMINAL_ALERTS_REFRESH_MS
+    const interval = window.setInterval(refreshAlerts, refreshMs)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchTerminalPinAlerts()
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [fetchTerminalPinAlerts, isStudentsView, terminalPinAlerts.length])
+
+  React.useEffect(() => {
     if (!canAccessUsersNav) return
     fetchStaffRequests(requestStatusFilter, { scope: "all" })
   }, [canAccessUsersNav, fetchStaffRequests, requestStatusFilter])
@@ -4255,11 +4480,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [courseHydratedFromQuery, isSchoolView, schoolCourses, searchParams])
 
   React.useEffect(() => {
-    if (packageForm.courseSlug) return
+    if (packageForm.courseSlugs.length > 0) return
     const firstCourseSlug = schoolCourses[0]?.slug || demoCourses[0]?.slug || ""
     if (!firstCourseSlug) return
-    setPackageForm((prev) => ({ ...prev, courseSlug: firstCourseSlug }))
-  }, [packageForm.courseSlug, schoolCourses])
+    setPackageForm((prev) => ({ ...prev, courseSlugs: [firstCourseSlug] }))
+  }, [packageForm.courseSlugs, schoolCourses])
 
   React.useEffect(() => {
     return () => {
@@ -4489,6 +4714,76 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     const next = regularSlotsBlockedByEvents.length > 1 ? ` +${regularSlotsBlockedByEvents.length - 1} more` : ""
     return `Warning: there are special events that conflict with this time slot (${first.date} · ${formatClockLabel(first.time)} · ${first.title}${next}). That day skips the regular class and continues on the next available day.`
   }, [regularSlotsBlockedByEvents])
+
+  // Detect slug conflicts when creating a new course
+  React.useEffect(() => {
+    const currentSlug = courseForm.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")
+    if (!currentSlug || currentSlug.length < 3) {
+      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
+      return
+    }
+    // If we're editing a course and the slug matches the original, no conflict
+    if (courseEditingSlug && courseEditingSlug.toLowerCase() === currentSlug) {
+      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
+      return
+    }
+    const existingCourse = schoolCourses.find((course) => course.slug.toLowerCase() === currentSlug)
+    if (!existingCourse) {
+      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
+      return
+    }
+    // Generate a unique suggestion by appending a number
+    let suffix = 2
+    let suggestion = `${currentSlug}-${suffix}`
+    while (schoolCourses.some((course) => course.slug.toLowerCase() === suggestion)) {
+      suffix++
+      suggestion = `${currentSlug}-${suffix}`
+    }
+    setCourseSlugConflict({ exists: true, suggestion, existingTitle: existingCourse.title })
+  }, [courseForm.slug, courseEditingSlug, schoolCourses])
+
+  const handleUseSlugSuggestion = React.useCallback(() => {
+    if (courseSlugConflict.suggestion) {
+      setCourseForm((prev) => ({ ...prev, slug: courseSlugConflict.suggestion! }))
+      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
+    }
+  }, [courseSlugConflict.suggestion])
+
+  const handleEditExistingCourse = React.useCallback(() => {
+    // Normalize the slug the same way as the conflict detection effect
+    const normalizedSlug = courseForm.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")
+    const existingCourse = schoolCourses.find((course) => course.slug.toLowerCase() === normalizedSlug)
+    if (existingCourse) {
+      // Hydrate the form with the existing course data
+      setCourseForm({
+        slug: existingCourse.slug,
+        title: existingCourse.title,
+        kind: existingCourse.kind || "course",
+        category: existingCourse.category || "",
+        description: existingCourse.description || "",
+        previewImageUrl: existingCourse.coverImageUrl || "",
+        previewVideoUrl: existingCourse.previewVideoUrl || "",
+        dropInPriceCents: existingCourse.dropInPriceCents ? String(existingCourse.dropInPriceCents / 100) : "",
+        firstClassPriceCents: existingCourse.firstClassPriceCents ? String(existingCourse.firstClassPriceCents / 100) : "",
+        level: existingCourse.level || "Beginner",
+        durationMinutes: existingCourse.durationMinutes ? String(existingCourse.durationMinutes) : "55",
+        location: existingCourse.location || "54 Coles St, Jersey City, NJ",
+        defaultRoomId: existingCourse.defaultRoomId || "",
+        publicationMode: "publish_now",
+        launchDate: "",
+        specialDiscountType: "none",
+        specialDiscountCustomLabel: "",
+        specialDiscountPrice: "",
+        availableTimesCsv: (existingCourse.availableTimes || []).join(", "),
+        active: existingCourse.active ?? true,
+      })
+      setCourseWeekdays(existingCourse.availableWeekdays || [])
+      setCourseHydratedFromQuery(true)
+      setCourseEditingSlug(existingCourse.slug) // Track which course we're editing
+      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
+      setSchoolSuccess(`Loaded "${existingCourse.title}" for editing.`)
+    }
+  }, [courseForm.slug, schoolCourses])
 
   const getSpecialEventConflictReason = React.useCallback(
     (isoDate: string, rawTime: string) => {
@@ -5071,6 +5366,27 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     [schoolPointsRules, pointsRuleForm.templateKey]
   )
 
+  const resetPointsRuleForm = React.useCallback(() => {
+    const templateKey = pointsRuleForm.templateKey || POINTS_RULE_DEFINITIONS[0]?.key || "profile-completed"
+    const template = POINTS_RULE_DEFINITIONS.find((item) => item.key === templateKey) || POINTS_RULE_DEFINITIONS[0] || null
+    const existing = schoolPointsRules.find((item) => item.key === templateKey) || null
+    setPointsRuleForm({
+      templateKey,
+      points: String(existing?.points ?? template?.defaultPoints ?? 10),
+      active: existing?.active ?? true,
+    })
+  }, [pointsRuleForm.templateKey, schoolPointsRules])
+
+  const resetPointsAssignForm = React.useCallback(() => {
+    setPointsAssignForm({
+      userEmail: "",
+      type: "MANUAL_STAFF_ASSIGNMENT",
+      points: "10",
+      note: "",
+      eventKey: "",
+    })
+  }, [])
+
   React.useEffect(() => {
     if (!selectedPointsRuleTemplate) return
     const nextPoints = selectedPointsRuleRecord ? String(selectedPointsRuleRecord.points) : String(selectedPointsRuleTemplate.defaultPoints)
@@ -5232,10 +5548,204 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setQuickTimeDraft("")
     setScheduleTimePickerOpen(false)
     setCourseHydratedFromQuery(true)
+    setCourseEditingSlug(item.slug) // Track which course we're editing
+    loadCourseLinks(item.slug) // Load consecutive class links
     requestAnimationFrame(() => {
       courseFormFieldsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
   }, [])
+
+  const deleteCourse = React.useCallback(async (slug: string, title: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+      return
+    }
+    setSchoolError(null)
+    setSchoolSuccess(null)
+    setSchoolBusy("course")
+    try {
+      const res = await fetch("/api/staff/school/courses", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSchoolError(typeof data?.error === "string" ? data.error : "Unable to delete course.")
+        return
+      }
+      setSchoolSuccess(typeof data?.message === "string" ? data.message : "Course deleted.")
+      await fetchSchoolData({ showLoader: false })
+      // If we were editing this course, reset the form
+      if (courseForm.slug === slug) {
+        resetCourseBuilder()
+      }
+    } catch {
+      setSchoolError("Network error while deleting course.")
+    } finally {
+      setSchoolBusy(null)
+    }
+  }, [courseForm.slug, fetchSchoolData, resetCourseBuilder])
+
+  // ─── CourseLink (consecutive classes) functions ────────────────
+
+  const loadCourseLinks = React.useCallback(async (courseSlug: string) => {
+    try {
+      const res = await fetch(`/api/staff/school/course-links?courseSlug=${encodeURIComponent(courseSlug)}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Unable to load course links.")
+      const asA = Array.isArray(data?.asA) ? data.asA : []
+      const asB = Array.isArray(data?.asB) ? data.asB : []
+      setCourseLinksAsA(asA as CourseLinkRow[])
+      setCourseLinksAsB(asB as CourseLinkRow[])
+    } catch {
+      // Silently fail — links are optional
+      setCourseLinksAsA([])
+      setCourseLinksAsB([])
+    }
+  }, [])
+
+  const saveCourseLink = React.useCallback(async (event: React.FormEvent) => {
+    event.preventDefault()
+    setCourseLinkError(null)
+    setCourseLinkSuccess(null)
+
+    if (!courseEditingSlug) {
+      setCourseLinkError("Save the course first before adding consecutive class links.")
+      return
+    }
+
+    // Client-side validation: prevent self-linking
+    if (courseLinkForm.courseSlugB === courseEditingSlug) {
+      setCourseLinkError("A course cannot be linked to itself.")
+      return
+    }
+
+    if (!courseLinkForm.courseSlugB) {
+      setCourseLinkError("Select a consecutive course.")
+      return
+    }
+
+    // Validate prices are non-negative numbers (or empty)
+    const dropInCents = courseLinkForm.dropInConsecutiveCents.trim()
+    const packageCents = courseLinkForm.packageHolderConsecutiveCents.trim()
+
+    if (dropInCents) {
+      const parsed = Number(dropInCents.replace(",", "."))
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setCourseLinkError("Drop-in consecutive price must be a valid non-negative number.")
+        return
+      }
+    }
+
+    if (packageCents) {
+      const parsed = Number(packageCents.replace(",", "."))
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setCourseLinkError("Package-holder consecutive price must be a valid non-negative number.")
+        return
+      }
+    }
+
+    setCourseLinkSaving(true)
+    try {
+      const dropInValue = dropInCents ? Math.round(Number(dropInCents.replace(",", ".")) * 100) : null
+      const packageValue = packageCents ? Math.round(Number(packageCents.replace(",", ".")) * 100) : null
+
+      const isUpdate = courseLinkEditingId !== null
+
+      const res = await fetch("/api/staff/school/course-links", {
+        method: isUpdate ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(isUpdate ? { id: courseLinkEditingId } : {}),
+          courseSlugA: courseEditingSlug,
+          courseSlugB: courseLinkForm.courseSlugB,
+          dropInConsecutiveCents: dropInValue ?? (isUpdate ? undefined : 0),
+          packageHolderConsecutiveCents: packageValue ?? (isUpdate ? undefined : 0),
+          active: courseLinkForm.active,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setCourseLinkError(typeof data?.error === "string" ? data.error : "Unable to save course link.")
+        return
+      }
+      setCourseLinkSuccess(typeof data?.message === "string" ? data.message : "Course link saved.")
+      resetCourseLinkForm()
+      await loadCourseLinks(courseEditingSlug)
+    } catch {
+      setCourseLinkError("Network error while saving course link.")
+    } finally {
+      setCourseLinkSaving(false)
+    }
+  }, [courseEditingSlug, courseLinkForm, courseLinkEditingId, loadCourseLinks, resetCourseLinkForm])
+
+  const editCourseLink = React.useCallback((link: CourseLinkRow) => {
+    setCourseLinkForm({
+      courseSlugB: link.courseSlugB,
+      dropInConsecutiveCents: centsToUsdInput(link.dropInConsecutiveCents),
+      packageHolderConsecutiveCents: centsToUsdInput(link.packageHolderConsecutiveCents),
+      active: link.active,
+    })
+    setCourseLinkEditingId(link.id)
+    setCourseLinkError(null)
+    setCourseLinkSuccess(null)
+  }, [])
+
+  const deleteCourseLink = React.useCallback(async (linkId: string) => {
+    setCourseLinkError(null)
+    setCourseLinkSuccess(null)
+    setCourseLinkSaving(true)
+    try {
+      const res = await fetch("/api/staff/school/course-links", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: linkId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setCourseLinkError(typeof data?.error === "string" ? data.error : "Unable to delete course link.")
+        return
+      }
+      setCourseLinkSuccess(typeof data?.message === "string" ? data.message : "Course link removed.")
+      if (courseEditingSlug) {
+        await loadCourseLinks(courseEditingSlug)
+      }
+      if (courseLinkEditingId === linkId) {
+        resetCourseLinkForm()
+      }
+    } catch {
+      setCourseLinkError("Network error while deleting course link.")
+    } finally {
+      setCourseLinkSaving(false)
+    }
+  }, [courseEditingSlug, courseLinkEditingId, loadCourseLinks, resetCourseLinkForm])
+
+  const toggleCourseLinkActive = React.useCallback(async (link: CourseLinkRow) => {
+    setCourseLinkError(null)
+    setCourseLinkSaving(true)
+    try {
+      const res = await fetch("/api/staff/school/course-links", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: link.id,
+          active: !link.active,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCourseLinkError(typeof data?.error === "string" ? data.error : "Unable to toggle course link.")
+        return
+      }
+      if (courseEditingSlug) {
+        await loadCourseLinks(courseEditingSlug)
+      }
+    } catch {
+      setCourseLinkError("Network error while toggling course link.")
+    } finally {
+      setCourseLinkSaving(false)
+    }
+  }, [courseEditingSlug, loadCourseLinks])
 
   const rowById = React.useMemo(() => {
     return rows.reduce<Record<string, StaffUserRow>>((acc, row) => {
@@ -5849,6 +6359,21 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setCurrentPage(1)
   }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, searchResultCards, studentSearchQuery])
 
+  // Check which displayed students have audit entries in the current month
+  React.useEffect(() => {
+    if (currentRole !== "owner" && currentRole !== "admin") return
+
+    const userIds = displayedStudentCards
+      .map((card) => ("source" in card && card.source === "profile" ? card.userId : card.latestPayment?.userId))
+      .filter((id): id is string => Boolean(id) && !usersWithAuditEntries.has(id))
+
+    // Check in batches to avoid too many requests
+    const uniqueIds = [...new Set(userIds)].slice(0, 10)
+    uniqueIds.forEach((userId) => {
+      void checkUserHasAuditEntries(userId)
+    })
+  }, [displayedStudentCards, currentRole, checkUserHasAuditEntries, usersWithAuditEntries])
+
   React.useEffect(() => {
     setCurrentPage((prev) => Math.min(prev, totalPages))
   }, [totalPages])
@@ -5889,6 +6414,19 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       }).length,
     }
   }, [currentMonthStudentsSummary, filteredStudentCards, paymentCategoryFilter])
+
+  const prioritizedTerminalPinAlerts = React.useMemo(
+    () =>
+      [...terminalPinAlerts].sort((left, right) => {
+        const severityDiff = TERMINAL_ALERT_PRIORITY[left.severity] - TERMINAL_ALERT_PRIORITY[right.severity]
+        if (severityDiff !== 0) return severityDiff
+
+        const leftTs = left.blockedUntil ? Date.parse(left.blockedUntil) : Number.MAX_SAFE_INTEGER
+        const rightTs = right.blockedUntil ? Date.parse(right.blockedUntil) : Number.MAX_SAFE_INTEGER
+        return leftTs - rightTs
+      }),
+    [terminalPinAlerts]
+  )
 
   const todayDateIso = React.useMemo(() => toLocalIsoDate(new Date()), [])
 
@@ -8367,21 +8905,21 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </button>
               </header>
 
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-4 xl:gap-4">
+                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Courses</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolCourses.length}</p>
                 </div>
-                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Rooms</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolRooms.length}</p>
                   <p className="mt-1 text-xs text-black/55 dark:text-white/55">{activeRoomOptions.length} active</p>
                 </div>
-                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Packages</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolPackages.length}</p>
                 </div>
-                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Points rules</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolPointsRules.length}</p>
                 </div>
@@ -8427,15 +8965,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       Names must stay unique and capacity must be greater than zero.
                     </p>
                   </div>
-                  <input
-                    name="roomName"
-                    value={roomForm.name}
-                    onChange={(event) => setRoomForm((prev) => ({ ...prev, name: event.target.value }))}
-                    placeholder="Room name"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    required
-                  />
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 md:grid-cols-[minmax(160px,1fr)_minmax(96px,130px)_minmax(130px,150px)_minmax(170px,1fr)]">
+                    <input
+                      name="roomName"
+                      value={roomForm.name}
+                      onChange={(event) => setRoomForm((prev) => ({ ...prev, name: event.target.value }))}
+                      placeholder="Room name"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                    />
                     <input
                       name="roomCapacity"
                       type="number"
@@ -8446,7 +8984,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
                     />
-                    <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs text-black/75 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/75">
+                    <label className="inline-flex h-full items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs text-black/75 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/75">
                       <input
                         type="checkbox"
                         checked={roomForm.active}
@@ -8454,14 +8992,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       />
                       Active room
                     </label>
+                    <input
+                      name="roomLocation"
+                      value={roomForm.location}
+                      onChange={(event) => setRoomForm((prev) => ({ ...prev, location: event.target.value }))}
+                      placeholder="Location details (optional)"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
                   </div>
-                  <input
-                    name="roomLocation"
-                    value={roomForm.location}
-                    onChange={(event) => setRoomForm((prev) => ({ ...prev, location: event.target.value }))}
-                    placeholder="Location details (optional)"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                  />
                   {roomFormError ? (
                     <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
                       {roomFormError}
@@ -8594,13 +9132,44 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   <div ref={courseFormFieldsRef} className="mt-4 space-y-4">
                     <div className="space-y-3">
                       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Course main information</span>
+                      {courseSlugConflict.exists && (
+                        <div className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 dark:border-amber-400/30 dark:bg-amber-900/20">
+                          <p className="text-xs text-amber-800 dark:text-amber-200">
+                            The slug <span className="font-semibold">&quot;{courseForm.slug}&quot;</span> already exists for{" "}
+                            <span className="font-semibold">&quot;{courseSlugConflict.existingTitle}&quot;</span>.
+                          </p>
+                          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                            Suggestion: <code className="rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-800/50">{courseSlugConflict.suggestion}</code>
+                          </p>
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={handleUseSlugSuggestion}
+                              className="rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700"
+                            >
+                              Use suggestion
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleEditExistingCourse}
+                              className="rounded-md border border-amber-600 bg-transparent px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                            >
+                              Edit existing
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3">
                         <input
                           name="courseSlug"
                           value={courseForm.slug}
                           onChange={(event) => setCourseForm((prev) => ({ ...prev, slug: event.target.value }))}
                           placeholder="slug (e.g., salsa-feminine-morning)"
-                          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          className={`w-full rounded-md border bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:bg-white/5 dark:text-white ${
+                            courseSlugConflict.exists
+                              ? "border-amber-500 dark:border-amber-400"
+                              : "border-black/15 dark:border-white/15"
+                          }`}
                           required
                         />
                         <input
@@ -9353,8 +9922,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     </div>
                                   </div>
                                 </div>
-                                <div className="grid gap-4 border-t border-black/10 pt-3 dark:border-white/10 lg:grid-cols-2">
-                                  <div className="min-w-0 space-y-1 lg:pr-2">
+                                <div className="grid gap-4 border-t border-black/10 pt-3 dark:border-white/10 md:grid-cols-2">
+                                  <div className="min-w-0 space-y-1 md:pr-2">
                                     <p className="truncate text-sm font-semibold text-black dark:text-white">{courseForm.title || "Untitled"}</p>
                                     <p className="text-black/70 dark:text-white/70">{courseForm.description || "No course description yet."}</p>
                                     <p className="truncate text-black/65 dark:text-white/65">Type: {selectedCourseKindLabel}</p>
@@ -9391,10 +9960,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                         : "Times: schedule to be defined"}
                                     </p>
                                   </div>
-                                  <div className="min-w-0 space-y-1 lg:border-l lg:border-black/10 lg:pl-3 dark:lg:border-white/10">
+                                  <div className="min-w-0 space-y-1 md:border-l md:border-black/10 md:pl-3 dark:md:border-white/10">
                                     <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Reviews by type</p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      {courseReviewVariants.map((variant) => (
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                      {courseReviewVariants.map((variant, index) => {
+                                        return (
                                         <div
                                           key={`course-review-variant-${variant.kind}`}
                                           className="rounded-md border border-black/10 bg-white/50 px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]"
@@ -9414,7 +9984,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                             </span>
                                           ) : null}
                                         </div>
-                                      ))}
+                                        )
+                                      })}
                                     </div>
                                   </div>
                                 </div>
@@ -9437,77 +10008,151 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               ) : schoolCourses.length === 0 ? (
                                 <p className="text-black/60 dark:text-white/60">No courses created yet.</p>
                               ) : (
-                                <div className="grid grid-cols-1 gap-2">
-                                  {schoolCourses.map((item) => (
-                                    <div
-                                      key={`course-row-${item.id}`}
-                                      className="rounded-md bg-black/[0.03] p-2 dark:bg-white/[0.02]"
-                                    >
-                                      <div className="flex items-start gap-2">
-                                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
-                                          <img
-                                            src={item.coverImageUrl || "/images/carousel/_DSC1076.JPG"}
-                                            alt={item.title}
-                                            className="h-full w-full object-cover"
-                                          />
-                                        </div>
-                                        <div className="min-w-0">
-                                          <p className="truncate font-semibold text-black dark:text-white">{item.title}</p>
-                                          <p className="truncate text-black/65 dark:text-white/65">
-                                            {item.slug} · {item.kind}
-                                          </p>
-                                          <p className="truncate text-black/55 dark:text-white/55">
-                                            Default room: {item.defaultRoomId ? roomById[item.defaultRoomId]?.name || "Assigned room" : "None"}
-                                          </p>
+                      <div className="grid grid-cols-6 gap-3">
+                                  {schoolCourses.map((item, index) => {
+                                    const total = schoolCourses.length
+                                    const remainder = total % 3
+                                    let spanClass = "col-span-2"
+                                    if (remainder === 1 && index === total - 1) {
+                                      spanClass = "col-span-6"
+                                    } else if (remainder === 2 && index >= total - 2) {
+                                      spanClass = "col-span-3"
+                                    }
+                                    return (
+                                      <div
+                                        key={`course-row-${item.id}`}
+                                        className={`rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] ${spanClass}`}
+                                      >
+                                        <div className="flex items-start gap-3">
+                                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/10 dark:bg-white/10 dark:ring-white/10">
+                                            <img
+                                              src={item.coverImageUrl || "/images/carousel/_DSC1076.JPG"}
+                                              alt={item.title}
+                                              className="h-full w-full object-cover"
+                                            />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <p className="truncate font-semibold text-black dark:text-white">{item.title}</p>
+                                            <p className="truncate text-xs text-black/60 dark:text-white/60">
+                                              {item.slug} · {item.kind}
+                                            </p>
+                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => loadCourseIntoForm(item)}
+                                                className="rounded border border-[var(--brand,#b61616)]/60 px-2 py-0.5 text-[11px] font-semibold text-[var(--brand,#ff4b4b)]"
+                                              >
+                                                Edit
+                                              </button>
+                                              {currentRole === "owner" && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => deleteCourse(item.slug, item.title)}
+                                                  className="rounded border border-red-500/60 px-2 py-0.5 text-[11px] font-semibold text-red-500 hover:bg-red-500/10"
+                                                >
+                                                  Delete
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
                                         </div>
                                       </div>
-                                      <div className="mt-2 flex flex-wrap gap-1.5">
-                                        <button
-                                          type="button"
-                                          onClick={() => loadCourseIntoForm(item)}
-                                          className="rounded border border-[var(--brand,#b61616)]/60 px-2 py-0.5 text-[11px] font-semibold text-[var(--brand,#ff4b4b)]"
-                                        >
-                                          Edit from form
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))}
+                                    )
+                                  })}
                                 </div>
                               )}
                             </div>
-                          </div>
-
-                          <div className="min-w-0 p-2 text-xs">
-                            <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Monthly calendar (preview only)</p>
-                            {schoolLoading ? (
-                              <div className="space-y-2 animate-pulse">
-                                <div className="h-8 rounded bg-black/10 dark:bg-white/10" />
-                                <div className="h-44 rounded bg-black/10 dark:bg-white/10" />
-                              </div>
-                            ) : (
-                              <div className="w-full min-w-0">
-                                <CalendarPicker
-                                  value=""
-                                  onChange={() => {}}
-                                  values={[...scheduleCalendarMap.keys()].sort()}
-                                  multiple
-                                  onValuesChange={() => {}}
-                                  timezone="America/New_York"
-                                  className="!w-full !rounded-md !bg-white/60 dark:!bg-white/[0.06]"
-                                  compact
-                                  locked
-                                  getDateTooltip={getCourseScheduleDateTooltip}
-                                  getDateTone={getCourseScheduleDateTone}
-                                />
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-5 grid grid-cols-2 gap-2">
+                  <div className="mt-5 grid gap-4 md:grid-cols-2">
+                    {/* Left column: Calendar */}
+                    <div className="min-w-0 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                      <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Monthly calendar (preview)</p>
+                      {schoolLoading ? (
+                        <div className="space-y-2 animate-pulse">
+                          <div className="h-8 rounded bg-black/10 dark:bg-white/10" />
+                          <div className="h-44 rounded bg-black/10 dark:bg-white/10" />
+                        </div>
+                      ) : (
+                        <CalendarPicker
+                          value=""
+                          onChange={() => {}}
+                          values={[...scheduleCalendarMap.keys()].sort()}
+                          multiple
+                          onValuesChange={() => {}}
+                          timezone="America/New_York"
+                          className="!w-full !rounded-md !bg-white/60 dark:!bg-white/[0.06]"
+                          compact
+                          locked
+                          getDateTooltip={getCourseScheduleDateTooltip}
+                          getDateTone={getCourseScheduleDateTone}
+                        />
+                      )}
+                    </div>
+
+                    {/* Right column: Publish on Social */}
+                    <div className="min-w-0 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Publish on social</p>
+                      <p className="mt-1 text-xs text-black/60 dark:text-white/60">Share this course directly from the dashboard.</p>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void copyCourseLink()}
+                          disabled={!previewPublicHref}
+                          className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                        >
+                          Copy link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => shareCourse("facebook")}
+                          disabled={!previewPublicHref}
+                          className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                        >
+                          Facebook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => shareCourse("x")}
+                          disabled={!previewPublicHref}
+                          className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                        >
+                          X
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => shareCourse("whatsapp")}
+                          disabled={!previewPublicHref}
+                          className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                        >
+                          WhatsApp
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => shareCourse("instagram")}
+                          disabled={!previewPublicHref}
+                          className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                        >
+                          Instagram
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => shareCourse("tiktok")}
+                          disabled={!previewPublicHref}
+                          className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                        >
+                          TikTok
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={resetCourseBuilder}
@@ -9525,70 +10170,236 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </button>
                   </div>
                 </form>
-
-                <div className="rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/65 dark:text-white/65">Publish on social</p>
-                  <p className="mt-1 text-xs text-black/60 dark:text-white/60">Share this course directly from the dashboard.</p>
-                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    <button
-                      type="button"
-                      onClick={() => void copyCourseLink()}
-                      disabled={!previewPublicHref}
-                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
-                    >
-                      Copy link
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => shareCourse("facebook")}
-                      disabled={!previewPublicHref}
-                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
-                    >
-                      Facebook
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => shareCourse("x")}
-                      disabled={!previewPublicHref}
-                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
-                    >
-                      X
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => shareCourse("whatsapp")}
-                      disabled={!previewPublicHref}
-                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
-                    >
-                      WhatsApp
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => shareCourse("instagram")}
-                      disabled={!previewPublicHref}
-                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
-                    >
-                      Instagram
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => shareCourse("tiktok")}
-                      disabled={!previewPublicHref}
-                      className="rounded-md border border-black/20 bg-white px-2 py-1.5 text-xs font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] disabled:opacity-40 dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
-                    >
-                      TikTok
-                    </button>
-                  </div>
-                </div>
               </div>
             </article>
+
+            {/* ─── Consecutive Classes (CourseLink) Section ─── */}
+            {courseEditingSlug && (
+              <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Consecutive Classes</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Link consecutive classes</h3>
+                <p className="mt-1 text-sm text-black/65 dark:text-white/65">
+                  Link this course to a consecutive class with special pricing.
+                </p>
+
+                {/* Error / Success messages */}
+                {courseLinkError && (
+                  <div className="mt-3 rounded-md border border-red-500/30 bg-red-50 px-3 py-2 dark:border-red-400/30 dark:bg-red-900/20">
+                    <p className="text-xs text-red-800 dark:text-red-200">{courseLinkError}</p>
+                  </div>
+                )}
+                {courseLinkSuccess && (
+                  <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-50 px-3 py-2 dark:border-emerald-400/30 dark:bg-emerald-900/20">
+                    <p className="text-xs text-emerald-800 dark:text-emerald-200">{courseLinkSuccess}</p>
+                  </div>
+                )}
+
+                {/* Add / Edit Link Form */}
+                <form onSubmit={saveCourseLink} className="mt-4 space-y-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Consecutive course</label>
+                      <select
+                        name="courseLinkCourseB"
+                        value={courseLinkForm.courseSlugB}
+                        onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, courseSlugB: event.target.value }))}
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      >
+                        <option value="">Select a course...</option>
+                        {schoolCourses
+                          .filter((c) => c.slug !== courseEditingSlug && c.active)
+                          .map((c) => (
+                            <option key={`link-course-${c.slug}`} value={c.slug}>
+                              {c.title} ({c.slug})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Status</label>
+                      <button
+                        type="button"
+                        onClick={() => setCourseLinkForm((prev) => ({ ...prev, active: !prev.active }))}
+                        className={`inline-flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition ${
+                          courseLinkForm.active
+                            ? "border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-900/20 dark:text-emerald-300"
+                            : "border-black/15 bg-white text-black/50 dark:border-white/15 dark:bg-white/5 dark:text-white/40"
+                        }`}
+                      >
+                        <span className={`inline-block h-2 w-2 rounded-full ${courseLinkForm.active ? "bg-emerald-500" : "bg-black/20 dark:bg-white/20"}`} />
+                        {courseLinkForm.active ? "Active" : "Inactive"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Drop-in consecutive price (USD)</label>
+                      <input
+                        name="courseLinkDropInPrice"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={courseLinkForm.dropInConsecutiveCents}
+                        onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, dropInConsecutiveCents: event.target.value }))}
+                        placeholder="e.g., 12"
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Package-holder consecutive price (USD)</label>
+                      <input
+                        name="courseLinkPackagePrice"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={courseLinkForm.packageHolderConsecutiveCents}
+                        onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, packageHolderConsecutiveCents: event.target.value }))}
+                        placeholder="e.g., 5"
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={courseLinkSaving}
+                      className="inline-flex items-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                    >
+                      {courseLinkSaving ? "Saving..." : courseLinkEditingId ? "Update link" : "Add link"}
+                    </button>
+                    {courseLinkEditingId && (
+                      <button
+                        type="button"
+                        onClick={resetCourseLinkForm}
+                        className="inline-flex items-center rounded-md border border-black/20 bg-white px-4 py-2 text-sm font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                {/* Existing Links — as A (this course is the early class) */}
+                {courseLinksAsA.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
+                      Courses after this one ({courseLinksAsA.length})
+                    </p>
+                    <div className="space-y-2">
+                      {courseLinksAsA.map((link) => {
+                        const courseB = schoolCourses.find((c) => c.slug === link.courseSlugB)
+                        return (
+                          <div
+                            key={`link-as-a-${link.id}`}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-black dark:text-white">
+                                → {courseB?.title || link.courseSlugB}
+                              </p>
+                              <p className="text-xs text-black/60 dark:text-white/60">
+                                Drop-in: {formatUsdInputLabel(centsToUsdInput(link.dropInConsecutiveCents))} · Package: {formatUsdInputLabel(centsToUsdInput(link.packageHolderConsecutiveCents))}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleCourseLinkActive(link)}
+                                disabled={courseLinkSaving}
+                                className={`rounded px-2 py-1 text-[11px] font-semibold transition ${
+                                  link.active
+                                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                                    : "bg-black/10 text-black/40 dark:bg-white/10 dark:text-white/40"
+                                }`}
+                              >
+                                {link.active ? "Active" : "Inactive"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => editCourseLink(link)}
+                                className="rounded border border-black/20 px-2 py-1 text-[11px] font-semibold text-black/70 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] dark:border-white/20 dark:text-white/60"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteCourseLink(link.id)}
+                                disabled={courseLinkSaving}
+                                className="rounded border border-red-500/40 px-2 py-1 text-[11px] font-semibold text-red-500 transition hover:bg-red-500/10 disabled:opacity-40"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Existing Links — as B (this course is the consecutive class) */}
+                {courseLinksAsB.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
+                      Courses before this one ({courseLinksAsB.length})
+                    </p>
+                    <div className="space-y-2">
+                      {courseLinksAsB.map((link) => {
+                        const courseA = schoolCourses.find((c) => c.slug === link.courseSlugA)
+                        return (
+                          <div
+                            key={`link-as-b-${link.id}`}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-black dark:text-white">
+                                {courseA?.title || link.courseSlugA} →
+                              </p>
+                              <p className="text-xs text-black/60 dark:text-white/60">
+                                Drop-in: {formatUsdInputLabel(centsToUsdInput(link.dropInConsecutiveCents))} · Package: {formatUsdInputLabel(centsToUsdInput(link.packageHolderConsecutiveCents))}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleCourseLinkActive(link)}
+                                disabled={courseLinkSaving}
+                                className={`rounded px-2 py-1 text-[11px] font-semibold transition ${
+                                  link.active
+                                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                                    : "bg-black/10 text-black/40 dark:bg-white/10 dark:text-white/40"
+                                }`}
+                              >
+                                {link.active ? "Active" : "Inactive"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteCourseLink(link.id)}
+                                disabled={courseLinkSaving}
+                                className="rounded border border-red-500/40 px-2 py-1 text-[11px] font-semibold text-red-500 transition hover:bg-red-500/10 disabled:opacity-40"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {courseLinksAsA.length === 0 && courseLinksAsB.length === 0 && (
+                  <p className="mt-4 text-xs text-black/50 dark:text-white/50">No consecutive class links yet.</p>
+                )}
+              </article>
+            )}
 
             <div className="grid gap-4 xl:grid-cols-2">
               <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Package builder</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create or update package</h3>
 
-                <form onSubmit={savePackagePlan} className="mt-3 space-y-2">
+                <form onSubmit={savePackagePlan} className="mt-4 space-y-5">
                   <div className="flex items-center justify-between gap-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
                     <span>{editingPackageId ? "Editing existing package" : "Create a package tied to one course."}</span>
                     {editingPackageId ? (
@@ -9604,7 +10415,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       </button>
                     ) : null}
                   </div>
-                  <div className="grid gap-2 md:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-3">
                     <input
                       name="packageKey"
                       value={packageForm.key}
@@ -9622,26 +10433,99 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
                     />
-                    <select
-                      name="packageCourseSlug"
-                      value={packageForm.courseSlug}
-                      onChange={(event) => setPackageForm((prev) => ({ ...prev, courseSlug: event.target.value }))}
+                    <input
+                      name="packageDescription"
+                      value={packageForm.description}
+                      onChange={(event) => setPackageForm((prev) => ({ ...prev, description: event.target.value }))}
+                      placeholder="Description (optional)"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    >
-                      {courseOptions.map((course) => (
-                        <option key={`package-course-${course.slug}`} value={course.slug}>
-                          {course.title}
-                        </option>
-                      ))}
-                    </select>
+                    />
+                    <div className="md:col-span-3">
+                      <label className="mb-2 block text-xs font-medium text-black/70 dark:text-white/70">
+                        Courses <span className="text-[var(--brand,#b61616)]">*</span>
+                      </label>
+                      <div className="grid grid-cols-6 gap-2">
+                        {courseOptions.map((course, index) => {
+                          const active = packageForm.courseSlugs.includes(course.slug)
+                          const total = courseOptions.length
+                          const remainder = total % 3
+                          // Grid of 6 columns so we can do: span-2 (1/3), span-3 (1/2), span-6 (full)
+                          // Complete rows: each item spans 2 (fits 3 per row)
+                          // Last row with 1 item: span 6 (full width)
+                          // Last row with 2 items: each spans 3 (half width each)
+                          let spanClass = "col-span-2" // default: 3 items per row
+                          if (remainder === 1 && index === total - 1) {
+                            spanClass = "col-span-6"
+                          } else if (remainder === 2 && index >= total - 2) {
+                            spanClass = "col-span-3"
+                          }
+                          return (
+                            <button
+                              key={`package-course-${course.slug}`}
+                              type="button"
+                              onClick={() => togglePackageCourse(course.slug)}
+                              className={`rounded-xl border px-3 py-3 text-left text-sm transition ${spanClass} ${
+                                active
+                                  ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 text-[var(--brand,#ff4b4b)] shadow-[0_10px_24px_-18px_rgba(182,22,22,0.85)]"
+                                  : "border-black/15 bg-white/80 text-black/80 dark:border-white/15 dark:bg-white/5 dark:text-white/80"
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                {course.imageUrl ? (
+                                  <div
+                                    role="img"
+                                    aria-label={course.title}
+                                    className="h-12 w-12 rounded-xl bg-cover bg-center ring-1 ring-black/10 dark:ring-white/10"
+                                    style={{ backgroundImage: `url("${course.imageUrl}")` }}
+                                  />
+                                ) : (
+                                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-black/5 text-xs font-semibold uppercase text-black/50 ring-1 ring-black/10 dark:bg-white/10 dark:text-white/55 dark:ring-white/10">
+                                    {course.title
+                                      .split(" ")
+                                      .slice(0, 2)
+                                      .map((part) => part[0])
+                                      .join("")}
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                      <p className={`font-semibold ${active ? "text-[var(--brand,#b61616)] dark:text-[var(--brand,#ff7b7b)]" : "text-black dark:text-white"}`}>
+                                        {course.title}
+                                      </p>
+                                      {course.kindLabel ? (
+                                        <p className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-black/45 dark:text-white/45">{course.kindLabel}</p>
+                                      ) : null}
+                                    </div>
+                                    <span
+                                      className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+                                        active
+                                          ? "border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 text-[var(--brand,#ff4b4b)]"
+                                          : "border-black/10 bg-black/[0.04] text-black/55 dark:border-white/10 dark:bg-white/[0.06] dark:text-white/55"
+                                      }`}
+                                    >
+                                      {active ? "Selected" : "Available"}
+                                    </span>
+                                  </div>
+                                  {course.scheduleLabel ? (
+                                    <p className="mt-2 text-xs text-black/65 dark:text-white/65">{course.scheduleLabel}</p>
+                                  ) : null}
+                                  {course.description ? (
+                                    <p className="mt-1 line-clamp-2 text-xs text-black/60 dark:text-white/60">{course.description}</p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="mt-2 text-xs text-black/60 dark:text-white/60">
+                        {packageForm.courseSlugs.length > 0
+                          ? `${packageForm.courseSlugs.length} course${packageForm.courseSlugs.length > 1 ? "s" : ""} assigned to this package.`
+                          : "No courses selected yet."}
+                      </p>
+                    </div>
                   </div>
-                  <input
-                    name="packageDescription"
-                    value={packageForm.description}
-                    onChange={(event) => setPackageForm((prev) => ({ ...prev, description: event.target.value }))}
-                    placeholder="Description"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                  />
                   <div className="grid gap-2 md:grid-cols-3">
                     <input
                       name="packagePriceCents"
@@ -9921,19 +10805,19 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Rules + manual assignment</h3>
 
                 <form onSubmit={savePointsRule} className="mt-3 space-y-2">
-                  <select
-                    name="pointsRuleTemplate"
-                    value={pointsRuleForm.templateKey}
-                    onChange={(event) => setPointsRuleForm((prev) => ({ ...prev, templateKey: event.target.value }))}
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                  >
-                    {POINTS_RULE_DEFINITIONS.map((item) => (
-                      <option key={`points-template-${item.key}`} value={item.key}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-[minmax(180px,0.9fr)_minmax(0,1fr)_110px_140px] gap-2">
+                    <select
+                      name="pointsRuleTemplate"
+                      value={pointsRuleForm.templateKey}
+                      onChange={(event) => setPointsRuleForm((prev) => ({ ...prev, templateKey: event.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      {POINTS_RULE_DEFINITIONS.map((item) => (
+                        <option key={`points-template-${item.key}`} value={item.key}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
                     <input
                       name="pointsRuleEventType"
                       value={selectedPointsRuleTemplate?.eventType || ""}
@@ -9950,40 +10834,50 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
                     />
+                    <label className="inline-flex h-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
+                      <input
+                        name="pointsRuleActive"
+                        type="checkbox"
+                        checked={pointsRuleForm.active}
+                        onChange={(event) => setPointsRuleForm((prev) => ({ ...prev, active: event.target.checked }))}
+                      />
+                      Active rule
+                    </label>
                   </div>
                   <p className="rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
                     {selectedPointsRuleTemplate?.description || "Select a rule to configure points."}
                   </p>
-                  <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
-                    <input
-                      name="pointsRuleActive"
-                      type="checkbox"
-                      checked={pointsRuleForm.active}
-                      onChange={(event) => setPointsRuleForm((prev) => ({ ...prev, active: event.target.checked }))}
-                    />
-                    Active rule
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={schoolBusy !== null}
-                    className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                  >
-                    {schoolBusy === "rule" ? "Saving..." : "Save rule"}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="submit"
+                      disabled={schoolBusy !== null}
+                      className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                    >
+                      {schoolBusy === "rule" ? "Saving..." : "Save rule"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={schoolBusy !== null}
+                      onClick={resetPointsRuleForm}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-black/15 bg-white/70 px-4 py-2 text-sm font-semibold text-black transition hover:bg-white disabled:opacity-60 dark:border-white/15 dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]"
+                    >
+                      Reset
+                    </button>
+                  </div>
                 </form>
 
-                <form onSubmit={assignPointsManually} className="mt-4 space-y-2 rounded-md border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                <form onSubmit={assignPointsManually} className="mt-4 space-y-3 rounded-md border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02]">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/65 dark:text-white/65">Manual assignment</p>
-                  <input
-                    name="pointsAssignUserEmail"
-                    type="email"
-                    value={pointsAssignForm.userEmail}
-                    onChange={(event) => setPointsAssignForm((prev) => ({ ...prev, userEmail: event.target.value }))}
-                    placeholder="Student email"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    required
-                  />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                    <input
+                      name="pointsAssignUserEmail"
+                      type="email"
+                      value={pointsAssignForm.userEmail}
+                      onChange={(event) => setPointsAssignForm((prev) => ({ ...prev, userEmail: event.target.value }))}
+                      placeholder="Student email"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                    />
                     <input
                       name="pointsAssignType"
                       value={pointsAssignForm.type}
@@ -10001,28 +10895,38 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
                     />
+                    <input
+                      name="pointsAssignNote"
+                      value={pointsAssignForm.note}
+                      onChange={(event) => setPointsAssignForm((prev) => ({ ...prev, note: event.target.value }))}
+                      placeholder="Note"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
+                    <input
+                      name="pointsAssignEventKey"
+                      value={pointsAssignForm.eventKey}
+                      onChange={(event) => setPointsAssignForm((prev) => ({ ...prev, eventKey: event.target.value }))}
+                      placeholder="Event key (optional)"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
                   </div>
-                  <input
-                    name="pointsAssignNote"
-                    value={pointsAssignForm.note}
-                    onChange={(event) => setPointsAssignForm((prev) => ({ ...prev, note: event.target.value }))}
-                    placeholder="Note"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                  />
-                  <input
-                    name="pointsAssignEventKey"
-                    value={pointsAssignForm.eventKey}
-                    onChange={(event) => setPointsAssignForm((prev) => ({ ...prev, eventKey: event.target.value }))}
-                    placeholder="Event key (optional)"
-                    className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                  />
-                  <button
-                    type="submit"
-                    disabled={schoolBusy !== null}
-                    className="inline-flex w-full items-center justify-center rounded-md border border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 px-4 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-60"
-                  >
-                    {schoolBusy === "assign" ? "Assigning..." : "Assign points"}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="submit"
+                      disabled={schoolBusy !== null}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 px-4 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-60"
+                    >
+                      {schoolBusy === "assign" ? "Assigning..." : "Assign points"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={schoolBusy !== null}
+                      onClick={resetPointsAssignForm}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-black/15 bg-white/70 px-4 py-2 text-sm font-semibold text-black transition hover:bg-white disabled:opacity-60 dark:border-white/15 dark:bg-white/[0.06] dark:text-white dark:hover:bg-white/[0.1]"
+                    >
+                      Reset
+                    </button>
+                  </div>
                 </form>
 
                 <div className="mt-3 max-h-44 space-y-2 overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
@@ -10271,6 +11175,64 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               Refresh
             </button>
           </header>
+
+          {prioritizedTerminalPinAlerts.length > 0 ? (
+            <div className="mb-4 rounded-2xl border border-[var(--brand,#b61616)]/18 bg-[linear-gradient(145deg,rgba(182,22,22,0.08),rgba(17,20,31,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.65)]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand,#b61616)]">
+                  Terminal alerts
+                </span>
+                <p className="text-sm text-black/70 dark:text-white/70">
+                  PIN issues needing attention from terminal flow.
+                </p>
+                </div>
+                <p className="text-xs text-black/55 dark:text-white/55">Auto-refresh every {terminalPinAlerts.length > 0 ? 5 : 10}s</p>
+              </div>
+              <div className="mt-3 grid gap-2 xl:grid-cols-2">
+                {prioritizedTerminalPinAlerts.map((alert) => (
+                  <div
+                    key={`${alert.terminalId}-${alert.severity}-${alert.blockedUntil || "open"}`}
+                    className={`rounded-xl border px-3 py-2 text-sm dark:bg-white/[0.04] ${
+                      alert.severity === "emergency"
+                        ? "border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/8"
+                        : alert.severity === "cooldown"
+                          ? "border-amber-500/25 bg-amber-500/8"
+                          : "border-yellow-500/20 bg-yellow-500/8"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-black dark:text-white">{alert.terminalName}</span>
+                        {alert.terminalLocation ? (
+                          <span className="text-[11px] uppercase tracking-[0.16em] text-black/45 dark:text-white/45">{alert.terminalLocation}</span>
+                        ) : null}
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${
+                          alert.severity === "emergency"
+                            ? "bg-[var(--brand,#b61616)]/15 text-[var(--brand,#b61616)]"
+                            : alert.severity === "cooldown"
+                              ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
+                              : "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+                        }`}
+                      >
+                        {alert.label}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+                      Misses: {alert.missCount}
+                      {alert.blockedUntil ? ` · ${formatTerminalAlertRelative(alert.blockedUntil, nowTs)}` : ""}
+                    </p>
+                    <p className="mt-1 text-sm text-black/75 dark:text-white/75">{alert.message}</p>
+                    {alert.blockedUntil ? (
+                      <p className="mt-1 text-xs text-black/50 dark:text-white/50">Until {formatTerminalAlertDateTime(alert.blockedUntil)}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-1 flex flex-nowrap gap-2 overflow-x-auto pb-1">
             {[
@@ -10802,20 +11764,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         >
                           Notify
                         </button>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return
-                            try {
-                              await navigator.clipboard.writeText(student.email || "")
-                            } catch {
-                              setError("Unable to copy student email.")
-                            }
-                          }}
-                          className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
-                        >
-                          Copy email
-                        </button>
                         {canOperateStudentPins && student.userId ? (
                           <button
                             type="button"
@@ -10825,7 +11773,32 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             {student.provisionalPinExpiresAt ? "Reissue PIN" : "Provisional PIN"}
                           </button>
                         ) : null}
+                        {(currentRole === "owner" || currentRole === "admin") && student.userId ? (
+                          <button
+                            type="button"
+                            onClick={() => openOverrideModal(student.userId, student.displayName)}
+                            className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
+                          >
+                            Edit info
+                          </button>
+                        ) : null}
                       </div>
+
+                      {(currentRole === "owner" || currentRole === "admin") && student.userId && usersWithAuditEntries.has(student.userId) && (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              setAuditHistoryAnchor(e.currentTarget)
+                              setAuditHistoryStudentId(student.userId)
+                              setAuditHistoryStudentName(student.displayName)
+                            }}
+                            className="w-full rounded-md border border-white/15 px-2 py-1.5 text-[11px] text-white/60 hover:text-white/80 hover:border-white/25 transition-colors"
+                          >
+                            Change history
+                          </button>
+                        </div>
+                      )}
                     </article>
                   )
                 }
@@ -10914,8 +11887,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     ) : null}
                     <header className="flex items-center gap-3">
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
-                        {payment.customerAvatarUrl ? (
-                          <img src={payment.customerAvatarUrl} alt={identity.fullName} className="h-full w-full object-cover" />
+                        {payment.customerAvatarUrl || student.avatarUrl ? (
+                          <img src={payment.customerAvatarUrl || student.avatarUrl} alt={identity.fullName} className="h-full w-full object-cover" />
                         ) : (
                           initials
                         )}
@@ -11139,20 +12112,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       >
                         Notify
                       </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return
-                          try {
-                            await navigator.clipboard.writeText(payment.customerEmail || "")
-                          } catch {
-                            setError("Unable to copy student email.")
-                          }
-                        }}
-                        className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
-                      >
-                        Copy email
-                      </button>
                       {canOperateStudentPins && payment.userId ? (
                         <button
                           type="button"
@@ -11162,7 +12121,32 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           {payment.studentPin.provisionalActive ? "Reissue PIN" : "Provisional PIN"}
                         </button>
                       ) : null}
+                      {(currentRole === "owner" || currentRole === "admin") && payment.userId ? (
+                        <button
+                          type="button"
+                          onClick={() => openOverrideModal(payment.userId, identity.fullName)}
+                          className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
+                        >
+                          Edit info
+                        </button>
+                      ) : null}
                     </div>
+
+                    {(currentRole === "owner" || currentRole === "admin") && payment.userId && usersWithAuditEntries.has(payment.userId) && (
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            setAuditHistoryAnchor(e.currentTarget)
+                            setAuditHistoryStudentId(payment.userId)
+                            setAuditHistoryStudentName(identity.fullName)
+                          }}
+                          className="w-full rounded-md border border-white/15 px-2 py-1.5 text-[11px] text-white/60 hover:text-white/80 hover:border-white/25 transition-colors"
+                        >
+                          Change history
+                        </button>
+                      </div>
+                    )}
                   </article>
                 )
               })
@@ -12737,6 +13721,36 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           />
         )
       })()}
+
+      {/* Audit History Popover */}
+      <AuditHistoryPopover
+        studentId={auditHistoryStudentId || ""}
+        studentName={auditHistoryStudentName || ""}
+        anchorEl={auditHistoryAnchor}
+        isOpen={!!auditHistoryAnchor}
+        onClose={() => {
+          setAuditHistoryAnchor(null)
+          setAuditHistoryStudentId(null)
+          setAuditHistoryStudentName(null)
+        }}
+      />
+
+      {/* Student Data Override Modal (owner/admin only) */}
+      {overrideModalStudent && (
+        <StudentDataOverrideModal
+          open={overrideModalOpen}
+          onClose={closeOverrideModal}
+          studentId={overrideModalStudent.id}
+          studentName={overrideModalStudent.name}
+          currentRole={currentRole === "staff" ? "staff" : currentRole === "admin" ? "admin" : "owner"}
+          onSuccess={() => {
+            // Mark this user as having current-month audit entries so the change-history button appears
+            setUsersWithAuditEntries((prev) => new Set(prev).add(overrideModalStudent.id))
+            // Refresh the payments board to show updated data
+            void refreshPaymentsBoard()
+          }}
+        />
+      )}
     </>
   )
 }
