@@ -252,6 +252,50 @@ export async function GET(req: Request) {
     }
   })
 
+  // Dedup enrichedPurchases by slot key — when two purchases exist for the same
+  // (userId, courseSlug, classStartsAt), keep the real payment (Stripe/cash) so
+  // Payment History can surface it, and merge attendanceId from package_credit.
+  const enrichedPurchasesBySlot = new Map<string, (typeof enrichedPurchases)[number]>()
+  for (const item of enrichedPurchases) {
+    const key = buildPurchaseAttendanceDedupKey({
+      purchaseId: item.purchase.id,
+      userId: item.userId,
+      courseSlug: item.purchase.courseSlug,
+      classStartsAt: item.classStartsAt,
+    })
+    const existing = enrichedPurchasesBySlot.get(key)
+    if (!existing) {
+      enrichedPurchasesBySlot.set(key, item)
+    } else {
+      // When both a Stripe/cash purchase (has amount + paymentChannel) and a
+      // package_credit purchase (has attendanceId) exist for the same slot,
+      // keep the real payment so Payment History can surface it, and merge
+      // the attendanceId from the credit record into its metadata.
+      const existingIsCredit = asText(existing.metadata.paymentChannel) === "package_credit"
+      const newIsCredit = asText(item.metadata.paymentChannel) === "package_credit"
+
+      if (existingIsCredit && !newIsCredit) {
+        // Existing is credit, new is real payment. Keep new, inherit attendanceId.
+        const creditMeta = existing.metadata as Record<string, unknown> | null
+        const inheritedAttendanceId = creditMeta?.attendanceId ?? null
+        const mergedMetadata = inheritedAttendanceId
+          ? { ...(item.metadata as Record<string, unknown>), attendanceId: inheritedAttendanceId }
+          : item.metadata
+        enrichedPurchasesBySlot.set(key, { ...item, metadata: mergedMetadata as typeof item.metadata })
+      } else if (!existingIsCredit && newIsCredit) {
+        // Existing is real payment, new is credit. Keep existing, inherit attendanceId.
+        const creditMeta = item.metadata as Record<string, unknown> | null
+        const inheritedAttendanceId = creditMeta?.attendanceId ?? null
+        const mergedMetadata = inheritedAttendanceId
+          ? { ...(existing.metadata as Record<string, unknown>), attendanceId: inheritedAttendanceId }
+          : existing.metadata
+        enrichedPurchasesBySlot.set(key, { ...existing, metadata: mergedMetadata as typeof existing.metadata })
+      }
+      // Both credits or both real payments → keep existing (first-seen wins)
+    }
+  }
+  const deduplicatedEnrichedPurchases = [...enrichedPurchasesBySlot.values()]
+
   const standaloneItems: typeof enrichedPurchases = []
   const todayAttendanceByPurchaseId = new Map<
     string,
@@ -317,7 +361,7 @@ export async function GET(req: Request) {
     })
 
     const purchaseDedupKeys = new Set(
-      enrichedPurchases
+      deduplicatedEnrichedPurchases
         .filter(
           (item) =>
             item.classDate === todayNY ||
@@ -396,7 +440,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const historyEligiblePurchases = enrichedPurchases.filter((item) => item.classDate && item.classTime)
+  const historyEligiblePurchases = deduplicatedEnrichedPurchases.filter((item) => item.classDate && item.classTime)
   const historyDatePurchases = mode === "history"
     ? historyEligiblePurchases.filter((item) => item.classDate! >= historyRange!.from && item.classDate! <= historyRange!.to)
     : []
@@ -419,7 +463,7 @@ export async function GET(req: Request) {
     mode === "history"
       ? historyDatePurchases.filter((item) => !selectedClass || item.purchase.courseSlug === selectedClass)
       : [
-          ...enrichedPurchases.filter(
+          ...deduplicatedEnrichedPurchases.filter(
             (item) =>
               item.classDate === todayNY ||
               (item.purchase.createdAt >= startOfTodayNY && item.purchase.createdAt <= endOfTodayNY)

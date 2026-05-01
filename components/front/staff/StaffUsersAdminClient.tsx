@@ -2719,8 +2719,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return
-        if (data.payments && Array.isArray(data.payments)) {
-          setUserHistoryPayments(data.payments as PaymentRow[])
+        if (data.items && Array.isArray(data.items)) {
+          setUserHistoryPayments(data.items as PaymentRow[])
         }
       })
       .catch(() => {
