@@ -407,7 +407,7 @@ export const planRoomReassignmentAllOrNothing = (input: ReassignmentPlanInput): 
       excludeSessionId: sourceSession.id,
     })
 
-    if (conflict) {
+    if (conflict && conflict.kind !== "schedule") {
       blockers.push({
         code: "TARGET_ROOM_CONFLICT",
         sourceSessionId: sourceSession.id,
