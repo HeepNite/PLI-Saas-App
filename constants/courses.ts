@@ -53,6 +53,8 @@ export type CourseData = {
     packages: EnrollmentOption[]
     addons?: EnrollmentOption[]
   }
+  /** Raw scheduleRules JSON from CourseCatalog (day-specific per-weekday times). */
+  scheduleRules?: unknown
 }
 
 /**

@@ -2,10 +2,10 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { buildRoomLifecycleAuditPayload, canDisableOrReassignRoom, getDisableRoomBlockers } from "@/lib/room-availability"
 import {
   isUniqueConstraintError,
   prismaRoomRouteError,
-  roomHasScheduledUsage,
   type RoomRecord,
   ROOM_SELECT,
   serializeRoom,
@@ -17,8 +17,6 @@ import {
 } from "../shared"
 
 export const runtime = "nodejs"
-
-const SESSION_LOOKBACK_MS = 24 * 60 * 60 * 1000
 
 type RoomDelegate = {
   findUnique: (args: unknown) => Promise<RoomRecord | null>
@@ -34,27 +32,73 @@ const getRoomDelegate = (): RoomDelegate | null => {
 }
 
 const classSessionDelegate = prisma.classSession as {
-  findMany: (args: unknown) => Promise<Array<{ startsAt: Date; durationMinutes: number | null }>>
+  findMany: (args: unknown) => Promise<Array<{ id: string; startsAt: Date; durationMinutes: number | null }>>
 }
+
+const roomReservationDelegate = (prisma as typeof prisma & {
+  roomReservation?: {
+    findMany: (args: unknown) => Promise<Array<{ id: string; startsAt: Date; endsAt: Date; status: string }>>
+  }
+}).roomReservation
+
+const roomAuditLogDelegate = (prisma as typeof prisma & {
+  roomAuditLog?: {
+    create: (args: unknown) => Promise<{ id: string }>
+  }
+}).roomAuditLog
 
 const hasBlockingScheduledSessions = async (roomId: string) => {
   const now = new Date()
+  const next24h = new Date(now.getTime() + 24 * 60 * 60 * 1000)
   const sessions = await classSessionDelegate.findMany({
     where: {
       roomId,
       startsAt: {
-        gte: new Date(now.getTime() - SESSION_LOOKBACK_MS),
+        gte: now,
+        lt: next24h,
       },
     },
-    orderBy: [{ startsAt: "desc" }],
+    orderBy: [{ startsAt: "asc" }],
     take: 100,
     select: {
+      id: true,
       startsAt: true,
       durationMinutes: true,
     },
   })
 
-  return roomHasScheduledUsage(sessions, now)
+  const blockers = getDisableRoomBlockers(
+    sessions.map((session) => ({
+      id: session.id,
+      roomId,
+      startsAt: session.startsAt,
+      durationMinutes: session.durationMinutes,
+    })),
+    now
+  )
+
+  const reservations = roomReservationDelegate
+    ? await roomReservationDelegate.findMany({
+        where: {
+          roomId,
+          status: { notIn: ["cancelled", "canceled"] },
+          startsAt: { gte: now, lt: next24h },
+        },
+        orderBy: [{ startsAt: "asc" }],
+        select: { id: true, startsAt: true, endsAt: true, status: true },
+      })
+    : []
+
+  return {
+    hasBlockingUsage: blockers.length > 0 || reservations.length > 0,
+    blockers,
+    reservationBlockers: reservations.map((reservation) => ({
+      code: "RESERVATION_IN_NEXT_24H" as const,
+      reservationId: reservation.id,
+      startsAt: reservation.startsAt,
+      endsAt: reservation.endsAt,
+    })),
+  }
 }
 
 const loadRoom = async (roomDelegate: RoomDelegate, roomId: string) =>
@@ -122,8 +166,21 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   }
 
   const isDeactivation = currentRoom.active && !nextActive
-  if (isDeactivation && (await hasBlockingScheduledSessions(roomId))) {
-    return NextResponse.json({ error: "Cannot deactivate a room with active or future sessions." }, { status: 422 })
+  if (isDeactivation) {
+    if (!canDisableOrReassignRoom({ role: authResult.role, category: authResult.category })) {
+      return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
+    }
+
+    const usage = await hasBlockingScheduledSessions(roomId)
+    if (usage.hasBlockingUsage) {
+      return NextResponse.json(
+        {
+          error: "Cannot disable room while there are sessions or reservations in the next 24 hours.",
+          blockers: [...usage.blockers, ...usage.reservationBlockers],
+        },
+        { status: 409 }
+      )
+    }
   }
 
   try {
@@ -187,8 +244,34 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Room not found." }, { status: 404 })
   }
 
-  if (currentRoom.active && (await hasBlockingScheduledSessions(roomId))) {
-    return NextResponse.json({ error: "Cannot deactivate a room with active or future sessions." }, { status: 422 })
+  if (!canDisableOrReassignRoom({ role: authResult.role, category: authResult.category })) {
+    return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
+  }
+
+  if (currentRoom.active) {
+    const usage = await hasBlockingScheduledSessions(roomId)
+    if (usage.hasBlockingUsage) {
+      if (roomAuditLogDelegate) {
+        await roomAuditLogDelegate.create({
+          data: buildRoomLifecycleAuditPayload({
+            action: "room_disable",
+            actorClerkUserId: authResult.userId,
+            actorRole: authResult.role,
+            outcome: "denied",
+            roomId: currentRoom.id,
+            roomNameSnapshot: currentRoom.name,
+            blockers: [...usage.blockers, ...usage.reservationBlockers],
+          }),
+        })
+      }
+      return NextResponse.json(
+        {
+          error: "Cannot disable room while there are sessions or reservations in the next 24 hours.",
+          blockers: [...usage.blockers, ...usage.reservationBlockers],
+        },
+        { status: 409 }
+      )
+    }
   }
 
   if (!currentRoom.active) {
@@ -205,6 +288,19 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       data: { active: false },
       select: ROOM_SELECT,
     })
+
+    if (roomAuditLogDelegate) {
+      await roomAuditLogDelegate.create({
+        data: buildRoomLifecycleAuditPayload({
+          action: "room_disable",
+          actorClerkUserId: authResult.userId,
+          actorRole: authResult.role,
+          outcome: "success",
+          roomId: room.id,
+          roomNameSnapshot: room.name,
+        }),
+      })
+    }
 
     return NextResponse.json({
       ok: true,

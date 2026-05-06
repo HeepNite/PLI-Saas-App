@@ -6,6 +6,76 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 
 export const runtime = "nodejs"
 
+export async function GET(req: Request, context: { params: Promise<{ userId: string }> }) {
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:packages:get", getClientIp(req)),
+    limit: 120,
+    windowMs: 60_000,
+  })
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeOwnerOrAdminRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
+
+  const { userId } = await context.params
+  if (!userId) {
+    return NextResponse.json({ error: "Missing userId" }, { status: 400 })
+  }
+
+  try {
+    const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+    if (!student) {
+      return NextResponse.json({ error: "Student not found" }, { status: 404 })
+    }
+
+    const packages = await prisma.packagePurchase.findMany({
+      where: { userId },
+      orderBy: [{ status: "asc" }, { purchasedAt: "desc" }],
+      select: {
+        id: true,
+        packageLabel: true,
+        packageId: true,
+        status: true,
+        totalCredits: true,
+        remainingCredits: true,
+        isUnlimited: true,
+        expiresAt: true,
+      },
+    })
+
+    const normalized = packages.map((pkg) => {
+      const usedCredits = pkg.isUnlimited
+        ? null
+        : typeof pkg.totalCredits === "number" && typeof pkg.remainingCredits === "number"
+          ? Math.max(0, pkg.totalCredits - pkg.remainingCredits)
+          : null
+
+      return {
+        id: pkg.id,
+        label: pkg.packageLabel || pkg.packageId || "Package",
+        status: pkg.status,
+        totalCredits: pkg.totalCredits,
+        remainingCredits: pkg.remainingCredits,
+        usedCredits,
+        isUnlimited: pkg.isUnlimited,
+        expiresAt: pkg.expiresAt?.toISOString() ?? null,
+      }
+    })
+
+    return NextResponse.json({ ok: true, data: { packages: normalized } })
+  } catch (error) {
+    console.error("Package listing error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
 export async function PATCH(req: Request, context: { params: Promise<{ userId: string }> }) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:packages:patch", getClientIp(req)),

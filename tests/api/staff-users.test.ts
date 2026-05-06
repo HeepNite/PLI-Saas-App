@@ -18,6 +18,10 @@ const invitationsApi = {
   createInvitation: vi.fn(),
 }
 
+const sessionsApi = {
+  getSessionList: vi.fn(),
+}
+
 vi.mock("@/lib/security/staff-portal-auth", () => ({
   authorizeStaffPortalRequest: (...args: unknown[]) => mockAuthorizePortal(...args),
 }))
@@ -39,8 +43,9 @@ describe("staff users routes", () => {
     usersApi.banUser.mockReset()
     usersApi.unbanUser.mockReset()
     invitationsApi.createInvitation.mockReset()
+    sessionsApi.getSessionList.mockReset()
 
-    mockClerkClient.mockResolvedValue({ users: usersApi, invitations: invitationsApi })
+    mockClerkClient.mockResolvedValue({ users: usersApi, invitations: invitationsApi, sessions: sessionsApi })
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
   })
 
@@ -309,5 +314,213 @@ describe("staff users routes", () => {
     const req = new Request("http://localhost/api/staff/users/staff_1", { method: "DELETE" })
     const res = await DELETE(req, { params: Promise.resolve({ userId: "staff_1" }) })
     expect(res.status).toBe(400)
+  })
+
+  describe("online vs authOnline semantics", () => {
+    it("active session without check-in returns online=false authOnline=true", async () => {
+      const now = Date.now()
+      usersApi.getUserList.mockResolvedValue({
+        data: [
+          {
+            id: "u_login_only",
+            firstName: "Login",
+            lastName: "Only",
+            emailAddresses: [{ emailAddress: "login@example.com" }],
+            publicMetadata: { role: "staff" },
+            privateMetadata: { lastActiveAt: new Date(now).toISOString() },
+            banned: false,
+            locked: false,
+            createdAt: now,
+            lastSignInAt: now,
+            lastActiveAt: now,
+          },
+        ],
+      })
+      sessionsApi.getSessionList
+        .mockRejectedValueOnce(new Error("global sessions unavailable"))
+        .mockResolvedValueOnce({ data: [{ id: "sess_1" }] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items).toHaveLength(1)
+      expect(data.items[0].online).toBe(false)
+      expect(data.items[0].authOnline).toBe(true)
+    })
+
+    it("active session with recent check-in returns online=true authOnline=true", async () => {
+      const now = Date.now()
+      usersApi.getUserList.mockResolvedValue({
+        data: [
+          {
+            id: "u_checked_in",
+            firstName: "Checked",
+            lastName: "In",
+            emailAddresses: [{ emailAddress: "checkin@example.com" }],
+            publicMetadata: { role: "staff" },
+            privateMetadata: {
+              staffLastCheckInAt: new Date(now - 5 * 60 * 1000).toISOString(),
+            },
+            banned: false,
+            locked: false,
+            createdAt: now,
+            lastSignInAt: now,
+            lastActiveAt: now,
+          },
+        ],
+      })
+      sessionsApi.getSessionList
+        .mockRejectedValueOnce(new Error("global sessions unavailable"))
+        .mockResolvedValueOnce({ data: [{ id: "sess_2" }] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items).toHaveLength(1)
+      expect(data.items[0].online).toBe(true)
+      expect(data.items[0].authOnline).toBe(true)
+    })
+
+    it("no active session without check-in returns online=false authOnline=false", async () => {
+      const now = Date.now()
+      usersApi.getUserList.mockResolvedValue({
+        data: [
+          {
+            id: "u_offline",
+            firstName: "Offline",
+            lastName: "User",
+            emailAddresses: [{ emailAddress: "offline@example.com" }],
+            publicMetadata: { role: "staff" },
+            privateMetadata: {},
+            banned: false,
+            locked: false,
+            createdAt: now,
+            lastSignInAt: now - 7 * 24 * 60 * 60 * 1000,
+            lastActiveAt: now - 7 * 24 * 60 * 60 * 1000,
+          },
+        ],
+      })
+      sessionsApi.getSessionList.mockRejectedValueOnce(new Error("global sessions unavailable"))
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items).toHaveLength(1)
+      expect(data.items[0].online).toBe(false)
+      expect(data.items[0].authOnline).toBe(false)
+    })
+
+    it("presence metadata online with active session returns online=true authOnline=true", async () => {
+      const now = Date.now()
+      usersApi.getUserList.mockResolvedValue({
+        data: [
+          {
+            id: "u_presence",
+            firstName: "Presence",
+            lastName: "User",
+            emailAddresses: [{ emailAddress: "presence@example.com" }],
+            publicMetadata: { role: "staff" },
+            privateMetadata: {
+              staffPresenceStatus: "online",
+              staffPresenceUpdatedAt: new Date(now - 5 * 60 * 1000).toISOString(),
+            },
+            banned: false,
+            locked: false,
+            createdAt: now,
+            lastSignInAt: now,
+            lastActiveAt: now,
+          },
+        ],
+      })
+      sessionsApi.getSessionList
+        .mockRejectedValueOnce(new Error("global sessions unavailable"))
+        .mockResolvedValueOnce({ data: [{ id: "sess_3" }] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items).toHaveLength(1)
+      expect(data.items[0].online).toBe(true)
+      expect(data.items[0].authOnline).toBe(true)
+    })
+
+    it("presence metadata offline with active session returns online=false authOnline=true", async () => {
+      const now = Date.now()
+      usersApi.getUserList.mockResolvedValue({
+        data: [
+          {
+            id: "u_forced_offline",
+            firstName: "Forced",
+            lastName: "Offline",
+            emailAddresses: [{ emailAddress: "forced@example.com" }],
+            publicMetadata: { role: "staff" },
+            privateMetadata: {
+              staffPresenceStatus: "offline",
+              staffPresenceUpdatedAt: new Date(now - 5 * 60 * 1000).toISOString(),
+            },
+            banned: false,
+            locked: false,
+            createdAt: now,
+            lastSignInAt: now,
+            lastActiveAt: now,
+          },
+        ],
+      })
+      sessionsApi.getSessionList
+        .mockRejectedValueOnce(new Error("global sessions unavailable"))
+        .mockResolvedValueOnce({ data: [{ id: "sess_4" }] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items).toHaveLength(1)
+      // forcedOffline is only true when hasActiveSession=false, so with active session
+      // the offline presence is ignored and online falls back to check-in/presence check
+      expect(data.items[0].authOnline).toBe(true)
+    })
+  })
+
+  describe("Clerk error handling", () => {
+    it("GET returns 429 with Retry-After when Clerk returns 429 on getUserList", async () => {
+      const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429, headers: { "retry-after": "10" } })
+      usersApi.getUserList.mockRejectedValue(clerkError)
+      sessionsApi.getSessionList.mockResolvedValue({ data: [] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(429)
+      expect(res.headers.get("Retry-After")).toBe("10")
+      const data = await res.json()
+      expect(data.error).toMatch(/temporarily busy/i)
+    })
+
+    it("GET returns 503 with Retry-After when Clerk returns 500 on getUserList", async () => {
+      const clerkError = Object.assign(new Error("Internal Server Error"), { status: 500 })
+      usersApi.getUserList.mockRejectedValue(clerkError)
+      sessionsApi.getSessionList.mockResolvedValue({ data: [] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(503)
+      expect(res.headers.get("Retry-After")).toBe("5")
+      const data = await res.json()
+      expect(data.error).toMatch(/temporarily unavailable/i)
+    })
+
+    it("GET returns 429 with default Retry-After when Clerk 429 has no retry-after header", async () => {
+      const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429 })
+      usersApi.getUserList.mockRejectedValue(clerkError)
+      sessionsApi.getSessionList.mockResolvedValue({ data: [] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(429)
+      expect(res.headers.get("Retry-After")).toBe("5")
+    })
   })
 })

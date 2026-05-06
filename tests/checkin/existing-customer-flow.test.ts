@@ -170,6 +170,8 @@ describe("existing customer kiosk helpers", () => {
         hasPackageCheckInResult: true,
         effectiveCheckInWindowOpen: true,
         hasActiveSession: true,
+        hasConsecutiveOffer: false,
+        consecutiveOfferSettled: true,
       })
     ).toBe(false)
   })
@@ -184,6 +186,8 @@ describe("existing customer kiosk helpers", () => {
         hasPackageCheckInResult: false,
         effectiveCheckInWindowOpen: true,
         hasActiveSession: true,
+        hasConsecutiveOffer: false,
+        consecutiveOfferSettled: true,
       })
     ).toBe(true)
   })

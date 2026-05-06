@@ -7,11 +7,17 @@ const mockEnforceNewStudent = vi.fn()
 const mockEnrollStudentPin = vi.fn()
 const mockUpsertUser = vi.fn()
 const mockClearPreparedCheckout = vi.fn()
+const mockPurchaseFindFirst = vi.fn()
+const mockPurchaseCreate = vi.fn()
 
 const mockPrisma = {
   purchase: {
-    create: vi.fn(),
+    findFirst: mockPurchaseFindFirst,
+    create: mockPurchaseCreate,
   },
+  $transaction: vi.fn(async (callback: (tx: { purchase: { create: typeof mockPurchaseCreate } }) => unknown) =>
+    callback({ purchase: { create: mockPurchaseCreate } })
+  ),
 }
 
 vi.mock("@/lib/checkout", () => ({
@@ -40,7 +46,9 @@ describe("checkout cash route", () => {
     mockEnforceNewStudent.mockReset()
     mockEnrollStudentPin.mockReset()
     mockUpsertUser.mockReset()
+    mockPrisma.purchase.findFirst.mockReset()
     mockPrisma.purchase.create.mockReset()
+    mockPrisma.$transaction.mockClear()
     mockClearPreparedCheckout.mockReset()
 
     mockValidate.mockResolvedValue({
@@ -97,6 +105,7 @@ describe("checkout cash route", () => {
     mockEnforceNewStudent.mockResolvedValue(null)
     mockEnrollStudentPin.mockResolvedValue({ ok: true, dbUserId: null })
     mockUpsertUser.mockResolvedValue({ id: "db_user_1" })
+    mockPrisma.purchase.findFirst.mockResolvedValue(null)
     mockPrisma.purchase.create.mockResolvedValue({
       id: "purchase_1",
       status: "pending",
@@ -257,6 +266,84 @@ describe("checkout cash route", () => {
     )
 
     consoleInfo.mockRestore()
+  })
+
+  it("creates primary and consecutive cash purchases when consecutive checkout data is present", async () => {
+    mockValidate.mockResolvedValueOnce({
+      courseSlug: "salsa-feminine-morning",
+      courseTitle: "Salsa feminine style (morning)",
+      amountInt: 2900,
+      currency: "usd",
+      date: "2026-02-10",
+      time: "11:00",
+      packageId: "",
+      serviceId: "dropin",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      packageTotalCredits: null,
+      packageIsUnlimited: false,
+      packageCadence: "",
+      packageMakeUps: 0,
+      packageValidDays: 180,
+      pkg: null,
+      consecutivePriceCents: 900,
+      consecutiveLinkedCourseSlug: "bachata",
+      consecutiveCourseTitle: "Bachata Basics",
+    })
+    mockPrisma.purchase.create
+      .mockResolvedValueOnce({
+        id: "purchase_primary",
+        status: "pending",
+        createdAt: new Date("2026-02-10T00:00:00.000Z"),
+      })
+      .mockResolvedValueOnce({
+        id: "purchase_consecutive",
+        status: "pending",
+        createdAt: new Date("2026-02-10T00:00:00.000Z"),
+      })
+
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const res = await POST(
+      new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      purchaseId: "purchase_primary",
+      consecutivePurchaseId: "purchase_consecutive",
+    })
+    expect(mockPrisma.purchase.findFirst).toHaveBeenCalled()
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(2)
+    expect(mockPrisma.purchase.create.mock.calls[0]?.[0]).toMatchObject({
+      data: {
+        courseSlug: "salsa-feminine-morning",
+        amount: 2000,
+        metadata: {
+          hasConsecutiveLinkedPurchase: true,
+          consecutiveLinkedSlug: "bachata",
+        },
+      },
+    })
+    expect(mockPrisma.purchase.create.mock.calls[1]?.[0]).toMatchObject({
+      data: {
+        courseSlug: "bachata",
+        courseTitle: "Bachata Basics",
+        amount: 900,
+        participants: 1,
+        metadata: {
+          consecutiveLinkedFrom: "salsa-feminine-morning",
+          consecutiveDiscount: true,
+          parentPurchaseId: "purchase_primary",
+        },
+      },
+    })
   })
 
   it("logs cash next-step latency within target", async () => {

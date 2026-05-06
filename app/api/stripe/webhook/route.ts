@@ -69,7 +69,44 @@ const pickMetadata = (metadata?: Stripe.Metadata | null) => ({
   email: normalize(metadata?.email),
   phone: normalize(metadata?.phone),
   phoneRaw: normalize(metadata?.phoneRaw),
+  consecutivePriceCents: normalize(metadata?.consecutivePriceCents),
+  consecutiveLinkedCourseSlug: normalize(metadata?.consecutiveLinkedCourseSlug),
+  consecutiveCourseTitle: normalize(metadata?.consecutiveCourseTitle),
+  consecutiveLinkedCourseTime: normalize(metadata?.consecutiveLinkedCourseTime),
 })
+
+const buildConsecutiveSplit = (input: {
+  totalAmount: number
+  metadata: ReturnType<typeof pickMetadata>
+}) => {
+  const consecutivePriceCents = parseIntSafe(input.metadata.consecutivePriceCents)
+  const consecutiveCourseSlug = input.metadata.consecutiveLinkedCourseSlug
+  const hasConsecutiveSplit =
+    Number.isFinite(consecutivePriceCents) &&
+    (consecutivePriceCents ?? 0) > 0 &&
+    Boolean(consecutiveCourseSlug) &&
+    input.totalAmount > (consecutivePriceCents ?? 0)
+
+  if (!hasConsecutiveSplit) {
+    return {
+      hasConsecutiveSplit: false,
+      primaryAmount: input.totalAmount,
+      consecutiveAmount: null,
+      consecutiveCourseSlug: null,
+      consecutiveCourseTitle: null,
+      consecutiveCourseTime: null,
+    }
+  }
+
+  return {
+    hasConsecutiveSplit: true,
+    primaryAmount: input.totalAmount - (consecutivePriceCents as number),
+    consecutiveAmount: consecutivePriceCents as number,
+    consecutiveCourseSlug: consecutiveCourseSlug as string,
+    consecutiveCourseTitle: input.metadata.consecutiveCourseTitle || null,
+    consecutiveCourseTime: input.metadata.consecutiveLinkedCourseTime || null,
+  }
+}
 
 type ClerkUser = Awaited<ReturnType<ClerkClient["users"]["getUser"]>>
 
@@ -145,6 +182,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   const status = normalizePersistedPurchaseStatus(session.payment_status)
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
+  const split = buildConsecutiveSplit({ totalAmount: amount, metadata: meta })
 
   // Fetch existing metadata to avoid clobbering stripeFailure on success
   const existingPurchase = await prisma.purchase.findUnique({
@@ -162,7 +200,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
     update: {
       stripePaymentIntentId: paymentIntentId,
       status,
-      amount,
+      amount: split.primaryAmount,
       currency,
       email,
       name,
@@ -181,7 +219,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
       stripeCheckoutSessionId: session.id,
       stripePaymentIntentId: paymentIntentId,
       status,
-      amount,
+      amount: split.primaryAmount,
       currency,
       email,
       name,
@@ -193,9 +231,55 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
       addonsCsv: meta.addons,
       courseSlug,
       courseTitle: meta.courseTitle,
-      metadata: mergedMetadata,
+      metadata: {
+        ...(mergedMetadata as Record<string, unknown>),
+        ...(split.hasConsecutiveSplit ? { hasConsecutiveLinkedPurchase: true } : {}),
+      } as Prisma.InputJsonValue,
     },
   })
+
+  let consecutivePurchase: { id: string } | null = null
+  if (split.hasConsecutiveSplit) {
+    consecutivePurchase = await prisma.$transaction(async (tx) => {
+      const existingChild = await tx.purchase.findFirst({
+        where: {
+          userId: user.id,
+          metadata: { path: ["parentPurchaseId"], equals: purchase.id },
+        },
+        select: { id: true },
+      })
+
+      if (existingChild) return existingChild
+
+      return tx.purchase.create({
+        data: {
+          userId: user.id,
+          courseSlug: split.consecutiveCourseSlug as string,
+          courseTitle: split.consecutiveCourseTitle,
+          amount: split.consecutiveAmount as number,
+          currency,
+          status,
+          email,
+          name,
+          phone,
+          participants: 1,
+          coupon: null,
+          packageId: null,
+          serviceId: meta.serviceId,
+          addonsCsv: null,
+          metadata: {
+            ...(mergedMetadata as Record<string, unknown>),
+            parentPurchaseId: purchase.id,
+            consecutiveLinkedFrom: courseSlug,
+            courseSlug: split.consecutiveCourseSlug,
+            courseTitle: split.consecutiveCourseTitle || "",
+            time: split.consecutiveCourseTime || meta.time || "",
+          },
+        },
+        select: { id: true },
+      })
+    })
+  }
 
   if (status === "paid") {
     const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
@@ -223,6 +307,17 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
       time: meta.time,
       packagePurchaseId: packagePurchase?.id,
     })
+
+    if (split.hasConsecutiveSplit && consecutivePurchase?.id) {
+      await syncScheduledAttendanceFromPurchase({
+        userId: user.id,
+        purchaseId: consecutivePurchase.id,
+        courseSlug: split.consecutiveCourseSlug as string,
+        courseTitle: split.consecutiveCourseTitle,
+        date: meta.date,
+        time: split.consecutiveCourseTime || meta.time,
+      })
+    }
 
     if (packagePurchase?.id) {
       await awardPointsFromRule({
@@ -267,6 +362,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   const status = normalizePersistedPurchaseStatus(intent.status)
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
+  const split = buildConsecutiveSplit({ totalAmount: amount, metadata: meta })
 
   // Fetch existing metadata to avoid clobbering stripeFailure on success
   const existingPurchase = await prisma.purchase.findUnique({
@@ -283,7 +379,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
     where: { stripePaymentIntentId: intent.id },
     update: {
       status,
-      amount,
+      amount: split.primaryAmount,
       currency,
       email,
       name,
@@ -301,7 +397,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
       userId: user.id,
       stripePaymentIntentId: intent.id,
       status,
-      amount,
+      amount: split.primaryAmount,
       currency,
       email,
       name,
@@ -313,9 +409,55 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
       addonsCsv: meta.addons,
       courseSlug,
       courseTitle: meta.courseTitle,
-      metadata: mergedMetadata,
+      metadata: {
+        ...(mergedMetadata as Record<string, unknown>),
+        ...(split.hasConsecutiveSplit ? { hasConsecutiveLinkedPurchase: true } : {}),
+      } as Prisma.InputJsonValue,
     },
   })
+
+  let consecutivePurchase: { id: string } | null = null
+  if (split.hasConsecutiveSplit) {
+    consecutivePurchase = await prisma.$transaction(async (tx) => {
+      const existingChild = await tx.purchase.findFirst({
+        where: {
+          userId: user.id,
+          metadata: { path: ["parentPurchaseId"], equals: purchase.id },
+        },
+        select: { id: true },
+      })
+
+      if (existingChild) return existingChild
+
+      return tx.purchase.create({
+        data: {
+          userId: user.id,
+          courseSlug: split.consecutiveCourseSlug as string,
+          courseTitle: split.consecutiveCourseTitle,
+          amount: split.consecutiveAmount as number,
+          currency,
+          status,
+          email,
+          name,
+          phone,
+          participants: 1,
+          coupon: null,
+          packageId: null,
+          serviceId: meta.serviceId,
+          addonsCsv: null,
+          metadata: {
+            ...(mergedMetadata as Record<string, unknown>),
+            parentPurchaseId: purchase.id,
+            consecutiveLinkedFrom: courseSlug,
+            courseSlug: split.consecutiveCourseSlug,
+            courseTitle: split.consecutiveCourseTitle || "",
+            time: split.consecutiveCourseTime || meta.time || "",
+          },
+        },
+        select: { id: true },
+      })
+    })
+  }
 
   if (status === "paid") {
     const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
@@ -343,6 +485,17 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
       time: meta.time,
       packagePurchaseId: packagePurchase?.id,
     })
+
+    if (split.hasConsecutiveSplit && consecutivePurchase?.id) {
+      await syncScheduledAttendanceFromPurchase({
+        userId: user.id,
+        purchaseId: consecutivePurchase.id,
+        courseSlug: split.consecutiveCourseSlug as string,
+        courseTitle: split.consecutiveCourseTitle,
+        date: meta.date,
+        time: split.consecutiveCourseTime || meta.time,
+      })
+    }
 
     if (packagePurchase?.id) {
       await awardPointsFromRule({

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { deriveHoursWorked } from "@/lib/payroll/hours"
+import { closeOpenClockEntriesForPayroll } from "@/lib/payroll/auto-closure"
 import { resolveSchoolIdForClerkUser } from "@/lib/payroll/route-helpers"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 import { PAYROLL_ENTRY_STATUSES, CREDIT_LEDGER_ENTRY_TYPES } from "@/lib/payroll/types"
@@ -63,6 +64,14 @@ export async function GET(req: Request) {
   const now = new Date()
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+
+  // P0: auto-close open clock entries before deriving hours (idempotent)
+  await closeOpenClockEntriesForPayroll(prisma, {
+    staffAccountId: staffAccount.id,
+    periodStart,
+    periodEnd,
+    source: "payroll-me",
+  })
 
   const { hoursWorked } = await deriveHoursWorked(prisma, staffAccount.id, periodStart, periodEnd)
   const calculatedAmount = Math.round(hoursWorked * hourlyRate * 100)

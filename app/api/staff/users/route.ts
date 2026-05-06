@@ -27,6 +27,45 @@ import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
 
+// ── Short-lived response cache for GET /api/staff/users ──
+// Prevents hammering Clerk when the frontend polls every 5s.
+// Cache is scoped by (query, category) and only stores successful auth'd responses.
+// TTL is intentionally short (8s) — just long enough to deduplicate rapid polls.
+const STAFF_USERS_CACHE_TTL_MS = 8_000
+type CacheEntry = { expiresAt: number; response: NextResponse }
+const staffUsersCache = new Map<string, CacheEntry>()
+
+// In-flight deduplication: concurrent identical requests share one promise.
+const inflightRequests = new Map<string, Promise<NextResponse>>()
+
+const buildStaffUsersCacheKey = (query: string | undefined, category: string | undefined): string =>
+  `${query ?? ""}|${category ?? ""}`
+
+const shouldBypassStaffUsersCache = () =>
+  process.env.NODE_ENV === "test"
+
+const isClerkRateLimitError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false
+  const status = (error as { status?: number }).status
+  return status === 429
+}
+
+const isClerkTransientError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false
+  const status = (error as { status?: number }).status
+  return typeof status === "number" && status >= 500 && status < 600
+}
+
+const extractRetryAfterSec = (error: unknown): number => {
+  if (!error || typeof error !== "object") return 5
+  const retryAfter = (error as { headers?: Record<string, string> }).headers?.["retry-after"]
+  if (retryAfter) {
+    const parsed = Number(retryAfter)
+    if (Number.isFinite(parsed) && parsed > 0) return Math.ceil(parsed)
+  }
+  return 5
+}
+
 const hashPin = (pin: string) => {
   const salt = randomBytes(16).toString("hex")
   const hash = createHash("sha256")
@@ -76,6 +115,7 @@ type StaffListItem = {
   banned: boolean
   locked: boolean
   online: boolean
+  authOnline: boolean
   lastActiveAt: number | null
   staffLastCheckInAt: number | null
   createdAt: number
@@ -187,7 +227,6 @@ const sanitizeName = (value: unknown, max = 80) => {
 
 const PRESENCE_MAX_AGE_MS = 16 * 60 * 60 * 1000
 const PRESENCE_ONLINE_MAX_AGE_MS = 30 * 60 * 1000
-const RECENT_SIGN_IN_MAX_AGE_MS = 2 * 60 * 60 * 1000
 const VERIFY_SESSION_ACTIVE_WINDOW_MS = 72 * 60 * 60 * 1000
 
 const shouldVerifyUserActiveSession = (user: {
@@ -275,10 +314,11 @@ const toStaffListItem = (user: {
     presenceStatus === "online" && Boolean(presenceUpdatedAt && now - presenceUpdatedAt <= PRESENCE_ONLINE_MAX_AGE_MS)
   const onlineByRecentCheckIn =
     Boolean(staffLastCheckInAt && now - staffLastCheckInAt <= PRESENCE_ONLINE_MAX_AGE_MS)
-  const onlineByRecentSignIn = Boolean(lastSignInAt && now - lastSignInAt <= RECENT_SIGN_IN_MAX_AGE_MS)
-  const online = hasActiveSession ? true : forcedOffline ? false : onlineByPresence || onlineByRecentCheckIn || onlineByRecentSignIn
-  const payroll = asObject(publicMetadata.staffPayroll)
+  // Work presence: only explicit check-in or presence metadata. Auth session / recent sign-in does NOT count as work.
+  const online = forcedOffline ? false : onlineByPresence || onlineByRecentCheckIn
+  const authOnline = hasActiveSession
   const performance = asObject(publicMetadata.staffPerformance)
+  const payroll = asObject(publicMetadata.staffPayroll)
   const teaching = asObject(publicMetadata.staffTeaching)
   const location = typeof publicMetadata.staffLocation === "string" ? publicMetadata.staffLocation.trim() : ""
   return {
@@ -293,7 +333,7 @@ const toStaffListItem = (user: {
     lastName: user.lastName || "",
     role,
     category,
-    payrollHoursWorked: asNumber(payroll.hoursWorked),
+    payrollHoursWorked: null,
     payrollHourlyRate: asNumber(payroll.hourlyRate),
     payrollStatus: payroll.status === "paid" || payroll.status === "pending" ? payroll.status : null,
     payrollPaydayWeekday: asWeekday(payroll.paydayWeekday),
@@ -314,6 +354,7 @@ const toStaffListItem = (user: {
     banned: Boolean(user.banned),
     locked: Boolean(user.locked),
     online,
+    authOnline,
     lastActiveAt,
     staffLastCheckInAt,
     createdAt: user.createdAt || Date.now(),
@@ -321,22 +362,14 @@ const toStaffListItem = (user: {
   }
 }
 
-export async function GET(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:users:get", getClientIp(req)),
-    limit: 120,
-    windowMs: 60_000,
-  })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
+const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   const authResult = await authorizeStaffPortalRequest()
   if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+    const headers: Record<string, string> = {}
+    if (authResult.status === 503 && authResult.retryAfterSec) {
+      headers["Retry-After"] = String(authResult.retryAfterSec)
+    }
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers })
   }
 
   const requestUrl = new URL(req.url)
@@ -360,13 +393,50 @@ export async function GET(req: Request) {
     activeSessionUserIds = new Set<string>()
   }
 
-  const users = await client.users.getUserList({
-    limit: 100,
-    ...(query ? { query } : {}),
-  })
+  let usersData: Array<{
+    id: string
+    firstName?: string | null
+    lastName?: string | null
+    banned?: boolean | null
+    locked?: boolean | null
+    createdAt?: number | null
+    lastSignInAt?: number | null
+    emailAddresses?: Array<{ emailAddress: string }>
+    primaryEmailAddress?: { emailAddress: string } | null
+    phoneNumbers?: Array<{ phoneNumber?: string | null }>
+    primaryPhoneNumber?: { phoneNumber?: string | null } | null
+    lastActiveAt?: number | null
+    imageUrl?: string | null
+    publicMetadata?: unknown
+    privateMetadata?: unknown
+    unsafeMetadata?: unknown
+  }>
+
+  try {
+    const users = await client.users.getUserList({
+      limit: 100,
+      ...(query ? { query } : {}),
+    })
+    usersData = users.data
+  } catch (error) {
+    if (isClerkRateLimitError(error)) {
+      const retryAfterSec = extractRetryAfterSec(error)
+      return NextResponse.json(
+        { error: "Service temporarily busy. Please try again shortly." },
+        { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+      )
+    }
+    if (isClerkTransientError(error)) {
+      return NextResponse.json(
+        { error: "Service temporarily unavailable. Please try again shortly." },
+        { status: 503, headers: { "Retry-After": "5" } }
+      )
+    }
+    throw error
+  }
 
   const shouldForcePerUserSessionLookup = activeSessionUserIds.size === 0
-  const verificationCandidates = users.data
+  const verificationCandidates = usersData
     .filter((user) => !activeSessionUserIds.has(user.id))
     .filter((user) => (shouldForcePerUserSessionLookup ? true : shouldVerifyUserActiveSession(user)))
 
@@ -392,7 +462,7 @@ export async function GET(req: Request) {
     }
   }
 
-  let list = users.data
+  let list = usersData
     .map((user) => toStaffListItem(user, activeSessionUserIds.has(user.id)))
     .filter((item): item is StaffListItem => Boolean(item))
   if (categoryFilter) {
@@ -414,7 +484,7 @@ export async function GET(req: Request) {
     }))
   }
 
-  return NextResponse.json(
+  const response = NextResponse.json(
     { items: list },
     {
       headers: {
@@ -422,6 +492,58 @@ export async function GET(req: Request) {
       },
     }
   )
+
+  // Store in short-lived cache for deduplication
+  const cacheKey = buildStaffUsersCacheKey(query, categoryFilter ?? undefined)
+  staffUsersCache.set(cacheKey, {
+    expiresAt: Date.now() + STAFF_USERS_CACHE_TTL_MS,
+    response: response.clone(),
+  })
+
+  return response
+}
+
+export async function GET(req: Request) {
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:users:get", getClientIp(req)),
+    limit: 120,
+    windowMs: 60_000,
+  })
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  // Check short-lived cache first (avoids redundant Clerk calls during rapid polling)
+  if (!shouldBypassStaffUsersCache()) {
+    const requestUrl = new URL(req.url)
+    const query = requestUrl.searchParams.get("q")?.trim() || undefined
+    const categoryFilter = parseStaffCategory(requestUrl.searchParams.get("category") || undefined)
+    const cacheKey = buildStaffUsersCacheKey(query, categoryFilter ?? undefined)
+
+    const cached = staffUsersCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.response.clone()
+    }
+
+    // In-flight deduplication: if an identical request is already in progress, wait for it
+    const existingInflight = inflightRequests.get(cacheKey)
+    if (existingInflight) {
+      return existingInflight
+    }
+
+    const pendingPromise = executeStaffUsersGet(req).finally(() => {
+      inflightRequests.delete(cacheKey)
+    })
+
+    inflightRequests.set(cacheKey, pendingPromise)
+
+    return pendingPromise
+  }
+
+  return executeStaffUsersGet(req)
 }
 
 export async function POST(req: Request) {

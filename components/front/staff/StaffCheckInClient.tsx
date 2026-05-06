@@ -5,10 +5,20 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Loader2, MapPin } from 
 import { useSearchParams } from "next/navigation"
 import { useAuth, useClerk, useSignIn } from "@clerk/nextjs"
 
-type PinCheckInResponse = {
+type PinLoginResponse = {
   ok: boolean
   signInUrl?: string
   ticket?: string
+  staff: {
+    id: string
+    name: string
+    role: string
+    category: string | null
+  }
+}
+
+type PinCheckInResponse = {
+  ok: boolean
   checkedInAt: string
   staff: {
     id: string
@@ -115,26 +125,48 @@ export default function StaffCheckInClient({ mode = "checkin" }: StaffCheckInCli
     setError(null)
     setSuccess(null)
     try {
-      const res = await fetch("/api/staff/checkin/pin", {
+      if (isCheckinMode) {
+        // Check-in mode: record attendance via check-in endpoint
+        const res = await fetch("/api/staff/checkin/pin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pin,
+            skipSession: true,
+          }),
+        })
+        const data = (await res.json().catch(() => ({}))) as Partial<PinCheckInResponse> & { error?: string }
+        if (!res.ok) {
+          setError(typeof data?.error === "string" ? data.error : "Invalid PIN.")
+          setPin("")
+          return
+        }
+
+        const name = data?.staff?.name || "staff"
+        setSuccess(`Check-in recorded for ${name}.`)
+        setPin("")
+        return
+      }
+
+      // Login mode: authenticate only via login endpoint (no attendance mutation)
+      const res = await fetch("/api/staff/login/pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pin,
-          preferUserId: isCheckinMode ? "" : activeUserId || "",
-          skipSession: isCheckinMode,
+          preferUserId: activeUserId || "",
         }),
       })
-      const data = (await res.json().catch(() => ({}))) as Partial<PinCheckInResponse> & { error?: string }
-      if (!res.ok || (!isCheckinMode && !data?.signInUrl)) {
+      const data = (await res.json().catch(() => ({}))) as Partial<PinLoginResponse> & { error?: string }
+      if (!res.ok || !data?.signInUrl) {
         setError(typeof data?.error === "string" ? data.error : "Invalid PIN.")
         setPin("")
         return
       }
 
       const name = data?.staff?.name || "staff"
-      setSuccess(isCheckinMode ? `Check-in recorded for ${name}.` : `Check-in recorded for ${name}. Redirecting...`)
+      setSuccess(`Signed in as ${name}. Redirecting...`)
       setPin("")
-      if (isCheckinMode) return
 
       const navParam = searchParams.get("nav")
       const resolveUrl = navParam ? `/staff/resolve?nav=${encodeURIComponent(navParam)}` : "/staff/resolve"
@@ -320,7 +352,7 @@ export default function StaffCheckInClient({ mode = "checkin" }: StaffCheckInCli
             className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {busy ? "Validating..." : "Check in"}
+            {busy ? "Validating..." : isCheckinMode ? "Check in" : "Sign in"}
           </button>
         </div>
       </div>

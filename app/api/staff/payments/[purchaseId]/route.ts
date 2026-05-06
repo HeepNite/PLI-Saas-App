@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -99,6 +99,8 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
     data,
   })
 
+  let resolvedAttendanceId = asText(metadata.attendanceId) || ""
+
   // Create Attendance record for cash drop-in when marked as paid
   if (action === "mark_paid" && purchase.userId && isCashPurchase(purchase)) {
     const existingAttendanceId = asText(metadata.attendanceId)
@@ -162,6 +164,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
                 },
               },
             })
+            resolvedAttendanceId = attendance.id
           } catch (error) {
             console.warn("Unable to create attendance for cash settlement", {
               purchaseId,
@@ -178,6 +181,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
   }
 
   let packageSynced = false
+  let packageCreditReserved = false
   if (action === "mark_paid" && purchase.userId && isCashPurchase(purchase)) {
     const packageId = purchase.packageId || asText(metadata.packageId)
     if (packageId) {
@@ -199,6 +203,26 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
           },
         })
         packageSynced = Boolean(synced)
+        if (synced?.id && resolvedAttendanceId) {
+          try {
+            await reservePackageCreditForAttendance({
+              packagePurchaseId: synced.id,
+              userId: purchase.userId,
+              attendanceId: resolvedAttendanceId,
+              courseSlug: purchase.courseSlug || asText(metadata.courseSlug),
+              at: purchase.createdAt,
+              reason: "PACKAGE_INITIAL_BOOKING",
+            })
+            packageCreditReserved = true
+          } catch (error) {
+            console.warn("Unable to reserve package credit after cash settlement", {
+              purchaseId,
+              packagePurchaseId: synced.id,
+              attendanceId: resolvedAttendanceId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
       } catch (error) {
         console.warn("Unable to sync package purchase after single cash settlement", {
           purchaseId,
@@ -215,6 +239,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
       settlementStatus,
       paymentStatus: updated.status,
       packageSynced,
+      packageCreditReserved,
     },
   })
 }

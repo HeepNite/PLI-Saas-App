@@ -8,13 +8,18 @@ const mockSyncScheduledAttendanceFromPurchase = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockPurchaseUpsert = vi.fn()
 const mockPurchaseFindUnique = vi.fn()
+const mockPurchaseFindFirst = vi.fn()
+const mockPurchaseCreate = vi.fn()
 const mockConstructEvent = vi.fn()
 
 const mockPrisma = {
   purchase: {
     upsert: (...args: unknown[]) => mockPurchaseUpsert(...args),
     findUnique: (...args: unknown[]) => mockPurchaseFindUnique(...args),
+    findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
+    create: (...args: unknown[]) => mockPurchaseCreate(...args),
   },
+  $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => callback(mockPrisma as any)),
 }
 
 vi.mock("next/headers", () => ({
@@ -68,7 +73,10 @@ describe("stripe webhook checkout session persistence", () => {
     mockAwardPointsFromRule.mockReset()
     mockPurchaseUpsert.mockReset()
     mockPurchaseFindUnique.mockReset()
+    mockPurchaseFindFirst.mockReset()
+    mockPurchaseCreate.mockReset()
     mockConstructEvent.mockReset()
+    mockPrisma.$transaction.mockClear()
 
     mockHeaders.mockResolvedValue({
       get: (name: string) => (name === "stripe-signature" ? "sig_test" : null),
@@ -80,6 +88,8 @@ describe("stripe webhook checkout session persistence", () => {
       createdAt: new Date("2026-03-24T12:00:00.000Z"),
     })
     mockPurchaseFindUnique.mockResolvedValue(null)
+    mockPurchaseFindFirst.mockResolvedValue(null)
+    mockPurchaseCreate.mockResolvedValue({ id: "purchase_child_1" })
     mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "pkg_123" })
     mockSyncScheduledAttendanceFromPurchase.mockResolvedValue(undefined)
     mockAwardPointsFromRule.mockResolvedValue(undefined)
@@ -149,8 +159,126 @@ describe("stripe webhook checkout session persistence", () => {
         status: "paid",
       },
     })
+    const upsertPayload = mockPurchaseUpsert.mock.calls[0]?.[0]
+    expect(upsertPayload?.create?.status).toBe("paid")
+    expect(upsertPayload?.create?.status).not.toBe("pending")
+    expect(upsertPayload?.update?.status).toBe("paid")
+    expect(upsertPayload?.update?.status).not.toBe("pending")
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(1)
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(1)
+  })
+
+  it("splits hosted checkout consecutive metadata and schedules both course attendances", async () => {
+    mockConstructEvent.mockReturnValue({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_consecutive",
+          payment_status: "paid",
+          amount_total: 3500,
+          currency: "usd",
+          customer: "cus_123",
+          payment_intent: "pi_123",
+          customer_details: {
+            email: "test@example.com",
+            name: "Test User",
+            phone: "+1 9293876584",
+          },
+          metadata: {
+            courseSlug: "salsa-feminine-morning",
+            courseTitle: "Salsa Feminine Morning",
+            date: "2026-02-10",
+            time: "11:00",
+            serviceId: "dropin",
+            userId: "guest",
+            participants: "1",
+            consecutivePriceCents: "1500",
+            consecutiveLinkedCourseSlug: "bachata-basics",
+            consecutiveCourseTitle: "Bachata Basics",
+            consecutiveLinkedCourseTime: "12:00",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(
+      new Request("http://localhost/api/stripe/webhook", {
+        method: "POST",
+        body: JSON.stringify({ id: "evt_consecutive_1" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPurchaseUpsert).toHaveBeenCalledTimes(1)
+    expect(mockPurchaseUpsert.mock.calls[0]?.[0]).toMatchObject({
+      update: { amount: 2000 },
+      create: { amount: 2000 },
+    })
+    expect(mockPurchaseCreate).toHaveBeenCalledTimes(1)
+    expect(mockPurchaseCreate.mock.calls[0]?.[0]).toMatchObject({
+      data: {
+        amount: 1500,
+        courseSlug: "bachata-basics",
+        courseTitle: "Bachata Basics",
+        metadata: expect.objectContaining({
+          parentPurchaseId: "purchase_123",
+          courseSlug: "bachata-basics",
+          courseTitle: "Bachata Basics",
+          time: "12:00",
+        }),
+      },
+    })
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(2)
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ purchaseId: "purchase_123", courseSlug: "salsa-feminine-morning", time: "11:00" })
+    )
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ purchaseId: "purchase_child_1", courseSlug: "bachata-basics", time: "12:00" })
+    )
+  })
+
+  it("is idempotent for consecutive child creation when webhook replays", async () => {
+    mockPurchaseFindFirst.mockResolvedValue({ id: "purchase_child_existing" })
+    mockConstructEvent.mockReturnValue({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_replay",
+          payment_status: "paid",
+          amount_total: 3500,
+          currency: "usd",
+          customer: "cus_123",
+          payment_intent: "pi_123",
+          customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
+          metadata: {
+            courseSlug: "salsa-feminine-morning",
+            date: "2026-02-10",
+            time: "11:00",
+            consecutivePriceCents: "1500",
+            consecutiveLinkedCourseSlug: "bachata-basics",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(
+      new Request("http://localhost/api/stripe/webhook", {
+        method: "POST",
+        body: JSON.stringify({ id: "evt_consecutive_replay" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPurchaseCreate).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(2)
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ purchaseId: "purchase_child_existing", courseSlug: "bachata-basics" })
+    )
   })
 
   it("normalizes payment intent success to paid before persisting", async () => {

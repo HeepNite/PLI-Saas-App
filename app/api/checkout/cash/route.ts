@@ -158,6 +158,149 @@ export async function POST(req: Request) {
     }
   }
 
+  // ─── Dual Purchase creation for consecutive class ────────────
+  const hasConsecutive =
+    validation.consecutivePriceCents != null &&
+    validation.consecutiveLinkedCourseSlug != null
+
+  if (hasConsecutive) {
+    const consecutiveAmountCents = validation.consecutivePriceCents!
+    const consecutiveSlug = validation.consecutiveLinkedCourseSlug!
+    const consecutiveTitle = validation.consecutiveCourseTitle || null
+    const primaryAmountCents = validation.amountInt - consecutiveAmountCents
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Purchase 1: original class
+      const purchase1 = await tx.purchase.create({
+        data: {
+          userId: dbUser.id,
+          courseSlug: validation.courseSlug,
+          courseTitle: validation.courseTitle,
+          amount: primaryAmountCents,
+          currency: validation.currency,
+          status: "pending",
+          email: identity.resolvedEmail,
+          name: name || [firstName, lastName].filter(Boolean).join(" ") || null,
+          phone: identity.phoneNormalized,
+          participants: validation.safeParticipants,
+          coupon: validation.coupon || null,
+          packageId: validation.packageId || null,
+          serviceId: validation.serviceId || null,
+          addonsCsv: validation.addons.join(",") || null,
+          metadata: {
+            source: "cash_checkout",
+            paymentMethod: "onsite",
+            paymentChannel: "cash",
+            settlementStatus: "pending",
+            settledAt: null,
+            date: validation.date,
+            time: validation.time,
+            courseSlug: validation.courseSlug,
+            courseTitle: validation.courseTitle,
+            packageId: validation.packageId,
+            packageLabel: validation.pkg?.label || "",
+            packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),
+            packageIsUnlimited: String(validation.packageIsUnlimited),
+            packageCadence: validation.packageCadence,
+            packageMakeUps: String(validation.packageMakeUps),
+            packageValidDays: String(validation.packageValidDays),
+            serviceId: validation.serviceId,
+            userId: resolvedUserId || "guest",
+            participants: String(validation.safeParticipants),
+            coupon: validation.coupon || "",
+            addons: validation.addons.join(","),
+            name: name || [firstName, lastName].filter(Boolean).join(" ") || "",
+            email: identity.resolvedEmail,
+            phone: identity.phoneNormalized,
+            phoneRaw: identity.phoneRaw || "",
+            cashNote,
+            requiresCardMigration: true,
+            // Consecutive metadata: this purchase has a linked consecutive purchase
+            hasConsecutiveLinkedPurchase: true,
+            consecutiveLinkedSlug: consecutiveSlug,
+          },
+        },
+      })
+
+      // Purchase 2: consecutive class
+      const purchase2 = await tx.purchase.create({
+        data: {
+          userId: dbUser.id,
+          courseSlug: consecutiveSlug,
+          courseTitle: consecutiveTitle,
+          amount: consecutiveAmountCents,
+          currency: validation.currency,
+          status: "pending",
+          email: identity.resolvedEmail,
+          name: name || [firstName, lastName].filter(Boolean).join(" ") || null,
+          phone: identity.phoneNormalized,
+          participants: 1,
+          coupon: null,
+          packageId: null,
+          serviceId: validation.serviceId || null,
+          addonsCsv: null,
+          metadata: {
+            source: "cash_checkout",
+            paymentMethod: "onsite",
+            paymentChannel: "cash",
+            settlementStatus: "pending",
+            settledAt: null,
+            date: validation.date,
+            time: validation.consecutiveLinkedCourseTime ?? validation.time,
+            courseSlug: consecutiveSlug,
+            courseTitle: consecutiveTitle || "",
+            serviceId: validation.serviceId,
+            userId: resolvedUserId || "guest",
+            participants: "1",
+            coupon: "",
+            addons: "",
+            name: name || [firstName, lastName].filter(Boolean).join(" ") || "",
+            email: identity.resolvedEmail,
+            phone: identity.phoneNormalized,
+            phoneRaw: identity.phoneRaw || "",
+            cashNote,
+            requiresCardMigration: true,
+            // Consecutive metadata: this IS the consecutive purchase
+            consecutiveLinkedFrom: validation.courseSlug,
+            consecutiveDiscount: true,
+            parentPurchaseId: purchase1.id,
+          },
+        },
+      })
+
+      return { purchase1, purchase2 }
+    })
+
+    await clearPreparedCheckoutAfterSuccess({
+      terminalAuth,
+      kioskSessionToken,
+      validation,
+    })
+
+    console.info("[staff-terminal-checkout-latency] checkout-cash", {
+      segment: "cash_consecutive",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
+      reusedUserId: userId || null,
+    })
+
+    return NextResponse.json({
+      ok: true,
+      purchaseId: result.purchase1.id,
+      consecutivePurchaseId: result.purchase2.id,
+      packagePurchaseId: null,
+      paymentMethod: "onsite",
+      paymentStatus: result.purchase1.status,
+      migration: {
+        target: "card",
+        recommended: true,
+        message: "Cash request recorded as pending. Staff must confirm payment before class access.",
+      },
+      account,
+    })
+  }
+
   const purchase = await prisma.purchase.create({
     data: {
       userId: dbUser.id,

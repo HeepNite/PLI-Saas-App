@@ -164,6 +164,7 @@ export async function POST(req: Request) {
 
     // ─── Consecutive package-holder add-on ───────────────────
     const consecutiveAddOn = payload?.consecutiveAddOn === true
+    const consecutiveCashPayment = payload?.consecutiveCashPayment === true
     const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
     const consecutivePriceCents = payload?.consecutivePriceCents != null
       ? Number(payload.consecutivePriceCents)
@@ -295,11 +296,12 @@ export async function POST(req: Request) {
             courseTitle: course.title,
             amount: consecutivePriceCents ? consecutivePriceCents / 100 : 0,
             currency: "usd",
-            status: "paid",
+            status: consecutiveCashPayment ? "pending" : "paid",
             participants: 1,
             metadata: {
-              paymentChannel: "consecutive_addon",
-              settlementStatus: "paid",
+              paymentChannel: consecutiveCashPayment ? "cash" : "consecutive_addon",
+              settlementStatus: consecutiveCashPayment ? "pending" : "paid",
+              settledAt: consecutiveCashPayment ? null : undefined,
               date: context.date,
               time: context.time,
               source: "qr_package_consecutive_addon",

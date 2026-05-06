@@ -132,11 +132,18 @@ const pickPreferredPackage = (input: {
     remainingCredits: number | null
     expiresAt: Date | null
     status: string
+    packagePlan?: { courseSlugs: string[] } | null
   }>
 }) => {
   const ordered = [...input.packages].sort((a, b) => {
-    const aPriority = a.courseSlug && a.courseSlug === input.courseSlug ? 0 : 1
-    const bPriority = b.courseSlug && b.courseSlug === input.courseSlug ? 0 : 1
+    const aMatchesCourse =
+      (a.courseSlug && a.courseSlug === input.courseSlug) ||
+      (a.packagePlan?.courseSlugs?.includes(input.courseSlug) ?? false)
+    const bMatchesCourse =
+      (b.courseSlug && b.courseSlug === input.courseSlug) ||
+      (b.packagePlan?.courseSlugs?.includes(input.courseSlug) ?? false)
+    const aPriority = aMatchesCourse ? 0 : 1
+    const bPriority = bMatchesCourse ? 0 : 1
     if (aPriority !== bPriority) return aPriority - bPriority
     const aExpires = a.expiresAt ? a.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
     const bExpires = b.expiresAt ? b.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
@@ -339,13 +346,12 @@ export async function POST(req: Request) {
       }
     }
 
-    const [activePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
+    const [allActivePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
       prisma.packagePurchase.findMany({
         where: {
           userId: dbUser.id,
           status: "active",
           AND: [
-            { OR: [{ courseSlug: null }, { courseSlug: context.courseSlug }] },
             { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
             { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
           ],
@@ -359,6 +365,7 @@ export async function POST(req: Request) {
           remainingCredits: true,
           expiresAt: true,
           status: true,
+          packagePlan: { select: { courseSlugs: true } },
         },
         orderBy: [{ expiresAt: "asc" }, { purchasedAt: "desc" }],
         take: 10,
@@ -391,6 +398,12 @@ export async function POST(req: Request) {
       const purchaseTime = normalizeString(metadata?.time)
       return purchaseDate === context.date && purchaseTime === context.time
     })
+
+    const activePackages = allActivePackages.filter((item) =>
+      item.courseSlug === null ||
+      item.courseSlug === context.courseSlug ||
+      (item.packagePlan?.courseSlugs?.includes(context.courseSlug) ?? false)
+    )
 
     const preferredPackage = pickPreferredPackage({
       courseSlug: context.courseSlug,
@@ -522,6 +535,7 @@ export async function POST(req: Request) {
             hasAnyCompletedPurchase: Boolean(anyCompletedPurchase),
             hasExistingPurchaseForSession,
           }),
+      hasAnyActivePackage: allActivePackages.length > 0,
       consecutiveOffer,
     })
   } catch (error) {

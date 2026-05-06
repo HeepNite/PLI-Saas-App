@@ -3,7 +3,7 @@ type ResolveEnrollInitialStepInput = {
   stepsLength: number
 }
 
-export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "payments" | "review"
+export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "consecutive" | "payments" | "review"
 
 type ResolveEnrollStepKeysInput = {
   isCheckInFlow: boolean
@@ -12,6 +12,8 @@ type ResolveEnrollStepKeysInput = {
   requiresPhotoStep: boolean
   /** Whether the course has packages available (shows packages step in kiosk) */
   hasPackages?: boolean
+  /** Whether a consecutive class offer is available (shows consecutive step in kiosk) */
+  hasConsecutiveOffer?: boolean
 }
 
 type ShouldIncludePhotoStepInput = {
@@ -42,6 +44,7 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
       "info",
       ...(input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasPackages ? (["packages"] as const) : []),
+      ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
       "payments",
     ]
   }

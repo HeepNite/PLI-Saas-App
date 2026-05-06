@@ -3,7 +3,7 @@
 import React from "react"
 import type { KioskPinRotationMode } from "@/components/front/checkin/checkin-kiosk.types"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
-import type { PackageOfferContext } from "@/components/front/checkin/checkin.types"
+import type { ConsecutiveOffer, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 
 type EntryMode = "idle" | "existing" | "new"
 
@@ -29,6 +29,7 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setKioskPinSessionToken: React.Dispatch<React.SetStateAction<string>>
   setMode: React.Dispatch<React.SetStateAction<EntryMode>>
   setNewBookingOverride: React.Dispatch<React.SetStateAction<CheckInContextOverride | null>>
+  setLatePaymentEntryOverride: React.Dispatch<React.SetStateAction<CheckInContextOverride | null>>
   setOpenNewBooking: React.Dispatch<React.SetStateAction<boolean>>
   setPaymentsModalReady: React.Dispatch<React.SetStateAction<boolean>>
   setPendingLoginPhone: React.Dispatch<React.SetStateAction<string>>
@@ -36,6 +37,12 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setSuccess: React.Dispatch<React.SetStateAction<string | null>>
   setPackageOfferContext: React.Dispatch<React.SetStateAction<PackageOfferContext>>
   setPackageOfferSelectedId: React.Dispatch<React.SetStateAction<string | null>>
+  setConsecutiveOffer: React.Dispatch<React.SetStateAction<ConsecutiveOffer | null>>
+  setConsecutiveOfferSettled: React.Dispatch<React.SetStateAction<boolean>>
+  setConsecutiveFetchKey: React.Dispatch<React.SetStateAction<number>>
+  setPackageCheckInResult: React.Dispatch<React.SetStateAction<{ remainingCredits: number | null; points: number } | null>>
+  setShowConsecutiveOverlay: React.Dispatch<React.SetStateAction<boolean>>
+  setShowConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export const useKioskFlowCompletion = <TBootstrap,>({
@@ -54,6 +61,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
   setKioskPinSessionToken,
   setMode,
   setNewBookingOverride,
+  setLatePaymentEntryOverride,
   setOpenNewBooking,
   setPaymentsModalReady,
   setPendingLoginPhone,
@@ -61,10 +69,17 @@ export const useKioskFlowCompletion = <TBootstrap,>({
   setSuccess,
   setPackageOfferContext,
   setPackageOfferSelectedId,
+  setConsecutiveOffer,
+  setConsecutiveOfferSettled,
+  setConsecutiveFetchKey,
+  setPackageCheckInResult,
+  setShowConsecutiveOverlay,
+  setShowConsecutivePaymentSelection,
 }: UseKioskFlowCompletionParams<TBootstrap>) => {
   const resetCustomerFlowState = React.useCallback(() => {
     setOpenNewBooking(false)
     setNewBookingOverride(null)
+    setLatePaymentEntryOverride(null)
     setExistingRegularBookingOverride(null)
     setPaymentsModalReady(false)
     setMode("idle")
@@ -84,9 +99,18 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     resetKioskCustomerSession()
     setPackageOfferContext(null)
     setPackageOfferSelectedId(null)
+    setConsecutiveOffer(null)
+    setConsecutiveOfferSettled(false)
+    setConsecutiveFetchKey((k) => k + 1)
+    setPackageCheckInResult(null)
+    setShowConsecutiveOverlay(false)
+    setShowConsecutivePaymentSelection(false)
   }, [
     resetKioskCustomerSession,
     setBootstrap,
+    setConsecutiveFetchKey,
+    setConsecutiveOffer,
+    setConsecutiveOfferSettled,
     setError,
     setExistingRegularBookingOverride,
     setKioskPin,
@@ -99,11 +123,15 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setKioskPinSessionToken,
     setMode,
     setNewBookingOverride,
+    setLatePaymentEntryOverride,
     setOpenNewBooking,
+    setPackageCheckInResult,
     setPackageOfferContext,
     setPackageOfferSelectedId,
     setPaymentsModalReady,
     setPendingLoginPhone,
+    setShowConsecutiveOverlay,
+    setShowConsecutivePaymentSelection,
     setShowPhoneSignIn,
     setSuccess,
   ])

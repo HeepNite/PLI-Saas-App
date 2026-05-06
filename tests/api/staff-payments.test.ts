@@ -231,6 +231,46 @@ describe("staff payments route", () => {
     expect(data.summary).toMatchObject({ totalItems: 1, totalCollected: 2500, paidStripe: 1 })
   })
 
+  it("splits aggregate consecutive purchases even when marker metadata is missing", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "purchase_aggregate",
+        userId: "user_1",
+        amount: 3500,
+        courseSlug: "salsa-feminine-morning",
+        courseTitle: "Salsa Feminine Morning",
+        metadata: {
+          date: "2026-03-20",
+          time: "11:00",
+          consecutivePriceCents: "1500",
+          consecutiveLinkedCourseSlug: "bachata-basics",
+          consecutiveCourseTitle: "Bachata Basics",
+          consecutiveLinkedCourseTime: "12:00",
+        },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "purchase_aggregate",
+          amount: 2000,
+          courseSlug: "salsa-feminine-morning",
+        }),
+        expect.objectContaining({
+          id: "purchase_aggregate::consecutive",
+          amount: 1500,
+          courseSlug: "bachata-basics",
+        }),
+      ])
+    )
+  })
+
   it("excludes purchases whose metadata.date is yesterday", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({ id: "yesterday_1", userId: "user_1", amount: 2500, metadata: { date: "2026-03-19" }, createdAt: "2026-03-19T15:00:00.000Z" }),
@@ -283,6 +323,69 @@ describe("staff payments route", () => {
     })
   })
 
+  it("does not include old classDate purchases created today", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "backfill_created_today",
+        userId: "user_legacy",
+        amount: 2500,
+        metadata: { date: "2026-03-19", paymentChannel: "card" },
+        createdAt: "2026-03-20T16:00:00.000Z",
+      }),
+      buildPurchase({
+        id: "actual_today",
+        userId: "user_today",
+        amount: 1800,
+        metadata: { date: "2026-03-20", paymentChannel: "card" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["actual_today"])
+  })
+
+  it("uses NY-today attended counts for daily completedClassesTotal", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "today_visible",
+        userId: "user_today_only",
+        amount: 2500,
+        metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "card" },
+      }),
+    ])
+    mockPrisma.attendance.groupBy.mockResolvedValue([
+      {
+        userId: "user_today_only",
+        _count: { _all: 1 },
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items[0]).toMatchObject({
+      id: "today_visible",
+      completedClassesTotal: 1,
+    })
+
+    expect(mockPrisma.attendance.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          checkedInAt: {
+            gte: new Date("2026-03-20T04:00:00.000Z"),
+            lte: new Date("2026-03-21T03:59:59.999Z"),
+          },
+        }),
+      })
+    )
+  })
+
   it("keeps the current New York day visible at 11:59 PM local time", async () => {
     mockGetTodayNewYork.mockReturnValue("2026-03-20")
     mockPrisma.purchase.findMany.mockResolvedValue([
@@ -330,6 +433,17 @@ describe("staff payments route", () => {
                 { email: { contains: "elvira", mode: "insensitive" } },
                 { name: { contains: "elvira", mode: "insensitive" } },
                 { phone: { contains: "elvira", mode: "insensitive" } },
+                {
+                  user: {
+                    is: {
+                      OR: [
+                        { email: { contains: "elvira", mode: "insensitive" } },
+                        { name: { contains: "elvira", mode: "insensitive" } },
+                        { phone: { contains: "elvira", mode: "insensitive" } },
+                      ],
+                    },
+                  },
+                },
                 { courseTitle: { contains: "elvira", mode: "insensitive" } },
                 { courseSlug: { contains: "elvira", mode: "insensitive" } },
               ],
@@ -340,6 +454,39 @@ describe("staff payments route", () => {
                 lte: expect.any(Date),
               }),
             }),
+          ],
+        },
+      })
+    )
+  })
+
+  it("matches history search against linked user name/email/phone", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-05-01&to=2026-05-04&q=danna"))
+
+    expect(mockPrisma.purchase.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            {
+              OR: expect.arrayContaining([
+                {
+                  user: {
+                    is: {
+                      OR: [
+                        { email: { contains: "danna", mode: "insensitive" } },
+                        { name: { contains: "danna", mode: "insensitive" } },
+                        { phone: { contains: "danna", mode: "insensitive" } },
+                      ],
+                    },
+                  },
+                },
+              ]),
+            },
+            { metadata: { path: ["date"], gte: "2026-05-01" } },
+            { metadata: { path: ["date"], lte: "2026-05-04" } },
           ],
         },
       })
@@ -408,7 +555,13 @@ describe("staff payments route", () => {
           id: "package_credit_today",
           userId: "user_1",
           amount: 0,
-          metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "package_credit", packageId: "pkg_1" },
+          metadata: {
+            date: "2026-03-20",
+            time: "18:00",
+            paymentChannel: "package_credit",
+            packageId: "pkg_1",
+            attendanceId: "attendance_1",
+          },
         }),
       ]
     })
@@ -451,7 +604,7 @@ describe("staff payments route", () => {
     })
   })
 
-  it("hydrates package consumptions from attendance-linked package purchases when metadata lacks packagePurchaseId", async () => {
+  it("hydrates package consumptions from explicitly linked attendance when metadata lacks packagePurchaseId", async () => {
     mockPrisma.purchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) => {
       if (where && "id" in where) {
         return [
@@ -470,7 +623,13 @@ describe("staff payments route", () => {
           id: "package_credit_attendance_link",
           userId: "user_1",
           amount: 0,
-          metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "package_credit", packageId: "pkg_12" },
+          metadata: {
+            date: "2026-03-20",
+            time: "18:00",
+            paymentChannel: "package_credit",
+            packageId: "pkg_12",
+            attendanceId: "attendance_attendance_link",
+          },
         }),
       ]
     })
@@ -515,6 +674,54 @@ describe("staff payments route", () => {
         currency: "usd",
         courseTitle: "12-Class Package",
       },
+    })
+  })
+
+  it("does not attach slot attendance to package_credit rows without explicit attendance link", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "package_credit_unlinked",
+        userId: "user_1",
+        amount: 0,
+        metadata: {
+          date: "2026-03-20",
+          time: "20:10",
+          paymentChannel: "package_credit",
+          packageId: "pkg_1",
+        },
+      }),
+    ])
+
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "attendance_same_slot",
+        userId: "user_1",
+        status: "checked_in",
+        checkedInAt: new Date("2026-03-20T20:10:00.000Z"),
+        checkedOutAt: null,
+        session: {
+          courseSlug: "salsa-beginners",
+          startsAt: new Date("2026-03-20T20:10:00.000Z"),
+        },
+        packageUsage: {
+          packagePurchaseId: "package_purchase_1",
+        },
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?userId=user_1"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      id: "package_credit_unlinked",
+      paymentChannel: "package_credit",
+      attendanceId: null,
+      checkInStatus: "none",
+      checkInAt: null,
+      checkedOutAt: null,
     })
   })
 
@@ -828,7 +1035,7 @@ describe("staff payments route", () => {
     })
   })
 
-  it("excludes legacy history purchases without metadata.date/time from results and classOptions", async () => {
+  it("excludes history purchases missing metadata.date while keeping date-scoped rows", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({
         id: "history_valid",
@@ -863,16 +1070,72 @@ describe("staff payments route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["history_valid"])
-    expect(data.classOptions).toEqual([{ slug: "salsa-beginners", title: "Salsa Beginners" }])
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["history_valid", "legacy_missing_time"])
+    expect(data.classOptions).toEqual([
+      { slug: "salsa-beginners", title: "Salsa Beginners" },
+      { slug: "bachata-int", title: "Bachata Intermediate" },
+    ])
     expect(data.summary).toEqual({
-      totalItems: 1,
-      totalCollected: 2500,
+      totalItems: 2,
+      totalCollected: 4300,
       pendingSettlement: 0,
       paidSettlement: 0,
       pendingStripe: 0,
-      paidStripe: 1,
+      paidStripe: 2,
     })
+  })
+
+  it("includes history purchases that have metadata.date even when metadata.time is missing", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "history_date_only",
+        userId: "user_1",
+        amount: 2500,
+        courseSlug: "salsa-beginners",
+        courseTitle: "Salsa Beginners",
+        metadata: { date: "2026-03-18", paymentChannel: "card" },
+      }),
+      buildPurchase({
+        id: "history_other_day",
+        userId: "user_2",
+        amount: 1800,
+        courseSlug: "bachata-int",
+        courseTitle: "Bachata Intermediate",
+        metadata: { date: "2026-03-17", paymentChannel: "card" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(
+      new Request("http://localhost/api/staff/payments?mode=history&from=2026-03-18&to=2026-03-18")
+    )
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["history_date_only"])
+    expect(data.items).toHaveLength(1)
+    expect(data.classOptions).toEqual([{ slug: "salsa-beginners", title: "Salsa Beginners" }])
+  })
+
+  it("keeps daily mode excluding yesterday-only purchases", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "yesterday_only_student",
+        userId: "user_yesterday",
+        amount: 2500,
+        courseSlug: "salsa-beginners",
+        courseTitle: "Salsa Beginners",
+        metadata: { date: "2026-03-19", paymentChannel: "card" },
+        createdAt: "2026-03-19T15:00:00.000Z",
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(0)
   })
 
   it("keeps history summary scoped to the filtered date and settlement rows", async () => {
@@ -928,18 +1191,19 @@ describe("staff payments route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["history_cash_paid"])
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["history_cash_paid", "legacy_large_paid"])
     expect(data.summary).toEqual({
-      totalItems: 1,
-      totalCollected: 800,
+      totalItems: 2,
+      totalCollected: 15800,
       pendingSettlement: 0,
-      paidSettlement: 1,
+      paidSettlement: 2,
       pendingStripe: 0,
-      paidStripe: 1,
+      paidStripe: 2,
     })
     expect(data.classOptions).toEqual([
       { slug: "salsa-beginners", title: "Salsa Beginners" },
       { slug: "bachata-int", title: "Bachata Intermediate" },
+      { slug: "legacy-open", title: "Salsa Beginners" },
     ])
   })
 
@@ -1073,7 +1337,7 @@ describe("staff payments route", () => {
     })
   })
 
-  it("derives finite package usage from total credits minus remaining credits and keeps completed classes aligned", async () => {
+  it("derives finite package usage from attended package ledger rows and keeps completed classes aligned", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({
         id: "elvira_daily_package",
@@ -1143,8 +1407,8 @@ describe("staff payments route", () => {
     expect(res.status).toBe(200)
     expect(data.items[0]).toMatchObject({
       id: "elvira_daily_package",
-      completedClassesTotal: 6,
-      packageClassesUsedTotal: 6,
+      completedClassesTotal: 2,
+      packageClassesUsedTotal: 2,
       outstandingBalance: 2000,
       activePackage: {
         totalCredits: 8,
@@ -1233,6 +1497,53 @@ describe("staff payments route", () => {
     }))
   })
 
+  it("does not count package credits as used when there is no attended package usage row", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "daily_pkg_credit_without_attendance",
+        userId: "user_pkg",
+        amount: 0,
+        metadata: { date: "2026-03-20", time: "19:00", paymentChannel: "package_credit", packageId: "pkg_5" },
+      }),
+    ])
+    mockPrisma.packagePurchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) => {
+      if (where && "userId" in where) {
+        return [{
+          id: "package_purchase_pkg",
+          userId: "user_pkg",
+          packageId: "pkg_5",
+          packageLabel: "5 classes",
+          totalCredits: 5,
+          remainingCredits: 2,
+          isUnlimited: false,
+          expiresAt: null,
+          lastUsedAt: null,
+          purchasedAt: new Date("2026-03-01T18:00:00.000Z"),
+          status: "active",
+        }]
+      }
+      return []
+    })
+    mockPrisma.attendance.findMany.mockResolvedValue([])
+    mockPrisma.attendance.groupBy.mockResolvedValue([{ userId: "user_pkg", _count: { _all: 0 } }])
+    mockPrisma.packageUsageLedger.groupBy.mockResolvedValue([])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items[0]).toMatchObject({
+      id: "daily_pkg_credit_without_attendance",
+      packageClassesUsedTotal: 0,
+      completedClassesTotal: 0,
+      activePackage: {
+        totalCredits: 5,
+        remainingCredits: 2,
+      },
+    })
+  })
+
   it("returns null packageClassNumber when the package usage chain cannot be resolved", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({
@@ -1283,6 +1594,53 @@ describe("staff payments route", () => {
     expect(data.items[0]).toMatchObject({
       id: "history_package_unresolved",
       packageClassNumber: null,
+    })
+  })
+
+  it("dedupes completed classes in today mode when scheduled and checked-in attendances share the same purchase", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "purchase_dup_1",
+        userId: "user_dup",
+        amount: 2000,
+        metadata: { date: "2026-03-20", time: "22:00", paymentChannel: "card" },
+      }),
+    ])
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "att_scheduled",
+        userId: "user_dup",
+        status: "checked_in_no_package",
+        checkedInAt: new Date("2026-03-20T22:00:00.000Z"),
+        checkedOutAt: null,
+        metadata: { source: "purchase_booking", purchaseId: "purchase_dup_1" },
+        session: { courseSlug: "salsa-beginners", startsAt: new Date("2026-03-20T22:00:00.000Z"), title: "Salsa Beginners" },
+        user: { id: "user_dup", name: "User Dup", email: "dup@example.com", phone: "+1 555", clerkId: null },
+        packageUsage: null,
+      },
+      {
+        id: "att_checked",
+        userId: "user_dup",
+        status: "checked_in_no_package",
+        checkedInAt: new Date("2026-03-20T18:00:00.000Z"),
+        checkedOutAt: null,
+        metadata: { source: "qr_dropin_checkin", purchaseId: "purchase_dup_1" },
+        session: { courseSlug: "salsa-beginners", startsAt: new Date("2026-03-20T18:00:00.000Z"), title: "Salsa Beginners" },
+        user: { id: "user_dup", name: "User Dup", email: "dup@example.com", phone: "+1 555", clerkId: null },
+        packageUsage: null,
+      },
+    ])
+    mockPrisma.attendance.groupBy.mockResolvedValue([{ userId: "user_dup", _count: { _all: 2 } }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items[0]).toMatchObject({
+      id: "purchase_dup_1",
+      checkInStatus: "checked_in_no_package",
+      completedClassesTotal: 1,
     })
   })
 

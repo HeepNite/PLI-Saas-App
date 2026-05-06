@@ -32,6 +32,8 @@ const buildPayment = (overrides: Partial<HistoryCardPaymentLike> = {}): HistoryC
   checkedOutAt: overrides.checkedOutAt ?? null,
   packageClassNumber: overrides.packageClassNumber ?? null,
   fundingPayment: overrides.fundingPayment ?? null,
+  completedClassesTotal: overrides.completedClassesTotal,
+  packageClassesUsedTotal: overrides.packageClassesUsedTotal,
 })
 
 describe("historyCardAggregates", () => {
@@ -78,6 +80,50 @@ describe("historyCardAggregates", () => {
     expect(cards[0]?.allPayments.map((payment) => payment.id)).toEqual(["payment_latest", "payment_older"])
   })
 
+  it("keeps day-level cards driven by already-scoped API rows", () => {
+    const now = new Date()
+    const previousMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 18, 0, 0))
+    const previousMonthIso = previousMonthDate.toISOString()
+    const previousMonthClassDate = previousMonthIso.slice(0, 10)
+
+    const cards = buildHistoryStudentCards(
+      [
+        buildPayment({
+          id: "payment_april",
+          userId: "user_april",
+          customerEmail: "april@example.com",
+          createdAt: previousMonthIso,
+          classDate: previousMonthClassDate,
+        }),
+      ],
+      { mode: "daily" }
+    )
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.latestPayment.id).toBe("payment_april")
+  })
+
+  it("builds a history student card from a date-scoped payment even when classTime is missing", () => {
+    const cards = buildHistoryStudentCards(
+      [
+        buildPayment({
+          id: "history_date_only_payment",
+          userId: "user_date_only",
+          customerEmail: "date-only@example.com",
+          classDate: "2026-03-18",
+          classTime: null,
+          classStartsAt: null,
+          createdAt: "2026-03-18T18:00:00.000Z",
+        }),
+      ],
+      { mode: "history" }
+    )
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.key).toBe("user_date_only")
+    expect(cards[0]?.latestPayment.id).toBe("history_date_only_payment")
+  })
+
   it("counts package classes consumed by unique attendance within the range", () => {
     const card = buildHistoryStudentCard([
       buildPayment({
@@ -108,6 +154,57 @@ describe("historyCardAggregates", () => {
     expect(card).not.toBeNull()
     expect(card?.totalPackageClassesConsumed).toBe(2)
     expect(card?.checkedInPayments).toBe(3)
+  })
+
+  it("uses payload totals for history metrics when server provides authoritative totals", () => {
+    const card = buildHistoryStudentCard(
+      [
+        buildPayment({
+          id: "history_attended_1",
+          checkInStatus: "checked_out",
+          attendanceId: "attendance_1",
+          packageClassNumber: 2,
+          completedClassesTotal: 3,
+          packageClassesUsedTotal: 3,
+        }),
+        buildPayment({
+          id: "history_attended_2",
+          checkInStatus: "checked_in",
+          attendanceId: "attendance_2",
+          packageClassNumber: 3,
+          createdAt: "2026-03-21T18:00:00.000Z",
+          completedClassesTotal: 3,
+          packageClassesUsedTotal: 3,
+        }),
+      ],
+      undefined,
+      { mode: "history" }
+    )
+
+    expect(card).not.toBeNull()
+    expect(card?.checkedInPayments).toBe(3)
+    expect(card?.totalPackageClassesConsumed).toBe(3)
+  })
+
+  it("uses only visible attended rows for daily metrics even when API totals are inflated", () => {
+    const card = buildHistoryStudentCard(
+      [
+        buildPayment({
+          id: "daily_attended_visible",
+          checkInStatus: "checked_out",
+          attendanceId: "attendance_today",
+          packageClassNumber: 1,
+          completedClassesTotal: 3,
+          packageClassesUsedTotal: 6,
+        }),
+      ],
+      undefined,
+      { mode: "daily" }
+    )
+
+    expect(card).not.toBeNull()
+    expect(card?.checkedInPayments).toBe(1)
+    expect(card?.totalPackageClassesConsumed).toBe(1)
   })
 
   it("deduplicates package funding payments when resolving paid entries", () => {

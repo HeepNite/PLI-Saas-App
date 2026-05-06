@@ -10,6 +10,7 @@ import {
   buildPaymentsRequestSearchParams,
   checkInStateTone,
   formatStudentPaymentCardDateTimeLabel,
+  isInsideCriticalClassWindow,
   isPaymentPaidForUi,
   filterVisibleRooms,
   formatPaymentChangeRequestInfoRows,
@@ -26,8 +27,13 @@ import {
   resolveProfileCardDetails,
   resolveRoomCatalogErrorMessage,
   resolveRoomDisableActionState,
+  resolveHistoryMaxSelectableDateIso,
   resolveStudentCardPayments,
   resolveHistoryRangeState,
+  resolveAttendanceHistoryRows,
+  resolvePaymentHistoryRows,
+  transformPaymentRowsToEvents,
+  transformPaymentRowsToAttendance,
 } from "@/components/front/staff/StaffUsersAdminClient"
 import { buildHistoryStudentCard, resolveHistoryStudentCardAmountPaidCents } from "@/components/front/staff/historyCardAggregates"
 
@@ -44,6 +50,599 @@ describe("resolveHistoryRangeState", () => {
       historyFrom: "2026-03-10",
       historyTo: "2026-03-13",
     })
+  })
+})
+
+describe("transformPaymentRowsToAttendance", () => {
+  it("hides package credit rows without attendance evidence from attendance history", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "pkg_credit_future",
+        userId: "user_1",
+        customerName: "Test",
+        customerEmail: "test@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa Beginner / Open Level",
+        courseSlug: "salsa-open",
+        packageId: "pkg_1",
+        serviceId: null,
+        paymentChannel: "package_credit",
+        purchaseCategory: "package",
+        amount: 0,
+        currency: "usd",
+        paymentStatus: "pending",
+        settlementStatus: "pending",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-04T20:10:00.000Z",
+        updatedAt: "2026-05-04T20:10:00.000Z",
+        classDate: "2026-05-04",
+        classTime: "20:10",
+        classStartsAt: "2026-05-04T20:10:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: false,
+        attendanceId: null,
+        checkInStatus: "none",
+        checkInAt: null,
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 3,
+        packageClassesUsedTotal: 3,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.summary.totalAttended).toBe(0)
+    expect(result.summary.noShows).toBe(0)
+    expect(result.events).toHaveLength(0)
+  })
+
+  it("does not treat package credit attendanceId-only rows as attended evidence", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "pkg_credit_attendance_id_only",
+        userId: "user_1",
+        customerName: "Test",
+        customerEmail: "test@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa Beginner / Open Level",
+        courseSlug: "salsa-open",
+        packageId: "pkg_1",
+        serviceId: null,
+        paymentChannel: "package_credit",
+        purchaseCategory: "package",
+        amount: 0,
+        currency: "usd",
+        paymentStatus: "pending",
+        settlementStatus: "pending",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-04T20:10:00.000Z",
+        updatedAt: "2026-05-04T20:10:00.000Z",
+        classDate: "2026-05-04",
+        classTime: "20:10",
+        classStartsAt: "2026-05-04T20:10:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: false,
+        attendanceId: "attendance_no_show_like",
+        checkInStatus: "none",
+        checkInAt: null,
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 3,
+        packageClassesUsedTotal: 3,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.summary.totalAttended).toBe(0)
+    expect(result.summary.noShows).toBe(0)
+    expect(result.events).toHaveLength(0)
+  })
+
+  it("does not treat scheduled package credit with checkInAt as attended evidence", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "pkg_credit_scheduled_with_checkin_at",
+        userId: "user_1",
+        customerName: "Test",
+        customerEmail: "test@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa Beginner / Open Level",
+        courseSlug: "salsa-open",
+        packageId: "pkg_1",
+        serviceId: null,
+        paymentChannel: "package_credit",
+        purchaseCategory: "package",
+        amount: 0,
+        currency: "usd",
+        paymentStatus: "pending",
+        settlementStatus: "pending",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-04T20:10:00.000Z",
+        updatedAt: "2026-05-04T20:10:00.000Z",
+        classDate: "2026-05-04",
+        classTime: "20:10",
+        classStartsAt: "2026-05-04T20:10:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: false,
+        attendanceId: "attendance_scheduled_1",
+        checkInStatus: "scheduled",
+        checkInAt: "2026-05-04T20:10:00.000Z",
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 3,
+        packageClassesUsedTotal: 3,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.summary.totalAttended).toBe(0)
+    expect(result.events).toHaveLength(0)
+  })
+
+  it("does not treat package credit checkInAt+attendanceId with non-attended status as attended", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "pkg_credit_checkinat_attendanceid_none",
+        userId: "user_1",
+        customerName: "Palladium Student",
+        customerEmail: "test@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa Beginner / Open Level",
+        courseSlug: "salsa-open",
+        packageId: "pkg_1",
+        serviceId: null,
+        paymentChannel: "package_credit",
+        purchaseCategory: "package",
+        amount: 0,
+        currency: "usd",
+        paymentStatus: "pending",
+        settlementStatus: "pending",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-04T20:10:00.000Z",
+        updatedAt: "2026-05-04T20:10:00.000Z",
+        classDate: "2026-05-04",
+        classTime: "20:10",
+        classStartsAt: "2026-05-04T20:10:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: false,
+        attendanceId: "attendance_maybe_linked_but_not_real_checkin",
+        checkInStatus: "none",
+        checkInAt: "2026-05-04T20:10:00.000Z",
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 2,
+        packageClassesUsedTotal: 2,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.summary.totalAttended).toBe(0)
+    expect(result.events).toHaveLength(0)
+  })
+
+  it("does not render attended from attended-like status without real check-in timestamp", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "pkg_credit_checked_out_no_checkin_at",
+        userId: "user_1",
+        customerName: "Palladium Student",
+        customerEmail: "test@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa Beginner / Open Level",
+        courseSlug: "salsa-open",
+        packageId: "pkg_1",
+        serviceId: null,
+        paymentChannel: "package_credit",
+        purchaseCategory: "package",
+        amount: 0,
+        currency: "usd",
+        paymentStatus: "pending",
+        settlementStatus: "pending",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-04T20:10:00.000Z",
+        updatedAt: "2026-05-04T20:10:00.000Z",
+        classDate: "2026-05-04",
+        classTime: "20:10",
+        classStartsAt: "2026-05-04T20:10:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: false,
+        attendanceId: "attendance_checked_out_but_no_checkin",
+        checkInStatus: "checked_out",
+        checkInAt: null,
+        checkedOutAt: "2026-05-04T21:15:00.000Z",
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 2,
+        packageClassesUsedTotal: 2,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.summary.totalAttended).toBe(0)
+    expect(result.events).toHaveLength(0)
+  })
+
+  it("uses attendance check-in time for attended rows instead of payment metadata classTime", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "attended_time_should_use_checkin",
+        userId: "user_1",
+        customerName: "Palladium Student",
+        customerEmail: "test@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa Beginner / Open Level",
+        courseSlug: "salsa-open",
+        packageId: "pkg_1",
+        serviceId: null,
+        paymentChannel: "package_credit",
+        purchaseCategory: "package",
+        amount: 0,
+        currency: "usd",
+        paymentStatus: "pending",
+        settlementStatus: "pending",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-04T20:10:00.000Z",
+        updatedAt: "2026-05-04T20:10:00.000Z",
+        classDate: "2026-05-04",
+        classTime: "20:10",
+        classStartsAt: "2026-05-04T20:10:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: false,
+        attendanceId: "attendance_real",
+        checkInStatus: "checked_in",
+        checkInAt: "2026-05-04T21:10:00.000Z",
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 2,
+        packageClassesUsedTotal: 2,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.summary.totalAttended).toBe(1)
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.status).toBe("attended")
+    const checkInLocal = new Date("2026-05-04T21:10:00.000Z")
+    const expectedTime = `${String(checkInLocal.getHours()).padStart(2, "0")}:${String(checkInLocal.getMinutes()).padStart(2, "0")}`
+    expect(result.events[0]?.time).toBe(expectedTime)
+    expect(result.events[0]?.time).not.toBe("20:10")
+  })
+})
+
+describe("transformPaymentRowsToEvents", () => {
+  it("converts cents to dollars for timeline amounts", () => {
+    const events = transformPaymentRowsToEvents([
+      {
+        id: "pmt_1",
+        userId: "user_1",
+        customerName: "Jhon Doe",
+        customerEmail: "jhon@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa timba in New York",
+        courseSlug: "salsa-ny",
+        packageId: null,
+        serviceId: "svc_dropin",
+        paymentChannel: "card",
+        purchaseCategory: "dropin",
+        amount: 2000,
+        currency: "usd",
+        paymentStatus: "paid",
+        settlementStatus: "paid",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-06T14:00:00.000Z",
+        updatedAt: "2026-05-06T14:00:00.000Z",
+        classDate: "2026-05-06",
+        classTime: "14:00",
+        classStartsAt: "2026-05-06T14:00:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: true,
+        attendanceId: null,
+        checkInStatus: "none",
+        checkInAt: null,
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 0,
+        packageClassesUsedTotal: 0,
+        outstandingBalance: null,
+        studentPin: { enabled: false, enrolled: false, locked: false, needsEnrollment: false, permanentStatus: null, provisionalActive: false, provisionalExpiresAt: null },
+        stripeFailure: null,
+      },
+    ] as never)
+
+    expect(events).toHaveLength(1)
+    expect(events[0].amount).toBe(20)
+  })
+
+  it("excludes intermediate non-payment rows with $0 amount", () => {
+    const events = transformPaymentRowsToEvents([
+      {
+        id: "intermediate_0",
+        userId: "user_1",
+        customerName: "Jhon Doe",
+        customerEmail: "jhon@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa timba in New York",
+        courseSlug: "salsa-ny",
+        packageId: null,
+        serviceId: null,
+        paymentChannel: "unknown",
+        purchaseCategory: "other",
+        amount: 0,
+        currency: "usd",
+        paymentStatus: "pending",
+        settlementStatus: "pending",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-06T14:00:00.000Z",
+        updatedAt: "2026-05-06T14:00:00.000Z",
+        classDate: "2026-05-06",
+        classTime: "14:00",
+        classStartsAt: "2026-05-06T14:00:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: false,
+        attendanceId: null,
+        checkInStatus: "none",
+        checkInAt: null,
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 0,
+        packageClassesUsedTotal: 0,
+        outstandingBalance: null,
+        studentPin: { enabled: false, enrolled: false, locked: false, needsEnrollment: false, permanentStatus: null, provisionalActive: false, provisionalExpiresAt: null },
+        stripeFailure: null,
+      },
+      {
+        id: "paid_35",
+        userId: "user_1",
+        customerName: "Jhon Doe",
+        customerEmail: "jhon@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa timba in New York 2",
+        courseSlug: "salsa-ny-2",
+        packageId: null,
+        serviceId: "svc_dropin",
+        paymentChannel: "card",
+        purchaseCategory: "dropin",
+        amount: 3500,
+        currency: "usd",
+        paymentStatus: "paid",
+        settlementStatus: "paid",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-06T14:02:00.000Z",
+        updatedAt: "2026-05-06T14:02:00.000Z",
+        classDate: "2026-05-06",
+        classTime: "14:02",
+        classStartsAt: "2026-05-06T14:02:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: true,
+        attendanceId: null,
+        checkInStatus: "none",
+        checkInAt: null,
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 0,
+        packageClassesUsedTotal: 0,
+        outstandingBalance: null,
+        studentPin: { enabled: false, enrolled: false, locked: false, needsEnrollment: false, permanentStatus: null, provisionalActive: false, provisionalExpiresAt: null },
+        stripeFailure: null,
+      },
+    ] as never)
+
+    expect(events).toHaveLength(1)
+    expect(events[0].id).toBe("paid_35")
+    expect(events[0].amount).toBe(35)
+  })
+})
+
+describe("attendance class type mapping", () => {
+  it("maps non-package drop-in attendance rows as Drop-in", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "dropin_attended",
+        userId: "user_1",
+        customerName: "Jhon Doe",
+        customerEmail: "jhon@example.com",
+        customerPhone: "-",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa timba in New York",
+        courseSlug: "salsa-ny",
+        packageId: null,
+        serviceId: "svc_dropin",
+        paymentChannel: "card",
+        purchaseCategory: "other",
+        amount: 2000,
+        currency: "usd",
+        paymentStatus: "paid",
+        settlementStatus: "paid",
+        settlementNote: "",
+        settledAt: null,
+        createdAt: "2026-05-06T14:00:00.000Z",
+        updatedAt: "2026-05-06T14:00:00.000Z",
+        classDate: "2026-05-06",
+        classTime: "14:00",
+        classStartsAt: "2026-05-06T14:00:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: true,
+        attendanceId: "att_1",
+        checkInStatus: "checked_in",
+        checkInAt: "2026-05-06T14:00:00.000Z",
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 0,
+        packageClassesUsedTotal: 0,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0].classType).toBe("Drop-in")
+  })
+})
+
+describe("resolveAttendanceHistoryRows", () => {
+  it("uses daily board scoped rows in daily mode instead of user full history", () => {
+    const dailyRow = { id: "today_1", userId: "user_1", classDate: "2026-05-05" }
+    const aprilHistoryRow = { id: "april_1", userId: "user_1", classDate: "2026-04-10" }
+
+    const rows = resolveAttendanceHistoryRows({
+      attendanceHistoryStudentId: "user_1",
+      isHistoryMode: false,
+      payments: [dailyRow as never],
+      userHistoryPayments: [dailyRow as never, aprilHistoryRow as never],
+      historyFrom: "",
+      historyTo: "",
+    })
+
+    expect(rows.map((row) => row.id)).toEqual(["today_1"])
+  })
+
+  it("uses user history rows constrained by selected range in history mode", () => {
+    const mayRow = { id: "may_1", userId: "user_1", classDate: "2026-05-05" }
+    const aprilRow = { id: "april_1", userId: "user_1", classDate: "2026-04-10" }
+
+    const rows = resolveAttendanceHistoryRows({
+      attendanceHistoryStudentId: "user_1",
+      isHistoryMode: true,
+      payments: [mayRow as never],
+      userHistoryPayments: [mayRow as never, aprilRow as never],
+      historyFrom: "2026-05-01",
+      historyTo: "2026-05-31",
+    })
+
+    expect(rows.map((row) => row.id)).toEqual(["may_1"])
+  })
+})
+
+describe("resolvePaymentHistoryRows", () => {
+  it("uses NY-today payment createdAt in daily mode and excludes older timeline rows", () => {
+    const dailyRow = {
+      id: "today_1",
+      userId: "user_1",
+      classDate: "2026-05-05",
+      createdAt: "2026-05-05T15:15:00.000Z",
+    }
+    const aprilHistoryRow = {
+      id: "april_1",
+      userId: "user_1",
+      classDate: "2026-05-05",
+      createdAt: "2026-04-10T15:15:00.000Z",
+    }
+    const mayFirstHistoryRow = {
+      id: "may_1",
+      userId: "user_1",
+      classDate: "2026-05-05",
+      createdAt: "2026-05-01T15:15:00.000Z",
+    }
+    const otherStudentTodayRow = {
+      id: "today_2",
+      userId: "user_2",
+      classDate: "2026-05-05",
+      createdAt: "2026-05-05T15:15:00.000Z",
+    }
+
+    const rows = resolvePaymentHistoryRows({
+      paymentHistoryStudentId: "user_1",
+      isHistoryMode: false,
+      payments: [dailyRow as never, aprilHistoryRow as never, mayFirstHistoryRow as never, otherStudentTodayRow as never],
+      userHistoryPayments: [dailyRow as never, aprilHistoryRow as never],
+      currentDateNY: "2026-05-05",
+    })
+
+    expect(rows.map((row) => row.id)).toEqual(["today_1"])
+  })
+
+  it("uses user history rows in history mode", () => {
+    const mayRow = { id: "may_1", userId: "user_1", classDate: "2026-05-05" }
+    const aprilRow = { id: "april_1", userId: "user_1", classDate: "2026-04-10" }
+
+    const rows = resolvePaymentHistoryRows({
+      paymentHistoryStudentId: "user_1",
+      isHistoryMode: true,
+      payments: [mayRow as never],
+      userHistoryPayments: [mayRow as never, aprilRow as never],
+      currentDateNY: "2026-05-05",
+    })
+
+    expect(rows.map((row) => row.id)).toEqual(["may_1", "april_1"])
+  })
+
+  it("accepts date-only createdAt values for NY-daily filtering", () => {
+    const todayRow = {
+      id: "today_date_only",
+      userId: "user_1",
+      createdAt: "2026-05-06",
+    }
+    const oldRow = {
+      id: "old_date_only",
+      userId: "user_1",
+      createdAt: "2026-05-04",
+    }
+
+    const rows = resolvePaymentHistoryRows({
+      paymentHistoryStudentId: "user_1",
+      isHistoryMode: false,
+      payments: [todayRow as never, oldRow as never],
+      userHistoryPayments: [],
+      currentDateNY: "2026-05-06",
+    })
+
+    expect(rows.map((row) => row.id)).toEqual(["today_date_only"])
   })
 })
 
@@ -102,6 +701,13 @@ describe("buildCurrentMonthPaymentsSummarySearchParams", () => {
     expect(buildCurrentMonthPaymentsSummarySearchParams(new Date("2024-02-10T12:00:00.000Z")).toString()).toBe(
       "mode=history&from=2024-02-01&to=2024-02-29"
     )
+  })
+})
+
+describe("resolveHistoryMaxSelectableDateIso", () => {
+  it("uses New York date so history can include current NY day", () => {
+    expect(resolveHistoryMaxSelectableDateIso(new Date("2026-05-05T02:30:00.000Z"))).toBe("2026-05-04")
+    expect(resolveHistoryMaxSelectableDateIso(new Date("2026-05-05T16:30:00.000Z"))).toBe("2026-05-05")
   })
 })
 
@@ -715,7 +1321,7 @@ describe("resolveDailyVisiblePayment", () => {
     expect(isPaymentPaidForUi(visiblePayment as unknown)).toBe(true)
   })
 
-  it("uses real completed and package usage totals when the daily payload provides them", () => {
+  it("uses only visible attended rows for daily metrics even when payload totals are inflated", () => {
     const card = buildHistoryStudentCard([
       {
         id: "elvira_pkg_checkin",
@@ -736,6 +1342,7 @@ describe("resolveDailyVisiblePayment", () => {
         fundingPayment: null,
         checkInStatus: "checked_in",
         attendanceId: "attendance_elvira",
+        packageClassNumber: 6,
         checkInAt: "2026-03-20T18:01:00.000Z",
         checkedOutAt: null,
         createdAt: "2026-03-20T18:00:00.000Z",
@@ -764,6 +1371,7 @@ describe("resolveDailyVisiblePayment", () => {
         fundingPayment: null,
         checkInStatus: "none",
         attendanceId: null,
+        packageClassNumber: null,
         checkInAt: null,
         checkedOutAt: null,
         createdAt: "2026-03-20T18:05:00.000Z",
@@ -776,11 +1384,11 @@ describe("resolveDailyVisiblePayment", () => {
     ] as unknown)
 
     expect(card).not.toBeNull()
-    expect(card?.checkedInPayments).toBe(6)
-    expect(card?.totalPackageClassesConsumed).toBe(6)
+    expect(card?.checkedInPayments).toBe(1)
+    expect(card?.totalPackageClassesConsumed).toBe(1)
   })
 
-  it("never lets completed classes fall below the real package usage total in daily cards", () => {
+  it("does not inflate daily metrics from package/completed totals when only one attended row is visible", () => {
     const card = buildHistoryStudentCard([
       {
         id: "elvira_pkg_checkin_misaligned",
@@ -801,6 +1409,7 @@ describe("resolveDailyVisiblePayment", () => {
         fundingPayment: null,
         checkInStatus: "checked_in",
         attendanceId: "attendance_elvira_real_6",
+        packageClassNumber: 6,
         checkInAt: "2026-03-20T18:01:00.000Z",
         checkedOutAt: null,
         createdAt: "2026-03-20T18:00:00.000Z",
@@ -813,8 +1422,8 @@ describe("resolveDailyVisiblePayment", () => {
     ] as unknown)
 
     expect(card).not.toBeNull()
-    expect(card?.checkedInPayments).toBe(6)
-    expect(card?.totalPackageClassesConsumed).toBe(6)
+    expect(card?.checkedInPayments).toBe(1)
+    expect(card?.totalPackageClassesConsumed).toBe(1)
   })
 
   it("applies the requested daily badge tones for check-in and enrolled pin", () => {
@@ -1347,5 +1956,78 @@ describe("room helpers", () => {
       "Room endpoint failed."
     )
     expect(resolveRoomCatalogErrorMessage([{}, {}, {}])).toBe("Failed to load school catalog.")
+  })
+})
+
+describe("isInsideCriticalClassWindow", () => {
+  const classStartsAt = new Date("2026-05-05T18:00:00.000Z").getTime()
+  const eventsByDay = {
+    "2026-05-05": [
+      {
+        attendanceId: "att_1",
+        status: "scheduled",
+        startsAtIso: new Date(classStartsAt).toISOString(),
+        timeLabel: "2:00 PM",
+        courseSlug: "salsa-open",
+        courseTitle: "Salsa Open",
+        userId: "user_1",
+        userName: "Test",
+        userEmail: "test@example.com",
+        userPhone: "",
+      },
+    ],
+  }
+
+  it("returns true 15 minutes before class start", () => {
+    const nowMs = classStartsAt - 15 * 60 * 1000
+    expect(isInsideCriticalClassWindow(eventsByDay, nowMs)).toBe(true)
+  })
+
+  it("returns true at class start", () => {
+    expect(isInsideCriticalClassWindow(eventsByDay, classStartsAt)).toBe(true)
+  })
+
+  it("returns true 14 minutes after class start", () => {
+    const nowMs = classStartsAt + 14 * 60 * 1000
+    expect(isInsideCriticalClassWindow(eventsByDay, nowMs)).toBe(true)
+  })
+
+  it("returns true at exactly 15 minutes after class start", () => {
+    const nowMs = classStartsAt + 15 * 60 * 1000
+    expect(isInsideCriticalClassWindow(eventsByDay, nowMs)).toBe(true)
+  })
+
+  it("returns false 16 minutes before class start", () => {
+    const nowMs = classStartsAt - 16 * 60 * 1000
+    expect(isInsideCriticalClassWindow(eventsByDay, nowMs)).toBe(false)
+  })
+
+  it("returns false 16 minutes after class start", () => {
+    const nowMs = classStartsAt + 16 * 60 * 1000
+    expect(isInsideCriticalClassWindow(eventsByDay, nowMs)).toBe(false)
+  })
+
+  it("returns false for empty events", () => {
+    expect(isInsideCriticalClassWindow({}, classStartsAt)).toBe(false)
+  })
+
+  it("handles multiple classes and returns true if any is in window", () => {
+    const pastClassStart = new Date("2026-05-05T10:00:00.000Z").toISOString()
+    const multiEvents = {
+      "2026-05-05": [
+        { ...eventsByDay["2026-05-05"][0], startsAtIso: pastClassStart },
+        eventsByDay["2026-05-05"][0],
+      ],
+    }
+    // 16 min after past class, but exactly at upcoming class start
+    const nowMs = classStartsAt
+    expect(isInsideCriticalClassWindow(multiEvents, nowMs)).toBe(true)
+  })
+
+  it("skips events with invalid dates", () => {
+    const badEvents = {
+      "2026-05-05": [{ ...eventsByDay["2026-05-05"][0], startsAtIso: "not-a-date" }],
+    }
+    expect(isInsideCriticalClassWindow(badEvents, classStartsAt)).toBe(false)
   })
 })

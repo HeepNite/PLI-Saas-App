@@ -5,6 +5,7 @@ import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZ
 
 export const CHECKIN_TIME_ZONE = "America/New_York"
 export const WALK_IN_LATE_GRACE_MINUTES = 30
+export const TERMINAL_ROTATION_LEAD_MINUTES = 15
 export const TERMINAL_LATE_PAYMENT_AFTER_END_MINUTES = 10
 export const TERMINAL_LATE_PAYMENT_NEXT_CLASS_MAX_GAP_MINUTES = 120
 export const TRANSIENT_MESSAGE_TIMEOUT_MS = 3200
@@ -144,6 +145,7 @@ export const pickTerminalContextRecommendation = (
   if (preferredCourse) {
     const todayIso = getDateKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE)
     const nowMinutes = toMinutes(getTimeKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE))
+    const courseDurationMinutes = getCourseDurationMinutes(preferredCourse.slug, courses)
 
     if (todayIso) {
       for (let dayOffset = 0; dayOffset <= 14; dayOffset += 1) {
@@ -153,7 +155,10 @@ export const pickTerminalContextRecommendation = (
         for (const slot of slots) {
           const slotMinutes = toMinutes(slot)
           if (slotMinutes === null) continue
-          if (dayOffset === 0 && nowMinutes !== null && nowMinutes > slotMinutes + WALK_IN_LATE_GRACE_MINUTES) {
+          // Use the course's actual duration so the slot stays valid until class ends,
+          // preventing a gap between grace expiry and auto-rotation.
+          const lateCutoff = slotMinutes + courseDurationMinutes
+          if (dayOffset === 0 && nowMinutes !== null && nowMinutes > lateCutoff) {
             continue
           }
 
@@ -201,7 +206,7 @@ export const pickLatePaymentRecommendation = (
 
   for (let index = 0; index < todaySlots.length; index += 1) {
     const slot = todaySlots[index]
-    const latePaymentOpensAtMs = slot.endsAtMs
+    const latePaymentOpensAtMs = slot.endsAtMs - TERMINAL_ROTATION_LEAD_MINUTES * 60 * 1000
     const latePaymentClosesAtMs = slot.endsAtMs + TERMINAL_LATE_PAYMENT_AFTER_END_MINUTES * 60 * 1000
     if (nowMs < latePaymentOpensAtMs || nowMs > latePaymentClosesAtMs) continue
 

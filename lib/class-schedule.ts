@@ -1,10 +1,11 @@
 import { demoCourses, type CourseData } from "@/constants/courses"
+import { getTimesForWeekday } from "@/lib/schedule-rules"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_REGEX = /^\d{2}:\d{2}$/
 
 const toMonBasedWeekday = (date: Date) => (date.getDay() + 6) % 7 // Mon=0...Sun=6
-type ScheduleCourseLike = Pick<CourseData, "slug" | "schedule" | "title">
+type ScheduleCourseLike = Pick<CourseData, "slug" | "schedule" | "title" | "scheduleRules">
 
 export const parseIsoDate = (value: string) => {
   if (!DATE_REGEX.test(value)) return null
@@ -79,8 +80,18 @@ export const getCourseBySlug = (
 export const getAvailableTimesForCourseDateFromCourse = (course: ScheduleCourseLike, dateIso: string) => {
   const date = parseIsoDate(dateIso)
   if (!date) return [] as string[]
-  const weekday = toMonBasedWeekday(date)
   const schedule = course.schedule
+
+  // Try scheduleRules first (day-specific per-weekday times).
+  // scheduleRules.rules[].weekday uses JS getDay() convention (0=Sun, 1=Mon, ... 6=Sat).
+  const jsWeekday = date.getDay()
+  const ruleTimes = getTimesForWeekday(course.scheduleRules, jsWeekday)
+  if (ruleTimes) {
+    return ruleTimes.filter((value) => Boolean(parseTime24(value)))
+  }
+
+  // Fall back to legacy flat availableTimes (union of all days).
+  const weekday = toMonBasedWeekday(date)
 
   if (
     (!Array.isArray(schedule.availableWeekdays) || !schedule.availableWeekdays.length) &&
@@ -203,6 +214,47 @@ export const doUtcIntervalsOverlap = (
 
   if (leftEndMs <= leftStartMs || rightEndMs <= rightStartMs) return false
   return leftStartMs < rightEndMs && leftEndMs > rightStartMs
+}
+
+/**
+ * Buffer-aware interval overlap check.
+ *
+ * Returns true when two UTC intervals overlap OR when the gap between them
+ * is smaller than the specified buffer. A buffer of 0 behaves identically
+ * to `doUtcIntervalsOverlap`.
+ *
+ * Pads both intervals by bufferMs/2 on each side, so a gap exactly equal
+ * to the buffer triggers a conflict (boundary-inclusive).
+ *
+ * @param bufferMs — minimum required gap in milliseconds (0 = no buffer)
+ */
+export const doUtcIntervalsOverlapWithBuffer = (
+  leftStartsAt: Date,
+  leftEndsAt: Date,
+  rightStartsAt: Date,
+  rightEndsAt: Date,
+  bufferMs = 0
+) => {
+  if (!isValidDate(leftStartsAt) || !isValidDate(leftEndsAt) || !isValidDate(rightStartsAt) || !isValidDate(rightEndsAt)) {
+    return false
+  }
+
+  const leftStartMs = leftStartsAt.getTime()
+  const leftEndMs = leftEndsAt.getTime()
+  const rightStartMs = rightStartsAt.getTime()
+  const rightEndMs = rightEndsAt.getTime()
+
+  if (leftEndMs <= leftStartMs || rightEndMs <= rightStartMs) return false
+
+  // Pad each interval by bufferMs/2 on both sides.
+  // Uses >= for boundary-inclusive: gap exactly equal to buffer = conflict.
+  const halfBuffer = bufferMs / 2
+  const paddedLeftStart = leftStartMs - halfBuffer
+  const paddedLeftEnd = leftEndMs + halfBuffer
+  const paddedRightStart = rightStartMs - halfBuffer
+  const paddedRightEnd = rightEndMs + halfBuffer
+
+  return paddedLeftStart <= paddedRightEnd && paddedLeftEnd >= paddedRightStart
 }
 
 /**

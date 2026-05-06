@@ -8,6 +8,7 @@ import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { buildSessionEndsAtUtc, findOverlappingRoomSession, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { findRoomAvailabilityConflict } from "@/lib/room-availability"
 
 export const runtime = "nodejs"
 const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"]
@@ -39,6 +40,10 @@ const classSessionDelegate = prisma.classSession as typeof prisma.classSession &
       courseSlug: string
     }>
   >
+}
+
+const roomReservationDelegate = prisma.roomReservation as typeof prisma.roomReservation & {
+  findMany: (args: unknown) => Promise<Array<{ id: string; roomId: string; startsAt: Date; endsAt: Date; status: string }>>
 }
 
 export async function POST(req: Request) {
@@ -173,6 +178,55 @@ export async function POST(req: Request) {
         },
         { status: 409 }
       )
+    }
+
+    const roomReservations = await roomReservationDelegate.findMany({
+      where: {
+        roomId: parsed.roomId,
+        status: { notIn: ["cancelled", "canceled"] },
+        startsAt: { lt: endsAt },
+      },
+      select: {
+        id: true,
+        roomId: true,
+        startsAt: true,
+        endsAt: true,
+        status: true,
+      },
+    })
+
+    const reservationConflict = findRoomAvailabilityConflict(roomSessions, roomReservations, {
+      roomId: parsed.roomId,
+      startsAt,
+      endsAt,
+      excludeSessionId: existingSession?.id,
+      mode: "school-priority",
+    })
+
+    if (reservationConflict) {
+      // In school-priority mode, only session conflicts should block (reservations are skipped).
+      // If we still got a conflict here, it's a class_session conflict — handle it.
+      if (reservationConflict.kind === "class_session") {
+        const conflictingSession = roomSessions.find((s) => s.id === reservationConflict.id)
+        const conflictingEndsAt = conflictingSession
+          ? buildSessionEndsAtUtc(conflictingSession.startsAt, conflictingSession.durationMinutes)
+          : null
+        return NextResponse.json(
+          {
+            error: "Room is unavailable for the requested time slot.",
+            conflict: {
+              sessionId: reservationConflict.id,
+              courseSlug: conflictingSession?.courseSlug ?? null,
+              title: conflictingSession?.title ?? null,
+              startsAt: reservationConflict.startsAt.toISOString(),
+              endsAt: conflictingEndsAt?.toISOString() ?? null,
+              room: { id: assignedRoom.id, name: assignedRoom.name, capacity: assignedRoom.capacity, location: assignedRoom.location, active: assignedRoom.active },
+            },
+          },
+          { status: 409 }
+        )
+      }
+      // reservation or schedule kind in school-priority mode should never block — log and proceed
     }
   }
 

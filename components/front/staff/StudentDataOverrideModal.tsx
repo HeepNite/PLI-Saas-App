@@ -39,6 +39,17 @@ type CourseOption = {
   title: string
 }
 
+type PackageOption = {
+  id: string
+  label: string
+  status: string
+  remainingCredits: number | null
+  usedCredits: number | null
+  totalCredits: number | null
+  isUnlimited: boolean
+  expiresAt: string | null
+}
+
 type FormState = {
   entity: EntityType
   reason: string
@@ -174,6 +185,12 @@ export default function StudentDataOverrideModal({
   const [selectedCourseSlug, setSelectedCourseSlug] = React.useState<string>("")
   const [coursesLoading, setCoursesLoading] = React.useState(false)
 
+  // Package selector state
+  const [availablePackages, setAvailablePackages] = React.useState<PackageOption[]>([])
+  const [packagesLoading, setPackagesLoading] = React.useState(false)
+  const [packagesError, setPackagesError] = React.useState<string | null>(null)
+  const [showManualPackageId, setShowManualPackageId] = React.useState(false)
+
   const updateField = React.useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
       setForm((prev) => ({ ...prev, [key]: value }))
@@ -207,6 +224,25 @@ export default function StudentDataOverrideModal({
     setSessionsLoading(false)
     setSessionsError(null)
     setSelectedCourseSlug("")
+    setAvailablePackages([])
+    setPackagesLoading(false)
+    setPackagesError(null)
+    setShowManualPackageId(false)
+  }, [])
+
+  const formatPackageSummary = React.useCallback((pkg: PackageOption): string => {
+    const statusLabel = pkg.status ? pkg.status.charAt(0).toUpperCase() + pkg.status.slice(1) : "Unknown"
+    const creditsLabel = pkg.isUnlimited
+      ? "Unlimited"
+      : pkg.totalCredits !== null
+        ? `${Math.max(0, pkg.remainingCredits ?? 0)} left · ${Math.max(0, pkg.usedCredits ?? 0)} used of ${pkg.totalCredits}`
+        : `${Math.max(0, pkg.remainingCredits ?? 0)} credits left`
+    const expiresLabel = pkg.expiresAt
+      ? `Expires ${new Date(pkg.expiresAt).toLocaleDateString()}`
+      : "No expiry"
+    const shortId = pkg.id.length > 8 ? `${pkg.id.slice(0, 8)}…` : pkg.id
+
+    return `${pkg.label} · ${statusLabel} · ${creditsLabel} · ${expiresLabel} · ${shortId}`
   }, [])
 
   const handleClose = React.useCallback(() => {
@@ -287,6 +323,49 @@ export default function StudentDataOverrideModal({
     }
   }, [open, form.entity, studentId, selectedCourseSlug])
 
+  // Fetch package purchases when package tab is active
+  React.useEffect(() => {
+    if (!open || form.entity !== "package") return
+
+    let cancelled = false
+    setPackagesLoading(true)
+    setPackagesError(null)
+
+    fetch(`/api/staff/students/${encodeURIComponent(studentId)}/packages`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load package purchases")
+        return res.json()
+      })
+      .then((data) => {
+        if (cancelled) return
+
+        const packages = (data?.data?.packages ?? []) as PackageOption[]
+        setAvailablePackages(packages)
+        setPackagesLoading(false)
+
+        setForm((prev) => {
+          if (prev.entity !== "package") return prev
+          if (prev.packagePurchaseId && packages.some((item) => item.id === prev.packagePurchaseId)) {
+            return prev
+          }
+          if (packages.length === 1) {
+            return { ...prev, packagePurchaseId: packages[0].id }
+          }
+          return { ...prev, packagePurchaseId: "" }
+        })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setPackagesError(err instanceof Error ? err.message : "Failed to load package purchases")
+        setPackagesLoading(false)
+        setAvailablePackages([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, form.entity, studentId])
+
   const validate = React.useCallback((): string | null => {
     if (!form.reason.trim()) return "Reason is required."
     if (form.reason.trim().length > 500) return "Reason must be 500 characters or less."
@@ -304,7 +383,7 @@ export default function StudentDataOverrideModal({
         break
       }
       case "package": {
-        if (!form.packagePurchaseId.trim()) return "Package Purchase ID is required for package changes."
+        if (!form.packagePurchaseId.trim()) return "Select a package purchase before applying package changes."
         if (form.packageRemainingCredits && (isNaN(Number(form.packageRemainingCredits)) || Number(form.packageRemainingCredits) < 0)) {
           return "Remaining credits must be non-negative."
         }
@@ -757,15 +836,65 @@ export default function StudentDataOverrideModal({
                 {form.entity === "package" && (
                   <div className="space-y-4">
                     <label className="block space-y-1">
-                      <span className="text-xs text-black/65 dark:text-white/65">Package Purchase ID</span>
-                      <input
-                        type="text"
-                        value={form.packagePurchaseId}
-                        onChange={(e) => updateField("packagePurchaseId", e.target.value)}
-                        placeholder="package-purchase-uuid"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
+                      <span className="text-xs text-black/65 dark:text-white/65">
+                        Package purchase <span className="text-[var(--brand,#b61616)]">*</span>
+                      </span>
+                      {packagesLoading ? (
+                        <div className="flex items-center gap-2 rounded-md border border-black/10 bg-black/[0.02] px-3 py-2 text-sm text-black/50 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/50">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading package purchases...
+                        </div>
+                      ) : packagesError ? (
+                        <div className="rounded-md border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/5 px-3 py-2 text-sm text-[var(--brand,#b61616)]">
+                          {packagesError}
+                        </div>
+                      ) : availablePackages.length === 0 ? (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                          No package purchases found for this student.
+                        </div>
+                      ) : (
+                        <>
+                          <select
+                            value={form.packagePurchaseId}
+                            onChange={(e) => updateField("packagePurchaseId", e.target.value)}
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          >
+                            <option value="">Select package purchase</option>
+                            {availablePackages.map((pkg) => (
+                              <option key={pkg.id} value={pkg.id}>
+                                {formatPackageSummary(pkg)}
+                              </option>
+                            ))}
+                          </select>
+                          {availablePackages.length === 1 && form.packagePurchaseId ? (
+                            <p className="text-[11px] text-black/45 dark:text-white/45">
+                              Auto-selected: {formatPackageSummary(availablePackages[0])}
+                            </p>
+                          ) : null}
+                        </>
+                      )}
                     </label>
+
+                    {availablePackages.length === 0 ? (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowManualPackageId((prev) => !prev)}
+                          className="text-xs font-medium text-[var(--brand,#b61616)] underline-offset-2 hover:underline"
+                        >
+                          {showManualPackageId ? "Hide manual UUID entry" : "Use manual UUID entry (advanced)"}
+                        </button>
+                        {showManualPackageId ? (
+                          <input
+                            type="text"
+                            value={form.packagePurchaseId}
+                            onChange={(e) => updateField("packagePurchaseId", e.target.value)}
+                            placeholder="package-purchase-uuid"
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="block space-y-1">

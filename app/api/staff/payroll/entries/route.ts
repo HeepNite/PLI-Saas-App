@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { asOptionalString, jsonError, readJsonBody } from "@/lib/payroll/route-helpers"
 import { deriveHoursWorked } from "@/lib/payroll/hours"
+import { closeOpenClockEntriesForPayroll } from "@/lib/payroll/auto-closure"
 import { BONUS_TYPES } from "@/lib/payroll/types"
 
 export const runtime = "nodejs"
@@ -149,6 +150,14 @@ export async function POST(req: Request) {
   if (existingEntry) {
     return jsonError("Entry already exists", 409)
   }
+
+  // P0: auto-close open clock entries before deriving hours (idempotent)
+  await closeOpenClockEntriesForPayroll(prisma, {
+    staffAccountId,
+    periodStart,
+    periodEnd,
+    source: "payroll-read-entries",
+  })
 
   const hoursResult = await deriveHoursWorked(prisma, staffAccountId, periodStart, periodEnd)
   const hoursWorked = hoursResult.hoursWorked

@@ -18,13 +18,29 @@ import {
 } from "@/lib/security/staff-access"
 import { prisma } from "@/lib/prisma"
 
+const isClerkRateLimitError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false
+  const status = (error as { status?: number }).status
+  return status === 429
+}
+
+const extractRetryAfterSec = (error: unknown): number => {
+  if (!error || typeof error !== "object") return 5
+  const retryAfter = (error as { headers?: Record<string, string> }).headers?.["retry-after"]
+  if (retryAfter) {
+    const parsed = Number(retryAfter)
+    if (Number.isFinite(parsed) && parsed > 0) return Math.ceil(parsed)
+  }
+  return 5
+}
+
 export type StaffPortalAuthResult =
   | { ok: true; userId: string; role: StaffRole; category: StaffCategory | null; staffName: string | null }
-  | { ok: false; status: number; error: string }
+  | { ok: false; status: number; error: string; retryAfterSec?: number }
 
 export type StaffPortalBaseAuthResult =
   | { ok: true; userId: string; role: StaffRole | null; category: StaffCategory | null; staffName: string | null }
-  | { ok: false; status: number; error: string }
+  | { ok: false; status: number; error: string; retryAfterSec?: number }
 
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
@@ -88,7 +104,23 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
   }
 
   const client = await clerkClient()
-  const user = await client.users.getUser(authResult.userId)
+  let user
+  try {
+    user = await client.users.getUser(authResult.userId)
+  } catch (error) {
+    if (isClerkRateLimitError(error)) {
+      const retryAfterSec = extractRetryAfterSec(error)
+      return { ok: false, status: 503, error: "Service temporarily busy. Please try again shortly.", retryAfterSec }
+    }
+    // Other Clerk errors (5xx, network) → transient failure
+    if (error && typeof error === "object" && typeof (error as { status?: number }).status === "number") {
+      const status = (error as { status: number }).status
+      if (status >= 500 && status < 600) {
+        return { ok: false, status: 503, error: "Service temporarily unavailable. Please try again shortly.", retryAfterSec: 5 }
+      }
+    }
+    throw error
+  }
 
   let metadataRole = extractStaffRoleFromUserMetadata(user)
   let metadataCategory = extractStaffCategoryFromUserMetadata(user)

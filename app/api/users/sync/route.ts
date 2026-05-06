@@ -1,16 +1,7 @@
 import { NextResponse } from "next/server"
-import type { ClerkClient } from "@clerk/backend"
 import { auth, clerkClient } from "@clerk/nextjs/server"
-import { upsertUserByIdentifiers } from "@/lib/users"
+import { syncDbUserFromClerkUser } from "@/lib/clerk-user-sync"
 import { updateClerkUserIfMissing } from "@/lib/clerk-users"
-
-type ClerkUser = Awaited<ReturnType<ClerkClient["users"]["getUser"]>>
-
-const getDisplayName = (user: ClerkUser) => {
-  const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
-  if (fullName) return fullName
-  return user.username || undefined
-}
 
 type SyncBody = {
   firstName?: string
@@ -42,17 +33,7 @@ export async function POST(req: Request) {
   })
 
   clerkUser = await client.users.getUser(userId)
-  const email = clerkUser.primaryEmailAddress?.emailAddress
-  if (!email) {
-    return NextResponse.json({ error: "Missing email for user" }, { status: 400 })
-  }
-
-  const dbUser = await upsertUserByIdentifiers({
-    clerkId: userId,
-    email,
-    name: getDisplayName(clerkUser),
-    phone: clerkUser.primaryPhoneNumber?.phoneNumber || undefined,
-  })
+  const dbUser = await syncDbUserFromClerkUser(clerkUser)
 
   if (!dbUser) {
     return NextResponse.json({ error: "Unable to sync user" }, { status: 500 })

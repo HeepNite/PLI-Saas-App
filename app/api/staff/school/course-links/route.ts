@@ -6,6 +6,11 @@ import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
 
+/** Get the earliest available time from a course's availableTimes array */
+function getEarliestTime(times: string[]): string {
+  return [...times].sort()[0] ?? "99:99"
+}
+
 const prismaRouteError = (error: unknown, fallbackMessage: string) => {
   if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2021" || error.code === "P2022")) {
     return NextResponse.json(
@@ -40,18 +45,25 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const courseSlug = (searchParams.get("courseSlug") || "").trim().toLowerCase()
+
+  // When no courseSlug, return total count of all CourseLinks
   if (!courseSlug) {
-    return NextResponse.json({ error: "courseSlug is required." }, { status: 400 })
+    try {
+      const count = await prisma.courseLink.count()
+      return NextResponse.json({ count })
+    } catch (error) {
+      return prismaRouteError(error, "Unable to count course links.")
+    }
   }
 
   try {
     const [asA, asB] = await Promise.all([
       prisma.courseLink.findMany({
-        where: { courseSlugA: courseSlug, active: true },
+        where: { courseSlugA: courseSlug },
         orderBy: [{ createdAt: "asc" }],
       }),
       prisma.courseLink.findMany({
-        where: { courseSlugB: courseSlug, active: true },
+        where: { courseSlugB: courseSlug },
         orderBy: [{ createdAt: "asc" }],
       }),
     ])
@@ -108,8 +120,8 @@ export async function POST(req: Request) {
 
   // Validate both courses exist
   const [courseA, courseB] = await Promise.all([
-    prisma.courseCatalog.findUnique({ where: { slug: courseSlugA }, select: { slug: true, title: true } }),
-    prisma.courseCatalog.findUnique({ where: { slug: courseSlugB }, select: { slug: true, title: true } }),
+    prisma.courseCatalog.findUnique({ where: { slug: courseSlugA }, select: { slug: true, title: true, availableTimes: true } }),
+    prisma.courseCatalog.findUnique({ where: { slug: courseSlugB }, select: { slug: true, title: true, availableTimes: true } }),
   ])
 
   if (!courseA) {
@@ -119,11 +131,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Course "${courseSlugB}" not found.` }, { status: 404 })
   }
 
+  // Auto-order: ensure courseSlugA is the earlier class
+  let finalSlugA = courseSlugA
+  let finalSlugB = courseSlugB
+  let swapped = false
+
+  const timeA = getEarliestTime(courseA.availableTimes)
+  const timeB = getEarliestTime(courseB.availableTimes)
+
+  if (timeB < timeA) {
+    finalSlugA = courseSlugB
+    finalSlugB = courseSlugA
+    swapped = true
+  }
+
   try {
     const link = await prisma.courseLink.create({
       data: {
-        courseSlugA,
-        courseSlugB,
+        courseSlugA: finalSlugA,
+        courseSlugB: finalSlugB,
         dropInConsecutiveCents: dropInConsecutiveCents ?? 0,
         packageHolderConsecutiveCents: packageHolderConsecutiveCents ?? 0,
         active,
@@ -133,7 +159,10 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       item: link,
-      message: `Link created: ${courseA.title} → ${courseB.title}`,
+      message: swapped
+        ? `Course link created (auto-ordered by class time: ${finalSlugA} → ${finalSlugB})`
+        : "Course link created",
+      swapped,
     })
   } catch (error) {
     return prismaRouteError(error, "Unable to create course link.")
@@ -174,8 +203,10 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Course link not found." }, { status: 404 })
   }
 
-  const courseSlugA = typeof body.courseSlugA === "string" ? body.courseSlugA.trim().toLowerCase() : existing.courseSlugA
-  const courseSlugB = typeof body.courseSlugB === "string" ? body.courseSlugB.trim().toLowerCase() : existing.courseSlugB
+  const bodyCourseSlugA = typeof body.courseSlugA === "string" ? body.courseSlugA.trim().toLowerCase() : undefined
+  const bodyCourseSlugB = typeof body.courseSlugB === "string" ? body.courseSlugB.trim().toLowerCase() : undefined
+  const courseSlugA = bodyCourseSlugA ?? existing.courseSlugA
+  const courseSlugB = bodyCourseSlugB ?? existing.courseSlugB
   const dropInConsecutiveCents =
     typeof body.dropInConsecutiveCents === "number" && Number.isFinite(body.dropInConsecutiveCents) && body.dropInConsecutiveCents >= 0
       ? Math.round(body.dropInConsecutiveCents)
@@ -191,12 +222,35 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "A course cannot be linked to itself." }, { status: 400 })
   }
 
+  // Auto-order: when both slugs are being updated, ensure courseSlugA is the earlier class
+  let finalSlugA = courseSlugA
+  let finalSlugB = courseSlugB
+  let swapped = false
+
+  if (bodyCourseSlugA !== undefined && bodyCourseSlugB !== undefined) {
+    const [courseA, courseB] = await Promise.all([
+      prisma.courseCatalog.findUnique({ where: { slug: courseSlugA }, select: { availableTimes: true } }),
+      prisma.courseCatalog.findUnique({ where: { slug: courseSlugB }, select: { availableTimes: true } }),
+    ])
+
+    if (courseA && courseB) {
+      const timeA = getEarliestTime(courseA.availableTimes)
+      const timeB = getEarliestTime(courseB.availableTimes)
+
+      if (timeB < timeA) {
+        finalSlugA = courseSlugB
+        finalSlugB = courseSlugA
+        swapped = true
+      }
+    }
+  }
+
   try {
     const link = await prisma.courseLink.update({
       where: { id },
       data: {
-        courseSlugA,
-        courseSlugB,
+        courseSlugA: finalSlugA,
+        courseSlugB: finalSlugB,
         dropInConsecutiveCents,
         packageHolderConsecutiveCents,
         active,
@@ -206,7 +260,10 @@ export async function PUT(req: Request) {
     return NextResponse.json({
       ok: true,
       item: link,
-      message: "Course link updated.",
+      message: swapped
+        ? `Course link updated (auto-ordered by class time: ${finalSlugA} → ${finalSlugB})`
+        : "Course link updated.",
+      swapped,
     })
   } catch (error) {
     return prismaRouteError(error, "Unable to update course link.")

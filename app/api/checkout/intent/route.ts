@@ -164,6 +164,10 @@ export async function POST(req: Request) {
         email: identity.resolvedEmail,
         phone: identity.phoneNormalized,
         phoneRaw: phone || "",
+        // Consecutive class fields (present when user accepted the consecutive offer)
+        consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
+        consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
+        consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
       },
     })
 

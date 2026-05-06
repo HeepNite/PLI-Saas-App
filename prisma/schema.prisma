@@ -137,6 +137,8 @@ model Room {
   updatedAt      DateTime        @updatedAt
   sessions       ClassSession[]
   defaultCourses CourseCatalog[]
+  reservations   RoomReservation[]
+  auditLogs      RoomAuditLog[]
 
   @@index([active])
 }
@@ -247,6 +249,51 @@ model ClassSession {
   @@unique([courseSlug, startsAt])
   @@index([courseSlug, startsAt])
   @@index([roomId, startsAt])
+}
+
+model RoomReservation {
+  id                      String   @id @default(cuid())
+  roomId                  String
+  room                    Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  title                   String
+  reason                  String
+  category                String?
+  startsAt                DateTime
+  endsAt                  DateTime
+  status                  String   @default("active")
+  createdByClerkUserId    String
+  assignedStaffClerkUserId String?
+  cancelledAt             DateTime?
+  cancelledByClerkUserId  String?
+  cancellationReason      String?
+  paymentId               String?           // future FK to a payment record (reservation-payments)
+  cancellationPolicySnapshot Json?          // frozen policy at creation time for future enforcement
+  metadata                Json?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([roomId, startsAt])
+  @@index([status, startsAt])
+  @@index([assignedStaffClerkUserId, startsAt])
+}
+
+model RoomAuditLog {
+  id               String   @id @default(cuid())
+  roomId           String?
+  room             Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  roomNameSnapshot String
+  action           String
+  actorClerkUserId String
+  actorRole        String
+  reason           String?
+  outcome          String
+  blockers         Json?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([action, createdAt])
+  @@index([actorClerkUserId, createdAt])
 }
 
 model Attendance {
@@ -762,4 +809,17 @@ model StaffClockEntry {
   @@index([staffAccountId])
   @@index([clockInAt])
   @@index([status])
+}
+
+model MonthlyBoundary {
+  id              String   @id @default(cuid())
+  year            Int
+  month           Int // 1-12
+  closedAt        DateTime?
+  closedByClerkId String?
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  @@unique([year, month])
+  @@index([closedAt])
 }

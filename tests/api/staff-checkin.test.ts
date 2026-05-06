@@ -22,6 +22,9 @@ const mockPrisma = {
   room: {
     findUnique: vi.fn(),
   },
+  roomReservation: {
+    findMany: vi.fn(),
+  },
   classSession: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
@@ -61,6 +64,8 @@ describe("staff checkin route", () => {
     mockPrisma.user.findFirst.mockReset()
     mockPrisma.room.findUnique.mockReset()
     mockPrisma.room.findUnique.mockResolvedValue(null)
+    mockPrisma.roomReservation.findMany.mockReset()
+    mockPrisma.roomReservation.findMany.mockResolvedValue([])
     mockPrisma.classSession.findUnique.mockReset()
     mockPrisma.classSession.findUnique.mockResolvedValue(null)
     mockPrisma.classSession.findMany.mockReset()

@@ -25,6 +25,14 @@ export type CheckoutBody = {
   kioskSessionToken?: string
   studentPin?: string
   studentPinConfirm?: string
+  /** Price in cents for the consecutive class add-on */
+  consecutivePriceCents?: number
+  /** Slug of the course that the consecutive class links from */
+  consecutiveLinkedCourseSlug?: string
+  /** Human-readable title of the consecutive class */
+  consecutiveCourseTitle?: string
+  /** Time slot for the consecutive class (class B's time, falls back to class A's time) */
+  consecutiveLinkedCourseTime?: string
 }
 
 export type CheckoutValidation = {
@@ -49,6 +57,11 @@ export type CheckoutValidation = {
   packageCadence: string
   packageMakeUps: number
   packageValidDays: number
+  /** Consecutive class fields (present when user accepted the consecutive offer) */
+  consecutivePriceCents: number | null
+  consecutiveLinkedCourseSlug: string | null
+  consecutiveCourseTitle: string | null
+  consecutiveLinkedCourseTime: string | null
 }
 
 const getPackageCredits = (pkg?: EnrollmentOption) => {
@@ -90,12 +103,22 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     addons = [],
     participants = 1,
     coupon = "",
+    consecutivePriceCents,
+    consecutiveLinkedCourseSlug,
+    consecutiveCourseTitle,
+    consecutiveLinkedCourseTime,
   } = body || {}
 
   const rawAmount = typeof amount === "number" ? amount : Number.NaN
   const amountInt = Number.isFinite(rawAmount) ? Math.round(rawAmount) : 0
   if (!courseSlug || amountInt <= 0) {
     return { status: 400, error: "Missing course slug or amount" }
+  }
+
+  // Validate consecutive fields consistency
+  const hasConsecutive = typeof consecutivePriceCents === "number" && consecutivePriceCents > 0
+  if (hasConsecutive && !consecutiveLinkedCourseSlug) {
+    return { status: 400, error: "consecutiveLinkedCourseSlug is required when consecutivePriceCents is provided" }
   }
 
   const course = await getCatalogCourseBySlug(courseSlug)
@@ -123,8 +146,37 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
   const subtotal = perPerson * safeParticipants
   const discountPercent = coupon?.toUpperCase() === "PLI10" ? 10 : coupon?.toUpperCase() === "PLI20" ? 20 : 0
   const discount = (subtotal * discountPercent) / 100
-  const expected = Math.max(0, subtotal - discount)
+  let expected = Math.max(0, subtotal - discount)
   const packageInfo = getPackageCredits(pkg)
+
+  // Validate consecutive class link and price when present
+  let validatedConsecutivePriceCents: number | null = null
+  let validatedConsecutiveLinkedCourseSlug: string | null = null
+  let validatedConsecutiveCourseTitle: string | null = null
+  let validatedConsecutiveLinkedCourseTime: string | null = null
+
+  if (hasConsecutive && consecutiveLinkedCourseSlug) {
+    // Validate the CourseLink exists and price matches
+    const { findConsecutiveLink } = await import("@/lib/course-links")
+    const link = await findConsecutiveLink(courseSlug, consecutiveLinkedCourseSlug)
+    if (!link) {
+      return { status: 400, error: "No active consecutive link found for this course pair" }
+    }
+    const validPrices = [link.dropInConsecutiveCents, link.packageHolderConsecutiveCents].filter(
+      (p): p is number => p != null && p > 0
+    )
+    if (!validPrices.includes(consecutivePriceCents)) {
+      return { status: 400, error: "Consecutive price does not match configured price" }
+    }
+
+    validatedConsecutivePriceCents = consecutivePriceCents
+    validatedConsecutiveLinkedCourseSlug = consecutiveLinkedCourseSlug
+    validatedConsecutiveCourseTitle = consecutiveCourseTitle || null
+    validatedConsecutiveLinkedCourseTime = consecutiveLinkedCourseTime || null
+
+    // Add consecutive price to expected total
+    expected = expected + consecutivePriceCents / 100
+  }
 
   if (Math.round(expected * 100) !== amountInt) {
     return { status: 400, error: "Amount mismatch" }
@@ -152,5 +204,9 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     packageCadence: pkg?.meta?.cadence || "",
     packageMakeUps: packageInfo.packageMakeUps,
     packageValidDays: 180,
+    consecutivePriceCents: validatedConsecutivePriceCents,
+    consecutiveLinkedCourseSlug: validatedConsecutiveLinkedCourseSlug,
+    consecutiveCourseTitle: validatedConsecutiveCourseTitle,
+    consecutiveLinkedCourseTime: validatedConsecutiveLinkedCourseTime,
   }
 }

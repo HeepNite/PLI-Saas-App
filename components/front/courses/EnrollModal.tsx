@@ -67,6 +67,7 @@ import {
   PHONE_INPUT_ATTRIBUTES,
 } from "@/lib/checkin/sign-in-inputs"
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
+import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
@@ -357,6 +358,8 @@ export default function EnrollModal({
   kioskSessionToken,
   useDraft = true,
   preventOutsideClose = false,
+  consecutiveOffer,
+  isPackageHolder = false,
 }: {
   course: CourseEnrollmentData
   open: boolean
@@ -387,6 +390,10 @@ export default function EnrollModal({
   kioskSessionToken?: string
   useDraft?: boolean
   preventOutsideClose?: boolean
+  /** Consecutive class offer data — when present, inserts a "consecutive" step between packages and payments */
+  consecutiveOffer?: ConsecutiveOfferData
+  /** Whether the student has an active package (affects consecutive pricing) */
+  isPackageHolder?: boolean
 }) {
   const { courses: catalogCourses } = useCatalogCourses()
   const sourceCourses = React.useMemo(
@@ -484,6 +491,9 @@ export default function EnrollModal({
   const [preparedAccount, setPreparedAccount] = React.useState<PreparedAccountState | null>(null)
   const [photoSaved, setPhotoSaved] = React.useState<boolean>(false)
 
+  const [consecutiveAccepted, setConsecutiveAccepted] = React.useState(false)
+  const [consecutiveAddedCents, setConsecutiveAddedCents] = React.useState(0)
+
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
   const [signInPurpose, setSignInPurpose] = React.useState<"existing" | "sms_verification" | "account_preparation">("existing")
@@ -507,6 +517,8 @@ export default function EnrollModal({
     note: "",
   })
   const isNewStudent = service === "new-student"
+  // A user who selects a package during the same flow counts as a package holder for consecutive pricing.
+  const effectiveIsPackageHolder = isPackageHolder || Boolean(pkg)
   const accountHasAvatar = Boolean(prefillHasAvatar || preparedAccount?.hasAvatar || photoSaved)
   const requiresPhotoStep = React.useMemo(
     () =>
@@ -519,15 +531,19 @@ export default function EnrollModal({
     [accountHasAvatar, isCheckInFlow, photoPolicy.photoRequired, photoSaved]
   )
   const stepKeys = React.useMemo(
-    () =>
-      resolveEnrollStepKeys({
+    () => {
+      const keys = resolveEnrollStepKeys({
         isCheckInFlow,
         isCheckInNewFlow,
         isKioskTerminalFlow,
         requiresPhotoStep,
         hasPackages: course.enrollment.packages.length > 0,
-      }),
-    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, course.enrollment.packages.length]
+        hasConsecutiveOffer: Boolean(consecutiveOffer),
+      })
+      console.log("[stepKeys-debug] recomputed", { keys, hasConsecutiveOffer: Boolean(consecutiveOffer), consecutiveOffer }) // TODO: REMOVE - diagnostic
+      return keys
+    },
+    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, course.enrollment.packages.length, consecutiveOffer]
   )
   const steps = React.useMemo(
     () =>
@@ -542,11 +558,13 @@ export default function EnrollModal({
                 ? t("step_info")
                 : key === "packages"
                   ? "Packages"
-                  : key === "payments"
-                    ? t("step_payments")
-                    : key === "review"
-                      ? t("step_review")
-                      : "Photo",
+                  : key === "consecutive"
+                    ? "Next class"
+                    : key === "payments"
+                      ? t("step_payments")
+                      : key === "review"
+                        ? t("step_review")
+                        : "Photo",
       })),
     [stepKeys, t]
   )
@@ -556,6 +574,7 @@ export default function EnrollModal({
     info: FileText,
     photo: Camera,
     packages: Building2,
+    consecutive: CalendarCheck,
     payments: CreditCard,
     review: CheckCircle2,
   }
@@ -576,6 +595,10 @@ export default function EnrollModal({
   )
   const packagesStepIndex = React.useMemo(
     () => steps.findIndex((item) => item.key === "packages"),
+    [steps]
+  )
+  const consecutiveStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "consecutive"),
     [steps]
   )
   const regularServicePrice = React.useMemo(
@@ -725,6 +748,8 @@ export default function EnrollModal({
     setFormError(null)
     setProcessing(false)
     setShowKioskPaymentTransition(false)
+    setConsecutiveAccepted(false)
+    setConsecutiveAddedCents(0)
     kioskPaymentTransitionStartedAtRef.current = null
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false
@@ -1003,7 +1028,7 @@ export default function EnrollModal({
       ? (subtotal * appliedCoupon.value) / 100
       : appliedCoupon.value
     : 0
-  const total = Math.max(0, subtotal - discount)
+  const total = Math.max(0, subtotal - discount + (consecutiveAccepted ? consecutiveAddedCents / 100 : 0))
   // Hide sidebar: on success for check-in flows, or during payments step for kiosk terminal
   const hideCalendarSidebar = Boolean(
     (success && isCheckInFlow) ||
@@ -1249,6 +1274,14 @@ export default function EnrollModal({
       kioskSessionToken: kioskSessionToken || undefined,
       studentPin: service === "new-student" ? studentPin : undefined,
       studentPinConfirm: service === "new-student" ? studentPinConfirm : undefined,
+      ...(consecutiveAccepted && consecutiveOffer
+        ? {
+            consecutivePriceCents: consecutiveAddedCents,
+            consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
+            consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
+            consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime,
+          }
+        : {}),
       ...extra,
     }),
     [
@@ -1258,6 +1291,9 @@ export default function EnrollModal({
       contact.firstName,
       contact.lastName,
       contact.phone,
+      consecutiveAccepted,
+      consecutiveAddedCents,
+      consecutiveOffer,
       course.slug,
       course.title,
       date,
@@ -1865,7 +1901,8 @@ export default function EnrollModal({
           ? result.data.migration.message
           : "Cash request saved as pending confirmation."
 
-      if (isCheckInFlow && !pkg && date && time && typeof result.data?.purchaseId === "string") {
+      // Only auto-check-in if payment is confirmed (not pending cash)
+      if (isCheckInFlow && !pkg && date && time && typeof result.data?.purchaseId === "string" && result.data?.paymentStatus !== "pending") {
         try {
           const dropInRes = await fetch("/api/checkin/qr/dropin", {
             method: "POST",
@@ -1916,11 +1953,13 @@ export default function EnrollModal({
   }
 
   const handleFormStepSubmit = async () => {
+    console.log("[step-debug] handleFormStepSubmit", { step, activeStepKey, stepKeys, stepsLength: steps.length, consecutiveOfferTruthy: Boolean(consecutiveOffer) }) // TODO: REMOVE - diagnostic
     if (step < steps.length - 1) {
       if (isCheckInContactGateStep({ isCheckInFlow, activeStepKey })) {
         await advanceFromContactStep()
         return
       }
+      console.log("[step-debug] advancing to next step", { from: step, to: step + 1, nextKey: stepKeys[step + 1] }) // TODO: REMOVE - diagnostic
       setStep(step + 1)
       return
     }
@@ -2073,6 +2112,11 @@ export default function EnrollModal({
     }
     if (paymentsReadyFiredRef.current) return
     // Fire when we reach packages OR payments step (the target steps for existing customers)
+    if (activeStepKey === "info") {
+      onPaymentsStepReadyAction?.()
+      paymentsReadyFiredRef.current = true
+      return
+    }
     if (activeStepKey !== "payments" && activeStepKey !== "packages") return
     if (showKioskPaymentTransition) return
     paymentsReadyFiredRef.current = true
@@ -2265,6 +2309,9 @@ export default function EnrollModal({
         return !requiresPhotoStep || photoSaved
       case "packages":
         // Packages step is always valid - package selection is optional
+        return true
+      case "consecutive":
+        // Consecutive step is always valid — user can accept or decline
         return true
       case "payments":
         return paymentMethod !== ""
@@ -3135,15 +3182,22 @@ export default function EnrollModal({
                         setFormError(null)
                       }}
                       onSkipped={() => {
+                        // Pre-compute target index using the step array that will exist AFTER
+                        // photoSaved=true removes the photo step (avoids stale-closure index shift)
+                        const postSkipKeys = resolveEnrollStepKeys({
+                          isCheckInFlow,
+                          isCheckInNewFlow,
+                          isKioskTerminalFlow,
+                          requiresPhotoStep: false,
+                          hasPackages: (course?.enrollment?.packages?.length ?? 0) > 0,
+                          hasConsecutiveOffer: Boolean(consecutiveOffer),
+                        })
+                        const packagesIdx = postSkipKeys.indexOf("packages")
+                        const paymentsIdx = postSkipKeys.indexOf("payments")
+                        const targetStep = packagesIdx >= 0 ? packagesIdx : paymentsIdx >= 0 ? paymentsIdx : postSkipKeys.length - 1
+
                         setPhotoSaved(true)
-                        setStep((currentStep) =>
-                          resolvePostPhotoStepIndex({
-                            currentStep,
-                            packagesStepIndex,
-                            paymentsStepIndex,
-                            stepsLength: steps.length,
-                          })
-                        )
+                        setStep(targetStep)
                       }}
                     />
                   </div>
@@ -3197,6 +3251,66 @@ export default function EnrollModal({
                           </button>
                         )
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Consecutive class offer step (kiosk only, between packages and payments) */}
+                {activeStepKey === "consecutive" && consecutiveOffer && (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-black/10 bg-white/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+                      <p className="text-xs uppercase tracking-wider text-black/50 dark:text-white/50">Next class available</p>
+                      <h3 className="mt-2 text-lg font-semibold text-black dark:text-white">{consecutiveOffer.linkedCourseTitle}</h3>
+                      {(() => {
+                        const consecutivePriceCents = effectiveIsPackageHolder
+                          ? (consecutiveOffer.packageHolderConsecutiveCents ?? 0)
+                          : (consecutiveOffer.dropInConsecutiveCents ?? 0)
+                        return (
+                          <>
+                            <div className="mt-3 flex items-baseline gap-2">
+                              <span className="text-2xl font-bold text-[var(--brand,#b61616)]">
+                                ${(consecutivePriceCents / 100).toFixed(2)}
+                              </span>
+                              <span className="text-sm text-black/40 line-through dark:text-white/40">
+                                ${((consecutiveOffer.regularDropInCents ?? 0) / 100).toFixed(2)}
+                              </span>
+                              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                                {consecutiveOffer.discountPercent}% off
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-black/60 dark:text-white/60">
+                              Stay for the next class at a special price. This will be added to your payment.
+                            </p>
+                          </>
+                        )
+                      })()}
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConsecutiveAccepted(true)
+                          const price = effectiveIsPackageHolder
+                            ? (consecutiveOffer.packageHolderConsecutiveCents ?? 0)
+                            : (consecutiveOffer.dropInConsecutiveCents ?? 0)
+                          setConsecutiveAddedCents(price)
+                          setStep((consecutiveStepIndex ?? 0) + 1)
+                        }}
+                        className="flex-1 rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                      >
+                        Add this class
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConsecutiveAccepted(false)
+                          setConsecutiveAddedCents(0)
+                          setStep((consecutiveStepIndex ?? 0) + 1)
+                        }}
+                        className="flex-1 rounded-xl border border-black/15 bg-white px-4 py-3 text-sm font-semibold text-black/80 transition dark:border-white/15 dark:bg-white/[0.04] dark:text-white/80"
+                      >
+                        No thanks
+                      </button>
                     </div>
                   </div>
                 )}
@@ -3287,6 +3401,19 @@ export default function EnrollModal({
                             </div>
                             <span className="shrink-0 text-sm font-semibold text-white">${subtotal.toFixed(2)}</span>
                           </div>
+                          {consecutiveAccepted && consecutiveOffer && (
+                            <div className="mt-2 flex items-start justify-between gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold leading-snug text-white">
+                                  + {consecutiveOffer.linkedCourseTitle}
+                                </div>
+                                <div className="mt-0.5 text-[11px] text-emerald-300/70">
+                                  Consecutive class · {consecutiveOffer.discountPercent}% off
+                                </div>
+                              </div>
+                              <span className="shrink-0 text-sm font-semibold text-emerald-300">${(consecutiveAddedCents / 100).toFixed(2)}</span>
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-3 pt-1">

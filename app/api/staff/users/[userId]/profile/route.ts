@@ -183,7 +183,6 @@ const normalizePaymentInfo = (value: unknown): StaffPaymentInfo | null | undefin
 
 const PRESENCE_MAX_AGE_MS = 16 * 60 * 60 * 1000
 const PRESENCE_ONLINE_MAX_AGE_MS = 30 * 60 * 1000
-const RECENT_SIGN_IN_MAX_AGE_MS = 2 * 60 * 60 * 1000
 
 const safeGallery = (value: unknown, max = 6) => {
   if (!Array.isArray(value)) return [] as string[]
@@ -271,9 +270,10 @@ const toResponsePayload = (user: {
     presenceStatus === "online" && Boolean(presenceUpdatedAtMs && now - presenceUpdatedAtMs <= PRESENCE_ONLINE_MAX_AGE_MS)
   const onlineByRecentCheckIn =
     Boolean(staffLastCheckInAtMs && now - staffLastCheckInAtMs <= PRESENCE_ONLINE_MAX_AGE_MS)
+  // Work presence: only explicit check-in or presence metadata. Auth session / recent sign-in does NOT count as work.
+  const online = forcedOffline ? false : onlineByPresence || onlineByRecentCheckIn
+  const authOnline = hasActiveSession
   const lastSignInAtMs = typeof user.lastSignInAt === "number" && Number.isFinite(user.lastSignInAt) ? user.lastSignInAt : null
-  const onlineByRecentSignIn = Boolean(lastSignInAtMs && now - lastSignInAtMs <= RECENT_SIGN_IN_MAX_AGE_MS)
-  const online = hasActiveSession ? true : forcedOffline ? false : onlineByPresence || onlineByRecentCheckIn || onlineByRecentSignIn
   return {
     id: user.id,
     firstName: user.firstName || "",
@@ -299,13 +299,14 @@ const toResponsePayload = (user: {
       performanceRating: asNumber(performance.rating),
       performanceReviewsCount: asNumber(performance.reviewsCount),
       performanceReviewCycleDays: asNumber(performance.reviewCycleDays),
-      payrollHoursWorked: asNumber(payroll.hoursWorked),
+      payrollHoursWorked: null,
       payrollHourlyRate: asNumber(payroll.hourlyRate),
       payrollStatus: asPayrollStatus(payroll.status),
       payrollPaydayWeekday: asWeekday(payroll.paydayWeekday),
     },
     presence: {
       online,
+      authOnline,
       lastSignInAt: lastSignInAtMs,
       staffLastCheckInAt: staffLastCheckInAtMs ? new Date(staffLastCheckInAtMs).toISOString() : null,
       status: presenceStatus === "online" || presenceStatus === "offline" ? presenceStatus : null,

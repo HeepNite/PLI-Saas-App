@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { demoCourses, type CourseData } from "@/constants/courses"
 import { getStartOfDayNY } from "@/lib/class-schedule"
+import { getTimesForWeekday } from "@/lib/schedule-rules"
 
 export const runtime = "nodejs"
 
@@ -55,7 +56,11 @@ export async function GET() {
         continue
       }
 
-      const times = (course.availableTimes || [])
+      // Resolve times: try scheduleRules (day-specific) first, fall back to flat availableTimes.
+      // scheduleRules.rules[].weekday uses JS getDay() convention (0=Sun, 1=Mon, ... 6=Sat).
+      const todayJsWeekday = now.getDay()
+      const ruleTimes = getTimesForWeekday(course.scheduleRules, todayJsWeekday)
+      const times = (ruleTimes ?? course.availableTimes ?? [])
         .filter((t) => /^\d{2}:\d{2}$/.test(t))
         .sort()
 

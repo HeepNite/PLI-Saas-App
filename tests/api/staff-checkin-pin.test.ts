@@ -87,7 +87,7 @@ describe("staff checkin PIN route", () => {
     expect(signInTokensApi.createSignInToken).not.toHaveBeenCalled()
   })
 
-  it("returns session fields when skipSession is false", async () => {
+  it("returns 400 when skipSession is false (legacy login path removed)", async () => {
     const { POST } = await import("@/app/api/staff/checkin/pin/route")
 
     const res = await POST(
@@ -98,17 +98,14 @@ describe("staff checkin PIN route", () => {
       })
     )
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(400)
     const data = await res.json()
-    expect(data.ticket).toBe("ticket_123")
-    expect(data.signInUrl).toContain("redirect_url=http%3A%2F%2Flocalhost%2Fstaff%2Fresolve")
-    expect(signInTokensApi.createSignInToken).toHaveBeenCalledWith({
-      userId: "staff_1",
-      expiresInSeconds: 60,
-    })
+    expect(data.error).toContain("check-in only")
+    expect(signInTokensApi.createSignInToken).not.toHaveBeenCalled()
+    expect(usersApi.updateUserMetadata).not.toHaveBeenCalled()
   })
 
-  it("defaults to creating a session when skipSession is omitted", async () => {
+  it("returns 400 when skipSession is omitted (legacy login path removed)", async () => {
     const { POST } = await import("@/app/api/staff/checkin/pin/route")
 
     const res = await POST(
@@ -119,9 +116,75 @@ describe("staff checkin PIN route", () => {
       })
     )
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(400)
     const data = await res.json()
-    expect(data.ticket).toBe("ticket_123")
-    expect(data.signInUrl).toContain("ticket_123")
+    expect(data.error).toContain("check-in only")
+    expect(signInTokensApi.createSignInToken).not.toHaveBeenCalled()
+    expect(usersApi.updateUserMetadata).not.toHaveBeenCalled()
+  })
+
+  it("never returns signInUrl or ticket fields regardless of request shape", async () => {
+    const { POST } = await import("@/app/api/staff/checkin/pin/route")
+
+    // Attempt with skipSession=false
+    const res1 = await POST(
+      new Request("http://localhost/api/staff/checkin/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: "1234", userId: "staff_1", skipSession: false }),
+      })
+    )
+    const data1 = await res1.json()
+    expect(data1.signInUrl).toBeUndefined()
+    expect(data1.ticket).toBeUndefined()
+
+    // Attempt with skipSession omitted
+    const res2 = await POST(
+      new Request("http://localhost/api/staff/checkin/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: "1234", userId: "staff_1" }),
+      })
+    )
+    const data2 = await res2.json()
+    expect(data2.signInUrl).toBeUndefined()
+    expect(data2.ticket).toBeUndefined()
+  })
+
+  it("check-in mode mutates attendance metadata (staffLastCheckInAt, staffCheckInCount, staffPresenceStatus)", async () => {
+    const { POST } = await import("@/app/api/staff/checkin/pin/route")
+
+    await POST(
+      new Request("http://localhost/api/staff/checkin/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: "1234", userId: "staff_1", skipSession: true }),
+      })
+    )
+
+    expect(usersApi.updateUserMetadata).toHaveBeenCalledTimes(1)
+    const [userId, metadataUpdate] = usersApi.updateUserMetadata.mock.calls[0]
+    expect(userId).toBe("staff_1")
+    expect(metadataUpdate.privateMetadata).toMatchObject({
+      staffCheckInCount: 3,
+      staffPresenceStatus: "online",
+    })
+    expect(metadataUpdate.privateMetadata.staffLastCheckInAt).toBeTruthy()
+  })
+
+  it("check-in mode returns checkedInAt timestamp", async () => {
+    const { POST } = await import("@/app/api/staff/checkin/pin/route")
+
+    const res = await POST(
+      new Request("http://localhost/api/staff/checkin/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: "1234", userId: "staff_1", skipSession: true }),
+      })
+    )
+
+    const data = await res.json()
+    expect(data.checkedInAt).toBeTruthy()
+    expect(data.staff.id).toBe("staff_1")
   })
 })

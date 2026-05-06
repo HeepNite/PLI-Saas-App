@@ -8,6 +8,15 @@ export type UpsertUserInput = {
   stripeCustomerId?: string
 }
 
+type ExistingUser = {
+  id: string
+  clerkId: string | null
+  email: string
+  name: string | null
+  phone: string | null
+  stripeCustomerId: string | null
+}
+
 const normalize = (value: string | undefined) => {
   const trimmed = value?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : undefined
@@ -29,18 +38,38 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
     return null
   }
 
-  const or: { clerkId?: string; email?: string; phone?: string; stripeCustomerId?: string }[] = []
-  if (clerkId) or.push({ clerkId })
-  if (email) or.push({ email })
-  // Include phone in identity lookup to prevent duplicates from same phone with different email
-  if (phone) or.push({ phone })
-  if (stripeCustomerId) or.push({ stripeCustomerId })
+  const byIdentity: { email?: string; phone?: string; stripeCustomerId?: string }[] = []
+  if (email) byIdentity.push({ email })
+  if (phone) byIdentity.push({ phone })
+  if (stripeCustomerId) byIdentity.push({ stripeCustomerId })
 
-  const existing = or.length
-    ? await prisma.user.findFirst({
-        where: { OR: or },
+  const existingByClerkId = clerkId
+    ? await prisma.user.findUnique({
+        where: { clerkId },
       })
     : null
+
+  const identityMatches: ExistingUser[] = byIdentity.length
+    ? await prisma.user.findMany({
+        where: { OR: byIdentity },
+        orderBy: { createdAt: "asc" },
+      })
+    : []
+
+  const phoneUnlinkedMatch = phone
+    ? identityMatches.find((candidate) => candidate.phone === phone && !candidate.clerkId)
+    : undefined
+  const emailUnlinkedMatch = email
+    ? identityMatches.find((candidate) => candidate.email === email && !candidate.clerkId)
+    : undefined
+  const unlinkedMatch = identityMatches.find((candidate) => !candidate.clerkId)
+  const linkedToDifferentClerk = clerkId
+    ? identityMatches.find((candidate) => candidate.clerkId && candidate.clerkId !== clerkId)
+    : undefined
+
+  const existing = existingByClerkId || (clerkId
+    ? phoneUnlinkedMatch || emailUnlinkedMatch || unlinkedMatch || linkedToDifferentClerk || null
+    : identityMatches[0] || null)
 
   const data: UpsertUserInput = {}
   if (clerkId) data.clerkId = clerkId
@@ -50,15 +79,37 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
   if (stripeCustomerId) data.stripeCustomerId = stripeCustomerId
 
   if (existing) {
-    // Only fill empty fields — do NOT overwrite existing identity data
+    if (clerkId && existing.clerkId && existing.clerkId !== clerkId) {
+      return existing
+    }
+
+    const shouldApplyCanonicalClerkData = Boolean(clerkId && (existing.clerkId === clerkId || !existing.clerkId))
     const updateData: Record<string, unknown> = {}
+
     if (!existing.clerkId && clerkId) updateData.clerkId = clerkId
-    if (!existing.email && email) updateData.email = email
-    if (!existing.name && name) updateData.name = name
-    if (!existing.phone && phone) updateData.phone = phone
+
+    if (shouldApplyCanonicalClerkData && email && existing.email !== email) {
+      updateData.email = email
+    } else if (!existing.email && email) {
+      updateData.email = email
+    }
+
+    if (shouldApplyCanonicalClerkData && name && existing.name !== name) {
+      updateData.name = name
+    } else if (!existing.name && name) {
+      updateData.name = name
+    }
+
+    if (shouldApplyCanonicalClerkData && phone && existing.phone !== phone) {
+      updateData.phone = phone
+    } else if (!existing.phone && phone) {
+      updateData.phone = phone
+    }
+
     if (!existing.stripeCustomerId && stripeCustomerId) {
       updateData.stripeCustomerId = stripeCustomerId
     }
+
     if (Object.keys(updateData).length > 0) {
       return prisma.user.update({
         where: { id: existing.id },
@@ -68,15 +119,12 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
     return existing
   }
 
-  // Require at least email or phone to create a new user
   if (!email && !phone) {
     return null
   }
 
   return prisma.user.create({
     data: {
-      // Email is required by schema — use placeholder if only phone is available
-      // Format: phone digits + timestamp to ensure uniqueness
       email: email || `phone-${phone}-${Date.now()}@placeholder.pli.local`,
       ...data,
     },

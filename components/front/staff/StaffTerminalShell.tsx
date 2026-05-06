@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useState, useMemo } from "react"
+import { useSearchParams } from "next/navigation"
 import Image from "next/image"
 import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
 
@@ -12,22 +13,117 @@ type TerminalSummary = {
   defaultCourseSlug: string | null
 }
 
-type TodayClass = {
+type TodayClassItem = {
   slug: string
-  name: string
-  time: string
-  duration: string
-  imageUrl: string
+  title: string
+  category: string | null
+  level: string | null
+  durationMinutes: number | null
+  availableTimes: string[]
+  dayLabel: string
+  dropInPriceCents: number | null
+  firstClassPriceCents: number | null
+  coverImageUrl: string | null
 }
+
+// ─── Auto-rotation algorithm ──────────────────────────────────
+
+function computeCurrentSlug(now: Date, classes: TodayClassItem[]): string | null {
+  if (classes.length === 0) return null
+  if (classes.length === 1) return classes[0].slug
+
+  // Sort by first available time
+  const sorted = [...classes].sort((a, b) => {
+    const timeA = a.availableTimes?.[0] ?? "99:99"
+    const timeB = b.availableTimes?.[0] ?? "99:99"
+    return timeA.localeCompare(timeB)
+  })
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+
+  for (const cls of sorted) {
+    const startTime = cls.availableTimes?.[0]
+    if (!startTime) continue
+    const [h, m] = startTime.split(":").map(Number)
+    const startMinutes = h * 60 + m
+    const duration = cls.durationMinutes ?? 55
+    const endMinutes = startMinutes + duration
+    const rotationMinutes = endMinutes - 15 // rotate 15 min before end
+
+    if (nowMinutes < rotationMinutes) {
+      return cls.slug
+    }
+  }
+
+  // All classes past rotation time → show the last one
+  return sorted[sorted.length - 1].slug
+}
+
+// ─── Test mode hook ───────────────────────────────────────────
+
+function useTestMode(classes: TodayClassItem[], enabled: boolean) {
+  const [simulatedNow, setSimulatedNow] = useState<Date | null>(null)
+
+  useEffect(() => {
+    if (!enabled || classes.length === 0) {
+      setSimulatedNow(null)
+      return
+    }
+
+    // Sort classes by start time
+    const sorted = [...classes].sort((a, b) => {
+      const timeA = a.availableTimes?.[0] ?? "99:99"
+      const timeB = b.availableTimes?.[0] ?? "99:99"
+      return timeA.localeCompare(timeB)
+    })
+
+    // Start 5 minutes before the first class's rotation time
+    const firstClass = sorted[0]
+    const firstStart = firstClass.availableTimes?.[0]
+    if (!firstStart) {
+      setSimulatedNow(null)
+      return
+    }
+
+    const [h, m] = firstStart.split(":").map(Number)
+    const duration = firstClass.durationMinutes ?? 55
+    const rotationMinutes = h * 60 + m + duration - 15
+    const startSimMinutes = rotationMinutes - 5 // 5 min before first rotation
+
+    // Create a simulated date using the rotation times
+    const simDate = new Date()
+    simDate.setHours(Math.floor(startSimMinutes / 60), startSimMinutes % 60, 0, 0)
+
+    setSimulatedNow(simDate)
+
+    // Advance 5 minutes every 10 seconds
+    const interval = setInterval(() => {
+      setSimulatedNow((prev) => {
+        if (!prev) return prev
+        const next = new Date(prev)
+        next.setMinutes(next.getMinutes() + 5)
+        return next
+      })
+    }, 10_000)
+
+    return () => clearInterval(interval)
+  }, [enabled, classes])
+
+  return simulatedNow
+}
+
+// ─── Main component ───────────────────────────────────────────
 
 export default function StaffTerminalShell({
   terminal,
 }: {
   terminal: TerminalSummary
 }) {
-  const [todayClasses, setTodayClasses] = useState<TodayClass[]>([])
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
-  const [confirmedSlug, setConfirmedSlug] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const testModeEnabled =
+    process.env.NODE_ENV !== "production" && searchParams?.get("testRotation") === "true"
+
+  const [todayClasses, setTodayClasses] = useState<TodayClassItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -36,18 +132,12 @@ export default function StaffTerminalShell({
       try {
         const res = await fetch("/api/checkin/terminal/today-classes")
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const data: TodayClass[] = await res.json()
+        const envelope = await res.json()
+        const classes: TodayClassItem[] = Array.isArray(envelope.classes) ? envelope.classes : []
         if (!cancelled) {
-          setTodayClasses(data)
-          // Auto-select if exactly 1 class
-          if (data.length === 1) {
-            setSelectedSlug(data[0].slug)
-            setConfirmedSlug(data[0].slug)
-          }
-          // If 2+ classes, DON'T auto-select even if defaultCourseSlug matches
+          setTodayClasses(classes)
         }
       } catch {
-        // Fallback: render CheckInQrClient with forcedCourseSlug (original behavior)
         if (!cancelled) {
           setTodayClasses([])
         }
@@ -61,7 +151,50 @@ export default function StaffTerminalShell({
     }
   }, [])
 
-  // Still loading — minimal spinner
+  // Test mode: simulated time advances 5 min every 10 seconds
+  const simulatedNow = useTestMode(todayClasses, testModeEnabled)
+  const effectiveNow = simulatedNow ?? new Date()
+
+  // Auto-rotation: re-evaluate every 30 seconds
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (testModeEnabled) return // test mode has its own interval
+    const interval = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(interval)
+  }, [testModeEnabled])
+
+  // ─── Deferred slug computation (rotation guard) ─────────────
+  // Compute the target slug every tick, but only apply it when no
+  // active flow is in progress inside CheckInQrClient.
+  const computedSlug = useMemo(
+    () => computeCurrentSlug(effectiveNow, todayClasses),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [todayClasses, effectiveNow, tick]
+  )
+
+  const [currentSlug, setCurrentSlug] = useState<string | null>(computedSlug)
+  const pendingSlugRef = React.useRef<string | null>(null)
+  const flowActiveRef = React.useRef(false)
+
+  // Apply computed slug immediately or defer if flow is active
+  useEffect(() => {
+    if (!flowActiveRef.current) {
+      setCurrentSlug(computedSlug)
+    } else {
+      pendingSlugRef.current = computedSlug
+    }
+  }, [computedSlug])
+
+  // Callback passed to CheckInQrClient to track active flow state
+  const handleFlowActiveChange = React.useCallback((active: boolean) => {
+    flowActiveRef.current = active
+    if (!active && pendingSlugRef.current !== null) {
+      setCurrentSlug(pendingSlugRef.current)
+      pendingSlugRef.current = null
+    }
+  }, [])
+
+  // Loading state
   if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[#13141d]">
@@ -70,145 +203,81 @@ export default function StaffTerminalShell({
     )
   }
 
-  // Fetch failed or no classes — original behavior
+  // No classes today — fallback to default course
   if (todayClasses.length === 0) {
     return (
       <CheckInQrClient
+        key="default"
         forcedDeviceMode="station"
         forcedCourseSlug={terminal.defaultCourseSlug || ""}
         shellVariant="terminal"
         terminalName={terminal.name}
         terminalLocation={terminal.location || ""}
         qrPathOverride="/checkin"
+        simulatedNowTick={simulatedNow ?? undefined}
+        onFlowActiveChange={handleFlowActiveChange}
       />
     )
   }
 
-  // Confirmed selection — show check-in with "Change class" button
-  if (confirmedSlug) {
+  // Auto-rotated class — CheckInQrClient remounts when slug changes
+  if (currentSlug) {
     return (
       <div className="relative h-screen">
         <CheckInQrClient
+          key={currentSlug}
           forcedDeviceMode="station"
-          forcedCourseSlug={confirmedSlug}
+          forcedCourseSlug={currentSlug}
           shellVariant="terminal"
           terminalName={terminal.name}
           terminalLocation={terminal.location || ""}
           qrPathOverride="/checkin"
-          selectedCourseSlug={confirmedSlug}
+          selectedCourseSlug={currentSlug}
+          simulatedNowTick={simulatedNow ?? undefined}
+          onFlowActiveChange={handleFlowActiveChange}
         />
-        {/* Change class button */}
-        <button
-          type="button"
-          onClick={() => setConfirmedSlug(null)}
-          className="absolute left-4 top-4 z-50 flex items-center gap-1 rounded-lg bg-black/40 px-3 py-2 text-sm text-white/80 backdrop-blur-sm transition-all duration-200 hover:bg-black/60 hover:text-white active:scale-95"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-          Change class
-        </button>
-      </div>
-    )
-  }
 
-  // 2+ classes — show picker (with or without selection)
-  if (todayClasses.length > 1) {
-    return (
-      <div className="flex min-h-screen flex-col items-center bg-[#13141d] bg-[radial-gradient(80%_55%_at_50%_0%,rgba(182,22,22,0.2),transparent_70%)] px-6 py-12 text-white">
-        {/* Header */}
-        <div className="mb-10 flex flex-col items-center">
-          <Image
-            src="/logo/logo-white.png"
-            alt="School logo"
-            width={64}
-            height={64}
-            className="mb-4 h-16 w-auto"
-          />
-          <h1 className="text-3xl font-bold tracking-tight">Select your class</h1>
-          <p className="mt-2 text-lg text-white/60">
-            {terminal.name}
-            {terminal.location ? ` — ${terminal.location}` : ""}
-          </p>
-        </div>
-
-        {/* Cards grid */}
-        <div className="grid w-full max-w-3xl grid-cols-2 gap-6">
-          {todayClasses.map((cls) => {
-            const isSelected = cls.slug === selectedSlug
-            return (
-              <button
-                key={cls.slug}
-                type="button"
-                onClick={() => setSelectedSlug(cls.slug)}
-                className={`group flex flex-col overflow-hidden rounded-2xl border-2 text-left transition-all duration-200 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand,#b61616)] ${
-                  isSelected
-                    ? "border-[var(--brand,#b61616)] bg-[var(--brand,#b61616)]/10 shadow-lg shadow-[var(--brand,#b61616)]/20"
-                    : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10"
-                }`}
-              >
-                {/* Course image */}
-                <div className="relative h-40 w-full overflow-hidden bg-white/5">
-                  <Image
-                    src={cls.imageUrl}
-                    alt={cls.name}
-                    fill
-                    className="object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                  {isSelected && (
-                    <div className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--brand,#b61616)] text-white shadow-md">
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
+        {/* Test mode debug overlay */}
+        {testModeEnabled && simulatedNow && (
+          <div className="absolute right-4 top-4 z-50 rounded bg-black/60 p-2 text-xs text-white">
+            <div>TEST MODE — Simulated time: {pad(simulatedNow.getHours())}:{pad(simulatedNow.getMinutes())}</div>
+            <div>Current class: {currentSlug}</div>
+            {(() => {
+              const cls = todayClasses.find((c) => c.slug === currentSlug)
+              if (!cls) return null
+              const start = cls.availableTimes?.[0]
+              if (!start) return null
+              const [h, m] = start.split(":").map(Number)
+              const dur = cls.durationMinutes ?? 55
+              const rotMin = h * 60 + m + dur - 15
+              return (
+                <div>
+                  Rotation at: {pad(Math.floor(rotMin / 60))}:{pad(rotMin % 60)}
                 </div>
-                {/* Info */}
-                <div className="flex flex-1 flex-col gap-1 p-5">
-                  <span className="text-lg font-semibold leading-tight">{cls.name}</span>
-                  <div className="mt-auto flex items-center gap-3 text-sm text-white/60">
-                    <span className="flex items-center gap-1">
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {cls.time}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {cls.duration}
-                    </span>
-                  </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Continue button — appears after selection */}
-        {selectedSlug && (
-          <button
-            type="button"
-            onClick={() => setConfirmedSlug(selectedSlug)}
-            className="mt-10 rounded-xl bg-[var(--brand,#b61616)] px-10 py-4 text-lg font-semibold text-white shadow-lg shadow-[var(--brand,#b61616)]/30 transition-all duration-200 active:scale-[0.97] hover:bg-[var(--brand,#b61616)]/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
-          >
-            Continue
-          </button>
+              )
+            })()}
+          </div>
         )}
       </div>
     )
   }
 
-  // Fallback — should not reach here
+  // Fallback — no current slug computed
   return (
     <CheckInQrClient
+      key="fallback"
       forcedDeviceMode="station"
       forcedCourseSlug={terminal.defaultCourseSlug || ""}
       shellVariant="terminal"
       terminalName={terminal.name}
       terminalLocation={terminal.location || ""}
       qrPathOverride="/checkin"
+      simulatedNowTick={simulatedNow ?? undefined}
+      onFlowActiveChange={handleFlowActiveChange}
     />
   )
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, "0")
 }

@@ -31,6 +31,7 @@ function createMockParams() {
     setKioskPinSessionToken: vi.fn(),
     setMode: vi.fn(),
     setNewBookingOverride: vi.fn(),
+    setLatePaymentEntryOverride: vi.fn(),
     setOpenNewBooking: vi.fn(),
     setPaymentsModalReady: vi.fn(),
     setPendingLoginPhone: vi.fn(),
@@ -38,6 +39,12 @@ function createMockParams() {
     setSuccess: vi.fn(),
     setPackageOfferContext: vi.fn(),
     setPackageOfferSelectedId: vi.fn(),
+    setConsecutiveOffer: vi.fn(),
+    setConsecutiveOfferSettled: vi.fn(),
+    setConsecutiveFetchKey: vi.fn(),
+    setPackageCheckInResult: vi.fn(),
+    setShowConsecutiveOverlay: vi.fn(),
+    setShowConsecutivePaymentSelection: vi.fn(),
   }
 }
 
@@ -113,6 +120,7 @@ describe("useKioskFlowCompletion — reset/cleanup", () => {
     // All state setters should be called exactly once
     expect(params.setOpenNewBooking).toHaveBeenCalledWith(false)
     expect(params.setNewBookingOverride).toHaveBeenCalledWith(null)
+    expect(params.setLatePaymentEntryOverride).toHaveBeenCalledWith(null)
     expect(params.setExistingRegularBookingOverride).toHaveBeenCalledWith(null)
     expect(params.setPaymentsModalReady).toHaveBeenCalledWith(false)
     expect(params.setMode).toHaveBeenCalledWith("idle")
@@ -130,6 +138,12 @@ describe("useKioskFlowCompletion — reset/cleanup", () => {
     expect(params.setKioskPinAttemptsRemaining).toHaveBeenCalledWith(null)
     expect(params.setKioskPinBlockedUntil).toHaveBeenCalledWith(null)
     expect(params.resetKioskCustomerSession).toHaveBeenCalled()
+    expect(params.setConsecutiveOffer).toHaveBeenCalledWith(null)
+    expect(params.setConsecutiveOfferSettled).toHaveBeenCalledWith(false)
+    expect(params.setConsecutiveFetchKey).toHaveBeenCalledWith(expect.any(Function))
+    expect(params.setPackageCheckInResult).toHaveBeenCalledWith(null)
+    expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
+    expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)
   })
 
   it("resetCustomerFlowState calls setPackageOfferContext and setPackageOfferSelectedId exactly once each", async () => {

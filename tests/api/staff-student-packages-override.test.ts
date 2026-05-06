@@ -9,6 +9,7 @@ const mockPrisma = {
   },
   packagePurchase: {
     findUnique: vi.fn(),
+    findMany: vi.fn(),
     update: vi.fn(),
   },
   $transaction: vi.fn(),
@@ -60,11 +61,48 @@ describe("PATCH /api/staff/students/[userId]/packages", () => {
 
     mockPrisma.user.findUnique.mockReset()
     mockPrisma.packagePurchase.findUnique.mockReset()
+    mockPrisma.packagePurchase.findMany.mockReset()
     mockPrisma.packagePurchase.update.mockReset()
     mockPrisma.$transaction.mockReset()
 
     mockPrisma.user.findUnique.mockResolvedValue({ id: USER_ID, name: "Test Student" })
     mockPrisma.packagePurchase.findUnique.mockResolvedValue(buildPackage())
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([buildPackage()])
+  })
+
+  it("lists package purchases for the student", async () => {
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([
+      buildPackage({ id: "pkg_a", totalCredits: 10, remainingCredits: 6, status: "active" }),
+      buildPackage({ id: "pkg_b", totalCredits: 8, remainingCredits: 0, status: "expired" }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/students/[userId]/packages/route")
+    const res = await GET(
+      new Request(`http://localhost/api/staff/students/${USER_ID}/packages`, { method: "GET" }),
+      { params: Promise.resolve({ userId: USER_ID }) }
+    )
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.ok).toBe(true)
+    expect(data.data.packages).toHaveLength(2)
+    expect(data.data.packages[0]).toMatchObject({
+      id: "pkg_a",
+      usedCredits: 4,
+    })
+  })
+
+  it("returns 404 when listing packages for missing student", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue(null)
+
+    const { GET } = await import("@/app/api/staff/students/[userId]/packages/route")
+    const res = await GET(
+      new Request(`http://localhost/api/staff/students/${USER_ID}/packages`, { method: "GET" }),
+      { params: Promise.resolve({ userId: USER_ID }) }
+    )
+
+    expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toEqual({ error: "Student not found" })
   })
 
   it("returns 403 when authorization fails", async () => {

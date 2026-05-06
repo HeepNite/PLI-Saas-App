@@ -111,6 +111,7 @@ type StaffUserRow = {
   banned: boolean
   locked: boolean
   online: boolean
+  authOnline: boolean
   lastActiveAt: number | null
   staffLastCheckInAt: number | null
   createdAt: number
@@ -335,6 +336,7 @@ type SelfProfileSnapshot = {
   metrics: SelfProfileMetrics
   presence: {
     online: boolean
+    authOnline: boolean
     lastSignInAt: number | null
     staffLastCheckInAt: number | null
     status: "online" | "offline" | null
@@ -422,6 +424,51 @@ type StudentPinModalState = {
   provisionalExpiresAt: string | null
 }
 
+type RoomSafeDeleteModalState = {
+  room: RoomRow
+  reason: string
+  error: string | null
+}
+
+type RoomReassignModalState = {
+  room: RoomRow
+  targetRoomId: string
+  moveFutureSessions: boolean
+  availableCourses: Array<{ id: string; title: string; slug: string; scheduleLabel: string | null }>
+  selectedCourseIds: string[]
+  error: string | null
+}
+
+type RoomReservationRow = {
+  id: string
+  roomId: string
+  title: string
+  reason: string
+  category: string | null
+  startsAt: string
+  endsAt: string
+  status: string
+  assignedStaffClerkUserId: string | null
+  cancellationReason: string | null
+}
+
+type RoomReservationFormState = {
+  roomId: string
+  title: string
+  reason: string
+  startDate: string
+  endDate: string
+  startTime: string
+  endTime: string
+  assignedStaffClerkUserId: string
+}
+
+type RoomReservationCancelModalState = {
+  reservation: RoomReservationRow
+  reason: string
+  error: string | null
+}
+
 type StaffProfileForm = {
   firstName: string
   lastName: string
@@ -482,6 +529,17 @@ type RoomFormState = {
   location: string
   active: boolean
 }
+
+const createEmptyRoomReservationForm = (): RoomReservationFormState => ({
+  roomId: "",
+  title: "",
+  reason: "",
+  startDate: toLocalIsoDate(new Date()),
+  endDate: "",
+  startTime: "",
+  endTime: "",
+  assignedStaffClerkUserId: "",
+})
 
 type AssignmentCourseOption = {
   slug: string
@@ -796,7 +854,9 @@ const SCHEDULE_SHORTCUT_TONES = [
 const statusLabel = (row: StaffUserRow) => {
   if (row.banned) return "Banned"
   if (row.locked) return "Locked"
-  return row.online ? "Online" : "Offline"
+  if (row.online) return "Checked in"
+  if (row.authOnline) return "Signed in"
+  return "Offline"
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
@@ -864,6 +924,23 @@ const formatDate = (value: number | null) => {
       hour: "numeric",
       minute: "2-digit",
     }).format(new Date(value))
+  } catch {
+    return "—"
+  }
+}
+
+const formatDateTime = (value: string | number | null | undefined) => {
+  if (value == null || value === "") return "—"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(parsed)
   } catch {
     return "—"
   }
@@ -939,6 +1016,38 @@ const formatClockLabel = (value: string) => {
 
 const toLocalIsoDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+
+export const resolveHistoryMaxSelectableDateIso = (referenceDate = new Date(), timeZone = "America/New_York") => {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(referenceDate)
+  } catch {
+    return toLocalIsoDate(referenceDate)
+  }
+}
+
+const buildReservationDateTime = (date: string, time: string) => {
+  if (!ISO_DATE_REGEX.test(date) || !normalizeClockTime(time)) return null
+  const parsed = new Date(`${date}T${time}:00`)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed
+}
+
+const formatReservationDateLabel = (isoDate: string) => {
+  if (!ISO_DATE_REGEX.test(isoDate)) return ""
+  const parsed = new Date(`${isoDate}T12:00:00`)
+  if (Number.isNaN(parsed.getTime())) return ""
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(parsed)
+}
 
 const toCourseScheduleWeekday = (isoDate: string) => {
   const date = new Date(`${isoDate}T12:00:00`)
@@ -1641,6 +1750,7 @@ const getStatusTone = (row: StaffUserRow) => {
   if (row.banned) return "text-red-300 border-red-500/40 bg-red-500/10"
   if (row.locked) return "text-amber-300 border-amber-500/40 bg-amber-500/10"
   if (row.online) return "text-emerald-300 border-emerald-500/40 bg-emerald-500/10"
+  if (row.authOnline) return "text-sky-300 border-sky-500/40 bg-sky-500/10"
   return "text-zinc-300 border-zinc-500/40 bg-zinc-500/10"
 }
 
@@ -1786,9 +1896,14 @@ const PROFILE_CARD_BADGE_CLASS = "w-full flex items-center justify-center rounde
 
 // ─── Timeline data transformers ──────────────────────────────────────────────
 
-function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
+export function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
   // Only show REAL monetary payments (cash, card) — NOT package credit consumption
-  const monetaryPayments = rows.filter((row) => row.paymentChannel !== "package_credit")
+  const monetaryPayments = rows.filter((row) => {
+    if (row.paymentChannel === "package_credit") return false
+    // Hide synthetic/intermediate calculation rows from PMT history (e.g. pending $0 "Other")
+    if (row.amount <= 0) return false
+    return true
+  })
   
   return monetaryPayments.map((row) => {
     // Determine method
@@ -1824,7 +1939,7 @@ function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
     return {
       id: row.id,
       date: new Date(row.createdAt),
-      amount: row.amount / 100, // API stores cents, timeline expects dollars
+      amount: row.amount / 100,
       method,
       product: row.courseTitle || row.purchaseCategory || "Payment",
       productType,
@@ -1843,7 +1958,7 @@ function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
   })
 }
 
-function transformPaymentRowsToAttendance(
+export function transformPaymentRowsToAttendance(
   rows: PaymentRow[],
 ): { events: AttendanceEvent[]; summary: AttendanceSummary } {
   const events: AttendanceEvent[] = []
@@ -1852,9 +1967,28 @@ function transformPaymentRowsToAttendance(
   let booked = 0
 
   for (const row of rows) {
-    // Package credit consumption = class attended (even without explicit attendanceId)
+    const hasAttendedStatus =
+      row.checkInStatus === "checked_in" ||
+      row.checkInStatus === "checked_in_no_package" ||
+      row.checkInStatus === "checked_out"
+
+    // Robust attendance evidence only. attendanceId alone is NOT enough.
+    const hasRealAttendanceEvidence =
+      hasAttendedStatus ||
+      (Boolean(row.checkedOutAt) && row.checkInStatus !== "scheduled" && row.checkInStatus !== "none")
+
+    // Check-in timestamp is required to render ATTENDED in Attendance History.
+    // This prevents package/payment slot rows from appearing as attended when no
+    // real check-in happened.
+    const hasCheckInTimestamp = Boolean(row.checkInAt)
+
+    // Package credit should count as attended only with real attendance evidence.
     const isPackageCredit = row.paymentChannel === "package_credit"
     
+    // Package-credit rows without robust attendance evidence must not appear in
+    // Attendance History.
+    if (isPackageCredit && (!hasRealAttendanceEvidence || !hasCheckInTimestamp)) continue
+
     // Skip rows that have no attendance info AND are not package credit
     if (!isPackageCredit && !row.attendanceId && row.checkInStatus === "none") continue
 
@@ -1866,14 +2000,12 @@ function transformPaymentRowsToAttendance(
     if (isCashPendingSettlement) {
       // Cash pending = booked (waiting for payment approval)
       status = "booked"
-    } else if (isPackageCredit) {
-      // Package credit = attended (they used a credit for a class)
+    } else if (isPackageCredit && hasRealAttendanceEvidence && hasCheckInTimestamp) {
+      // Package credit with real attendance evidence = attended.
       status = "attended"
-    } else if (
-      row.checkInStatus === "checked_in" || 
-      row.checkInStatus === "checked_in_no_package" || 
-      row.checkInStatus === "checked_out"
-    ) {
+    } else if (isPackageCredit && row.checkInStatus === "scheduled") {
+      status = "booked"
+    } else if (hasAttendedStatus && hasCheckInTimestamp) {
       status = "attended"
     } else if (row.checkInStatus === "scheduled") {
       status = "booked"
@@ -1895,12 +2027,25 @@ function transformPaymentRowsToAttendance(
       eventDate = new Date(row.createdAt)
     }
 
+    const attendanceTime = (() => {
+      if (status !== "attended") return row.classTime || "00:00"
+      if (!row.checkInAt) return row.classTime || "00:00"
+      const parsed = new Date(row.checkInAt)
+      if (Number.isNaN(parsed.getTime())) return row.classTime || "00:00"
+      const hours = String(parsed.getHours()).padStart(2, "0")
+      const minutes = String(parsed.getMinutes()).padStart(2, "0")
+      return `${hours}:${minutes}`
+    })()
+
     events.push({
       id: [row.attendanceId || "no-attendance", row.id].join(":"),
       date: eventDate,
-      time: row.classTime || "00:00",
+      time: attendanceTime,
       className: row.courseTitle || row.courseSlug || "Class",
-      classType: isPackageCredit ? "Package" : row.purchaseCategory === "dropin" ? "Drop-in" : "Package",
+      classType:
+        isPackageCredit || row.purchaseCategory === "package" || Boolean(row.packageId)
+          ? "Package"
+          : "Drop-in",
       packageName: row.activePackage?.label,
       status,
     })
@@ -1923,6 +2068,59 @@ function transformPaymentRowsToAttendance(
   }
 
   return { events, summary }
+}
+
+export const resolveAttendanceHistoryRows = (input: {
+  attendanceHistoryStudentId: string | null
+  isHistoryMode: boolean
+  payments: PaymentRow[]
+  userHistoryPayments: PaymentRow[]
+  historyFrom: string
+  historyTo: string
+}) => {
+  if (!input.attendanceHistoryStudentId) return []
+
+  const sourcePayments = input.isHistoryMode
+    ? input.userHistoryPayments
+    : input.payments.filter((payment) => payment.userId === input.attendanceHistoryStudentId)
+
+  if (!input.isHistoryMode || !input.historyFrom || !input.historyTo) {
+    return sourcePayments
+  }
+
+  return sourcePayments.filter(
+    (payment) =>
+      Boolean(payment.classDate) &&
+      payment.classDate! >= input.historyFrom &&
+      payment.classDate! <= input.historyTo
+  )
+}
+
+export const resolvePaymentHistoryRows = (input: {
+  paymentHistoryStudentId: string | null
+  isHistoryMode: boolean
+  payments: PaymentRow[]
+  userHistoryPayments: PaymentRow[]
+  currentDateNY?: string
+}) => {
+  if (!input.paymentHistoryStudentId) return []
+
+  const resolveCreatedAtNyIso = (createdAt: string) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(createdAt)) return createdAt
+    const parsed = new Date(createdAt)
+    if (Number.isNaN(parsed.getTime())) return ""
+    return resolveHistoryMaxSelectableDateIso(parsed, "America/New_York")
+  }
+
+  if (!input.isHistoryMode) {
+    const studentRows = input.payments.filter((payment) => payment.userId === input.paymentHistoryStudentId)
+    if (!input.currentDateNY) return studentRows
+    return studentRows.filter((payment) => {
+      const createdAtNyIso = resolveCreatedAtNyIso(payment.createdAt)
+      return createdAtNyIso === input.currentDateNY
+    })
+  }
+  return input.userHistoryPayments
 }
 
 const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
@@ -2246,6 +2444,38 @@ export const resolveRoomDisableActionState = (room: Pick<RoomRow, "active" | "id
   label: roomBusyId === room.id ? "Disabling..." : room.active ? "Disable" : "Disabled",
 })
 
+const roomBlockerCodeLabel: Record<string, string> = {
+  CLASS_IN_PROGRESS: "A class is currently in progress in this room.",
+  SESSION_IN_NEXT_24H: "A class session is scheduled in the next 24 hours.",
+  RESERVATION_IN_NEXT_24H: "A private reservation exists in the next 24 hours.",
+  INVALID_COURSE_SELECTION: "One or more selected courses are not assigned to the source room.",
+}
+
+export const formatRoomActionBlockers = (blockers: unknown): string[] => {
+  if (!Array.isArray(blockers)) return []
+  return blockers
+    .map((item) => {
+      if (!item || typeof item !== "object") return null
+      const code = typeof (item as { code?: unknown }).code === "string" ? (item as { code: string }).code : null
+      const startsAtRaw = typeof (item as { startsAt?: unknown }).startsAt === "string" ? (item as { startsAt: string }).startsAt : null
+      const startsAt = startsAtRaw ? formatDateTime(startsAtRaw) : null
+      if (code && roomBlockerCodeLabel[code]) {
+        return startsAt ? `${roomBlockerCodeLabel[code]} (${startsAt})` : roomBlockerCodeLabel[code]
+      }
+      return null
+    })
+    .filter((value): value is string => Boolean(value))
+}
+
+export const resolveRoomActionErrorMessage = (payload: unknown, fallback: string) => {
+  if (!payload || typeof payload !== "object") return fallback
+  const source = payload as { error?: unknown; blockers?: unknown }
+  const baseError = typeof source.error === "string" ? source.error : fallback
+  const blockerLines = formatRoomActionBlockers(source.blockers)
+  if (blockerLines.length === 0) return baseError
+  return `${baseError} ${blockerLines.join(" ")}`
+}
+
 export const resolveRoomCatalogErrorMessage = (sources: Array<unknown>) => {
   for (const source of sources) {
     if (source && typeof source === "object" && typeof (source as { error?: unknown }).error === "string") {
@@ -2262,6 +2492,25 @@ const splitCustomerName = (name: string, email: string) => {
   const firstName = parts[0] || ""
   const lastName = parts.slice(1).join(" ")
   return { firstName, lastName, fullName: source || "Student" }
+}
+
+const CRITICAL_WINDOW_BEFORE_MS = 15 * 60 * 1000
+const CRITICAL_WINDOW_AFTER_MS = 15 * 60 * 1000
+
+export const isInsideCriticalClassWindow = (
+  eventsByDay: Record<string, ScheduleEvent[]>,
+  nowMs: number = Date.now()
+): boolean => {
+  for (const events of Object.values(eventsByDay)) {
+    for (const event of events) {
+      const startsAt = Date.parse(event.startsAtIso)
+      if (Number.isNaN(startsAt)) continue
+      if (nowMs >= startsAt - CRITICAL_WINDOW_BEFORE_MS && nowMs <= startsAt + CRITICAL_WINDOW_AFTER_MS) {
+        return true
+      }
+    }
+  }
+  return false
 }
 
 const monthKey = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`
@@ -2312,9 +2561,11 @@ const previousWeekday = (base: Date, weekday: number) => {
 }
 
 const MIN_LOADING_DELAY_MS = 3000
-const STAFF_PRESENCE_REFRESH_MS = 5_000
-const TERMINAL_ALERTS_ACTIVE_REFRESH_MS = 5_000
-const TERMINAL_ALERTS_REFRESH_MS = 10_000
+const STAFF_USERS_CRITICAL_REFRESH_MS = 15_000
+const STAFF_USERS_NORMAL_REFRESH_MS = 60_000
+const STAFF_PRESENCE_BACKOFF_MAX_MS = 300_000
+const TERMINAL_ALERTS_CRITICAL_REFRESH_MS = 5_000
+const TERMINAL_ALERTS_NORMAL_REFRESH_MS = 30_000
 const TERMINAL_ALERT_PRIORITY: Record<"warning" | "cooldown" | "emergency", number> = {
   emergency: 0,
   cooldown: 1,
@@ -2358,6 +2609,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const gridRef = React.useRef<HTMLDivElement>(null)
   const leftRailRef = React.useRef<HTMLDivElement>(null)
   const rightRailRef = React.useRef<HTMLDivElement>(null)
+  const fetchInFlightRef = React.useRef(false)
+  const backoffUntilRef = React.useRef(0)
+  const consecutiveFailuresRef = React.useRef(0)
 
   const [rows, setRows] = React.useState<StaffUserRow[]>([])
   const [payrollModelOptions, setPayrollModelOptions] = React.useState<StaffPaymentModelOption[]>([])
@@ -2563,6 +2817,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [roomFormError, setRoomFormError] = React.useState<string | null>(null)
   const [roomFormSuccess, setRoomFormSuccess] = React.useState<string | null>(null)
   const [roomActionErrors, setRoomActionErrors] = React.useState<Record<string, string>>({})
+  const [roomSafeDeleteModal, setRoomSafeDeleteModal] = React.useState<RoomSafeDeleteModalState | null>(null)
+  const [roomReassignModal, setRoomReassignModal] = React.useState<RoomReassignModalState | null>(null)
+  const [roomReservations, setRoomReservations] = React.useState<RoomReservationRow[]>([])
+  const [roomReservationForm, setRoomReservationForm] = React.useState<RoomReservationFormState>(() => createEmptyRoomReservationForm())
+  const [roomReservationSaving, setRoomReservationSaving] = React.useState(false)
+  const [roomReservationCancelModal, setRoomReservationCancelModal] = React.useState<RoomReservationCancelModalState | null>(null)
+  const [roomReservationBusyId, setRoomReservationBusyId] = React.useState<string | null>(null)
+  const [roomReservationFormError, setRoomReservationFormError] = React.useState<string | null>(null)
+  const [roomReservationFormSuccess, setRoomReservationFormSuccess] = React.useState<string | null>(null)
   const [courseForm, setCourseForm] = React.useState<CourseFormState>({
     slug: "",
     title: "",
@@ -2626,6 +2889,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [courseLinkSaving, setCourseLinkSaving] = React.useState(false)
   const [courseLinkError, setCourseLinkError] = React.useState<string | null>(null)
   const [courseLinkSuccess, setCourseLinkSuccess] = React.useState<string | null>(null)
+  const [schoolCourseLinkCount, setSchoolCourseLinkCount] = React.useState(0)
   const courseImageInputRef = React.useRef<HTMLInputElement>(null)
   const courseVideoInputRef = React.useRef<HTMLInputElement>(null)
   const scheduleTimePickerRef = React.useRef<HTMLDivElement>(null)
@@ -2704,18 +2968,29 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [quickScheduleTimes])
 
-  // Load user payment history when opening timeline popovers
+  // Load user payment history for history-range popovers only.
+  // Daily PMT history must remain board-scoped to NY-today rows.
   React.useEffect(() => {
-    const userId = paymentHistoryStudentId || attendanceHistoryStudentId
+    const userId = isHistoryMode
+      ? (paymentHistoryStudentId || attendanceHistoryStudentId)
+      : (attendanceHistoryStudentId || null)
     if (!userId) {
       setUserHistoryPayments([])
       return
     }
     
     let cancelled = false
+    setUserHistoryPayments([])
     setUserHistoryLoading(true)
     
-    fetch(`/api/staff/payments?userId=${encodeURIComponent(userId)}`)
+    const params = new URLSearchParams()
+    params.set("userId", userId)
+    if (historyFrom && historyTo) {
+      params.set("from", historyFrom)
+      params.set("to", historyTo)
+    }
+
+    fetch(`/api/staff/payments?${params.toString()}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return
@@ -2724,9 +2999,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         }
       })
       .catch(() => {
-        // Fallback to current payments if API fails
+        // Attendance History fallback in history mode only.
+        // Daily PMT History is always board-scoped from `payments` at render time.
         if (!cancelled) {
-          setUserHistoryPayments(payments.filter((p) => p.userId === userId))
+          if (paymentHistoryStudentId && isHistoryMode) {
+            setUserHistoryPayments(payments.filter((p) => p.userId === userId))
+          } else {
+            setUserHistoryPayments([])
+          }
         }
       })
       .finally(() => {
@@ -2736,7 +3016,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     return () => {
       cancelled = true
     }
-  }, [paymentHistoryStudentId, attendanceHistoryStudentId, payments])
+  }, [attendanceHistoryStudentId, historyFrom, historyTo, isHistoryMode, paymentHistoryStudentId, payments])
 
   const allowedNavSections = React.useMemo(
     () => resolveStaffPortalSections(currentRole, resolvedCurrentCategory),
@@ -2856,6 +3136,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       banned: false,
       locked: false,
       online: false,
+      authOnline: false,
       lastActiveAt: null,
       staffLastCheckInAt: null,
       createdAt: Date.now(),
@@ -2886,6 +3167,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       },
       presence: {
         online: false,
+        authOnline: false,
         lastSignInAt: null,
         staffLastCheckInAt: null,
         status: null,
@@ -2924,6 +3206,46 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     () => filterVisibleRooms(schoolRooms, roomSearchQuery, roomStatusFilter),
     [roomSearchQuery, roomStatusFilter, schoolRooms]
   )
+  const currentUpcomingReservations = React.useMemo(() => {
+    const now = Date.now()
+    return roomReservations
+      .filter((item) => {
+        const endsAtTime = new Date(item.endsAt).getTime()
+        return Number.isFinite(endsAtTime) && endsAtTime >= now
+      })
+      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+  }, [roomReservations])
+  const reservationAssignableStaff = React.useMemo(
+    () =>
+      rows
+        .map((item) => ({ id: item.id, label: `${item.firstName} ${item.lastName}`.trim() || item.email }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [rows]
+  )
+  const reservationTimezone = React.useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    []
+  )
+  const reservationRangePreview = React.useMemo(() => {
+    const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
+    const startsAt = buildReservationDateTime(roomReservationForm.startDate, roomReservationForm.startTime)
+    const endsAt = buildReservationDateTime(effectiveEndDate, roomReservationForm.endTime)
+    if (!startsAt || !endsAt) return ""
+    if (endsAt.getTime() <= startsAt.getTime()) return ""
+    return `${startsAt.toLocaleString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })} → ${endsAt.toLocaleString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })}`
+  }, [roomReservationForm.endDate, roomReservationForm.endTime, roomReservationForm.startDate, roomReservationForm.startTime])
   const ensureMinimumLoadingTime = React.useCallback(async (startedAt: number) => {
     const elapsed = Date.now() - startedAt
     if (elapsed < MIN_LOADING_DELAY_MS) {
@@ -2953,6 +3275,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     category?: StaffCategory | "all",
     options?: { showLoader?: boolean; enforceMinDelay?: boolean }
   ) => {
+    // Prevent overlapping requests
+    if (fetchInFlightRef.current) return
+    // Respect backoff period after 429/503
+    if (Date.now() < backoffUntilRef.current) return
+
+    fetchInFlightRef.current = true
     const showLoader = options?.showLoader ?? true
     const enforceMinDelay = options?.enforceMinDelay ?? showLoader
     const startedAt = Date.now()
@@ -2969,15 +3297,35 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
+        // Handle 429/503 with backoff and Retry-After
+        if (res.status === 429 || res.status === 503) {
+          const retryAfterSec = Number(res.headers.get("Retry-After")) || 5
+          const backoffMs = Math.min(retryAfterSec * 1000, STAFF_PRESENCE_BACKOFF_MAX_MS)
+          // Add jitter to prevent thundering herd
+          const jitter = Math.floor(Math.random() * 1000)
+          backoffUntilRef.current = Date.now() + backoffMs + jitter
+          consecutiveFailuresRef.current += 1
+        }
         setError(typeof data?.error === "string" ? data.error : "Failed to load staff users")
         if (showLoader) setRows([])
         return
       }
+      // Success: reset backoff state
+      consecutiveFailuresRef.current = 0
+      backoffUntilRef.current = 0
       setRows(Array.isArray(data?.items) ? data.items : [])
     } catch {
+      consecutiveFailuresRef.current += 1
+      // Backoff on network errors too, with exponential growth
+      const backoffMs = Math.min(
+        STAFF_USERS_NORMAL_REFRESH_MS * Math.pow(2, consecutiveFailuresRef.current),
+        STAFF_PRESENCE_BACKOFF_MAX_MS
+      )
+      backoffUntilRef.current = Date.now() + backoffMs
       setError("Network error while loading staff users")
       if (showLoader) setRows([])
     } finally {
+      fetchInFlightRef.current = false
       if (enforceMinDelay) await ensureMinimumLoadingTime(startedAt)
       if (showLoader) setLoading(false)
     }
@@ -3552,6 +3900,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         },
         presence: {
           online: Boolean(presence.online),
+          authOnline: Boolean(presence.authOnline),
           lastSignInAt:
             typeof presence.lastSignInAt === "number" && Number.isFinite(presence.lastSignInAt)
               ? presence.lastSignInAt
@@ -3697,24 +4046,26 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     if (showLoader) setSchoolLoading(true)
     setSchoolError(null)
     try {
-      const [coursesRes, roomsRes, packagesRes, rulesRes] = await Promise.all([
+      const [coursesRes, roomsRes, packagesRes, rulesRes, reservationsRes] = await Promise.all([
         fetch("/api/staff/school/courses", { headers: { "Content-Type": "application/json" } }),
         fetch("/api/staff/rooms?pageSize=100", { headers: { "Content-Type": "application/json" } }),
         fetch("/api/staff/school/packages", { headers: { "Content-Type": "application/json" } }),
         fetch("/api/staff/school/points-rules", { headers: { "Content-Type": "application/json" } }),
+        fetch("/api/staff/room-reservations", { headers: { "Content-Type": "application/json" } }),
       ])
-      const [coursesData, roomsData, packagesData, rulesData] = await Promise.all([
+      const [coursesData, roomsData, packagesData, rulesData, reservationsData] = await Promise.all([
         coursesRes.json().catch(() => ({})),
         roomsRes.json().catch(() => ({})),
         packagesRes.json().catch(() => ({})),
         rulesRes.json().catch(() => ({})),
+        reservationsRes.json().catch(() => ({})),
       ])
-      if (!coursesRes.ok || !roomsRes.ok || !packagesRes.ok || !rulesRes.ok) {
-        const authStatuses = [coursesRes.status, roomsRes.status, packagesRes.status, rulesRes.status]
+      if (!coursesRes.ok || !roomsRes.ok || !packagesRes.ok || !rulesRes.ok || !reservationsRes.ok) {
+        const authStatuses = [coursesRes.status, roomsRes.status, packagesRes.status, rulesRes.status, reservationsRes.status]
         if (authStatuses.some((status) => status === 401) && authStatuses.some((status) => handleStaffAuthFailure(status))) {
           return
         }
-        const nextError = resolveRoomCatalogErrorMessage([coursesData, roomsData, packagesData, rulesData])
+        const nextError = resolveRoomCatalogErrorMessage([coursesData, roomsData, packagesData, rulesData, reservationsData])
         setSchoolError(nextError)
         return
       }
@@ -3722,6 +4073,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setSchoolRooms(Array.isArray(roomsData?.items) ? roomsData.items : [])
       setSchoolPackages(Array.isArray(packagesData?.items) ? packagesData.items : [])
       setSchoolPointsRules(Array.isArray(rulesData?.items) ? rulesData.items : [])
+      setRoomReservations(Array.isArray(reservationsData?.items) ? reservationsData.items : [])
+      // Non-critical: fetch course link count (best-effort, doesn't block school data)
+      fetch("/api/staff/school/course-links", { headers: { "Content-Type": "application/json" } })
+        .then((r) => (r.ok ? r.json() : { count: 0 }))
+        .then((data) => setSchoolCourseLinkCount(data?.count ?? 0))
+        .catch(() => setSchoolCourseLinkCount(0))
     } catch {
       setSchoolError("Network error while loading school catalog.")
     } finally {
@@ -3811,7 +4168,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         if (handleStaffAuthFailure(res.status)) return
         setRoomActionErrors((prev) => ({
           ...prev,
-          [roomId]: typeof data?.error === "string" ? data.error : "Unable to disable room.",
+          [roomId]: resolveRoomActionErrorMessage(data, "Unable to disable room."),
         }))
         return
       }
@@ -3830,6 +4187,339 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setRoomBusyId(null)
     }
   }, [fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm.id])
+
+  const activateRoom = React.useCallback(async (roomId: string) => {
+    setRoomBusyId(roomId)
+    setRoomActionErrors((prev) => {
+      if (!prev[roomId]) return prev
+      const next = { ...prev }
+      delete next[roomId]
+      return next
+    })
+    setRoomFormSuccess(null)
+    try {
+      const res = await fetch(`/api/staff/rooms/${roomId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: true }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setRoomActionErrors((prev) => ({
+          ...prev,
+          [roomId]: resolveRoomActionErrorMessage(data, "Unable to activate room."),
+        }))
+        return
+      }
+      await fetchSchoolData({ showLoader: false })
+      setRoomFormSuccess(typeof data?.message === "string" ? data.message : "Room activated.")
+    } catch {
+      setRoomActionErrors((prev) => ({
+        ...prev,
+        [roomId]: "Network error while activating room.",
+      }))
+    } finally {
+      setRoomBusyId(null)
+    }
+  }, [fetchSchoolData, handleStaffAuthFailure])
+
+  const openRoomSafeDeleteModal = React.useCallback((room: RoomRow) => {
+    setRoomFormSuccess(null)
+    setRoomSafeDeleteModal({
+      room,
+      reason: "",
+      error: null,
+    })
+  }, [])
+
+  const closeRoomSafeDeleteModal = React.useCallback(() => {
+    setRoomSafeDeleteModal(null)
+  }, [])
+
+  const openRoomReassignModal = React.useCallback((room: RoomRow) => {
+    const affectedCourses = schoolCourses
+      .filter((course) => course.defaultRoomId === room.id)
+      .map((course) => ({
+        id: course.id,
+        title: course.title,
+        slug: course.slug,
+        scheduleLabel: buildAssignmentCourseScheduleLabel(course),
+      }))
+
+    setRoomFormSuccess(null)
+    setRoomReassignModal({
+      room,
+      targetRoomId: "",
+      moveFutureSessions: false,
+      availableCourses: affectedCourses,
+      selectedCourseIds: affectedCourses.map((course) => course.id),
+      error: null,
+    })
+  }, [schoolCourses])
+
+  const closeRoomReassignModal = React.useCallback(() => {
+    setRoomReassignModal(null)
+  }, [])
+
+  const confirmRoomSafeDelete = React.useCallback(async () => {
+    if (!roomSafeDeleteModal) return
+
+    const room = roomSafeDeleteModal.room
+    const reason = roomSafeDeleteModal.reason.trim()
+    if (!reason) {
+      setRoomSafeDeleteModal((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          error: "Deletion reason is required.",
+        }
+      })
+      return
+    }
+
+    setRoomBusyId(room.id)
+    setRoomSafeDeleteModal((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        error: null,
+      }
+    })
+    setRoomActionErrors((prev) => {
+      if (!prev[room.id]) return prev
+      const next = { ...prev }
+      delete next[room.id]
+      return next
+    })
+    setRoomFormSuccess(null)
+
+    try {
+      const res = await fetch(`/api/staff/rooms/${room.id}/safe-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        const nextError = resolveRoomActionErrorMessage(data, "Unable to safe-delete room.")
+        setRoomSafeDeleteModal((prev) => {
+          if (!prev || prev.room.id !== room.id) return prev
+          return {
+            ...prev,
+            error: nextError,
+          }
+        })
+        setRoomActionErrors((prev) => ({
+          ...prev,
+          [room.id]: nextError,
+        }))
+        return
+      }
+
+      await fetchSchoolData({ showLoader: false })
+      if (roomForm.id === room.id) {
+        resetRoomForm()
+      }
+      closeRoomSafeDeleteModal()
+      setRoomFormSuccess("Room deleted.")
+    } catch {
+      const nextError = "Network error while deleting room."
+      setRoomSafeDeleteModal((prev) => {
+        if (!prev || prev.room.id !== room.id) return prev
+        return {
+          ...prev,
+          error: nextError,
+        }
+      })
+      setRoomActionErrors((prev) => ({
+        ...prev,
+        [room.id]: nextError,
+      }))
+    } finally {
+      setRoomBusyId(null)
+    }
+  }, [closeRoomSafeDeleteModal, fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm.id, roomSafeDeleteModal])
+
+  const confirmRoomReassign = React.useCallback(async () => {
+    if (!roomReassignModal) return
+
+    const room = roomReassignModal.room
+    const targetRoomId = roomReassignModal.targetRoomId
+    const selectedCourseIds = roomReassignModal.selectedCourseIds
+    if (!targetRoomId) {
+      setRoomReassignModal((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          error: "Select a target room to continue.",
+        }
+      })
+      return
+    }
+    if (roomReassignModal.availableCourses.length > 0 && selectedCourseIds.length === 0) {
+      setRoomReassignModal((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          error: "Select at least one course to reassign.",
+        }
+      })
+      return
+    }
+
+    setRoomBusyId(room.id)
+    setRoomReassignModal((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        error: null,
+      }
+    })
+    setRoomActionErrors((prev) => {
+      if (!prev[room.id]) return prev
+      const next = { ...prev }
+      delete next[room.id]
+      return next
+    })
+    setRoomFormSuccess(null)
+
+    try {
+      const res = await fetch(`/api/staff/rooms/${room.id}/reassign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetRoomId,
+          moveFutureSessions: roomReassignModal.moveFutureSessions,
+          courseIds: selectedCourseIds,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        const nextError = resolveRoomActionErrorMessage(data, "Unable to reassign room.")
+        setRoomReassignModal((prev) => {
+          if (!prev || prev.room.id !== room.id) return prev
+          return {
+            ...prev,
+            error: nextError,
+          }
+        })
+        setRoomActionErrors((prev) => ({
+          ...prev,
+          [room.id]: nextError,
+        }))
+        return
+      }
+
+      const movedSessions = typeof data?.movedSessions === "number" ? data.movedSessions : 0
+      const movedDefaults = typeof data?.reassignedDefaults === "number" ? data.reassignedDefaults : 0
+      await fetchSchoolData({ showLoader: false })
+      closeRoomReassignModal()
+      setRoomFormSuccess(`Room reassigned. Defaults moved: ${movedDefaults}. Future sessions moved: ${movedSessions}.`)
+    } catch {
+      const nextError = "Network error while reassigning room."
+      setRoomReassignModal((prev) => {
+        if (!prev || prev.room.id !== room.id) return prev
+        return {
+          ...prev,
+          error: nextError,
+        }
+      })
+      setRoomActionErrors((prev) => ({
+        ...prev,
+        [room.id]: nextError,
+      }))
+    } finally {
+      setRoomBusyId(null)
+    }
+  }, [closeRoomReassignModal, fetchSchoolData, handleStaffAuthFailure, roomReassignModal])
+
+  const saveRoomReservation = React.useCallback(async (event: React.FormEvent) => {
+    event.preventDefault()
+    setRoomReservationSaving(true)
+    setRoomReservationFormError(null)
+    setRoomReservationFormSuccess(null)
+    try {
+      const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
+      const startsAtDate = buildReservationDateTime(roomReservationForm.startDate, roomReservationForm.startTime)
+      const endsAtDate = buildReservationDateTime(effectiveEndDate, roomReservationForm.endTime)
+      if (!startsAtDate || !endsAtDate) {
+        setRoomReservationFormError("Select a valid start/end date and time.")
+        return
+      }
+      if (endsAtDate.getTime() <= startsAtDate.getTime()) {
+        setRoomReservationFormError("End date/time must be after start date/time. For overnight events, choose the next day as end date.")
+        return
+      }
+      const payload = {
+        roomId: roomReservationForm.roomId,
+        title: roomReservationForm.title.trim(),
+        reason: roomReservationForm.reason.trim(),
+        startsAt: startsAtDate.toISOString(),
+        endsAt: endsAtDate.toISOString(),
+        ...(roomReservationForm.assignedStaffClerkUserId
+          ? { assignedStaffClerkUserId: roomReservationForm.assignedStaffClerkUserId }
+          : {}),
+      }
+      const res = await fetch("/api/staff/room-reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setRoomReservationFormError(resolveRoomActionErrorMessage(data, "Unable to create reservation."))
+        return
+      }
+      await fetchSchoolData({ showLoader: false })
+      setRoomReservationForm(createEmptyRoomReservationForm())
+      setRoomReservationFormSuccess("Reservation created.")
+    } catch {
+      setRoomReservationFormError("Network error while creating reservation.")
+    } finally {
+      setRoomReservationSaving(false)
+    }
+  }, [fetchSchoolData, handleStaffAuthFailure, roomReservationForm])
+
+  const closeRoomReservationCancelModal = React.useCallback(() => {
+    setRoomReservationCancelModal(null)
+  }, [])
+
+  const openRoomReservationCancelModal = React.useCallback((reservation: RoomReservationRow) => {
+    setRoomReservationFormSuccess(null)
+    setRoomReservationCancelModal({ reservation, reason: "", error: null })
+  }, [])
+
+  const confirmRoomReservationCancel = React.useCallback(async () => {
+    if (!roomReservationCancelModal) return
+    const reservation = roomReservationCancelModal.reservation
+    setRoomReservationBusyId(reservation.id)
+    setRoomReservationFormError(null)
+    try {
+      const res = await fetch(`/api/staff/room-reservations/${reservation.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: roomReservationCancelModal.reason.trim() || undefined }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        const nextError = resolveRoomActionErrorMessage(data, "Unable to cancel reservation.")
+        setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: nextError } : prev))
+        return
+      }
+      await fetchSchoolData({ showLoader: false })
+      closeRoomReservationCancelModal()
+      setRoomReservationFormSuccess("Reservation cancelled.")
+    } catch {
+      setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: "Network error while cancelling reservation." } : prev))
+    } finally {
+      setRoomReservationBusyId(null)
+    }
+  }, [closeRoomReservationCancelModal, fetchSchoolData, handleStaffAuthFailure, roomReservationCancelModal])
 
   const resetCourseBuilder = React.useCallback(() => {
     setCourseForm({
@@ -4272,17 +4962,48 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [canAccessUsersNav, fetchPayrollModelOptions, fetchRows, categoryFilter])
 
   React.useEffect(() => {
+    if (typeof window === "undefined") return
     if (!canAccessUsersNav) return
-    const interval = window.setInterval(() => {
+    let active = true
+    let timeoutId: number | undefined
+    const tick = () => {
+      if (!active) return
+      if (document.visibilityState !== "visible") return
       void fetchRows(query, categoryFilter, { showLoader: false, enforceMinDelay: false })
-    }, STAFF_PRESENCE_REFRESH_MS)
-    return () => window.clearInterval(interval)
-  }, [canAccessUsersNav, fetchRows, query, categoryFilter])
+    }
+    const scheduleNext = () => {
+      if (!active) return
+      const now = Date.now()
+      const backoffRemaining = Math.max(0, backoffUntilRef.current - now)
+      const baseInterval = isInsideCriticalClassWindow(scheduleEventsByDay, now)
+        ? STAFF_USERS_CRITICAL_REFRESH_MS
+        : STAFF_USERS_NORMAL_REFRESH_MS
+      const delay = Math.max(baseInterval, backoffRemaining)
+      timeoutId = window.setTimeout(() => {
+        tick()
+        scheduleNext()
+      }, delay)
+    }
+    const handleVisibilityChange = () => {
+      if (!active) return
+      if (document.visibilityState !== "visible") return
+      window.clearTimeout(timeoutId)
+      void fetchRows(query, categoryFilter, { showLoader: false, enforceMinDelay: false })
+      scheduleNext()
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    scheduleNext()
+    return () => {
+      active = false
+      window.clearTimeout(timeoutId)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [canAccessUsersNav, fetchRows, query, categoryFilter, scheduleEventsByDay])
 
   React.useEffect(() => {
     const interval = window.setInterval(() => {
       setNowTs(Date.now())
-    }, STAFF_PRESENCE_REFRESH_MS)
+    }, STAFF_USERS_NORMAL_REFRESH_MS)
     return () => window.clearInterval(interval)
   }, [])
 
@@ -4346,7 +5067,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       void fetchTerminalPinAlerts()
     }
 
-    const refreshMs = terminalPinAlerts.length > 0 ? TERMINAL_ALERTS_ACTIVE_REFRESH_MS : TERMINAL_ALERTS_REFRESH_MS
+    const inCriticalWindow = isInsideCriticalClassWindow(scheduleEventsByDay)
+    const refreshMs =
+      terminalPinAlerts.length > 0 || inCriticalWindow
+        ? TERMINAL_ALERTS_CRITICAL_REFRESH_MS
+        : TERMINAL_ALERTS_NORMAL_REFRESH_MS
     const interval = window.setInterval(refreshAlerts, refreshMs)
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -4359,7 +5084,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       window.clearInterval(interval)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [fetchTerminalPinAlerts, isStudentsView, terminalPinAlerts.length])
+  }, [fetchTerminalPinAlerts, isStudentsView, terminalPinAlerts.length, scheduleEventsByDay])
 
   React.useEffect(() => {
     if (!canAccessUsersNav) return
@@ -4480,11 +5205,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [courseHydratedFromQuery, isSchoolView, schoolCourses, searchParams])
 
   React.useEffect(() => {
+    if (editingPackageId !== null) return // Don't auto-assign when editing an existing package
     if (packageForm.courseSlugs.length > 0) return
     const firstCourseSlug = schoolCourses[0]?.slug || demoCourses[0]?.slug || ""
     if (!firstCourseSlug) return
     setPackageForm((prev) => ({ ...prev, courseSlugs: [firstCourseSlug] }))
-  }, [packageForm.courseSlugs, schoolCourses])
+  }, [editingPackageId, packageForm.courseSlugs, schoolCourses])
 
   React.useEffect(() => {
     return () => {
@@ -4558,7 +5284,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const isEmbedPreviewVideo = isEmbedVideoUrl(embedPreviewVideoUrl)
   const previewVideoSource = isEmbedPreviewVideo ? toAutoplayEmbedUrl(embedPreviewVideoUrl) : previewVideoUrl
   const selectedCourseKindLabel = COURSE_KIND_LABELS[courseForm.kind] || "Course"
-  const selectedCourseKindReviewLabel = `Review del ${selectedCourseKindLabel.toLowerCase()}`
+  const selectedCourseKindReviewLabel = `${selectedCourseKindLabel} review`
   const courseReviewVariants = React.useMemo(
     () =>
       SCHOOL_COURSE_KINDS.map((kind) => ({
@@ -4780,6 +5506,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setCourseWeekdays(existingCourse.availableWeekdays || [])
       setCourseHydratedFromQuery(true)
       setCourseEditingSlug(existingCourse.slug) // Track which course we're editing
+      loadCourseLinks(existingCourse.slug) // Load consecutive class links for admin table
       setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
       setSchoolSuccess(`Loaded "${existingCourse.title}" for editing.`)
     }
@@ -6225,7 +6952,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     return { ...totals, fridayCount, exceptions }
   }, [payrollRows])
 
-  const studentCards = React.useMemo(() => buildHistoryStudentCards(payments), [payments])
+  const studentCards = React.useMemo(
+    () => buildHistoryStudentCards(payments, { mode: isHistoryMode ? "history" : "daily" }),
+    [isHistoryMode, payments]
+  )
+  const currentDateNY = React.useMemo(
+    () => resolveHistoryMaxSelectableDateIso(new Date(nowTs), "America/New_York"),
+    [nowTs]
+  )
 
   const PAGE_SIZE = 9
 
@@ -6244,7 +6978,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         if (matchingPayments.length === 0) return null
 
         return {
-          ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key) : item),
+          ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key, { mode: "history" }) : item),
           // Preserve original allPayments for tooltip history display
           allPayments: item.allPayments,
           latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
@@ -6268,7 +7002,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         if (matchingPayments.length === 0) return null
 
         return {
-          ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key) : item),
+          ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key, { mode: "history" }) : item),
           // Preserve original allPayments for tooltip history display
           allPayments: item.allPayments,
           latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
@@ -6428,7 +7162,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     [terminalPinAlerts]
   )
 
-  const todayDateIso = React.useMemo(() => toLocalIsoDate(new Date()), [])
+  const todayDateIso = React.useMemo(
+    () => resolveHistoryMaxSelectableDateIso(new Date(nowTs), "America/New_York"),
+    [nowTs]
+  )
 
   // Short date format for history range badge: "wed 25 mar 26"
   const formatShortDate = (dateIso: string) => {
@@ -7479,12 +8216,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       }`}
                     >
                       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {selfIsOnline ? "Online" : "Offline"}
+                      {selfIsOnline ? "Checked in" : "Not checked in"}
                     </span>
                     <span className="inline-flex rounded-full border border-sky-500/35 bg-sky-500/10 px-2.5 py-1 text-xs font-semibold text-sky-300">
                       {selfLiveSessionMinutes !== null
-                        ? `Logged in ${formatDurationLabel(selfLiveSessionMinutes)}`
-                        : "No active session"}
+                        ? `Working ${formatDurationLabel(selfLiveSessionMinutes)}`
+                        : "No active work session"}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-black/65 dark:text-white/65">
@@ -8540,7 +9277,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             </button>
                             {presenceMenuUserId === row.id ? (
                               <div className="absolute left-1/2 top-[calc(100%+8px)] z-50 w-44 -translate-x-1/2 rounded-md border border-black/15 bg-white/95 p-2 shadow-[0_16px_34px_-20px_rgba(0,0,0,0.8)] backdrop-blur dark:border-white/15 dark:bg-[#0f1525]/95">
-                                {row.online ? (
+                                {row.online || row.authOnline ? (
                                   <button
                                     type="button"
                                     disabled={rowBusy || !canManageRow}
@@ -8589,7 +9326,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           <span>{formatDate(row.lastSignInAt)}</span>
                         </p>
                         <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
-                          <span>Online now</span>
+                          <span>Checked in</span>
                           <span>{row.online ? "Yes" : "No"}</span>
                         </p>
                         <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
@@ -8905,7 +9642,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </button>
               </header>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-4 xl:gap-4">
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-5 xl:gap-4">
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Courses</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolCourses.length}</p>
@@ -8923,6 +9660,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Points rules</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolPointsRules.length}</p>
                 </div>
+                <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Consecutive</p>
+                  <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolCourseLinkCount}</p>
+                  <p className="mt-1 text-xs text-black/55 dark:text-white/55">course links</p>
+                </div>
               </div>
 
               {schoolError ? (
@@ -8938,10 +9680,161 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </article>
 
             <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+              <header className="mb-4">
+                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Private reservations</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Current and upcoming room reservations</h3>
+                <p className="mt-1 text-sm text-black/65 dark:text-white/65">Use active rooms for new reservations and cancel conflicting entries when needed.</p>
+              </header>
+
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.2fr)]">
+                <form onSubmit={saveRoomReservation} className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-lg border border-black/10 bg-white/45 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                      <p className="text-[11px] uppercase tracking-[0.24em] text-black/60 dark:text-white/60">Reservation date range</p>
+                      <div className="mt-2">
+                        <CalendarPicker
+                          rangeMode={true}
+                          rangeStart={roomReservationForm.startDate}
+                          rangeEnd={roomReservationForm.endDate || undefined}
+                          onRangeChange={(start, end) => {
+                            setRoomReservationForm((prev) => ({
+                              ...prev,
+                              startDate: start,
+                              endDate: end || "",
+                            }))
+                          }}
+                          compact
+                        />
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-1">
+                          <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">Start time</span>
+                          <input
+                            type="time"
+                            value={roomReservationForm.startTime}
+                            onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                            required
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">End time</span>
+                          <input
+                            type="time"
+                            value={roomReservationForm.endTime}
+                            onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                            required
+                          />
+                        </label>
+                      </div>
+                      <div className="mt-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
+                        <p>Start: {formatReservationDateLabel(roomReservationForm.startDate) || "Select date"}</p>
+                        <p>End: {formatReservationDateLabel(roomReservationForm.endDate || roomReservationForm.startDate) || "Select date"}</p>
+                        <p className="mt-1">Timezone: {reservationTimezone}</p>
+                        <p className="mt-1 text-[var(--brand,#b61616)] dark:text-[var(--brand,#ffb3b3)]">Range preview: {reservationRangePreview || "Choose start/end time and a valid date range."}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <select
+                        value={roomReservationForm.roomId}
+                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, roomId: event.target.value }))}
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        required
+                      >
+                        <option value="">Select active room</option>
+                        {activeRoomOptions.map((room) => (
+                          <option key={`reservation-room-${room.id}`} value={room.id}>{room.name}</option>
+                        ))}
+                      </select>
+                      <input
+                        value={roomReservationForm.title}
+                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, title: event.target.value }))}
+                        placeholder="Reservation title"
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        required
+                      />
+                      <textarea
+                        value={roomReservationForm.reason}
+                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, reason: event.target.value }))}
+                        rows={2}
+                        placeholder="Reason"
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        required
+                      />
+                      <select
+                        value={roomReservationForm.assignedStaffClerkUserId}
+                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, assignedStaffClerkUserId: event.target.value }))}
+                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      >
+                        <option value="">Assign to staff/professor (optional)</option>
+                        {reservationAssignableStaff.map((item) => (
+                          <option key={`reservation-staff-${item.id}`} value={item.id}>{item.label}</option>
+                        ))}
+                      </select>
+                      {roomReservationFormError ? <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">{roomReservationFormError}</p> : null}
+                      {roomReservationFormSuccess ? <p className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{roomReservationFormSuccess}</p> : null}
+                      <button
+                        type="submit"
+                        disabled={roomReservationSaving || activeRoomOptions.length === 0}
+                        className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                      >
+                        {roomReservationSaving ? "Saving..." : "Create reservation"}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+
+                <div className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Current / upcoming</p>
+                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                    {schoolLoading ? (
+                      <p className="text-sm text-black/60 dark:text-white/60">Loading reservations...</p>
+                    ) : currentUpcomingReservations.length === 0 ? (
+                      <p className="text-sm text-black/60 dark:text-white/60">No current or upcoming reservations.</p>
+                    ) : (
+                      currentUpcomingReservations.map((item) => (
+                        <div key={`reservation-row-${item.id}`} className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-black dark:text-white">{item.title}</p>
+                              <p className="text-xs text-black/65 dark:text-white/65">
+                                {roomById[item.roomId]?.name || "Unknown room"} · {formatDateTime(item.startsAt)} → {formatDateTime(item.endsAt)}
+                              </p>
+                              <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+                                Assigned: {item.assignedStaffClerkUserId ? reservationAssignableStaff.find((staff) => staff.id === item.assignedStaffClerkUserId)?.label || item.assignedStaffClerkUserId : "Unassigned"}
+                              </p>
+                              <p className="mt-1 text-xs text-black/60 dark:text-white/60">Status: {item.status}</p>
+                            </div>
+                            {item.status === "active" ? (
+                              <button
+                                type="button"
+                                onClick={() => openRoomReservationCancelModal(item)}
+                                disabled={roomReservationBusyId === item.id}
+                                className="rounded border border-[var(--brand,#b61616)]/55 px-2 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-45"
+                              >
+                                {roomReservationBusyId === item.id ? "Cancelling..." : "Cancel"}
+                              </button>
+                            ) : null}
+                          </div>
+                          {item.cancellationReason ? (
+                            <p className="mt-2 rounded-md border border-black/10 bg-black/[0.03] px-2.5 py-1.5 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70">
+                              Cancellation reason: {item.cancellationReason}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Room management</p>
-                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create, edit, and disable rooms</h3>
+                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create, edit, lifecycle, and safe-delete rooms</h3>
                   <p className="mt-1 text-sm text-black/65 dark:text-white/65">
                     Keep the room catalog clean so course defaults and session conflict checks stay reliable.
                   </p>
@@ -9093,6 +9986,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               >
                                 Edit
                               </button>
+                              {!room.active ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void activateRoom(room.id)}
+                                  disabled={roomBusyId === room.id}
+                                  className="rounded border border-emerald-500/35 px-2 py-1 text-[11px] font-semibold text-emerald-300 transition disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  {roomBusyId === room.id ? "Activating..." : "Activate"}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => void disableRoom(room.id)}
@@ -9101,6 +10004,24 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               >
                                 {resolveRoomDisableActionState(room, roomBusyId).label}
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => openRoomReassignModal(room)}
+                                disabled={roomBusyId === room.id || activeRoomOptions.filter((option) => option.id !== room.id).length === 0}
+                                className="rounded border border-black/15 px-2 py-1 text-[11px] font-semibold text-black/75 transition hover:border-[var(--brand,#b61616)] hover:text-[var(--brand,#ff4b4b)] disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/15 dark:text-white/75"
+                              >
+                                Reassign
+                              </button>
+                              {!room.active ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openRoomSafeDeleteModal(room)}
+                                  disabled={roomBusyId === room.id}
+                                  className="rounded border border-[var(--brand,#b61616)]/55 px-2 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)] transition disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  {roomBusyId === room.id ? "Deleting..." : "Safe delete"}
+                                </button>
+                              ) : null}
                             </div>
                           </div>
                           {roomActionErrors[room.id] ? (
@@ -9818,6 +10739,173 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             </div>
                           </div>
 
+                          {/* ─── Consecutive Classes (CourseLink) Section ─── */}
+                          {courseEditingSlug && (
+                            <div className="mb-4 rounded-md border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Consecutive Classes</p>
+                              <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                                Link <strong>{schoolCourses.find(c => c.slug === courseEditingSlug)?.title ?? courseEditingSlug}</strong> to a consecutive class with special pricing.
+                              </p>
+
+                              {courseLinkError && (
+                                <div className="mt-2 rounded-md border border-red-500/30 bg-red-50 px-3 py-1.5 dark:border-red-400/30 dark:bg-red-900/20">
+                                  <p className="text-xs text-red-800 dark:text-red-200">{courseLinkError}</p>
+                                </div>
+                              )}
+                              {courseLinkSuccess && (
+                                <div className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-50 px-3 py-1.5 dark:border-emerald-400/30 dark:bg-emerald-900/20">
+                                  <p className="text-xs text-emerald-800 dark:text-emerald-200">{courseLinkSuccess}</p>
+                                </div>
+                              )}
+
+                              <div className="mt-3 space-y-2">
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  <div>
+                                    <label className="mb-1 block text-[11px] font-medium text-black/70 dark:text-white/70">Consecutive course</label>
+                                    <select
+                                      value={courseLinkForm.courseSlugB}
+                                      onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, courseSlugB: event.target.value }))}
+                                      className="w-full rounded-md border border-black/15 bg-white px-2 py-1.5 text-xs text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                                    >
+                                      <option value="">Select a course...</option>
+                                      {schoolCourses
+                                        .filter((c) => c.slug !== courseEditingSlug && c.active)
+                                        .map((c) => (
+                                          <option key={`link-course-${c.slug}`} value={c.slug}>
+                                            {c.title} — {c.availableWeekdays.slice().sort((a, b) => a - b).map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")}{c.availableTimes.length > 0 ? ` · ${c.availableTimes.join(", ")}` : ""}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-[11px] font-medium text-black/70 dark:text-white/70">Status</label>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCourseLinkForm((prev) => ({ ...prev, active: !prev.active }))}
+                                      className={`inline-flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-xs font-medium transition ${
+                                        courseLinkForm.active
+                                          ? "border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-900/20 dark:text-emerald-300"
+                                          : "border-black/15 bg-white text-black/50 dark:border-white/15 dark:bg-white/5 dark:text-white/40"
+                                      }`}
+                                    >
+                                      <span className={`inline-block h-2 w-2 rounded-full ${courseLinkForm.active ? "bg-emerald-500" : "bg-black/20 dark:bg-white/20"}`} />
+                                      {courseLinkForm.active ? "Active" : "Inactive"}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  <div>
+                                    <label className="mb-1 block text-[11px] font-medium text-black/70 dark:text-white/70">Drop-in price (USD)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min={0}
+                                      value={courseLinkForm.dropInConsecutiveCents}
+                                      onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, dropInConsecutiveCents: event.target.value }))}
+                                      placeholder="e.g., 12"
+                                      className="w-full rounded-md border border-black/15 bg-white px-2 py-1.5 text-xs text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-[11px] font-medium text-black/70 dark:text-white/70">Package-holder price (USD)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min={0}
+                                      value={courseLinkForm.packageHolderConsecutiveCents}
+                                      onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, packageHolderConsecutiveCents: event.target.value }))}
+                                      placeholder="e.g., 5"
+                                      className="w-full rounded-md border border-black/15 bg-white px-2 py-1.5 text-xs text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => saveCourseLink(e as unknown as React.FormEvent)}
+                                    disabled={courseLinkSaving}
+                                    className="inline-flex items-center rounded-md bg-[var(--brand,#b61616)] px-3 py-1.5 text-xs font-semibold text-white transition disabled:opacity-60"
+                                  >
+                                    {courseLinkSaving ? "Saving..." : courseLinkEditingId ? "Update link" : "Add link"}
+                                  </button>
+                                  {courseLinkEditingId && (
+                                    <button
+                                      type="button"
+                                      onClick={resetCourseLinkForm}
+                                      className="inline-flex items-center rounded-md border border-black/20 bg-white px-3 py-1.5 text-xs font-semibold text-black/80 transition dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {courseLinksAsA.length > 0 && (
+                                <div className="mt-3 space-y-1.5">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
+                                    Courses after this one ({courseLinksAsA.length})
+                                  </p>
+                                  {courseLinksAsA.map((link) => {
+                                    const courseB = schoolCourses.find((c) => c.slug === link.courseSlugB)
+                                    return (
+                                      <div key={`link-as-a-${link.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-black/10 bg-white/60 px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.03]">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-xs font-medium text-black dark:text-white">
+                                            {schoolCourses.find(c => c.slug === courseEditingSlug)?.title ?? courseEditingSlug} → {courseB?.title || link.courseSlugB}
+                                          </p>
+                                          <p className="text-[11px] text-black/60 dark:text-white/60">
+                                            Drop-in: {formatUsdInputLabel(centsToUsdInput(link.dropInConsecutiveCents))} · Package: {formatUsdInputLabel(centsToUsdInput(link.packageHolderConsecutiveCents))}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button type="button" onClick={() => toggleCourseLinkActive(link)} disabled={courseLinkSaving} className={`rounded px-1.5 py-0.5 text-[10px] font-semibold transition ${link.active ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-black/10 text-black/40 dark:bg-white/10 dark:text-white/40"}`}>
+                                            {link.active ? "Active" : "Inactive"}
+                                          </button>
+                                          <button type="button" onClick={() => editCourseLink(link)} className="rounded border border-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-black/70 dark:border-white/20 dark:text-white/60">Edit</button>
+                                          <button type="button" onClick={() => deleteCourseLink(link.id)} disabled={courseLinkSaving} className="rounded border border-red-500/40 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 disabled:opacity-40">Remove</button>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+
+                              {courseLinksAsB.length > 0 && (
+                                <div className="mt-3 space-y-1.5">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
+                                    Courses before this one ({courseLinksAsB.length})
+                                  </p>
+                                  {courseLinksAsB.map((link) => {
+                                    const courseA = schoolCourses.find((c) => c.slug === link.courseSlugA)
+                                    return (
+                                      <div key={`link-as-b-${link.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-black/10 bg-white/60 px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.03]">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-xs font-medium text-black dark:text-white">
+                                            {courseA?.title || link.courseSlugA} → {schoolCourses.find(c => c.slug === courseEditingSlug)?.title ?? courseEditingSlug}
+                                          </p>
+                                          <p className="text-[11px] text-black/60 dark:text-white/60">
+                                            Drop-in: {formatUsdInputLabel(centsToUsdInput(link.dropInConsecutiveCents))} · Package: {formatUsdInputLabel(centsToUsdInput(link.packageHolderConsecutiveCents))}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button type="button" onClick={() => toggleCourseLinkActive(link)} disabled={courseLinkSaving} className={`rounded px-1.5 py-0.5 text-[10px] font-semibold transition ${link.active ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-black/10 text-black/40 dark:bg-white/10 dark:text-white/40"}`}>
+                                            {link.active ? "Active" : "Inactive"}
+                                          </button>
+                                          <button type="button" onClick={() => editCourseLink(link)} className="rounded border border-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-black/70 dark:border-white/20 dark:text-white/60">Edit</button>
+                                          <button type="button" onClick={() => deleteCourseLink(link.id)} disabled={courseLinkSaving} className="rounded border border-red-500/40 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 disabled:opacity-40">Remove</button>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+
+                              {courseLinksAsA.length === 0 && courseLinksAsB.length === 0 && (
+                                <p className="mt-2 text-[11px] text-black/50 dark:text-white/50">No consecutive class links yet.</p>
+                              )}
+                            </div>
+                          )}
+
                           <div className="rounded-md border border-black/10 bg-white/70 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                             <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">{selectedCourseKindReviewLabel}</p>
                             {schoolLoading ? (
@@ -10036,6 +11124,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                             <p className="truncate text-xs text-black/60 dark:text-white/60">
                                               {item.slug} · {item.kind}
                                             </p>
+                                            {item.availableWeekdays.length > 0 && (
+                                              <p className="mt-0.5 truncate text-[11px] text-black/45 dark:text-white/45">
+                                                {item.availableWeekdays
+                                                  .slice()
+                                                  .sort((a, b) => a - b)
+                                                  .map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d])
+                                                  .join(", ")}
+                                                {item.availableTimes.length > 0 && ` · ${item.availableTimes.join(", ")}`}
+                                              </p>
+                                            )}
                                             <div className="mt-2 flex flex-wrap gap-1.5">
                                               <button
                                                 type="button"
@@ -10171,228 +11269,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </div>
                 </form>
               </div>
+
             </article>
-
-            {/* ─── Consecutive Classes (CourseLink) Section ─── */}
-            {courseEditingSlug && (
-              <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
-                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Consecutive Classes</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Link consecutive classes</h3>
-                <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                  Link this course to a consecutive class with special pricing.
-                </p>
-
-                {/* Error / Success messages */}
-                {courseLinkError && (
-                  <div className="mt-3 rounded-md border border-red-500/30 bg-red-50 px-3 py-2 dark:border-red-400/30 dark:bg-red-900/20">
-                    <p className="text-xs text-red-800 dark:text-red-200">{courseLinkError}</p>
-                  </div>
-                )}
-                {courseLinkSuccess && (
-                  <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-50 px-3 py-2 dark:border-emerald-400/30 dark:bg-emerald-900/20">
-                    <p className="text-xs text-emerald-800 dark:text-emerald-200">{courseLinkSuccess}</p>
-                  </div>
-                )}
-
-                {/* Add / Edit Link Form */}
-                <form onSubmit={saveCourseLink} className="mt-4 space-y-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Consecutive course</label>
-                      <select
-                        name="courseLinkCourseB"
-                        value={courseLinkForm.courseSlugB}
-                        onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, courseSlugB: event.target.value }))}
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      >
-                        <option value="">Select a course...</option>
-                        {schoolCourses
-                          .filter((c) => c.slug !== courseEditingSlug && c.active)
-                          .map((c) => (
-                            <option key={`link-course-${c.slug}`} value={c.slug}>
-                              {c.title} ({c.slug})
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Status</label>
-                      <button
-                        type="button"
-                        onClick={() => setCourseLinkForm((prev) => ({ ...prev, active: !prev.active }))}
-                        className={`inline-flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition ${
-                          courseLinkForm.active
-                            ? "border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-900/20 dark:text-emerald-300"
-                            : "border-black/15 bg-white text-black/50 dark:border-white/15 dark:bg-white/5 dark:text-white/40"
-                        }`}
-                      >
-                        <span className={`inline-block h-2 w-2 rounded-full ${courseLinkForm.active ? "bg-emerald-500" : "bg-black/20 dark:bg-white/20"}`} />
-                        {courseLinkForm.active ? "Active" : "Inactive"}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Drop-in consecutive price (USD)</label>
-                      <input
-                        name="courseLinkDropInPrice"
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        value={courseLinkForm.dropInConsecutiveCents}
-                        onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, dropInConsecutiveCents: event.target.value }))}
-                        placeholder="e.g., 12"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-black/70 dark:text-white/70">Package-holder consecutive price (USD)</label>
-                      <input
-                        name="courseLinkPackagePrice"
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        value={courseLinkForm.packageHolderConsecutiveCents}
-                        onChange={(event) => setCourseLinkForm((prev) => ({ ...prev, packageHolderConsecutiveCents: event.target.value }))}
-                        placeholder="e.g., 5"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      disabled={courseLinkSaving}
-                      className="inline-flex items-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                    >
-                      {courseLinkSaving ? "Saving..." : courseLinkEditingId ? "Update link" : "Add link"}
-                    </button>
-                    {courseLinkEditingId && (
-                      <button
-                        type="button"
-                        onClick={resetCourseLinkForm}
-                        className="inline-flex items-center rounded-md border border-black/20 bg-white px-4 py-2 text-sm font-semibold text-black/80 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] dark:border-white/20 dark:bg-white/[0.04] dark:text-white/80"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                </form>
-
-                {/* Existing Links — as A (this course is the early class) */}
-                {courseLinksAsA.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
-                      Courses after this one ({courseLinksAsA.length})
-                    </p>
-                    <div className="space-y-2">
-                      {courseLinksAsA.map((link) => {
-                        const courseB = schoolCourses.find((c) => c.slug === link.courseSlugB)
-                        return (
-                          <div
-                            key={`link-as-a-${link.id}`}
-                            className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-black dark:text-white">
-                                → {courseB?.title || link.courseSlugB}
-                              </p>
-                              <p className="text-xs text-black/60 dark:text-white/60">
-                                Drop-in: {formatUsdInputLabel(centsToUsdInput(link.dropInConsecutiveCents))} · Package: {formatUsdInputLabel(centsToUsdInput(link.packageHolderConsecutiveCents))}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => toggleCourseLinkActive(link)}
-                                disabled={courseLinkSaving}
-                                className={`rounded px-2 py-1 text-[11px] font-semibold transition ${
-                                  link.active
-                                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                                    : "bg-black/10 text-black/40 dark:bg-white/10 dark:text-white/40"
-                                }`}
-                              >
-                                {link.active ? "Active" : "Inactive"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => editCourseLink(link)}
-                                className="rounded border border-black/20 px-2 py-1 text-[11px] font-semibold text-black/70 transition hover:border-[var(--brand,#b61616)]/55 hover:text-[var(--brand,#ff4b4b)] dark:border-white/20 dark:text-white/60"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteCourseLink(link.id)}
-                                disabled={courseLinkSaving}
-                                className="rounded border border-red-500/40 px-2 py-1 text-[11px] font-semibold text-red-500 transition hover:bg-red-500/10 disabled:opacity-40"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Existing Links — as B (this course is the consecutive class) */}
-                {courseLinksAsB.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
-                      Courses before this one ({courseLinksAsB.length})
-                    </p>
-                    <div className="space-y-2">
-                      {courseLinksAsB.map((link) => {
-                        const courseA = schoolCourses.find((c) => c.slug === link.courseSlugA)
-                        return (
-                          <div
-                            key={`link-as-b-${link.id}`}
-                            className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-black dark:text-white">
-                                {courseA?.title || link.courseSlugA} →
-                              </p>
-                              <p className="text-xs text-black/60 dark:text-white/60">
-                                Drop-in: {formatUsdInputLabel(centsToUsdInput(link.dropInConsecutiveCents))} · Package: {formatUsdInputLabel(centsToUsdInput(link.packageHolderConsecutiveCents))}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => toggleCourseLinkActive(link)}
-                                disabled={courseLinkSaving}
-                                className={`rounded px-2 py-1 text-[11px] font-semibold transition ${
-                                  link.active
-                                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                                    : "bg-black/10 text-black/40 dark:bg-white/10 dark:text-white/40"
-                                }`}
-                              >
-                                {link.active ? "Active" : "Inactive"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteCourseLink(link.id)}
-                                disabled={courseLinkSaving}
-                                className="rounded border border-red-500/40 px-2 py-1 text-[11px] font-semibold text-red-500 transition hover:bg-red-500/10 disabled:opacity-40"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {courseLinksAsA.length === 0 && courseLinksAsB.length === 0 && (
-                  <p className="mt-4 text-xs text-black/50 dark:text-white/50">No consecutive class links yet.</p>
-                )}
-              </article>
-            )}
 
             <div className="grid gap-4 xl:grid-cols-2">
               <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
@@ -10732,14 +11610,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             <p className="text-[11px] text-black/55 dark:text-white/55">Launch date: {formatPackageLaunchLabel(item.launchAt) || String(item.launchAt).replace("T", " ").slice(0, 16)}</p>
                           ) : null}
                         </div>
-                        <div className="mt-4 flex flex-nowrap gap-2 border-t border-black/10 pt-3 dark:border-white/10">
+                        <div className="mt-4 flex flex-nowrap gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
                           <button
                             type="button"
                             onClick={() => {
                               setEditingPackageId(item.id)
                               setPackageForm(packageRowToFormState(item))
                             }}
-                            className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                            className="rounded-md border border-black/10 px-1.5 py-0.5 text-[10px] font-semibold text-black transition hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
                           >
                             Edit
                           </button>
@@ -10749,7 +11627,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               setEditingPackageId(null)
                               setPackageForm(duplicatePackageRowToFormState(item))
                             }}
-                            className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                            className="rounded-md border border-black/10 px-1.5 py-0.5 text-[10px] font-semibold text-black transition hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
                           >
                             Duplicate
                           </button>
@@ -10758,7 +11636,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               type="button"
                               disabled={schoolBusy !== null}
                               onClick={() => void setPackageLifecycleState(item, "ACTIVE")}
-                              className="rounded-md border border-emerald-500/20 px-2 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-500/10 disabled:opacity-60 dark:border-emerald-400/20 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
+                              className="rounded-md border border-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-500/10 disabled:opacity-60 dark:border-emerald-400/20 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
                             >
                               Restore
                             </button>
@@ -10769,7 +11647,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                   type="button"
                                   disabled={schoolBusy !== null}
                                   onClick={() => void setPackageLifecycleState(item, "ACTIVE")}
-                                  className="rounded-md border border-amber-500/20 px-2 py-1 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-500/10 disabled:opacity-60 dark:border-amber-400/20 dark:text-amber-300 dark:hover:bg-amber-400/10"
+                                  className="rounded-md border border-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 transition hover:bg-amber-500/10 disabled:opacity-60 dark:border-amber-400/20 dark:text-amber-300 dark:hover:bg-amber-400/10"
                                 >
                                   Launch now
                                 </button>
@@ -10778,15 +11656,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                 type="button"
                                 disabled={schoolBusy !== null}
                                 onClick={() => void setPackageLifecycleState(item, getPackageLifecycleStatus(item) === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
-                                className="rounded-md border border-black/10 px-2 py-1 text-[11px] font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                                className="rounded-md border border-black/10 px-1.5 py-0.5 text-[10px] font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
                               >
-                                {getPackageLifecycleStatus(item) === "ACTIVE" ? "Suspend" : "Activate"}
+                                {getPackageLifecycleStatus(item) === "ACTIVE" ? "Hold" : "Activate"}
                               </button>
                               <button
                                 type="button"
                                 disabled={schoolBusy !== null}
                                 onClick={() => void deletePackagePlan(item)}
-                                className="rounded-md border border-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-500/10 disabled:opacity-60 dark:border-rose-400/20 dark:text-rose-300 dark:hover:bg-rose-400/10"
+                                className="rounded-md border border-rose-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-500/10 disabled:opacity-60 dark:border-rose-400/20 dark:text-rose-300 dark:hover:bg-rose-400/10"
                               >
                                 Delete
                               </button>
@@ -11056,7 +11934,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         <p className="md:text-right">
                           {(() => {
                             const sourceRow = rowById[item.userId]
-                            const canLogout = Boolean(sourceRow?.online && sourceRow?.staffLastCheckInAt)
+                            const canLogout = Boolean((sourceRow?.online || sourceRow?.authOnline) && sourceRow?.staffLastCheckInAt)
                             if (!canLogout) {
                               return <span className="text-xs text-black/60 dark:text-white/60">—</span>
                             }
@@ -11293,7 +12171,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             })}
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2 xl:flex-nowrap">
+          <div className="mt-4 flex flex-wrap items-center gap-2 md:flex-nowrap">
             <div className="inline-flex shrink-0 flex-wrap items-center gap-1.5 xl:flex-nowrap">
               {([
                 ["all", "All"],
@@ -11318,7 +12196,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               ))}
               </div>
 
-              <label className="block min-w-0 flex-1 basis-full md:basis-[16rem] xl:basis-0">
+              <label className="block min-w-0 flex-1 md:basis-[16rem] lg:basis-auto">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/45 dark:text-white/45" />
                   <input
@@ -11339,7 +12217,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 ) : null}
               </label>
 
-            <label className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap text-xs text-black/70 dark:text-white/70">
+            <label className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap text-xs text-black/70 dark:text-white/70 md:ml-auto">
               <span className="text-[11px] uppercase tracking-[0.16em] text-black/55 dark:text-white/55">Status</span>
               <div className="relative shrink-0">
                 <select
@@ -11372,6 +12250,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       setHistoryClassKey("")
                     }}
                     compact
+                    timezone="America/New_York"
                     minDate="1900-01-01"
                     isDateDisabled={(isoDate) => isoDate > todayDateIso}
                     getDateDisabledReason={(isoDate) =>
@@ -11558,11 +12437,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           ) : null}
 
           {(paymentCategoryFilter === "cash" || (searchResultCards !== null && visiblePaymentIds.length > 0)) ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
-              <p className="inline-flex h-10 min-w-0 flex-[0_1_28rem] items-center rounded-lg border border-emerald-500/30 bg-[linear-gradient(145deg,rgba(16,185,129,0.2),rgba(7,45,39,0.48))] px-3 text-xs text-emerald-700 dark:text-emerald-300 lg:truncate">
+            <div className="mt-4 flex flex-wrap items-center gap-2.5 md:flex-nowrap">
+              <p className="inline-flex min-h-10 min-w-0 flex-1 items-center rounded-lg border border-emerald-500/30 bg-[linear-gradient(145deg,rgba(16,185,129,0.2),rgba(7,45,39,0.48))] px-3 py-2 text-xs leading-snug text-emerald-700 dark:text-emerald-300 md:max-w-[36rem]">
                 Confirm payment / Mark pending only changes the internal cash status (does not modify Stripe).
               </p>
-              <div className="ml-auto inline-flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <div className="inline-flex shrink-0 flex-wrap items-center justify-end gap-2 md:ml-auto">
                 <button
                   type="button"
                   onClick={() =>
@@ -13133,6 +14012,291 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         </button>
       ) : null}
 
+      {roomSafeDeleteModal ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-black/15 bg-white shadow-[0_40px_90px_-40px_rgba(0,0,0,0.75)] dark:border-white/15 dark:bg-[#10131d]">
+            <div className="flex items-start justify-between border-b border-black/10 px-5 py-4 dark:border-white/10">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Room safe delete</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">{roomSafeDeleteModal.room.name}</h3>
+                <p className="mt-1 text-xs text-black/65 dark:text-white/65">This action is permanent when allowed by blockers.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeRoomSafeDeleteModal}
+                disabled={roomBusyId === roomSafeDeleteModal.room.id}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/20 text-black/70 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/20 dark:text-white/70 dark:hover:bg-white/5"
+                aria-label="Close room safe-delete dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-black dark:text-white">Deletion reason (required)</span>
+                <textarea
+                  value={roomSafeDeleteModal.reason}
+                  onChange={(event) =>
+                    setRoomSafeDeleteModal((prev) => {
+                      if (!prev) return prev
+                      return {
+                        ...prev,
+                        reason: event.target.value,
+                        error: prev.error === "Deletion reason is required." ? null : prev.error,
+                      }
+                    })
+                  }
+                  rows={3}
+                  placeholder="Example: Room permanently removed from service"
+                  className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                />
+              </label>
+
+              {roomSafeDeleteModal.error ? (
+                <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
+                  {roomSafeDeleteModal.error}
+                </p>
+              ) : null}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeRoomSafeDeleteModal}
+                  disabled={roomBusyId === roomSafeDeleteModal.room.id}
+                  className="rounded-xl border border-black/15 px-4 py-2 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/15 dark:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmRoomSafeDelete()}
+                  disabled={roomBusyId === roomSafeDeleteModal.room.id || !roomSafeDeleteModal.reason.trim()}
+                  className="rounded-xl bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {roomBusyId === roomSafeDeleteModal.room.id ? "Deleting..." : "Confirm safe delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {roomReassignModal ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-black/15 bg-white shadow-[0_40px_90px_-40px_rgba(0,0,0,0.75)] dark:border-white/15 dark:bg-[#10131d]">
+            <div className="flex items-start justify-between border-b border-black/10 px-5 py-4 dark:border-white/10">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Room reassignment</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">{roomReassignModal.room.name}</h3>
+                <p className="mt-1 text-xs text-black/65 dark:text-white/65">Move course defaults and optionally future sessions to another active room.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeRoomReassignModal}
+                disabled={roomBusyId === roomReassignModal.room.id}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/20 text-black/70 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/20 dark:text-white/70 dark:hover:bg-white/5"
+                aria-label="Close room reassignment dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-black dark:text-white">Target active room</span>
+                <select
+                  value={roomReassignModal.targetRoomId}
+                  onChange={(event) =>
+                    setRoomReassignModal((prev) => {
+                      if (!prev) return prev
+                      return {
+                        ...prev,
+                        targetRoomId: event.target.value,
+                        error: prev.error === "Select a target room to continue." ? null : prev.error,
+                      }
+                    })
+                  }
+                  className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                >
+                  <option value="">Select target room</option>
+                  {activeRoomOptions
+                    .filter((room) => room.id !== roomReassignModal.room.id)
+                    .map((room) => (
+                      <option key={`reassign-target-room-${room.id}`} value={room.id}>
+                        {room.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+
+              <label className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white/60 px-3 py-2 text-sm text-black/80 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/80">
+                <input
+                  type="checkbox"
+                  checked={roomReassignModal.moveFutureSessions}
+                  onChange={(event) =>
+                    setRoomReassignModal((prev) => {
+                      if (!prev) return prev
+                      return {
+                        ...prev,
+                        moveFutureSessions: event.target.checked,
+                      }
+                    })
+                  }
+                />
+                Also move future sessions (all-or-nothing if any conflict exists)
+              </label>
+
+              <div className="space-y-2 rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-black dark:text-white">Affected courses in source room</p>
+                  <p className="text-xs text-black/60 dark:text-white/60">
+                    {roomReassignModal.selectedCourseIds.length} selected
+                  </p>
+                </div>
+                {roomReassignModal.availableCourses.length === 0 ? (
+                  <p className="text-xs text-black/60 dark:text-white/60">No course defaults are currently assigned to this room.</p>
+                ) : (
+                  <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
+                    {roomReassignModal.availableCourses.map((course) => {
+                      const checked = roomReassignModal.selectedCourseIds.includes(course.id)
+                      return (
+                        <label
+                          key={`reassign-course-${course.id}`}
+                          className="flex items-center gap-2 rounded-lg border border-black/10 bg-white/80 px-2.5 py-2 text-sm text-black dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) =>
+                              setRoomReassignModal((prev) => {
+                                if (!prev) return prev
+                                const nextSelected = event.target.checked
+                                  ? [...prev.selectedCourseIds, course.id]
+                                  : prev.selectedCourseIds.filter((id) => id !== course.id)
+                                return {
+                                  ...prev,
+                                  selectedCourseIds: nextSelected,
+                                  error: prev.error === "Select at least one course to reassign." ? null : prev.error,
+                                }
+                              })
+                            }
+                          />
+                          <div className="flex min-w-0 flex-col">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span className="font-medium">{course.title}</span>
+                              <span className="text-xs text-black/60 dark:text-white/60">({course.slug})</span>
+                            </div>
+                            <span className="text-xs text-black/65 dark:text-white/65">
+                              {course.scheduleLabel ? course.scheduleLabel : "Schedule not configured"}
+                            </span>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {roomReassignModal.error ? (
+                <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
+                  {roomReassignModal.error}
+                </p>
+              ) : null}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeRoomReassignModal}
+                  disabled={roomBusyId === roomReassignModal.room.id}
+                  className="rounded-xl border border-black/15 px-4 py-2 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/15 dark:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmRoomReassign()}
+                  disabled={
+                    roomBusyId === roomReassignModal.room.id ||
+                    !roomReassignModal.targetRoomId ||
+                    (roomReassignModal.availableCourses.length > 0 && roomReassignModal.selectedCourseIds.length === 0)
+                  }
+                  className="rounded-xl bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {roomBusyId === roomReassignModal.room.id ? "Reassigning..." : "Confirm reassignment"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {roomReservationCancelModal ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-black/15 bg-white shadow-[0_40px_90px_-40px_rgba(0,0,0,0.75)] dark:border-white/15 dark:bg-[#10131d]">
+            <div className="flex items-start justify-between border-b border-black/10 px-5 py-4 dark:border-white/10">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-[var(--brand,#b61616)]">Cancel reservation</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">{roomReservationCancelModal.reservation.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeRoomReservationCancelModal}
+                disabled={roomReservationBusyId === roomReservationCancelModal.reservation.id}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/20 text-black/70 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/20 dark:text-white/70 dark:hover:bg-white/5"
+                aria-label="Close room reservation cancel dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-black dark:text-white">Cancellation reason (optional)</span>
+                <textarea
+                  value={roomReservationCancelModal.reason}
+                  onChange={(event) =>
+                    setRoomReservationCancelModal((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            reason: event.target.value,
+                            error: null,
+                          }
+                        : prev
+                    )
+                  }
+                  rows={3}
+                  className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                />
+              </label>
+
+              {roomReservationCancelModal.error ? (
+                <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">{roomReservationCancelModal.error}</p>
+              ) : null}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeRoomReservationCancelModal}
+                  disabled={roomReservationBusyId === roomReservationCancelModal.reservation.id}
+                  className="rounded-xl border border-black/15 px-4 py-2 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/15 dark:text-white"
+                >
+                  Keep reservation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmRoomReservationCancel()}
+                  disabled={roomReservationBusyId === roomReservationCancelModal.reservation.id}
+                  className="rounded-xl bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {roomReservationBusyId === roomReservationCancelModal.reservation.id ? "Cancelling..." : "Confirm cancel"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {delayModal ? (
         <div className="fixed inset-0 z-[139] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl rounded-2xl border border-black/15 bg-white shadow-[0_40px_90px_-40px_rgba(0,0,0,0.75)] dark:border-white/15 dark:bg-[#10131d]">
@@ -13681,15 +14845,21 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
       {/* Payment History Timeline Popover */}
       <PaymentHistoryTimeline
-        payments={
-          paymentHistoryStudentId
-            ? transformPaymentRowsToEvents(
-                userHistoryPayments.length > 0 
-                  ? userHistoryPayments 
-                  : payments.filter((p) => p.userId === paymentHistoryStudentId),
-              )
-            : []
-        }
+        payments={transformPaymentRowsToEvents(
+          resolvePaymentHistoryRows({
+            paymentHistoryStudentId,
+            isHistoryMode,
+            payments,
+            userHistoryPayments,
+            currentDateNY,
+          }).filter((payment) => {
+            if (isHistoryMode) return true
+            const createdAtNyIso = /^\d{4}-\d{2}-\d{2}$/.test(payment.createdAt)
+              ? payment.createdAt
+              : resolveHistoryMaxSelectableDateIso(new Date(payment.createdAt), "America/New_York")
+            return createdAtNyIso === currentDateNY
+          })
+        )}
         loading={userHistoryLoading}
         anchorEl={paymentHistoryAnchor}
         isOpen={!!paymentHistoryStudentId}
@@ -13701,11 +14871,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
       {/* Attendance History Timeline Popover */}
       {(() => {
-        const sourcePayments = userHistoryPayments.length > 0 
-          ? userHistoryPayments 
-          : payments.filter((p) => p.userId === attendanceHistoryStudentId)
+        const filteredPayments = resolveAttendanceHistoryRows({
+          attendanceHistoryStudentId,
+          isHistoryMode,
+          payments,
+          userHistoryPayments,
+          historyFrom,
+          historyTo,
+        })
         const { events, summary } = attendanceHistoryStudentId
-          ? transformPaymentRowsToAttendance(sourcePayments)
+          ? transformPaymentRowsToAttendance(filteredPayments)
           : { events: [] as AttendanceEvent[], summary: { totalAttended: 0, noShows: 0, cancelled: 0 } as AttendanceSummary }
         return (
           <AttendanceHistoryTimeline

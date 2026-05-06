@@ -170,6 +170,10 @@ export async function POST(req: Request) {
         email: identity.resolvedEmail,
         flowContext: photoContext,
         paymentSurface: photoContext === "kiosk_terminal" ? "hosted_checkout" : "web_checkout",
+        // Consecutive class fields (present when user accepted the consecutive offer)
+        consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
+        consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
+        consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
       },
     })
 

@@ -136,11 +136,25 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   hasPackageCheckInResult: boolean
   effectiveCheckInWindowOpen: boolean
   hasActiveSession: boolean
+  /** Whether a consecutive class offer was fetched for this course */
+  hasConsecutiveOffer: boolean
+  /** Whether the consecutive offer fetch has resolved (success or failure) */
+  consecutiveOfferSettled: boolean
 }) => {
+  // Already checked in or currently processing → don't re-trigger
+  if (input.hasPackageCheckInResult || input.processingPackageCheckIn) return false
+  // Not a kiosk terminal existing-customer flow → no auto-trigger
   if (!input.isKioskTerminalFlow || input.mode !== "existing") return false
-  if (!input.hasPackage || input.processingPackageCheckIn || input.hasPackageCheckInResult) return false
-  if (!input.effectiveCheckInWindowOpen) return false
-  return input.hasActiveSession
+  // No package or check-in window closed → no auto-trigger
+  if (!input.hasPackage || !input.effectiveCheckInWindowOpen) return false
+  // No active session → no auto-trigger
+  if (!input.hasActiveSession) return false
+  // Consecutive offer exists and is settled → suppress auto-trigger (caller shows overlay first)
+  if (input.hasConsecutiveOffer && input.consecutiveOfferSettled) return false
+  // Consecutive offer fetch not yet settled → wait (effect will re-fire when settled)
+  if (!input.consecutiveOfferSettled) return false
+  // No consecutive offer → original auto-trigger behavior
+  return true
 }
 
 export const shouldSurfaceClosedWindowPackageError = (input: {

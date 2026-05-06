@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone, getStartOfDayNY } from "@/lib/class-schedule"
+import { getCurrentMonthBoundariesNY } from "@/lib/monthly-boundary"
 import {
   asObject,
   asText,
@@ -34,6 +35,15 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TODAY_MODE_TAKE_LIMIT = 200
 const HISTORY_MODE_TAKE_LIMIT = 2000
 const ATTENDED_CHECKIN_STATUSES = ["checked_in", "checked_in_no_package", "checked_out"] as const
+const ATTENDED_CHECKIN_STATUS_SET = new Set<string>(ATTENDED_CHECKIN_STATUSES)
+
+const getAttendanceStatusRank = (status: string) => {
+  if (status === "checked_out") return 4
+  if (status === "checked_in") return 3
+  if (status === "checked_in_no_package") return 2
+  if (status === "scheduled") return 1
+  return 0
+}
 
 const normalizePurchaseCategory = (input: { packageId: string; serviceId: string }) => {
   if (input.packageId) return "package" as const
@@ -58,6 +68,86 @@ const toDateIso = (value: unknown) => {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
   return parsed.toISOString()
+}
+
+const normalizeConsecutivePurchases = <TPurchase extends {
+  id: string
+  userId: string
+  amount: number
+  courseSlug: string | null
+  courseTitle: string | null
+  serviceId: string | null
+  packageId: string | null
+  metadata: unknown
+}>(purchases: TPurchase[]) => {
+  const childParentIds = new Set(
+    purchases
+      .map((purchase) => asText(asObject(purchase.metadata).parentPurchaseId))
+      .filter((value): value is string => Boolean(value))
+  )
+
+  const expanded: TPurchase[] = []
+
+  for (const purchase of purchases) {
+    const metadata = asObject(purchase.metadata)
+    const consecutiveSlug = asText(metadata.consecutiveLinkedCourseSlug)
+    const consecutiveTitle = asText(metadata.consecutiveCourseTitle)
+    const consecutiveTime = asText(metadata.consecutiveLinkedCourseTime)
+    const consecutivePriceCents = Number.parseInt(asText(metadata.consecutivePriceCents) || "", 10)
+    const hasConsecutive =
+      Boolean(consecutiveSlug) && Number.isFinite(consecutivePriceCents) && consecutivePriceCents > 0
+
+    // Do not split already-normalized flows that already wrote child purchases.
+    if (!hasConsecutive || childParentIds.has(purchase.id) || purchase.amount <= consecutivePriceCents) {
+      expanded.push(purchase)
+      continue
+    }
+
+    const primaryAmount = purchase.amount - consecutivePriceCents
+    const baseMeta = asObject(purchase.metadata)
+
+    expanded.push({
+      ...purchase,
+      amount: primaryAmount,
+      metadata: {
+        ...baseMeta,
+        hasConsecutiveLinkedPurchase: true,
+      },
+    })
+
+    expanded.push({
+      ...purchase,
+      id: `${purchase.id}::consecutive`,
+      amount: consecutivePriceCents,
+      courseSlug: consecutiveSlug || purchase.courseSlug,
+      courseTitle: consecutiveTitle || consecutiveSlug || purchase.courseTitle,
+      packageId: null,
+      serviceId: purchase.serviceId,
+      metadata: {
+        ...baseMeta,
+        parentPurchaseId: purchase.id,
+        consecutiveLinkedFrom: purchase.courseSlug,
+        courseSlug: consecutiveSlug,
+        courseTitle: consecutiveTitle || "",
+        time: consecutiveTime || asText(baseMeta.time) || "",
+      },
+    })
+  }
+
+  return expanded
+}
+
+const isTodayScopedPurchase = (input: {
+  classDate: string | null
+  createdAt: Date
+  todayNY: string
+  startOfTodayNY: Date
+  endOfTodayNY: Date
+}) => {
+  if (input.classDate) {
+    return input.classDate === input.todayNY
+  }
+  return input.createdAt >= input.startOfTodayNY && input.createdAt <= input.endOfTodayNY
 }
 
 const isStudentPinSchemaUnavailableError = (error: unknown) => {
@@ -193,6 +283,17 @@ export async function GET(req: Request) {
           { email: { contains: query, mode: "insensitive" as const } },
           { name: { contains: query, mode: "insensitive" as const } },
           { phone: { contains: query, mode: "insensitive" as const } },
+          {
+            user: {
+              is: {
+                OR: [
+                  { email: { contains: query, mode: "insensitive" as const } },
+                  { name: { contains: query, mode: "insensitive" as const } },
+                  { phone: { contains: query, mode: "insensitive" as const } },
+                ],
+              },
+            },
+          },
           { courseTitle: { contains: query, mode: "insensitive" as const } },
           { courseSlug: { contains: query, mode: "insensitive" as const } },
         ],
@@ -208,7 +309,17 @@ export async function GET(req: Request) {
   const purchases = await prisma.purchase.findMany({
     where:
       mode === "userHistory"
-        ? { userId: userHistoryId }
+        ? {
+            userId: userHistoryId,
+            ...(selectedFrom && selectedTo
+              ? {
+                  AND: [
+                    { metadata: { path: ["date"], gte: selectedFrom } },
+                    { metadata: { path: ["date"], lte: selectedTo } },
+                  ],
+                }
+              : {}),
+          }
         : mode === "history"
           ? {
               AND: [
@@ -231,8 +342,9 @@ export async function GET(req: Request) {
 
   const historyTruncated = mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT
   const scopedBasePurchases = historyTruncated ? purchases.slice(0, HISTORY_MODE_TAKE_LIMIT) : purchases
+  const normalizedPurchases = normalizeConsecutivePurchases(scopedBasePurchases)
 
-  const enrichedPurchases = scopedBasePurchases.map((purchase) => {
+  const enrichedPurchases = normalizedPurchases.map((purchase) => {
     const metadata = asObject(purchase.metadata)
     const settlementStatus = normalizeSettlementStatus(metadata.settlementStatus)
     const classDate = asText(metadata.date)
@@ -307,6 +419,8 @@ export async function GET(req: Request) {
       packagePurchaseId: string | null
     }
   >()
+  const dedupedCompletedTodayByUser = new Map<string, Set<string>>()
+  const attendedRowsTodayByUser = new Map<string, number>()
   if (mode === "today") {
     const minStart = buildSessionStartsAt(todayNY, "00:00")!
     const maxStart = buildSessionStartsAt(todayNY, "23:59")!
@@ -316,6 +430,7 @@ export async function GET(req: Request) {
         session: {
           startsAt: { gte: minStart, lte: maxStart },
         },
+        checkedInAt: { gte: startOfTodayNY, lte: endOfTodayNY },
         ...(where
           ? {
               user: {
@@ -362,10 +477,14 @@ export async function GET(req: Request) {
 
     const purchaseDedupKeys = new Set(
       deduplicatedEnrichedPurchases
-        .filter(
-          (item) =>
-            item.classDate === todayNY ||
-            (item.purchase.createdAt >= startOfTodayNY && item.purchase.createdAt <= endOfTodayNY)
+        .filter((item) =>
+          isTodayScopedPurchase({
+            classDate: item.classDate,
+            createdAt: item.purchase.createdAt,
+            todayNY,
+            startOfTodayNY,
+            endOfTodayNY,
+          })
         )
         .map((item) =>
           buildPurchaseAttendanceDedupKey({
@@ -392,7 +511,18 @@ export async function GET(req: Request) {
         packagePurchaseId: attendanceRow.packageUsage?.packagePurchaseId || null,
       }
       if (linkedPurchaseId) {
-        todayAttendanceByPurchaseId.set(linkedPurchaseId, normalizedAttendance)
+        const existing = todayAttendanceByPurchaseId.get(linkedPurchaseId)
+        if (!existing || getAttendanceStatusRank(normalizedAttendance.status) >= getAttendanceStatusRank(existing.status)) {
+          todayAttendanceByPurchaseId.set(linkedPurchaseId, normalizedAttendance)
+        }
+      }
+
+      if (ATTENDED_CHECKIN_STATUS_SET.has(normalizedAttendance.status)) {
+        attendedRowsTodayByUser.set(att.userId, (attendedRowsTodayByUser.get(att.userId) || 0) + 1)
+        const dedupeKey = linkedPurchaseId || attendanceSlotKey(att.userId, att.session.courseSlug, att.session.startsAt.getTime())
+        const existingKeys = dedupedCompletedTodayByUser.get(att.userId) || new Set<string>()
+        existingKeys.add(dedupeKey)
+        dedupedCompletedTodayByUser.set(att.userId, existingKeys)
       }
       const dedupKey = linkedPurchaseId
         ? `purchase:${linkedPurchaseId}`
@@ -440,7 +570,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const historyEligiblePurchases = deduplicatedEnrichedPurchases.filter((item) => item.classDate && item.classTime)
+  const historyEligiblePurchases = deduplicatedEnrichedPurchases.filter((item) => item.classDate)
   const historyDatePurchases = mode === "history"
     ? historyEligiblePurchases.filter((item) => item.classDate! >= historyRange!.from && item.classDate! <= historyRange!.to)
     : []
@@ -462,18 +592,29 @@ export async function GET(req: Request) {
   const scopedPurchases =
     mode === "history"
       ? historyDatePurchases.filter((item) => !selectedClass || item.purchase.courseSlug === selectedClass)
-      : [
-          ...deduplicatedEnrichedPurchases.filter(
-            (item) =>
-              item.classDate === todayNY ||
-              (item.purchase.createdAt >= startOfTodayNY && item.purchase.createdAt <= endOfTodayNY)
-          ),
-          ...standaloneItems,
-        ].sort((a, b) => {
-          const aTime = a.classStartsAt?.getTime() || a.purchase.createdAt.getTime()
-          const bTime = b.classStartsAt?.getTime() || b.purchase.createdAt.getTime()
-          return bTime - aTime
-        })
+      : mode === "userHistory"
+        ? (selectedFrom && selectedTo
+          ? deduplicatedEnrichedPurchases.filter(item =>
+              item.classDate && item.classDate >= selectedFrom && item.classDate <= selectedTo
+            )
+          : deduplicatedEnrichedPurchases)
+        : [
+            ...deduplicatedEnrichedPurchases.filter(
+              (item) =>
+                isTodayScopedPurchase({
+                  classDate: item.classDate,
+                  createdAt: item.purchase.createdAt,
+                  todayNY,
+                  startOfTodayNY,
+                  endOfTodayNY,
+                })
+            ),
+            ...standaloneItems,
+          ].sort((a, b) => {
+            const aTime = a.classStartsAt?.getTime() || a.purchase.createdAt.getTime()
+            const bTime = b.classStartsAt?.getTime() || b.purchase.createdAt.getTime()
+            return bTime - aTime
+          })
 
   const userIds = [...new Set(scopedPurchases.map((item) => item.userId).filter(Boolean))]
   const courseSlugs = [...new Set(scopedPurchases.map((item) => item.purchase.courseSlug).filter(Boolean))]
@@ -592,8 +733,16 @@ export async function GET(req: Request) {
         .map((item) => item.classStartsAt)
         .filter((value): value is Date => Boolean(value))
         .map((value) => value.getTime())
-      const minStart = new Date(Math.min(...starts) - 60 * 60 * 1000)
-      const maxStart = new Date(Math.max(...starts) + 60 * 60 * 1000)
+      let minStart = new Date(Math.min(...starts) - 60 * 60 * 1000)
+      let maxStart = new Date(Math.max(...starts) + 60 * 60 * 1000)
+
+      // In today mode, also clamp to current month boundaries to avoid
+      // fetching attendances from previous months.
+      if (mode === "today") {
+        const { start: monthStart, end: monthEnd } = getCurrentMonthBoundariesNY()
+        if (minStart < monthStart) minStart = monthStart
+        if (maxStart > monthEnd) maxStart = monthEnd
+      }
 
       return prisma.attendance.findMany({
         where: {
@@ -618,19 +767,43 @@ export async function GET(req: Request) {
         },
       })
     })(),
-    userIds.length
-      ? prisma.attendance.groupBy({
+    (() => {
+      // In today mode, scope completed attendances to NY today only.
+      // In userHistory/history mode, count all attendances (no date filter).
+      if (!userIds.length) return Promise.resolve([])
+      if (mode === "today") {
+        return prisma.attendance.groupBy({
           by: ["userId"],
           where: {
             userId: { in: userIds },
             status: { in: [...ATTENDED_CHECKIN_STATUSES] },
+            checkedInAt: { gte: startOfTodayNY, lte: endOfTodayNY },
           },
           _count: { _all: true },
         })
-      : Promise.resolve([]),
-    userIds.length
-      ? prisma.purchase.findMany({
-          where: { userId: { in: userIds } },
+      }
+      return prisma.attendance.groupBy({
+        by: ["userId"],
+        where: {
+          userId: { in: userIds },
+          status: { in: [...ATTENDED_CHECKIN_STATUSES] },
+        },
+        _count: { _all: true },
+      })
+    })(),
+    (() => {
+      // In today mode, scope purchases to NY today only.
+      // In userHistory/history mode, fetch all purchases (no date filter).
+      if (!userIds.length) return Promise.resolve([])
+      if (mode === "today") {
+        return prisma.purchase.findMany({
+          where: {
+            userId: { in: userIds },
+            OR: [
+              { metadata: { path: ["date"], equals: todayNY } },
+              { createdAt: { gte: startOfTodayNY, lte: endOfTodayNY } },
+            ],
+          },
           select: {
             userId: true,
             amount: true,
@@ -640,7 +813,19 @@ export async function GET(req: Request) {
             stripeCheckoutSessionId: true,
           },
         })
-      : Promise.resolve([]),
+      }
+      return prisma.purchase.findMany({
+        where: { userId: { in: userIds } },
+        select: {
+          userId: true,
+          amount: true,
+          metadata: true,
+          status: true,
+          stripePaymentIntentId: true,
+          stripeCheckoutSessionId: true,
+        },
+      })
+    })(),
     userIds.length
       ? prisma.user.findMany({
           where: { id: { in: userIds } },
@@ -736,6 +921,16 @@ export async function GET(req: Request) {
   const completedClassesByUser = new Map<string, number>()
   for (const row of completedAttendances) {
     completedClassesByUser.set(row.userId, row._count._all)
+  }
+  if (mode === "today") {
+    for (const [userId, keys] of dedupedCompletedTodayByUser.entries()) {
+      const rawAttended = attendedRowsTodayByUser.get(userId) || 0
+      const duplicateCount = Math.max(0, rawAttended - keys.size)
+      if (duplicateCount > 0) {
+        const current = completedClassesByUser.get(userId) || 0
+        completedClassesByUser.set(userId, Math.max(0, current - duplicateCount))
+      }
+    }
   }
 
   // Build override maps from user data
@@ -833,6 +1028,25 @@ export async function GET(req: Request) {
       })
     }
   }
+
+  const attendanceById = new Map(
+    slotAttendances.map((row) => {
+      const attendanceRow = row as typeof row & {
+        checkedOutAt?: Date | null
+        packageUsage?: { packagePurchaseId: string | null } | null
+      }
+      return [
+        row.id,
+        {
+          id: row.id,
+          status: row.status,
+          checkedInAt: row.checkedInAt.toISOString(),
+          checkedOutAt: attendanceRow.checkedOutAt ? attendanceRow.checkedOutAt.toISOString() : null,
+          packagePurchaseId: attendanceRow.packageUsage?.packagePurchaseId || null,
+        },
+      ]
+    })
+  )
 
   const fundingPurchaseByPackagePurchaseId = new Map<
     string,
@@ -972,17 +1186,6 @@ export async function GET(req: Request) {
   const mapped = scopedPurchases.map((item) => {
     const purchase = item.purchase
     const courseSlug = purchase.courseSlug
-    const slotKey =
-      item.classStartsAt && courseSlug
-        ? attendanceSlotKey(item.userId, courseSlug, item.classStartsAt.getTime())
-        : null
-    const slotAttendance = slotKey ? attendanceBySlot.get(slotKey) : null
-    const linkedAttendance = mode === "today" ? todayAttendanceByPurchaseId.get(purchase.id) || null : null
-    const resolvedAttendance = slotAttendance || linkedAttendance
-    const activePackage = activePackageByUser.get(item.userId)
-    const metadataPackagePurchaseId = asText(item.metadata.packagePurchaseId) || null
-    const linkedPackagePurchaseId =
-      packagePurchaseIdByPurchaseId.get(purchase.id) || metadataPackagePurchaseId || resolvedAttendance?.packagePurchaseId || null
     const paymentStatus = purchase.status
     const packageId = purchase.packageId || asText(item.metadata.packageId)
     const serviceId = purchase.serviceId || asText(item.metadata.serviceId)
@@ -992,6 +1195,23 @@ export async function GET(req: Request) {
       stripePaymentIntentId: purchase.stripePaymentIntentId,
       stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
     })
+    const isPackageCredit = paymentChannel === "package_credit"
+
+    const metadataAttendanceId = asText(item.metadata.attendanceId) || null
+    const explicitAttendance = metadataAttendanceId ? attendanceById.get(metadataAttendanceId) || null : null
+    const purchaseLinkedAttendance = todayAttendanceByPurchaseId.get(purchase.id) || null
+    const slotKey =
+      item.classStartsAt && courseSlug
+        ? attendanceSlotKey(item.userId, courseSlug, item.classStartsAt.getTime())
+        : null
+    const slotAttendance = slotKey ? attendanceBySlot.get(slotKey) : null
+    const resolvedAttendance = isPackageCredit
+      ? explicitAttendance || purchaseLinkedAttendance
+      : explicitAttendance || purchaseLinkedAttendance || slotAttendance
+    const activePackage = activePackageByUser.get(item.userId)
+    const metadataPackagePurchaseId = asText(item.metadata.packagePurchaseId) || null
+    const linkedPackagePurchaseId =
+      packagePurchaseIdByPurchaseId.get(purchase.id) || metadataPackagePurchaseId || resolvedAttendance?.packagePurchaseId || null
     const purchaseCategory = normalizePurchaseCategory({ packageId, serviceId })
     const isPaid = isCompletedPaymentStatus(paymentStatus)
     // Don't infer check-in without an actual attendance record
@@ -1005,12 +1225,12 @@ export async function GET(req: Request) {
         : "none"
     const packageClassesUsedTotal = packageUsedOverrideByUser.get(item.userId)
       ?? (activePackage
-        ? activePackage.isUnlimited
-          ? activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0
-          : Math.max(0, (activePackage.totalCredits || 0) - (activePackage.remainingCredits || 0))
+        ? (activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0)
         : 0)
     const completedClassesTotal = completedOverrideByUser.get(item.userId)
-      ?? Math.max(completedClassesByUser.get(item.userId) || 0, packageClassesUsedTotal)
+      ?? (mode === "today"
+        ? (completedClassesByUser.get(item.userId) || 0)
+        : Math.max(completedClassesByUser.get(item.userId) || 0, packageClassesUsedTotal))
 
     return {
       id: purchase.id,

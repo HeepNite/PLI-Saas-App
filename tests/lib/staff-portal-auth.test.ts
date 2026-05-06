@@ -48,6 +48,7 @@ describe("authorizeOwnerOrAdminRequest", () => {
       userId: "user_owner_1",
       role: "owner",
       category: null,
+      staffName: null,
     })
   })
 
@@ -72,6 +73,7 @@ describe("authorizeOwnerOrAdminRequest", () => {
       userId: "user_admin_1",
       role: "admin",
       category: null,
+      staffName: null,
     })
   })
 
@@ -178,5 +180,71 @@ describe("authorizeOwnerOrAdminRequest", () => {
     if (result.ok) {
       expect(result.role).toBe("admin")
     }
+  })
+
+  describe("Clerk error handling", () => {
+    it("returns 503 with retryAfterSec when Clerk returns 429", async () => {
+      const clerkError = Object.assign(new Error("Too Many Requests"), {
+        status: 429,
+        headers: { "retry-after": "15" },
+      })
+      mockClerkClient.mockReturnValue({
+        users: {
+          getUser: vi.fn().mockRejectedValue(clerkError),
+        },
+      })
+      mockAuth.mockResolvedValue({ userId: "user_ratelimited", sessionClaims: { iat: 1000 } })
+
+      const { authorizeOwnerOrAdminRequest } = await import("@/lib/security/staff-portal-auth")
+
+      const result = await authorizeOwnerOrAdminRequest()
+
+      expect(result).toEqual({
+        ok: false,
+        status: 503,
+        error: expect.stringContaining("temporarily busy"),
+        retryAfterSec: 15,
+      })
+    })
+
+    it("returns 503 with default retryAfterSec when Clerk returns 429 without header", async () => {
+      const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429 })
+      mockClerkClient.mockReturnValue({
+        users: {
+          getUser: vi.fn().mockRejectedValue(clerkError),
+        },
+      })
+      mockAuth.mockResolvedValue({ userId: "user_ratelimited2", sessionClaims: { iat: 1000 } })
+
+      const { authorizeOwnerOrAdminRequest } = await import("@/lib/security/staff-portal-auth")
+
+      const result = await authorizeOwnerOrAdminRequest()
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe(503)
+        expect(result.retryAfterSec).toBe(5)
+      }
+    })
+
+    it("returns 503 when Clerk returns 500", async () => {
+      const clerkError = Object.assign(new Error("Internal Server Error"), { status: 500 })
+      mockClerkClient.mockReturnValue({
+        users: {
+          getUser: vi.fn().mockRejectedValue(clerkError),
+        },
+      })
+      mockAuth.mockResolvedValue({ userId: "user_500", sessionClaims: { iat: 1000 } })
+
+      const { authorizeOwnerOrAdminRequest } = await import("@/lib/security/staff-portal-auth")
+
+      const result = await authorizeOwnerOrAdminRequest()
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe(503)
+        expect(result.retryAfterSec).toBe(5)
+      }
+    })
   })
 })

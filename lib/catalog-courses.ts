@@ -230,6 +230,7 @@ const mapCatalogRowToCourseData = (
       packages: packageOptions,
       addons: base?.enrollment.addons || [],
     },
+    scheduleRules: row.scheduleRules,
   }
 }
 

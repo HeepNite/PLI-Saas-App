@@ -13,6 +13,7 @@ export type PackageOfferContext = {
 export type ConsecutiveOffer = {
   linkedCourseSlug: string
   linkedCourseTitle: string
+  linkedCourseTime?: string
   dropInConsecutiveCents: number | null
   packageHolderConsecutiveCents: number | null
   regularDropInCents: number
@@ -92,6 +93,8 @@ export type BootstrapResponse = {
   hasAnyCompletedPurchase: boolean
   /** True if user already has a successful purchase for this exact class session (date + time) */
   hasExistingPurchaseForSession?: boolean
+  /** True if user has any valid active package (not necessarily scoped to current course) */
+  hasAnyActivePackage?: boolean
   /** Consecutive class offer, present when student attended Class A and a CourseLink exists */
   consecutiveOffer?: ConsecutiveOffer | null
 }
@@ -105,4 +108,8 @@ export type CheckInQrClientProps = {
   terminalName?: string
   terminalLocation?: string
   qrPathOverride?: string
+  /** Optional simulated time override for test mode (e.g. kiosk rotation testing) */
+  simulatedNowTick?: Date
+  /** Callback to notify parent when sensitive flow state changes (for rotation guard) */
+  onFlowActiveChange?: (active: boolean) => void
 }

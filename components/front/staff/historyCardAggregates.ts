@@ -120,25 +120,28 @@ export const resolveHistoryStudentCardAmountPaidCents = <TPayment extends Histor
 
 export const buildHistoryStudentCard = <TPayment extends HistoryCardPaymentLike>(
   payments: TPayment[],
-  explicitKey?: string
+  explicitKey?: string,
+  options?: { mode?: "daily" | "history" }
 ): HistoryStudentCardAggregate<TPayment> | null => {
   if (payments.length === 0) return null
 
-  const allPayments = [...payments].sort(byLatestPayment)
+  const mode = options?.mode || "daily"
+
+  // API already scopes rows by mode/range; keep client aggregation pure.
+  const scopedPayments = payments
+
+  const allPayments = [...scopedPayments].sort(byLatestPayment)
+  if (allPayments.length === 0) return null
   const latestPayment = allPayments[0]
   const latestAttendedPayment = [...allPayments].filter(isAttendedPayment).sort(byLatestAttendance)[0] || null
   const courseKeys = new Set(allPayments.map((payment) => payment.courseSlug || payment.courseTitle || payment.id))
-  const providedCompletedClasses = allPayments
-    .map((payment) => payment.completedClassesTotal)
-    .filter((value): value is number => typeof value === "number")
-  const providedPackageClassesUsed = allPayments
-    .map((payment) => payment.packageClassesUsedTotal)
-    .filter((value): value is number => typeof value === "number")
   const packageAttendanceKeys = new Set(
     allPayments
       .filter((payment) => typeof payment.packageClassNumber === "number")
       .map((payment) => payment.attendanceId || payment.id)
   )
+  const payloadCompletedTotal = allPayments.find((payment) => typeof payment.completedClassesTotal === "number")?.completedClassesTotal
+  const payloadPackageUsedTotal = allPayments.find((payment) => typeof payment.packageClassesUsedTotal === "number")?.packageClassesUsedTotal
 
   return {
     source: "payment",
@@ -149,20 +152,22 @@ export const buildHistoryStudentCard = <TPayment extends HistoryCardPaymentLike>
     totalPayments: allPayments.length,
     totalCollectedCents: allPayments.filter((payment) => payment.classPaid).reduce((sum, payment) => sum + payment.amount, 0),
     paidPayments: allPayments.filter((payment) => payment.classPaid).length,
-    checkedInPayments: providedCompletedClasses.length
-      ? Math.max(
-          Math.max(...providedCompletedClasses),
-          providedPackageClassesUsed.length ? Math.max(...providedPackageClassesUsed) : 0
-        )
-      : allPayments.filter(isAttendedPayment).length,
+    checkedInPayments:
+      mode === "history" && typeof payloadCompletedTotal === "number"
+        ? payloadCompletedTotal
+        : allPayments.filter(isAttendedPayment).length,
     coursesPurchasedCount: courseKeys.size,
-    totalPackageClassesConsumed: providedPackageClassesUsed.length
-      ? Math.max(...providedPackageClassesUsed)
-      : packageAttendanceKeys.size,
+    totalPackageClassesConsumed:
+      mode === "history" && typeof payloadPackageUsedTotal === "number"
+        ? payloadPackageUsedTotal
+        : packageAttendanceKeys.size,
   }
 }
 
-export const buildHistoryStudentCards = <TPayment extends HistoryCardPaymentLike>(payments: TPayment[]) => {
+export const buildHistoryStudentCards = <TPayment extends HistoryCardPaymentLike>(
+  payments: TPayment[],
+  options?: { mode?: "daily" | "history" }
+) => {
   const grouped = new Map<string, TPayment[]>()
 
   for (const payment of payments) {
@@ -176,7 +181,7 @@ export const buildHistoryStudentCards = <TPayment extends HistoryCardPaymentLike
   }
 
   return [...grouped.entries()]
-    .map(([key, groupedPayments]) => buildHistoryStudentCard(groupedPayments, key))
+    .map(([key, groupedPayments]) => buildHistoryStudentCard(groupedPayments, key, options))
     .filter((card): card is HistoryStudentCardAggregate<TPayment> => Boolean(card))
     .sort((a, b) => byLatestPayment(a.latestPayment, b.latestPayment))
 }

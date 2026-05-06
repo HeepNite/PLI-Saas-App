@@ -1,8 +1,9 @@
-import { XCircle } from "lucide-react"
+import { CreditCard, Banknote, XCircle } from "lucide-react"
 
 export type ConsecutiveOfferData = {
   linkedCourseSlug: string
   linkedCourseTitle: string
+  linkedCourseTime?: string
   dropInConsecutiveCents: number | null
   packageHolderConsecutiveCents: number | null
   regularDropInCents: number
@@ -15,7 +16,10 @@ type ConsecutiveClassOfferProps = {
   isPackageHolder: boolean
   onAccept: () => void
   onDecline: () => void
+  onPayCash?: () => void
+  onPayCard?: () => void
   isProcessing?: boolean
+  showPaymentSelection?: boolean
 }
 
 const centsToUsd = (cents: number): string => {
@@ -27,7 +31,10 @@ export function ConsecutiveClassOffer({
   isPackageHolder,
   onAccept,
   onDecline,
+  onPayCash,
+  onPayCard,
   isProcessing = false,
+  showPaymentSelection = false,
 }: ConsecutiveClassOfferProps) {
   const displayPriceCents = isPackageHolder
     ? offer.packageHolderConsecutiveCents
@@ -40,6 +47,52 @@ export function ConsecutiveClassOffer({
     ? "Add the next class at a special price (separate from your package)"
     : "Add the next class at a special price"
 
+  // Phase 2: Payment method selection
+  if (showPaymentSelection) {
+    return (
+      <div
+        aria-live="polite"
+        aria-label="Payment method selection"
+        className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+      >
+        <div className="rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 sm:p-8 max-w-lg w-full">
+          {/* Title */}
+          <h2 className="text-2xl font-semibold text-white sm:text-3xl">
+            How would you like to pay?
+          </h2>
+
+          {/* Subtitle with class info and price */}
+          <p className="mt-2 text-base text-white/70">
+            {offer.linkedCourseTitle} — ${displayPrice}
+          </p>
+
+          {/* Payment buttons */}
+          <div className="mt-6 flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={onPayCash}
+              disabled={isProcessing}
+              className="w-full flex items-center justify-center gap-3 rounded-xl bg-[var(--brand,#b61616)] px-6 py-4 text-lg font-semibold text-white transition-colors hover:bg-[#a01212] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Banknote className="h-6 w-6" />
+              {isProcessing ? "Processing..." : "Pay with Cash"}
+            </button>
+            <button
+              type="button"
+              onClick={onPayCard}
+              disabled={isProcessing}
+              className="w-full flex items-center justify-center gap-3 rounded-xl border border-white/15 bg-white/10 px-6 py-4 text-lg font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <CreditCard className="h-6 w-6" />
+              {isProcessing ? "Processing..." : "Pay with Card"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Phase 1: Offer acceptance (original UI)
   return (
     <div
       aria-live="polite"

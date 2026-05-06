@@ -218,28 +218,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
 
     const privateMetadata = asObject(targetUser.privateMetadata)
     const publicMetadata = asObject(targetUser.publicMetadata)
-    const payrollMetadata = asObject(publicMetadata.staffPayroll)
 
-    const checkInRaw = typeof privateMetadata.staffLastCheckInAt === "string" ? privateMetadata.staffLastCheckInAt : ""
-    const checkInMs = checkInRaw ? Date.parse(checkInRaw) : Number.NaN
-    const sessionMinutes =
-      Number.isFinite(checkInMs) && checkInMs <= now ? Math.max(0, Math.floor((now - checkInMs) / 60_000)) : 0
-    const sessionHours = sessionMinutes / 60
-    const existingHours =
-      typeof payrollMetadata.hoursWorked === "number" && Number.isFinite(payrollMetadata.hoursWorked)
-        ? payrollMetadata.hoursWorked
-        : 0
-    const nextHours =
-      sessionHours > 0 ? Math.max(0, Number((existingHours + sessionHours).toFixed(2))) : existingHours
-
+    // R7/D7: force_logout MUST NOT mutate payroll hours from session duration.
+    // Payroll authority is canonical StaffClockEntry only (not login/session metadata).
     const updated = await client.users.updateUserMetadata(userId, {
-      publicMetadata: {
-        ...publicMetadata,
-        staffPayroll: {
-          ...payrollMetadata,
-          hoursWorked: nextHours,
-        },
-      },
+      publicMetadata,
       privateMetadata: {
         ...privateMetadata,
         staffPresenceStatus: "offline",

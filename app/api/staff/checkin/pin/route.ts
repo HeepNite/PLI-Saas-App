@@ -62,6 +62,20 @@ export async function POST(req: Request) {
   const requestedUserId = typeof payload.userId === "string" ? payload.userId.trim() : ""
   const preferredUserId = typeof payload.preferUserId === "string" ? payload.preferUserId.trim() : ""
   const skipSession = payload.skipSession === true
+
+  // Check-in endpoint is check-in only. Reject if caller did not explicitly
+  // signal check-in intent via skipSession=true. Use /api/staff/login/pin for
+  // authentication/session creation.
+  if (!skipSession) {
+    return NextResponse.json(
+      {
+        error:
+          "This endpoint is check-in only. Set skipSession=true to record attendance, or use /api/staff/login/pin for sign-in.",
+      },
+      { status: 400 }
+    )
+  }
+
   if (!/^\d{4}$/.test(pin)) {
     return NextResponse.json({ error: "PIN must be exactly 4 digits." }, { status: 400 })
   }
@@ -195,43 +209,12 @@ export async function POST(req: Request) {
     category,
     requestedUserId: requestedUserId || null,
     preferredUserId: preferredUserId || null,
-    skipSession,
   })
 
-  // Check-in mode: skip session creation, just return check-in confirmation
-  if (skipSession) {
-    return NextResponse.json({
-      ok: true,
-      checkedInAt: now,
-      staff: {
-        id: matchedUser.id,
-        name,
-        role: matchedRole,
-        category,
-      },
-    })
-  }
-
-  // Login mode: create session token and return sign-in URL
-  const signInToken = await client.signInTokens.createSignInToken({
-    userId: matchedUser.id,
-    expiresInSeconds: 300,
-  })
-
-  const requestUrl = new URL(req.url)
-  const redirectTo = `${requestUrl.origin}/staff/resolve`
-  const signInUrl = new URL(signInToken.url)
-  signInUrl.searchParams.set("redirect_url", redirectTo)
-  const ticketFromUrl = signInUrl.searchParams.get("token")
-  const ticket = typeof (signInToken as { token?: unknown }).token === "string"
-    ? ((signInToken as { token: string }).token || "").trim()
-    : (ticketFromUrl || "").trim()
-
+  // Check-in only: return attendance confirmation, never session tokens
   return NextResponse.json({
     ok: true,
     checkedInAt: now,
-    signInUrl: signInUrl.toString(),
-    ticket,
     staff: {
       id: matchedUser.id,
       name,

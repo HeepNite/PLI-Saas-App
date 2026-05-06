@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { jsonError, readJsonBody } from "@/lib/payroll/route-helpers"
 import { deriveHoursWorked } from "@/lib/payroll/hours"
+import { closeOpenClockEntriesForPayroll } from "@/lib/payroll/auto-closure"
 import { UNAVAILABILITY_TYPES, UNAVAILABILITY_STATUSES } from "@/lib/payroll/types"
 
 export const runtime = "nodejs"
@@ -250,6 +251,14 @@ export async function POST(req: Request) {
         continue
       }
       
+      // P0: auto-close open clock entries before deriving hours (idempotent)
+      await closeOpenClockEntriesForPayroll(prisma, {
+        staffAccountId: staffAccount.id,
+        periodStart: periodStartDate,
+        periodEnd: periodEndDate,
+        source: "payroll-run-payday",
+      })
+
       // Calculate hours worked using the existing function
       const hoursResult = await deriveHoursWorked(
         prisma,
