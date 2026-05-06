@@ -23,7 +23,6 @@ export async function GET(req: Request) {
   const auth = await authorizeStaffPortalBaseRequest()
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!auth.role) return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
-  const actorRole = auth.role as string
 
   const where = auth.role === "owner" || auth.role === "admin" || auth.category === "manager" || auth.category === "front_desk"
     ? {}
@@ -51,6 +50,7 @@ export async function POST(req: Request) {
   const auth = await authorizeStaffPortalBaseRequest()
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!auth.role) return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
+  const actorRole = auth.role as string
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const roomId = typeof body.roomId === "string" ? body.roomId : null
