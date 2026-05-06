@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     const zeroAmountPurchases = purchases.filter((p) => p.amount === 0 && p.courseSlug)
     const courseSlugs = [...new Set(zeroAmountPurchases.map((p) => p.courseSlug).filter(Boolean))] as string[]
     if (courseSlugs.length > 0) {
-      const courses = await prisma.course.findMany({
+      const courses = await prisma.courseCatalog.findMany({
         where: { slug: { in: courseSlugs } },
         select: { slug: true, dropInPriceCents: true },
       })
