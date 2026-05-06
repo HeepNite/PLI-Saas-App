@@ -32,7 +32,7 @@ export const runtime = "nodejs"
 // Cache is scoped by (query, category) and only stores successful auth'd responses.
 // TTL is intentionally short (8s) — just long enough to deduplicate rapid polls.
 const STAFF_USERS_CACHE_TTL_MS = 8_000
-type CacheEntry = { expiresAt: number; response: NextResponse }
+type CacheEntry = { expiresAt: number; response: Response }
 const staffUsersCache = new Map<string, CacheEntry>()
 
 // In-flight deduplication: concurrent identical requests share one promise.
