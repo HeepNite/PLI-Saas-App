@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { verifyWebhook } from "@clerk/nextjs/webhooks"
 import { syncDbUserFromClerkUser } from "@/lib/clerk-user-sync"
 
 export const runtime = "nodejs"
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   let event: Awaited<ReturnType<typeof verifyWebhook>>
 
   try {
