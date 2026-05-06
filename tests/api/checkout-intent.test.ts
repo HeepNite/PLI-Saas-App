@@ -115,6 +115,48 @@ describe("checkout intent route", () => {
     expect(mockCreatePaymentIntent).toHaveBeenCalledTimes(1)
   })
 
+  it("uses authoritative kiosk current-course date/time in payment intent metadata", async () => {
+    mockValidate.mockReturnValueOnce({
+      courseSlug: "salsa-timba-ny",
+      courseTitle: "Salsa timba in New York",
+      amountInt: 2000,
+      currency: "usd",
+      date: "2026-05-13",
+      time: "22:00",
+      packageId: "",
+      serviceId: "dropin",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      pkg: null,
+      packageTotalCredits: null,
+      packageIsUnlimited: false,
+      packageCadence: "",
+      packageMakeUps: 0,
+      packageValidDays: 180,
+      kioskCurrentCourseDate: "2026-05-06",
+      kioskCurrentCourseTime: "22:00",
+    })
+
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const req = new Request("http://localhost/api/checkout/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoContext: "kiosk_terminal" }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    expect(mockCreatePaymentIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          date: "2026-05-06",
+          time: "22:00",
+        }),
+      })
+    )
+  })
+
   it("supports prepareOnly without creating a payment intent", async () => {
     const { POST } = await import("@/app/api/checkout/intent/route")
     const req = new Request("http://localhost/api/checkout/intent", {

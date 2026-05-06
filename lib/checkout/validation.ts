@@ -22,6 +22,7 @@ export type CheckoutBody = {
   phone?: string
   prepareOnly?: boolean
   photoContext?: string
+  flowContext?: string
   kioskSessionToken?: string
   studentPin?: string
   studentPinConfirm?: string
@@ -33,6 +34,10 @@ export type CheckoutBody = {
   consecutiveCourseTitle?: string
   /** Time slot for the consecutive class (class B's time, falls back to class A's time) */
   consecutiveLinkedCourseTime?: string
+  /** Authoritative current class date from kiosk context (YYYY-MM-DD) */
+  kioskCurrentCourseDate?: string
+  /** Authoritative current class time from kiosk context (HH:MM) */
+  kioskCurrentCourseTime?: string
 }
 
 export type CheckoutValidation = {
@@ -62,6 +67,8 @@ export type CheckoutValidation = {
   consecutiveLinkedCourseSlug: string | null
   consecutiveCourseTitle: string | null
   consecutiveLinkedCourseTime: string | null
+  kioskCurrentCourseDate: string | null
+  kioskCurrentCourseTime: string | null
 }
 
 const getPackageCredits = (pkg?: EnrollmentOption) => {
@@ -81,6 +88,18 @@ const getPackageCredits = (pkg?: EnrollmentOption) => {
     packageIsUnlimited: false,
     packageMakeUps: makeUps,
   }
+}
+
+const normalizeIsoDate = (value: unknown): string | null => {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
+}
+
+const normalizeTime24 = (value: unknown): string | null => {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null
 }
 
 export const isEmail = (val: string | undefined): val is string => Boolean(val && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val))
@@ -107,6 +126,8 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     consecutiveLinkedCourseSlug,
     consecutiveCourseTitle,
     consecutiveLinkedCourseTime,
+    kioskCurrentCourseDate,
+    kioskCurrentCourseTime,
   } = body || {}
 
   const rawAmount = typeof amount === "number" ? amount : Number.NaN
@@ -154,6 +175,8 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
   let validatedConsecutiveLinkedCourseSlug: string | null = null
   let validatedConsecutiveCourseTitle: string | null = null
   let validatedConsecutiveLinkedCourseTime: string | null = null
+  const validatedKioskCurrentCourseDate = normalizeIsoDate(kioskCurrentCourseDate)
+  const validatedKioskCurrentCourseTime = normalizeTime24(kioskCurrentCourseTime)
 
   if (hasConsecutive && consecutiveLinkedCourseSlug) {
     // Validate the CourseLink exists and price matches
@@ -208,5 +231,7 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     consecutiveLinkedCourseSlug: validatedConsecutiveLinkedCourseSlug,
     consecutiveCourseTitle: validatedConsecutiveCourseTitle,
     consecutiveLinkedCourseTime: validatedConsecutiveLinkedCourseTime,
+    kioskCurrentCourseDate: validatedKioskCurrentCourseDate,
+    kioskCurrentCourseTime: validatedKioskCurrentCourseTime,
   }
 }

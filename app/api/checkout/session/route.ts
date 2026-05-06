@@ -9,6 +9,7 @@ import {
 } from "@/lib/checkout"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
+import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 const secret = process.env.STRIPE_SECRET_KEY
@@ -68,6 +69,10 @@ export async function POST(req: Request) {
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
+  })
 
   const base = getBaseUrl()
   const success = `${base}/courses/${validation.courseSlug}?status=success`
@@ -138,7 +143,7 @@ export async function POST(req: Request) {
             unit_amount: validation.amountInt,
             product_data: {
               name: validation.courseTitle,
-              description: [validation.courseSlug, validation.date, validation.time].filter(Boolean).join(" • "),
+              description: [validation.courseSlug, effectiveSession.date, effectiveSession.time].filter(Boolean).join(" • "),
             },
           },
         },
@@ -150,8 +155,8 @@ export async function POST(req: Request) {
       metadata: {
         courseSlug: validation.courseSlug,
         courseTitle: validation.courseTitle,
-        date: validation.date,
-        time: validation.time,
+        date: effectiveSession.date,
+        time: effectiveSession.time,
         packageId: validation.packageId,
         packageLabel: validation.pkg?.label || "",
         packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),

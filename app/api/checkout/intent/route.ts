@@ -9,6 +9,7 @@ import {
 } from "@/lib/checkout"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
+import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 const secret = process.env.STRIPE_SECRET_KEY
@@ -61,6 +62,10 @@ export async function POST(req: Request) {
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
+  })
 
   const preparation = await resolveCheckoutPreparation(
     req,
@@ -146,8 +151,8 @@ export async function POST(req: Request) {
       metadata: {
         courseSlug: validation.courseSlug,
         courseTitle: validation.courseTitle,
-        date: validation.date,
-        time: validation.time,
+        date: effectiveSession.date,
+        time: effectiveSession.time,
         packageId: validation.packageId,
         packageLabel: validation.pkg?.label || "",
         packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),

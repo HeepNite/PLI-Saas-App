@@ -7,6 +7,7 @@ import {
   type ApiError,
 } from "@/lib/checkout"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
+import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { upsertUserByIdentifiers } from "@/lib/users"
@@ -65,6 +66,10 @@ export async function POST(req: Request) {
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
+  })
 
   const preparation = await resolveCheckoutPreparation(
     req,
@@ -128,7 +133,7 @@ export async function POST(req: Request) {
   }
 
   // Prevent duplicate purchases for the same user + class + date/time (drop-in only)
-  if (validation.serviceId && validation.date && validation.time) {
+  if (validation.serviceId && effectiveSession.date && effectiveSession.time) {
     const existingPurchase = await prisma.purchase.findFirst({
       where: {
         userId: dbUser.id,
@@ -136,7 +141,7 @@ export async function POST(req: Request) {
         status: { in: SUCCESSFUL_PURCHASE_STATUSES },
         metadata: {
           path: ["date"],
-          equals: validation.date,
+          equals: effectiveSession.date,
         },
       },
       select: { id: true, metadata: true },
@@ -149,7 +154,7 @@ export async function POST(req: Request) {
         "time" in existingPurchase.metadata
           ? existingPurchase.metadata.time
           : null
-      if (existingTime === validation.time) {
+      if (existingTime === effectiveSession.time) {
         return NextResponse.json(
           { error: "You already have a purchase for this class", code: "DUPLICATE_PURCHASE" },
           { status: 409 }
@@ -193,8 +198,8 @@ export async function POST(req: Request) {
             paymentChannel: "cash",
             settlementStatus: "pending",
             settledAt: null,
-            date: validation.date,
-            time: validation.time,
+            date: effectiveSession.date,
+            time: effectiveSession.time,
             courseSlug: validation.courseSlug,
             courseTitle: validation.courseTitle,
             packageId: validation.packageId,
@@ -245,8 +250,8 @@ export async function POST(req: Request) {
             paymentChannel: "cash",
             settlementStatus: "pending",
             settledAt: null,
-            date: validation.date,
-            time: validation.consecutiveLinkedCourseTime ?? validation.time,
+            date: effectiveSession.date,
+            time: validation.consecutiveLinkedCourseTime ?? effectiveSession.time,
             courseSlug: consecutiveSlug,
             courseTitle: consecutiveTitle || "",
             serviceId: validation.serviceId,
@@ -323,8 +328,8 @@ export async function POST(req: Request) {
         paymentChannel: "cash",
         settlementStatus: "pending",
         settledAt: null,
-        date: validation.date,
-        time: validation.time,
+        date: effectiveSession.date,
+        time: effectiveSession.time,
         courseSlug: validation.courseSlug,
         courseTitle: validation.courseTitle,
         packageId: validation.packageId,

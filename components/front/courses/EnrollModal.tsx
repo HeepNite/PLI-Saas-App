@@ -261,7 +261,7 @@ const findNextDifferentCourseSlot = (
   return candidate
 }
 
-const computeCheckInAutofill = (
+export const computeCheckInAutofill = (
   courseSlug: string,
   courses: CourseData[],
   context?: EnrollCheckInContext,
@@ -272,6 +272,17 @@ const computeCheckInAutofill = (
   const nowMinutes = toMinutes(nowTimeKey)
   const contextDate = normalizeIsoDate(context?.date)
   const contextTime = normalizeTime24(context?.time)
+
+  // In kiosk check-in flows, CheckInQrClient already resolves the active terminal
+  // class session (date/time). Preserve that authoritative context instead of
+  // auto-rotating to a future occurrence when local grace windows expire.
+  if (contextDate && contextTime) {
+    return {
+      date: contextDate,
+      time: contextTime,
+      notice: null as string | null,
+    }
+  }
 
   const todaySlots = nowDateIso ? sortTime24(getAvailableTimesForCourseDate(courseSlug, nowDateIso, courses)) : []
   const contextSlots = contextDate ? sortTime24(getAvailableTimesForCourseDate(courseSlug, contextDate, courses)) : []
@@ -1271,7 +1282,10 @@ export default function EnrollModal({
       serviceId: service,
       phone: contact.phone,
       photoContext: photoFlowContext,
+      flowContext: photoFlowContext,
       kioskSessionToken: kioskSessionToken || undefined,
+      kioskCurrentCourseDate: checkInContextDate || undefined,
+      kioskCurrentCourseTime: checkInContextTime || undefined,
       studentPin: service === "new-student" ? studentPin : undefined,
       studentPinConfirm: service === "new-student" ? studentPinConfirm : undefined,
       ...(consecutiveAccepted && consecutiveOffer
@@ -1299,6 +1313,8 @@ export default function EnrollModal({
       date,
       participants,
       photoFlowContext,
+      checkInContextDate,
+      checkInContextTime,
       pkg,
       kioskSessionToken,
       service,

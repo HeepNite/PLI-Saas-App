@@ -290,6 +290,7 @@ describe("checkout cash route", () => {
       consecutivePriceCents: 900,
       consecutiveLinkedCourseSlug: "bachata",
       consecutiveCourseTitle: "Bachata Basics",
+      consecutiveLinkedCourseTime: "23:00",
     })
     mockPrisma.purchase.create
       .mockResolvedValueOnce({
@@ -338,9 +339,94 @@ describe("checkout cash route", () => {
         amount: 900,
         participants: 1,
         metadata: {
+          date: "2026-02-10",
+          time: "23:00",
+        },
+      },
+    })
+    expect(mockPrisma.purchase.create.mock.calls[1]?.[0]).toMatchObject({
+      data: {
+        metadata: {
           consecutiveLinkedFrom: "salsa-feminine-morning",
           consecutiveDiscount: true,
           parentPurchaseId: "purchase_primary",
+        },
+      },
+    })
+  })
+
+  it("uses authoritative kiosk current-course date for parent and consecutive purchases", async () => {
+    mockValidate.mockResolvedValueOnce({
+      courseSlug: "salsa-timba-ny",
+      courseTitle: "Salsa timba in New York",
+      amountInt: 2900,
+      currency: "usd",
+      date: "2026-05-13",
+      time: "22:00",
+      packageId: "",
+      serviceId: "dropin",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      packageTotalCredits: null,
+      packageIsUnlimited: false,
+      packageCadence: "",
+      packageMakeUps: 0,
+      packageValidDays: 180,
+      pkg: null,
+      consecutivePriceCents: 900,
+      consecutiveLinkedCourseSlug: "bachata-basics",
+      consecutiveCourseTitle: "Bachata Basics",
+      consecutiveLinkedCourseTime: "23:00",
+      kioskCurrentCourseDate: "2026-05-06",
+      kioskCurrentCourseTime: "22:00",
+    })
+    mockPrisma.purchase.create
+      .mockResolvedValueOnce({
+        id: "purchase_primary",
+        status: "pending",
+        createdAt: new Date("2026-05-06T00:00:00.000Z"),
+      })
+      .mockResolvedValueOnce({
+        id: "purchase_consecutive",
+        status: "pending",
+        createdAt: new Date("2026-05-06T00:00:00.000Z"),
+      })
+
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const res = await POST(
+      new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photoContext: "kiosk_terminal",
+          flowContext: "kiosk_terminal",
+          kioskCurrentCourseDate: "2026-05-06",
+          kioskCurrentCourseTime: "22:00",
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      purchaseId: "purchase_primary",
+      consecutivePurchaseId: "purchase_consecutive",
+    })
+
+    expect(mockPrisma.purchase.create.mock.calls[0]?.[0]).toMatchObject({
+      data: {
+        metadata: {
+          date: "2026-05-06",
+          time: "22:00",
+        },
+      },
+    })
+    expect(mockPrisma.purchase.create.mock.calls[1]?.[0]).toMatchObject({
+      data: {
+        metadata: {
+          date: "2026-05-06",
+          time: "23:00",
         },
       },
     })
