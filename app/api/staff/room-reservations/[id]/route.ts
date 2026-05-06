@@ -23,6 +23,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   const auth = await authorizeStaffPortalBaseRequest()
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!auth.role) return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
+  const actorRole = auth.role as string
 
   const { id } = await context.params
   const current = await prisma.roomReservation.findUnique({ where: { id } })
@@ -108,7 +109,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
         roomNameSnapshot: `reservation:${updated.title}`,
         action: "reservation_update",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         outcome: "success",
         metadata: { reservationId: updated.id },
       },
