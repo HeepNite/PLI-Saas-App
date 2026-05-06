@@ -139,7 +139,7 @@ export async function closeOpenClockEntriesForPayroll(
 
   // Find all open entries in scope
   const openEntries = await prisma.staffClockEntry.findMany({
-    where: where as Parameters<typeof prisma.staffClockEntry.findMany>[0]["where"],
+    where: where as NonNullable<Parameters<typeof prisma.staffClockEntry.findMany>[0]>["where"],
     select: {
       id: true,
       staffAccountId: true,
