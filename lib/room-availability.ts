@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client"
 import {
   buildSessionEndsAtUtc,
   doUtcIntervalsOverlap,
@@ -561,7 +562,7 @@ export const buildRoomLifecycleAuditPayload = (input: {
   reason?: string | null
   blockers?: unknown
   metadata?: Record<string, unknown>
-}) => ({
+}): Prisma.RoomAuditLogUncheckedCreateInput => ({
   roomId: input.roomId ?? null,
   roomNameSnapshot: input.roomNameSnapshot,
   action: input.action,
@@ -569,6 +570,6 @@ export const buildRoomLifecycleAuditPayload = (input: {
   actorRole: input.actorRole,
   reason: input.reason ?? null,
   outcome: input.outcome,
-  blockers: input.blockers ?? null,
-  metadata: input.metadata ?? null,
+  blockers: (input.blockers ?? Prisma.JsonNull) as Prisma.InputJsonValue | typeof Prisma.JsonNull,
+  metadata: (input.metadata ?? Prisma.JsonNull) as Prisma.InputJsonValue | typeof Prisma.JsonNull,
 })
