@@ -17,6 +17,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const auth = await authorizeOwnerOrAdminRequest()
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+  const actorRole = auth.role as string
 
   const { id } = await context.params
   const roomId = toRoomId(id)
@@ -48,7 +49,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: buildRoomLifecycleAuditPayload({
         action: "room_safe_delete",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         outcome: "denied",
         roomId: room.id,
         roomNameSnapshot: room.name,
@@ -64,7 +65,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: buildRoomLifecycleAuditPayload({
         action: "room_safe_delete",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         outcome: "success",
         roomId: room.id,
         roomNameSnapshot: room.name,

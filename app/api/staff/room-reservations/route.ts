@@ -23,6 +23,7 @@ export async function GET(req: Request) {
   const auth = await authorizeStaffPortalBaseRequest()
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!auth.role) return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
+  const actorRole = auth.role as string
 
   const where = auth.role === "owner" || auth.role === "admin" || auth.category === "manager" || auth.category === "front_desk"
     ? {}
@@ -132,7 +133,7 @@ export async function POST(req: Request) {
         roomNameSnapshot: `reservation:${title}`,
         action: "reservation_create",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         outcome: "success",
         metadata: { reservationId: created.id },
       },

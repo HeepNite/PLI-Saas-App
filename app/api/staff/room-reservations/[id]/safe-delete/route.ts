@@ -16,6 +16,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const auth = await authorizeOwnerOrAdminRequest()
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+  const actorRole = auth.role as string
 
   const body = (await req.json().catch(() => ({}))) as { reason?: unknown }
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 400) : null
@@ -54,7 +55,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         roomNameSnapshot: `reservation:${reservation.title}`,
         action: "reservation_safe_delete",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         reason,
         outcome: "denied",
         blockers,
@@ -72,7 +73,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         roomNameSnapshot: `reservation:${reservation.title}`,
         action: "reservation_safe_delete",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         reason,
         outcome: "success",
         metadata: { reservationId: reservation.id },

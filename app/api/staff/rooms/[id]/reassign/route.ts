@@ -24,6 +24,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!canDisableOrReassignRoom({ role: auth.role, category: auth.category })) {
     return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
   }
+  const actorRole = auth.role as string
 
   const { id } = await context.params
   const sourceRoomId = toRoomId(id)
@@ -117,7 +118,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: buildRoomLifecycleAuditPayload({
         action: "room_reassignment",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         outcome: "denied",
         roomId: sourceRoom.id,
         roomNameSnapshot: sourceRoom.name,
@@ -150,7 +151,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: buildRoomLifecycleAuditPayload({
         action: "room_reassignment",
         actorClerkUserId: auth.userId,
-        actorRole: auth.role,
+        actorRole,
         outcome: "success",
         roomId: sourceRoom.id,
         roomNameSnapshot: sourceRoom.name,
