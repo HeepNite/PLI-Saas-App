@@ -12766,8 +12766,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     ) : null}
                     <header className="flex items-center gap-3">
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
-                        {payment.customerAvatarUrl || student.avatarUrl ? (
-                          <img src={payment.customerAvatarUrl || student.avatarUrl} alt={identity.fullName} className="h-full w-full object-cover" />
+                        {payment.customerAvatarUrl ? (
+                          <img src={payment.customerAvatarUrl} alt={identity.fullName} className="h-full w-full object-cover" />
                         ) : (
                           initials
                         )}
