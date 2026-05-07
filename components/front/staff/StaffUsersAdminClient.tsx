@@ -9686,7 +9686,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <p className="mt-1 text-sm text-black/65 dark:text-white/65">Use active rooms for new reservations and cancel conflicting entries when needed.</p>
               </header>
 
-              <div className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.2fr)]">
+              <div className="space-y-5">
                 <form onSubmit={saveRoomReservation} className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="rounded-lg border border-black/10 bg-white/45 p-3 dark:border-white/10 dark:bg-white/[0.03]">
