@@ -415,6 +415,11 @@ type PayrollDelayModalState = {
   lateDays: number
 }
 
+const COURSE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+const COURSE_VIDEO_MAX_BYTES = 15 * 1024 * 1024
+const COURSE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
+const COURSE_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"])
+
 type StudentPinModalState = {
   userId: string
   name: string
@@ -5660,8 +5665,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
       if (!file) return
-      if (!file.type.startsWith("image/")) {
-        setSchoolError("Please choose a valid image file.")
+      if (!COURSE_IMAGE_MIME_TYPES.has(file.type)) {
+        setSchoolError("Formato inválido. Solo jpeg/png/webp.")
+        event.target.value = ""
+        return
+      }
+      if (file.size > COURSE_IMAGE_MAX_BYTES) {
+        setSchoolError("Imagen demasiado grande. Máximo 2MB.")
         event.target.value = ""
         return
       }
@@ -5696,8 +5706,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
       if (!file) return
-      if (!file.type.startsWith("video/")) {
-        setSchoolError("Please choose a valid video file.")
+      if (!COURSE_VIDEO_MIME_TYPES.has(file.type)) {
+        setSchoolError("Formato inválido. Solo mp4/webm.")
+        event.target.value = ""
+        return
+      }
+      if (file.size > COURSE_VIDEO_MAX_BYTES) {
+        setSchoolError("Video demasiado grande. Máximo 15MB.")
         event.target.value = ""
         return
       }
@@ -9689,31 +9704,33 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               <div className="space-y-5">
                 <form onSubmit={saveRoomReservation} className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
                   <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-lg border border-black/10 bg-white/45 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-black/60 dark:text-white/60">Reservation date range</p>
-                      <div className="mt-2">
-                        <CalendarPicker
-                          rangeMode={true}
-                          rangeStart={roomReservationForm.startDate}
-                          rangeEnd={roomReservationForm.endDate || undefined}
-                          onRangeChange={(start, end) => {
-                            setRoomReservationForm((prev) => ({
-                              ...prev,
-                              startDate: start,
-                              endDate: end || "",
-                            }))
-                          }}
-                          compact
-                        />
+                    <div>
+                      <div className="rounded-lg border border-black/10 bg-white/45 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                        <p className="text-[11px] uppercase tracking-[0.24em] text-black/60 dark:text-white/60">Reservation date range</p>
+                        <div className="mt-2">
+                          <CalendarPicker
+                            rangeMode={true}
+                            rangeStart={roomReservationForm.startDate}
+                            rangeEnd={roomReservationForm.endDate || undefined}
+                            onRangeChange={(start, end) => {
+                              setRoomReservationForm((prev) => ({
+                                ...prev,
+                                startDate: start,
+                                endDate: end || "",
+                              }))
+                            }}
+                            compact
+                          />
+                        </div>
                       </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="mt-3 grid grid-cols-2 gap-3">
                         <label className="space-y-1">
                           <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">Start time</span>
                           <input
                             type="time"
                             value={roomReservationForm.startTime}
                             onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
-                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                            className="w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                             required
                           />
                         </label>
@@ -9723,7 +9740,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             type="time"
                             value={roomReservationForm.endTime}
                             onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
-                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                            className="w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                             required
                           />
                         </label>
@@ -9785,7 +9802,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </div>
                 </form>
 
-                <div className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="space-y-3 pt-1">
                   <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Current / upcoming</p>
                   <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
                     {schoolLoading ? (
@@ -10048,8 +10065,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
               <div className="grid grid-cols-1 gap-6">
                 <form onSubmit={saveCourseCatalog}>
-                  <input ref={courseImageInputRef} name="courseLocalImage" type="file" accept="image/*" className="hidden" onChange={handleCourseLocalImage} />
-                  <input ref={courseVideoInputRef} name="courseLocalVideo" type="file" accept="video/*" className="hidden" onChange={handleCourseLocalVideo} />
+                  <input ref={courseImageInputRef} name="courseLocalImage" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleCourseLocalImage} />
+                  <input ref={courseVideoInputRef} name="courseLocalVideo" type="file" accept="video/mp4,video/webm" className="hidden" onChange={handleCourseLocalVideo} />
                   <div ref={courseFormFieldsRef} className="mt-4 space-y-4">
                     <div className="space-y-3">
                       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Course main information</span>
