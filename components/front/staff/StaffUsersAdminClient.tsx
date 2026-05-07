@@ -9659,24 +9659,24 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-5 xl:gap-4">
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Courses</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-black/60 dark:text-white/60">Courses</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolCourses.length}</p>
                 </div>
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Rooms</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-black/60 dark:text-white/60">Rooms</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolRooms.length}</p>
                   <p className="mt-1 text-xs text-black/55 dark:text-white/55">{activeRoomOptions.length} active</p>
                 </div>
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Packages</p>
-                  <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolPackages.length}</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-black/60 dark:text-white/60">Packages</p>
+                  <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{packageCounts.ACTIVE}</p>
                 </div>
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Points rules</p>
+                  <p className="whitespace-nowrap text-[10px] uppercase tracking-[0.14em] text-black/60 dark:text-white/60">Points rules</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolPointsRules.length}</p>
                 </div>
                 <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.03] md:min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Consecutive</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-black/60 dark:text-white/60">Consecutive</p>
                   <p className="mt-1 text-2xl font-semibold text-black dark:text-white">{schoolCourseLinkCount}</p>
                   <p className="mt-1 text-xs text-black/55 dark:text-white/55">course links</p>
                 </div>
