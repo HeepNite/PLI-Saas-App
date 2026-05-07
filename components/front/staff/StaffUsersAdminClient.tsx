@@ -9721,31 +9721,31 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       />
                     </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-4">
-                    <label className="space-y-1.5">
+                  <div className="mt-3 flex gap-4">
+                    <label className="flex-1 space-y-1.5">
                       <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">Start time</span>
                       <input
                         type="time"
                         value={roomReservationForm.startTime}
                         onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
-                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/20 dark:bg-[#1e2130] dark:text-white"
+                        className="block w-full rounded-lg border border-black/20 bg-white px-4 py-2.5 text-sm text-black shadow-sm outline-none focus:border-[var(--brand,#b61616)] dark:border-white/25 dark:bg-[#1a1d2e] dark:text-white dark:shadow-none"
                         required
                       />
                     </label>
-                    <label className="space-y-1.5">
+                    <label className="flex-1 space-y-1.5">
                       <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">End time</span>
                       <input
                         type="time"
                         value={roomReservationForm.endTime}
                         onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
-                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/20 dark:bg-[#1e2130] dark:text-white"
+                        className="block w-full rounded-lg border border-black/20 bg-white px-4 py-2.5 text-sm text-black shadow-sm outline-none focus:border-[var(--brand,#b61616)] dark:border-white/25 dark:bg-[#1a1d2e] dark:text-white dark:shadow-none"
                         required
                       />
                     </label>
                   </div>
-                  <div className="mt-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
+                  <div className="mt-3 px-1 text-xs text-black/60 dark:text-white/50">
                     <p>Start: {formatReservationDateLabel(roomReservationForm.startDate) || "Select date"} · End: {formatReservationDateLabel(roomReservationForm.endDate || roomReservationForm.startDate) || "Select date"}</p>
-                    <p className="mt-1 text-[var(--brand,#b61616)] dark:text-[var(--brand,#ffb3b3)]">{reservationRangePreview || "Choose start/end time and a valid date range."}</p>
+                    <p className="mt-0.5 text-[var(--brand,#b61616)] dark:text-[var(--brand,#ffb3b3)]">{reservationRangePreview || "Choose start/end time and a valid date range."}</p>
                   </div>
                 </div>
                 <div className="space-y-3">
