@@ -3,6 +3,9 @@ import { Prisma } from "@prisma/client"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { prisma } from "@/lib/prisma"
+import { expandCourseScheduleSlots } from "@/lib/course-schedule-blocks"
+import { doUtcIntervalsOverlapWithBuffer } from "@/lib/class-schedule"
+import { findAvailableRoomsForSlot } from "@/lib/room-availability"
 
 export const runtime = "nodejs"
 
@@ -10,6 +13,7 @@ const COURSE_KIND_VALUES = ["course", "program", "bootcamp", "workshop", "conven
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const LEGACY_COURSE_MEDIA_PREFIX = "/uploads/course-media/"
 
 type CourseScheduleRuleEntry = {
   weekday: number
@@ -49,6 +53,8 @@ type CourseScheduleRulesPayload = {
 }
 
 const toSafeText = (value: unknown, max = 200) => (typeof value === "string" ? value.trim().slice(0, max) : "")
+const isLegacyCourseMediaUrl = (value: string | null) => value?.startsWith(LEGACY_COURSE_MEDIA_PREFIX) ?? false
+const normalizeCourseMediaUrl = (value: string | null) => (isLegacyCourseMediaUrl(value) ? null : value)
 const toSlug = (value: unknown, max = 80) =>
   toSafeText(value, max)
     .toLowerCase()
@@ -232,7 +238,13 @@ export async function GET(req: Request) {
     const items = await prisma.courseCatalog.findMany({
       orderBy: [{ createdAt: "desc" }],
     })
-    return NextResponse.json({ items })
+    return NextResponse.json({
+      items: items.map((item) => ({
+        ...item,
+        coverImageUrl: normalizeCourseMediaUrl(item.coverImageUrl),
+        previewVideoUrl: normalizeCourseMediaUrl(item.previewVideoUrl),
+      })),
+    })
   } catch (error) {
     return prismaRouteError(error, "Failed to load school courses.")
   }
@@ -296,6 +308,12 @@ export async function POST(req: Request) {
   if (previewVideoUrl?.startsWith("blob:")) {
     return NextResponse.json({ error: "Invalid preview video URL. Upload the video before saving." }, { status: 400 })
   }
+  if (isLegacyCourseMediaUrl(coverImageUrl)) {
+    return NextResponse.json({ error: "Legacy course image is no longer available. Re-upload the image before saving." }, { status: 400 })
+  }
+  if (isLegacyCourseMediaUrl(previewVideoUrl)) {
+    return NextResponse.json({ error: "Legacy course video is no longer available. Re-upload the video before saving." }, { status: 400 })
+  }
   if (!defaultRoomIdResult.ok) {
     return NextResponse.json({ error: "Invalid defaultRoomId." }, { status: 400 })
   }
@@ -312,6 +330,89 @@ export async function POST(req: Request) {
     if (!room || !room.active) {
       return NextResponse.json({ error: "Default room not found or inactive." }, { status: 404 })
     }
+
+    // --- Schedule conflict check for room assignment ---
+    const BUFFER_MINUTES = 15
+    const windowStart = new Date()
+    const windowEnd = new Date(windowStart.getTime() + 90 * 24 * 60 * 60 * 1000)
+
+    // Expand this course's schedule into virtual slots
+    const thisCourseSlots = expandCourseScheduleSlots(
+      {
+        scheduleRules: scheduleRules ?? null,
+        availableWeekdays: availableWeekdays ?? [],
+        availableTimes: availableTimes ?? [],
+        defaultRoomId: defaultRoomIdResult.value,
+        durationMinutes: durationMinutes ?? null,
+      },
+      windowStart,
+      windowEnd,
+    )
+
+    if (thisCourseSlots.length > 0) {
+      // Load other active courses assigned to the same room
+      const otherCourses = await prisma.courseCatalog.findMany({
+        where: {
+          defaultRoomId: defaultRoomIdResult.value,
+          active: true,
+          slug: { not: slug },
+        },
+        select: { slug: true, title: true, scheduleRules: true, availableWeekdays: true, availableTimes: true, durationMinutes: true, defaultRoomId: true },
+      })
+
+      for (const other of otherCourses) {
+        const otherSlots = expandCourseScheduleSlots(other, windowStart, windowEnd)
+        for (const a of thisCourseSlots) {
+          for (const b of otherSlots) {
+            if (doUtcIntervalsOverlapWithBuffer(a.startsAt, a.endsAt, b.startsAt, b.endsAt, BUFFER_MINUTES * 60_000)) {
+              const alternatives = await findAvailableRoomsForSlot({
+                targetStartsAt: a.startsAt,
+                targetEndsAt: a.endsAt,
+                excludeRoomId: defaultRoomIdResult.value,
+                bufferMinutes: BUFFER_MINUTES,
+                prisma,
+              })
+              return NextResponse.json({
+                error: `Room is already assigned to "${other.title}" with an overlapping schedule.`,
+                conflictsWith: `${other.title} (${other.slug})`,
+                availableRooms: alternatives,
+              }, { status: 409 })
+            }
+          }
+        }
+      }
+
+      // Also check against active reservations in this room
+      const reservations = await prisma.roomReservation.findMany({
+        where: {
+          roomId: defaultRoomIdResult.value,
+          status: "active",
+          endsAt: { gt: windowStart },
+          startsAt: { lt: windowEnd },
+        },
+        select: { id: true, title: true, startsAt: true, endsAt: true },
+      })
+
+      for (const res of reservations) {
+        for (const slot of thisCourseSlots) {
+          if (doUtcIntervalsOverlapWithBuffer(slot.startsAt, slot.endsAt, res.startsAt, res.endsAt, BUFFER_MINUTES * 60_000)) {
+            const alternatives = await findAvailableRoomsForSlot({
+              targetStartsAt: slot.startsAt,
+              targetEndsAt: slot.endsAt,
+              excludeRoomId: defaultRoomIdResult.value,
+              bufferMinutes: BUFFER_MINUTES,
+              prisma,
+            })
+            return NextResponse.json({
+              error: `Room has a private reservation "${res.title}" that conflicts with this course schedule.`,
+              conflictsWith: `Reservation: ${res.title}`,
+              availableRooms: alternatives,
+            }, { status: 409 })
+          }
+        }
+      }
+    }
+    // --- End schedule conflict check ---
   }
 
   const createData = {
