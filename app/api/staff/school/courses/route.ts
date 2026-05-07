@@ -290,6 +290,12 @@ export async function POST(req: Request) {
   if (!title) {
     return NextResponse.json({ error: "Title is required." }, { status: 400 })
   }
+  if (coverImageUrl?.startsWith("blob:")) {
+    return NextResponse.json({ error: "Invalid cover image URL. Upload the image before saving." }, { status: 400 })
+  }
+  if (previewVideoUrl?.startsWith("blob:")) {
+    return NextResponse.json({ error: "Invalid preview video URL. Upload the video before saving." }, { status: 400 })
+  }
   if (!defaultRoomIdResult.ok) {
     return NextResponse.json({ error: "Invalid defaultRoomId." }, { status: 400 })
   }

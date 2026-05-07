@@ -1,16 +1,14 @@
-import { randomUUID } from "crypto"
-import path from "path"
-import { mkdir, writeFile } from "fs/promises"
 import { NextResponse } from "next/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
 
-const IMAGE_MAX_BYTES = 8 * 1024 * 1024
-const VIDEO_MAX_BYTES = 180 * 1024 * 1024
-const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"])
-const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"])
+const IMAGE_MAX_BYTES = 2 * 1024 * 1024
+const VIDEO_MAX_BYTES = 15 * 1024 * 1024
+const ALLOWED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
+const ALLOWED_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"])
 
 type MediaKind = "image" | "video"
 
@@ -23,13 +21,6 @@ const inferKindFromMime = (mime: string): MediaKind | null => {
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("video/")) return "video"
   return null
-}
-
-const resolveExtension = (filename: string, kind: MediaKind) => {
-  const ext = path.extname(filename || "").toLowerCase()
-  if (kind === "image" && IMAGE_EXTENSIONS.has(ext)) return ext
-  if (kind === "video" && VIDEO_EXTENSIONS.has(ext)) return ext
-  return kind === "image" ? ".jpg" : ".mp4"
 }
 
 export async function POST(req: Request) {
@@ -69,31 +60,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unsupported media type." }, { status: 400 })
   }
 
-  if (kind === "image" && !file.type.startsWith("image/")) {
-    return NextResponse.json({ error: "Only image files are allowed for image uploads." }, { status: 400 })
+  if (kind === "image" && !ALLOWED_IMAGE_MIME_TYPES.has(file.type)) {
+    return NextResponse.json({ error: "Only jpeg/png/webp images are allowed." }, { status: 400 })
   }
-  if (kind === "video" && !file.type.startsWith("video/")) {
-    return NextResponse.json({ error: "Only video files are allowed for video uploads." }, { status: 400 })
+  if (kind === "video" && !ALLOWED_VIDEO_MIME_TYPES.has(file.type)) {
+    return NextResponse.json({ error: "Only mp4/webm videos are allowed." }, { status: 400 })
   }
 
   const maxBytes = kind === "image" ? IMAGE_MAX_BYTES : VIDEO_MAX_BYTES
   if (file.size > maxBytes) {
-    const maxMb = kind === "image" ? 8 : 180
+    const maxMb = kind === "image" ? 2 : 15
     return NextResponse.json({ error: `File too large. Max ${maxMb}MB for ${kind}.` }, { status: 400 })
   }
 
-  const extension = resolveExtension(file.name, kind)
-  const folder = path.join(process.cwd(), "public", "uploads", "course-media")
-  await mkdir(folder, { recursive: true })
-
-  const filename = `${kind}-${Date.now()}-${randomUUID()}${extension}`
-  const absoluteFilePath = path.join(folder, filename)
   const bytes = Buffer.from(await file.arrayBuffer())
-  await writeFile(absoluteFilePath, bytes)
+  const created = await prisma.courseMedia.create({
+    data: {
+      kind,
+      mimeType: file.type,
+      sizeBytes: file.size,
+      data: bytes,
+    },
+    select: { id: true },
+  })
 
   return NextResponse.json({
     ok: true,
     kind,
-    url: `/uploads/course-media/${filename}`,
+    mediaId: created.id,
+    url: `/api/staff/school/courses/media/${created.id}`,
   })
 }

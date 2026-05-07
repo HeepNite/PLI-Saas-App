@@ -121,10 +121,27 @@ model CourseCatalog {
   active               Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+  mediaAssets          CourseMedia[]
 
   @@index([kind])
   @@index([active])
   @@index([defaultRoomId])
+}
+
+model CourseMedia {
+  id         String       @id @default(cuid())
+  courseId   String?
+  course     CourseCatalog? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  kind       String
+  mimeType   String
+  sizeBytes  Int
+  data       Bytes
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([courseId])
+  @@index([kind])
+  @@index([createdAt])
 }
 
 model Room {
