@@ -16,6 +16,8 @@ import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin
 
 export const runtime = "nodejs"
 
+const DUPLICATE_BLOCKING_PURCHASE_STATUSES = [...SUCCESSFUL_PURCHASE_STATUSES, "pending"]
+
 type ClerkUser = Awaited<ReturnType<Awaited<ReturnType<typeof clerkClient>>["users"]["getUser"]>>
 
 type CoursePricingTemplate = {
@@ -374,7 +376,7 @@ export async function POST(req: Request) {
         where: {
           userId: dbUser.id,
           courseSlug: context.courseSlug,
-          status: { in: SUCCESSFUL_PURCHASE_STATUSES },
+          status: { in: DUPLICATE_BLOCKING_PURCHASE_STATUSES },
         },
         orderBy: { createdAt: "desc" },
         take: 8,

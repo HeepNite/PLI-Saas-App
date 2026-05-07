@@ -2691,7 +2691,11 @@ export default function EnrollModal({
                     </button>
                   )}
                   <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
-                    {activeStepKey === "packages" ? course.title : `${steps[step]?.label} • ${course.title}`}
+                    {activeStepKey === "packages"
+                      ? course.title
+                      : activeStepKey === "consecutive"
+                        ? "Next Class Promotion"
+                        : `${steps[step]?.label} • ${course.title}`}
                   </h3>
                 </div>
               )}
@@ -3267,6 +3271,29 @@ export default function EnrollModal({
                           </button>
                         )
                       })}
+                      <button
+                        type="button"
+                        onClick={() => setPkg("")}
+                        className={`relative min-h-[10.5rem] w-full overflow-hidden rounded-[1.35rem] border px-5 py-5 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition ${course.enrollment.packages.length > 1 ? "sm:col-span-2" : ""} bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(182,22,22,0.22),transparent_36%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))] ${
+                          !pkg
+                            ? "border-[rgba(220,38,38,0.72)] ring-2 ring-[rgba(182,22,22,0.38)]"
+                            : "border-white/14 hover:border-white/24 hover:brightness-110"
+                        }`}
+                      >
+                        <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
+                        <div className="relative flex h-full flex-col gap-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <p className="text-base font-semibold uppercase tracking-[-0.01em] text-white">Drop-in</p>
+                              <p className="mt-1 text-xs text-white/50">{course.title} / {to12h(time)}</p>
+                            </div>
+                            <p className="shrink-0 text-right text-xl font-semibold text-white">${isCheckInNewFlow ? "15" : "20"}</p>
+                          </div>
+                          <p className="w-full text-sm leading-relaxed text-white/68">
+                            {isCheckInNewFlow ? "First-time student single class." : "Single class without a package."}
+                          </p>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -3277,6 +3304,9 @@ export default function EnrollModal({
                     <div className="rounded-xl border border-black/10 bg-white/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
                       <p className="text-xs uppercase tracking-wider text-black/50 dark:text-white/50">Next class available</p>
                       <h3 className="mt-2 text-lg font-semibold text-black dark:text-white">{consecutiveOffer.linkedCourseTitle}</h3>
+                      {consecutiveOffer.linkedCourseTime && (
+                        <p className="mt-1 text-sm text-black/50 dark:text-white/50">{to12h(consecutiveOffer.linkedCourseTime)}</p>
+                      )}
                       {(() => {
                         const consecutivePriceCents = effectiveIsPackageHolder
                           ? (consecutiveOffer.packageHolderConsecutiveCents ?? 0)
