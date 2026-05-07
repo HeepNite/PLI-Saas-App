@@ -9728,7 +9728,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         type="time"
                         value={roomReservationForm.startTime}
                         onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
-                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/10 dark:bg-white/[0.06] dark:text-white"
+                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/20 dark:bg-[#1e2130] dark:text-white"
                         required
                       />
                     </label>
@@ -9738,7 +9738,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         type="time"
                         value={roomReservationForm.endTime}
                         onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
-                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/10 dark:bg-white/[0.06] dark:text-white"
+                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/20 dark:bg-[#1e2130] dark:text-white"
                         required
                       />
                     </label>
