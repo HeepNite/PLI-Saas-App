@@ -274,7 +274,7 @@ export default function EmbeddedSignIn({
 
   if (!isLoaded) {
     return (
-      <div className="w-[20rem] max-w-full rounded-2xl border border-white/10 bg-[#171922]/95 p-4 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]">
+    <div className="w-full rounded-2xl border border-white/10 bg-[#171922]/95 p-4 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]">
         <div className="space-y-3">
           <div className="h-4 w-28 animate-pulse rounded-full bg-white/10" />
           <div className="h-11 w-full animate-pulse rounded-xl bg-white/[0.06]" />
