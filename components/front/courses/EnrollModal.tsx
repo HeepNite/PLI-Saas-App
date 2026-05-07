@@ -3720,6 +3720,7 @@ export default function EnrollModal({
               useNumericKeypad={isKioskTerminalFlow}
               activateSessionOnSuccess={false}
               autoSend
+              bare
               onCodeSent={() => {
                 verification.onSmsSent()
               }}
@@ -3765,11 +3766,12 @@ export default function EnrollModal({
                 {t("cancel")}
               </button>
             </div>
-            <div className="mt-4 flex justify-center">
+            <div className="mt-4">
               <EmbeddedSignIn
                 redirectUrl={signInReturnTo}
                 phoneNumber={toE164Phone(contact.phone)}
                 useNumericKeypad={isKioskTerminalFlow}
+                bare
                 onSuccessAction={
                   isCheckInFlow
                     ? async () => {
