@@ -9701,147 +9701,145 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <p className="mt-1 text-sm text-black/65 dark:text-white/65">Use active rooms for new reservations and cancel conflicting entries when needed.</p>
               </header>
 
-              <div className="space-y-5">
-                <form onSubmit={saveRoomReservation} className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <div className="rounded-lg border border-black/10 bg-white/45 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-black/60 dark:text-white/60">Reservation date range</p>
-                        <div className="mt-2">
-                          <CalendarPicker
-                            rangeMode={true}
-                            rangeStart={roomReservationForm.startDate}
-                            rangeEnd={roomReservationForm.endDate || undefined}
-                            onRangeChange={(start, end) => {
-                              setRoomReservationForm((prev) => ({
-                                ...prev,
-                                startDate: start,
-                                endDate: end || "",
-                              }))
-                            }}
-                            compact
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-3">
-                        <label className="space-y-1">
-                          <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">Start time</span>
-                          <input
-                            type="time"
-                            value={roomReservationForm.startTime}
-                            onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
-                            className="w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                            required
-                          />
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">End time</span>
-                          <input
-                            type="time"
-                            value={roomReservationForm.endTime}
-                            onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
-                            className="w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                            required
-                          />
-                        </label>
-                      </div>
-                      <div className="mt-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
-                        <p>Start: {formatReservationDateLabel(roomReservationForm.startDate) || "Select date"}</p>
-                        <p>End: {formatReservationDateLabel(roomReservationForm.endDate || roomReservationForm.startDate) || "Select date"}</p>
-                        <p className="mt-1">Timezone: {reservationTimezone}</p>
-                        <p className="mt-1 text-[var(--brand,#b61616)] dark:text-[var(--brand,#ffb3b3)]">Range preview: {reservationRangePreview || "Choose start/end time and a valid date range."}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <select
-                        value={roomReservationForm.roomId}
-                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, roomId: event.target.value }))}
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                        required
-                      >
-                        <option value="">Select active room</option>
-                        {activeRoomOptions.map((room) => (
-                          <option key={`reservation-room-${room.id}`} value={room.id}>{room.name}</option>
-                        ))}
-                      </select>
-                      <input
-                        value={roomReservationForm.title}
-                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, title: event.target.value }))}
-                        placeholder="Reservation title"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                        required
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <div className="rounded-lg border border-black/10 bg-white/45 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-black/60 dark:text-white/60">Reservation date range</p>
+                    <div className="mt-2">
+                      <CalendarPicker
+                        rangeMode={true}
+                        rangeStart={roomReservationForm.startDate}
+                        rangeEnd={roomReservationForm.endDate || undefined}
+                        onRangeChange={(start, end) => {
+                          setRoomReservationForm((prev) => ({
+                            ...prev,
+                            startDate: start,
+                            endDate: end || "",
+                          }))
+                        }}
+                        compact
                       />
-                      <textarea
-                        value={roomReservationForm.reason}
-                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, reason: event.target.value }))}
-                        rows={2}
-                        placeholder="Reason"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                        required
-                      />
-                      <select
-                        value={roomReservationForm.assignedStaffClerkUserId}
-                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, assignedStaffClerkUserId: event.target.value }))}
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      >
-                        <option value="">Assign to staff/professor (optional)</option>
-                        {reservationAssignableStaff.map((item) => (
-                          <option key={`reservation-staff-${item.id}`} value={item.id}>{item.label}</option>
-                        ))}
-                      </select>
-                      {roomReservationFormError ? <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">{roomReservationFormError}</p> : null}
-                      {roomReservationFormSuccess ? <p className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{roomReservationFormSuccess}</p> : null}
-                      <button
-                        type="submit"
-                        disabled={roomReservationSaving || activeRoomOptions.length === 0}
-                        className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                      >
-                        {roomReservationSaving ? "Saving..." : "Create reservation"}
-                      </button>
                     </div>
                   </div>
-                </form>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">Start time</span>
+                      <input
+                        type="time"
+                        value={roomReservationForm.startTime}
+                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
+                        className="w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        required
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">End time</span>
+                      <input
+                        type="time"
+                        value={roomReservationForm.endTime}
+                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
+                        className="w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
+                    <p>Start: {formatReservationDateLabel(roomReservationForm.startDate) || "Select date"}</p>
+                    <p>End: {formatReservationDateLabel(roomReservationForm.endDate || roomReservationForm.startDate) || "Select date"}</p>
+                    <p className="mt-1">Timezone: {reservationTimezone}</p>
+                    <p className="mt-1 text-[var(--brand,#b61616)] dark:text-[var(--brand,#ffb3b3)]">Range preview: {reservationRangePreview || "Choose start/end time and a valid date range."}</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <form onSubmit={saveRoomReservation} className="space-y-3">
+                    <select
+                      value={roomReservationForm.roomId}
+                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, roomId: event.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                    >
+                      <option value="">Select active room</option>
+                      {activeRoomOptions.map((room) => (
+                        <option key={`reservation-room-${room.id}`} value={room.id}>{room.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      value={roomReservationForm.title}
+                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, title: event.target.value }))}
+                      placeholder="Reservation title"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                    />
+                    <textarea
+                      value={roomReservationForm.reason}
+                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, reason: event.target.value }))}
+                      rows={2}
+                      placeholder="Reason"
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                      required
+                    />
+                    <select
+                      value={roomReservationForm.assignedStaffClerkUserId}
+                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, assignedStaffClerkUserId: event.target.value }))}
+                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    >
+                      <option value="">Assign to staff/professor (optional)</option>
+                      {reservationAssignableStaff.map((item) => (
+                        <option key={`reservation-staff-${item.id}`} value={item.id}>{item.label}</option>
+                      ))}
+                    </select>
+                    {roomReservationFormError ? <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">{roomReservationFormError}</p> : null}
+                    {roomReservationFormSuccess ? <p className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{roomReservationFormSuccess}</p> : null}
+                    <button
+                      type="submit"
+                      disabled={roomReservationSaving || activeRoomOptions.length === 0}
+                      className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+                    >
+                      {roomReservationSaving ? "Saving..." : "Create reservation"}
+                    </button>
+                  </form>
 
-                <div className="space-y-3 pt-1">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Current / upcoming</p>
-                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-                    {schoolLoading ? (
-                      <p className="text-sm text-black/60 dark:text-white/60">Loading reservations...</p>
-                    ) : currentUpcomingReservations.length === 0 ? (
-                      <p className="text-sm text-black/60 dark:text-white/60">No current or upcoming reservations.</p>
-                    ) : (
-                      currentUpcomingReservations.map((item) => (
-                        <div key={`reservation-row-${item.id}`} className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-semibold text-black dark:text-white">{item.title}</p>
-                              <p className="text-xs text-black/65 dark:text-white/65">
-                                {roomById[item.roomId]?.name || "Unknown room"} · {formatDateTime(item.startsAt)} → {formatDateTime(item.endsAt)}
-                              </p>
-                              <p className="mt-1 text-xs text-black/60 dark:text-white/60">
-                                Assigned: {item.assignedStaffClerkUserId ? reservationAssignableStaff.find((staff) => staff.id === item.assignedStaffClerkUserId)?.label || item.assignedStaffClerkUserId : "Unassigned"}
-                              </p>
-                              <p className="mt-1 text-xs text-black/60 dark:text-white/60">Status: {item.status}</p>
+                  <div className="space-y-2 pt-2">
+                    <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Current / upcoming</p>
+                    <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                      {schoolLoading ? (
+                        <p className="text-sm text-black/60 dark:text-white/60">Loading reservations...</p>
+                      ) : currentUpcomingReservations.length === 0 ? (
+                        <p className="text-sm text-black/60 dark:text-white/60">No current or upcoming reservations.</p>
+                      ) : (
+                        currentUpcomingReservations.map((item) => (
+                          <div key={`reservation-row-${item.id}`} className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold text-black dark:text-white">{item.title}</p>
+                                <p className="text-xs text-black/65 dark:text-white/65">
+                                  {roomById[item.roomId]?.name || "Unknown room"} · {formatDateTime(item.startsAt)} → {formatDateTime(item.endsAt)}
+                                </p>
+                                <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+                                  Assigned: {item.assignedStaffClerkUserId ? reservationAssignableStaff.find((staff) => staff.id === item.assignedStaffClerkUserId)?.label || item.assignedStaffClerkUserId : "Unassigned"}
+                                </p>
+                                <p className="mt-1 text-xs text-black/60 dark:text-white/60">Status: {item.status}</p>
+                              </div>
+                              {item.status === "active" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openRoomReservationCancelModal(item)}
+                                  disabled={roomReservationBusyId === item.id}
+                                  className="rounded border border-[var(--brand,#b61616)]/55 px-2 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-45"
+                                >
+                                  {roomReservationBusyId === item.id ? "Cancelling..." : "Cancel"}
+                                </button>
+                              ) : null}
                             </div>
-                            {item.status === "active" ? (
-                              <button
-                                type="button"
-                                onClick={() => openRoomReservationCancelModal(item)}
-                                disabled={roomReservationBusyId === item.id}
-                                className="rounded border border-[var(--brand,#b61616)]/55 px-2 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-45"
-                              >
-                                {roomReservationBusyId === item.id ? "Cancelling..." : "Cancel"}
-                              </button>
+                            {item.cancellationReason ? (
+                              <p className="mt-2 rounded-md border border-black/10 bg-black/[0.03] px-2.5 py-1.5 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70">
+                                Cancellation reason: {item.cancellationReason}
+                              </p>
                             ) : null}
                           </div>
-                          {item.cancellationReason ? (
-                            <p className="mt-2 rounded-md border border-black/10 bg-black/[0.03] px-2.5 py-1.5 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70">
-                              Cancellation reason: {item.cancellationReason}
-                            </p>
-                          ) : null}
-                        </div>
-                      ))
-                    )}
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
