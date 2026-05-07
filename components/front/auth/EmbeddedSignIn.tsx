@@ -293,7 +293,7 @@ export default function EmbeddedSignIn({
   }
 
   return (
-    <div className="w-[20rem] max-w-full rounded-2xl border border-white/10 bg-[#171922]/95 p-4 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]">
+    <div className={bare ? "w-full" : "w-full rounded-2xl border border-white/10 bg-[#171922]/95 p-4 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]"}>
       {step === "phone" ? (
         <div className="space-y-4">
           <div>
