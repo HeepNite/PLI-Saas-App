@@ -9721,26 +9721,44 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       />
                     </div>
                   </div>
-                  <div className="mt-3 flex gap-4">
-                    <label className="flex-1 space-y-1.5">
+                  <div className="mt-3 grid grid-cols-2 gap-4">
+                    <label className="space-y-1.5">
                       <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">Start time</span>
-                      <input
-                        type="time"
+                      <select
                         value={roomReservationForm.startTime}
                         onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
-                        className="block w-full rounded-lg border border-black/20 bg-white px-4 py-2.5 text-sm text-black shadow-sm outline-none focus:border-[var(--brand,#b61616)] dark:border-white/25 dark:bg-[#1a1d2e] dark:text-white dark:shadow-none"
+                        className="w-full appearance-none rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                         required
-                      />
+                      >
+                        <option value="">--:-- --</option>
+                        {Array.from({ length: 48 }, (_, i) => {
+                          const h = Math.floor(i / 2)
+                          const m = i % 2 === 0 ? "00" : "30"
+                          const val = `${String(h).padStart(2, "0")}:${m}`
+                          const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+                          const ampm = h < 12 ? "AM" : "PM"
+                          return <option key={`res-start-${val}`} value={val}>{`${hour12}:${m} ${ampm}`}</option>
+                        })}
+                      </select>
                     </label>
-                    <label className="flex-1 space-y-1.5">
+                    <label className="space-y-1.5">
                       <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">End time</span>
-                      <input
-                        type="time"
+                      <select
                         value={roomReservationForm.endTime}
                         onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
-                        className="block w-full rounded-lg border border-black/20 bg-white px-4 py-2.5 text-sm text-black shadow-sm outline-none focus:border-[var(--brand,#b61616)] dark:border-white/25 dark:bg-[#1a1d2e] dark:text-white dark:shadow-none"
+                        className="w-full appearance-none rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                         required
-                      />
+                      >
+                        <option value="">--:-- --</option>
+                        {Array.from({ length: 48 }, (_, i) => {
+                          const h = Math.floor(i / 2)
+                          const m = i % 2 === 0 ? "00" : "30"
+                          const val = `${String(h).padStart(2, "0")}:${m}`
+                          const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+                          const ampm = h < 12 ? "AM" : "PM"
+                          return <option key={`res-end-${val}`} value={val}>{`${hour12}:${m} ${ampm}`}</option>
+                        })}
+                      </select>
                     </label>
                   </div>
                   <div className="mt-3 px-1 text-xs text-black/60 dark:text-white/50">
