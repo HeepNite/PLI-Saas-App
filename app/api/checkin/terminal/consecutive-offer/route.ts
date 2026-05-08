@@ -5,6 +5,14 @@ import { computeDiscountPercent } from "@/lib/course-links"
 
 export const runtime = "nodejs"
 
+const CHECKIN_TIME_ZONE = "America/New_York"
+const WEEKDAY_LABELS_JS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+
+const getJsWeekdayInTimeZone = (date: Date, timeZone: string) => {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date)
+  return WEEKDAY_LABELS_JS.findIndex((label) => label === weekday)
+}
+
 /**
  * GET /api/checkin/terminal/consecutive-offer?courseSlug=<slug>
  *
@@ -56,7 +64,7 @@ export async function GET(req: NextRequest) {
 
     // Check if course B has class today
     const now = new Date()
-    const todayJsWeekday = now.getDay() // 0=Sun, 1=Mon, ...
+    const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE) // 0=Sun, 1=Mon, ... in NY time
 
     // TODO: REMOVE - diagnostic
     console.log('[consecutive-offer-api] weekday check:', { serverDay: now.getDay(), todayJsWeekday, courseB_weekdays: courseB.availableWeekdays })

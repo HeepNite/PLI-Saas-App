@@ -8,8 +8,13 @@ export const runtime = "nodejs"
 
 const CHECKIN_TIME_ZONE = "America/New_York"
 const WEEKDAY_LABELS_MON = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const
+const WEEKDAY_LABELS_JS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
 
 const toMonBasedWeekday = (date: Date) => (date.getDay() + 6) % 7
+const getJsWeekdayInTimeZone = (date: Date, timeZone: string) => {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date)
+  return WEEKDAY_LABELS_JS.findIndex((label) => label === weekday)
+}
 
 type TodayClassItem = {
   slug: string
@@ -39,7 +44,8 @@ export async function GET() {
       timeZone: CHECKIN_TIME_ZONE,
     }).format(now)
 
-    const todayWeekday = toMonBasedWeekday(now)
+    const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE)
+    const todayWeekday = todayJsWeekday >= 0 ? (todayJsWeekday + 6) % 7 : toMonBasedWeekday(now)
 
     const activeCourses = await prisma.courseCatalog.findMany({
       where: { active: true },
@@ -52,13 +58,12 @@ export async function GET() {
       const weekdays = course.availableWeekdays || []
       // CourseCatalog stores weekdays as 0=Sun...6=Sat (JS getDay())
       // We need to check if today's weekday matches
-      if (!weekdays.includes(now.getDay())) {
+      if (!weekdays.includes(todayJsWeekday)) {
         continue
       }
 
       // Resolve times: try scheduleRules (day-specific) first, fall back to flat availableTimes.
       // scheduleRules.rules[].weekday uses JS getDay() convention (0=Sun, 1=Mon, ... 6=Sat).
-      const todayJsWeekday = now.getDay()
       const ruleTimes = getTimesForWeekday(course.scheduleRules, todayJsWeekday)
       const times = (ruleTimes ?? course.availableTimes ?? [])
         .filter((t) => /^\d{2}:\d{2}$/.test(t))

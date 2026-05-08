@@ -3599,9 +3599,7 @@ export default function EnrollModal({
                           ? t("verifyingAccount")
                           : checkingPinAvailability
                             ? "Checking PIN..."
-                            : activeStepKey === "packages" && !pkg
-                              ? "Continue without a package"
-                              : t("continue")}
+                            : t("continue")}
                       </button>
                     ) : (
                         <button
