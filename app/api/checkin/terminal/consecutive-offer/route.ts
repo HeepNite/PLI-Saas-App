@@ -134,7 +134,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (!timesForToday || timesForToday.length === 0) {
+    if (!courseB || !timesForToday || timesForToday.length === 0) {
       // TODO: REMOVE - diagnostic
       console.log('[consecutive-offer-api] returning null, reason:', 'no times available for today')
       return NextResponse.json(null)
