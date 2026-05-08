@@ -6,7 +6,7 @@ import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZ
 export const CHECKIN_TIME_ZONE = "America/New_York"
 export const WALK_IN_LATE_GRACE_MINUTES = 30
 export const TERMINAL_ROTATION_LEAD_MINUTES = 15
-export const TERMINAL_LATE_PAYMENT_AFTER_END_MINUTES = 10
+export const TERMINAL_LATE_PAYMENT_AFTER_END_MINUTES = 15
 export const TERMINAL_LATE_PAYMENT_NEXT_CLASS_MAX_GAP_MINUTES = 120
 export const TRANSIENT_MESSAGE_TIMEOUT_MS = 3200
 

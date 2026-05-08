@@ -504,6 +504,7 @@ export default function EnrollModal({
 
   const [consecutiveAccepted, setConsecutiveAccepted] = React.useState(false)
   const [consecutiveAddedCents, setConsecutiveAddedCents] = React.useState(0)
+  const [consecutiveChoiceMade, setConsecutiveChoiceMade] = React.useState(false)
 
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
@@ -570,7 +571,7 @@ export default function EnrollModal({
                 : key === "packages"
                   ? "Packages"
                   : key === "consecutive"
-                    ? "Next class"
+                    ? "Promo"
                     : key === "payments"
                       ? t("step_payments")
                       : key === "review"
@@ -606,10 +607,6 @@ export default function EnrollModal({
   )
   const packagesStepIndex = React.useMemo(
     () => steps.findIndex((item) => item.key === "packages"),
-    [steps]
-  )
-  const consecutiveStepIndex = React.useMemo(
-    () => steps.findIndex((item) => item.key === "consecutive"),
     [steps]
   )
   const regularServicePrice = React.useMemo(
@@ -761,6 +758,7 @@ export default function EnrollModal({
     setShowKioskPaymentTransition(false)
     setConsecutiveAccepted(false)
     setConsecutiveAddedCents(0)
+    setConsecutiveChoiceMade(false)
     kioskPaymentTransitionStartedAtRef.current = null
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false
@@ -1424,7 +1422,11 @@ export default function EnrollModal({
       setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
       setPhoneTouched(true)
     } else if (activeNumericField === "pin") {
-      setStudentPin((prev) => (prev + digit).slice(0, 4))
+      setStudentPin((prev) => {
+        const next = (prev + digit).slice(0, 4)
+        if (next.length === 4) setActiveNumericField("pin-confirm")
+        return next
+      })
       setPinAvailabilityError(null)
     } else if (activeNumericField === "pin-confirm") {
       setStudentPinConfirm((prev) => (prev + digit).slice(0, 4))
@@ -2327,8 +2329,7 @@ export default function EnrollModal({
         // Packages step is always valid - package selection is optional
         return true
       case "consecutive":
-        // Consecutive step is always valid — user can accept or decline
-        return true
+        return consecutiveChoiceMade
       case "payments":
         return paymentMethod !== ""
       case "review":
@@ -2694,7 +2695,9 @@ export default function EnrollModal({
                     {activeStepKey === "packages"
                       ? course.title
                       : activeStepKey === "consecutive"
-                        ? "Next Class Promotion"
+                        ? "Promotion for the Next Class"
+                        : activeStepKey === "payments"
+                          ? "Payment for Salsa Class"
                         : `${steps[step]?.label} • ${course.title}`}
                   </h3>
                 </div>
@@ -3301,63 +3304,70 @@ export default function EnrollModal({
                 {/* Consecutive class offer step (kiosk only, between packages and payments) */}
                 {activeStepKey === "consecutive" && consecutiveOffer && (
                   <div className="space-y-4">
-                    <div className="rounded-xl border border-black/10 bg-white/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
-                      <p className="text-xs uppercase tracking-wider text-black/50 dark:text-white/50">Next class available</p>
-                      <h3 className="mt-2 text-lg font-semibold text-black dark:text-white">{consecutiveOffer.linkedCourseTitle}</h3>
-                      {consecutiveOffer.linkedCourseTime && (
-                        <p className="mt-1 text-sm text-black/50 dark:text-white/50">{to12h(consecutiveOffer.linkedCourseTime)}</p>
-                      )}
-                      {(() => {
-                        const consecutivePriceCents = effectiveIsPackageHolder
-                          ? (consecutiveOffer.packageHolderConsecutiveCents ?? 0)
-                          : (consecutiveOffer.dropInConsecutiveCents ?? 0)
-                        return (
-                          <>
-                            <div className="mt-3 flex items-baseline gap-2">
-                              <span className="text-2xl font-bold text-[var(--brand,#b61616)]">
-                                ${(consecutivePriceCents / 100).toFixed(2)}
-                              </span>
-                              <span className="text-sm text-black/40 line-through dark:text-white/40">
-                                ${((consecutiveOffer.regularDropInCents ?? 0) / 100).toFixed(2)}
-                              </span>
-                              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                                {consecutiveOffer.discountPercent}% off
-                              </span>
+                    {(() => {
+                      const consecutivePriceCents = effectiveIsPackageHolder
+                        ? (consecutiveOffer.packageHolderConsecutiveCents ?? 0)
+                        : (consecutiveOffer.dropInConsecutiveCents ?? 0)
+                      const regularPriceCents = consecutiveOffer.regularDropInCents ?? 0
+                      const selectPromo = () => {
+                        setConsecutiveAccepted(true)
+                        setConsecutiveChoiceMade(true)
+                        setConsecutiveAddedCents(consecutivePriceCents)
+                      }
+                      const declinePromo = () => {
+                        setConsecutiveAccepted(false)
+                        setConsecutiveChoiceMade(true)
+                        setConsecutiveAddedCents(0)
+                      }
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            onClick={selectPromo}
+                            className={`relative w-full overflow-hidden rounded-[1.35rem] border px-5 py-5 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.20),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(182,22,22,0.22),transparent_36%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))] ${
+                              consecutiveAccepted && consecutiveChoiceMade
+                                ? "border-emerald-400/70 ring-2 ring-emerald-400/25"
+                                : "border-white/14 hover:border-white/24 hover:brightness-110"
+                            }`}
+                          >
+                            <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
+                            <div className="relative flex flex-col gap-4">
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">
+                                    Promo
+                                  </span>
+                                  <h3 className="mt-3 text-lg font-semibold text-white">{consecutiveOffer.linkedCourseTitle}</h3>
+                                  {consecutiveOffer.linkedCourseTime && (
+                                    <p className="mt-1 text-sm text-white/55">{to12h(consecutiveOffer.linkedCourseTime)}</p>
+                                  )}
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <p className="text-2xl font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
+                                  {regularPriceCents > 0 && (
+                                    <p className="mt-1 text-sm font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-sm leading-relaxed text-white/68">
+                                Stay for the next class at a special price. This will be added to your payment.
+                              </p>
                             </div>
-                            <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-                              Stay for the next class at a special price. This will be added to your payment.
-                            </p>
-                          </>
-                        )
-                      })()}
-                    </div>
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConsecutiveAccepted(true)
-                          const price = effectiveIsPackageHolder
-                            ? (consecutiveOffer.packageHolderConsecutiveCents ?? 0)
-                            : (consecutiveOffer.dropInConsecutiveCents ?? 0)
-                          setConsecutiveAddedCents(price)
-                          setStep((consecutiveStepIndex ?? 0) + 1)
-                        }}
-                        className="flex-1 rounded-xl bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-                      >
-                        Add this class
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConsecutiveAccepted(false)
-                          setConsecutiveAddedCents(0)
-                          setStep((consecutiveStepIndex ?? 0) + 1)
-                        }}
-                        className="flex-1 rounded-xl border border-black/15 bg-white px-4 py-3 text-sm font-semibold text-black/80 transition dark:border-white/15 dark:bg-white/[0.04] dark:text-white/80"
-                      >
-                        No thanks
-                      </button>
-                    </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={declinePromo}
+                            className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                              consecutiveChoiceMade && !consecutiveAccepted
+                                ? "border-white/35 bg-white/[0.08] text-white ring-2 ring-white/10"
+                                : "border-white/12 bg-white/[0.03] text-white/72 hover:border-white/22 hover:text-white"
+                            }`}
+                          >
+                            Continue without promotion
+                          </button>
+                        </>
+                      )
+                    })()}
                   </div>
                 )}
 
@@ -3436,7 +3446,7 @@ export default function EnrollModal({
                           <div className="mt-1 flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-sm font-semibold leading-snug text-white">
-                                {course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}
+                                {course.title}{time ? ` · ${to12h(time)}` : ""} — {course.enrollment.services.find((s)=>s.id===service)?.label}
                               </div>
                               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
                                 <span>{participants} {participants===1?t("onePerson"):t("manyPeople")}</span>
@@ -3451,7 +3461,7 @@ export default function EnrollModal({
                             <div className="mt-2 flex items-start justify-between gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
                               <div className="min-w-0">
                                 <div className="text-sm font-semibold leading-snug text-white">
-                                  + {consecutiveOffer.linkedCourseTitle}
+                                  + {consecutiveOffer.linkedCourseTitle}{consecutiveOffer.linkedCourseTime ? ` · ${to12h(consecutiveOffer.linkedCourseTime)}` : ""}
                                 </div>
                                 <div className="mt-0.5 text-[11px] text-emerald-300/70">
                                   Consecutive class · {consecutiveOffer.discountPercent}% off
@@ -3747,7 +3757,6 @@ export default function EnrollModal({
               phoneNumber={toE164Phone(contact.phone)}
               useNumericKeypad={isKioskTerminalFlow}
               activateSessionOnSuccess={false}
-              autoSend
               bare
               onCodeSent={() => {
                 verification.onSmsSent()
