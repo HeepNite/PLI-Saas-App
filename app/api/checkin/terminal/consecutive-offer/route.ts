@@ -13,6 +13,25 @@ const getJsWeekdayInTimeZone = (date: Date, timeZone: string) => {
   return WEEKDAY_LABELS_JS.findIndex((label) => label === weekday)
 }
 
+const toMinutes = (time: string | null | undefined) => {
+  if (!time) return null
+  const match = /^(\d{2}):(\d{2})$/.exec(time)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
+  return hours * 60 + minutes
+}
+
+const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[], weekday: number) => {
+  const parsedRules = parseScheduleRules(scheduleRules)
+  const hasDaySpecificRules = Boolean(parsedRules?.rules?.length)
+  return {
+    hasDaySpecificRules,
+    times: getTimesForWeekday(scheduleRules, weekday) ?? (hasDaySpecificRules ? [] : availableTimes),
+  }
+}
+
 /**
  * GET /api/checkin/terminal/consecutive-offer?courseSlug=<slug>
  *
@@ -42,8 +61,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(null)
     }
 
+    const courseA = await prisma.courseCatalog.findUnique({
+      where: { slug: courseSlug },
+      select: {
+        slug: true,
+        availableTimes: true,
+        scheduleRules: true,
+      },
+    })
+
     // Check if course B exists and is active
-    const courseB = await prisma.courseCatalog.findUnique({
+    let courseB = await prisma.courseCatalog.findUnique({
       where: { slug: link.courseSlugB },
       select: {
         slug: true,
@@ -56,31 +84,55 @@ export async function GET(req: NextRequest) {
         durationMinutes: true,
       },
     })
-    if (!courseB || !courseB.active) {
-      // TODO: REMOVE - diagnostic
-      console.log('[consecutive-offer-api] returning null, reason:', 'courseB not found or not active')
-      return NextResponse.json(null)
-    }
 
     // Check if course B has class today
     const now = new Date()
     const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE) // 0=Sun, 1=Mon, ... in NY time
 
-    // TODO: REMOVE - diagnostic
-    console.log('[consecutive-offer-api] weekday check:', { serverDay: now.getDay(), todayJsWeekday, courseB_weekdays: courseB.availableWeekdays })
+    const courseATimesForToday = courseA
+      ? resolveTimesForWeekday(courseA.scheduleRules, courseA.availableTimes, todayJsWeekday).times
+      : []
+    const courseAStartMinutes = toMinutes(courseATimesForToday[0])
 
-    const parsedRules = parseScheduleRules(courseB.scheduleRules)
-    const hasDaySpecificRules = Boolean(parsedRules?.rules?.length)
+    let timesForToday = courseB?.active
+      ? resolveTimesForWeekday(courseB.scheduleRules, courseB.availableTimes, todayJsWeekday).times
+      : []
 
-    if (!hasDaySpecificRules && !courseB.availableWeekdays.includes(todayJsWeekday)) {
-      // TODO: REMOVE - diagnostic
-      console.log('[consecutive-offer-api] returning null, reason:', 'courseB not available today')
-      return NextResponse.json(null)
+    if ((!courseB || !courseB.active || timesForToday.length === 0) && courseAStartMinutes !== null) {
+      const candidates = await prisma.courseCatalog.findMany({
+        where: {
+          active: true,
+          slug: { not: courseSlug },
+        },
+        select: {
+          slug: true,
+          title: true,
+          active: true,
+          availableWeekdays: true,
+          availableTimes: true,
+          scheduleRules: true,
+          dropInPriceCents: true,
+          durationMinutes: true,
+        },
+      })
+
+      const nextClass = candidates
+        .map((candidate) => {
+          const candidateTimes = resolveTimesForWeekday(candidate.scheduleRules, candidate.availableTimes, todayJsWeekday).times
+          const firstTime = candidateTimes[0]
+          const minutes = toMinutes(firstTime)
+          return firstTime && minutes !== null && minutes > courseAStartMinutes
+            ? { course: candidate, times: candidateTimes, minutes }
+            : null
+        })
+        .filter((candidate): candidate is { course: NonNullable<typeof courseB>; times: string[]; minutes: number } => Boolean(candidate))
+        .sort((left, right) => left.minutes - right.minutes)[0]
+
+      if (nextClass) {
+        courseB = nextClass.course
+        timesForToday = nextClass.times
+      }
     }
-
-    // Resolve day-specific times for course B
-    const timesForToday = getTimesForWeekday(courseB.scheduleRules, todayJsWeekday)
-      ?? (hasDaySpecificRules ? [] : courseB.availableTimes)
 
     if (!timesForToday || timesForToday.length === 0) {
       // TODO: REMOVE - diagnostic
