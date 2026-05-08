@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { demoCourses, type CourseData } from "@/constants/courses"
 import { getStartOfDayNY } from "@/lib/class-schedule"
-import { getTimesForWeekday } from "@/lib/schedule-rules"
+import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 
 export const runtime = "nodejs"
 
@@ -55,17 +55,20 @@ export async function GET() {
     const todayClasses: TodayClassItem[] = []
 
     for (const course of activeCourses) {
-      const weekdays = course.availableWeekdays || []
-      // CourseCatalog stores weekdays as 0=Sun...6=Sat (JS getDay())
-      // We need to check if today's weekday matches
-      if (!weekdays.includes(todayJsWeekday)) {
-        continue
-      }
-
       // Resolve times: try scheduleRules (day-specific) first, fall back to flat availableTimes.
       // scheduleRules.rules[].weekday uses JS getDay() convention (0=Sun, 1=Mon, ... 6=Sat).
+      const parsedRules = parseScheduleRules(course.scheduleRules)
+      const hasDaySpecificRules = Boolean(parsedRules?.rules?.length)
+      if (!hasDaySpecificRules) {
+        const weekdays = course.availableWeekdays || []
+        // CourseCatalog stores weekdays as 0=Sun...6=Sat (JS getDay())
+        if (!weekdays.includes(todayJsWeekday)) {
+          continue
+        }
+      }
+
       const ruleTimes = getTimesForWeekday(course.scheduleRules, todayJsWeekday)
-      const times = (ruleTimes ?? course.availableTimes ?? [])
+      const times = (hasDaySpecificRules ? (ruleTimes ?? []) : (course.availableTimes ?? []))
         .filter((t) => /^\d{2}:\d{2}$/.test(t))
         .sort()
 

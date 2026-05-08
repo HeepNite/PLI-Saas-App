@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getTimesForWeekday } from "@/lib/schedule-rules"
+import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { computeDiscountPercent } from "@/lib/course-links"
 
 export const runtime = "nodejs"
@@ -69,7 +69,10 @@ export async function GET(req: NextRequest) {
     // TODO: REMOVE - diagnostic
     console.log('[consecutive-offer-api] weekday check:', { serverDay: now.getDay(), todayJsWeekday, courseB_weekdays: courseB.availableWeekdays })
 
-    if (!courseB.availableWeekdays.includes(todayJsWeekday)) {
+    const parsedRules = parseScheduleRules(courseB.scheduleRules)
+    const hasDaySpecificRules = Boolean(parsedRules?.rules?.length)
+
+    if (!hasDaySpecificRules && !courseB.availableWeekdays.includes(todayJsWeekday)) {
       // TODO: REMOVE - diagnostic
       console.log('[consecutive-offer-api] returning null, reason:', 'courseB not available today')
       return NextResponse.json(null)
@@ -77,7 +80,7 @@ export async function GET(req: NextRequest) {
 
     // Resolve day-specific times for course B
     const timesForToday = getTimesForWeekday(courseB.scheduleRules, todayJsWeekday)
-      ?? courseB.availableTimes
+      ?? (hasDaySpecificRules ? [] : courseB.availableTimes)
 
     if (!timesForToday || timesForToday.length === 0) {
       // TODO: REMOVE - diagnostic
