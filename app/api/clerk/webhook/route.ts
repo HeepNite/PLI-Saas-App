@@ -4,8 +4,6 @@ import { syncDbUserFromClerkUser } from "@/lib/clerk-user-sync"
 
 export const runtime = "nodejs"
 
-const CLERK_USER_SYNC_EVENTS = new Set(["user.updated", "user.created"])
-
 const getWebhookUserId = (event: Awaited<ReturnType<typeof verifyWebhook>> | undefined) => {
   const data = event?.data as { id?: unknown } | undefined
   return typeof data?.id === "string" ? data.id : null
@@ -24,7 +22,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    if (!CLERK_USER_SYNC_EVENTS.has(event.type)) {
+    if (event.type !== "user.updated" && event.type !== "user.created") {
       console.info("clerk.webhook.event_ignored", { eventType: event.type })
       return NextResponse.json({ ok: true, ignored: true })
     }
