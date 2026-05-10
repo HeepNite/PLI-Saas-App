@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockVerifyWebhook = vi.fn()
 const mockSyncDbUserFromClerkUser = vi.fn()
@@ -17,6 +17,13 @@ describe("clerk webhook route", () => {
     mockVerifyWebhook.mockReset()
     mockSyncDbUserFromClerkUser.mockReset()
     process.env.CLERK_WEBHOOK_SIGNING_SECRET = "whsec_clerk_test"
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    vi.spyOn(console, "info").mockImplementation(() => undefined)
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it("syncs user on user.updated", async () => {
@@ -55,6 +62,29 @@ describe("clerk webhook route", () => {
     const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
 
     expect(res.status).toBe(400)
+    expect(console.error).toHaveBeenCalledWith(
+      "clerk.webhook.signature_verification_failed",
+      expect.objectContaining({ error: expect.any(Error) }),
+    )
+  })
+
+  it("logs when a supported event does not sync a db user", async () => {
+    mockVerifyWebhook.mockResolvedValue({
+      type: "user.created",
+      data: { id: "clerk_without_email" },
+    })
+    mockSyncDbUserFromClerkUser.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/clerk/webhook/route")
+    const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.synced).toBe(false)
+    expect(console.warn).toHaveBeenCalledWith(
+      "clerk.webhook.user_sync_skipped",
+      expect.objectContaining({ clerkId: "clerk_without_email", eventType: "user.created" }),
+    )
   })
 
   it("returns 500 when webhook processing fails after signature verification", async () => {
@@ -68,5 +98,9 @@ describe("clerk webhook route", () => {
     const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
 
     expect(res.status).toBe(500)
+    expect(console.error).toHaveBeenCalledWith(
+      "clerk.webhook.processing_failed",
+      expect.objectContaining({ clerkId: "clerk_1", eventType: "user.updated", error: expect.any(Error) }),
+    )
   })
 })

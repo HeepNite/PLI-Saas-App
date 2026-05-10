@@ -2605,6 +2605,13 @@ type StaffUsersAdminClientProps = {
   currentUserId: string
 }
 
+type ClerkSyncHealth = {
+  clerkUsers: number
+  dbUsersWithClerkId: number
+  missingCount: number
+  missingUsers: Array<{ clerkId: string; email: string | null }>
+}
+
 export default function StaffUsersAdminClient({ currentRole, currentCategory, currentUserId }: StaffUsersAdminClientProps) {
   const searchParams = useSearchParams()
   const resolvedCurrentCategory: StaffCategory =
@@ -2783,6 +2790,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [overrideModalOpen, setOverrideModalOpen] = React.useState(false)
   const [overrideModalStudent, setOverrideModalStudent] = React.useState<{ id: string; name: string } | null>(null)
   const [usersWithAuditEntries, setUsersWithAuditEntries] = React.useState<Set<string>>(new Set())
+  const [clerkSyncHealth, setClerkSyncHealth] = React.useState<ClerkSyncHealth | null>(null)
+  const [clerkSyncLoading, setClerkSyncLoading] = React.useState(false)
+  const [clerkSyncRepairing, setClerkSyncRepairing] = React.useState(false)
+  const [clerkSyncError, setClerkSyncError] = React.useState<string | null>(null)
+  const [clerkSyncMessage, setClerkSyncMessage] = React.useState<string | null>(null)
   const [teacherUserId, setTeacherUserId] = React.useState("")
   const [teacherReviewCycleDays, setTeacherReviewCycleDays] = React.useState(30)
   const [teacherAssignedUserId, setTeacherAssignedUserId] = React.useState("")
@@ -3068,6 +3080,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const canAccessSettingsNav = allowedNavSections.includes("settings")
   const canAccessProfileNav = allowedNavSections.includes("profile")
   const canOperateStudentPins = hasExplicitStaffPermission(currentRole, resolvedCurrentCategory, "studentPinOps")
+  const canManageClerkSync = currentRole === "owner" || currentRole === "admin"
   const isStudentsView = activeNav === "students" && canAccessStudentsNav
   const isReportsView = activeNav === "reports" && canAccessReportsNav
   const isSchoolView = activeNav === "schedule" && canAccessSchoolNav
@@ -3335,6 +3348,73 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       if (showLoader) setLoading(false)
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
+
+  const fetchClerkSyncHealth = React.useCallback(async () => {
+    if (!canManageClerkSync) return
+    setClerkSyncLoading(true)
+    setClerkSyncError(null)
+    try {
+      const res = await fetch("/api/staff/users/sync-clerk/health", {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setClerkSyncHealth(null)
+        setClerkSyncError(typeof data?.error === "string" ? data.error : "Unable to check user sync status.")
+        return
+      }
+      setClerkSyncHealth({
+        clerkUsers: typeof data?.clerkUsers === "number" ? data.clerkUsers : 0,
+        dbUsersWithClerkId: typeof data?.dbUsersWithClerkId === "number" ? data.dbUsersWithClerkId : 0,
+        missingCount: typeof data?.missingCount === "number" ? data.missingCount : 0,
+        missingUsers: Array.isArray(data?.missingUsers) ? data.missingUsers : [],
+      })
+    } catch {
+      setClerkSyncHealth(null)
+      setClerkSyncError("Network error while checking user sync status.")
+    } finally {
+      setClerkSyncLoading(false)
+    }
+  }, [canManageClerkSync, handleStaffAuthFailure])
+
+  const repairClerkSync = React.useCallback(async () => {
+    if (!canManageClerkSync) return
+    setClerkSyncRepairing(true)
+    setClerkSyncError(null)
+    setClerkSyncMessage(null)
+    try {
+      const res = await fetch("/api/staff/users/sync-clerk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setClerkSyncError(typeof data?.error === "string" ? data.error : "Unable to sync users.")
+        return
+      }
+      const missingAfterSync = typeof data?.missingAfterSync === "number" ? data.missingAfterSync : 0
+      const synced = typeof data?.synced === "number" ? data.synced : 0
+      setClerkSyncMessage(
+        missingAfterSync === 0
+          ? `${synced} users are now up to date.`
+          : `Repair finished, but ${missingAfterSync} users still need attention.`
+      )
+      await fetchClerkSyncHealth()
+      await fetchRows(query, categoryFilter, { showLoader: false, enforceMinDelay: false })
+    } catch {
+      setClerkSyncError("Network error while syncing users.")
+    } finally {
+      setClerkSyncRepairing(false)
+    }
+  }, [canManageClerkSync, categoryFilter, fetchClerkSyncHealth, fetchRows, handleStaffAuthFailure, query])
+
+  React.useEffect(() => {
+    if (!isStudentsView || !canManageClerkSync) return
+    void fetchClerkSyncHealth()
+  }, [canManageClerkSync, fetchClerkSyncHealth, isStudentsView])
 
   const fetchPayrollModelOptions = React.useCallback(async () => {
     setPayrollModelLoading(true)
@@ -12084,6 +12164,55 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               Refresh
             </button>
           </header>
+
+          {canManageClerkSync && (clerkSyncLoading || clerkSyncRepairing || clerkSyncError || clerkSyncMessage || (clerkSyncHealth?.missingCount ?? 0) > 0) ? (
+            <div
+              className="mb-4 rounded-2xl border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/8 p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.65)]"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-[var(--brand,#b61616)]/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand,#b61616)] dark:text-[var(--brand,#ff4b4b)]">
+                      {clerkSyncLoading ? "Checking users" : clerkSyncRepairing ? "Syncing users" : "Users need sync"}
+                    </span>
+                    <p className="text-sm text-black/70 dark:text-white/70">
+                      {clerkSyncHealth
+                        ? `${clerkSyncHealth.missingCount} user${clerkSyncHealth.missingCount === 1 ? "" : "s"} need to be synced before they can use the app.`
+                        : "Checking whether all users are ready to use the app."}
+                    </p>
+                  </div>
+                  {clerkSyncError ? <p className="mt-1 text-xs text-red-500 dark:text-red-400">{clerkSyncError}</p> : null}
+                  {clerkSyncMessage ? <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-300">{clerkSyncMessage}</p> : null}
+                  {clerkSyncHealth && clerkSyncHealth.missingCount > 0 ? (
+                    <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+                      Users to sync: {clerkSyncHealth.missingUsers.slice(0, 3).map((user) => user.email || "User without email").join(", ")}
+                      {clerkSyncHealth.missingCount > 3 ? ` +${clerkSyncHealth.missingCount - 3} more` : ""}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void fetchClerkSyncHealth()}
+                    disabled={clerkSyncLoading || clerkSyncRepairing}
+                    className="inline-flex h-9 items-center gap-1 rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${clerkSyncLoading ? "animate-spin" : ""}`} />
+                    Check users
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void repairClerkSync()}
+                    disabled={clerkSyncLoading || clerkSyncRepairing}
+                    className="inline-flex h-9 items-center gap-1 rounded-full border border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/12 px-3 text-xs font-semibold text-[var(--brand,#b61616)] transition hover:bg-[var(--brand,#b61616)]/18 disabled:opacity-50 dark:text-[var(--brand,#ff4b4b)]"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${clerkSyncRepairing ? "animate-spin" : ""}`} />
+                    {clerkSyncRepairing ? "Syncing..." : "Sync users"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {prioritizedTerminalPinAlerts.length > 0 ? (
             <div className="mb-4 rounded-2xl border border-[var(--brand,#b61616)]/18 bg-[linear-gradient(145deg,rgba(182,22,22,0.08),rgba(17,20,31,0.92))] p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.65)]">
