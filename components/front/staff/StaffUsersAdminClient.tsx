@@ -11434,7 +11434,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 ) : (
                   <div className="grid grid-cols-3 gap-3">
                     {schoolCourses.map((item) => {
-                      const previewMediaUrl = item.previewImageUrl || (item.previewVideoUrl ? `/api/og?title=${encodeURIComponent(item.title)}` : null)
+                      const previewMediaUrl = item.coverImageUrl || (item.previewVideoUrl ? `/api/og?title=${encodeURIComponent(item.title)}` : null)
                       return (
                         <div
                           key={`saved-course-ext-${item.slug}`}
