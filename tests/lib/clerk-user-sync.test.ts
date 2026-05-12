@@ -36,6 +36,7 @@ describe("syncDbUserFromClerkUser", () => {
       email: "primary@example.com",
       name: "Rai Mendez",
       phone: "+5491199992222",
+      nameIsCanonical: true,
     })
   })
 
@@ -52,6 +53,7 @@ describe("syncDbUserFromClerkUser", () => {
       email: "first@example.com",
       name: "Fallback Name",
       phone: "+5491133334444",
+      nameIsCanonical: true,
     })
   })
 })

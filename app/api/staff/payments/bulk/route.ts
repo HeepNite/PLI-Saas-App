@@ -1,23 +1,37 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { asObject, asText, normalizePaymentChannel } from "@/app/api/staff/payments/shared"
 
 export const runtime = "nodejs"
 
 type SettlementAction = "mark_paid" | "mark_pending"
 
-const asObject = (value: Prisma.JsonValue | null): Prisma.JsonObject => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Prisma.JsonObject
-  }
-  return {}
+const parseSettlementAction = (value: unknown): SettlementAction | null => {
+  if (value === "mark_paid" || value === "mark_pending") return value
+  return null
 }
 
-const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "")
+const normalizePurchaseIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((item): item is string => typeof item === "string" && item.trim().length > 0))]
+}
+
+const buildSettlementMetadata = (input: {
+  metadata: Prisma.JsonValue | null
+  settlementStatus: "paid" | "pending"
+  settledAt: string | null
+  settlementUpdatedBy: string
+}): Prisma.InputJsonObject => ({
+  ...asObject(input.metadata),
+  settlementStatus: input.settlementStatus,
+  settledAt: input.settledAt,
+  settlementUpdatedBy: input.settlementUpdatedBy,
+})
 
 const isCashPurchase = (input: {
   metadata: Prisma.JsonValue | null
@@ -25,16 +39,14 @@ const isCashPurchase = (input: {
   stripePaymentIntentId: string | null
   stripeCheckoutSessionId: string | null
 }) => {
-  const metadata = asObject(input.metadata)
-  const paymentChannel = asText(metadata.paymentChannel || metadata.payment_channel).toLowerCase()
-  if (paymentChannel === "cash") return true
-
-  const methodRaw = asText(metadata.paymentMethod || metadata.payment_method || metadata.paymentMode).toLowerCase()
-  if (methodRaw.includes("cash") || methodRaw.includes("onsite") || methodRaw.includes("on_site")) return true
-
-  if (input.stripePaymentIntentId || input.stripeCheckoutSessionId) return false
-  const statusRaw = (input.status || "").toLowerCase()
-  return statusRaw.includes("cash") || statusRaw.includes("onsite") || statusRaw.includes("on_site")
+  return (
+    normalizePaymentChannel({
+      metadata: input.metadata,
+      status: input.status,
+      stripePaymentIntentId: input.stripePaymentIntentId,
+      stripeCheckoutSessionId: input.stripeCheckoutSessionId,
+    }) === "cash"
+  )
 }
 
 export async function POST(req: Request) {
@@ -63,13 +75,12 @@ export async function POST(req: Request) {
   }
 
   const payload = body as Record<string, unknown>
-  const action = typeof payload.action === "string" ? (payload.action as SettlementAction) : ""
-  if (!["mark_paid", "mark_pending"].includes(action)) {
+  const action = parseSettlementAction(payload.action)
+  if (!action) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 })
   }
 
-  const idsInput = Array.isArray(payload.ids) ? payload.ids : []
-  const ids = [...new Set(idsInput.filter((item): item is string => typeof item === "string" && item.trim().length > 0))]
+  const ids = normalizePurchaseIds(payload.ids)
   if (ids.length === 0) {
     return NextResponse.json({ error: "No purchases selected" }, { status: 400 })
   }
@@ -120,13 +131,12 @@ export async function POST(req: Request) {
 
   await prisma.$transaction(
     purchases.map((purchase) => {
-      const metadata = asObject(purchase.metadata)
-      const nextMetadata: Prisma.InputJsonObject = {
-        ...metadata,
+      const nextMetadata = buildSettlementMetadata({
+        metadata: purchase.metadata,
         settlementStatus,
         settledAt,
         settlementUpdatedBy: authResult.userId,
-      }
+      })
       const data: Prisma.PurchaseUpdateInput = { metadata: nextMetadata }
       if (isCashPurchase(purchase)) {
         data.status = nextCashPurchaseStatus
@@ -146,73 +156,76 @@ export async function POST(req: Request) {
   )
 
   let syncedPackageCount = 0
+  let packageCreditReservedCount = 0
   if (action === "mark_paid") {
     for (const purchase of purchases) {
       if (!purchase.userId || !isCashPurchase(purchase)) continue
       const metadata = asObject(purchase.metadata)
+      let resolvedAttendanceId = asText(metadata.attendanceId) || ""
 
       // Create Attendance record for cash drop-in when marked as paid
-      if (action === "mark_paid") {
-        const existingAttendanceId = asText(metadata.attendanceId)
-        if (!existingAttendanceId) {
-          const classDate = asText(metadata.date)
-          const classTime = asText(metadata.time)
-          const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
+      const existingAttendanceId = asText(metadata.attendanceId)
+      if (!existingAttendanceId) {
+        const classDate = asText(metadata.date)
+        const classTime = asText(metadata.time)
+        const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
 
-          if (classDate && classTime && courseSlug) {
-            const startsAt = buildSessionStartsAt(classDate, classTime)
-            if (startsAt) {
-              try {
-                const now = new Date()
-                const session = await prisma.classSession.upsert({
-                  where: {
-                    courseSlug_startsAt: { courseSlug, startsAt },
-                  },
-                  update: {},
-                  create: {
-                    courseSlug,
-                    title: purchase.courseTitle || courseSlug,
-                    startsAt,
-                  },
-                })
+        if (classDate && classTime && courseSlug) {
+          const startsAt = buildSessionStartsAt(classDate, classTime)
+          if (startsAt) {
+            try {
+              const now = new Date()
+              const session = await prisma.classSession.upsert({
+                where: {
+                  courseSlug_startsAt: { courseSlug, startsAt },
+                },
+                update: {},
+                create: {
+                  courseSlug,
+                  title: purchase.courseTitle || courseSlug,
+                  startsAt,
+                },
+              })
 
-                const attendance = await prisma.attendance.upsert({
-                  where: {
-                    userId_sessionId: { userId: purchase.userId, sessionId: session.id },
+              const attendance = await prisma.attendance.upsert({
+                where: {
+                  userId_sessionId: { userId: purchase.userId, sessionId: session.id },
+                },
+                update: {},
+                create: {
+                  userId: purchase.userId,
+                  sessionId: session.id,
+                  status: "checked_in_no_package",
+                  checkedInAt: now,
+                  metadata: {
+                    source: "cash_settlement",
+                    date: classDate,
+                    time: classTime,
                   },
-                  update: {},
-                  create: {
-                    userId: purchase.userId,
-                    sessionId: session.id,
-                    status: "checked_in_no_package",
-                    checkedInAt: now,
-                    metadata: {
-                      source: "cash_settlement",
-                      date: classDate,
-                      time: classTime,
-                    },
-                  },
-                })
+                },
+              })
 
-                // Link attendance ID to purchase metadata
-                await prisma.purchase.update({
-                  where: { id: purchase.id },
-                  data: {
-                    metadata: {
-                      ...metadata,
+              // Link attendance ID to purchase metadata
+              await prisma.purchase.update({
+                where: { id: purchase.id },
+                data: {
+                  metadata: {
+                    ...buildSettlementMetadata({
+                      metadata: purchase.metadata,
                       settlementStatus,
                       settledAt,
                       settlementUpdatedBy: authResult.userId,
-                      attendanceId: attendance.id,
-                    },
+                    }),
+                    attendanceId: attendance.id,
                   },
-                })
-              } catch (error) {
-                console.warn("Unable to create attendance for cash settlement", {
-                  purchaseId: purchase.id,
-                  error: error instanceof Error ? error.message : String(error),
-                })
-              }
+                },
+              })
+              resolvedAttendanceId = attendance.id
+            } catch (error) {
+              console.warn("Unable to create attendance for cash settlement", {
+                purchaseId: purchase.id,
+                error: error instanceof Error ? error.message : String(error),
+              })
             }
           }
         }
@@ -238,6 +251,26 @@ export async function POST(req: Request) {
           },
         })
         if (synced) syncedPackageCount += 1
+        if (synced?.id && resolvedAttendanceId) {
+          try {
+            const reserved = await reservePackageCreditForAttendance({
+              packagePurchaseId: synced.id,
+              userId: purchase.userId,
+              attendanceId: resolvedAttendanceId,
+              courseSlug: purchase.courseSlug || asText(metadata.courseSlug),
+              at: purchase.createdAt,
+              reason: "PACKAGE_INITIAL_BOOKING",
+            })
+            if (reserved) packageCreditReservedCount += 1
+          } catch (error) {
+            console.warn("Unable to reserve package credit after bulk cash settlement", {
+              purchaseId: purchase.id,
+              packagePurchaseId: synced.id,
+              attendanceId: resolvedAttendanceId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
       } catch (error) {
         console.warn("Unable to sync package purchase after cash settlement", {
           purchaseId: purchase.id,
@@ -252,5 +285,6 @@ export async function POST(req: Request) {
     updatedCount: purchases.length,
     settlementStatus,
     syncedPackageCount,
+    packageCreditReservedCount,
   })
 }

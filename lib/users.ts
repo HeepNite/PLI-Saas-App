@@ -6,6 +6,12 @@ export type UpsertUserInput = {
   name?: string
   phone?: string
   stripeCustomerId?: string
+  /**
+   * When true, `name` is treated as the authoritative identity name (e.g. from Clerk)
+   * and can overwrite an existing user's name.
+   * When false/omitted, `name` is only used to fill an empty name — never to overwrite.
+   */
+  nameIsCanonical?: boolean
 }
 
 type ExistingUser = {
@@ -68,7 +74,7 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
     : undefined
 
   const existing = existingByClerkId || (clerkId
-    ? phoneUnlinkedMatch || emailUnlinkedMatch || unlinkedMatch || linkedToDifferentClerk || null
+    ? phoneUnlinkedMatch || emailUnlinkedMatch || unlinkedMatch || null
     : identityMatches[0] || null)
 
   const data: UpsertUserInput = {}
@@ -94,7 +100,7 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
       updateData.email = email
     }
 
-    if (shouldApplyCanonicalClerkData && name && existing.name !== name) {
+    if (input.nameIsCanonical && name && existing.name !== name) {
       updateData.name = name
     } else if (!existing.name && name) {
       updateData.name = name

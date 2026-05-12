@@ -7,6 +7,7 @@ const mockGetClientIp = vi.fn()
 
 const mockPrisma = {
   courseCatalog: {
+    findMany: vi.fn(),
     upsert: vi.fn(),
   },
 }
@@ -31,13 +32,45 @@ describe("staff school courses route security", () => {
     mockBuildRateLimitKey.mockReset()
     mockConsumeRateLimit.mockReset()
     mockGetClientIp.mockReset()
+    mockPrisma.courseCatalog.findMany.mockReset()
     mockPrisma.courseCatalog.upsert.mockReset()
 
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
     mockBuildRateLimitKey.mockReturnValue("rl-key")
     mockConsumeRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 })
     mockGetClientIp.mockReturnValue("127.0.0.1")
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([])
     mockPrisma.courseCatalog.upsert.mockResolvedValue({ id: "course_1", slug: "safe-course", title: "Safe course" })
+  })
+
+  it("omits legacy filesystem course media urls from GET responses", async () => {
+    mockPrisma.courseCatalog.findMany.mockResolvedValueOnce([
+      {
+        id: "course_1",
+        slug: "legacy-course",
+        title: "Legacy course",
+        coverImageUrl: "/uploads/course-media/image-old.jpg",
+        previewVideoUrl: "/uploads/course-media/video-old.mp4",
+        createdAt: new Date("2026-05-07T00:00:00.000Z"),
+      },
+      {
+        id: "course_2",
+        slug: "db-course",
+        title: "DB course",
+        coverImageUrl: "/api/staff/school/courses/media/media_1",
+        previewVideoUrl: null,
+        createdAt: new Date("2026-05-07T00:00:00.000Z"),
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/school/courses/route")
+    const res = await GET(new Request("http://localhost/api/staff/school/courses"))
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].coverImageUrl).toBeNull()
+    expect(data.items[0].previewVideoUrl).toBeNull()
+    expect(data.items[1].coverImageUrl).toBe("/api/staff/school/courses/media/media_1")
   })
 
   it("returns 429 when POST rate limit is exceeded", async () => {
@@ -76,6 +109,26 @@ describe("staff school courses route security", () => {
       })
     )
     expect(res.status).toBe(400)
+    expect(mockPrisma.courseCatalog.upsert).not.toHaveBeenCalled()
+  })
+
+  it("rejects legacy filesystem course media urls on save", async () => {
+    const { POST } = await import("@/app/api/staff/school/courses/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/school/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "legacy-course",
+          title: "Legacy Course",
+          coverImageUrl: "/uploads/course-media/image-old.jpg",
+        }),
+      })
+    )
+
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.error).toMatch(/Legacy course image/i)
     expect(mockPrisma.courseCatalog.upsert).not.toHaveBeenCalled()
   })
 
@@ -131,4 +184,3 @@ describe("staff school courses route security", () => {
     })
   })
 })
-

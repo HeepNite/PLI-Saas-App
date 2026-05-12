@@ -89,6 +89,8 @@ describe("staff payments route", () => {
     createdAt = "2026-03-20T15:00:00.000Z",
     courseSlug = "salsa-beginners",
     courseTitle = "Salsa Beginners",
+    packageId = null,
+    serviceId = null,
   }: {
     id: string
     userId: string
@@ -98,6 +100,8 @@ describe("staff payments route", () => {
     createdAt?: string
     courseSlug?: string
     courseTitle?: string
+    packageId?: string | null
+    serviceId?: string | null
   }) => ({
     id,
     userId,
@@ -106,8 +110,8 @@ describe("staff payments route", () => {
     name: `Student ${id}`,
     email: `${id}@example.com`,
     phone: "+1 555 0100",
-    packageId: null,
-    serviceId: null,
+    packageId,
+    serviceId,
     amount,
     currency: "usd",
     status,
@@ -180,6 +184,76 @@ describe("staff payments route", () => {
         locked: false,
         needsEnrollment: false,
       },
+    })
+  })
+
+  it("does not mark successful card purchases as pending when same user has open cash settlement", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "cash_open",
+        userId: "user_mix",
+        amount: 1500,
+        status: "pending",
+        metadata: { date: "2026-03-20", paymentChannel: "cash", settlementStatus: "pending" },
+      }),
+      buildPurchase({
+        id: "card_paid",
+        userId: "user_mix",
+        amount: 2000,
+        status: "paid",
+        courseSlug: "zouk-open",
+        metadata: { date: "2026-03-20", paymentChannel: "card" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    const cardRow = data.items.find((item: { id: string }) => item.id === "card_paid")
+    expect(cardRow).toBeTruthy()
+    expect(cardRow.paymentChannel).toBe("card")
+    expect(cardRow.paymentStatus).toBe("paid")
+    expect(cardRow.settlementStatus).toBe("paid")
+  })
+
+  it("prefers completed card purchase when duplicate slot also has pending card row", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "card_pending_latest",
+        userId: "user_dup",
+        amount: 2000,
+        status: "pending",
+        createdAt: "2026-03-20T16:00:00.000Z",
+        metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "card" },
+      }),
+      buildPurchase({
+        id: "card_paid_older",
+        userId: "user_dup",
+        amount: 2000,
+        status: "paid",
+        createdAt: "2026-03-20T15:00:00.000Z",
+        metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "card" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      id: "card_paid_older",
+      paymentChannel: "card",
+      paymentStatus: "paid",
+      settlementStatus: "paid",
+      classPaid: true,
+    })
+    expect(data.summary).toMatchObject({
+      pendingStripe: 0,
+      paidStripe: 1,
     })
   })
 
@@ -319,7 +393,54 @@ describe("staff payments route", () => {
       pendingSettlement: 1,
       paidSettlement: 0,
       paidStripe: 1,
-      pendingStripe: 1,
+      pendingStripe: 0,
+    })
+  })
+
+  it("classifies consecutive child rows as dropin when DB packageId is null", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "purchase_parent",
+        userId: "user_1",
+        amount: 9500,
+        serviceId: "new-student",
+        metadata: {
+          date: "2026-03-20",
+          packageId: "first-groove",
+          serviceId: "new-student",
+        },
+      }),
+      {
+        ...buildPurchase({
+          id: "purchase_child",
+          userId: "user_1",
+          amount: 1000,
+          courseSlug: "salsa-night-advance-beginner-rueda",
+          serviceId: "new-student",
+          metadata: {
+            date: "2026-03-20",
+            time: "21:10",
+            parentPurchaseId: "purchase_parent",
+            consecutiveLinkedFrom: "salsa-night-beginner",
+            packageId: "first-groove",
+            serviceId: "new-student",
+          },
+        }),
+        packageId: null,
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    const child = data.items.find((item: { id: string; amount: number }) => item.id === "purchase_child" || item.amount === 1000)
+    expect(child).toMatchObject({
+      purchaseCategory: "dropin",
+      packageId: null,
+      paymentStatus: "paid",
+      settlementStatus: "paid",
     })
   })
 
@@ -531,8 +652,8 @@ describe("staff payments route", () => {
       totalCollected: 2000,
       pendingSettlement: 1,
       paidSettlement: 1,
-      pendingStripe: 1,
-      paidStripe: 2,
+      pendingStripe: 0,
+      paidStripe: 1,
     })
   })
 
@@ -924,7 +1045,7 @@ describe("staff payments route", () => {
       pendingSettlement: 0,
       paidSettlement: 1,
       pendingStripe: 0,
-      paidStripe: 2,
+      paidStripe: 1,
     })
     expect(data.classOptions).toEqual([
       { slug: "salsa-beginners", title: "Salsa Beginners" },
@@ -1191,14 +1312,18 @@ describe("staff payments route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["history_cash_paid", "legacy_large_paid"])
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual([
+      "history_card_paid",
+      "history_cash_paid",
+      "legacy_large_paid",
+    ])
     expect(data.summary).toEqual({
-      totalItems: 2,
-      totalCollected: 15800,
+      totalItems: 3,
+      totalCollected: 17000,
       pendingSettlement: 0,
       paidSettlement: 2,
       pendingStripe: 0,
-      paidStripe: 2,
+      paidStripe: 1,
     })
     expect(data.classOptions).toEqual([
       { slug: "salsa-beginners", title: "Salsa Beginners" },
@@ -1640,6 +1765,56 @@ describe("staff payments route", () => {
     expect(data.items[0]).toMatchObject({
       id: "purchase_dup_1",
       checkInStatus: "checked_in_no_package",
+      completedClassesTotal: 1,
+    })
+  })
+
+  it("prefers checked-in attendance over newer scheduled duplicates for same slot", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "purchase_slot_dupe_1",
+        userId: "user_slot_dupe",
+        amount: 10500,
+        packageId: "first-groove",
+        serviceId: "new-student",
+        metadata: { date: "2026-03-20", time: "20:10", flowContext: "kiosk_terminal" },
+      }),
+    ])
+
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "att_newer_scheduled",
+        userId: "user_slot_dupe",
+        status: "scheduled",
+        checkedInAt: new Date("2026-03-20T20:12:00.000Z"),
+        checkedOutAt: null,
+        metadata: { source: "purchase_booking", purchaseId: "purchase_slot_dupe_1" },
+        session: { courseSlug: "salsa-night-beginner", startsAt: new Date("2026-03-20T20:10:00.000Z"), title: "Salsa" },
+        user: { id: "user_slot_dupe", name: "User Dup", email: "dup@example.com", phone: "+1 555", clerkId: null },
+        packageUsage: { packagePurchaseId: "pkg_purchase_1", packagePurchase: { packageId: "first-groove" } },
+      },
+      {
+        id: "att_older_checkedin",
+        userId: "user_slot_dupe",
+        status: "checked_in",
+        checkedInAt: new Date("2026-03-20T20:10:00.000Z"),
+        checkedOutAt: null,
+        metadata: { source: "terminal", purchaseId: "purchase_slot_dupe_1" },
+        session: { courseSlug: "salsa-night-beginner", startsAt: new Date("2026-03-20T20:10:00.000Z"), title: "Salsa" },
+        user: { id: "user_slot_dupe", name: "User Dup", email: "dup@example.com", phone: "+1 555", clerkId: null },
+        packageUsage: { packagePurchaseId: "pkg_purchase_1", packagePurchase: { packageId: "first-groove" } },
+      },
+    ])
+    mockPrisma.attendance.groupBy.mockResolvedValue([{ userId: "user_slot_dupe", _count: { _all: 1 } }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items[0]).toMatchObject({
+      id: "purchase_slot_dupe_1",
+      checkInStatus: "checked_in",
       completedClassesTotal: 1,
     })
   })

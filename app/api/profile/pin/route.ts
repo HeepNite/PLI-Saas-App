@@ -25,6 +25,7 @@ const getAuthenticatedDbUser = async (authUserId: string) => {
     email: clerkUser.primaryEmailAddress?.emailAddress || undefined,
     phone: clerkUser.primaryPhoneNumber?.phoneNumber || undefined,
     name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined,
+    nameIsCanonical: true,
   })
 
   return { clerkUser, dbUser }

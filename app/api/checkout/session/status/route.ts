@@ -68,6 +68,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ status: "expired", sessionId })
     }
 
+    if (session.status === "complete" && session.payment_status === "paid") {
+      return NextResponse.json({
+        status: "complete",
+        sessionId,
+        purchaseId: null,
+        paymentStatus: session.payment_status,
+        awaitingWebhook: true,
+      })
+    }
+
     if (session.status === "complete") {
       return NextResponse.json({
         status: "open",

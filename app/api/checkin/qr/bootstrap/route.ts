@@ -279,6 +279,7 @@ export async function POST(req: Request) {
             email,
             phone,
             name,
+            nameIsCanonical: true,
           })
         })()
       : kioskSessionResult?.ok

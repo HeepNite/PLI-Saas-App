@@ -120,15 +120,17 @@ export async function POST(req: Request) {
     normalizePhone(meta.phoneRaw) ||
     normalizePhone(clerkUser.primaryPhoneNumber?.phoneNumber) ||
     undefined
-  const name = meta.name || [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() || undefined
+  const canonicalClerkName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() || undefined
+  const purchaseName = meta.name || canonicalClerkName
   const stripeCustomerId = typeof intent.customer === "string" ? intent.customer : undefined
 
   const user = await upsertUserByIdentifiers({
     clerkId: authResult.userId,
     email,
     phone,
-    name,
+    name: canonicalClerkName,
     stripeCustomerId,
+    nameIsCanonical: true,
   })
 
   if (!user) {
@@ -159,7 +161,7 @@ export async function POST(req: Request) {
           amount: primaryAmount,
           currency: intent.currency || "usd",
           email,
-          name,
+          name: purchaseName,
           phone,
           participants: parseIntSafe(meta.participants),
           coupon: meta.coupon,
@@ -177,7 +179,7 @@ export async function POST(req: Request) {
           amount: primaryAmount,
           currency: intent.currency || "usd",
           email,
-          name,
+          name: purchaseName,
           phone,
           participants: parseIntSafe(meta.participants),
           coupon: meta.coupon,
@@ -204,7 +206,7 @@ export async function POST(req: Request) {
           currency: intent.currency || "usd",
           status: purchaseStatus,
           email,
-          name,
+          name: purchaseName,
           phone,
           participants: 1,
           coupon: null,
@@ -263,7 +265,7 @@ export async function POST(req: Request) {
       amount: intent.amount ?? 0,
       currency: intent.currency || "usd",
       email,
-      name,
+      name: purchaseName,
       phone,
       participants: parseIntSafe(meta.participants),
       coupon: meta.coupon,
@@ -281,7 +283,7 @@ export async function POST(req: Request) {
       amount: intent.amount ?? 0,
       currency: intent.currency || "usd",
       email,
-      name,
+      name: purchaseName,
       phone,
       participants: parseIntSafe(meta.participants),
       coupon: meta.coupon,

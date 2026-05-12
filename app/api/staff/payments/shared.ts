@@ -30,11 +30,12 @@ export const normalizePaymentChannel = (input: {
 }): PaymentChannel => {
   const metadata = asObject(input.metadata)
   const paymentChannelRaw = asText(metadata.paymentChannel || metadata.payment_channel).toLowerCase()
+  const hasStripeEvidence = Boolean(input.stripePaymentIntentId || input.stripeCheckoutSessionId)
+
   if (paymentChannelRaw === "package_credit") return "package_credit"
   if (paymentChannelRaw === "cash") return "cash"
   if (paymentChannelRaw === "card" || paymentChannelRaw === "stripe") return "card"
-
-  if (input.stripePaymentIntentId || input.stripeCheckoutSessionId) return "card"
+  if (hasStripeEvidence) return "card"
 
   const methodRaw = asText(metadata.paymentMethod || metadata.payment_method || metadata.paymentMode).toLowerCase()
   const sourceRaw = asText(metadata.source).toLowerCase()

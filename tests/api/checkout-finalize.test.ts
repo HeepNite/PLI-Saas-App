@@ -140,4 +140,45 @@ describe("checkout finalize route", () => {
     expect(mockPurchaseUpsert).not.toHaveBeenCalled()
     expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
   })
+
+  it("uses Clerk name for canonical user and keeps payment name snapshot on purchase", async () => {
+    mockPaymentIntentRetrieve.mockResolvedValue({
+      id: "pi_name_snapshot",
+      object: "payment_intent",
+      status: "succeeded",
+      amount: 2500,
+      currency: "usd",
+      customer: "cus_123",
+      receipt_email: "buyer@example.com",
+      metadata: {
+        userId: "clerk_user_1",
+        name: "Mariano Barrionuevo",
+        email: "buyer@example.com",
+        phone: "9293876584",
+        participants: "1",
+      },
+    })
+
+    const { POST } = await import("@/app/api/checkout/finalize/route")
+    const res = await POST(
+      new Request("http://localhost/api/checkout/finalize", {
+        method: "POST",
+        body: JSON.stringify({ paymentIntentId: "pi_name_snapshot" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockUpsertUserByIdentifiers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clerkId: "clerk_user_1",
+        name: "Test User",
+      })
+    )
+    expect(mockPurchaseUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ name: "Mariano Barrionuevo" }),
+        update: expect.objectContaining({ name: "Mariano Barrionuevo" }),
+      })
+    )
+  })
 })

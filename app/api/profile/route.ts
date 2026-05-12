@@ -154,6 +154,7 @@ export async function PUT(req: Request) {
       email,
       name: [firstName || clerkUser.firstName, lastName || clerkUser.lastName].filter(Boolean).join(" "),
       phone,
+      nameIsCanonical: true,
     })
 
     if (!dbUser) {

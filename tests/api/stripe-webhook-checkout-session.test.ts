@@ -10,6 +10,7 @@ const mockPurchaseUpsert = vi.fn()
 const mockPurchaseFindUnique = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
 const mockPurchaseCreate = vi.fn()
+const mockPurchaseUpdate = vi.fn()
 const mockConstructEvent = vi.fn()
 
 const mockPrisma = {
@@ -18,6 +19,7 @@ const mockPrisma = {
     findUnique: (...args: unknown[]) => mockPurchaseFindUnique(...args),
     findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
     create: (...args: unknown[]) => mockPurchaseCreate(...args),
+    update: (...args: unknown[]) => mockPurchaseUpdate(...args),
   },
   $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => callback(mockPrisma as any)),
 }
@@ -75,6 +77,7 @@ describe("stripe webhook checkout session persistence", () => {
     mockPurchaseFindUnique.mockReset()
     mockPurchaseFindFirst.mockReset()
     mockPurchaseCreate.mockReset()
+    mockPurchaseUpdate.mockReset()
     mockConstructEvent.mockReset()
     mockPrisma.$transaction.mockClear()
 
@@ -132,6 +135,7 @@ describe("stripe webhook checkout session persistence", () => {
             email: "test@example.com",
             phone: "9293876584",
             phoneRaw: "+1 9293876584",
+            flowContext: "kiosk_terminal",
           },
         },
       },
@@ -166,6 +170,12 @@ describe("stripe webhook checkout session persistence", () => {
     expect(upsertPayload?.update?.status).not.toBe("pending")
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(1)
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(1)
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferredStatus: "checked_in",
+        source: "stripe_webhook_checkout",
+      })
+    )
   })
 
   it("splits hosted checkout consecutive metadata and schedules both course attendances", async () => {
@@ -232,11 +242,127 @@ describe("stripe webhook checkout session persistence", () => {
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(2)
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ purchaseId: "purchase_123", courseSlug: "salsa-feminine-morning", time: "11:00" })
+      expect.objectContaining({
+        purchaseId: "purchase_123",
+        courseSlug: "salsa-feminine-morning",
+        time: "11:00",
+        preferredStatus: "scheduled",
+      })
     )
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ purchaseId: "purchase_child_1", courseSlug: "bachata-basics", time: "12:00" })
+      expect.objectContaining({
+        purchaseId: "purchase_child_1",
+        courseSlug: "bachata-basics",
+        time: "12:00",
+        preferredStatus: "scheduled",
+      })
+    )
+  })
+
+  it("uses stored flowContext fallback when event metadata omits it", async () => {
+    mockPurchaseFindUnique.mockResolvedValue({
+      metadata: { flowContext: "kiosk_terminal" },
+    })
+    mockConstructEvent.mockReturnValue({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_no_flow",
+          payment_status: "paid",
+          amount_total: 2000,
+          currency: "usd",
+          customer: "cus_123",
+          payment_intent: "pi_123",
+          customer_details: {
+            email: "test@example.com",
+            name: "Test User",
+            phone: "+1 9293876584",
+          },
+          metadata: {
+            courseSlug: "salsa-femenina-matutina",
+            courseTitle: "Course booking",
+            date: "2026-02-10",
+            time: "11:00",
+            packageId: "pkg_123",
+            serviceId: "dropin",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(
+      new Request("http://localhost/api/stripe/webhook", {
+        method: "POST",
+        body: JSON.stringify({ id: "evt_no_flow" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredStatus: "checked_in" })
+    )
+  })
+
+  it("does not trust Stripe cardholder name for canonical user upsert", async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      firstName: "Danna",
+      lastName: "Jhon",
+      username: null,
+      primaryEmailAddress: { emailAddress: "danna@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 9293876584" },
+    })
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+
+    mockConstructEvent.mockReturnValue({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_name_snapshot",
+          payment_status: "paid",
+          amount_total: 2000,
+          currency: "usd",
+          customer: "cus_123",
+          payment_intent: "pi_123",
+          customer_details: {
+            email: "danna@example.com",
+            name: "Mariano Barrionuevo",
+            phone: "+1 9293876584",
+          },
+          metadata: {
+            userId: "clerk_user_1",
+            email: "danna@example.com",
+            phone: "9293876584",
+            courseSlug: "salsa-femenina-matutina",
+            courseTitle: "Course booking",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(
+      new Request("http://localhost/api/stripe/webhook", {
+        method: "POST",
+        body: JSON.stringify({ id: "evt_name_snapshot" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockUpsertUserByIdentifiers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clerkId: "clerk_user_1",
+        email: "danna@example.com",
+        name: "Danna Jhon",
+      })
+    )
+
+    expect(mockPurchaseUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ name: "Mariano Barrionuevo" }),
+        update: expect.objectContaining({ name: "Mariano Barrionuevo" }),
+      })
     )
   })
 

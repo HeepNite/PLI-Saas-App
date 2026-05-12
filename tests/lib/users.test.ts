@@ -39,6 +39,7 @@ describe("upsertUserByIdentifiers", () => {
       clerkId: "clerk_1",
       email: "jhon@example.com",
       name: "jhon doe",
+      nameIsCanonical: true,
     })
 
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
@@ -87,6 +88,7 @@ describe("upsertUserByIdentifiers", () => {
       email: "jhon@doe.com",
       name: "Jhon doe",
       phone: "+1 (551) 260-3078",
+      nameIsCanonical: true,
     })
 
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
@@ -99,7 +101,35 @@ describe("upsertUserByIdentifiers", () => {
     })
   })
 
-  it("does not overwrite a row linked to different clerkId", async () => {
+  it("does not overwrite existing name with non-canonical name even with clerkId", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: "db_user_1",
+      clerkId: "clerk_1",
+      email: "palladium@example.com",
+      name: "Palladium Latin Art",
+      phone: "15550100",
+      stripeCustomerId: null,
+    })
+    mockPrisma.user.findMany.mockResolvedValue([])
+
+    const result = await upsertUserByIdentifiers({
+      clerkId: "clerk_1",
+      email: "palladium@example.com",
+      name: "Mariano Barrionuevo",
+    })
+
+    expect(mockPrisma.user.update).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      id: "db_user_1",
+      clerkId: "clerk_1",
+      email: "palladium@example.com",
+      name: "Palladium Latin Art",
+      phone: "15550100",
+      stripeCustomerId: null,
+    })
+  })
+
+  it("creates a new row instead of reusing a row linked to another clerkId", async () => {
     const linkedToDifferentClerk = {
       id: "db_user_conflict",
       clerkId: "clerk_other",
@@ -111,6 +141,7 @@ describe("upsertUserByIdentifiers", () => {
 
     mockPrisma.user.findUnique.mockResolvedValue(null)
     mockPrisma.user.findMany.mockResolvedValue([linkedToDifferentClerk])
+    mockPrisma.user.create.mockResolvedValue({ id: "db_user_new", clerkId: "clerk_new" })
 
     const result = await upsertUserByIdentifiers({
       clerkId: "clerk_new",
@@ -120,6 +151,14 @@ describe("upsertUserByIdentifiers", () => {
     })
 
     expect(mockPrisma.user.update).not.toHaveBeenCalled()
-    expect(result).toEqual(linkedToDifferentClerk)
+    expect(mockPrisma.user.create).toHaveBeenCalledWith({
+      data: {
+        clerkId: "clerk_new",
+        email: "new@example.com",
+        name: "New Name",
+        phone: "15512603078",
+      },
+    })
+    expect(result).toEqual({ id: "db_user_new", clerkId: "clerk_new" })
   })
 })

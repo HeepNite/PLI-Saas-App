@@ -67,5 +67,6 @@ export async function syncDbUserFromClerkUser(user: CanonicalClerkUser) {
     email,
     name: resolveCanonicalClerkName(user),
     phone,
+    nameIsCanonical: true,
   })
 }

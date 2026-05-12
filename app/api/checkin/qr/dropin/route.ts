@@ -210,6 +210,7 @@ export async function POST(req: Request) {
         email,
         phone,
         name,
+        nameIsCanonical: true,
       })
       if (!dbUser) {
         return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })

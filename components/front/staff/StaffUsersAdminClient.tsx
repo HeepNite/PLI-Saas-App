@@ -76,6 +76,8 @@ import AttendanceHistoryTimeline, {
 } from "@/components/front/staff/AttendanceHistoryTimeline"
 import StudentDataOverrideModal from "@/components/front/staff/StudentDataOverrideModal"
 import AuditHistoryPopover from "@/components/front/staff/AuditHistoryPopover"
+import { useSchoolWizard, SchoolWizardPanel } from "@/components/front/staff/school"
+import type { StepEnabledContext } from "@/components/front/staff/school"
 import type { StripeFailureInfo } from "@/lib/stripe-failure"
 
 type StaffUserRow = {
@@ -2199,6 +2201,16 @@ const resolveVisibleProfileSettlementIds = (students: StudentProfileCard[]) =>
     ),
   ]
 
+const getOpenPaymentIds = (allPayments: PaymentRow[]): string[] => {
+  return allPayments
+    .filter((payment) => {
+      const hasOutstandingBalance = typeof payment.outstandingBalance === "number" && payment.outstandingBalance > 0
+      const isPending = payment.settlementStatus === "pending"
+      return hasOutstandingBalance || isPending
+    })
+    .map((payment) => payment.id)
+}
+
 export const resolveProfileCardDetailRows = (student: StudentProfileCard) => {
   const details = resolveProfileCardDetails(student)
   return [
@@ -2813,6 +2825,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [schoolBusy, setSchoolBusy] = React.useState<null | "course" | "package" | "rule" | "assign">(null)
   const [schoolError, setSchoolError] = React.useState<string | null>(null)
   const [schoolSuccess, setSchoolSuccess] = React.useState<string | null>(null)
+  const schoolWizard = useSchoolWizard()
   const [schoolCourses, setSchoolCourses] = React.useState<SchoolCourseRow[]>([])
   const [schoolRooms, setSchoolRooms] = React.useState<RoomRow[]>([])
   const [schoolPackages, setSchoolPackages] = React.useState<SchoolPackageRow[]>([])
@@ -2888,6 +2901,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [courseMediaUploading, setCourseMediaUploading] = React.useState<null | "image" | "video">(null)
   const [courseHydratedFromQuery, setCourseHydratedFromQuery] = React.useState(false)
   const [courseEditingSlug, setCourseEditingSlug] = React.useState<string | null>(null) // The original slug when editing
+  const wizardEnabledCtx: StepEnabledContext = { courseEditingSlug }
   const [courseSlugConflict, setCourseSlugConflict] = React.useState<{ exists: boolean; suggestion: string | null; existingTitle: string | null }>({
     exists: false,
     suggestion: null,
@@ -5287,6 +5301,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setQuickTimeDraft("")
     setScheduleTimePickerOpen(false)
     setCourseHydratedFromQuery(true)
+    schoolWizard.goToEntity("courses")
   }, [courseHydratedFromQuery, isSchoolView, schoolCourses, searchParams])
 
   React.useEffect(() => {
@@ -5891,16 +5906,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     } finally {
       setPaymentsBulkBusyAction(null)
     }
-  }
-
-  const getOpenPaymentIds = (allPayments: PaymentRow[]): string[] => {
-    return allPayments
-      .filter((payment) => {
-        const hasOutstandingBalance = typeof payment.outstandingBalance === "number" && payment.outstandingBalance > 0
-        const isPending = payment.settlementStatus === "pending"
-        return hasOutstandingBalance || isPending
-      })
-      .map((payment) => payment.id)
   }
 
   const updateRequestStatus = async (requestId: string, status: StaffRequestStatus) => {
@@ -7123,7 +7128,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       return resolveVisibleProfileSettlementIds(searchResultCards)
     }
     if (paymentCategoryFilter !== "cash") return []
-    return [...new Set(filteredStudentCards.map((item) => item.latestPayment.id).filter(Boolean))]
+    return [...new Set(filteredStudentCards.flatMap((item) => {
+      const openIds = getOpenPaymentIds(item.allPayments)
+      return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
+    }))]
   }, [filteredStudentCards, paymentCategoryFilter, searchResultCards])
 
   const cardContext = React.useMemo<CardContext>(
@@ -7169,7 +7177,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       return resolveVisibleProfileSettlementIds(paginatedSearchResultCards)
     }
     if (paymentCategoryFilter !== "cash") return []
-    return [...new Set(paginatedStudentCards.map((item) => item.latestPayment.id).filter(Boolean))]
+    return [...new Set(paginatedStudentCards.flatMap((item) => {
+      const openIds = getOpenPaymentIds(item.allPayments)
+      return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
+    }))]
   }, [paginatedSearchResultCards, paginatedStudentCards, paymentCategoryFilter, searchResultCards])
 
   const selectedFilteredPaymentIds = React.useMemo(
@@ -9762,19 +9773,33 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </div>
               </div>
 
-              {schoolError ? (
-                <p className="mt-4 rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
-                  {schoolError}
-                </p>
-              ) : null}
-              {schoolSuccess ? (
-                <p className="mt-4 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-                  {schoolSuccess}
-                </p>
-              ) : null}
             </article>
 
-            <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <SchoolWizardPanel
+              wizard={schoolWizard}
+              enabledContext={wizardEnabledCtx}
+              onSave={schoolWizard.activeEntity === "courses" && schoolWizard.step < 6 ? undefined : () => {
+                if (schoolWizard.activeEntity === "courses") {
+                  const form = document.querySelector<HTMLFormElement>("[data-wizard-form='courses']")
+                  form?.requestSubmit()
+                } else if (schoolWizard.activeEntity === "packages") {
+                  const form = document.querySelector<HTMLFormElement>("[data-wizard-form='packages']")
+                  form?.requestSubmit()
+                } else if (schoolWizard.activeEntity === "points") {
+                  const form = document.querySelector<HTMLFormElement>("[data-wizard-form='points']")
+                  form?.requestSubmit()
+                }
+              }}
+              saveBusy={schoolBusy !== null}
+              error={schoolError}
+              success={schoolSuccess}
+            >
+              <p className="text-xs text-black/50 dark:text-white/50">
+                Use the steps above to navigate through the {schoolWizard.activeEntity} configuration below.
+              </p>
+            </SchoolWizardPanel>
+
+            <article style={{ display: schoolWizard.activeEntity === "rooms" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="mb-4">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Private reservations</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Current and upcoming room reservations</h3>
@@ -9941,7 +9966,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               </div>
             </article>
 
-            <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <article style={{ display: schoolWizard.activeEntity === "rooms" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Room management</p>
@@ -10148,7 +10173,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               </div>
             </article>
 
-            <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <article style={{ display: schoolWizard.activeEntity === "courses" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="mb-6">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Course studio</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create and publish courses</h3>
@@ -10162,7 +10187,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   <input ref={courseImageInputRef} name="courseLocalImage" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleCourseLocalImage} />
                   <input ref={courseVideoInputRef} name="courseLocalVideo" type="file" accept="video/mp4,video/webm" className="hidden" onChange={handleCourseLocalVideo} />
                   <div ref={courseFormFieldsRef} className="mt-4 space-y-4">
-                    <div className="space-y-3">
+                    <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 0 ? undefined : "none" }} className="space-y-3">
                       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Course main information</span>
                       {courseSlugConflict.exists && (
                         <div className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 dark:border-amber-400/30 dark:bg-amber-900/20">
@@ -10293,7 +10318,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                        </div>
                      </div>
 
-                    <div className="space-y-2">
+                    <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 1 ? undefined : "none" }} className="space-y-2">
                       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Prices and special discounts</span>
                       <div className="grid grid-cols-2 gap-3">
                         <input
@@ -10360,7 +10385,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       ) : null}
                     </div>
 
-                    <div className="space-y-2">
+                    <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 2 ? undefined : "none" }} className="space-y-2">
                       <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Media assets</p>
                       <div className="rounded-lg border border-black/10 bg-white/75 p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
                       <div className="grid gap-4 md:grid-cols-2">
@@ -10406,12 +10431,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
+                    <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step >= 3 && schoolWizard.step <= 5 ? undefined : "none" }} className="space-y-2">
+                      <p style={{ display: schoolWizard.step === 3 ? undefined : "none" }} className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
                         {isSpecialEventCourse ? "Special events (calendar builder)" : "Schedules (guided builder)"}
                       </p>
                       <div className="space-y-5">
                         <div className="space-y-5">
+                          <div style={{ display: schoolWizard.step === 3 ? undefined : "none" }}>
                           {isSpecialEventCourse ? (
                             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 dark:border-amber-400/35 dark:bg-amber-500/10">
                               <p className="text-[11px] uppercase tracking-[0.2em] text-amber-300">Special event mode</p>
@@ -10420,7 +10446,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               </p>
                             </div>
                           ) : (
-                            <div className={`grid items-start gap-5 ${courseRecurringWeekdays.length === 1 ? "xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]" : ""}`}>
+                            <div style={{ display: schoolWizard.step === 3 ? undefined : "none" }}>
                               <div className="px-1 py-1.5">
                                 <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">1) Select days</p>
                                 <div className="mt-1 grid grid-cols-7 gap-1.5">
@@ -10678,7 +10704,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         </div>
 
                         <div className="space-y-5">
-                          <div className="grid gap-5 xl:grid-cols-2">
+                          <div className="grid grid-cols-2 gap-5">
                             <div>
                               <div ref={scheduleTimePickerRef} className="relative grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                                 <button
@@ -10769,7 +10795,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                 )}
                               </div>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               {isSpecialEventCourse ? (
                                 <div className="rounded-lg border border-[var(--brand,#b61616)]/25 bg-[var(--brand,#b61616)]/8 p-2.5">
                                   <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#ff8a8a)]">Priority rule</p>
@@ -10788,7 +10814,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     />
                                     Repeat for the entire visible month
                                   </label>
-                                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                  <div className="mt-2 grid gap-2">
                                     <select
                                       name="courseRecurrenceMode"
                                       value={courseRecurrenceMode}
@@ -10809,7 +10835,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                   </div>
                                   <div className="mt-4 border-t border-black/10 pt-4 dark:border-white/10">
                                     <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">5) Publication status</p>
-                                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                    <div className="mt-2 grid gap-2">
                                       <select
                                         name="coursePublicationMode"
                                         value={courseForm.publicationMode}
@@ -10849,8 +10875,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               )}
                             </div>
                           </div>
+                          </div>
 
                           {/* ─── Consecutive Classes (CourseLink) Section ─── */}
+                          <div style={{ display: schoolWizard.step === 4 ? undefined : "none" }}>
                           {courseEditingSlug && (
                             <div className="mb-4 rounded-md border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
                               <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Consecutive Classes</p>
@@ -11016,7 +11044,35 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               )}
                             </div>
                           )}
+                          </div>
 
+                          <div style={{ display: schoolWizard.step === 5 ? undefined : "none" }} className="grid gap-4 md:grid-cols-[minmax(0,0.45fr)_minmax(0,1fr)]">
+                          {/* Left column: Monthly Calendar */}
+                          <div className="min-w-0 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                            <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Monthly calendar (preview)</p>
+                            {schoolLoading ? (
+                              <div className="space-y-2 animate-pulse">
+                                <div className="h-8 rounded bg-black/10 dark:bg-white/10" />
+                                <div className="h-44 rounded bg-black/10 dark:bg-white/10" />
+                              </div>
+                            ) : (
+                              <CalendarPicker
+                                value=""
+                                onChange={() => {}}
+                                values={[...scheduleCalendarMap.keys()].sort()}
+                                multiple
+                                onValuesChange={() => {}}
+                                timezone="America/New_York"
+                                className="!w-full !rounded-md !bg-white/60 dark:!bg-white/[0.06]"
+                                compact
+                                locked
+                                getDateTooltip={getCourseScheduleDateTooltip}
+                                getDateTone={getCourseScheduleDateTone}
+                              />
+                            )}
+                          </div>
+                          {/* Right column: Course Review */}
+                          <div className="min-w-0">
                           <div className="rounded-md border border-black/10 bg-white/70 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                             <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">{selectedCourseKindReviewLabel}</p>
                             {schoolLoading ? (
@@ -11191,9 +11247,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               </div>
                             )}
                           </div>
+                          </div>
                         </div>
 
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.5fr)_minmax(0,0.9fr)]">
+                        <div style={{ display: "none" }} className="grid gap-4 xl:grid-cols-[minmax(0,0.5fr)_minmax(0,0.9fr)]">
                           <div className="min-w-0 p-2 text-xs">
                             <p className="uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Saved courses</p>
                             <div className="mt-3 max-h-60 overflow-y-auto pr-1 space-y-3">
@@ -11272,38 +11329,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               )}
                             </div>
                           </div>
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    {/* Left column: Calendar */}
-                    <div className="min-w-0 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                      <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Monthly calendar (preview)</p>
-                      {schoolLoading ? (
-                        <div className="space-y-2 animate-pulse">
-                          <div className="h-8 rounded bg-black/10 dark:bg-white/10" />
-                          <div className="h-44 rounded bg-black/10 dark:bg-white/10" />
-                        </div>
-                      ) : (
-                        <CalendarPicker
-                          value=""
-                          onChange={() => {}}
-                          values={[...scheduleCalendarMap.keys()].sort()}
-                          multiple
-                          onValuesChange={() => {}}
-                          timezone="America/New_York"
-                          className="!w-full !rounded-md !bg-white/60 dark:!bg-white/[0.06]"
-                          compact
-                          locked
-                          getDateTooltip={getCourseScheduleDateTooltip}
-                          getDateTone={getCourseScheduleDateTone}
-                        />
-                      )}
-                    </div>
-
-                    {/* Right column: Publish on Social */}
+                  <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 6 ? undefined : "none" }} className="mt-5">
+                    {/* Publish on Social */}
                     <div className="min-w-0 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
                       <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Publish on social</p>
                       <p className="mt-1 text-xs text-black/60 dark:text-white/60">Share this course directly from the dashboard.</p>
@@ -11361,7 +11394,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </div>
 
 
-                  <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 6 ? undefined : "none" }} className="mt-4 grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={resetCourseBuilder}
@@ -11383,8 +11416,61 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
             </article>
 
-            <div className="grid gap-4 xl:grid-cols-2">
-              <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            {/* Saved Courses — always visible when courses tab is active */}
+            <article style={{ display: schoolWizard.activeEntity === "courses" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+              <header className="mb-4">
+                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Course catalog</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Saved courses</h3>
+              </header>
+              <div className="max-h-80 overflow-y-auto pr-1">
+                {schoolLoading ? (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                    <div className="h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                    <div className="h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                  </div>
+                ) : schoolCourses.length === 0 ? (
+                  <p className="text-sm text-black/60 dark:text-white/60">No courses created yet.</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    {schoolCourses.map((item) => {
+                      const previewMediaUrl = item.previewImageUrl || (item.previewVideoUrl ? `/api/og?title=${encodeURIComponent(item.title)}` : null)
+                      return (
+                        <div
+                          key={`saved-course-ext-${item.slug}`}
+                          className="flex items-start gap-3 rounded-lg border border-black/10 bg-black/[0.02] p-2.5 dark:border-white/10 dark:bg-white/[0.02]"
+                        >
+                          {previewMediaUrl ? (
+                            <img src={previewMediaUrl} alt={item.title} className="h-12 w-12 flex-none rounded-md object-cover" />
+                          ) : (
+                            <div className="flex h-12 w-12 flex-none items-center justify-center rounded-md bg-black/10 text-[8px] uppercase text-black/40 dark:bg-white/10 dark:text-white/40">img</div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-semibold text-black dark:text-white">{item.title}</p>
+                            <p className="truncate text-[11px] text-black/60 dark:text-white/60">{item.slug}</p>
+                            <p className="text-[11px] text-black/55 dark:text-white/55">
+                              {item.availableWeekdays.length > 0
+                                ? item.availableWeekdays.sort((a: number, b: number) => a - b).map((d: number) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")
+                                : ""}
+                              {item.availableTimes.length > 0 ? ` · ${item.availableTimes.join(", ")}` : ""}
+                            </p>
+                            <div className="mt-1.5 flex gap-2">
+                              <button type="button" onClick={() => loadCourseIntoForm(item)} className="rounded border border-[var(--brand,#b61616)]/40 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/10">Edit</button>
+                              {currentRole === "owner" && (
+                                <button type="button" onClick={() => deleteCourse(item.slug, item.title)} className="rounded border border-red-500/60 px-2 py-0.5 text-[10px] font-semibold text-red-500 hover:bg-red-500/10">Delete</button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </article>
+
+            <div style={{ display: schoolWizard.activeEntity === "packages" || schoolWizard.activeEntity === "points" ? undefined : "none" }} className="grid gap-4 xl:grid-cols-2">
+              <article style={{ display: schoolWizard.activeEntity === "packages" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Package builder</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create or update package</h3>
 
@@ -11789,7 +11875,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </div>
               </article>
 
-              <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+              <article style={{ display: schoolWizard.activeEntity === "points" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Points builder</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Rules + manual assignment</h3>
 
@@ -12165,7 +12251,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </button>
           </header>
 
-          {canManageClerkSync && (clerkSyncLoading || clerkSyncRepairing || clerkSyncError || clerkSyncMessage || (clerkSyncHealth?.missingCount ?? 0) > 0) ? (
+          {canManageClerkSync && (clerkSyncLoading || clerkSyncRepairing || clerkSyncError || (clerkSyncHealth?.missingCount ?? 0) > 0) ? (
             <div
               className="mb-4 rounded-2xl border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/8 p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.65)]"
             >
@@ -12865,7 +12951,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 const totalSpentLabel = formatMoney(totalSpentCents, payment.currency)
                 const subtitleSlotLabel = formatStudentPaymentCardSlotLabel(payment.classDate, payment.classTime)
                 const courseUnion = [...new Set(student.allPayments.map((entry) => entry.courseTitle || entry.courseSlug).filter(Boolean))]
-                const isSelected = selectedPaymentIds.includes(payment.id)
+                const studentOpenIds = getOpenPaymentIds(student.allPayments)
+                const studentSelectableIds = studentOpenIds.length > 0
+                  ? studentOpenIds
+                  : student.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
+                const isSelected = studentSelectableIds.some((id) => selectedPaymentIds.includes(id))
                 const studentPinLabel = payment.studentPin.enabled
                   ? payment.studentPin.provisionalActive
                     ? "Provisional PIN"
@@ -12897,7 +12987,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           </button>
                           <button
                             type="button"
-                            onClick={() => setSelectedPaymentIds((prev) => prev.filter((id) => id !== payment.id))}
+                            onClick={() => setSelectedPaymentIds((prev) => prev.filter((id) => !studentSelectableIds.includes(id)))}
                             className="inline-flex items-center rounded-md bg-black/40 border border-white/20 px-1.5 py-1 text-[10px] text-white/60 hover:text-white/80 transition-colors"
                           >
                             ✕
@@ -12913,10 +13003,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               const checked = event.target.checked
                               setSelectedPaymentIds((prev) => {
                                 if (checked) {
-                                  if (prev.includes(payment.id)) return prev
-                                  return [...prev, payment.id]
+                                  return [...new Set([...prev, ...studentSelectableIds])]
                                 }
-                                return prev.filter((id) => id !== payment.id)
+                                return prev.filter((id) => !studentSelectableIds.includes(id))
                               })
                             }}
                           />

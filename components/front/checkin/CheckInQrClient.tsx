@@ -509,6 +509,7 @@ export default function CheckInQrClient({
       const data = await res.json().catch(() => null)
       if (res.ok && data?.consecutiveOffer) {
         setConsecutiveOffer(data.consecutiveOffer as ConsecutiveOffer)
+        setShowConsecutivePaymentSelection(false)
         setShowConsecutiveOverlay(true)
         return true
       }
@@ -732,6 +733,7 @@ export default function CheckInQrClient({
 
     setConsecutiveOffer(null)
     setShowConsecutiveOverlay(false)
+    if (packageCheckInResult) return
     void handleStationCompletion()
   }, [handleStationCompletion, packageCheckInResult, performPackageCheckInApi])
 
@@ -823,7 +825,22 @@ export default function CheckInQrClient({
   const handleConsecutivePayCard = React.useCallback(async () => {
     if (!consecutiveOffer) return
     setConsecutiveError(null)
+    setShowDuplicatePurchasePopup(false)
     setShowConsecutivePaymentSelection(false)
+
+    const linkedCourse = sourceCourses.find((course) => course.slug === consecutiveOffer.linkedCourseSlug) || null
+    const linkedCourseServiceId =
+      linkedCourse?.enrollment.services.find((service) => service.id !== "new-student")?.id ||
+      linkedCourse?.enrollment.services[0]?.id ||
+      ""
+    if (!linkedCourseServiceId) {
+      setConsecutiveQrCheckout({
+        ...createEmptyKioskQrCheckoutState(),
+        phase: "error",
+        error: "Unable to find a valid service for the next class.",
+      })
+      return
+    }
 
     const priceCents = Boolean(bootstrap?.package)
       ? consecutiveOffer.packageHolderConsecutiveCents
@@ -851,13 +868,20 @@ export default function CheckInQrClient({
           currency: "usd",
           date: activeDate,
           time: consecutiveOffer.linkedCourseTime ?? activeTime,
+          serviceId: linkedCourseServiceId,
           firstName: bootstrap?.customer?.firstName,
           lastName: bootstrap?.customer?.lastName,
           email: bootstrap?.customer?.email,
           phone: bootstrap?.customer?.phone,
           participants: 1,
-          service: "dropin",
           photoContext: "kiosk_terminal",
+          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+          consecutiveAddOnOnly: Boolean(bootstrap?.package),
+          linkedFromCourseSlug: activeCourseSlug,
+          consecutivePriceCents: priceCents,
+          consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
+          consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
+          consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime ?? activeTime,
         }),
       })
 
@@ -892,7 +916,7 @@ export default function CheckInQrClient({
         error: "We couldn't start the QR payment. Please try again.",
       })
     }
-  }, [consecutiveOffer, activeDate, activeTime, bootstrap])
+  }, [consecutiveOffer, sourceCourses, bootstrap, activeDate, activeTime, hasActiveClerkSession, kioskPinSessionToken, activeCourseSlug])
 
   const handleConsecutiveQrCancel = React.useCallback(() => {
     setConsecutiveQrCheckout(createEmptyKioskQrCheckoutState())
@@ -908,8 +932,10 @@ export default function CheckInQrClient({
     setConsecutiveQrCheckout(createEmptyKioskQrCheckoutState())
     setConsecutiveOffer(null)
     setShowConsecutivePaymentSelection(false)
-    setConsecutiveSuccess({ courseTitle: consecutiveOffer?.linkedCourseTitle ?? "" })
-  }, [consecutiveOffer])
+    setShowConsecutiveOverlay(false)
+    setConsecutiveFetchKey((k) => k + 1)
+    void handleStationCompletion()
+  }, [handleStationCompletion])
 
   // ─── Poll consecutive QR checkout status ────────────────────
   const consecutiveQrPendingPhase = isKioskQrPendingPhase(consecutiveQrCheckout.phase)
@@ -944,7 +970,7 @@ export default function CheckInQrClient({
           }))
           // Trigger success after a brief delay so the panel can update
           window.setTimeout(() => {
-            if (!cancelled) handleConsecutiveQrComplete()
+            handleConsecutiveQrComplete()
           }, 800)
           return
         }
@@ -1322,6 +1348,15 @@ export default function CheckInQrClient({
 
     // Check for duplicate purchase BEFORE opening the flow
     if (bootstrap.hasExistingPurchaseForSession) {
+      if (
+        showConsecutiveOverlay ||
+        showConsecutivePaymentSelection ||
+        Boolean(consecutiveOffer) ||
+        Boolean(packageCheckInResult) ||
+        consecutiveQrCheckout.phase !== "idle"
+      ) {
+        return
+      }
       setShowDuplicatePurchasePopup(true)
       return
     }
@@ -1351,6 +1386,9 @@ export default function CheckInQrClient({
     })
   }, [
     bootstrap,
+    consecutiveOffer,
+    consecutiveOfferSettled,
+    consecutiveQrCheckout.phase,
     existingRegularBookingOverride,
     hasActiveClerkSession,
     hasKioskPinSession,
@@ -1359,7 +1397,10 @@ export default function CheckInQrClient({
     mode,
     openExistingPurchaseFlow,
     openNewBooking,
+    packageCheckInResult,
     processingPackageCheckIn,
+    showConsecutiveOverlay,
+    showConsecutivePaymentSelection,
   ])
 
 
@@ -1386,6 +1427,7 @@ export default function CheckInQrClient({
       // Only show overlay for PACKAGE HOLDERS — non-package users go through EnrollModal which has consecutive step
       if (consecutiveOffer && consecutiveOfferSettled && !packageCheckInResult
           && mode === 'existing' && Boolean(bootstrap) && Boolean(bootstrap?.package)) {
+        setShowConsecutivePaymentSelection(false)
         setShowConsecutiveOverlay(true)
       }
       return
@@ -1725,7 +1767,7 @@ export default function CheckInQrClient({
       )}
 
       {/* ─── Consecutive offer flow (two-phase: accept → payment selection → success) ──────────────────────────── */}
-      {showConsecutiveOverlay && consecutiveOffer && !consecutiveSuccess && !consecutiveError && (
+      {showConsecutiveOverlay && consecutiveOffer && !consecutiveSuccess && !consecutiveError && consecutiveQrCheckout.phase === "idle" && (
         <ConsecutiveClassOffer
           offer={consecutiveOffer}
           isPackageHolder={hasAnyActivePackage}

@@ -1404,6 +1404,9 @@ export default function EnrollModal({
       const data = await res.json()
       if (!data.available) {
         setPinAvailabilityError(data.message || "This PIN is already in use. Please choose a different one.")
+        setStudentPin("")
+        setStudentPinConfirm("")
+        if (isKioskTerminalFlow) setActiveNumericField("pin")
         return false
       }
       setPinAvailabilityError(null)
@@ -1415,7 +1418,7 @@ export default function EnrollModal({
     } finally {
       setCheckingPinAvailability(false)
     }
-  }, [])
+  }, [isKioskTerminalFlow])
 
   const handleNumpadDigit = React.useCallback((digit: string) => {
     if (activeNumericField === "phone") {
@@ -3464,7 +3467,7 @@ export default function EnrollModal({
                                   + {consecutiveOffer.linkedCourseTitle}{consecutiveOffer.linkedCourseTime ? ` · ${to12h(consecutiveOffer.linkedCourseTime)}` : ""}
                                 </div>
                                 <div className="mt-0.5 text-[11px] text-emerald-300/70">
-                                  Consecutive class · {consecutiveOffer.discountPercent}% off
+                                  Consecutive class promotion
                                 </div>
                               </div>
                               <span className="shrink-0 text-sm font-semibold text-emerald-300">${(consecutiveAddedCents / 100).toFixed(2)}</span>
@@ -3733,14 +3736,7 @@ export default function EnrollModal({
             }}
           />
           <div className="relative z-10 w-full max-w-md max-h-[85vh] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
-            {/* Header */}
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-white">Verify your phone</h3>
-                <p className="mt-1 text-sm text-white/68">
-                  Enter the code sent to {contact.phone}
-                </p>
-              </div>
+            <div className="mb-4 flex items-start justify-end gap-3">
               <button
                 type="button"
                 className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04] transition"

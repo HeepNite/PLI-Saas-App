@@ -153,6 +153,7 @@ export async function POST(req: Request) {
             email,
             phone,
             name,
+            nameIsCanonical: true,
           })
         })()
       : kioskSessionResult?.ok
@@ -294,7 +295,7 @@ export async function POST(req: Request) {
             userId: dbUser.id,
             courseSlug: context.courseSlug,
             courseTitle: course.title,
-            amount: consecutivePriceCents ? consecutivePriceCents / 100 : 0,
+            amount: consecutivePriceCents ?? 0,
             currency: "usd",
             status: consecutiveCashPayment ? "pending" : "paid",
             participants: 1,

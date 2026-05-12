@@ -4,6 +4,7 @@ import {
   buildOutstandingBalanceByUser,
   isCompletedPaymentStatus,
   isOpenPurchase,
+  normalizePaymentChannel,
   selectActivePackagesByUser,
   selectTodayCheckInByUser,
 } from "@/app/api/staff/payments/shared"
@@ -156,6 +157,17 @@ describe("staff payments shared helpers", () => {
       metadata: { paymentChannel: "card", settlementStatus: "pending" },
       status: "succeeded", stripePaymentIntentId: "pi_1", stripeCheckoutSessionId: null,
     }).isOpen).toBe(false)
+  })
+
+  it("classifies inconsistent stripe+cash metadata rows as card", () => {
+    expect(
+      normalizePaymentChannel({
+        metadata: { paymentMethod: "cash" },
+        status: "pending",
+        stripePaymentIntentId: "pi_inconsistent",
+        stripeCheckoutSessionId: null,
+      })
+    ).toBe("card")
   })
 
   it("prefers active today check-ins over later lower-priority rows", () => {

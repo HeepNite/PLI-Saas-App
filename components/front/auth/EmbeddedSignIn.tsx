@@ -26,7 +26,16 @@ type PhoneCodeFactor = {
   phoneNumberId: string
 }
 
+type EmailCodeFactor = {
+  strategy: "email_code"
+  emailAddressId: string
+  safeIdentifier?: string
+}
+
+type VerificationStrategy = "phone_code" | "email_code"
+
 const CODE_LENGTH = 6
+const CODE_RESEND_COOLDOWN_MS = 30_000
 const PHONE_CODE_RATE_LIMIT_RE = /too many verification code requests|wait at least\s+\d+\s+seconds?/i
 const ALREADY_SIGNED_IN_RE = /already signed in|active session/i
 
@@ -42,6 +51,20 @@ const getPhoneCodeFactor = (factors: unknown): PhoneCodeFactor | null => {
   )
   if (!factor) return null
   return factor as PhoneCodeFactor
+}
+
+const getEmailCodeFactor = (factors: unknown): EmailCodeFactor | null => {
+  if (!Array.isArray(factors)) return null
+  const factor = factors.find(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      "strategy" in item &&
+      "emailAddressId" in item &&
+      (item as { strategy?: string }).strategy === "email_code"
+  )
+  if (!factor) return null
+  return factor as EmailCodeFactor
 }
 
 const getClerkErrorMessage = (err: unknown) => {
@@ -82,7 +105,12 @@ export default function EmbeddedSignIn({
   const [step, setStep] = React.useState<"phone" | "code">("phone")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [resendAvailableAt, setResendAvailableAt] = React.useState(0)
   const [phoneNumberId, setPhoneNumberId] = React.useState<string>("")
+  const [emailAddressId, setEmailAddressId] = React.useState<string>("")
+  const [emailSafeIdentifier, setEmailSafeIdentifier] = React.useState<string>("")
+  const [verificationStrategy, setVerificationStrategy] = React.useState<VerificationStrategy>("phone_code")
   const [activeField, setActiveField] = React.useState<KioskNumericField>(INITIAL_KIOSK_NUMERIC_FIELD)
 
   React.useEffect(() => {
@@ -95,7 +123,14 @@ export default function EmbeddedSignIn({
     }
   }, [useNumericKeypad])
 
+  React.useEffect(() => {
+    if (resendAvailableAt <= Date.now()) return
+    const timer = window.setTimeout(() => setResendAvailableAt(0), resendAvailableAt - Date.now())
+    return () => window.clearTimeout(timer)
+  }, [resendAvailableAt])
+
   const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
+  const isResendCoolingDown = resendAvailableAt > Date.now()
 
   // Ref for auto-send - declared here but effect runs after sendCode is defined
   const autoSendTriggeredRef = React.useRef(false)
@@ -111,8 +146,12 @@ export default function EmbeddedSignIn({
   const moveToCodeStepFromCurrentAttempt = React.useCallback(() => {
     if (!signIn) return false
     const factor = getPhoneCodeFactor(signIn.supportedFirstFactors)
+    const emailFactor = getEmailCodeFactor(signIn.supportedFirstFactors)
     if (!factor?.phoneNumberId) return false
     setPhoneNumberId(factor.phoneNumberId)
+    setEmailAddressId(emailFactor?.emailAddressId || "")
+    setEmailSafeIdentifier(emailFactor?.safeIdentifier || "")
+    setVerificationStrategy("phone_code")
     setCode("")
     setStep("code")
     return true
@@ -122,8 +161,22 @@ export default function EmbeddedSignIn({
     setStep("phone")
     setCode("")
     setPhoneNumberId("")
+    setEmailAddressId("")
+    setEmailSafeIdentifier("")
+    setVerificationStrategy("phone_code")
     setError(null)
+    setNotice(null)
   }, [])
+
+  const startCodeCooldown = React.useCallback(() => {
+    setResendAvailableAt(Date.now() + CODE_RESEND_COOLDOWN_MS)
+  }, [])
+
+  const blockDuringCooldown = React.useCallback(() => {
+    if (resendAvailableAt <= Date.now()) return false
+    setError("We already requested a code. Wait 30 seconds before trying again.")
+    return true
+  }, [resendAvailableAt])
 
   React.useEffect(() => {
     if (!isLoaded || !signIn || step === "code" || !normalizedPhone) return
@@ -144,6 +197,7 @@ export default function EmbeddedSignIn({
 
     setBusy(true)
     setError(null)
+    setNotice("Sending SMS code...")
     try {
       if (
         signIn.identifier === normalizedPhone &&
@@ -159,6 +213,7 @@ export default function EmbeddedSignIn({
       })
 
       const factor = getPhoneCodeFactor(created.supportedFirstFactors)
+      const emailFactor = getEmailCodeFactor(created.supportedFirstFactors)
       if (!factor?.phoneNumberId) {
         setError("We couldn't prepare phone sign-in.")
         return
@@ -170,13 +225,20 @@ export default function EmbeddedSignIn({
       })
 
       setPhoneNumberId(factor.phoneNumberId)
+      setEmailAddressId(emailFactor?.emailAddressId || "")
+      setEmailSafeIdentifier(emailFactor?.safeIdentifier || "")
+      setVerificationStrategy("phone_code")
       setCode("")
       setStep("code")
+      startCodeCooldown()
+      setNotice(`We sent a code to ${formatUSPhone(phone)}.`)
       onCodeSent?.()
     } catch (err) {
       const message = getClerkErrorMessage(err)
       if (moveToCodeStepFromCurrentAttempt() || (message && PHONE_CODE_RATE_LIMIT_RE.test(message))) {
         setStep("code")
+        startCodeCooldown()
+        setNotice(null)
         setError("We already sent a code. Enter the one you received or wait 30 seconds to resend.")
         return
       }
@@ -188,7 +250,7 @@ export default function EmbeddedSignIn({
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, onCodeSent, phone, signIn])
+  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, onCodeSent, phone, signIn, startCodeCooldown])
 
   // Auto-send SMS code on mount when autoSend is enabled and phone is valid
   // Small delay ensures Clerk is fully initialized before attempting to send
@@ -225,7 +287,7 @@ export default function EmbeddedSignIn({
     setError(null)
     try {
       const attempt = await signIn.attemptFirstFactor({
-        strategy: "phone_code",
+        strategy: verificationStrategy,
         code: code.trim(),
       })
 
@@ -251,21 +313,40 @@ export default function EmbeddedSignIn({
     } finally {
       setBusy(false)
     }
-  }, [activateSessionOnSuccess, code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, setActive, signIn])
+  }, [activateSessionOnSuccess, code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, setActive, signIn, verificationStrategy])
 
   const resendCode = React.useCallback(async () => {
-    if (!isLoaded || !signIn || !phoneNumberId) return
+    if (!isLoaded || !signIn) return
+    if (blockDuringCooldown()) return
+    if (verificationStrategy === "phone_code" && !phoneNumberId) return
+    if (verificationStrategy === "email_code" && !emailAddressId) return
     setBusy(true)
     setError(null)
+    setNotice(verificationStrategy === "email_code" ? "Sending email code..." : "Sending SMS code...")
     try {
-      await signIn.prepareFirstFactor({
-        strategy: "phone_code",
-        phoneNumberId,
-      })
+      if (verificationStrategy === "email_code") {
+        await signIn.prepareFirstFactor({
+          strategy: "email_code",
+          emailAddressId,
+        })
+      } else {
+        await signIn.prepareFirstFactor({
+          strategy: "phone_code",
+          phoneNumberId,
+        })
+      }
+      startCodeCooldown()
+      setNotice(
+        verificationStrategy === "email_code"
+          ? `We sent a new code to ${emailSafeIdentifier || "your email"}.`
+          : `We sent a new code to ${formatUSPhone(phone)}.`
+      )
       onCodeSent?.()
     } catch (err) {
       const message = getClerkErrorMessage(err)
       if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
+        startCodeCooldown()
+        setNotice(null)
         setError("We already sent a code. Use the one you received or wait 30 seconds to resend.")
         return
       }
@@ -273,7 +354,36 @@ export default function EmbeddedSignIn({
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, onCodeSent, phoneNumberId, signIn])
+  }, [blockDuringCooldown, emailAddressId, emailSafeIdentifier, isLoaded, onCodeSent, phone, phoneNumberId, signIn, startCodeCooldown, verificationStrategy])
+
+  const sendCodeByEmail = React.useCallback(async () => {
+    if (!isLoaded || !signIn || !emailAddressId) return
+    if (blockDuringCooldown()) return
+    setBusy(true)
+    setError(null)
+    setNotice("Sending email code...")
+    try {
+      await signIn.prepareFirstFactor({
+        strategy: "email_code",
+        emailAddressId,
+      })
+      setVerificationStrategy("email_code")
+      setCode("")
+      startCodeCooldown()
+      setNotice(`We sent a new code to ${emailSafeIdentifier || "your email"}.`)
+    } catch (err) {
+      const message = getClerkErrorMessage(err)
+      if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
+        startCodeCooldown()
+        setNotice(null)
+        setError("We already sent a code. Use the one you received or wait 30 seconds to resend.")
+        return
+      }
+      setError(message || "We couldn't send the code to your email.")
+    } finally {
+      setBusy(false)
+    }
+  }, [blockDuringCooldown, emailAddressId, emailSafeIdentifier, isLoaded, signIn, startCodeCooldown])
 
   if (!isLoaded) {
     return (
@@ -366,7 +476,9 @@ export default function EmbeddedSignIn({
         <div className="space-y-4">
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verify your access</p>
-            <p className="mt-1 text-sm text-white/82">Enter the code we sent to {formatUSPhone(phone)}.</p>
+            <p className="mt-1 text-sm text-white/82">
+              Enter the code we sent to {verificationStrategy === "email_code" ? emailSafeIdentifier || "your email" : formatUSPhone(phone)}.
+            </p>
           </div>
           <label className="block space-y-2">
             <span className="text-xs font-medium text-white/85">Code</span>
@@ -418,7 +530,18 @@ export default function EmbeddedSignIn({
               }}
             />
           )}
+          {notice && <p className="text-xs text-white/70">{notice}</p>}
           {error && <p className="text-xs text-red-200">{error}</p>}
+          {emailAddressId && verificationStrategy === "phone_code" && (
+            <button
+              type="button"
+              onClick={() => void sendCodeByEmail()}
+              disabled={busy || isResendCoolingDown}
+              className="text-left text-xs text-white/70 underline decoration-white/25 underline-offset-4 transition hover:text-white disabled:opacity-60"
+            >
+              {busy ? "Sending..." : "Didn't receive it? Send the code by email instead."}
+            </button>
+          )}
           <div className="flex items-center justify-between gap-3 text-xs">
             <button
               type="button"
@@ -430,10 +553,10 @@ export default function EmbeddedSignIn({
             <button
               type="button"
               onClick={() => void resendCode()}
-              disabled={busy}
+              disabled={busy || isResendCoolingDown}
               className="text-[var(--brand,#e31b1b)] underline decoration-[var(--brand,#e31b1b)]/30 underline-offset-4 disabled:opacity-60"
             >
-              Resend code
+              {isResendCoolingDown ? "Wait 30s" : "Resend code"}
             </button>
           </div>
           <button

@@ -34,6 +34,10 @@ export type CheckoutBody = {
   consecutiveCourseTitle?: string
   /** Time slot for the consecutive class (class B's time, falls back to class A's time) */
   consecutiveLinkedCourseTime?: string
+  /** True when hosted checkout is only charging the consecutive add-on for an existing package holder. */
+  consecutiveAddOnOnly?: boolean
+  /** Slug of the first class that unlocked the consecutive add-on. */
+  linkedFromCourseSlug?: string
   /** Authoritative current class date from kiosk context (YYYY-MM-DD) */
   kioskCurrentCourseDate?: string
   /** Authoritative current class time from kiosk context (HH:MM) */
@@ -69,6 +73,8 @@ export type CheckoutValidation = {
   consecutiveLinkedCourseTime: string | null
   kioskCurrentCourseDate: string | null
   kioskCurrentCourseTime: string | null
+  consecutiveAddOnOnly: boolean
+  linkedFromCourseSlug: string | null
 }
 
 const getPackageCredits = (pkg?: EnrollmentOption) => {
@@ -126,6 +132,8 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     consecutiveLinkedCourseSlug,
     consecutiveCourseTitle,
     consecutiveLinkedCourseTime,
+    consecutiveAddOnOnly = false,
+    linkedFromCourseSlug,
     kioskCurrentCourseDate,
     kioskCurrentCourseTime,
   } = body || {}
@@ -138,8 +146,11 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
 
   // Validate consecutive fields consistency
   const hasConsecutive = typeof consecutivePriceCents === "number" && consecutivePriceCents > 0
-  if (hasConsecutive && !consecutiveLinkedCourseSlug) {
+  if (hasConsecutive && !consecutiveLinkedCourseSlug && !consecutiveAddOnOnly) {
     return { status: 400, error: "consecutiveLinkedCourseSlug is required when consecutivePriceCents is provided" }
+  }
+  if (consecutiveAddOnOnly && (!hasConsecutive || !linkedFromCourseSlug)) {
+    return { status: 400, error: "linkedFromCourseSlug and consecutivePriceCents are required for consecutive add-on checkout" }
   }
 
   const course = await getCatalogCourseBySlug(courseSlug)
@@ -178,7 +189,22 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
   const validatedKioskCurrentCourseDate = normalizeIsoDate(kioskCurrentCourseDate)
   const validatedKioskCurrentCourseTime = normalizeTime24(kioskCurrentCourseTime)
 
-  if (hasConsecutive && consecutiveLinkedCourseSlug) {
+  if (consecutiveAddOnOnly && hasConsecutive && linkedFromCourseSlug) {
+    const { findConsecutiveLink } = await import("@/lib/course-links")
+    const link = await findConsecutiveLink(linkedFromCourseSlug, courseSlug)
+    if (!link) {
+      return { status: 400, error: "No active consecutive link found for this course pair" }
+    }
+    if (link.packageHolderConsecutiveCents !== consecutivePriceCents) {
+      return { status: 400, error: "Consecutive price does not match configured package-holder price" }
+    }
+
+    validatedConsecutivePriceCents = consecutivePriceCents
+    validatedConsecutiveLinkedCourseSlug = courseSlug
+    validatedConsecutiveCourseTitle = consecutiveCourseTitle || courseTitle || null
+    validatedConsecutiveLinkedCourseTime = consecutiveLinkedCourseTime || null
+    expected = consecutivePriceCents / 100
+  } else if (hasConsecutive && consecutiveLinkedCourseSlug) {
     // Validate the CourseLink exists and price matches
     const { findConsecutiveLink } = await import("@/lib/course-links")
     const link = await findConsecutiveLink(courseSlug, consecutiveLinkedCourseSlug)
@@ -233,5 +259,7 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     consecutiveLinkedCourseTime: validatedConsecutiveLinkedCourseTime,
     kioskCurrentCourseDate: validatedKioskCurrentCourseDate,
     kioskCurrentCourseTime: validatedKioskCurrentCourseTime,
+    consecutiveAddOnOnly: Boolean(consecutiveAddOnOnly),
+    linkedFromCourseSlug: typeof linkedFromCourseSlug === "string" && linkedFromCourseSlug.trim() ? linkedFromCourseSlug.trim() : null,
   }
 }

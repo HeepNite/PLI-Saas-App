@@ -26,6 +26,17 @@ const centsToUsd = (cents: number): string => {
   return (cents / 100).toFixed(2)
 }
 
+const resolveDiscountPercent = (input: {
+  priceCents: number | null
+  regularPriceCents: number
+  fallbackPercent: number
+}) => {
+  if (input.priceCents == null || input.priceCents <= 0 || input.regularPriceCents <= 0) {
+    return input.fallbackPercent
+  }
+  return Math.max(0, Math.round((1 - input.priceCents / input.regularPriceCents) * 100))
+}
+
 export function ConsecutiveClassOffer({
   offer,
   isPackageHolder,
@@ -41,7 +52,12 @@ export function ConsecutiveClassOffer({
     : offer.dropInConsecutiveCents
 
   const displayPrice = displayPriceCents != null ? centsToUsd(displayPriceCents) : "—"
-  const discountLabel = `${offer.discountPercent}% off`
+  const discountPercent = resolveDiscountPercent({
+    priceCents: displayPriceCents,
+    regularPriceCents: offer.regularDropInCents,
+    fallbackPercent: offer.discountPercent,
+  })
+  const discountLabel = `${discountPercent}% off`
 
   const subtitle = isPackageHolder
     ? "Add the next class at a special price (separate from your package)"

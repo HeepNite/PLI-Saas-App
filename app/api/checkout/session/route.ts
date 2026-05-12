@@ -179,6 +179,8 @@ export async function POST(req: Request) {
         consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
         consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
         consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
+        consecutiveAddOnOnly: String(validation.consecutiveAddOnOnly),
+        linkedFromCourseSlug: validation.linkedFromCourseSlug || "",
       },
     })
 

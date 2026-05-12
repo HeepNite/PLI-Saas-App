@@ -14,6 +14,7 @@ import {
   buildOutstandingBalanceByUser,
   isCompletedPaymentStatus,
   normalizePaymentChannel,
+  normalizePurchaseCategory,
   normalizeSettlementStatus,
   resolveCanonicalName,
   selectActivePackagesByUser,
@@ -45,10 +46,24 @@ const getAttendanceStatusRank = (status: string) => {
   return 0
 }
 
-const normalizePurchaseCategory = (input: { packageId: string; serviceId: string }) => {
-  if (input.packageId) return "package" as const
-  if (input.serviceId) return "dropin" as const
-  return "other" as const
+const resolveChildDropInCategory = (input: {
+  purchasePackageId: string | null
+  metadataPackageId: string
+  isConsecutiveChild: boolean
+  serviceId: string
+}) => {
+  if (input.isConsecutiveChild && !input.purchasePackageId) {
+    return {
+      packageId: "",
+      purchaseCategory: normalizePurchaseCategory({ packageId: "", serviceId: input.serviceId }),
+    }
+  }
+
+  const packageId = input.purchasePackageId || input.metadataPackageId
+  return {
+    packageId,
+    purchaseCategory: normalizePurchaseCategory({ packageId, serviceId: input.serviceId }),
+  }
 }
 
 const buildPurchaseAttendanceDedupKey = (input: {
@@ -402,8 +417,16 @@ export async function GET(req: Request) {
           ? { ...(existing.metadata as Record<string, unknown>), attendanceId: inheritedAttendanceId }
           : existing.metadata
         enrichedPurchasesBySlot.set(key, { ...existing, metadata: mergedMetadata as typeof existing.metadata })
+      } else if (!existingIsCredit && !newIsCredit) {
+        // Both are real payment rows for the same slot.
+        // Prefer a completed payment over a pending/failed duplicate regardless of recency.
+        const existingCompleted = isCompletedPaymentStatus(existing.purchase.status)
+        const incomingCompleted = isCompletedPaymentStatus(item.purchase.status)
+        if (!existingCompleted && incomingCompleted) {
+          enrichedPurchasesBySlot.set(key, item)
+        }
       }
-      // Both credits or both real payments → keep existing (first-seen wins)
+      // Otherwise keep existing (first-seen wins for equivalent rows).
     }
   }
   const deduplicatedEnrichedPurchases = [...enrichedPurchasesBySlot.values()]
@@ -1018,7 +1041,11 @@ export async function GET(req: Request) {
     const key = attendanceSlotKey(row.userId, row.session.courseSlug, row.session.startsAt.getTime())
     const current = attendanceBySlot.get(key)
     const nextCheckedInAt = row.checkedInAt.toISOString()
-    if (!current || current.checkedInAt < nextCheckedInAt) {
+    if (
+      !current ||
+      getAttendanceStatusRank(row.status) > getAttendanceStatusRank(current.status) ||
+      (getAttendanceStatusRank(row.status) === getAttendanceStatusRank(current.status) && current.checkedInAt < nextCheckedInAt)
+    ) {
       attendanceBySlot.set(key, {
         id: row.id,
         status: row.status,
@@ -1185,10 +1212,19 @@ export async function GET(req: Request) {
 
   const mapped = scopedPurchases.map((item) => {
     const purchase = item.purchase
+    const metadataParentPurchaseId = asText(item.metadata.parentPurchaseId)
+    const metadataConsecutiveLinkedFrom = asText(item.metadata.consecutiveLinkedFrom)
+    const isConsecutiveChild = Boolean(metadataParentPurchaseId || metadataConsecutiveLinkedFrom)
     const courseSlug = purchase.courseSlug
     const paymentStatus = purchase.status
-    const packageId = purchase.packageId || asText(item.metadata.packageId)
+    const metadataPackageId = asText(item.metadata.packageId)
     const serviceId = purchase.serviceId || asText(item.metadata.serviceId)
+    const { packageId, purchaseCategory } = resolveChildDropInCategory({
+      purchasePackageId: purchase.packageId,
+      metadataPackageId,
+      isConsecutiveChild,
+      serviceId,
+    })
     const paymentChannel = normalizePaymentChannel({
       metadata: item.metadata,
       status: paymentStatus,
@@ -1212,8 +1248,15 @@ export async function GET(req: Request) {
     const metadataPackagePurchaseId = asText(item.metadata.packagePurchaseId) || null
     const linkedPackagePurchaseId =
       packagePurchaseIdByPurchaseId.get(purchase.id) || metadataPackagePurchaseId || resolvedAttendance?.packagePurchaseId || null
-    const purchaseCategory = normalizePurchaseCategory({ packageId, serviceId })
     const isPaid = isCompletedPaymentStatus(paymentStatus)
+    const normalizedSettlementStatus =
+      paymentChannel === "cash"
+        ? (outstandingBalanceByUser.get(item.userId) ?? 0) > 0
+          ? "pending"
+          : item.settlementStatus
+        : isPaid
+          ? "paid"
+          : item.settlementStatus
     // Don't infer check-in without an actual attendance record
     // Cash payments without attendance linkage should show as "none", not assumed attended
     const checkInStatus: CheckInStatus =
@@ -1252,7 +1295,7 @@ export async function GET(req: Request) {
        amount: purchase.amount,
        currency: purchase.currency,
        paymentStatus,
-       settlementStatus: (outstandingBalanceByUser.get(item.userId) ?? 0) > 0 ? "pending" : item.settlementStatus,
+       settlementStatus: normalizedSettlementStatus,
        settlementNote: item.settlementNote,
       settledAt: item.settledAt,
       createdAt: purchase.createdAt.toISOString(),
@@ -1314,8 +1357,8 @@ export async function GET(req: Request) {
       .reduce((sum, item) => sum + item.amount, 0),
     pendingSettlement: filtered.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "pending").length,
     paidSettlement: filtered.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "paid").length,
-    pendingStripe: filtered.filter((item) => !item.classPaid).length,
-    paidStripe: filtered.filter((item) => item.classPaid).length,
+    pendingStripe: filtered.filter((item) => item.paymentChannel === "card" && !item.classPaid).length,
+    paidStripe: filtered.filter((item) => item.paymentChannel === "card" && item.classPaid).length,
   }
 
   if (mode === "history") {
