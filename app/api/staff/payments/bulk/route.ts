@@ -49,6 +49,104 @@ const isCashPurchase = (input: {
   )
 }
 
+const buildPackageSyncMetadata = (input: {
+  purchase: { courseSlug: string | null }
+  metadata: Record<string, unknown>
+}) => ({
+  courseSlug: input.purchase.courseSlug || asText(input.metadata.courseSlug),
+  packageId: asText(input.metadata.packageId),
+  packageLabel: asText(input.metadata.packageLabel),
+  packageTotalCredits: asText(input.metadata.packageTotalCredits),
+  packageIsUnlimited: asText(input.metadata.packageIsUnlimited),
+  packageCadence: asText(input.metadata.packageCadence),
+  packageMakeUps: asText(input.metadata.packageMakeUps),
+  packageValidDays: asText(input.metadata.packageValidDays),
+})
+
+type BulkPurchase = {
+  id: string
+  userId: string | null
+  courseSlug: string | null
+  courseTitle: string | null
+  metadata: Prisma.JsonValue | null
+}
+
+const resolveAttendanceIdForCashSettlement = async (input: {
+  purchase: BulkPurchase
+  metadata: Record<string, unknown>
+  settlementStatus: "paid" | "pending"
+  settledAt: string | null
+  settlementUpdatedBy: string
+}) => {
+  const existingAttendanceId = asText(input.metadata.attendanceId)
+  if (existingAttendanceId) return existingAttendanceId
+  if (!input.purchase.userId) return ""
+
+  const classDate = asText(input.metadata.date)
+  const classTime = asText(input.metadata.time)
+  const courseSlug = input.purchase.courseSlug || asText(input.metadata.courseSlug)
+
+  if (!classDate || !classTime || !courseSlug) return ""
+
+  const startsAt = buildSessionStartsAt(classDate, classTime)
+  if (!startsAt) return ""
+
+  try {
+    const now = new Date()
+    const session = await prisma.classSession.upsert({
+      where: {
+        courseSlug_startsAt: { courseSlug, startsAt },
+      },
+      update: {},
+      create: {
+        courseSlug,
+        title: input.purchase.courseTitle || courseSlug,
+        startsAt,
+      },
+    })
+
+    const attendance = await prisma.attendance.upsert({
+      where: {
+        userId_sessionId: { userId: input.purchase.userId, sessionId: session.id },
+      },
+      update: {},
+      create: {
+        userId: input.purchase.userId,
+        sessionId: session.id,
+        status: "checked_in_no_package",
+        checkedInAt: now,
+        metadata: {
+          source: "cash_settlement",
+          date: classDate,
+          time: classTime,
+        },
+      },
+    })
+
+    await prisma.purchase.update({
+      where: { id: input.purchase.id },
+      data: {
+        metadata: {
+          ...buildSettlementMetadata({
+            metadata: input.purchase.metadata,
+            settlementStatus: input.settlementStatus,
+            settledAt: input.settledAt,
+            settlementUpdatedBy: input.settlementUpdatedBy,
+          }),
+          attendanceId: attendance.id,
+        },
+      },
+    })
+    return attendance.id
+  } catch (error) {
+    console.warn("Unable to create attendance for cash settlement", {
+      purchaseId: input.purchase.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return ""
+  }
+}
+
 export async function POST(req: Request) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:payments:bulk-post", getClientIp(req)),
@@ -161,77 +259,16 @@ export async function POST(req: Request) {
     for (const purchase of purchases) {
       if (!purchase.userId || !isCashPurchase(purchase)) continue
       const metadata = asObject(purchase.metadata)
-      let resolvedAttendanceId = asText(metadata.attendanceId) || ""
+      const resolvedAttendanceId = await resolveAttendanceIdForCashSettlement({
+        purchase,
+        metadata,
+        settlementStatus,
+        settledAt,
+        settlementUpdatedBy: authResult.userId,
+      })
 
-      // Create Attendance record for cash drop-in when marked as paid
-      const existingAttendanceId = asText(metadata.attendanceId)
-      if (!existingAttendanceId) {
-        const classDate = asText(metadata.date)
-        const classTime = asText(metadata.time)
-        const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
-
-        if (classDate && classTime && courseSlug) {
-          const startsAt = buildSessionStartsAt(classDate, classTime)
-          if (startsAt) {
-            try {
-              const now = new Date()
-              const session = await prisma.classSession.upsert({
-                where: {
-                  courseSlug_startsAt: { courseSlug, startsAt },
-                },
-                update: {},
-                create: {
-                  courseSlug,
-                  title: purchase.courseTitle || courseSlug,
-                  startsAt,
-                },
-              })
-
-              const attendance = await prisma.attendance.upsert({
-                where: {
-                  userId_sessionId: { userId: purchase.userId, sessionId: session.id },
-                },
-                update: {},
-                create: {
-                  userId: purchase.userId,
-                  sessionId: session.id,
-                  status: "checked_in_no_package",
-                  checkedInAt: now,
-                  metadata: {
-                    source: "cash_settlement",
-                    date: classDate,
-                    time: classTime,
-                  },
-                },
-              })
-
-              // Link attendance ID to purchase metadata
-              await prisma.purchase.update({
-                where: { id: purchase.id },
-                data: {
-                  metadata: {
-                    ...buildSettlementMetadata({
-                      metadata: purchase.metadata,
-                      settlementStatus,
-                      settledAt,
-                      settlementUpdatedBy: authResult.userId,
-                    }),
-                    attendanceId: attendance.id,
-                  },
-                },
-              })
-              resolvedAttendanceId = attendance.id
-            } catch (error) {
-              console.warn("Unable to create attendance for cash settlement", {
-                purchaseId: purchase.id,
-                error: error instanceof Error ? error.message : String(error),
-              })
-            }
-          }
-        }
-      }
-
-      const packageId = purchase.packageId || asText(metadata.packageId)
+      const packageSyncMetadata = buildPackageSyncMetadata({ purchase, metadata })
+      const packageId = purchase.packageId || packageSyncMetadata.packageId
       if (!packageId) continue
       try {
         const synced = await syncPackagePurchaseFromPaidPurchase({
@@ -240,14 +277,8 @@ export async function POST(req: Request) {
           purchasedAt: purchase.createdAt,
           source: "cash",
           metadata: {
-            courseSlug: purchase.courseSlug || asText(metadata.courseSlug),
+            ...packageSyncMetadata,
             packageId,
-            packageLabel: asText(metadata.packageLabel),
-            packageTotalCredits: asText(metadata.packageTotalCredits),
-            packageIsUnlimited: asText(metadata.packageIsUnlimited),
-            packageCadence: asText(metadata.packageCadence),
-            packageMakeUps: asText(metadata.packageMakeUps),
-            packageValidDays: asText(metadata.packageValidDays),
           },
         })
         if (synced) syncedPackageCount += 1

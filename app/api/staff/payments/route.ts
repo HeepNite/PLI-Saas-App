@@ -78,6 +78,25 @@ const buildPurchaseAttendanceDedupKey = (input: {
   return `purchase:${input.purchaseId}`
 }
 
+/** Build ALL possible dedup keys for a purchase so attendance matching works regardless of timezone */
+const buildPurchaseAllDedupKeys = (input: {
+  purchaseId: string
+  userId: string
+  courseSlug: string | null | undefined
+  classStartsAt: Date | null
+  classDate: string | null
+  classTime: string | null
+}): string[] => {
+  const keys: string[] = [`purchase:${input.purchaseId}`]
+  if (input.courseSlug && input.classStartsAt) {
+    keys.push(attendanceSlotKey(input.userId, input.courseSlug, input.classStartsAt.getTime()))
+  }
+  if (input.courseSlug && input.classDate && input.classTime) {
+    keys.push(`${input.userId}|${input.courseSlug}|${input.classDate}|${input.classTime}`)
+  }
+  return keys
+}
+
 const toDateIso = (value: unknown) => {
   if (typeof value !== "string" && typeof value !== "number") return null
   const parsed = new Date(value)
@@ -251,6 +270,96 @@ const normalizeHistoryRangeInputs = (input: { from: string; to: string; date: st
   }
 }
 
+const getTrimmedSearchParam = (searchParams: URLSearchParams, key: string) => searchParams.get(key)?.trim() || ""
+
+const parsePaymentsQueryParams = (searchParams: URLSearchParams) => {
+  const query = getTrimmedSearchParam(searchParams, "q")
+  const settlementFilter = getTrimmedSearchParam(searchParams, "settlement").toLowerCase() || "all"
+  const requestedMode = getTrimmedSearchParam(searchParams, "mode").toLowerCase()
+  const userHistoryId = getTrimmedSearchParam(searchParams, "userId")
+  const selectedDate = getTrimmedSearchParam(searchParams, "date")
+  const selectedFrom = getTrimmedSearchParam(searchParams, "from")
+  const selectedTo = getTrimmedSearchParam(searchParams, "to")
+  const selectedClass = getTrimmedSearchParam(searchParams, "class")
+
+  return {
+    query,
+    settlementFilter,
+    requestedMode,
+    userHistoryId,
+    selectedDate,
+    selectedFrom,
+    selectedTo,
+    selectedClass,
+  }
+}
+
+const filterPurchasesByClassDateRange = <TItem extends { classDate: string | null }>(
+  items: TItem[],
+  from: string,
+  to: string
+) => items.filter((item) => item.classDate && item.classDate >= from && item.classDate <= to)
+
+const buildHistoryClassOptions = <TItem extends { purchase: { courseSlug: string | null; courseTitle: string | null } }>(
+  items: TItem[]
+) =>
+  Array.from(
+    new Map(
+      items
+        .filter((item) => item.purchase.courseSlug)
+        .map((item) => [
+          item.purchase.courseSlug,
+          {
+            slug: item.purchase.courseSlug,
+            title: item.purchase.courseTitle || item.purchase.courseSlug,
+          },
+        ])
+    ).values()
+  )
+
+const buildPaymentsSummary = <TItem extends {
+  amount: number
+  paymentStatus: string
+  paymentChannel: string
+  settlementStatus: string
+  classPaid: boolean
+}>(items: TItem[]) => ({
+  totalItems: items.length,
+  totalCollected: items
+    .filter((item) => isCompletedPaymentStatus(item.paymentStatus))
+    .reduce((sum, item) => sum + item.amount, 0),
+  pendingSettlement: items.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "pending").length,
+  paidSettlement: items.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "paid").length,
+  pendingStripe: items.filter((item) => item.paymentChannel === "card" && !item.classPaid).length,
+  paidStripe: items.filter((item) => item.paymentChannel === "card" && item.classPaid).length,
+})
+
+const resolveSettlementStatus = (input: {
+  paymentChannel: string
+  currentSettlementStatus: string
+  isPaid: boolean
+  hasOutstandingBalance: boolean
+}) => {
+  if (input.paymentChannel === "cash") {
+    return input.hasOutstandingBalance ? "pending" : input.currentSettlementStatus
+  }
+
+  return input.isPaid ? "paid" : input.currentSettlementStatus
+}
+
+const resolveCheckInStatus = (attendanceStatus: string | null | undefined): CheckInStatus => {
+  if (
+    attendanceStatus === "checked_in" ||
+    attendanceStatus === "checked_in_no_package" ||
+    attendanceStatus === "checked_out" ||
+    attendanceStatus === "scheduled"
+  ) {
+    return attendanceStatus
+  }
+
+  return "none"
+}
+
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:payments:get", getClientIp(req)),
@@ -270,15 +379,17 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url)
-  const query = url.searchParams.get("q")?.trim() || ""
-  const settlementFilter = url.searchParams.get("settlement")?.trim().toLowerCase() || "all"
-  const requestedMode = url.searchParams.get("mode")?.trim().toLowerCase()
-  const userHistoryId = url.searchParams.get("userId")?.trim() || ""
+  const {
+    query,
+    settlementFilter,
+    requestedMode,
+    userHistoryId,
+    selectedDate,
+    selectedFrom,
+    selectedTo,
+    selectedClass,
+  } = parsePaymentsQueryParams(url.searchParams)
   const mode: PaymentsMode = userHistoryId ? "userHistory" : requestedMode === "history" ? "history" : "today"
-  const selectedDate = url.searchParams.get("date")?.trim() || ""
-  const selectedFrom = url.searchParams.get("from")?.trim() || ""
-  const selectedTo = url.searchParams.get("to")?.trim() || ""
-  const selectedClass = url.searchParams.get("class")?.trim() || ""
 
   const historyRange =
     mode === "history"
@@ -498,25 +609,27 @@ export async function GET(req: Request) {
       take: TODAY_MODE_TAKE_LIMIT,
     })
 
+    const todayScopedPurchases = deduplicatedEnrichedPurchases
+      .filter((item) =>
+        isTodayScopedPurchase({
+          classDate: item.classDate,
+          createdAt: item.purchase.createdAt,
+          todayNY,
+          startOfTodayNY,
+          endOfTodayNY,
+        })
+      )
     const purchaseDedupKeys = new Set(
-      deduplicatedEnrichedPurchases
-        .filter((item) =>
-          isTodayScopedPurchase({
-            classDate: item.classDate,
-            createdAt: item.purchase.createdAt,
-            todayNY,
-            startOfTodayNY,
-            endOfTodayNY,
-          })
-        )
-        .map((item) =>
-          buildPurchaseAttendanceDedupKey({
-            purchaseId: item.purchase.id,
-            userId: item.userId,
-            courseSlug: item.purchase.courseSlug,
-            classStartsAt: item.classStartsAt,
-          })
-        )
+      todayScopedPurchases.flatMap((item) =>
+        buildPurchaseAllDedupKeys({
+          purchaseId: item.purchase.id,
+          userId: item.userId,
+          courseSlug: item.purchase.courseSlug,
+          classStartsAt: item.classStartsAt,
+          classDate: item.classDate,
+          classTime: item.classTime,
+        })
+      )
     )
 
     for (const att of todayAttendances) {
@@ -540,18 +653,29 @@ export async function GET(req: Request) {
         }
       }
 
+      const attSlotMs = att.session.startsAt.getTime()
+
       if (ATTENDED_CHECKIN_STATUS_SET.has(normalizedAttendance.status)) {
         attendedRowsTodayByUser.set(att.userId, (attendedRowsTodayByUser.get(att.userId) || 0) + 1)
-        const dedupeKey = linkedPurchaseId || attendanceSlotKey(att.userId, att.session.courseSlug, att.session.startsAt.getTime())
+        const dedupeKey = linkedPurchaseId || attendanceSlotKey(att.userId, att.session.courseSlug, attSlotMs)
         const existingKeys = dedupedCompletedTodayByUser.get(att.userId) || new Set<string>()
         existingKeys.add(dedupeKey)
         dedupedCompletedTodayByUser.set(att.userId, existingKeys)
       }
-      const dedupKey = linkedPurchaseId
-        ? `purchase:${linkedPurchaseId}`
-        : attendanceSlotKey(att.userId, att.session.courseSlug, att.session.startsAt.getTime())
 
-      if (!purchaseDedupKeys.has(dedupKey)) {
+      // Check if this attendance is already covered by a purchase row.
+      // Try purchase:ID match first (most reliable), then slot key, then
+      // fallback to a simple userId+courseSlug match for same-day dedup.
+      const isAlreadyCoveredByPurchase = (() => {
+        if (linkedPurchaseId && purchaseDedupKeys.has(`purchase:${linkedPurchaseId}`)) return true
+        if (purchaseDedupKeys.has(attendanceSlotKey(att.userId, att.session.courseSlug, attSlotMs))) return true
+        // Fallback: check if ANY today-scoped purchase matches by userId + courseSlug
+        return todayScopedPurchases.some(
+          (p) => p.userId === att.userId && p.purchase.courseSlug === att.session.courseSlug
+        )
+      })()
+
+      if (!isAlreadyCoveredByPurchase) {
         const packageId = att.packageUsage?.packagePurchase?.packageId || ""
         standaloneItems.push({
           purchase: {
@@ -595,31 +719,17 @@ export async function GET(req: Request) {
 
   const historyEligiblePurchases = deduplicatedEnrichedPurchases.filter((item) => item.classDate)
   const historyDatePurchases = mode === "history"
-    ? historyEligiblePurchases.filter((item) => item.classDate! >= historyRange!.from && item.classDate! <= historyRange!.to)
+    ? filterPurchasesByClassDateRange(historyEligiblePurchases, historyRange!.from, historyRange!.to)
     : []
   const classOptions = mode === "history"
-    ? Array.from(
-        new Map(
-          historyDatePurchases
-            .filter((item) => item.purchase.courseSlug)
-            .map((item) => [
-              item.purchase.courseSlug,
-              {
-                slug: item.purchase.courseSlug,
-                title: item.purchase.courseTitle || item.purchase.courseSlug,
-              },
-            ])
-        ).values()
-      )
+    ? buildHistoryClassOptions(historyDatePurchases)
     : []
   const scopedPurchases =
     mode === "history"
       ? historyDatePurchases.filter((item) => !selectedClass || item.purchase.courseSlug === selectedClass)
       : mode === "userHistory"
         ? (selectedFrom && selectedTo
-          ? deduplicatedEnrichedPurchases.filter(item =>
-              item.classDate && item.classDate >= selectedFrom && item.classDate <= selectedTo
-            )
+          ? filterPurchasesByClassDateRange(deduplicatedEnrichedPurchases, selectedFrom, selectedTo)
           : deduplicatedEnrichedPurchases)
         : [
             ...deduplicatedEnrichedPurchases.filter(
@@ -1249,23 +1359,15 @@ export async function GET(req: Request) {
     const linkedPackagePurchaseId =
       packagePurchaseIdByPurchaseId.get(purchase.id) || metadataPackagePurchaseId || resolvedAttendance?.packagePurchaseId || null
     const isPaid = isCompletedPaymentStatus(paymentStatus)
-    const normalizedSettlementStatus =
-      paymentChannel === "cash"
-        ? (outstandingBalanceByUser.get(item.userId) ?? 0) > 0
-          ? "pending"
-          : item.settlementStatus
-        : isPaid
-          ? "paid"
-          : item.settlementStatus
+    const normalizedSettlementStatus = resolveSettlementStatus({
+      paymentChannel,
+      currentSettlementStatus: item.settlementStatus,
+      isPaid,
+      hasOutstandingBalance: (outstandingBalanceByUser.get(item.userId) ?? 0) > 0,
+    })
     // Don't infer check-in without an actual attendance record
     // Cash payments without attendance linkage should show as "none", not assumed attended
-    const checkInStatus: CheckInStatus =
-      resolvedAttendance?.status === "checked_in" ||
-      resolvedAttendance?.status === "checked_in_no_package" ||
-      resolvedAttendance?.status === "checked_out" ||
-      resolvedAttendance?.status === "scheduled"
-        ? (resolvedAttendance.status as CheckInStatus)
-        : "none"
+    const checkInStatus = resolveCheckInStatus(resolvedAttendance?.status)
     const packageClassesUsedTotal = packageUsedOverrideByUser.get(item.userId)
       ?? (activePackage
         ? (activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0)
@@ -1350,16 +1452,7 @@ export async function GET(req: Request) {
 
   const filtered = settlementFilter === "all" ? mapped : mapped.filter((item) => item.settlementStatus === settlementFilter)
 
-  const summary = {
-    totalItems: filtered.length,
-    totalCollected: filtered
-      .filter((item) => isCompletedPaymentStatus(item.paymentStatus))
-      .reduce((sum, item) => sum + item.amount, 0),
-    pendingSettlement: filtered.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "pending").length,
-    paidSettlement: filtered.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "paid").length,
-    pendingStripe: filtered.filter((item) => item.paymentChannel === "card" && !item.classPaid).length,
-    paidStripe: filtered.filter((item) => item.paymentChannel === "card" && item.classPaid).length,
-  }
+  const summary = buildPaymentsSummary(filtered)
 
   if (mode === "history") {
       return NextResponse.json({

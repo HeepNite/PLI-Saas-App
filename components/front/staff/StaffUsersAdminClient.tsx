@@ -76,6 +76,7 @@ import AttendanceHistoryTimeline, {
 } from "@/components/front/staff/AttendanceHistoryTimeline"
 import StudentDataOverrideModal from "@/components/front/staff/StudentDataOverrideModal"
 import AuditHistoryPopover from "@/components/front/staff/AuditHistoryPopover"
+import { ClerkSyncMismatchBanner } from "@/components/front/staff/ClerkSyncMismatchBanner"
 import { useSchoolWizard, SchoolWizardPanel } from "@/components/front/staff/school"
 import type { StepEnabledContext } from "@/components/front/staff/school"
 import type { StripeFailureInfo } from "@/lib/stripe-failure"
@@ -2044,16 +2045,24 @@ export function transformPaymentRowsToAttendance(
       return `${hours}:${minutes}`
     })()
 
+    const isPackageRow = isPackageCredit || row.purchaseCategory === "package" || Boolean(row.packageId)
+    const classLabel = row.courseTitle || row.courseSlug || "Class"
+    const timeLabel = row.classTime
+      ? (() => {
+          const [h, m] = row.classTime.split(":").map(Number)
+          if (!Number.isFinite(h)) return ""
+          const suffix = h >= 12 ? "PM" : "AM"
+          const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+          return ` · ${hour12}${m ? `:${String(m).padStart(2, "0")}` : ""}${suffix}`
+        })()
+      : ""
     events.push({
       id: [row.attendanceId || "no-attendance", row.id].join(":"),
       date: eventDate,
       time: attendanceTime,
-      className: row.courseTitle || row.courseSlug || "Class",
-      classType:
-        isPackageCredit || row.purchaseCategory === "package" || Boolean(row.packageId)
-          ? "Package"
-          : "Drop-in",
-      packageName: row.activePackage?.label,
+      className: `${classLabel}${timeLabel}`,
+      classType: isPackageRow ? "Package" : "Drop-in",
+      packageName: isPackageRow ? row.activePackage?.label : undefined,
       status,
     })
   }
@@ -2617,11 +2626,22 @@ type StaffUsersAdminClientProps = {
   currentUserId: string
 }
 
+type ClerkSyncMismatch = {
+  userId: string
+  clerkId: string
+  email: string | null
+  fields: Array<"name" | "email" | "phone">
+  clerk: { name: string | null; email: string | null; phone: string | null }
+  db: { name: string | null; email: string | null; phone: string | null }
+}
+
 type ClerkSyncHealth = {
   clerkUsers: number
   dbUsersWithClerkId: number
   missingCount: number
   missingUsers: Array<{ clerkId: string; email: string | null }>
+  mismatchedCount?: number
+  mismatchedUsers?: ClerkSyncMismatch[]
 }
 
 export default function StaffUsersAdminClient({ currentRole, currentCategory, currentUserId }: StaffUsersAdminClientProps) {
@@ -2807,6 +2827,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [clerkSyncRepairing, setClerkSyncRepairing] = React.useState(false)
   const [clerkSyncError, setClerkSyncError] = React.useState<string | null>(null)
   const [clerkSyncMessage, setClerkSyncMessage] = React.useState<string | null>(null)
+  const [clerkSyncUserBusyId, setClerkSyncUserBusyId] = React.useState<string | null>(null)
   const [teacherUserId, setTeacherUserId] = React.useState("")
   const [teacherReviewCycleDays, setTeacherReviewCycleDays] = React.useState(30)
   const [teacherAssignedUserId, setTeacherAssignedUserId] = React.useState("")
@@ -3384,6 +3405,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         dbUsersWithClerkId: typeof data?.dbUsersWithClerkId === "number" ? data.dbUsersWithClerkId : 0,
         missingCount: typeof data?.missingCount === "number" ? data.missingCount : 0,
         missingUsers: Array.isArray(data?.missingUsers) ? data.missingUsers : [],
+        mismatchedCount: typeof data?.mismatchedCount === "number" ? data.mismatchedCount : 0,
+        mismatchedUsers: Array.isArray(data?.mismatchedUsers) ? data.mismatchedUsers : [],
       })
     } catch {
       setClerkSyncHealth(null)
@@ -3424,6 +3447,40 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setClerkSyncRepairing(false)
     }
   }, [canManageClerkSync, categoryFilter, fetchClerkSyncHealth, fetchRows, handleStaffAuthFailure, query])
+
+  const syncClerkUser = React.useCallback(async (userId: string) => {
+    if (!canManageClerkSync || !userId) return
+    setClerkSyncUserBusyId(userId)
+    setClerkSyncError(null)
+    setClerkSyncMessage(null)
+    try {
+      const res = await fetch(`/api/staff/users/sync-clerk/${encodeURIComponent(userId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (handleStaffAuthFailure(res.status)) return
+        setClerkSyncError(typeof data?.error === "string" ? data.error : "Unable to sync user.")
+        return
+      }
+      setClerkSyncMessage("Student synced from Clerk (phone preserved).")
+      await fetchClerkSyncHealth()
+      await fetchRows(query, categoryFilter, { showLoader: false, enforceMinDelay: false })
+    } catch {
+      setClerkSyncError("Network error while syncing user.")
+    } finally {
+      setClerkSyncUserBusyId(null)
+    }
+  }, [canManageClerkSync, categoryFilter, fetchClerkSyncHealth, fetchRows, handleStaffAuthFailure, query])
+
+  const clerkMismatchByUserId = React.useMemo(() => {
+    const map = new Map<string, ClerkSyncMismatch>()
+    for (const m of clerkSyncHealth?.mismatchedUsers ?? []) {
+      map.set(m.userId, m)
+    }
+    return map
+  }, [clerkSyncHealth])
 
   React.useEffect(() => {
     if (!isStudentsView || !canManageClerkSync) return
@@ -12251,7 +12308,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </button>
           </header>
 
-          {canManageClerkSync && (clerkSyncLoading || clerkSyncRepairing || clerkSyncError || (clerkSyncHealth?.missingCount ?? 0) > 0) ? (
+          {canManageClerkSync && (clerkSyncLoading || clerkSyncRepairing || clerkSyncError || (clerkSyncHealth?.missingCount ?? 0) > 0 || (clerkSyncHealth?.mismatchedCount ?? 0) > 0) ? (
             <div
               className="mb-4 rounded-2xl border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/8 p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.65)]"
             >
@@ -12263,7 +12320,20 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </span>
                     <p className="text-sm text-black/70 dark:text-white/70">
                       {clerkSyncHealth
-                        ? `${clerkSyncHealth.missingCount} user${clerkSyncHealth.missingCount === 1 ? "" : "s"} need to be synced before they can use the app.`
+                        ? (() => {
+                            const missing = clerkSyncHealth.missingCount
+                            const mismatched = clerkSyncHealth.mismatchedCount ?? 0
+                            if (missing > 0 && mismatched > 0) {
+                              return `${missing} user${missing === 1 ? "" : "s"} missing and ${mismatched} with outdated info — sync recommended.`
+                            }
+                            if (missing > 0) {
+                              return `${missing} user${missing === 1 ? "" : "s"} need to be synced before they can use the app.`
+                            }
+                            if (mismatched > 0) {
+                              return `${mismatched} student${mismatched === 1 ? " has" : "s have"} outdated info vs Clerk. Sync per student in the cards below (phone is locked).`
+                            }
+                            return "All users are up to date."
+                          })()
                         : "Checking whether all users are ready to use the app."}
                     </p>
                   </div>
@@ -12835,6 +12905,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         </div>
                       </header>
 
+                      {canManageClerkSync && clerkMismatchByUserId.has(student.userId) ? (
+                        <ClerkSyncMismatchBanner
+                          mismatch={clerkMismatchByUserId.get(student.userId)!}
+                          busy={clerkSyncUserBusyId === student.userId}
+                          onSync={() => void syncClerkUser(student.userId)}
+                        />
+                      ) : null}
+
                       <div className="mt-4 w-full grid grid-cols-2 gap-2.5">
                         {badges.map((badge) => (
                           <span
@@ -13040,6 +13118,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         </span>
                       </div>
                     </header>
+
+                    {canManageClerkSync && payment.userId && clerkMismatchByUserId.has(payment.userId) ? (
+                      <ClerkSyncMismatchBanner
+                        mismatch={clerkMismatchByUserId.get(payment.userId)!}
+                        busy={clerkSyncUserBusyId === payment.userId}
+                        onSync={() => void syncClerkUser(payment.userId)}
+                      />
+                    ) : null}
 
                     <div className="mt-4 w-full grid grid-cols-2 gap-1.5">
                       <button

@@ -39,7 +39,10 @@ export const resolveCanonicalClerkName = (user: CanonicalClerkUser): string | un
   return undefined
 }
 
-export async function syncDbUserFromClerkUser(user: CanonicalClerkUser) {
+/**
+ * Extract canonical identity values from a Clerk user (supports both API shape and webhook shape).
+ */
+export const extractClerkIdentity = (user: CanonicalClerkUser) => {
   const camelEmails = "emailAddresses" in user
     ? user.emailAddresses?.map((email) => ({ id: email.id, value: email.emailAddress }))
     : undefined
@@ -62,11 +65,21 @@ export async function syncDbUserFromClerkUser(user: CanonicalClerkUser) {
     pickPrimaryValue(camelPhones, "primaryPhoneNumberId" in user ? user.primaryPhoneNumberId || undefined : undefined) ||
     pickPrimaryValue(snakePhones, "primary_phone_number_id" in user ? user.primary_phone_number_id || undefined : undefined)
 
-  return upsertUserByIdentifiers({
+  return {
     clerkId: user.id,
-    email,
     name: resolveCanonicalClerkName(user),
-    phone,
+    email: email || undefined,
+    phone: phone || undefined,
+  }
+}
+
+export async function syncDbUserFromClerkUser(user: CanonicalClerkUser, options?: { skipPhone?: boolean }) {
+  const identity = extractClerkIdentity(user)
+  return upsertUserByIdentifiers({
+    clerkId: identity.clerkId,
+    email: identity.email,
+    name: identity.name,
+    phone: options?.skipPhone ? undefined : identity.phone,
     nameIsCanonical: true,
   })
 }

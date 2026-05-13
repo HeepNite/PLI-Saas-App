@@ -94,7 +94,11 @@ export const selectActivePackagesByUser = <TPackage extends ActivePackageCandida
   return selected
 }
 
+/** @deprecated Use attendanceSlotKeyByDatetime for timezone-safe dedup */
 export const attendanceSlotKey = (userId: string, courseSlug: string, startsAtMs: number) => `${userId}|${courseSlug}|${startsAtMs}`
+
+/** Timezone-safe dedup key using date + time strings (e.g. "2026-05-13" + "22:00") */
+export const attendanceSlotKeyByDatetime = (userId: string, courseSlug: string, date: string, time: string) => `${userId}|${courseSlug}|${date}|${time}`
 
 const CHECK_IN_STATUS_PRIORITY: Record<CardCheckInStatus, number> = {
   checked_in: 4,

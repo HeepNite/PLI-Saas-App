@@ -3,7 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockAuthorizePortalSection = vi.fn()
 const mockGetTodayNewYork = vi.fn()
 const mockBuildSessionStartsAt = vi.fn()
-const mockClerkGetUserList = vi.fn(async () => ({ data: [] }))
+type MockClerkUserListItem = {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  imageUrl?: string
+  hasImage?: boolean
+}
+
+const mockClerkGetUserList = vi.fn(async (..._args: unknown[]): Promise<{ data: MockClerkUserListItem[] }> => ({
+  data: [],
+}))
 
 const mockPrisma = {
   purchase: {
@@ -846,6 +856,56 @@ describe("staff payments route", () => {
     })
   })
 
+  it("filters user history rows by from/to using class metadata date", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "user_history_in_range_start",
+        userId: "user_1",
+        amount: 2000,
+        courseSlug: "salsa-beginners",
+        courseTitle: "Salsa Beginners",
+        metadata: { date: "2026-03-18", time: "18:00", paymentChannel: "card" },
+      }),
+      buildPurchase({
+        id: "user_history_in_range_end",
+        userId: "user_1",
+        amount: 2200,
+        courseSlug: "bachata-int",
+        courseTitle: "Bachata Intermediate",
+        metadata: { date: "2026-03-19", time: "20:00", paymentChannel: "card" },
+      }),
+      buildPurchase({
+        id: "user_history_outside_before",
+        userId: "user_1",
+        amount: 1800,
+        courseSlug: "zouk-open",
+        courseTitle: "Zouk Open",
+        metadata: { date: "2026-03-17", time: "19:00", paymentChannel: "card" },
+      }),
+      buildPurchase({
+        id: "user_history_outside_after",
+        userId: "user_1",
+        amount: 1900,
+        courseSlug: "kizomba-open",
+        courseTitle: "Kizomba Open",
+        metadata: { date: "2026-03-20", time: "19:00", paymentChannel: "card" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(
+      new Request("http://localhost/api/staff/payments?userId=user_1&from=2026-03-18&to=2026-03-19")
+    )
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual([
+      "user_history_in_range_start",
+      "user_history_in_range_end",
+    ])
+    expect(data.items).toHaveLength(2)
+  })
+
   it("keeps attendance-linked funding payments even when the visible daily row is still categorized as other", async () => {
     mockPrisma.purchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) => {
       if (where && "id" in where) {
@@ -1330,6 +1390,43 @@ describe("staff payments route", () => {
       { slug: "bachata-int", title: "Bachata Intermediate" },
       { slug: "legacy-open", title: "Salsa Beginners" },
     ])
+  })
+
+  it("normalizes history query params by trimming and lowercasing mode/settlement", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "history_card_paid",
+        userId: "user_1",
+        amount: 1200,
+        status: "paid",
+        courseSlug: "salsa-beginners",
+        metadata: { date: "2026-03-18", time: "18:00", paymentChannel: "card" },
+      }),
+      buildPurchase({
+        id: "history_cash_pending",
+        userId: "user_3",
+        amount: 600,
+        status: "pending",
+        courseSlug: "bachata-int",
+        metadata: { date: "2026-03-18", time: "21:00", paymentChannel: "cash", settlementStatus: "pending" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(
+      new Request("http://localhost/api/staff/payments?mode=%20HISTORY%20&from=2026-03-18&to=2026-03-18&settlement=%20PAID%20")
+    )
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["history_card_paid"])
+    expect(data.summary).toMatchObject({
+      totalItems: 1,
+      totalCollected: 1200,
+      paidStripe: 1,
+      pendingSettlement: 0,
+      paidSettlement: 0,
+    })
   })
 
   it("returns packageClassNumber when the history package usage can be resolved server-side", async () => {
