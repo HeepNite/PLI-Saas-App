@@ -44,6 +44,7 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
  */
 export async function GET(req: NextRequest) {
   const courseSlug = req.nextUrl.searchParams.get("courseSlug")
+  const selectedTime = req.nextUrl.searchParams.get("time")
   // TODO: REMOVE - diagnostic
   console.log('[consecutive-offer-api] request received, courseSlug:', courseSlug)
   if (!courseSlug) {
@@ -51,11 +52,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Find active CourseLink where this course is the first class (A → B)
-    const link = await prisma.courseLink.findFirst({
-      where: { courseSlugA: courseSlug, active: true },
+    // Find active CourseLinks involving this course. The actual consecutive
+    // direction is resolved from today's schedule time, not from stored A/B.
+    const links = await prisma.courseLink.findMany({
+      where: {
+        active: true,
+        OR: [{ courseSlugA: courseSlug }, { courseSlugB: courseSlug }],
+      },
     })
-    if (!link) {
+    if (links.length === 0) {
       // TODO: REMOVE - diagnostic
       console.log('[consecutive-offer-api] returning null, reason:', 'no active CourseLink found')
       return NextResponse.json(null)
@@ -70,9 +75,10 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // Check if course B exists and is active
-    let courseB = await prisma.courseCatalog.findUnique({
-      where: { slug: link.courseSlugB },
+    const linkedSlugs = links.map((link) => (link.courseSlugA === courseSlug ? link.courseSlugB : link.courseSlugA))
+
+    const linkedCourses = await prisma.courseCatalog.findMany({
+      where: { slug: { in: linkedSlugs } },
       select: {
         slug: true,
         title: true,
@@ -92,65 +98,40 @@ export async function GET(req: NextRequest) {
     const courseATimesForToday = courseA
       ? resolveTimesForWeekday(courseA.scheduleRules, courseA.availableTimes, todayJsWeekday).times
       : []
-    const courseAStartMinutes = toMinutes(courseATimesForToday[0])
+    const courseAStartMinutes = toMinutes(selectedTime) ?? toMinutes(courseATimesForToday[0])
 
-    let timesForToday = courseB?.active
-      ? resolveTimesForWeekday(courseB.scheduleRules, courseB.availableTimes, todayJsWeekday).times
-      : []
-
-    if ((!courseB || !courseB.active || timesForToday.length === 0) && courseAStartMinutes !== null) {
-      const candidates = await prisma.courseCatalog.findMany({
-        where: {
-          active: true,
-          slug: { not: courseSlug },
-        },
-        select: {
-          slug: true,
-          title: true,
-          active: true,
-          availableWeekdays: true,
-          availableTimes: true,
-          scheduleRules: true,
-          dropInPriceCents: true,
-          durationMinutes: true,
-        },
+    const nextClass = linkedCourses
+      .filter((candidate) => candidate.active)
+      .flatMap((candidate) => {
+        const candidateTimes = resolveTimesForWeekday(candidate.scheduleRules, candidate.availableTimes, todayJsWeekday).times
+        return candidateTimes
+          .map((time) => {
+            const minutes = toMinutes(time)
+            if (courseAStartMinutes === null || minutes === null || minutes <= courseAStartMinutes) return null
+            const link = links.find((item) => item.courseSlugA === candidate.slug || item.courseSlugB === candidate.slug)
+            return link ? { course: candidate, time, minutes, link } : null
+          })
+          .filter((item): item is { course: typeof candidate; time: string; minutes: number; link: (typeof links)[number] } => Boolean(item))
       })
+      .sort((left, right) => left.minutes - right.minutes)[0]
 
-      const nextClass = candidates
-        .map((candidate) => {
-          const candidateTimes = resolveTimesForWeekday(candidate.scheduleRules, candidate.availableTimes, todayJsWeekday).times
-          const firstTime = candidateTimes[0]
-          const minutes = toMinutes(firstTime)
-          return firstTime && minutes !== null && minutes > courseAStartMinutes
-            ? { course: candidate, times: candidateTimes, minutes }
-            : null
-        })
-        .filter((candidate): candidate is { course: NonNullable<typeof courseB>; times: string[]; minutes: number } => Boolean(candidate))
-        .sort((left, right) => left.minutes - right.minutes)[0]
-
-      if (nextClass) {
-        courseB = nextClass.course
-        timesForToday = nextClass.times
-      }
-    }
-
-    if (!courseB || !timesForToday || timesForToday.length === 0) {
+    if (!nextClass) {
       // TODO: REMOVE - diagnostic
       console.log('[consecutive-offer-api] returning null, reason:', 'no times available for today')
       return NextResponse.json(null)
     }
 
     // Build the offer
-    const regularDropInCents = courseB.dropInPriceCents ?? 0
-    const dropInConsecutiveCents = link.dropInConsecutiveCents ?? 0
-    const packageHolderConsecutiveCents = link.packageHolderConsecutiveCents ?? 0
+    const regularDropInCents = nextClass.course.dropInPriceCents ?? 0
+    const dropInConsecutiveCents = nextClass.link.dropInConsecutiveCents ?? 0
+    const packageHolderConsecutiveCents = nextClass.link.packageHolderConsecutiveCents ?? 0
     const discountPercent = computeDiscountPercent(regularDropInCents, dropInConsecutiveCents)
 
     // TODO: REMOVE - diagnostic
     const offer = {
-      linkedCourseSlug: courseB.slug,
-      linkedCourseTitle: courseB.title,
-      linkedCourseTime: timesForToday[0],
+      linkedCourseSlug: nextClass.course.slug,
+      linkedCourseTitle: nextClass.course.title,
+      linkedCourseTime: nextClass.time,
       dropInConsecutiveCents,
       packageHolderConsecutiveCents,
       regularDropInCents,

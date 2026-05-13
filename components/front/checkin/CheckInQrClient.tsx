@@ -329,7 +329,10 @@ export default function CheckInQrClient({
     console.log('[consecutive-offer] fetching for slug:', activeCourseSlug)
 
     const controller = new AbortController()
-    fetch(`/api/checkin/terminal/consecutive-offer?courseSlug=${encodeURIComponent(activeCourseSlug)}`, {
+    const params = new URLSearchParams({ courseSlug: activeCourseSlug })
+    if (activeTime) params.set("time", activeTime)
+
+    fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
       signal: controller.signal,
     })
       .then((res) => (res.ok ? res.json() : null))
@@ -349,7 +352,7 @@ export default function CheckInQrClient({
       })
 
     return () => controller.abort()
-  }, [isKioskTerminalFlow, activeCourseSlug, consecutiveFetchKey])
+  }, [isKioskTerminalFlow, activeCourseSlug, activeTime, consecutiveFetchKey])
 
   // ─── Booking contexts ───────────────────────────────────────
   const newBookingCourse = React.useMemo(

@@ -190,8 +190,8 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
   const validatedKioskCurrentCourseTime = normalizeTime24(kioskCurrentCourseTime)
 
   if (consecutiveAddOnOnly && hasConsecutive && linkedFromCourseSlug) {
-    const { findConsecutiveLink } = await import("@/lib/course-links")
-    const link = await findConsecutiveLink(linkedFromCourseSlug, courseSlug)
+    const { findConsecutiveLinkBetween } = await import("@/lib/course-links")
+    const link = await findConsecutiveLinkBetween(linkedFromCourseSlug, courseSlug)
     if (!link) {
       return { status: 400, error: "No active consecutive link found for this course pair" }
     }
@@ -206,8 +206,8 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     expected = consecutivePriceCents / 100
   } else if (hasConsecutive && consecutiveLinkedCourseSlug) {
     // Validate the CourseLink exists and price matches
-    const { findConsecutiveLink } = await import("@/lib/course-links")
-    const link = await findConsecutiveLink(courseSlug, consecutiveLinkedCourseSlug)
+    const { findConsecutiveLinkBetween } = await import("@/lib/course-links")
+    const link = await findConsecutiveLinkBetween(courseSlug, consecutiveLinkedCourseSlug)
     if (!link) {
       return { status: 400, error: "No active consecutive link found for this course pair" }
     }

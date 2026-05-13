@@ -11,7 +11,7 @@ import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
-import { findConsecutiveLink } from "@/lib/course-links"
+import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 
 export const runtime = "nodejs"
@@ -179,7 +179,7 @@ export async function POST(req: Request) {
         )
       }
 
-      const link = await findConsecutiveLink(linkedFromCourseSlug, context.courseSlug)
+      const link = await findConsecutiveLinkBetween(linkedFromCourseSlug, context.courseSlug)
       if (!link) {
         return NextResponse.json(
           { error: "No active consecutive link found for this course pair" },

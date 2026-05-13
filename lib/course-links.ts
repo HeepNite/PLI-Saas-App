@@ -25,6 +25,29 @@ export const findConsecutiveLink = async (
 }
 
 /**
+ * Find an active CourseLink between two courses regardless of stored direction.
+ * The consecutive class is determined by the selected schedule time, not by
+ * whether the row was saved as A → B or B → A.
+ */
+export const findConsecutiveLinkBetween = async (
+  courseSlug1: string,
+  courseSlug2: string
+): Promise<CourseLink | null> => {
+  const left = courseSlug1.trim().toLowerCase()
+  const right = courseSlug2.trim().toLowerCase()
+
+  return prisma.courseLink.findFirst({
+    where: {
+      active: true,
+      OR: [
+        { courseSlugA: left, courseSlugB: right },
+        { courseSlugA: right, courseSlugB: left },
+      ],
+    },
+  })
+}
+
+/**
  * Find all active courses linked to a given course, regardless of direction.
  * Returns two arrays:
  * - `asA`: courses where the given slug is courseSlugA (links where this is the early class)
