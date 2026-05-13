@@ -60,8 +60,8 @@ export function ConsecutiveClassOffer({
   const discountLabel = `${discountPercent}% off`
 
   const subtitle = isPackageHolder
-    ? "Add the next class at a special price (separate from your package)"
-    : "Add the next class at a special price"
+    ? "Add your second class at a special price (separate from your package)"
+    : "Add your second class at a special price"
 
   // Phase 2: Payment method selection
   if (showPaymentSelection) {

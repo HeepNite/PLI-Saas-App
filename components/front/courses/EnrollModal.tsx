@@ -2698,7 +2698,7 @@ export default function EnrollModal({
                     {activeStepKey === "packages"
                       ? course.title
                       : activeStepKey === "consecutive"
-                        ? "Promotion for the Next Class"
+                        ? "Promotion for the Second Class"
                         : activeStepKey === "payments"
                           ? "Payment for Salsa Class"
                         : `${steps[step]?.label} • ${course.title}`}
@@ -3353,7 +3353,7 @@ export default function EnrollModal({
                                 </div>
                               </div>
                               <p className="text-sm leading-relaxed text-white/68">
-                                Stay for the next class at a special price. This will be added to your payment.
+                                Add your second class at a special price. This will be added to your payment.
                               </p>
                             </div>
                           </button>
@@ -3467,7 +3467,7 @@ export default function EnrollModal({
                                   + {consecutiveOffer.linkedCourseTitle}{consecutiveOffer.linkedCourseTime ? ` · ${to12h(consecutiveOffer.linkedCourseTime)}` : ""}
                                 </div>
                                 <div className="mt-0.5 text-[11px] text-emerald-300/70">
-                                  Consecutive class promotion
+                                  Second class promotion
                                 </div>
                               </div>
                               <span className="shrink-0 text-sm font-semibold text-emerald-300">${(consecutiveAddedCents / 100).toFixed(2)}</span>
