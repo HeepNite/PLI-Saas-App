@@ -155,7 +155,7 @@ const enTranslations = {
     advanced: "Advanced",
   } as const
 
-const esTranslations: typeof enTranslations = {
+const esTranslations: Record<keyof typeof enTranslations, string> = {
     // Generic
     back: "Volver",
     cancel: "Cancelar",
