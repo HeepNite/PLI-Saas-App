@@ -1,55 +1,171 @@
-# PLI — Plataforma de cursos (Next.js)
+# PLI — Palladium Latin Institute
 
-App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, theming con `next-themes`, i18n propio (EN/ES), UI Tailwind v4 y un widget de asistente.
+> Plataforma SaaS para escuelas de arte y danza. Gestión de alumnos, staff, asistencia, pagos, kiosk y más.
+
+Built with **Next.js 15** · **React 19** · **TypeScript** · **Tailwind CSS v4** · **Prisma** · **PostgreSQL** · **Clerk** · **Stripe**
+
+---
+
+## Demo Local
+
+Si querés ver el sistema funcionando sin configurar el entorno de desarrollo completo, tenemos una rama de demo lista para usar.
+
+> **[Ver guía de instalación del demo (DEMO.md)](./DEMO.md)**
+
+La rama `demo/es-local` incluye:
+- Base de datos local con datos de demostración en español
+- Portal de staff, kiosk y perfil del cliente funcionales
+- Setup automático con un solo comando
+
+```bash
+git clone https://github.com/HeepNite/PLI-Saas-App.git
+cd PLI-Saas-App
+git checkout demo/es-local
+```
+
+Seguí los pasos en [DEMO.md](./DEMO.md) para tenerlo corriendo en minutos.
+
+---
+
+## Stack
+
+| Capa | Tecnología |
+|------|-----------|
+| Framework | Next.js 15 (App Router, Turbopack) |
+| UI | React 19, Tailwind CSS v4, shadcn/ui |
+| Lenguaje | TypeScript (strict mode) |
+| Base de datos | PostgreSQL via Prisma ORM |
+| Autenticación | Clerk |
+| Pagos | Stripe |
+| Animaciones | Framer Motion, Lenis (smooth scroll) |
+| i18n | Implementación custom (EN/ES) |
+| Testing | Vitest (unit/integration), Playwright (E2E) |
+
+---
 
 ## Comandos
-- `npm run dev` — desarrollo con Turbopack.
-- `npm run lint` — ESLint.
-- `npm run build` — build/SSR.
-- `npm start` — arranca el build.
-- `npm run prisma:generate` — regenera Prisma Client.
-- `npm run test` — unit tests (Vitest).
-- `npm run test:e2e` — Playwright.
 
-## Estructura rápida
-- Layout raíz: `app/layout.tsx` (Clerk, I18n, Theme + widget).
-- Páginas públicas: `app/(pages)/layout.tsx` con `NotificationBar`, `Header`, `FooterQuote`.
-- Home: `app/(pages)/page.tsx` (usa `constants/home-content.ts` para cursos y testimonios).
-- Cursos: catálogo `app/(courses)/courses-library/page.tsx`; detalle dinámico `app/cursos/[slug]/page.tsx` usando `lib/courses-repository.ts` (fuente actual `constants/courses.ts`).
-- Componentes UI: `components/front/` y `components/front/ui/` (hero, masonry, sliders, asistente).
-- Hooks utilitarios: `lib/hooks/useMediaQuery.ts`, `lib/hooks/useThemeObserver.ts`.
-- i18n: diccionarios en `lib/i18n-dict.ts`, cliente `lib/i18n.tsx`, server `lib/i18n-server.ts`.
+| Comando | Descripción |
+|---------|-------------|
+| `npm run dev` | Desarrollo local |
+| `npm run dev:turbo` | Desarrollo con Turbopack |
+| `npm run build` | Build de producción |
+| `npm start` | Arranca el build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | Verificación de tipos |
+| `npm run prisma:generate` | Regenera Prisma Client |
+| `npm run test` | Unit tests (Vitest) |
+| `npm run test:watch` | Tests en modo watch |
+| `npm run test:e2e` | Tests E2E (Playwright) |
 
-## Backend (usuarios y pagos)
-- Usuarios: creación/sync con Clerk en `app/api/checkout/*` y `app/api/users/sync`.
-- Seguridad “new student”: teléfono obligatorio + SMS verificado, 1 participante, bloqueo si hay compras previas por email/teléfono/Clerk.
-- Compras: webhook de Stripe en `app/api/stripe/webhook/route.ts` guarda en Postgres (`prisma/schema.prisma`).
-- Verificación SMS: pantalla `/verify-phone` con retorno a la acción previa usando `?return=/ruta` (ver detalles en `docs/README.md`).
-- Reports IA (preparado para integración): `POST /api/staff/reports/suggestions` con proveedor `mock` o `custom-http` por env.
+---
 
-## Variables opcionales (IA reports)
-- `AI_REPORTS_PROVIDER`: `mock` (default) o `custom-http`.
-- `AI_REPORTS_AGENT_URL`: URL del endpoint externo del agente (si usas `custom-http`).
-- `AI_REPORTS_AGENT_TOKEN`: bearer token opcional para autenticar contra el endpoint externo.
+## Estructura del Proyecto
 
-## Edición de contenido
-- Cursos/home y testimonios: `constants/home-content.ts`.
-- Cursos demo (detalle): `constants/courses.ts` (acceso vía `lib/courses-repository.ts`).
-- Textos traducidos (incluida la barra de aviso): `lib/i18n-dict.ts`.
-- Hero y bloques iniciales: `components/front/ui/HeroHome.tsx`, `CheckBoxInput.tsx`, `VerticalCarousel.tsx`.
-- CTA/chat: `components/front/ui/ChatLauncher.tsx`, `components/front/AssistantWidget*.tsx`.
+```
+app/
+├── (pages)/          # Páginas públicas (landing, catálogo)
+├── (courses)/        # Biblioteca de cursos
+├── (auth)/           # Sign-in / Sign-up (Clerk)
+├── courses/[slug]    # Detalle de curso público
+├── staff/            # Portal staff, kiosk, admin
+├── client-profile/   # Perfil del alumno/cliente
+├── checkin/          # QR check-in
+├── api/              # API routes (staff, checkout, stripe, clerk)
+└── layout.tsx        # Layout raíz (Clerk, I18n, Theme)
+
+components/
+├── front/            # Componentes del sitio público
+│   ├── staff/        # Componentes del portal staff
+│   └── ui/           # Componentes UI reutilizables
+└── ui/               # shadcn/ui components
+
+lib/
+├── i18n.tsx          # Provider i18n (cliente)
+├── i18n-server.ts    # i18n server-side
+├── i18n-dict.ts      # Diccionarios de traducciones
+├── prisma.ts         # Instancia de Prisma
+├── security/         # Auth helpers (staff PIN, terminal, student PIN)
+└── hooks/            # Custom hooks
+
+prisma/
+├── schema.prisma     # Schema de la base de datos
+└── seed.ts           # Seed de datos base
+
+docs/
+├── specs/            # Especificaciones de features
+├── system/           # Documentación de referencia
+└── Prompts/          # Scaffolding de prompts
+```
+
+---
+
+## Backend
+
+### Usuarios y autenticación
+- Sync con Clerk: `app/api/checkout/*` y `app/api/users/sync`
+- Seguridad "new student": teléfono obligatorio + SMS verificado, bloqueo si hay compras previas
+- Verificación SMS: `/verify-phone` con retorno a la acción previa (`?return=/ruta`)
+
+### Pagos
+- Webhook de Stripe: `app/api/stripe/webhook/route.ts`
+- Persistencia en PostgreSQL via Prisma
+
+### Staff Portal
+- Gestión de alumnos, asistencia, payroll
+- Sistema de kiosk con terminales y PINs
+- Gestión de salas y reservas
+- Sistema de puntos y paquetes
+
+### IA Reports (preparado)
+- `POST /api/staff/reports/suggestions`
+- Provider `mock` (default) o `custom-http` por env
+
+---
+
+## Variables de Entorno
+
+### Requeridas
+
+| Variable | Descripción |
+|----------|-------------|
+| `DATABASE_URL` | Connection string de PostgreSQL |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Key pública de Clerk |
+| `CLERK_SECRET_KEY` | Key secreta de Clerk |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Key pública de Stripe |
+| `STRIPE_SECRET_KEY` | Key secreta de Stripe |
+| `STRIPE_WEBHOOK_SECRET` | Secret del webhook de Stripe |
+| `NEXT_PUBLIC_SITE_URL` | URL del sitio |
+| `STAFF_CHECKIN_TOKEN` | Token para check-in de staff |
+
+### Opcionales (IA Reports)
+
+| Variable | Descripción |
+|----------|-------------|
+| `AI_REPORTS_PROVIDER` | `mock` (default) o `custom-http` |
+| `AI_REPORTS_AGENT_URL` | URL del endpoint externo |
+| `AI_REPORTS_AGENT_TOKEN` | Bearer token para el endpoint |
+
+---
+
+## Edición de Contenido
+
+| Qué cambiar | Dónde |
+|-------------|-------|
+| Cursos y testimonios del home | `constants/home-content.ts` |
+| Cursos demo (detalle) | `constants/courses.ts` |
+| Textos traducidos | `lib/i18n-dict.ts` |
+| Hero y bloques iniciales | `components/front/ui/HeroHome.tsx` |
+| Widget de asistente | `components/front/AssistantWidget*.tsx` |
+
+---
 
 ## Documentación
-- Guía base de arquitectura y edición: `docs/README.md`
-- Matriz de tests: `docs/TESTS.md`
-- Flujo QR check-in: `docs/CHECKIN_QR.md`
-- Módulo Staff portal: `docs/STAFF_PORTAL.md`
-- Smoke checklist para demo en Vercel: `docs/SMOKE_DEMO_VERCEL.md`
 
-## Ejemplos rápidos
-- Nuevo curso (detalle): agrega a `demoCourses` en `constants/courses.ts`; el route `/cursos/[slug]` se genera solo por `courseRepository`.
-- Nuevo curso en home: edita `homeCourses` y `homeCourseCategories` en `constants/home-content.ts`.
-- Nuevo testimonio: añade a `homeReviewSlides` en `constants/home-content.ts`.
-- Nuevo idioma: agrega la entrada en `lib/i18n-dict.ts`, incluye el código en `Locale` y listo; el cookie/query `lang` lo activará.
-
-Para más pasos detallados (cambiar textos de la barra de aviso, editar hero, integrar inscripciones), ver `docs/README.md`.
+| Documento | Contenido |
+|-----------|-----------|
+| [docs/README.md](./docs/README.md) | Arquitectura y guía de edición |
+| [docs/system/TESTS.md](./docs/system/TESTS.md) | Matriz de tests |
+| [docs/system/CHECKIN_QR.md](./docs/system/CHECKIN_QR.md) | Flujo QR check-in |
+| [docs/system/STAFF_PORTAL.md](./docs/system/STAFF_PORTAL.md) | Módulo Staff portal |
+| [DEMO.md](./DEMO.md) | Guía del demo local |
