@@ -33,7 +33,7 @@ export default async function RootLayout({children,}: Readonly<{ children: React
     const lang = (await cookies()).get("lang")?.value;
     const initialLocale = lang === "es" ? "es" : "en";
     return (
-        <html lang="en" suppressHydrationWarning>
+        <html lang={initialLocale} suppressHydrationWarning>
 
         <body className="scroll-smooth">
         <ClerkProvider>
