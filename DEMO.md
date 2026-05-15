@@ -22,67 +22,125 @@ Si algo no funciona, seguí la guía detallada de abajo.
 
 ## Requisitos Previos
 
-Necesitás tener estas 3 cosas instaladas **antes** de empezar:
+Necesitás instalar estas 4 cosas **antes** de empezar. Seguí el orden.
 
-### 1. Node.js (versión 20 o superior)
+> **Nota:** Todos los comandos de esta guía funcionan igual en **Windows**, **Mac** y **Linux**.
 
-- Descargalo de: https://nodejs.org/
-- Elegí la versión **LTS** (el botón verde grande)
-- Instalalo con todas las opciones por defecto
-- Para verificar que quedó bien, abrí una terminal y escribí:
-  ```bash
-  node -v
-  ```
-  Debería mostrar algo como `v20.x.x` o superior.
+---
 
-### 2. Docker Desktop
+### 1. Git
 
-- Descargalo de: https://www.docker.com/products/docker-desktop/
-- Instalalo con las opciones por defecto
-- **Importante:** después de instalar, abrí Docker Desktop y esperá a que diga "Docker Desktop is running" (el ícono de la ballena en la barra de tareas se pone quieto)
-- Para verificar, abrí una terminal y escribí:
-  ```bash
-  docker --version
-  ```
-  Debería mostrar algo como `Docker version 27.x.x`
+Git es la herramienta para descargar el código del proyecto.
 
-### 3. Cuenta de Clerk (gratis)
+1. Descargalo de: https://git-scm.com/downloads
+2. Instalalo con **todas las opciones por defecto** (siguiente, siguiente, siguiente...)
+3. **En Windows:** cuando te pregunte el editor, dejá el que viene por defecto
+4. Para verificar, abrí una terminal y escribí:
+   ```bash
+   git --version
+   ```
+   Debería mostrar algo como `git version 2.x.x`
 
-- Andá a https://clerk.com y creá una cuenta
-- Esto es para el sistema de login de la app — se configura en el Paso 3
+> **¿Cómo abro una terminal?**
+> - **Windows:** Buscá "Terminal" o "PowerShell" en el menú de inicio
+> - **Mac:** Abrí la app "Terminal" (está en Aplicaciones > Utilidades)
 
-### 4. (Opcional) Cuenta de Stripe
+---
 
-- Solo si querés probar pagos
-- Si no, saltá esto — la app funciona igual
+### 2. Node.js (versión 20 o superior)
 
-> **Nota:** Todos los comandos funcionan igual en **Windows**, **Mac** y **Linux**.
+Node.js es lo que hace correr la aplicación.
+
+1. Descargalo de: https://nodejs.org/
+2. Hacé click en el botón verde grande que dice **"LTS"** (versión estable)
+3. Instalalo con **todas las opciones por defecto**
+4. **Cerrá y volvé a abrir la terminal** (esto es importante para que reconozca el comando)
+5. Verificá que quedó bien:
+   ```bash
+   node -v
+   ```
+   Debería mostrar algo como `v20.x.x` o `v22.x.x`
+6. Verificá también npm (viene con Node):
+   ```bash
+   npm -v
+   ```
+   Debería mostrar un número como `10.x.x`
+
+---
+
+### 3. Docker Desktop
+
+Docker es lo que levanta la base de datos localmente (sin tener que instalar PostgreSQL).
+
+1. Descargalo de: https://www.docker.com/products/docker-desktop/
+2. Instalalo con las opciones por defecto
+3. **Reiniciá la computadora si te lo pide** (en Windows suele pedirlo)
+4. Después de reiniciar, **abrí Docker Desktop**
+5. Esperá a que diga "Docker Desktop is running" (el ícono de la ballena en la barra de tareas se pone quieto — puede tardar 1-2 minutos la primera vez)
+6. Verificá en la terminal:
+   ```bash
+   docker --version
+   ```
+   Debería mostrar algo como `Docker version 27.x.x`
+
+> **Windows:** Si te pide instalar "WSL 2", seguí las instrucciones que te muestra. Es necesario para que Docker funcione.
+
+---
+
+### 4. Cuenta de Clerk (gratis)
+
+Clerk es el sistema de login de la app. Necesitás una cuenta para obtener las keys de autenticación.
+
+1. Andá a https://clerk.com
+2. Hacé click en **"Sign up"** y creá una cuenta (podés usar tu email o cuenta de Google/GitHub)
+3. Una vez adentro, hacé click en **"Add application"**
+4. Ponele cualquier nombre (ej: "PLI Demo")
+5. Elegí **"Next.js"** como framework
+6. Hacé click en **"Create application"**
+7. Te va a mostrar **2 keys** — dejalas ahí, las vas a necesitar en el Paso 3
+
+> Las keys empiezan con `pk_test_` y `sk_test_`. Si cerraste la página, las encontrás en el menú lateral > **API Keys**.
+
+---
+
+### 5. (Opcional) Cuenta de Stripe
+
+Solo si querés probar el sistema de pagos. Si no, saltá esto — la app funciona igual sin Stripe.
+
+- Creá una cuenta en https://stripe.com
+- Las test keys están en: https://dashboard.stripe.com/test/apikeys
 
 ---
 
 ## Paso 1: Descargar el proyecto
 
-Abrí una terminal (en Windows: buscá "Terminal" o "PowerShell" en el menú de inicio).
+Abrí una terminal:
+- **Windows:** Buscá "Terminal" o "PowerShell" en el menú de inicio
+- **Mac:** Abrí la app "Terminal"
 
-Copiá y pegá estos comandos **de a uno**:
+Copiá y pegá estos comandos **de a uno** (pegá uno, esperá que termine, pegá el siguiente):
 
+**Descargar el código:**
 ```bash
 git clone https://github.com/HeepNite/PLI-Saas-App.git
 ```
+> Esto crea una carpeta `PLI-Saas-App` donde estés parado (generalmente en `C:\Users\TuNombre` en Windows o `/Users/TuNombre` en Mac).
 
+**Entrar a la carpeta:**
 ```bash
 cd PLI-Saas-App
 ```
 
+**Cambiar a la rama del demo:**
 ```bash
 git checkout demo/es-local
 ```
 
+**Instalar las dependencias:**
 ```bash
 npm install
 ```
-
-> Este último tarda un rato (1-3 minutos). Esperá a que termine.
+> Este tarda un rato (1-5 minutos dependiendo de tu conexión). Esperá a que termine — cuando vuelve a aparecer el cursor parpadeando, terminó.
 
 ---
 
@@ -103,44 +161,67 @@ Si dice "Cannot connect to the Docker daemon", abrí Docker Desktop y esperá un
 
 ## Paso 3: Configurar las variables de entorno
 
-Copiá el archivo de ejemplo:
+Las variables de entorno son como las "contraseñas y configuraciones" que la app necesita para funcionar. Vamos a crearlas.
+
+**Copiar el archivo de ejemplo:**
 
 ```bash
 cp .env.demo.example .env.demo
 ```
 
-> **Windows (CMD):** Si `cp` no funciona, usá: `copy .env.demo.example .env.demo`
+> **Windows (si `cp` no funciona):** Usá este comando en su lugar:
+> ```bash
+> copy .env.demo.example .env.demo
+> ```
 
-Ahora abrí el archivo `.env.demo` con cualquier editor de texto (Notepad, VS Code, lo que tengas).
+**Ahora hay que editar el archivo `.env.demo`:**
+
+Abrilo con cualquier editor de texto:
+- **Windows:** Click derecho sobre el archivo > "Abrir con" > Bloc de notas (o VS Code si lo tenés)
+- **Mac:** `open -e .env.demo` en la terminal, o abrilo con TextEdit
+- **Desde la terminal (cualquier sistema):** `code .env.demo` si tenés VS Code
 
 ### Configurar Clerk (obligatorio)
 
-Necesitás 2 keys de Clerk. Seguí estos pasos:
-
-1. Andá a https://clerk.com e iniciá sesión
-2. Hacé click en **"Add application"** (o "Create application")
-3. Ponele cualquier nombre (ej: "PLI Demo")
-4. Elegí **"Next.js"** como framework
-5. Hacé click en **"Create application"**
-6. Te va a mostrar 2 keys. Copialas y remplazalas en `.env.demo`:
+Dentro del archivo `.env.demo`, buscá estas dos líneas:
 
 ```
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_PEGA_TU_KEY_ACA
-CLERK_SECRET_KEY=sk_test_PEGA_TU_KEY_ACA
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_YOUR_KEY_HERE
+CLERK_SECRET_KEY=sk_test_YOUR_KEY_HERE
 ```
 
-> **Tip:** Las keys empiezan con `pk_test_` y `sk_test_`. Si no las ves, andá al menú lateral izquierdo > **API Keys**.
+Reemplazá `YOUR_KEY_HERE` con tus keys reales de Clerk:
+
+1. Andá a https://dashboard.clerk.com
+2. Seleccioná tu aplicación (la que creaste en el paso de Requisitos)
+3. En el menú lateral izquierdo, hacé click en **"API Keys"**
+4. Vas a ver dos keys:
+   - **Publishable key** — empieza con `pk_test_`
+   - **Secret key** — empieza con `sk_test_`
+5. Copiá cada una y pegala en el lugar correcto en `.env.demo`
+
+**Ejemplo** de cómo debería quedar (las keys son inventadas):
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_abc123xyz456
+CLERK_SECRET_KEY=sk_test_def789ghi012
+```
 
 ### Configurar Stripe (opcional)
 
-Si querés probar pagos:
+Si querés probar pagos, buscá estas líneas en `.env.demo`:
 
-1. Andá a https://dashboard.stripe.com/test/apikeys
-2. Copiá las test keys y remplazalas en `.env.demo`
+```
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY_HERE
+STRIPE_SECRET_KEY=sk_test_YOUR_KEY_HERE
+```
 
-Si **NO** vas a probar pagos, dejá las keys de Stripe como están (`YOUR_KEY_HERE`). No pasa nada.
+Y reemplazalas con tus test keys de https://dashboard.stripe.com/test/apikeys
 
-**Guardá el archivo** después de hacer los cambios.
+Si **NO** vas a probar pagos, **dejá las keys como están** (`YOUR_KEY_HERE`). No pasa nada, la app funciona igual.
+
+### Guardar el archivo
+
+**No te olvides de guardar** (Ctrl+S en Windows, Cmd+S en Mac) después de hacer los cambios.
 
 ---
 
