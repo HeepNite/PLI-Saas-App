@@ -41,6 +41,7 @@ const pickPreferredPackage = (input: {
     packageId: string
     packageLabel: string | null
     courseSlug: string | null
+    packagePlan?: { courseSlugs: string[] } | null
     isUnlimited: boolean
     remainingCredits: number | null
     expiresAt: Date | null
@@ -48,8 +49,16 @@ const pickPreferredPackage = (input: {
   }>
 }) => {
   const ordered = [...input.packages].sort((a, b) => {
-    const aPriority = a.courseSlug && a.courseSlug === input.courseSlug ? 0 : 1
-    const bPriority = b.courseSlug && b.courseSlug === input.courseSlug ? 0 : 1
+    const aPriority = a.courseSlug === input.courseSlug
+      ? 0
+      : a.packagePlan?.courseSlugs?.includes(input.courseSlug)
+        ? 1
+        : 2
+    const bPriority = b.courseSlug === input.courseSlug
+      ? 0
+      : b.packagePlan?.courseSlugs?.includes(input.courseSlug)
+        ? 1
+        : 2
     if (aPriority !== bPriority) return aPriority - bPriority
     const aExpires = a.expiresAt ? a.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
     const bExpires = b.expiresAt ? b.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
@@ -350,7 +359,13 @@ export async function POST(req: Request) {
         userId: dbUser.id,
         status: "active",
         AND: [
-          { OR: [{ courseSlug: null }, { courseSlug: context.courseSlug }] },
+          {
+            OR: [
+              { courseSlug: context.courseSlug },
+              { packagePlan: { courseSlugs: { has: context.courseSlug } } },
+              { courseSlug: null, packagePlanId: null },
+            ],
+          },
           { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
           { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
         ],
@@ -364,6 +379,7 @@ export async function POST(req: Request) {
         remainingCredits: true,
         expiresAt: true,
         status: true,
+        packagePlan: { select: { courseSlugs: true } },
       },
       orderBy: [{ expiresAt: "asc" }, { purchasedAt: "desc" }],
       take: 10,
