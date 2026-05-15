@@ -27,7 +27,7 @@ export function SchoolWizardStepNav({ steps, currentStep, onStepClick, enabledCo
   const visible = visibleEnabled.slice(start, start + MAX_VISIBLE)
 
   return (
-    <nav aria-label="Wizard steps" className="flex items-center gap-1.5">
+    <nav aria-label="Wizard steps" className="flex flex-wrap items-center gap-1.5">
       {visible.map((st, idx) => {
         const done = st.index < currentStep
         const active = st.index === currentStep

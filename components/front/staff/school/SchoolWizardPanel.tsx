@@ -19,7 +19,7 @@ interface SchoolWizardPanelProps {
   saveBusy?: boolean
   error?: string | null
   success?: string | null
-  children: React.ReactNode
+  children?: React.ReactNode
 }
 
 export function SchoolWizardPanel({
@@ -89,30 +89,7 @@ export function SchoolWizardPanel({
       )}
 
       {/* Step content */}
-      <div className="mt-4">{children}</div>
-
-      {/* Step navigation buttons */}
-      <div className="mt-6 flex items-center justify-between border-t border-black/8 pt-4 dark:border-white/8">
-        <button
-          type="button"
-          onClick={() => wizard.prevStep(enabledContext)}
-          disabled={wizard.step === 0}
-          className="rounded-lg border border-black/10 px-4 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.04] disabled:opacity-30 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/[0.04]"
-        >
-          ← Previous
-        </button>
-        <span className="text-[10px] text-black/40 dark:text-white/40">
-          Step {wizard.step + 1} of {wizard.totalSteps}
-        </span>
-        <button
-          type="button"
-          onClick={() => wizard.nextStep(enabledContext)}
-          disabled={wizard.step >= wizard.totalSteps - 1}
-          className="rounded-lg border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/10 px-4 py-1.5 text-xs font-medium text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/20 disabled:opacity-30"
-        >
-          Next →
-        </button>
-      </div>
+      {children && <div className="mt-4">{children}</div>}
     </article>
   )
 }

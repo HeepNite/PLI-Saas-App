@@ -2923,6 +2923,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [courseHydratedFromQuery, setCourseHydratedFromQuery] = React.useState(false)
   const [courseEditingSlug, setCourseEditingSlug] = React.useState<string | null>(null) // The original slug when editing
   const wizardEnabledCtx: StepEnabledContext = { courseEditingSlug }
+  const [courseCatalogSearch, setCourseCatalogSearch] = React.useState("")
+  const [courseCatalogFilter, setCourseCatalogFilter] = React.useState<"all" | "active" | "inactive">("all")
   const [courseSlugConflict, setCourseSlugConflict] = React.useState<{ exists: boolean; suggestion: string | null; existingTitle: string | null }>({
     exists: false,
     suggestion: null,
@@ -2942,6 +2944,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [courseLinkError, setCourseLinkError] = React.useState<string | null>(null)
   const [courseLinkSuccess, setCourseLinkSuccess] = React.useState<string | null>(null)
   const [schoolCourseLinkCount, setSchoolCourseLinkCount] = React.useState(0)
+  const [allCourseLinksMap, setAllCourseLinksMap] = React.useState<Record<string, { asA: CourseLinkRow[]; asB: CourseLinkRow[] }>>({})
   const courseImageInputRef = React.useRef<HTMLInputElement>(null)
   const courseVideoInputRef = React.useRef<HTMLInputElement>(null)
   const scheduleTimePickerRef = React.useRef<HTMLDivElement>(null)
@@ -4235,6 +4238,22 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         .then((r) => (r.ok ? r.json() : { count: 0 }))
         .then((data) => setSchoolCourseLinkCount(data?.count ?? 0))
         .catch(() => setSchoolCourseLinkCount(0))
+      // Non-critical: fetch all course links per course for catalog display
+      const courses: SchoolCourseRow[] = Array.isArray(coursesData?.items) ? coursesData.items : []
+      if (courses.length > 0) {
+        Promise.all(
+          courses.map((c) =>
+            fetch(`/api/staff/school/course-links?courseSlug=${encodeURIComponent(c.slug)}`)
+              .then((r) => (r.ok ? r.json() : { asA: [], asB: [] }))
+              .then((d) => ({ slug: c.slug, asA: d.asA || [], asB: d.asB || [] }))
+              .catch(() => ({ slug: c.slug, asA: [], asB: [] }))
+          )
+        ).then((results) => {
+          const map: Record<string, { asA: CourseLinkRow[]; asB: CourseLinkRow[] }> = {}
+          for (const r of results) map[r.slug] = { asA: r.asA, asB: r.asB }
+          setAllCourseLinksMap(map)
+        })
+      }
     } catch {
       setSchoolError("Network error while loading school catalog.")
     } finally {
@@ -6434,6 +6453,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setCourseHydratedFromQuery(true)
     setCourseEditingSlug(item.slug) // Track which course we're editing
     loadCourseLinks(item.slug) // Load consecutive class links
+    schoolWizard.goToEntity("courses")
+    schoolWizard.setStep(0)
     requestAnimationFrame(() => {
       courseFormFieldsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
@@ -6469,6 +6490,33 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setSchoolBusy(null)
     }
   }, [courseForm.slug, fetchSchoolData, resetCourseBuilder])
+
+  const toggleCourseActive = React.useCallback(async (item: SchoolCourseRow) => {
+    const next = !item.active
+    const label = next ? "activate" : "deactivate"
+    if (!window.confirm(`Are you sure you want to ${label} "${item.title}"?`)) return
+    setSchoolError(null)
+    setSchoolSuccess(null)
+    setSchoolBusy("course")
+    try {
+      const res = await fetch("/api/staff/school/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: item.slug, title: item.title, kind: item.kind, active: next }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSchoolError(typeof data?.error === "string" ? data.error : `Unable to ${label} course.`)
+        return
+      }
+      setSchoolSuccess(`Course ${next ? "activated" : "deactivated"}.`)
+      await fetchSchoolData({ showLoader: false })
+    } catch {
+      setSchoolError(`Network error while trying to ${label} course.`)
+    } finally {
+      setSchoolBusy(null)
+    }
+  }, [fetchSchoolData])
 
   // ─── CourseLink (consecutive classes) functions ────────────────
 
@@ -9835,15 +9883,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             <SchoolWizardPanel
               wizard={schoolWizard}
               enabledContext={wizardEnabledCtx}
-              onSave={schoolWizard.activeEntity === "courses" && schoolWizard.step < 6 ? undefined : () => {
+              onSave={schoolWizard.activeEntity === "rooms" || schoolWizard.activeEntity === "points" || (schoolWizard.activeEntity === "courses" && schoolWizard.step < 6) || (schoolWizard.activeEntity === "packages" && schoolWizard.step < 3) ? undefined : () => {
                 if (schoolWizard.activeEntity === "courses") {
                   const form = document.querySelector<HTMLFormElement>("[data-wizard-form='courses']")
                   form?.requestSubmit()
                 } else if (schoolWizard.activeEntity === "packages") {
                   const form = document.querySelector<HTMLFormElement>("[data-wizard-form='packages']")
-                  form?.requestSubmit()
-                } else if (schoolWizard.activeEntity === "points") {
-                  const form = document.querySelector<HTMLFormElement>("[data-wizard-form='points']")
                   form?.requestSubmit()
                 }
               }}
@@ -9851,12 +9896,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               error={schoolError}
               success={schoolSuccess}
             >
-              <p className="text-xs text-black/50 dark:text-white/50">
-                Use the steps above to navigate through the {schoolWizard.activeEntity} configuration below.
-              </p>
             </SchoolWizardPanel>
 
-            <article style={{ display: schoolWizard.activeEntity === "rooms" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <article style={{ display: schoolWizard.activeEntity === "rooms" && schoolWizard.step === 1 ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="mb-4">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Private reservations</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Current and upcoming room reservations</h3>
@@ -10021,9 +10063,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </div>
                 </div>
               </div>
+              {/* Step navigation */}
+              <div className="mt-6 flex items-center justify-between border-t border-black/10 pt-4 dark:border-white/10">
+                <button type="button" onClick={() => schoolWizard.prevStep(wizardEnabledCtx)} disabled={schoolWizard.step === 0} className="rounded-lg border border-black/10 px-4 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.04] disabled:opacity-30 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/[0.04]">← Previous</button>
+                <span className="text-[10px] text-black/40 dark:text-white/40">Step {schoolWizard.step + 1} of {schoolWizard.totalSteps}</span>
+                <button type="button" onClick={() => schoolWizard.nextStep(wizardEnabledCtx)} disabled={schoolWizard.step >= schoolWizard.totalSteps - 1} className="rounded-lg border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/10 px-4 py-1.5 text-xs font-medium text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/20 disabled:opacity-30">Next →</button>
+              </div>
             </article>
 
-            <article style={{ display: schoolWizard.activeEntity === "rooms" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+            <article style={{ display: schoolWizard.activeEntity === "rooms" && schoolWizard.step === 0 ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Room management</p>
@@ -10228,14 +10276,34 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </div>
                 </div>
               </div>
+              {/* Step navigation */}
+              <div className="mt-6 flex items-center justify-between border-t border-black/10 pt-4 dark:border-white/10">
+                <button type="button" onClick={() => schoolWizard.prevStep(wizardEnabledCtx)} disabled={schoolWizard.step === 0} className="rounded-lg border border-black/10 px-4 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.04] disabled:opacity-30 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/[0.04]">← Previous</button>
+                <span className="text-[10px] text-black/40 dark:text-white/40">Step {schoolWizard.step + 1} of {schoolWizard.totalSteps}</span>
+                <button type="button" onClick={() => schoolWizard.nextStep(wizardEnabledCtx)} disabled={schoolWizard.step >= schoolWizard.totalSteps - 1} className="rounded-lg border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/10 px-4 py-1.5 text-xs font-medium text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/20 disabled:opacity-30">Next →</button>
+              </div>
             </article>
 
             <article style={{ display: schoolWizard.activeEntity === "courses" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
               <header className="mb-6">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Course studio</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create and publish courses</h3>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">
+                  {schoolWizard.step === 0 ? "Course main information"
+                    : schoolWizard.step === 1 ? "Prices and discounts"
+                    : schoolWizard.step === 2 ? "Media assets"
+                    : schoolWizard.step === 3 ? "Schedule builder"
+                    : schoolWizard.step === 4 ? "Consecutive class links"
+                    : schoolWizard.step === 5 ? "Preview and calendar"
+                    : "Publish course"}
+                </h3>
                 <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                  Define course data, schedule, and publish links for social channels.
+                  {schoolWizard.step === 0 ? "Set the basic details: title, type, category, location, and default room."
+                    : schoolWizard.step === 1 ? "Configure drop-in price, first class price, and special discounts."
+                    : schoolWizard.step === 2 ? "Upload a cover image and add a video preview for the course."
+                    : schoolWizard.step === 3 ? "Select days, time slots, repetition rules, and publication status."
+                    : schoolWizard.step === 4 ? "Link this course to a consecutive class with special pricing."
+                    : schoolWizard.step === 5 ? "Review how the course looks and check the monthly calendar."
+                    : "Share on social media and save the course."}
                 </p>
               </header>
 
@@ -10760,7 +10828,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           </div>
                         </div>
 
-                        <div className="space-y-5">
+                        <div style={{ display: schoolWizard.step === 3 ? undefined : "none" }} className="space-y-5">
                           <div className="grid grid-cols-2 gap-5">
                             <div>
                               <div ref={scheduleTimePickerRef} className="relative grid grid-cols-[minmax(0,1fr)_auto] gap-2">
@@ -10936,9 +11004,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
                           {/* ─── Consecutive Classes (CourseLink) Section ─── */}
                           <div style={{ display: schoolWizard.step === 4 ? undefined : "none" }}>
-                          {courseEditingSlug && (
-                            <div className="mb-4 rounded-md border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Consecutive Classes</p>
+                          <div className="mb-4 rounded-md border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
+                            <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Consecutive Classes</p>
+                            {courseEditingSlug ? (
+                              <>
                               <p className="mt-1 text-xs text-black/65 dark:text-white/65">
                                 Link <strong>{schoolCourses.find(c => c.slug === courseEditingSlug)?.title ?? courseEditingSlug}</strong> to a consecutive class with special pricing.
                               </p>
@@ -11099,38 +11168,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               {courseLinksAsA.length === 0 && courseLinksAsB.length === 0 && (
                                 <p className="mt-2 text-[11px] text-black/50 dark:text-white/50">No consecutive class links yet.</p>
                               )}
-                            </div>
-                          )}
-                          </div>
-
-                          <div style={{ display: schoolWizard.step === 5 ? undefined : "none" }} className="grid gap-4 md:grid-cols-[minmax(0,0.45fr)_minmax(0,1fr)]">
-                          {/* Left column: Monthly Calendar */}
-                          <div className="min-w-0 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                            <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Monthly calendar (preview)</p>
-                            {schoolLoading ? (
-                              <div className="space-y-2 animate-pulse">
-                                <div className="h-8 rounded bg-black/10 dark:bg-white/10" />
-                                <div className="h-44 rounded bg-black/10 dark:bg-white/10" />
-                              </div>
+                              </>
                             ) : (
-                              <CalendarPicker
-                                value=""
-                                onChange={() => {}}
-                                values={[...scheduleCalendarMap.keys()].sort()}
-                                multiple
-                                onValuesChange={() => {}}
-                                timezone="America/New_York"
-                                className="!w-full !rounded-md !bg-white/60 dark:!bg-white/[0.06]"
-                                compact
-                                locked
-                                getDateTooltip={getCourseScheduleDateTooltip}
-                                getDateTone={getCourseScheduleDateTone}
-                              />
+                              <p className="mt-1 text-xs text-black/50 dark:text-white/50">Save the course first, then come back to link consecutive classes.</p>
                             )}
                           </div>
-                          {/* Right column: Course Review */}
-                          <div className="min-w-0">
-                          <div className="rounded-md border border-black/10 bg-white/70 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
+                          </div>
+
+                          <div style={{ display: schoolWizard.step === 5 ? undefined : "none" }}>
+                          <div className="text-xs">
                             <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">{selectedCourseKindReviewLabel}</p>
                             {schoolLoading ? (
                               <div className="mt-2 animate-pulse space-y-2">
@@ -11234,8 +11280,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     </div>
                                   </div>
                                 </div>
-                                <div className="grid gap-4 border-t border-black/10 pt-3 dark:border-white/10 md:grid-cols-2">
-                                  <div className="min-w-0 space-y-1 md:pr-2">
+                                {/* Course Info + Reviews + Calendar */}
+                                <div className="grid grid-cols-2 gap-4 border-t border-black/10 pt-3 dark:border-white/10">
+                                  <div className="min-w-0 space-y-1">
                                     <p className="truncate text-sm font-semibold text-black dark:text-white">{courseForm.title || "Untitled"}</p>
                                     <p className="text-black/70 dark:text-white/70">{courseForm.description || "No course description yet."}</p>
                                     <p className="truncate text-black/65 dark:text-white/65">Type: {selectedCourseKindLabel}</p>
@@ -11270,40 +11317,60 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                        {scheduleDerivedData.times.length > 0
                                          ? `Times: ${scheduleDerivedData.times.map((time) => formatClockLabel(time)).join(", ")}`
                                         : "Times: schedule to be defined"}
-                                    </p>
-                                  </div>
-                                  <div className="min-w-0 space-y-1 md:border-l md:border-black/10 md:pl-3 dark:md:border-white/10">
-                                    <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Reviews by type</p>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                      {courseReviewVariants.map((variant, index) => {
-                                        return (
-                                        <div
-                                          key={`course-review-variant-${variant.kind}`}
-                                          className="rounded-md border border-black/10 bg-white/50 px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]"
-                                        >
-                                          <div className="min-w-0 space-y-0.5">
-                                            <p className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${variant.active ? "text-[var(--brand,#b61616)] dark:text-[var(--brand,#ff6b6b)]" : "text-black dark:text-white"}`}>
-                                              {variant.label}
-                                            </p>
-                                            <p className="text-[11px] text-black/70 dark:text-white/70">{variant.hint}</p>
-                                            <p className="text-[11px] text-black/65 dark:text-white/65">
-                                              {courseForm.title || "Untitled"} · {formatUsdInputLabel(courseForm.dropInPriceCents)}
-                                            </p>
-                                          </div>
-                                          {variant.active ? (
-                                            <span className="rounded-full border border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 px-1.5 py-0.5 text-[10px] text-[var(--brand,#ff4b4b)]">
-                                              Active
-                                            </span>
+                                     </p>
+                                    {/* Reviews by type */}
+                                    <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
+                                      <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Reviews by type</p>
+                                      <div className="mt-1 grid grid-cols-2 md:grid-cols-3 gap-2">
+                                        {courseReviewVariants.map((variant, index) => {
+                                          return (
+                                          <div
+                                            key={`course-review-variant-${variant.kind}`}
+                                            className="rounded-md border border-black/10 bg-white/50 px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]"
+                                          >
+                                            <div className="min-w-0 space-y-0.5">
+                                              <p className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${variant.active ? "text-[var(--brand,#b61616)] dark:text-[var(--brand,#ff6b6b)]" : "text-black dark:text-white"}`}>
+                                                {variant.label}
+                                              </p>
+                                              <p className="text-[11px] text-black/70 dark:text-white/70">{variant.hint}</p>
+                                              <p className="text-[11px] text-black/65 dark:text-white/65">
+                                                {courseForm.title || "Untitled"} · {formatUsdInputLabel(courseForm.dropInPriceCents)}
+                                              </p>
+                                            </div>
+                                            {variant.active ? (
+                                              <span className="rounded-full border border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 px-1.5 py-0.5 text-[10px] text-[var(--brand,#ff4b4b)]">
+                                                Active
+                                              </span>
                                           ) : null}
                                         </div>
                                         )
                                       })}
+                                      </div>
                                     </div>
+                                  </div>
+                                  {/* Right column: Monthly Calendar */}
+                                  <div className="min-w-0">
+                                    {schoolLoading ? (
+                                      <div className="h-52 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                                    ) : (
+                                      <CalendarPicker
+                                        value=""
+                                        onChange={() => {}}
+                                        values={[...scheduleCalendarMap.keys()].sort()}
+                                        multiple
+                                        onValuesChange={() => {}}
+                                        timezone="America/New_York"
+                                        className="!w-full !rounded-md !bg-white/60 dark:!bg-white/[0.06]"
+                                        compact
+                                        locked
+                                        getDateTooltip={getCourseScheduleDateTooltip}
+                                        getDateTone={getCourseScheduleDateTone}
+                                      />
+                                    )}
                                   </div>
                                 </div>
                               </div>
                             )}
-                          </div>
                           </div>
                         </div>
 
@@ -11469,6 +11536,29 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </button>
                   </div>
                 </form>
+
+                {/* Step navigation */}
+                <div className="mt-6 flex items-center justify-between border-t border-black/10 pt-4 dark:border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => schoolWizard.prevStep(wizardEnabledCtx)}
+                    disabled={schoolWizard.step === 0}
+                    className="rounded-lg border border-black/10 px-4 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.04] disabled:opacity-30 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/[0.04]"
+                  >
+                    ← Previous
+                  </button>
+                  <span className="text-[10px] text-black/40 dark:text-white/40">
+                    Step {schoolWizard.step + 1} of {schoolWizard.totalSteps}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => schoolWizard.nextStep(wizardEnabledCtx)}
+                    disabled={schoolWizard.step >= schoolWizard.totalSteps - 1}
+                    className="rounded-lg border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/10 px-4 py-1.5 text-xs font-medium text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/20 disabled:opacity-30"
+                  >
+                    Next →
+                  </button>
+                </div>
               </div>
 
             </article>
@@ -11479,57 +11569,134 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Course catalog</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Saved courses</h3>
               </header>
-              <div className="max-h-80 overflow-y-auto pr-1">
+
+              {/* Search + Filter */}
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  value={courseCatalogSearch}
+                  onChange={(e) => setCourseCatalogSearch(e.target.value)}
+                  placeholder="Search by name or slug..."
+                  className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                />
+                <div className="flex items-center gap-1 rounded-lg border border-black/8 bg-black/[0.02] p-1 dark:border-white/8 dark:bg-white/[0.02]">
+                  {(["all", "active", "inactive"] as const).map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => setCourseCatalogFilter(f)}
+                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                        courseCatalogFilter === f
+                          ? "bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
+                          : "text-black/55 hover:bg-black/[0.04] hover:text-black/80 dark:text-white/55 dark:hover:bg-white/[0.04] dark:hover:text-white/80"
+                      }`}
+                    >
+                      {f === "all" ? "All" : f === "active" ? "Active" : "Inactive"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
                 {schoolLoading ? (
                   <div className="grid grid-cols-3 gap-3">
                     <div className="h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
                     <div className="h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
                     <div className="h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
                   </div>
-                ) : schoolCourses.length === 0 ? (
-                  <p className="text-sm text-black/60 dark:text-white/60">No courses created yet.</p>
-                ) : (
-                  <div className="grid grid-cols-3 gap-3">
-                    {schoolCourses.map((item) => {
-                      const previewMediaUrl = item.coverImageUrl || (item.previewVideoUrl ? `/api/og?title=${encodeURIComponent(item.title)}` : null)
-                      return (
-                        <div
-                          key={`saved-course-ext-${item.slug}`}
-                          className="flex items-start gap-3 rounded-lg border border-black/10 bg-black/[0.02] p-2.5 dark:border-white/10 dark:bg-white/[0.02]"
-                        >
-                          {previewMediaUrl ? (
-                            <img src={previewMediaUrl} alt={item.title} className="h-12 w-12 flex-none rounded-md object-cover" />
-                          ) : (
-                            <div className="flex h-12 w-12 flex-none items-center justify-center rounded-md bg-black/10 text-[8px] uppercase text-black/40 dark:bg-white/10 dark:text-white/40">img</div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-semibold text-black dark:text-white">{item.title}</p>
-                            <p className="truncate text-[11px] text-black/60 dark:text-white/60">{item.slug}</p>
-                            <p className="text-[11px] text-black/55 dark:text-white/55">
-                              {item.availableWeekdays.length > 0
-                                ? item.availableWeekdays.sort((a: number, b: number) => a - b).map((d: number) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")
-                                : ""}
-                              {item.availableTimes.length > 0 ? ` · ${item.availableTimes.join(", ")}` : ""}
-                            </p>
-                            <div className="mt-1.5 flex gap-2">
-                              <button type="button" onClick={() => loadCourseIntoForm(item)} className="rounded border border-[var(--brand,#b61616)]/40 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/10">Edit</button>
-                              {currentRole === "owner" && (
-                                <button type="button" onClick={() => deleteCourse(item.slug, item.title)} className="rounded border border-red-500/60 px-2 py-0.5 text-[10px] font-semibold text-red-500 hover:bg-red-500/10">Delete</button>
-                              )}
+                ) : (() => {
+                  const q = courseCatalogSearch.toLowerCase().trim()
+                  const filtered = schoolCourses.filter((c) => {
+                    if (courseCatalogFilter === "active" && !c.active) return false
+                    if (courseCatalogFilter === "inactive" && c.active) return false
+                    if (q && !c.title.toLowerCase().includes(q) && !c.slug.toLowerCase().includes(q)) return false
+                    return true
+                  })
+                  if (filtered.length === 0) return (
+                    <p className="text-sm text-black/60 dark:text-white/60">
+                      {schoolCourses.length === 0 ? "No courses created yet." : "No courses match the current filter."}
+                    </p>
+                  )
+                  return (
+                    <div className="grid grid-cols-3 gap-3">
+                      {filtered.map((item) => {
+                        const previewMediaUrl = item.coverImageUrl || (item.previewVideoUrl ? `/api/og?title=${encodeURIComponent(item.title)}` : null)
+                        return (
+                          <div
+                            key={`saved-course-ext-${item.slug}`}
+                            className={`flex items-start gap-3 rounded-lg border p-2.5 ${
+                              item.active
+                                ? "border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02]"
+                                : "border-black/5 bg-black/[0.01] opacity-60 dark:border-white/5 dark:bg-white/[0.01]"
+                            }`}
+                          >
+                            {previewMediaUrl ? (
+                              <img src={previewMediaUrl} alt={item.title} className="h-12 w-12 flex-none rounded-md object-cover" />
+                            ) : (
+                              <div className="flex h-12 w-12 flex-none items-center justify-center rounded-md bg-black/10 text-[8px] uppercase text-black/40 dark:bg-white/10 dark:text-white/40">img</div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <p className="truncate text-xs font-semibold text-black dark:text-white">{item.title}</p>
+                                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                                  item.active
+                                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                    : "bg-black/10 text-black/50 dark:bg-white/10 dark:text-white/50"
+                                }`}>
+                                  {item.active ? "Active" : "Inactive"}
+                                </span>
+                              </div>
+                              <p className="truncate text-[11px] text-black/60 dark:text-white/60">{item.slug}</p>
+                              <p className="text-[11px] text-black/55 dark:text-white/55">
+                                {item.availableWeekdays.length > 0
+                                  ? item.availableWeekdays.sort((a: number, b: number) => a - b).map((d: number) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(", ")
+                                  : ""}
+                                {item.availableTimes.length > 0 ? ` · ${item.availableTimes.join(", ")}` : ""}
+                              </p>
+                              {(() => {
+                                const links = allCourseLinksMap[item.slug]
+                                const allLinks = [...(links?.asA || []), ...(links?.asB || [])]
+                                if (allLinks.length === 0) return null
+                                return (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {allLinks.map((link) => {
+                                      const linkedSlug = link.courseSlugA === item.slug ? link.courseSlugB : link.courseSlugA
+                                      const linkedCourse = schoolCourses.find((c) => c.slug === linkedSlug)
+                                      return (
+                                        <span key={link.id} className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${link.active ? "bg-violet-500/15 text-violet-500 dark:text-violet-400" : "bg-black/5 text-black/40 dark:bg-white/5 dark:text-white/40"}`}>
+                                          ↔ {linkedCourse?.title || linkedSlug}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                )
+                              })()}
+                              <div className="mt-1.5 flex gap-2">
+                                <button type="button" onClick={() => loadCourseIntoForm(item)} className="rounded border border-blue-500/40 px-2 py-0.5 text-[10px] font-semibold text-blue-500 transition hover:bg-blue-500/10">Edit</button>
+                                <button type="button" onClick={() => toggleCourseActive(item)} disabled={schoolBusy !== null} className={`rounded border px-2 py-0.5 text-[10px] font-semibold transition ${item.active ? "border-amber-500/40 text-amber-500 hover:bg-amber-500/10" : "border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10"}`}>{item.active ? "Hold" : "Activate"}</button>
+                                {currentRole === "owner" && (
+                                  <button type="button" onClick={() => deleteCourse(item.slug, item.title)} disabled={schoolBusy !== null} className="rounded border border-red-500/60 px-2 py-0.5 text-[10px] font-semibold text-red-500 hover:bg-red-500/10">Delete</button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
               </div>
             </article>
 
             <div style={{ display: schoolWizard.activeEntity === "packages" || schoolWizard.activeEntity === "points" ? undefined : "none" }} className="grid gap-4 xl:grid-cols-2">
               <article style={{ display: schoolWizard.activeEntity === "packages" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Package builder</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Create or update package</h3>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">
+                  {schoolWizard.step === 0 ? "Package information"
+                    : schoolWizard.step === 1 ? "Assign courses"
+                    : schoolWizard.step === 2 ? "Pricing and credits"
+                    : "Validity and status"}
+                </h3>
 
                 <form onSubmit={savePackagePlan} className="mt-4 space-y-5">
                   <div className="flex items-center justify-between gap-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
@@ -11547,7 +11714,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       </button>
                     ) : null}
                   </div>
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div style={{ display: schoolWizard.activeEntity === "packages" && (schoolWizard.step === 0 || schoolWizard.step === 1) ? undefined : "none" }} className="grid gap-3 md:grid-cols-3">
                     <input
                       name="packageKey"
                       value={packageForm.key}
@@ -11572,7 +11739,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       placeholder="Description (optional)"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
-                    <div className="md:col-span-3">
+                    <div style={{ display: schoolWizard.step === 1 ? undefined : "none" }} className="md:col-span-3">
                       <label className="mb-2 block text-xs font-medium text-black/70 dark:text-white/70">
                         Courses <span className="text-[var(--brand,#b61616)]">*</span>
                       </label>
@@ -11658,6 +11825,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       </p>
                     </div>
                   </div>
+                  <div style={{ display: schoolWizard.activeEntity === "packages" && schoolWizard.step === 2 ? undefined : "none" }}>
                   <div className="grid gap-2 md:grid-cols-3">
                     <input
                       name="packagePriceCents"
@@ -11694,6 +11862,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
                     <span className="font-semibold text-black dark:text-white">Classes included</span> is the base number of classes in the package. <span className="font-semibold text-black dark:text-white">Make-ups</span> add extra usable classes on top of that total.
                   </div>
+                  </div>
+                  <div style={{ display: schoolWizard.activeEntity === "packages" && schoolWizard.step === 3 ? undefined : "none" }}>
                   <div className="grid gap-2 md:grid-cols-3">
                     <input
                       name="packageValidDays"
@@ -11774,9 +11944,22 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       Reset
                     </button>
                   </div>
+                  </div>
                 </form>
 
-                <div className="mt-3 max-h-[32rem] overflow-y-auto rounded-xl border border-black/10 bg-white/60 p-3 text-xs dark:border-white/10 dark:bg-white/[0.02]">
+                {/* Step navigation */}
+                <div className="mt-6 flex items-center justify-between border-t border-black/10 pt-4 dark:border-white/10">
+                  <button type="button" onClick={() => schoolWizard.prevStep(wizardEnabledCtx)} disabled={schoolWizard.step === 0} className="rounded-lg border border-black/10 px-4 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.04] disabled:opacity-30 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/[0.04]">← Previous</button>
+                  <span className="text-[10px] text-black/40 dark:text-white/40">Step {schoolWizard.step + 1} of {schoolWizard.totalSteps}</span>
+                  <button type="button" onClick={() => schoolWizard.nextStep(wizardEnabledCtx)} disabled={schoolWizard.step >= schoolWizard.totalSteps - 1} className="rounded-lg border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/10 px-4 py-1.5 text-xs font-medium text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/20 disabled:opacity-30">Next →</button>
+                </div>
+
+                <header className="mb-4 mt-6 border-t border-black/10 pt-4 dark:border-white/10">
+                  <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Package catalog</p>
+                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Saved packages</h3>
+                </header>
+
+                <div className="max-h-[32rem] overflow-y-auto rounded-xl border border-black/10 bg-white/60 p-3 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                   <div className="mb-3 flex items-center gap-3 pb-1">
                     <div className="flex flex-nowrap gap-2">
                       {([
@@ -11933,8 +12116,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               </article>
 
               <article style={{ display: schoolWizard.activeEntity === "points" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
+                {/* Step 0: Rule Builder */}
+                <div style={{ display: schoolWizard.activeEntity === "points" && schoolWizard.step === 0 ? undefined : "none" }}>
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Points builder</p>
-                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Rules + manual assignment</h3>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Rule builder</h3>
+                <p className="mt-1 text-sm text-black/65 dark:text-white/65">Configure automatic point rules for attendance, referrals, and other events.</p>
 
                 <form onSubmit={savePointsRule} className="mt-3 space-y-2">
                   <div className="grid grid-cols-[minmax(180px,0.9fr)_minmax(0,1fr)_110px_140px] gap-2">
@@ -11998,8 +12184,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </div>
                 </form>
 
-                <form onSubmit={assignPointsManually} className="mt-4 space-y-3 rounded-md border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/65 dark:text-white/65">Manual assignment</p>
+                </div>
+
+                {/* Step 1: Manual Assignment */}
+                <div style={{ display: schoolWizard.activeEntity === "points" && schoolWizard.step === 1 ? undefined : "none" }}>
+                <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Points</p>
+                <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Manual assignment</h3>
+                <p className="mt-1 text-sm text-black/65 dark:text-white/65">Assign points directly to a student by email.</p>
+
+                <form onSubmit={assignPointsManually} className="mt-3 space-y-3 rounded-md border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.02]">
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
                     <input
                       name="pointsAssignUserEmail"
@@ -12060,21 +12253,37 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </button>
                   </div>
                 </form>
+                </div>
 
-                <div className="mt-3 max-h-44 space-y-2 overflow-y-auto rounded-md border border-black/10 bg-white/60 p-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
+                {/* Points step nav footer */}
+                <div className="mt-4 flex items-center justify-between">
+                  <button type="button" onClick={() => schoolWizard.prevStep(wizardEnabledCtx)} disabled={schoolWizard.step === 0} className="rounded-lg border border-black/10 px-4 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.04] disabled:opacity-30 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/[0.04]">← Previous</button>
+                  <span className="text-[10px] text-black/40 dark:text-white/40">Step {schoolWizard.step + 1} of {schoolWizard.totalSteps}</span>
+                  <button type="button" onClick={() => schoolWizard.nextStep(wizardEnabledCtx)} disabled={schoolWizard.step >= schoolWizard.totalSteps - 1} className="rounded-lg border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/10 px-4 py-1.5 text-xs font-medium text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/20 disabled:opacity-30">Next →</button>
+                </div>
+
+                {/* Points rules list — always visible */}
+                <header className="mb-4 mt-6 border-t border-black/10 pt-4 dark:border-white/10">
+                  <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Points catalog</p>
+                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Saved rules</h3>
+                </header>
+
+                <div className="max-h-[32rem] overflow-y-auto rounded-xl border border-black/10 bg-white/60 p-3 text-xs dark:border-white/10 dark:bg-white/[0.02]">
                   {schoolLoading ? (
                     <p className="text-black/60 dark:text-white/60">Loading rules...</p>
                   ) : schoolPointsRules.length === 0 ? (
                     <p className="text-black/60 dark:text-white/60">No rules defined.</p>
                   ) : (
-                    schoolPointsRules.map((item) => (
-                      <div key={`points-rule-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]">
-                        <p className="font-semibold text-black dark:text-white">{item.label}</p>
-                        <p className="text-black/65 dark:text-white/65">
-                          {item.eventType} · {item.points} · {item.active ? "active" : "inactive"}
-                        </p>
-                      </div>
-                    ))
+                    <div className="space-y-2">
+                      {schoolPointsRules.map((item) => (
+                        <div key={`points-rule-row-${item.id}`} className="rounded-md border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.02]">
+                          <p className="font-semibold text-black dark:text-white">{item.label}</p>
+                          <p className="text-black/65 dark:text-white/65">
+                            {item.eventType} · {item.points} pts · {item.active ? "active" : "inactive"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </article>
