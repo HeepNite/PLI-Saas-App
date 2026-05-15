@@ -155,9 +155,164 @@ const enTranslations = {
     advanced: "Advanced",
   } as const
 
+const esTranslations: typeof enTranslations = {
+    // Generic
+    back: "Volver",
+    cancel: "Cancelar",
+    continue: "Continuar",
+    confirm: "Confirmar",
+    myPanel: "Mi Panel",
+    myCourses: "Mis Cursos",
+    signIn: "Iniciar sesión",
+    getInTouch: "Contactanos",
+    assistantChatNote: "Centralizamos todo en el chat del asistente.",
+    calendarsHint: "Seleccioná una fecha y hora para habilitar los calendarios.",
+    booking: "Reserva",
+    summary: "Resumen",
+    service: "Servicio",
+    package: "Paquete",
+    extras: "Extras",
+    people: "Personas",
+    dateTime: "Fecha/Hora",
+    email: "Email",
+    total: "Total",
+    demo: "demo",
+    done: "Listo",
+    reviewAndConfirm: "Revisá y confirmá",
+    course: "Curso",
+    name: "Nombre",
+    paymentMethod: "Método de pago",
+    notes: "Notas",
+    estimatedTotal: "Total estimado",
+    classWord: "Clase",
+
+    // Steps
+    step_party: "¿Venís con alguien?",
+    step_datetime: "Fecha y hora",
+    step_info: "Tus datos",
+    step_payments: "Pagos",
+    step_review: "Revisión y confirmación",
+
+    // Form labels
+    label_service: "Servicio",
+    label_companion: "¿Venís acompañado/a?",
+    onePerson: "persona",
+    manyPeople: "personas",
+    optionalPackages: "Paquetes opcionales",
+    removeSelection: "Quitar selección",
+    packagesHint: "Podés elegir un paquete o saltearlo. Es opcional.",
+    or: "o",
+    skipPackages: "Saltear paquetes y continuar",
+    label_extras: "Extras",
+    label_selectTime: "Elegí un horario",
+    label_firstName: "Nombre",
+    label_lastName: "Apellido",
+    label_email: "Email",
+    label_notes: "Notas",
+    placeholder_firstName: "Ingresá tu nombre",
+    placeholder_lastName: "Ingresá tu apellido",
+    placeholder_email: "Ingresá tu email",
+    placeholder_notes: "Algo que debamos saber…",
+    phoneRemovedNote: "Teléfono removido. Pronto vas a poder continuar por el chat del asistente.",
+
+    // Payments
+    payments_summary: "Resumen",
+    payments_classes: "Clases",
+    payments_coupon: "Cupón:",
+    payments_coupon_placeholder: "ej. PLI10",
+    payments_remove: "Quitar",
+    payments_add: "Agregar",
+    payments_invalidCoupon: "Cupón inválido (usá PLI10 o PLI20 en el demo)",
+    payments_totalAmount: "Monto total:",
+    payments_method: "Método de pago",
+    payments_onSite: "Efectivo",
+    payments_onSite_desc: "Pagá en efectivo en la recepción.",
+    payments_stripe: "Tarjeta",
+    payments_stripe_desc: "Pagá con tarjeta.",
+    new_student_single_notice: "El precio de alumno nuevo aplica solo para 1 persona.",
+    new_student_verify_phone: "Verificá tu teléfono por SMS para acceder al precio de alumno nuevo.",
+    verify_phone_cta: "Verificar teléfono ahora",
+    account_exists_error: "Encontramos una cuenta existente con este email o teléfono.",
+    account_exists_cta: "Iniciá sesión para continuar",
+    account_exists_title: "Iniciá sesión para continuar",
+    account_exists_signed_in: "No pudimos validar tu sesión todavía. Intentá de nuevo en un momento.",
+    new_student_existing_error:
+      "¿Un alumno que vuelve haciéndose el nuevo? Es broma. Vas a pagar el precio regular de la clase.",
+    existing_customer_signin_required:
+      "Este número de teléfono ya está registrado. Iniciá sesión para continuar.",
+    identity_check_failed: "No pudimos verificar tu cuenta en este momento. Intentá de nuevo.",
+    verifyingAccount: "Verificando...",
+    account_exists_back: "Volver al formulario",
+    sign_in_modal_title: "Iniciar sesión",
+    sign_in_modal_subtitle: "Usá tu número de teléfono para continuar.",
+    phone_format_hint: "Usá un número de teléfono válido (10 dígitos).",
+    verify_phone_title: "Verificá tu teléfono",
+    verify_phone_subtitle: "Usamos verificación por SMS para proteger el precio de alumno nuevo.",
+    verify_phone_signed_out: "Iniciá sesión para verificar tu teléfono y continuar.",
+    verify_phone_back: "Volver a cursos",
+
+    // Success and calendar
+    addToCalendar: "Agregar al calendario",
+    congratulations: "¡Felicitaciones!",
+    appointmentId: "Reserva #",
+    date: "Fecha:",
+    localTime: "Hora local:",
+    teacher: "Profesor/a:",
+    location: "Ubicación:",
+    payment: "Pago:",
+    customerPanel: "Panel del cliente",
+    finish: "Finalizar",
+    googleCal_details: "Reserva en PLI. Participantes: {participants}. Total demo: ${total}.",
+    ics_description: "Reserva en PLI. Participantes: {participants}. Total (demo): ${total}.",
+
+    // ARIA
+    aria_close: "Cerrar",
+    aria_dialog_bookingFor: "Reserva para {title}",
+    aria_switchLanguage: "Cambiar idioma",
+
+    // Header/assistant
+    assistant_title: "¡Hola! Soy tu asistente. ¿En qué puedo ayudarte?",
+    assistant_cta: "Iniciar chat",
+
+    // Notification bar
+    notif_announcement: "Aviso: las compras en las próximas 12 horas califican para ofertas y novedades especiales.",
+    notif_close: "Cerrar notificación",
+    notif_cta: "Ir al curso con descuento",
+
+    // Search
+    searchPlaceholder: "Buscar cursos…",
+    aria_search: "Buscar",
+
+    // Home hero
+    hero_title: "Aprendé de los mejores, dá lo mejor de vos.",
+    hero_subtitle: "Acceso ilimitado a miles de lecciones cortas.",
+    hero_question: "¿Qué te trae hoy a Palladium Latin Institute?",
+
+    // Course page
+    courseNotFoundTitle: "Curso no encontrado",
+    courseNotFoundBody: "Revisá el enlace o volvé al catálogo.",
+
+    // Header/menu & navigation
+    explore: "Explorar",
+    notSureStart: "¿No sabés por dónde empezar? Probá un camino recomendado.",
+    explorePaths: "Explorar caminos",
+    categories: "Categorías",
+    levels: "Niveles",
+    liveAcademy: "Academia Presencial",
+    virtualAcademy: "Academia Virtual",
+    inPersonClasses: "Clases presenciales y experiencias con instructores.",
+    learnAtYourOwnPace: "Aprendé a tu ritmo con cursos y talleres online.",
+    danceCourses: "Cursos de Danza",
+    musicCourses: "Cursos de Música",
+    beginner: "Principiante",
+    startHere: "Empezá acá",
+    intermediate: "Intermedio",
+    advanced: "Avanzado",
+} as const
+
 const translationsObj = {
   en: enTranslations,
-  es: enTranslations,
+  es: esTranslations,
 } as const
 
 export const translations = translationsObj

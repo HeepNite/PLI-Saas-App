@@ -16,6 +16,7 @@ import { I18nProvider } from "@/lib/i18n";
 import { cookies } from "next/headers";
 import FloatingTopHomeButton from "@/components/front/ui/FloatingTopHomeButton";
 import SmoothScroll from "@/components/front/ui/SmoothScroll";
+import RuntimeTranslation from "@/components/front/RuntimeTranslation";
 
 
 export const metadata: Metadata = {
@@ -49,6 +50,8 @@ export default async function RootLayout({children,}: Readonly<{ children: React
                 <FloatingTopHomeButton />
                 {/* Floating assistant widget mounted globally (client-only wrapper, i18n-aware) */}
                 <AssistantWidgetMountI18n />
+                {/* Runtime DOM translation — active only when locale is "es" */}
+                <RuntimeTranslation />
             </ThemeProvider>
           </I18nProvider>
         </ClerkProvider>
