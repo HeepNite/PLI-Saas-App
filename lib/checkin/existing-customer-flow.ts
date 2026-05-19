@@ -161,6 +161,30 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   return true
 }
 
+export const shouldShowConsecutiveOfferGate = (input: {
+  hasConsecutiveOffer: boolean
+  consecutiveOfferSettled: boolean
+  hasPackageCheckInResult: boolean
+  mode: "idle" | "existing" | "new"
+  hasBootstrap: boolean
+  hasPackage: boolean
+  showConsecutivePaymentSelection: boolean
+  awaitingConsecutivePaymentSelection: boolean
+  isConsecutiveQrCheckoutIdle: boolean
+  hasConsecutiveSuccess: boolean
+  hasConsecutiveError: boolean
+}) => {
+  if (input.showConsecutivePaymentSelection) return false
+  if (input.awaitingConsecutivePaymentSelection) return false
+  if (!input.isConsecutiveQrCheckoutIdle) return false
+  if (input.hasConsecutiveSuccess || input.hasConsecutiveError) return false
+  if (!input.hasConsecutiveOffer || !input.consecutiveOfferSettled) return false
+  if (input.hasPackageCheckInResult) return false
+  if (input.mode !== "existing") return false
+  if (!input.hasBootstrap || !input.hasPackage) return false
+  return true
+}
+
 export const shouldSurfaceClosedWindowPackageError = (input: {
   isKioskTerminalFlow: boolean
   mode: "idle" | "existing" | "new"
@@ -293,3 +317,8 @@ export const resolvePackageSuccessDoneAction = (input: {
   input.awaitingConsecutivePaymentSelection
     ? "open-payment-selection"
     : "complete-station"
+
+export const resolveConsecutivePaymentSuccessAction = (input: {
+  isKioskTerminalFlow: boolean
+}): "complete-station" | "show-success" =>
+  input.isKioskTerminalFlow ? "complete-station" : "show-success"

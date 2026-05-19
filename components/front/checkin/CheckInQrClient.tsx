@@ -12,11 +12,13 @@ import {
   shouldSurfaceClosedWindowPackageError,
   shouldAutoOpenExistingPurchase,
   shouldAutoTriggerPackageCheckIn,
+  shouldShowConsecutiveOfferGate,
   shouldPreserveOfferOnBootstrapClear,
   resolvePackageOfferDeclineAction,
   resolvePackageConsecutiveDeclineAction,
   resolvePackageConsecutiveAcceptAction,
   resolvePackageSuccessDoneAction,
+  resolveConsecutivePaymentSuccessAction,
 } from "@/lib/checkin/existing-customer-flow"
 import {
   resolvePackageOfferScenario,
@@ -142,6 +144,7 @@ export default function CheckInQrClient({
   const [consecutiveOfferSettled, setConsecutiveOfferSettled] = React.useState(false)
   const [showConsecutiveOverlay, setShowConsecutiveOverlay] = React.useState(false)
   const [consecutiveProcessing, setConsecutiveProcessing] = React.useState(false)
+  const [consecutiveProcessingAction, setConsecutiveProcessingAction] = React.useState<"accept" | "decline" | "cash" | "card" | null>(null)
   const [consecutiveSuccess, setConsecutiveSuccess] = React.useState<{ courseTitle: string } | null>(null)
   const [consecutiveError, setConsecutiveError] = React.useState<string | null>(null)
   const [consecutiveFetchKey, setConsecutiveFetchKey] = React.useState(0)
@@ -675,11 +678,13 @@ export default function CheckInQrClient({
 
       if (action === "pre-checkin-then-payment-selection") {
         setConsecutiveProcessing(true)
+        setConsecutiveProcessingAction("accept")
         setConsecutiveError(null)
         const checkInResult = await performPackageCheckInApi()
         if (!checkInResult) {
           setConsecutiveError("Unable to check in with package.")
           setConsecutiveProcessing(false)
+          setConsecutiveProcessingAction(null)
           return
         }
         // Show credit-consumed confirmation FIRST. The Done button on
@@ -691,6 +696,7 @@ export default function CheckInQrClient({
         setAwaitingConsecutivePaymentSelection(true)
         setShowConsecutiveOverlay(false)
         setConsecutiveProcessing(false)
+        setConsecutiveProcessingAction(null)
         return
       }
 
@@ -704,6 +710,7 @@ export default function CheckInQrClient({
       // Safe to call the add-on endpoint without payment collection because
       // the backend will record amount: 0 and there is no money to collect.
       setConsecutiveProcessing(true)
+      setConsecutiveProcessingAction("accept")
       setConsecutiveError(null)
       try {
         const token = await getToken({ skipCache: true })
@@ -743,6 +750,7 @@ export default function CheckInQrClient({
         setConsecutiveError("Unable to add consecutive class.")
       } finally {
         setConsecutiveProcessing(false)
+        setConsecutiveProcessingAction(null)
       }
       return
     }
@@ -751,6 +759,7 @@ export default function CheckInQrClient({
     // Drop-in consecutive flow is unchanged: hits /api/checkin/qr/dropin
     // with consecutiveDiscountApplied. Out of scope for this fix.
     setConsecutiveProcessing(true)
+    setConsecutiveProcessingAction("accept")
     setConsecutiveError(null)
 
     try {
@@ -790,6 +799,7 @@ export default function CheckInQrClient({
       setConsecutiveError("Unable to add consecutive class.")
     } finally {
       setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
     }
   }, [consecutiveOffer, activeCourseSlug, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken, packageCheckInResult, performPackageCheckInApi])
 
@@ -806,8 +816,10 @@ export default function CheckInQrClient({
     if (declineAction === "pre-checkin") {
       // Class A has NOT been checked in yet — do it first.
       setConsecutiveProcessing(true)
+      setConsecutiveProcessingAction("decline")
       const checkInResult = await performPackageCheckInApi()
       setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
       if (!checkInResult) {
         // Class A failed — surface the error on the overlay; do NOT reset.
         setConsecutiveError("Unable to check in with package.")
@@ -854,6 +866,7 @@ export default function CheckInQrClient({
   const handleConsecutivePayCash = React.useCallback(async () => {
     if (!consecutiveOffer) return
     setConsecutiveProcessing(true)
+    setConsecutiveProcessingAction("cash")
     setConsecutiveError(null)
     try {
       const token = await getToken({ skipCache: true })
@@ -905,20 +918,31 @@ export default function CheckInQrClient({
         return
       }
 
-      // Success!
       setShowConsecutivePaymentSelection(false)
       setConsecutiveOffer(null)
+
+      const successAction = resolveConsecutivePaymentSuccessAction({
+        isKioskTerminalFlow,
+      })
+      if (successAction === "complete-station") {
+        void handleStationCompletion()
+        return
+      }
+
       setConsecutiveSuccess({ courseTitle: consecutiveOffer.linkedCourseTitle })
     } catch {
       setConsecutiveError("Unable to process cash payment.")
     } finally {
       setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
     }
-  }, [consecutiveOffer, activeCourseSlug, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken])
+  }, [consecutiveOffer, activeCourseSlug, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken, handleStationCompletion, isKioskTerminalFlow])
 
   const handleConsecutivePayCard = React.useCallback(async () => {
     if (!consecutiveOffer) return
     setConsecutiveError(null)
+    setConsecutiveProcessing(true)
+    setConsecutiveProcessingAction("card")
     setShowDuplicatePurchasePopup(false)
     setShowConsecutivePaymentSelection(false)
 
@@ -933,6 +957,8 @@ export default function CheckInQrClient({
         phase: "error",
         error: "Unable to find a valid service for the next class.",
       })
+      setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
       return
     }
 
@@ -942,6 +968,8 @@ export default function CheckInQrClient({
 
     if (priceCents == null || priceCents <= 0) {
       setConsecutiveError("Unable to determine price for card payment.")
+      setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
       return
     }
 
@@ -990,6 +1018,8 @@ export default function CheckInQrClient({
           phase: "error",
           error: message,
         })
+        setConsecutiveProcessing(false)
+        setConsecutiveProcessingAction(null)
         return
       }
 
@@ -1003,12 +1033,16 @@ export default function CheckInQrClient({
         paymentStatus: null,
         error: null,
       })
+      setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
     } catch {
       setConsecutiveQrCheckout({
         ...createEmptyKioskQrCheckoutState(),
         phase: "error",
         error: "We couldn't start the QR payment. Please try again.",
       })
+      setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
     }
   }, [consecutiveOffer, sourceCourses, bootstrap, activeDate, activeTime, hasActiveClerkSession, kioskPinSessionToken, activeCourseSlug])
 
@@ -1507,8 +1541,19 @@ export default function CheckInQrClient({
     ) {
       // Gate returned false — distinguish: settled offer (show overlay) vs wait/other reasons
       // Only show overlay for PACKAGE HOLDERS — non-package users go through EnrollModal which has consecutive step
-      if (consecutiveOffer && consecutiveOfferSettled && !packageCheckInResult
-          && mode === 'existing' && Boolean(bootstrap) && Boolean(bootstrap?.package)) {
+      if (shouldShowConsecutiveOfferGate({
+        hasConsecutiveOffer: Boolean(consecutiveOffer),
+        consecutiveOfferSettled,
+        hasPackageCheckInResult: Boolean(packageCheckInResult),
+        mode,
+        hasBootstrap: Boolean(bootstrap),
+        hasPackage: Boolean(bootstrap?.package),
+        showConsecutivePaymentSelection,
+        awaitingConsecutivePaymentSelection,
+        isConsecutiveQrCheckoutIdle: consecutiveQrCheckout.phase === "idle",
+        hasConsecutiveSuccess: Boolean(consecutiveSuccess),
+        hasConsecutiveError: Boolean(consecutiveError),
+      })) {
         setShowConsecutivePaymentSelection(false)
         setShowConsecutiveOverlay(true)
       }
@@ -1518,15 +1563,20 @@ export default function CheckInQrClient({
   }, [
     bootstrap,
     consecutiveOffer,
+    consecutiveError,
     consecutiveOfferSettled,
+    consecutiveQrCheckout.phase,
+    consecutiveSuccess,
     effectiveCheckInWindowOpen,
     handlePackageCheckIn,
     hasActiveClerkSession,
     hasKioskPinSession,
     isKioskTerminalFlow,
     mode,
+    awaitingConsecutivePaymentSelection,
     packageCheckInResult,
     processingPackageCheckIn,
+    showConsecutivePaymentSelection,
   ])
 
   React.useEffect(() => {
@@ -1586,6 +1636,7 @@ export default function CheckInQrClient({
       consecutiveOfferOpen: Boolean(showConsecutiveOverlay && consecutiveOffer),
       consecutiveSuccessOpen: Boolean(consecutiveSuccess),
       consecutiveErrorOpen: Boolean(consecutiveError),
+      qrCheckoutOpen: consecutiveQrCheckout.phase !== "idle",
     })
 
     // Notify parent (StaffTerminalShell) about flow active state for rotation guard
@@ -1616,6 +1667,7 @@ export default function CheckInQrClient({
     bootstrap,
     consecutiveError,
     consecutiveOffer,
+    consecutiveQrCheckout.phase,
     consecutiveSuccess,
     existingRegularBookingOverride,
     handleStationCompletion,
@@ -1867,6 +1919,7 @@ export default function CheckInQrClient({
           onPayCash={handleConsecutivePayCash}
           onPayCard={handleConsecutivePayCard}
           isProcessing={consecutiveProcessing}
+          processingAction={consecutiveProcessingAction}
           showPaymentSelection={showConsecutivePaymentSelection}
         />
       )}

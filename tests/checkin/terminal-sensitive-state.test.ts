@@ -13,6 +13,7 @@ const baseState: TerminalSensitiveStateInput = {
   consecutiveOfferOpen: false,
   consecutiveSuccessOpen: false,
   consecutiveErrorOpen: false,
+  qrCheckoutOpen: false,
   packageSuccessOpen: false,
   kioskPinOpen: false,
   kioskPinSessionActive: false,
@@ -30,6 +31,10 @@ describe("terminal sensitive customer state", () => {
 
   it("activates when customer bootstrap data is visible", () => {
     expect(hasTerminalSensitiveCustomerState({ ...baseState, bootstrapOpen: true })).toBe(true)
+  })
+
+  it("activates while a kiosk QR checkout is open", () => {
+    expect(hasTerminalSensitiveCustomerState({ ...baseState, qrCheckoutOpen: true })).toBe(true)
   })
 
   it("does not activate outside the kiosk terminal flow", () => {

@@ -6,6 +6,7 @@ import {
   shouldAutoOpenExistingPurchase,
   shouldSurfaceClosedWindowPackageError,
   shouldAutoTriggerPackageCheckIn,
+  shouldShowConsecutiveOfferGate,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
 
@@ -208,6 +209,98 @@ describe("existing customer kiosk helpers", () => {
         consecutiveOfferSettled: true,
       })
     ).toBe(false)
+  })
+
+  it("keeps consecutive payment selection open instead of falling back to Add Class", () => {
+    expect(
+      shouldShowConsecutiveOfferGate({
+        hasConsecutiveOffer: true,
+        consecutiveOfferSettled: true,
+        hasPackageCheckInResult: false,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        showConsecutivePaymentSelection: true,
+        awaitingConsecutivePaymentSelection: false,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+  })
+
+  it("does not reopen Add Class while the package success overlay is handing off to payment", () => {
+    expect(
+      shouldShowConsecutiveOfferGate({
+        hasConsecutiveOffer: true,
+        consecutiveOfferSettled: true,
+        hasPackageCheckInResult: true,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        showConsecutivePaymentSelection: false,
+        awaitingConsecutivePaymentSelection: true,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+  })
+
+  it("does not reopen Add Class while card checkout or final consecutive states are active", () => {
+    const base = {
+      hasConsecutiveOffer: true,
+      consecutiveOfferSettled: true,
+      hasPackageCheckInResult: false,
+      mode: "existing" as const,
+      hasBootstrap: true,
+      hasPackage: true,
+      showConsecutivePaymentSelection: false,
+      awaitingConsecutivePaymentSelection: false,
+    }
+
+    expect(
+      shouldShowConsecutiveOfferGate({
+        ...base,
+        isConsecutiveQrCheckoutIdle: false,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+    expect(
+      shouldShowConsecutiveOfferGate({
+        ...base,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: true,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+    expect(
+      shouldShowConsecutiveOfferGate({
+        ...base,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: true,
+      })
+    ).toBe(false)
+  })
+
+  it("shows the consecutive add-class gate before payment selection starts", () => {
+    expect(
+      shouldShowConsecutiveOfferGate({
+        hasConsecutiveOffer: true,
+        consecutiveOfferSettled: true,
+        hasPackageCheckInResult: false,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        showConsecutivePaymentSelection: false,
+        awaitingConsecutivePaymentSelection: false,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(true)
   })
 
   it("surfaces a closed-window error instead of leaving the customer on loading", () => {

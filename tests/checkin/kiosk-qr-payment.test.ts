@@ -237,9 +237,9 @@ describe("kiosk QR payment helpers", () => {
     ).toBe(false)
   })
 
-  it("pauses kiosk inactivity only while the QR is active or waiting", () => {
-    expect(shouldPauseKioskInactivityForQrPhase("qr_ready")).toBe(true)
-    expect(shouldPauseKioskInactivityForQrPhase("waiting_for_payment")).toBe(true)
+  it("does not pause kiosk inactivity while the QR is active or waiting", () => {
+    expect(shouldPauseKioskInactivityForQrPhase("qr_ready")).toBe(false)
+    expect(shouldPauseKioskInactivityForQrPhase("waiting_for_payment")).toBe(false)
     expect(shouldPauseKioskInactivityForQrPhase("creating")).toBe(false)
     expect(shouldPauseKioskInactivityForQrPhase("expired")).toBe(false)
   })

@@ -14,6 +14,7 @@ export type TerminalSensitiveStateInput = {
   consecutiveOfferOpen: boolean
   consecutiveSuccessOpen: boolean
   consecutiveErrorOpen: boolean
+  qrCheckoutOpen: boolean
 }
 
 export const hasTerminalSensitiveCustomerState = (input: TerminalSensitiveStateInput) => {
@@ -33,6 +34,7 @@ export const hasTerminalSensitiveCustomerState = (input: TerminalSensitiveStateI
     input.pendingLoginPhone ||
     input.consecutiveOfferOpen ||
     input.consecutiveSuccessOpen ||
-    input.consecutiveErrorOpen
+    input.consecutiveErrorOpen ||
+    input.qrCheckoutOpen
   )
 }
