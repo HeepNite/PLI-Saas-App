@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   getExistingCustomerInitialStep,
   hasExistingCustomerPrefillContact,
+  resolvePackageConsecutiveDeclineAction,
   shouldAutoOpenExistingPurchase,
   shouldSurfaceClosedWindowPackageError,
   shouldAutoTriggerPackageCheckIn,
@@ -192,6 +193,23 @@ describe("existing customer kiosk helpers", () => {
     ).toBe(true)
   })
 
+  it("does not auto-trigger package success when the student is already checked in for the session", () => {
+    expect(
+      shouldAutoTriggerPackageCheckIn({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasPackage: true,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: false,
+        hasExistingPurchaseForSession: true,
+        effectiveCheckInWindowOpen: true,
+        hasActiveSession: true,
+        hasConsecutiveOffer: false,
+        consecutiveOfferSettled: true,
+      })
+    ).toBe(false)
+  })
+
   it("surfaces a closed-window error instead of leaving the customer on loading", () => {
     expect(
       shouldSurfaceClosedWindowPackageError({
@@ -220,5 +238,27 @@ describe("existing customer kiosk helpers", () => {
         hasExistingRegularBookingOverride: true,
       })
     ).toBe(false)
+  })
+
+  describe("resolvePackageConsecutiveDeclineAction", () => {
+    it("returns 'pre-checkin' when the package check-in has not happened yet", () => {
+      // Pre-checkin mode: the consecutive offer was shown BEFORE class A
+      // check-in. Declining must trigger class A check-in (and surface the
+      // standard package success overlay) rather than completing the station
+      // immediately — otherwise the kiosk wipes packageCheckInResult before
+      // the operator sees confirmation.
+      expect(
+        resolvePackageConsecutiveDeclineAction({ hasPackageCheckInResult: false })
+      ).toBe("pre-checkin")
+    })
+
+    it("returns 'post-checkin' when the package check-in already completed", () => {
+      // Post-checkin mode: class A was already checked in (legacy flow path).
+      // Declining the offer just dismisses the overlay and completes the
+      // station.
+      expect(
+        resolvePackageConsecutiveDeclineAction({ hasPackageCheckInResult: true })
+      ).toBe("post-checkin")
+    })
   })
 })

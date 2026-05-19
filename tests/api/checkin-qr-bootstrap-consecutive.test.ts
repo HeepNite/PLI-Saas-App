@@ -6,7 +6,6 @@ const mockResolveTerminalKioskSession = vi.fn()
 const mockGetCatalogCourseBySlug = vi.fn()
 const mockPackageFindMany = vi.fn()
 const mockPurchaseFindMany = vi.fn()
-const mockPurchaseFindFirst = vi.fn()
 const mockUpsertUserByIdentifiers = vi.fn()
 const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
@@ -405,6 +404,70 @@ describe("bootstrap consecutive offer", () => {
     expect(data.consecutiveOffer).toBeNull()
     // Should not query courseLink at all
     expect(mockCourseLinkFindMany).not.toHaveBeenCalled()
+  })
+
+  it("returns no offer when course B has day-specific rules and is NOT scheduled today (Mon Beginner → Fri-only Rueda)", async () => {
+    // Force Monday 2026-05-18 NY (weekday 1)
+    vi.setSystemTime(new Date("2026-05-18T22:00:00.000Z"))
+    setupKioskSession()
+    mockGetCatalogCourseBySlug.mockImplementation(async (slug: string) => {
+      if (slug === "salsa-night-beginner") {
+        return {
+          slug: "salsa-night-beginner",
+          title: "Salsa Beginner / Open Level",
+          enrollment: { services: [{ id: "dropin", label: "Drop-in", price: 20 }], packages: [], addons: [] },
+          scheduleRules: {
+            mode: "regular",
+            rules: [
+              { weekday: 1, times: ["21:10"] },
+              { weekday: 5, times: ["20:10"] },
+            ],
+          },
+        }
+      }
+      if (slug === "salsa-night-advance-beginner-rueda") {
+        return {
+          slug: "salsa-night-advance-beginner-rueda",
+          title: "Advance Beginner Rueda",
+          enrollment: { services: [{ id: "dropin", label: "Drop-in", price: 20 }], packages: [], addons: [] },
+          scheduleRules: { mode: "regular", rules: [{ weekday: 5, times: ["21:10"] }] },
+        }
+      }
+      return null
+    })
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        id: "link_rueda",
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+        active: true,
+      },
+    ])
+    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1", status: "checked_in" })
+    mockPurchaseFindFirstConsecutive.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "salsa-night-advance-beginner-rueda",
+          date: "2026-05-18",
+          time: "21:10",
+          durationMinutes: 60,
+          flowContext: "kiosk_terminal",
+          kioskSessionToken: "kiosk_session_1",
+          linkedFromCourseSlug: "salsa-night-beginner",
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.consecutiveOffer).toBeNull()
   })
 
   afterEach(() => {

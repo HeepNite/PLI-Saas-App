@@ -11,8 +11,9 @@ import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { findConsecutiveLink, computeDiscountPercent } from "@/lib/course-links"
+import { computeDiscountPercent } from "@/lib/course-links"
 import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
+import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 
 export const runtime = "nodejs"
 
@@ -329,7 +330,41 @@ export async function POST(req: Request) {
         const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, now)
         const hasAlreadyB = await hasPurchaseForCourseToday(dbUser.id, link.courseSlugB, now)
 
-        if (linkedCourse && hasAttendedA && !hasAlreadyB) {
+        // Validate that course B is actually scheduled today and starts after A's
+        // selected time. This prevents surfacing a consecutive offer for a class
+        // that isn't scheduled today (e.g. Rueda on Mondays — only on Fridays).
+        //
+        // Only enforce the check when course B has day-specific schedule rules.
+        // If no day-specific rules are present we cannot reliably determine
+        // today's availability here, so we fall back to the prior behavior and
+        // let downstream validation (attendance / check-in window) catch it.
+        const linkedScheduleRules = linkedCourse?.scheduleRules
+        const parsedRules = parseScheduleRules(linkedScheduleRules)
+        const todayJsWeekday = (() => {
+          const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+          const weekday = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            weekday: "short",
+          }).format(now)
+          return weekdayLabels.findIndex((label) => label === weekday)
+        })()
+        const aTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
+        const aMinutes = aTimeMatch
+          ? Number(aTimeMatch[1]) * 60 + Number(aTimeMatch[2])
+          : null
+
+        let isLinkedScheduledLaterToday = true
+        if (parsedRules?.rules?.length) {
+          const linkedTimesToday = getTimesForWeekday(linkedScheduleRules, todayJsWeekday) ?? []
+          isLinkedScheduledLaterToday = linkedTimesToday.some((time) => {
+            const match = /^(\d{2}):(\d{2})$/.exec(time)
+            if (!match) return false
+            const minutes = Number(match[1]) * 60 + Number(match[2])
+            return aMinutes === null ? true : minutes > aMinutes
+          })
+        }
+
+        if (linkedCourse && hasAttendedA && !hasAlreadyB && isLinkedScheduledLaterToday) {
           const regularDropIn = linkedCourse.enrollment.services.find((s) => s.id === "dropin")?.price ?? 0
           const discountPercent = computeDiscountPercent(
             regularDropIn * 100,

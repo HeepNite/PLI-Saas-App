@@ -45,6 +45,7 @@ function createMockParams() {
     setPackageCheckInResult: vi.fn(),
     setShowConsecutiveOverlay: vi.fn(),
     setShowConsecutivePaymentSelection: vi.fn(),
+    setAwaitingConsecutivePaymentSelection: vi.fn(),
   }
 }
 
@@ -144,6 +145,7 @@ describe("useKioskFlowCompletion — reset/cleanup", () => {
     expect(params.setPackageCheckInResult).toHaveBeenCalledWith(null)
     expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
     expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)
+    expect(params.setAwaitingConsecutivePaymentSelection).toHaveBeenCalledWith(false)
   })
 
   it("resetCustomerFlowState calls setPackageOfferContext and setPackageOfferSelectedId exactly once each", async () => {

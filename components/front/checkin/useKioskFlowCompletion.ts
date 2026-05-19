@@ -43,6 +43,7 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setPackageCheckInResult: React.Dispatch<React.SetStateAction<{ remainingCredits: number | null; points: number } | null>>
   setShowConsecutiveOverlay: React.Dispatch<React.SetStateAction<boolean>>
   setShowConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>
+  setAwaitingConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export const useKioskFlowCompletion = <TBootstrap,>({
@@ -75,6 +76,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
   setPackageCheckInResult,
   setShowConsecutiveOverlay,
   setShowConsecutivePaymentSelection,
+  setAwaitingConsecutivePaymentSelection,
 }: UseKioskFlowCompletionParams<TBootstrap>) => {
   const resetCustomerFlowState = React.useCallback(() => {
     setOpenNewBooking(false)
@@ -105,6 +107,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setPackageCheckInResult(null)
     setShowConsecutiveOverlay(false)
     setShowConsecutivePaymentSelection(false)
+    setAwaitingConsecutivePaymentSelection(false)
   }, [
     resetKioskCustomerSession,
     setBootstrap,
@@ -132,6 +135,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setPendingLoginPhone,
     setShowConsecutiveOverlay,
     setShowConsecutivePaymentSelection,
+    setAwaitingConsecutivePaymentSelection,
     setShowPhoneSignIn,
     setSuccess,
   ])

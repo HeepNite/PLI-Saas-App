@@ -203,6 +203,30 @@ export async function POST(req: Request) {
         )
       }
 
+      // Hardening: a MONETARY consecutive add-on must NEVER reach this
+      // endpoint without explicit cash evidence. The card path goes through
+      // /api/checkout/session (Stripe), not here. Without this guard, the
+      // route would mark the purchase as `paid` with
+      // `paymentChannel: consecutive_addon` and no Stripe IDs — money never
+      // collected. See Jhon Doe purchase cmpbkyowj001ow3gpqxwdpexa.
+      const effectivePriceCents =
+        consecutivePriceCents !== null
+          ? consecutivePriceCents
+          : link.packageHolderConsecutiveCents
+      if (
+        typeof effectivePriceCents === "number" &&
+        effectivePriceCents > 0 &&
+        !consecutiveCashPayment
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Monetary consecutive add-on requires payment selection. Use cash flow (consecutiveCashPayment) or card flow via /api/checkout/session.",
+          },
+          { status: 400 }
+        )
+      }
+
       // Verify student attended Class A today
       const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
       if (!hasAttendedA) {
@@ -299,12 +323,13 @@ export async function POST(req: Request) {
 
         // Create a purchase record for the consecutive monetary charge
         // This is NOT a package credit deduction — it's a separate charge
+        const recordedConsecutivePriceCents = effectivePriceCents ?? 0
         await tx.purchase.create({
           data: {
             userId: dbUser.id,
             courseSlug: context.courseSlug,
             courseTitle: course.title,
-            amount: consecutivePriceCents ?? 0,
+            amount: recordedConsecutivePriceCents,
             currency: "usd",
             status: consecutiveCashPayment ? "pending" : "paid",
             participants: 1,
@@ -317,7 +342,7 @@ export async function POST(req: Request) {
               source: "qr_package_consecutive_addon",
               attendanceId: attendance.id,
               linkedFromCourseSlug,
-              consecutivePriceCents,
+              consecutivePriceCents: recordedConsecutivePriceCents,
               packagePurchaseId: activePackages[0].id,
             },
           },
