@@ -12753,9 +12753,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
           {isHistoryMode ? (
             <div className="mt-4 rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(15,17,23,0.94),rgba(20,24,33,0.92))] p-4 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:gap-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
                 {/* Left column: Calendar */}
-                <div className="w-full xl:min-w-0">
+                <div className="w-full md:min-w-0">
                   <CalendarPicker
                     rangeMode={true}
                     rangeStart={historyFrom}
@@ -12836,7 +12836,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
                   {/* Stats - compact history metric cards with decorative rings */}
                   {historyFrom && historyTo && (
-                    <div className="grid flex-1 grid-cols-1 gap-2.5 lg:grid-cols-2 2xl:grid-cols-3">
+                    <div className="grid flex-1 grid-cols-2 gap-2.5">
                       <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
                         <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--brand,#b61616)]/10 text-[var(--brand,#b61616)]">
                           <span aria-hidden className="absolute inset-[2.5px] rounded-full border border-[var(--brand,#b61616)]/20" />
