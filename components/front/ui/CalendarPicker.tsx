@@ -147,21 +147,21 @@ export default function CalendarPicker({
 
   return (
     <div
-      className={`block w-full min-w-0 rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 ${
-        compact ? "p-3" : "p-3 sm:p-5 lg:p-6"
+      className={`flex h-full w-full min-w-0 flex-col rounded-md border border-black/10 bg-white/70 dark:border-white/10 dark:bg-white/10 ${
+        compact ? "p-2 pt-3" : "p-3 pt-4 sm:p-5 lg:p-6"
       } ${className}`}
     >
-      <div className="grid w-full max-w-none grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
-        <div className="grid min-w-0 items-center gap-2 grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      <div className="flex w-full items-center gap-2 md:gap-3">
+        <div className="grid min-w-0 flex-1 items-center gap-2 grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           {locked ? (
             <>
-              <div className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 text-sm ${
-                compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
+              <div className={`w-full min-w-0 px-1 text-sm font-medium text-black/80 dark:text-white/80 ${
+                compact ? "py-1" : "py-1 md:py-1.5 md:text-base"
               }`}>
                 {MONTHS[month]}
               </div>
-              <div className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 text-sm ${
-                compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
+              <div className={`w-full min-w-0 px-1 text-sm font-medium text-black/80 dark:text-white/80 ${
+                compact ? "py-1" : "py-1 md:py-1.5 md:text-base"
               }`}>
                 {year}
               </div>
@@ -239,15 +239,13 @@ export default function CalendarPicker({
             )}
           </div>
         )}
+        <span className={`shrink-0 px-1 font-medium text-black/80 dark:text-white/80 ${compact ? "text-sm" : "text-sm md:text-base"}`}>{tz}</span>
       </div>
 
-      <div className={`mt-3 flex justify-center ${compact ? "text-xs" : "text-xs sm:text-sm"}`}>
-        <span className={`rounded-full bg-black/5 dark:bg-white/10 px-2 py-1 ${compact ? "" : "md:px-3"}`}>{tz}</span>
-      </div>
-
+      <div className="mt-3 border-t border-black/10 dark:border-white/10" />
       <div
-        className={`mt-4 grid w-full max-w-none grid-cols-7 text-center ${
-          compact ? "gap-1 text-xs" : "gap-1 sm:gap-2 lg:gap-3 text-xs sm:text-sm lg:text-base"
+        className={`mt-2 grid w-full max-w-none flex-1 grid-cols-7 content-center text-center ${
+          compact ? "gap-1.5 text-sm" : "gap-1 sm:gap-2 lg:gap-3 text-xs sm:text-sm lg:text-base"
         }`}
       >
         {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((w)=>(
@@ -259,7 +257,7 @@ export default function CalendarPicker({
           </div>
         ))}
         {weeks.flat().map((d, idx)=>{
-          if (!d) return <div key={idx} className="py-2" />
+          if (!d) return <div key={idx} className={compact ? "h-10" : "py-2"} />
           const iso = toISODate(d)
           const rangePosition = rangeMode
             ? getCalendarRangePosition(iso, rangeStart, rangeEnd)
@@ -320,8 +318,8 @@ export default function CalendarPicker({
                 onClick={handleClick}
                 disabled={interactive ? disabled : false}
                 data-range-highlight={inRange ? "true" : undefined}
-                className={`w-full rounded-md md:rounded-lg border transition-colors ${
-                  compact ? "py-2 text-sm" : "py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
+                className={`rounded-md md:rounded-lg border transition-colors flex items-center justify-center ${
+                  compact ? "h-10 w-full text-sm" : "w-full py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
                 } ${
                   selected
                     ? toneClasses || "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"

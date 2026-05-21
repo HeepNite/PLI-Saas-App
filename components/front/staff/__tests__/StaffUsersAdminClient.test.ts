@@ -342,6 +342,55 @@ describe("transformPaymentRowsToAttendance", () => {
     expect(result.events[0]?.time).toBe(expectedTime)
     expect(result.events[0]?.time).not.toBe("20:10")
   })
+
+  it("renders paid direct purchases without attendance rows as attended history", () => {
+    const result = transformPaymentRowsToAttendance([
+      {
+        id: "paid_direct_without_attendance",
+        userId: "user_1",
+        customerName: "Sebastian Basantes",
+        customerEmail: "sebastian@example.com",
+        customerPhone: "19735258381",
+        customerAvatarUrl: null,
+        courseTitle: "Salsa Beginner / Open Level",
+        courseSlug: "salsa-open",
+        packageId: null,
+        serviceId: "svc_dropin",
+        paymentChannel: "cash",
+        purchaseCategory: "dropin",
+        amount: 1500,
+        currency: "usd",
+        paymentStatus: "paid",
+        settlementStatus: "paid",
+        settlementNote: "",
+        settledAt: "2026-05-15T20:19:00.000Z",
+        createdAt: "2026-05-15T20:19:00.000Z",
+        updatedAt: "2026-05-15T20:19:00.000Z",
+        classDate: "2026-05-15",
+        classTime: "20:10",
+        classStartsAt: "2026-05-15T20:10:00.000Z",
+        location: null,
+        pointsBalance: 0,
+        pointsHistory: [],
+        classPaid: true,
+        attendanceId: null,
+        checkInStatus: "none",
+        checkInAt: null,
+        checkedOutAt: null,
+        activePackage: null,
+        packageClassNumber: null,
+        fundingPayment: null,
+        completedClassesTotal: 1,
+        packageClassesUsedTotal: 0,
+        outstandingBalance: null,
+      },
+    ] as never)
+
+    expect(result.summary.totalAttended).toBe(1)
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.status).toBe("attended")
+    expect(result.events[0]?.classType).toBe("Drop-in")
+  })
 })
 
 describe("transformPaymentRowsToEvents", () => {
@@ -973,6 +1022,7 @@ describe("matchesHistoryContentFilters", () => {
     courseSlug: "bachata-int",
     paymentChannel: "card" as const,
     purchaseCategory: "dropin" as const,
+    packageId: null,
     classPaid: true,
     checkInStatus: "checked_out" as const,
   }
