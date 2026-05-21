@@ -6,7 +6,7 @@ export const WIZARD_STEP_CONFIGS: Record<SchoolWizardEntity, SchoolWizardStepCon
     { key: "prices", label: "Prices" },
     { key: "media-assets", label: "Media" },
     { key: "schedule", label: "Schedule" },
-    { key: "course-links", label: "Relations", enabled: (ctx) => Boolean(ctx.courseEditingSlug) },
+    { key: "course-links", label: "Relations" },
     { key: "preview-calendar", label: "Preview" },
     { key: "publish", label: "Publish" },
   ],
@@ -17,8 +17,8 @@ export const WIZARD_STEP_CONFIGS: Record<SchoolWizardEntity, SchoolWizardStepCon
   packages: [
     { key: "main-info", label: "Main Info" },
     { key: "assign-courses", label: "Assign Courses" },
-    { key: "pricing-credits", label: "Pricing & Credits" },
-    { key: "valid-days-status", label: "Valid Days & Status" },
+    { key: "pricing-credits", label: "Pricing" },
+    { key: "valid-days-status", label: "Valid Days" },
   ],
   points: [
     { key: "rule-builder", label: "Rule Builder" },
