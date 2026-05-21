@@ -52,6 +52,30 @@ type CourseScheduleRulesPayload = {
   specialDiscount?: CourseSpecialDiscountSettings
 }
 
+const parseCoursePublication = (value: unknown): CoursePublicationSettings => {
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : null
+  const modeRaw = source?.mode
+  const mode: CoursePublicationMode =
+    modeRaw === "coming_soon" || modeRaw === "launch_date" || modeRaw === "publish_now" ? modeRaw : "publish_now"
+  const launchDateRaw = typeof source?.launchDate === "string" ? source.launchDate.trim() : ""
+  const launchDate = mode === "launch_date" && DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
+  return { mode, launchDate }
+}
+
+const parseCourseSpecialDiscount = (value: unknown): CourseSpecialDiscountSettings => {
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : null
+  const typeRaw = source?.type
+  const type: CourseSpecialDiscountType =
+    typeRaw === "valentines_desc" || typeRaw === "christmas_desc" || typeRaw === "custom" || typeRaw === "none"
+      ? typeRaw
+      : "none"
+  const labelRaw = typeof source?.label === "string" ? source.label.trim() : ""
+  const label = type === "custom" && labelRaw ? labelRaw : null
+  const priceRaw = Number(source?.priceCents)
+  const priceCents = Number.isFinite(priceRaw) && priceRaw >= 0 ? Math.round(priceRaw) : null
+  return { type, label, priceCents }
+}
+
 const toSafeText = (value: unknown, max = 200) => (typeof value === "string" ? value.trim().slice(0, max) : "")
 const isLegacyCourseMediaUrl = (value: string | null) => value?.startsWith(LEGACY_COURSE_MEDIA_PREFIX) ?? false
 const normalizeCourseMediaUrl = (value: string | null) => (isLegacyCourseMediaUrl(value) ? null : value)
@@ -119,46 +143,8 @@ const toScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
       label: "Special event",
     }))
 
-  const publicationSource =
-    source.publication && typeof source.publication === "object"
-      ? (source.publication as Record<string, unknown>)
-      : null
-  const publicationModeRaw = publicationSource?.mode
-  const publicationMode: CoursePublicationMode =
-    publicationModeRaw === "coming_soon" || publicationModeRaw === "launch_date" || publicationModeRaw === "publish_now"
-      ? publicationModeRaw
-      : "publish_now"
-  const launchDateRaw = typeof publicationSource?.launchDate === "string" ? publicationSource.launchDate.trim() : ""
-  const launchDate = publicationMode === "launch_date" && DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
-  const publication: CoursePublicationSettings = {
-    mode: publicationMode,
-    launchDate,
-  }
-
-  const specialDiscountSource =
-    source.specialDiscount && typeof source.specialDiscount === "object"
-      ? (source.specialDiscount as Record<string, unknown>)
-      : null
-  const specialDiscountTypeRaw = specialDiscountSource?.type
-  const specialDiscountType: CourseSpecialDiscountType =
-    specialDiscountTypeRaw === "valentines_desc" ||
-    specialDiscountTypeRaw === "christmas_desc" ||
-    specialDiscountTypeRaw === "custom" ||
-    specialDiscountTypeRaw === "none"
-      ? specialDiscountTypeRaw
-      : "none"
-  const specialDiscountLabelRaw = typeof specialDiscountSource?.label === "string" ? specialDiscountSource.label.trim() : ""
-  const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
-  const specialDiscountPriceRaw = Number(specialDiscountSource?.priceCents)
-  const specialDiscountPrice =
-    Number.isFinite(specialDiscountPriceRaw) && specialDiscountPriceRaw >= 0
-      ? Math.round(specialDiscountPriceRaw)
-      : null
-  const specialDiscount: CourseSpecialDiscountSettings = {
-    type: specialDiscountType,
-    label: specialDiscountLabel,
-    priceCents: specialDiscountPrice,
-  }
+  const publication = parseCoursePublication(source.publication)
+  const specialDiscount = parseCourseSpecialDiscount(source.specialDiscount)
 
   const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
   const hasSpecialDiscount =

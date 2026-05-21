@@ -28,17 +28,20 @@ const toTimeLabelInNY = (input: Date) =>
     minute: "2-digit",
   }).format(input)
 
+const getCurrentUtcYearMonth = () => {
+  const now = new Date()
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 }
+}
+
 const parseMonthParam = (value: string | null) => {
   if (!value || !/^\d{4}-\d{2}$/.test(value)) {
-    const now = new Date()
-    return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 }
+    return getCurrentUtcYearMonth()
   }
   const [yearString, monthString] = value.split("-")
   const year = Number(yearString)
   const month = Number(monthString)
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
-    const now = new Date()
-    return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 }
+    return getCurrentUtcYearMonth()
   }
   return { year, month }
 }

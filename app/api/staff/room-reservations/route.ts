@@ -16,6 +16,26 @@ const toDate = (value: unknown) => {
 const SCHOOL_TIMEZONE = "America/New_York"
 const ROOM_BUFFER_MINUTES = 15
 
+type ReservationPayload = {
+  roomId: string | null
+  title: string
+  reason: string
+  startsAt: Date | null
+  endsAt: Date | null
+  category: string | null
+  assignedStaffClerkUserId: string | null
+}
+
+const parseReservationPayload = (body: Record<string, unknown>): ReservationPayload => ({
+  roomId: typeof body.roomId === "string" ? body.roomId : null,
+  title: typeof body.title === "string" ? body.title.trim().slice(0, 120) : "",
+  reason: typeof body.reason === "string" ? body.reason.trim().slice(0, 400) : "",
+  startsAt: toDate(body.startsAt),
+  endsAt: toDate(body.endsAt),
+  category: typeof body.category === "string" ? body.category : null,
+  assignedStaffClerkUserId: typeof body.assignedStaffClerkUserId === "string" ? body.assignedStaffClerkUserId : null,
+})
+
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({ key: buildRateLimitKey("staff:room-reservations:get", getClientIp(req)), limit: 120, windowMs: 60_000 })
   if (!rateLimit.ok) return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
@@ -53,11 +73,7 @@ export async function POST(req: Request) {
   const actorRole = auth.role as string
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
-  const roomId = typeof body.roomId === "string" ? body.roomId : null
-  const title = typeof body.title === "string" ? body.title.trim().slice(0, 120) : ""
-  const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 400) : ""
-  const startsAt = toDate(body.startsAt)
-  const endsAt = toDate(body.endsAt)
+  const { roomId, title, reason, startsAt, endsAt, category, assignedStaffClerkUserId } = parseReservationPayload(body)
   if (!roomId || !title || !reason || !startsAt || !endsAt) return NextResponse.json({ error: "Invalid reservation payload." }, { status: 400 })
 
   const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true, active: true } })
@@ -118,12 +134,12 @@ export async function POST(req: Request) {
         roomId,
         title,
         reason,
-        category: typeof body.category === "string" ? body.category : null,
+        category,
         startsAt,
         endsAt,
         status: "active",
         createdByClerkUserId: auth.userId,
-        assignedStaffClerkUserId: typeof body.assignedStaffClerkUserId === "string" ? body.assignedStaffClerkUserId : null,
+        assignedStaffClerkUserId,
       },
     })
 

@@ -87,6 +87,38 @@ describe("staff room reservations API", () => {
     expect(res.status).toBe(409)
   })
 
+  it("POST forwards category and assigned staff clerk user id into reservation create payload", async () => {
+    mockPrisma.room.findUnique.mockResolvedValue({ id: "room-1", active: true })
+    mockPrisma.classSession.findMany.mockResolvedValue([])
+    mockPrisma.roomReservation.findMany.mockResolvedValue([])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([])
+    mockPrisma.roomReservation.create.mockResolvedValue({ id: "res_1" })
+    mockPrisma.roomAuditLog.create.mockResolvedValue({ id: "audit_1" })
+
+    const { POST } = await import("@/app/api/staff/room-reservations/route")
+    const res = await POST(new Request("http://localhost/api/staff/room-reservations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roomId: "room-1",
+        title: "Private",
+        reason: "1:1",
+        startsAt: "2026-04-05T12:00:00.000Z",
+        endsAt: "2026-04-05T13:00:00.000Z",
+        category: "private_session",
+        assignedStaffClerkUserId: "teacher_2",
+      }),
+    }))
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.roomReservation.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        category: "private_session",
+        assignedStaffClerkUserId: "teacher_2",
+      }),
+    }))
+  })
+
   it("checkin route succeeds despite active reservation (school priority)", async () => {
     mockPrisma.user.findFirst.mockResolvedValue({ id: "u1", email: "u@x.com", name: "U", phone: null })
     mockPrisma.courseCatalog.findUnique.mockResolvedValue({ title: "Course", dropInPriceCents: 1000 })
