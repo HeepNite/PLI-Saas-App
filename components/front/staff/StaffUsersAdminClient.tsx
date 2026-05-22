@@ -10518,7 +10518,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     onMouseLeave={() => setReviewPreviewHover((prev) => (prev === "home" ? null : prev))}
                                   >
                                     <p className="text-[10px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Home card</p>
-                                    <div className="relative mt-1 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
+                                    <div className="relative mt-1 h-48 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
                                       {reviewPreviewHover === "home" && previewVideoSource ? (
                                         isEmbedPreviewVideo ? (
                                           <iframe
@@ -10532,7 +10532,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           <video
                                             src={previewVideoSource}
                                             poster={previewMediaUrl || undefined}
-                                            className="h-48 w-full object-cover"
+                                            className="h-full w-full object-cover"
                                             autoPlay
                                             loop
                                             muted
@@ -10547,7 +10547,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           fill
                                           unoptimized
                                           sizes="(min-width: 768px) 50vw, 100vw"
-                                          className="h-48 w-full object-cover"
+                                          className="h-full w-full object-cover"
                                         />
                                       ) : (
                                         <div className="flex h-48 items-center justify-center bg-black/35 text-[10px] uppercase tracking-[0.2em] text-white/55">Course image</div>
@@ -10571,7 +10571,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     onMouseLeave={() => setReviewPreviewHover((prev) => (prev === "single" ? null : prev))}
                                   >
                                     <p className="text-[10px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Single page</p>
-                                    <div className="relative mt-1 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
+                                    <div className="relative mt-1 h-48 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
                                       {reviewPreviewHover === "single" && previewVideoSource ? (
                                         isEmbedPreviewVideo ? (
                                           <iframe
@@ -10585,7 +10585,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           <video
                                             src={previewVideoSource}
                                             poster={previewMediaUrl || undefined}
-                                            className="h-48 w-full object-cover"
+                                            className="h-full w-full object-cover"
                                             autoPlay
                                             loop
                                             muted
@@ -10600,7 +10600,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           fill
                                           unoptimized
                                           sizes="(min-width: 768px) 50vw, 100vw"
-                                          className="h-48 w-full object-cover"
+                                          className="h-full w-full object-cover"
                                         />
                                       ) : (
                                         <div className="flex h-48 items-center justify-center bg-black/35 text-[10px] uppercase tracking-[0.2em] text-white/55">Single image</div>
