@@ -7,7 +7,19 @@ const SOURCE_PATH = join(
   "components/front/staff/StaffUsersAdminClient.tsx"
 )
 
+const RESERVATION_FORM_SOURCE_PATH = join(
+  process.cwd(),
+  "components/front/staff/StaffRoomReservationForm.tsx"
+)
+
+const RESERVATION_LIST_SOURCE_PATH = join(
+  process.cwd(),
+  "components/front/staff/StaffRoomReservationList.tsx"
+)
+
 const source = readFileSync(SOURCE_PATH, "utf8")
+const reservationFormSource = readFileSync(RESERVATION_FORM_SOURCE_PATH, "utf8")
+const reservationListSource = readFileSync(RESERVATION_LIST_SOURCE_PATH, "utf8")
 
 describe("StaffUsersAdminClient rooms lifecycle actions", () => {
   it("includes activate action for inactive rooms", () => {
@@ -60,20 +72,21 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
     expect(source).toContain("const saveRoomReservation = React.useCallback(async (event: React.FormEvent) => {")
     expect(source).toContain('fetch("/api/staff/room-reservations", {')
     expect(source).toContain('`/api/staff/room-reservations/${reservation.id}/cancel`')
-    expect(source).toContain("Create reservation")
     expect(source).toContain("Confirm cancel")
-    expect(source).toContain("Reservation date range")
-    expect(source).toContain("rangeMode={true}")
-    expect(source).toContain("Start time")
-    expect(source).toContain("End time")
-    expect(source).toContain("Range preview:")
-    expect(source).toContain("md:grid-cols-2")
-    expect(source).toContain("lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.2fr)]")
+    expect(reservationFormSource).toContain("Create reservation")
+    expect(reservationFormSource).toContain("Reservation date range")
+    expect(reservationFormSource).toContain("rangeMode={true}")
+    expect(reservationFormSource).toContain("Start time")
+    expect(reservationFormSource).toContain("End time")
+    expect(reservationFormSource).toContain("Start: {formatReservationDateLabel(roomReservationForm.startDate)")
+    expect(reservationFormSource).toContain("End: {formatReservationDateLabel(roomReservationForm.endDate || roomReservationForm.startDate)")
+    expect(source).toContain("reservationRangePreview")
+    expect(reservationFormSource).toContain("grid gap-4 md:grid-cols-2")
   })
 
   it("defines and uses a date-time formatter for reservation rendering", () => {
     expect(source).toContain("const formatDateTime = (value: string | number | null | undefined) => {")
-    expect(source).toContain("{formatDateTime(item.startsAt)} → {formatDateTime(item.endsAt)}")
+    expect(reservationListSource).toContain("{formatDateTime(item.startsAt)} → {formatDateTime(item.endsAt)}")
   })
 
   it("builds startsAt/endsAt payload from date and time fields with overnight guard", () => {
@@ -83,7 +96,7 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
     expect(source).toContain("startsAt: startsAtDate.toISOString()")
     expect(source).toContain("endsAt: endsAtDate.toISOString()")
     expect(source).toContain("End date/time must be after start date/time. For overnight events, choose the next day as end date.")
-    expect(source).toContain("Timezone:")
+    expect(source).toContain('"Choose start/end time and a valid date range."')
   })
 
   it("keeps range click flow by not forcing same-day end in onRangeChange", () => {
