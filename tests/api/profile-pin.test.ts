@@ -83,6 +83,8 @@ describe("profile PIN route", () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     const { GET } = await import("@/app/api/profile/pin/route")
     const res = await GET(new Request("http://localhost/api/profile/pin"))
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ enabled: true, enrolled: true })
   })
@@ -107,6 +109,8 @@ describe("profile PIN route", () => {
       })
     )
 
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
     expect(res.status).toBe(200)
     expect(mockReplacePermanentStudentPin).toHaveBeenCalled()
     expect(mockClearStudentPinLockout).toHaveBeenCalled()
@@ -126,6 +130,8 @@ describe("profile PIN route", () => {
       })
     )
 
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
     expect(res.status).toBe(200)
     expect(mockVerifyStudentPinHash).not.toHaveBeenCalled()
   })

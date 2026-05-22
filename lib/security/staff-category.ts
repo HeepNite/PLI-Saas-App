@@ -220,3 +220,65 @@ export const staffCategoryLabel = (value: StaffCategory) => {
       return "Guest"
   }
 }
+
+type PaymentValidationResult =
+  | { ok: true }
+  | { ok: false; error: string; status: 422 }
+
+const paymentValidationError = (error: string): PaymentValidationResult => ({ ok: false, error, status: 422 })
+
+export const validatePaymentInfo = (
+  paymentPreference: string,
+  paymentInfo: StaffPaymentInfo | null | undefined,
+): PaymentValidationResult => {
+  const normalizedPreference = paymentPreference.trim().toLowerCase()
+  const info = paymentInfo ?? {}
+
+  if (!PAYMENT_PREFERENCES.includes(normalizedPreference as StaffPaymentPreference)) {
+    return paymentValidationError("Invalid payment preference")
+  }
+
+  if (normalizedPreference === "cash" || normalizedPreference === "credits" || normalizedPreference === "stripe") {
+    return { ok: true }
+  }
+
+  if (normalizedPreference === "direct_deposit") {
+    const routingNumber = info.routingNumber?.trim() ?? ""
+    const accountNumber = info.accountNumber?.trim() ?? ""
+    const accountType = info.accountType?.trim().toLowerCase() ?? ""
+    const accountHolder = info.accountHolder?.trim() ?? ""
+
+    if (!routingNumber) return paymentValidationError("routingNumber is required")
+    if (!/^\d{9}$/.test(routingNumber)) return paymentValidationError("routingNumber must be exactly 9 digits")
+    if (!accountNumber) return paymentValidationError("accountNumber is required")
+    if (!/^\d{4,17}$/.test(accountNumber)) return paymentValidationError("accountNumber must be 4-17 digits")
+    if (!accountType) return paymentValidationError("accountType is required")
+    if (accountType !== "checking" && accountType !== "savings") {
+      return paymentValidationError("accountType must be checking or savings")
+    }
+    if (!accountHolder) return paymentValidationError("accountHolder is required")
+
+    return { ok: true }
+  }
+
+  if (normalizedPreference === "zelle") {
+    const zelleId = info.zelleId?.trim() ?? ""
+    const venmoUser = info.venmoUser?.trim() ?? ""
+    if (!zelleId && !venmoUser) {
+      return paymentValidationError("zelleId or venmoUser is required")
+    }
+    return { ok: true }
+  }
+
+  if (normalizedPreference === "mercadopago") {
+    const mercadoPagoId = info.mercadoPagoId?.trim() ?? ""
+    const cbu = info.cbu?.trim() ?? ""
+    const alias = info.alias?.trim() ?? ""
+    if (!mercadoPagoId && !cbu && !alias) {
+      return paymentValidationError("mercadoPagoId, cbu, or alias is required")
+    }
+    return { ok: true }
+  }
+
+  return paymentValidationError("Invalid payment preference")
+}
