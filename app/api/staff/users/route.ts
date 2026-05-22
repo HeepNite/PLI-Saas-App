@@ -24,6 +24,7 @@ import {
   syncStaffAccountFromClerkUser,
 } from "@/lib/security/staff-account-sync"
 import { prisma } from "@/lib/prisma"
+import { buildStaffUsersCacheKeyFromRequestUrl, parseStaffUsersGetFilters } from "./get-filters"
 
 export const runtime = "nodejs"
 
@@ -37,9 +38,6 @@ const staffUsersCache = new Map<string, CacheEntry>()
 
 // In-flight deduplication: concurrent identical requests share one promise.
 const inflightRequests = new Map<string, Promise<NextResponse>>()
-
-const buildStaffUsersCacheKey = (query: string | undefined, category: string | undefined): string =>
-  `${query ?? ""}|${category ?? ""}`
 
 const shouldBypassStaffUsersCache = () =>
   process.env.NODE_ENV === "test"
@@ -373,8 +371,7 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   }
 
   const requestUrl = new URL(req.url)
-  const query = requestUrl.searchParams.get("q")?.trim() || undefined
-  const categoryFilter = parseStaffCategory(requestUrl.searchParams.get("category") || undefined)
+  const { query, categoryFilter } = parseStaffUsersGetFilters(requestUrl)
 
   const client = await clerkClient()
 
@@ -494,7 +491,7 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   )
 
   // Store in short-lived cache for deduplication
-  const cacheKey = buildStaffUsersCacheKey(query, categoryFilter ?? undefined)
+  const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
   staffUsersCache.set(cacheKey, {
     expiresAt: Date.now() + STAFF_USERS_CACHE_TTL_MS,
     response: response.clone(),
@@ -519,9 +516,7 @@ export async function GET(req: Request) {
   // Check short-lived cache first (avoids redundant Clerk calls during rapid polling)
   if (!shouldBypassStaffUsersCache()) {
     const requestUrl = new URL(req.url)
-    const query = requestUrl.searchParams.get("q")?.trim() || undefined
-    const categoryFilter = parseStaffCategory(requestUrl.searchParams.get("category") || undefined)
-    const cacheKey = buildStaffUsersCacheKey(query, categoryFilter ?? undefined)
+    const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
 
     const cached = staffUsersCache.get(cacheKey)
     if (cached && cached.expiresAt > Date.now()) {

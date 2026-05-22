@@ -129,6 +129,31 @@ describe("staff users routes", () => {
     expect(data.items[0].id).toBe("u_teacher")
   })
 
+  it("GET trims q before forwarding query to Clerk", async () => {
+    usersApi.getUserList.mockResolvedValue({ data: [] })
+
+    const { GET } = await import("@/app/api/staff/users/route")
+    const res = await GET(new Request("http://localhost/api/staff/users?q=%20%20ana%20%20"))
+
+    expect(res.status).toBe(200)
+    expect(usersApi.getUserList).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "ana" })
+    )
+  })
+
+  it("normalizes q before building cache key", async () => {
+    const { buildStaffUsersCacheKeyFromRequestUrl } = await import("@/app/api/staff/users/get-filters")
+
+    const withSpaces = buildStaffUsersCacheKeyFromRequestUrl(
+      new URL("http://localhost/api/staff/users?q=%20John%20")
+    )
+    const normalized = buildStaffUsersCacheKeyFromRequestUrl(
+      new URL("http://localhost/api/staff/users?q=John")
+    )
+
+    expect(withSpaces).toBe(normalized)
+  })
+
   it("POST promotes existing user", async () => {
     usersApi.getUserList.mockResolvedValueOnce({
       data: [

@@ -61,4 +61,20 @@ describe("staff schedule route", () => {
     expect(firstDayEvents[0].userName).toBe("Ana Front")
     expect(firstDayEvents[0].courseSlug).toBe("salsa-femenina-matutina")
   })
+
+  it("falls back to current UTC month when month param is invalid", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-02-15T12:00:00.000Z"))
+
+    try {
+      const { GET } = await import("@/app/api/staff/schedule/route")
+      const res = await GET(new Request("http://localhost/api/staff/schedule?month=2026-99"))
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.month).toBe("2026-02")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
