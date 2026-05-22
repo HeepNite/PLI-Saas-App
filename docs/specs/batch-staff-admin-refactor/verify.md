@@ -1,7 +1,7 @@
 ## Verification Report
 
-**Change**: batch-staff-admin-refactor  
-**Version**: N/A  
+**Change**: batch-staff-admin-refactor
+**Version**: N/A
 **Mode**: Standard
 
 ### Completeness
