@@ -61,6 +61,7 @@ export const ROLE_FORM_LABELS: Record<StaffRole, string> = {
 
 export const PAYMENT_PREFERENCE_LABELS: Record<StaffPaymentPreference, string> = {
   cash: "Cash",
+  card: "Card",
   direct_deposit: "Direct Deposit (ACH)",
   zelle: "Zelle / Venmo",
   mercadopago: "Mercado Pago",

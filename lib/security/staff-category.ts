@@ -19,6 +19,7 @@ export type StaffPaymentInfo = {
 
 export const PAYMENT_PREFERENCES = [
   "cash",
+  "card",
   "direct_deposit",
   "zelle",
   "mercadopago",
@@ -238,7 +239,12 @@ export const validatePaymentInfo = (
     return paymentValidationError("Invalid payment preference")
   }
 
-  if (normalizedPreference === "cash" || normalizedPreference === "credits" || normalizedPreference === "stripe") {
+  if (
+    normalizedPreference === "cash" ||
+    normalizedPreference === "card" ||
+    normalizedPreference === "credits" ||
+    normalizedPreference === "stripe"
+  ) {
     return { ok: true }
   }
 
