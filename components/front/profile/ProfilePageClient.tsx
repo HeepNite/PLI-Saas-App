@@ -13,23 +13,15 @@ import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import { getAvailableTimesForCourseDate, isSlotInPastForTimeZone } from "@/lib/class-schedule"
 import {
   buildBookingPrefillContact,
-  buildProfileFormState,
   getPackageAssignmentSummary,
-  getProfileCompletionPercent,
 } from "./profile-utils"
 import type {
   ActionRequestItem,
   ActionRequestType,
-  ActivityStats,
   AssignablePackage,
   BookingItem,
   CachedAvailabilityEntry,
   MetricKey,
-  PackageSummary,
-  PointsEntry,
-  ProfilePackageItem,
-  ProfileSaveResponse,
-  ProfileSnapshot,
   SlotAvailability,
 } from "./profile-types"
 import {
@@ -43,9 +35,7 @@ import {
   actionRequestLabels,
 } from "./profile-constants"
 import {
-  toProfileStatus,
   actionRequestStatusLabel,
-  formatRequestDate,
   actionRequestMetaLabel,
   getPendingProcessLabel,
   getProcessTypeTone,
@@ -57,6 +47,11 @@ import {
   formatDateTimeInTimeZone,
 } from "./profile-formatters"
 import { mockProfile } from "./mock-profile"
+import { usePointsHistory } from "./hooks/usePointsHistory"
+import { useActionRequests } from "./hooks/useActionRequests"
+import { useStudentPinForm } from "./hooks/useStudentPinForm"
+import { useProfilePackages } from "./hooks/useProfilePackages"
+import { useProfileForm } from "./hooks/useProfileForm"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -73,41 +68,45 @@ export default function ProfilePageClient() {
   const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
   const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
   const [enrollOpen, setEnrollOpen] = React.useState(false)
-  const [profileLoading, setProfileLoading] = React.useState(false)
-  const [profileSaving, setProfileSaving] = React.useState(false)
-  const [profileError, setProfileError] = React.useState<string | null>(null)
-  const [profileSaved, setProfileSaved] = React.useState(false)
-  const [profileComplete, setProfileComplete] = React.useState(false)
-  const [showProfileForm, setShowProfileForm] = React.useState(true)
-  const [profileFormMounted, setProfileFormMounted] = React.useState(true)
-  const [profileFormVisible, setProfileFormVisible] = React.useState(true)
-  const [pointsBalance, setPointsBalance] = React.useState(0)
-  const [packagesData, setPackagesData] = React.useState<ProfilePackageItem[]>([])
-  const [packagesSummary, setPackagesSummary] = React.useState<PackageSummary>({
-    activePackages: 0,
-    unlimitedPackages: 0,
-    totalRemainingCredits: 0,
-    nextExpiration: null,
-  })
-  const [activityStats, setActivityStats] = React.useState<ActivityStats>({
-    classesTaken: mockProfile.stats.classesTaken,
-    weeklyAverage: 3.4,
-    streakWeeks: 3,
-    recurringLabel: mockProfile.schedule.recurring,
-    lastClassLabel: mockProfile.stats.lastClass,
-  })
-  const [monthlyAttendance, setMonthlyAttendance] = React.useState<Array<{ label: string; value: number }>>(
-    mockProfile.attendance
-  )
-  const [pointsEntries, setPointsEntries] = React.useState<PointsEntry[]>([])
-  const [pointsLoading, setPointsLoading] = React.useState(false)
-  const [pointsError, setPointsError] = React.useState<string | null>(null)
-  const [freeClassThreshold, setFreeClassThreshold] = React.useState(500)
-  const [freeClassesAvailable, setFreeClassesAvailable] = React.useState(0)
-  const [pointsToNextFreeClass, setPointsToNextFreeClass] = React.useState(500)
-  const [actionRequests, setActionRequests] = React.useState<ActionRequestItem[]>([])
-  const [actionRequestsLoading, setActionRequestsLoading] = React.useState(false)
-  const [actionRequestsError, setActionRequestsError] = React.useState<string | null>(null)
+  const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
+
+  // --- Extracted hooks (Slice 2) ---
+  const {
+    pointsBalance, setPointsBalance: setPointsBalanceFromPoints,
+    freeClassThreshold, freeClassesAvailable, pointsToNextFreeClass,
+    pointsEntries, pointsLoading, pointsError, loadPointsHistory,
+  } = usePointsHistory(canLoadProtectedData)
+
+  const {
+    actionRequests, actionRequestsLoading, actionRequestsError, loadActionRequests,
+  } = useActionRequests(canLoadProtectedData)
+
+  const { packagesData, packagesSummary, activityStats, monthlyAttendance } = useProfilePackages(canLoadProtectedData)
+
+  const onPointsBalanceChange = React.useCallback((balance: number) => {
+    setPointsBalanceFromPoints(balance)
+  }, [setPointsBalanceFromPoints])
+
+  const {
+    profileLoading, profileSaving, profileError, profileSaved,
+    profileComplete, setShowProfileForm,
+    profileFormMounted, profileFormVisible,
+    profileUser, profileForm, setProfileForm,
+    avatarUploading, avatarError, fileInputRef,
+    completionPercent, avatarSrc,
+    handleAvatarUpload, handleProfileSave,
+  } = useProfileForm(canLoadProtectedData, user, onPointsBalanceChange, loadPointsHistory)
+
+  const { status: pinStatus, loading: pinLoading, error: pinStatusError, refresh: refreshPinStatus } = useStudentPinStatus(canLoadProtectedData)
+  const {
+    pinCurrentValue, setPinCurrentValue,
+    pinNextValue, setPinNextValue,
+    pinConfirmValue, setPinConfirmValue,
+    pinRecoveryMode, setPinRecoveryMode,
+    pinSaving, pinFormError, setPinFormError, pinFormSuccess, setPinFormSuccess,
+    submitStudentPin,
+  } = useStudentPinForm(pinStatus, refreshPinStatus)
+
   const [bookings, setBookings] = React.useState<BookingItem[]>([])
   const [assignablePackages, setAssignablePackages] = React.useState<AssignablePackage[]>([])
   const [bookingsLoading, setBookingsLoading] = React.useState(false)
@@ -147,14 +146,6 @@ export default function ProfilePageClient() {
   const [requestSubmitError, setRequestSubmitError] = React.useState<string | null>(null)
   const [requestSubmitSuccess, setRequestSubmitSuccess] = React.useState<string | null>(null)
   const [mobileAgendaOpenDay, setMobileAgendaOpenDay] = React.useState<number | null>(null)
-  const [pinCurrentValue, setPinCurrentValue] = React.useState("")
-  const [pinNextValue, setPinNextValue] = React.useState("")
-  const [pinConfirmValue, setPinConfirmValue] = React.useState("")
-  const [pinRecoveryMode, setPinRecoveryMode] = React.useState(false)
-  const [pinSaving, setPinSaving] = React.useState(false)
-  const [pinFormError, setPinFormError] = React.useState<string | null>(null)
-  const [pinFormSuccess, setPinFormSuccess] = React.useState<string | null>(null)
-  const profileSavedTimeout = React.useRef<number | null>(null)
   const availabilityCacheRef = React.useRef<Map<string, CachedAvailabilityEntry>>(new Map())
   const availabilityInflightRef = React.useRef<Map<string, Promise<SlotAvailability[] | null>>>(new Map())
   const rescheduleAvailabilityRequestRef = React.useRef(0)
@@ -162,19 +153,6 @@ export default function ProfilePageClient() {
   const currentCoins = Math.max(0, pointsBalance)
   const progress = Math.min(100, Math.round((currentCoins / Math.max(1, freeClassThreshold)) * 100))
   const shoeProgress = Math.min(100, Math.round((mockProfile.shoeTracking.km / mockProfile.shoeTracking.maxKm) * 100))
-  const [profileUser, setProfileUser] = React.useState({
-    name: "",
-    email: "",
-    phone: "",
-    phoneVerified: false,
-    imageUrl: "",
-    level: mockProfile.level,
-    status: mockProfile.status,
-  })
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const [avatarUploading, setAvatarUploading] = React.useState(false)
-  const [avatarError, setAvatarError] = React.useState<string | null>(null)
-  const [profileForm, setProfileForm] = React.useState(() => buildProfileFormState(null, null))
   const [agendaMonth, setAgendaMonth] = React.useState(() => new Date().getMonth())
   const [agendaYear, setAgendaYear] = React.useState(() => new Date().getFullYear())
   const stickyTop = 76
@@ -185,9 +163,6 @@ export default function ProfilePageClient() {
     () => buildBookingPrefillContact(profileForm, profileUser, user),
     [profileForm, profileUser, user]
   )
-  const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
-  const { status: pinStatus, loading: pinLoading, error: pinStatusError, refresh: refreshPinStatus } = useStudentPinStatus(canLoadProtectedData)
-
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
   const orderedCourses = React.useMemo(() => {
     const preferred = sourceCourses.filter((course) => preferredSet.has(course.slug))
@@ -399,56 +374,6 @@ export default function ProfilePageClient() {
     if (!assignDate) return new Set<string>()
     return assignBookedTimesByDate.get(assignDate) || new Set<string>()
   }, [assignBookedTimesByDate, assignDate])
-
-  const loadPointsHistory = React.useCallback(async () => {
-    if (!canLoadProtectedData) return
-    setPointsLoading(true)
-    setPointsError(null)
-    try {
-      const res = await fetch("/api/profile/points")
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        setPointsError(data?.error || "Could not load points history.")
-        return
-      }
-      setPointsBalance(typeof data?.balance === "number" ? data.balance : 0)
-      setFreeClassThreshold(
-        typeof data?.freeClassThreshold === "number" && data.freeClassThreshold > 0 ? data.freeClassThreshold : 500
-      )
-      setFreeClassesAvailable(
-        typeof data?.freeClassesAvailable === "number" ? Math.max(0, data.freeClassesAvailable) : 0
-      )
-      setPointsToNextFreeClass(
-        typeof data?.pointsToNextFreeClass === "number"
-          ? Math.max(0, data.pointsToNextFreeClass)
-          : Math.max(0, 500 - (typeof data?.balance === "number" ? data.balance : 0))
-      )
-      setPointsEntries(Array.isArray(data?.entries) ? data.entries : [])
-    } catch {
-      setPointsError("Could not load points history.")
-    } finally {
-      setPointsLoading(false)
-    }
-  }, [canLoadProtectedData])
-
-  const loadActionRequests = React.useCallback(async () => {
-    if (!canLoadProtectedData) return
-    setActionRequestsLoading(true)
-    setActionRequestsError(null)
-    try {
-      const res = await fetch("/api/profile/requests")
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        setActionRequestsError(data?.error || "Could not load your requests.")
-        return
-      }
-      setActionRequests(Array.isArray(data?.requests) ? data.requests : [])
-    } catch {
-      setActionRequestsError("Could not load your requests.")
-    } finally {
-      setActionRequestsLoading(false)
-    }
-  }, [canLoadProtectedData])
 
   const clearAvailabilityCache = React.useCallback(() => {
     availabilityCacheRef.current.clear()
@@ -774,50 +699,6 @@ export default function ProfilePageClient() {
     }
   }
 
-  const submitStudentPin = async () => {
-    if (!pinRecoveryMode && pinStatus.enrolled && !/^\d{4}$/.test(pinCurrentValue)) {
-      setPinFormError("Enter your current 4-digit PIN.")
-      return
-    }
-    if (!/^\d{4}$/.test(pinNextValue)) {
-      setPinFormError("New PIN must be exactly 4 digits.")
-      return
-    }
-    if (pinNextValue !== pinConfirmValue) {
-      setPinFormError("PIN confirmation does not match.")
-      return
-    }
-
-    setPinSaving(true)
-    setPinFormError(null)
-    setPinFormSuccess(null)
-    try {
-      const res = await fetch("/api/profile/pin", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPin: pinRecoveryMode ? undefined : pinCurrentValue,
-          nextPin: pinNextValue,
-          confirmPin: pinConfirmValue,
-        }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        setPinFormError(data?.error || "Could not update your PIN.")
-        return
-      }
-      setPinCurrentValue("")
-      setPinNextValue("")
-      setPinConfirmValue("")
-      setPinFormSuccess(pinRecoveryMode ? "PIN recovered successfully." : "PIN updated successfully.")
-      await refreshPinStatus()
-    } catch {
-      setPinFormError("Could not update your PIN.")
-    } finally {
-      setPinSaving(false)
-    }
-  }
-
   const openRequestModal = (type: ActionRequestType) => {
     if (type === "SUSPEND") {
       openSuspendModal()
@@ -1110,94 +991,6 @@ export default function ProfilePageClient() {
   }, [])
 
   React.useEffect(() => {
-    if (!canLoadProtectedData) return
-    let active = true
-    setProfileLoading(true)
-    fetch("/api/profile")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!active) return
-        const profile = data.profile
-        const userPayload = data.user || {}
-        const nameFromPayload =
-          userPayload.name || [userPayload.firstName, userPayload.lastName].filter(Boolean).join(" ").trim()
-        setProfileUser({
-          name: nameFromPayload || user?.fullName || "",
-          email: userPayload.email || user?.primaryEmailAddress?.emailAddress || "",
-          phone: userPayload.phone || user?.primaryPhoneNumber?.phoneNumber || "",
-          phoneVerified: Boolean(user?.primaryPhoneNumber?.verification?.status === "verified"),
-          imageUrl: user?.imageUrl || "",
-          level: mockProfile.level,
-          status: toProfileStatus(userPayload.status),
-        })
-        setPointsBalance(data.pointsBalance || 0)
-        setProfileComplete(Boolean(data.profileComplete))
-        setProfileForm(buildProfileFormState(profile, data.user || user))
-      })
-      .catch(() => {
-        if (!active) return
-        setProfileUser({
-          name: user?.fullName || "",
-          email: user?.primaryEmailAddress?.emailAddress || "",
-          phone: user?.primaryPhoneNumber?.phoneNumber || "",
-          phoneVerified: Boolean(user?.primaryPhoneNumber?.verification?.status === "verified"),
-          imageUrl: user?.imageUrl || "",
-          level: mockProfile.level,
-          status: "NEW",
-        })
-        setProfileError("We couldn't load your profile.")
-      })
-      .finally(() => {
-        if (!active) return
-        setProfileLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [canLoadProtectedData, user])
-
-  React.useEffect(() => {
-    if (!canLoadProtectedData) return
-    let active = true
-    Promise.all([
-      fetch("/api/profile/packages").then((res) => (res.ok ? res.json() : null)),
-      fetch("/api/profile/activity").then((res) => (res.ok ? res.json() : null)),
-    ])
-      .then(([packagesPayload, activityPayload]) => {
-        if (!active) return
-        if (packagesPayload?.packages) {
-          setPackagesData(packagesPayload.packages)
-          setPackagesSummary(
-            packagesPayload.summary || {
-              activePackages: 0,
-              unlimitedPackages: 0,
-              totalRemainingCredits: 0,
-              nextExpiration: null,
-            }
-          )
-        }
-        if (activityPayload?.stats) {
-          setActivityStats({
-            classesTaken: activityPayload.stats.classesTaken ?? 0,
-            weeklyAverage: activityPayload.stats.weeklyAverage ?? 0,
-            streakWeeks: activityPayload.stats.streakWeeks ?? 0,
-            recurringLabel: activityPayload.stats.recurringLabel ?? null,
-            lastClassLabel: activityPayload.stats.lastClassLabel ?? null,
-          })
-        }
-        if (Array.isArray(activityPayload?.monthlyAttendance) && activityPayload.monthlyAttendance.length) {
-          setMonthlyAttendance(activityPayload.monthlyAttendance)
-        }
-      })
-      .catch(() => {
-        // keep current fallback UI values if profile activity endpoints fail
-      })
-    return () => {
-      active = false
-    }
-  }, [canLoadProtectedData])
-
-  React.useEffect(() => {
     void loadPointsHistory()
     void loadActionRequests()
     void loadBookings()
@@ -1229,31 +1022,6 @@ export default function ProfilePageClient() {
       delete document.body.dataset.profilePage
       delete document.body.dataset.profileMobile
       window.removeEventListener("resize", update)
-    }
-  }, [])
-
-  React.useEffect(() => {
-    if (profileComplete) {
-      setShowProfileForm(false)
-    }
-  }, [profileComplete])
-
-  React.useEffect(() => {
-    if (showProfileForm) {
-      setProfileFormMounted(true)
-      requestAnimationFrame(() => setProfileFormVisible(true))
-      return
-    }
-    setProfileFormVisible(false)
-    const id = window.setTimeout(() => setProfileFormMounted(false), 280)
-    return () => window.clearTimeout(id)
-  }, [showProfileForm])
-
-  React.useEffect(() => {
-    return () => {
-      if (profileSavedTimeout.current) {
-        window.clearTimeout(profileSavedTimeout.current)
-      }
     }
   }, [])
 
@@ -1415,116 +1183,6 @@ export default function ProfilePageClient() {
       window.removeEventListener("resize", updateOffset)
     }
   }, [])
-
-
-  const completionPercent = React.useMemo(
-    () => getProfileCompletionPercent(profileForm),
-    [profileForm]
-  )
-
-  const avatarSrc =
-    profileUser.imageUrl ||
-    user?.imageUrl ||
-    user?.externalAccounts?.[0]?.imageUrl ||
-    mockProfile.avatar
-
-  const handleAvatarUpload = async (file: File) => {
-    setAvatarError(null)
-    setAvatarUploading(true)
-    try {
-      if (file.size > 5 * 1024 * 1024) {
-        setAvatarError("La imagen supera los 5MB.")
-        return
-      }
-      const formData = new FormData()
-      formData.append("file", file)
-      const res = await fetch("/api/profile/avatar", {
-        method: "POST",
-        body: formData,
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setAvatarError(data?.error || "Could not update avatar.")
-        return
-      }
-      setProfileUser((prev) => ({ ...prev, imageUrl: data?.imageUrl || prev.imageUrl }))
-    } catch {
-      setAvatarError("Could not update avatar.")
-    } finally {
-      setAvatarUploading(false)
-    }
-  }
-
-  const handleProfileSave = async () => {
-    setProfileSaving(true)
-    setProfileError(null)
-    setProfileSaved(false)
-    try {
-      const billingLine1 = profileForm.billingLine1.trim()
-      const billingLine2 = profileForm.billingLine2.trim()
-      const billingCity = profileForm.billingCity.trim()
-      const billingState = profileForm.billingState.trim()
-      const billingPostalCode = profileForm.billingPostalCode.trim()
-      const billingCountry = profileForm.billingCountry.trim()
-      const hasBillingData = [billingLine1, billingLine2, billingCity, billingState, billingPostalCode, billingCountry].some(Boolean)
-
-      if (hasBillingData && (!billingLine1 || !billingCity || !billingState || !billingPostalCode || !billingCountry)) {
-        setProfileError("Complete the billing address (line 1, city, state, ZIP, and country).")
-        return
-      }
-
-      const payload = {
-        firstName: profileForm.firstName,
-        lastName: profileForm.lastName,
-        birthDate: profileForm.birthDate,
-        emergencyContactName: profileForm.emergencyContactName,
-        emergencyContactRelation: profileForm.emergencyContactRelation,
-        emergencyContactPhone: profileForm.emergencyContactPhone,
-        billingAddress: hasBillingData
-          ? {
-              line1: billingLine1,
-              line2: billingLine2 || null,
-              city: billingCity,
-              state: billingState,
-              postalCode: billingPostalCode,
-              country: billingCountry,
-            }
-          : null,
-      }
-
-      const res = await fetch("/api/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      let data: ProfileSaveResponse | null = null
-      try {
-        data = await res.json()
-      } catch {
-        data = null
-      }
-      if (!res.ok) {
-        const fallback = res.status ? `Could not save profile (${res.status}).` : "Could not save profile."
-        setProfileError(data?.error || fallback)
-        return
-      }
-      setProfileComplete(Boolean(data?.profileComplete))
-      setPointsBalance(typeof data?.pointsBalance === "number" ? data.pointsBalance : 0)
-      if (data?.profile) {
-        setProfileForm(buildProfileFormState(data.profile, user))
-      }
-      void loadPointsHistory()
-      setProfileSaved(true)
-      if (profileSavedTimeout.current) {
-        window.clearTimeout(profileSavedTimeout.current)
-      }
-      profileSavedTimeout.current = window.setTimeout(() => setProfileSaved(false), 2500)
-    } catch {
-      setProfileError("Could not save profile.")
-    } finally {
-      setProfileSaving(false)
-    }
-  }
 
   const chartLabels = React.useMemo(() => {
     if (!monthlyAttendance.length) return analyticsMonths

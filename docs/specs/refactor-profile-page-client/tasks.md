@@ -12,13 +12,13 @@
 
 ## Slice 2 — Simple Data Hooks
 
-- [ ] Create `hooks/useProfileForm.ts` — form state + save + avatar (~200 LOC)
-- [ ] Create `hooks/useProfilePackages.ts` — packages + activity stats (~80 LOC)
-- [ ] Create `hooks/usePointsHistory.ts` — points + balance (~50 LOC)
-- [ ] Create `hooks/useActionRequests.ts` — load + state (~40 LOC)
-- [ ] Create `hooks/useStudentPinForm.ts` — PIN rotation (~100 LOC)
-- [ ] Update ProfilePageClient to consume hooks
-- [ ] Validate: tsc + vitest + eslint
+- [x] Create `hooks/useProfileForm.ts` — form state + save + avatar (~200 LOC)
+- [x] Create `hooks/useProfilePackages.ts` — packages + activity stats (~80 LOC)
+- [x] Create `hooks/usePointsHistory.ts` — points + balance (~50 LOC)
+- [x] Create `hooks/useActionRequests.ts` — load + state (~40 LOC)
+- [x] Create `hooks/useStudentPinForm.ts` — PIN rotation (~100 LOC)
+- [x] Update ProfilePageClient to consume hooks
+- [x] Validate: tsc + vitest + eslint
 
 ## Slice 3 — Complex Hooks + DOM Hooks
 
