@@ -16,345 +16,49 @@ import {
   buildProfileFormState,
   getPackageAssignmentSummary,
   getProfileCompletionPercent,
-  type ProfileSnapshot,
 } from "./profile-utils"
+import type {
+  ActionRequestItem,
+  ActionRequestType,
+  ActivityStats,
+  AssignablePackage,
+  BookingItem,
+  CachedAvailabilityEntry,
+  MetricKey,
+  PackageSummary,
+  PointsEntry,
+  ProfilePackageItem,
+  ProfileSaveResponse,
+  ProfileSnapshot,
+  SlotAvailability,
+} from "./profile-types"
+import {
+  statusLabel,
+  NY_TIMEZONE,
+  AVAILABILITY_CACHE_TTL_MS,
+  CHECK_IN_OPEN_WINDOW_HOURS,
+  CHECK_IN_OPEN_WINDOW_MS,
+  analyticsMonths,
+  analyticsMetricConfig,
+  actionRequestLabels,
+} from "./profile-constants"
+import {
+  toProfileStatus,
+  actionRequestStatusLabel,
+  formatRequestDate,
+  actionRequestMetaLabel,
+  getPendingProcessLabel,
+  getProcessTypeTone,
+  isPendingRequestStatus,
+  addDaysToIsoDate,
+  pointsTypeLabel,
+  formatDateKeyInTimeZone,
+  formatTimeKeyInTimeZone,
+  formatDateTimeInTimeZone,
+} from "./profile-formatters"
+import { mockProfile } from "./mock-profile"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
-
-type ProfileStatus = "NEW" | "ACTIVE" | "ALUMNI"
-
-const statusLabel: Record<ProfileStatus, string> = {
-  NEW: "New",
-  ACTIVE: "Active",
-  ALUMNI: "Alumni",
-}
-
-const NY_TIMEZONE = "America/New_York"
-const AVAILABILITY_CACHE_TTL_MS = 45_000
-const CHECK_IN_OPEN_WINDOW_HOURS = 2
-const CHECK_IN_OPEN_WINDOW_MS = CHECK_IN_OPEN_WINDOW_HOURS * 60 * 60 * 1000
-
-const toProfileStatus = (value: unknown): ProfileStatus => {
-  if (value === "NEW" || value === "ACTIVE" || value === "ALUMNI") return value
-  return "NEW"
-}
-
-const mockProfile = {
-  name: "Student",
-  level: "Beginner",
-  status: "ACTIVE" as ProfileStatus,
-  email: "",
-  phone: "",
-  phoneVerified: false,
-  avatar: "/images/Teaches/elvira-portrait.jpg",
-  packages: [
-    { label: "Morning 3-week pack", remaining: 6 },
-    { label: "Practice video access", remaining: 1 },
-  ],
-  promos: ["New student promo (used)", "Winter bonus 10%"],
-  stats: {
-    classesTaken: 18,
-    streak: "3 weeks",
-    lastClass: "Thursday 11:00 AM",
-  },
-  coins: {
-    current: 320,
-    goal: 500,
-    freeClassesEarned: 1,
-  },
-  attendance: [
-    { label: "Oct", value: 5 },
-    { label: "Nov", value: 4 },
-    { label: "Dec", value: 6 },
-    { label: "Jan", value: 3 },
-  ],
-  medals: ["5 classes", "10 classes", "1 active month"],
-  moments: [
-    "/images/carousel/_DSC1079.JPG",
-    "/images/carousel/_DSC1087.JPG",
-    "/images/carousel/_DSC1076.JPG",
-    "/images/carousel/_DSC1082.JPG",
-  ],
-  preferredCourses: ["salsa-femenina-matutina", "salsa-nocturno"],
-  schedule: {
-    recurring: "Tuesday 7:00 PM",
-    nextClass: "Tuesday 7:00 PM",
-    hasActiveBooking: false,
-  },
-  shoeTracking: {
-    model: "Nike Flex",
-    km: 320,
-    maxKm: 500,
-  },
-}
-
-type ProfileSaveResponse = {
-  error?: string
-  profile?: ProfileSnapshot | null
-  profileComplete?: boolean
-  pointsBalance?: number
-}
-
-type PackageSummary = {
-  activePackages: number
-  unlimitedPackages: number
-  totalRemainingCredits: number
-  nextExpiration: string | null
-}
-
-type ProfilePackageItem = {
-  id: string
-  packageId: string
-  label: string
-  courseSlug: string | null
-  status: string
-  isUnlimited: boolean
-  totalCredits: number | null
-  remainingCredits: number | null
-  purchasedAt: string | null
-  expiresAt: string | null
-  lastUsedAt: string | null
-  cadence: string | null
-  source: string
-}
-
-type ActivityStats = {
-  classesTaken: number
-  weeklyAverage: number
-  streakWeeks: number
-  recurringLabel: string | null
-  lastClassLabel: string | null
-}
-
-type MetricKey = "attendance" | "progress" | "rhythm"
-type ActionRequestType = "CLASS_CHANGE" | "SUSPEND" | "CANCEL"
-
-type BookingItem = {
-  id: string
-  status: string
-  startsAt: string
-  courseSlug: string
-  courseTitle: string
-  sessionId: string
-  packagePurchaseId: string | null
-  packageLabel: string | null
-}
-
-type AssignablePackage = {
-  id: string
-  packageId: string
-  label: string
-  courseSlug: string | null
-  remainingCredits: number | null
-  totalCredits: number | null
-  isUnlimited: boolean
-  expiresAt: string | null
-}
-
-type SlotAvailability = {
-  time: string
-  label: string
-  isFull: boolean
-  spotsLeft: number
-  capacity: number
-  isPast?: boolean
-}
-
-type CachedAvailabilityEntry = {
-  slots: SlotAvailability[]
-  cachedAt: number
-}
-
-type PointsEntry = {
-  id: string
-  type: string
-  points: number
-  createdAt: string
-  meta?: Record<string, unknown> | null
-}
-
-type ActionRequestItem = {
-  id: string
-  type: ActionRequestType
-  status: string
-  message: string | null
-  meta?: Record<string, unknown> | null
-  createdAt: string
-  resolvedAt: string | null
-}
-
-const analyticsMonths = ["Oct", "Nov", "Dec", "Jan"] as const
-const analyticsMetricConfig: Record<MetricKey, { label: string; color: string; values: number[] }> = {
-  attendance: {
-    label: "Attendance",
-    color: "var(--brand,#b61616)",
-    values: [5, 4, 6, 3],
-  },
-  progress: {
-    label: "Progress",
-    color: "#ef6b6b",
-    values: [2, 3, 4, 5],
-  },
-  rhythm: {
-    label: "Rhythm",
-    color: "#f59e0b",
-    values: [1, 2, 3, 4],
-  },
-}
-
-const actionRequestLabels: Record<ActionRequestType, string> = {
-  CLASS_CHANGE: "Class change",
-  SUSPEND: "Suspension",
-  CANCEL: "Cancellation",
-}
-
-const actionRequestStatusLabel = (status: string) => {
-  if (status === "PENDING") return "Pending"
-  if (status === "PROCESSING") return "In progress"
-  if (status === "RESOLVED") return "Resolved"
-  if (status === "REJECTED") return "Rejected"
-  return status
-}
-
-const formatRequestDate = (value: unknown) => {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
-  const parsed = new Date(`${value}T12:00:00.000Z`)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-}
-
-const actionRequestMetaLabel = (request: ActionRequestItem) => {
-  if (request.type === "SUSPEND") {
-    const start = formatRequestDate(request.meta?.startDate)
-    const end = formatRequestDate(request.meta?.endDate)
-    const packageLabel = typeof request.meta?.packageLabel === "string" ? request.meta.packageLabel : ""
-    if (start && end && packageLabel) return `${packageLabel} · from ${start} to ${end}`
-    if (start && end) return `From ${start} to ${end}`
-  }
-  if (request.type === "CANCEL") {
-    const effective = formatRequestDate(request.meta?.effectiveDate)
-    const courseTitle = typeof request.meta?.courseTitle === "string" ? request.meta.courseTitle : ""
-    if (effective && courseTitle) return `${courseTitle} · effective from ${effective}`
-    if (effective) return `Effective from ${effective}`
-  }
-  return null
-}
-
-const getPendingProcessLabel = (request: ActionRequestItem | undefined) => {
-  if (!request) return "Process"
-  const type = actionRequestLabels[request.type] || request.type
-  const status = actionRequestStatusLabel(request.status).toLowerCase()
-  return `${type} (${status})`
-}
-
-const getProcessTypeTone = (type?: ActionRequestType | null) => {
-  if (type === "CANCEL") {
-    return {
-      border: "rgba(239,68,68,0.45)",
-      bg: "rgba(239,68,68,0.16)",
-      text: "#fecaca",
-      dot: "#f87171",
-    }
-  }
-  if (type === "CLASS_CHANGE") {
-    return {
-      border: "rgba(59,130,246,0.45)",
-      bg: "rgba(59,130,246,0.16)",
-      text: "#bfdbfe",
-      dot: "#60a5fa",
-    }
-  }
-  if (type === "SUSPEND") {
-    return {
-      border: "rgba(245,158,11,0.45)",
-      bg: "rgba(245,158,11,0.16)",
-      text: "#fde68a",
-      dot: "#fbbf24",
-    }
-  }
-  return {
-    border: "rgba(255,255,255,0.22)",
-    bg: "rgba(255,255,255,0.08)",
-    text: "rgba(255,255,255,0.82)",
-    dot: "rgba(255,255,255,0.7)",
-  }
-}
-
-const isPendingRequestStatus = (status: string) => status === "PENDING" || status === "PROCESSING"
-
-const addDaysToIsoDate = (isoDate: string, days: number) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate
-  const parsed = new Date(`${isoDate}T00:00:00.000Z`)
-  if (Number.isNaN(parsed.getTime())) return isoDate
-  parsed.setUTCDate(parsed.getUTCDate() + days)
-  return parsed.toISOString().slice(0, 10)
-}
-
-const pointsTypeLabel = (type: string) => {
-  if (type === "PROFILE_COMPLETED") return "Profile completed"
-  if (type === "PACKAGE_PURCHASE") return "Package purchase"
-  if (type === "PACKAGE_ASSIGNMENT") return "Class assignment"
-  if (type === "CONSECUTIVE_ATTENDANCE") return "Consecutive attendance"
-  if (type === "REFERRAL_BONUS") return "Referral"
-  if (type === "CLASS_MILESTONE") return "Class milestone"
-  return type
-}
-
-const formatDateKeyInTimeZone = (value: string | Date, timeZone = NY_TIMEZONE) => {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date)
-  const year = parts.find((item) => item.type === "year")?.value ?? ""
-  const month = parts.find((item) => item.type === "month")?.value ?? ""
-  const day = parts.find((item) => item.type === "day")?.value ?? ""
-  if (!year || !month || !day) return ""
-  return `${year}-${month}-${day}`
-}
-
-const formatTimeKeyInTimeZone = (value: string | Date, timeZone = NY_TIMEZONE) => {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(date)
-  const hour = parts.find((item) => item.type === "hour")?.value ?? ""
-  const minute = parts.find((item) => item.type === "minute")?.value ?? ""
-  if (!hour || !minute) return ""
-  return `${hour}:${minute}`
-}
-
-const formatDateTimeInTimeZone = (
-  value: string | Date,
-  options: Intl.DateTimeFormatOptions = {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  },
-  locale = "en-US",
-  timeZone = NY_TIMEZONE
-) => {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  return new Intl.DateTimeFormat(locale, {
-    ...options,
-    timeZone,
-  }).format(date)
-}
 
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
