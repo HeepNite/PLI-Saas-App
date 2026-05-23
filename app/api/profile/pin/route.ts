@@ -93,11 +93,6 @@ export async function PUT(req: Request) {
     )
   }
 
-  const userResolution = await resolveAuthenticatedDbUser()
-  if ("response" in userResolution) {
-    return userResolution.response
-  }
-
   let body: unknown
   try {
     body = await req.json()
@@ -113,6 +108,11 @@ export async function PUT(req: Request) {
   const confirmationError = assertStudentPinConfirmation(nextPin, confirmPin)
   if (confirmationError) {
     return NextResponse.json({ error: confirmationError.error }, { status: confirmationError.status })
+  }
+
+  const userResolution = await resolveAuthenticatedDbUser()
+  if ("response" in userResolution) {
+    return userResolution.response
   }
 
   const existingPermanent = await prisma.studentPinCredential.findUnique({

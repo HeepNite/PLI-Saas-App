@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { formatStudentPaymentCardDateTimeLabel, formatStudentPaymentCardSlotLabel } from "@/components/front/staff/StaffUsersAdminClient"
+import {
+  formatStudentPaymentCardDateTimeLabel,
+  formatStudentPaymentCardSlotLabel,
+} from "@/components/front/staff/studentPaymentCardFormatters"
 
 describe("StaffUsersAdminClient helpers", () => {
   it("formats daily card class slots with the long date label", () => {

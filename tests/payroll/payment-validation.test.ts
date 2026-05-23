@@ -90,9 +90,13 @@ describe("validatePaymentInfo", () => {
     })
   })
 
-  describe("cash / credits / stripe — valid", () => {
+  describe("cash / card / credits / stripe — valid", () => {
     it("accepts cash with no extra fields", () => {
       expect(validatePaymentInfo("cash", {})).toEqual({ ok: true })
+    })
+
+    it("accepts card with no extra fields", () => {
+      expect(validatePaymentInfo("card", {})).toEqual({ ok: true })
     })
 
     it("accepts credits with no extra fields", () => {

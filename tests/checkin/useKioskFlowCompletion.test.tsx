@@ -51,7 +51,7 @@ function createMockParams() {
 
 type HookResult = {
   resetCustomerFlowState: () => void
-  handleStationCompletion: () => Promise<void>
+  handleStationCompletion: () => void
   dismissExistingCustomer: () => void
 }
 

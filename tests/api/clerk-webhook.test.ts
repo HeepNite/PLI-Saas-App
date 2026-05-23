@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
 
 const mockVerifyWebhook = vi.fn()
 const mockSyncDbUserFromClerkUser = vi.fn()
@@ -34,7 +35,7 @@ describe("clerk webhook route", () => {
     mockSyncDbUserFromClerkUser.mockResolvedValue({ id: "db_1" })
 
     const { POST } = await import("@/app/api/clerk/webhook/route")
-    const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
+    const res = await POST(new NextRequest("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
 
     expect(res.status).toBe(200)
     expect(mockSyncDbUserFromClerkUser).toHaveBeenCalledTimes(1)
@@ -47,7 +48,7 @@ describe("clerk webhook route", () => {
     })
 
     const { POST } = await import("@/app/api/clerk/webhook/route")
-    const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
+    const res = await POST(new NextRequest("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
     const payload = await res.json()
 
     expect(res.status).toBe(200)
@@ -59,7 +60,7 @@ describe("clerk webhook route", () => {
     mockVerifyWebhook.mockRejectedValue(new Error("invalid signature"))
 
     const { POST } = await import("@/app/api/clerk/webhook/route")
-    const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
+    const res = await POST(new NextRequest("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
 
     expect(res.status).toBe(400)
     expect(console.error).toHaveBeenCalledWith(
@@ -76,7 +77,7 @@ describe("clerk webhook route", () => {
     mockSyncDbUserFromClerkUser.mockResolvedValue(null)
 
     const { POST } = await import("@/app/api/clerk/webhook/route")
-    const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
+    const res = await POST(new NextRequest("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
     const payload = await res.json()
 
     expect(res.status).toBe(200)
@@ -95,7 +96,7 @@ describe("clerk webhook route", () => {
     mockSyncDbUserFromClerkUser.mockRejectedValue(new Error("db unavailable"))
 
     const { POST } = await import("@/app/api/clerk/webhook/route")
-    const res = await POST(new Request("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
+    const res = await POST(new NextRequest("http://localhost/api/clerk/webhook", { method: "POST", body: "{}" }))
 
     expect(res.status).toBe(500)
     expect(console.error).toHaveBeenCalledWith(

@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import Image from "next/image"
 import { useSearchParams } from "next/navigation"
 import {
   Bot,
@@ -30,11 +31,7 @@ import {
   Trash2,
   Users,
   X,
-  BookOpen,
-  DoorOpen,
   Package,
-  Award,
-  Link2,
 } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
@@ -72,9 +69,7 @@ import {
   type StaffPortalSection,
 } from "@/lib/security/staff-access"
 import { POINTS_RULE_DEFINITIONS } from "@/lib/points/constants"
-import PaymentHistoryTimeline, {
-  type PaymentEvent,
-} from "@/components/front/staff/PaymentHistoryTimeline"
+import PaymentHistoryTimeline from "@/components/front/staff/PaymentHistoryTimeline"
 import AttendanceHistoryTimeline, {
   type AttendanceEvent,
   type AttendanceSummary,
@@ -85,6 +80,80 @@ import { ClerkSyncMismatchBanner } from "@/components/front/staff/ClerkSyncMisma
 import { useSchoolWizard, SchoolWizardPanel } from "@/components/front/staff/school"
 import type { StepEnabledContext } from "@/components/front/staff/school"
 import type { StripeFailureInfo } from "@/lib/stripe-failure"
+import {
+  checkInStateTone,
+  isCheckedInStatus,
+  isCompletedClassEvidence,
+  isDirectPaidClassEvidence,
+  isPaymentPaidForUi,
+  resolveDailyVisiblePayment,
+  resolveStudentPinTone,
+} from "./paymentState"
+import {
+  resolveAttendanceHistoryRows,
+  resolvePaymentHistoryRows,
+  transformPaymentRowsToAttendance,
+  transformPaymentRowsToEvents,
+} from "./paymentTimelineTransforms"
+import {
+  formatIsoDateLong,
+  formatStudentPaymentCardDateTimeLabel,
+  formatStudentPaymentCardSlotLabel,
+} from "./studentPaymentCardFormatters"
+import {
+  buildCourseRoomOptions,
+  buildRoomLookup,
+  filterVisibleRooms,
+  resolveRoomCatalogErrorMessage,
+  resolveRoomDisableActionState,
+} from "./staffRoomCatalogHelpers"
+import {
+  createEmptyRoomReservationForm,
+  createInitialRoomForm,
+  createRoomFormFromRoom,
+  type RoomFormState,
+  type RoomReservationFormState,
+} from "./staffRoomFormState"
+import StaffPortalNavButton, { type StaffPortalNavItem } from "./StaffPortalNavButton"
+import StaffAssistantRightRail from "./StaffAssistantRightRail"
+import StaffRoomReservationForm from "./StaffRoomReservationForm"
+import StaffRoomReservationList from "./StaffRoomReservationList"
+import StaffProfilePaymentSection from "./StaffProfilePaymentSection"
+import StaffProfileRequestsSection from "./StaffProfileRequestsSection"
+import StaffCatalogSection from "./StaffCatalogSection"
+import {
+  CATEGORY_LABELS,
+  CATEGORY_OPTIONS,
+  COURSE_KIND_DATE_TONE,
+  COURSE_KIND_LABELS,
+  COURSE_KIND_REVIEW_HINTS,
+  COURSE_PUBLICATION_MODE_OPTIONS,
+  COURSE_SPECIAL_DISCOUNT_OPTIONS,
+  DEFAULT_QUICK_SCHEDULE_TIMES,
+  getFixedCategoryForRole,
+  ISO_DATE_REGEX,
+  normalizeCategoryForRole,
+  PAYMENT_PREFERENCE_LABELS,
+  PROFILE_REQUEST_STATUS_OPTIONS,
+  PROFILE_REQUEST_TYPE_OPTIONS,
+  QUICK_SCHEDULE_SLOT_COUNT,
+  REPORT_OBJECTIVE_LABELS,
+  REPORT_OBJECTIVE_OPTIONS,
+  REPORT_SUGGESTIONS_SOURCE_LABELS,
+  REQUEST_STATUS_OPTIONS,
+  REQUEST_TYPE_LABELS,
+  ROLE_FORM_LABELS,
+  ROLE_LABELS,
+  SCHOOL_COURSE_KINDS,
+  SCHOOL_SCHEDULE_SHORTCUTS_STORAGE_KEY,
+  SCHEDULE_SHORTCUT_TONES,
+  SPECIAL_EVENT_COURSE_KINDS,
+  WEEKDAY_LABELS,
+  WEEKDAY_LABELS_LONG,
+  type CoursePublicationMode,
+  type CourseSpecialDiscountType,
+  type ReportsObjectiveFilter,
+} from "./staffAdminConstants"
 
 type StaffUserRow = {
   id: string
@@ -242,14 +311,6 @@ const COMPLETED_PAYMENT_STATUS_VALUES = new Set(["succeeded", "paid", "completed
 
 const isCompletedPaymentStatusValue = (status: unknown) =>
   typeof status === "string" && COMPLETED_PAYMENT_STATUS_VALUES.has(status.trim().toLowerCase())
-type ReportsObjectiveFilter =
-  | "all"
-  | "monday_sales"
-  | "class_quality"
-  | "retention"
-  | "package_mix"
-  | "pending_recovery"
-
 type ReportsSuggestion = {
   id: string
   objective: Exclude<ReportsObjectiveFilter, "all">
@@ -470,17 +531,6 @@ type RoomReservationRow = {
   cancellationReason: string | null
 }
 
-type RoomReservationFormState = {
-  roomId: string
-  title: string
-  reason: string
-  startDate: string
-  endDate: string
-  startTime: string
-  endTime: string
-  assignedStaffClerkUserId: string
-}
-
 type RoomReservationCancelModalState = {
   reservation: RoomReservationRow
   reason: string
@@ -536,28 +586,8 @@ type RoomRow = {
   active: boolean
 }
 
-type RoomStatusFilter = "all" | "active" | "inactive"
 type PackagePlanStatus = "ACTIVE" | "SUSPENDED" | "SCHEDULED" | "DELETED"
 type PackageStatusFilter = "all" | PackagePlanStatus
-
-type RoomFormState = {
-  id: string
-  name: string
-  capacity: string
-  location: string
-  active: boolean
-}
-
-const createEmptyRoomReservationForm = (): RoomReservationFormState => ({
-  roomId: "",
-  title: "",
-  reason: "",
-  startDate: toLocalIsoDate(new Date()),
-  endDate: "",
-  startTime: "",
-  endTime: "",
-  assignedStaffClerkUserId: "",
-})
 
 type AssignmentCourseOption = {
   slug: string
@@ -655,9 +685,6 @@ type CourseSpecialEventEntry = {
   label: string | null
 }
 
-type CoursePublicationMode = "publish_now" | "coming_soon" | "launch_date"
-type CourseSpecialDiscountType = "none" | "valentines_desc" | "christmas_desc" | "custom"
-
 type CoursePublicationSettings = {
   mode: CoursePublicationMode
   launchDate: string | null
@@ -719,15 +746,7 @@ type TeacherAssignmentFormState = {
   courseSlugs: string[]
 }
 
-type NavItem = {
-  key: StaffPortalSection
-  label: string
-  icon: React.ComponentType<{ className?: string }>
-}
-
-const CATEGORY_OPTIONS: StaffCategory[] = ["front_desk", "manager", "teacher", "guest"]
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-const NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS: StaffPortalNavItem[] = [
   { key: "users", label: "User Management", icon: Users },
   { key: "students", label: "Students", icon: GraduationCap },
   { key: "schedule", label: "School", icon: School },
@@ -737,137 +756,6 @@ const NAV_ITEMS: NavItem[] = [
   { key: "settings", label: "Settings", icon: Settings },
 ]
 
-const REPORT_OBJECTIVE_OPTIONS: Array<{ key: ReportsObjectiveFilter; label: string }> = [
-  { key: "all", label: "All goals" },
-  { key: "monday_sales", label: "Increase Monday sales" },
-  { key: "class_quality", label: "Improve class quality" },
-  { key: "retention", label: "Improve retention" },
-  { key: "package_mix", label: "Grow package conversion" },
-  { key: "pending_recovery", label: "Recover pending payments" },
-]
-
-const REPORT_OBJECTIVE_LABELS: Record<Exclude<ReportsObjectiveFilter, "all">, string> = {
-  monday_sales: "Monday sales",
-  class_quality: "Class quality",
-  retention: "Retention",
-  package_mix: "Package conversion",
-  pending_recovery: "Pending recovery",
-}
-
-const REPORT_SUGGESTIONS_SOURCE_LABELS: Record<"local" | "mock" | "custom-http", string> = {
-  local: "Local rules",
-  mock: "Mock provider",
-  "custom-http": "External API",
-}
-
-const CATEGORY_LABELS: Record<StaffCategory, string> = {
-  front_desk: "Front desk",
-  manager: "Managers",
-  teacher: "Teachers",
-  guest: "Guest",
-  partner: "Partner",
-}
-
-const ROLE_LABELS: Record<StaffRole, string> = {
-  owner: "Owner",
-  admin: "GM",
-  staff: "Staff",
-}
-const ROLE_FORM_LABELS: Record<StaffRole, string> = {
-  owner: "Owner",
-  admin: "Admin (GM)",
-  staff: "Staff",
-}
-const PAYMENT_PREFERENCE_LABELS: Record<StaffPaymentPreference, string> = {
-  cash: "Cash",
-  direct_deposit: "Direct Deposit (ACH)",
-  zelle: "Zelle / Venmo",
-  mercadopago: "Mercado Pago",
-  stripe: "Stripe Payouts",
-  credits: "Internal Credits (Internship)",
-}
-
-const getFixedCategoryForRole = (role: StaffRole): StaffCategory | null => {
-  if (role === "owner") return "partner"
-  if (role === "admin") return "manager"
-  return null
-}
-
-const normalizeCategoryForRole = (role: StaffRole, category: StaffCategory): StaffCategory =>
-  getFixedCategoryForRole(role) || category
-
-const REQUEST_TYPE_LABELS: Record<StaffRequestType, string> = {
-  STAFF_DAY_OFF: "Day off",
-  STAFF_SHIFT_SWAP: "Shift swap",
-  STAFF_SCHEDULE_CHANGE: "Schedule change",
-  STAFF_PAY_ADVANCE: "Pay advance",
-  STAFF_SHIFT_COVER: "Shift cover",
-  STAFF_GENERAL_QUERY: "General query",
-}
-
-const PROFILE_REQUEST_TYPE_OPTIONS: Array<{ value: StaffRequestType; label: string; hint: string }> = [
-  { value: "STAFF_SCHEDULE_CHANGE", label: "Schedule change", hint: "Request a shift/time update." },
-  { value: "STAFF_DAY_OFF", label: "Vacation / day off", hint: "Ask for day off or vacation range." },
-  { value: "STAFF_PAY_ADVANCE", label: "Payment request", hint: "Ask payroll/pay advance support." },
-  { value: "STAFF_SHIFT_SWAP", label: "Shift swap", hint: "Swap shift with another teammate." },
-  { value: "STAFF_GENERAL_QUERY", label: "Consultation", hint: "General question or support request." },
-]
-
-const REQUEST_STATUS_OPTIONS: StaffRequestStatus[] = ["PENDING", "IN_REVIEW", "APPROVED", "REJECTED"]
-const PROFILE_REQUEST_STATUS_OPTIONS: Array<StaffRequestStatus | "all"> = [
-  "all",
-  "PENDING",
-  "IN_REVIEW",
-  "APPROVED",
-  "REJECTED",
-]
-const WEEKDAY_LABELS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-const SCHOOL_COURSE_KINDS = ["course", "program", "bootcamp", "workshop", "convention", "congress"]
-const SPECIAL_EVENT_COURSE_KINDS = new Set(["bootcamp", "workshop", "convention", "congress"])
-const COURSE_KIND_DATE_TONE: Record<string, "course" | "program" | "bootcamp" | "workshop" | "convention" | "event" | "warning"> = {
-  course: "course",
-  program: "program",
-  bootcamp: "bootcamp",
-  workshop: "workshop",
-  convention: "convention",
-  congress: "event",
-}
-const COURSE_KIND_LABELS: Record<string, string> = {
-  course: "Course",
-  program: "Program",
-  bootcamp: "Bootcamp",
-  workshop: "Workshop",
-  convention: "Convention",
-  congress: "Congress",
-}
-const COURSE_KIND_REVIEW_HINTS: Record<string, string> = {
-  course: "Base weekly format.",
-  program: "Class path by module.",
-  bootcamp: "Intensive with limited spots.",
-  workshop: "Themed special session.",
-  convention: "Single high-impact event.",
-  congress: "Congress-style event with full program blocks.",
-}
-const COURSE_PUBLICATION_MODE_OPTIONS: Array<{ value: CoursePublicationMode; label: string }> = [
-  { value: "publish_now", label: "Publish now" },
-  { value: "coming_soon", label: "Coming soon" },
-  { value: "launch_date", label: "Launch date" },
-]
-const COURSE_SPECIAL_DISCOUNT_OPTIONS: Array<{ value: CourseSpecialDiscountType; label: string }> = [
-  { value: "none", label: "No special discount" },
-  { value: "valentines_desc", label: "San Valentin desc" },
-  { value: "christmas_desc", label: "Navidad desc" },
-  { value: "custom", label: "Custom discount" },
-]
-const QUICK_SCHEDULE_SLOT_COUNT = 12
-const DEFAULT_QUICK_SCHEDULE_TIMES = ["08:00", "09:00", "10:00", "11:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"]
-const SCHOOL_SCHEDULE_SHORTCUTS_STORAGE_KEY = "pli:staff:school:schedule-shortcuts:v1"
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
-const SCHEDULE_SHORTCUT_TONES = [
-  "bg-gradient-to-br from-[var(--brand,#b61616)]/14 via-[var(--brand,#b61616)]/8 to-transparent dark:from-[var(--brand,#b61616)]/26 dark:via-[#1a1430]/58 dark:to-[#0a0f23]/88",
-  "bg-gradient-to-br from-[#f59e0b]/14 via-[var(--brand,#b61616)]/8 to-transparent dark:from-[#f59e0b]/18 dark:via-[#221631]/56 dark:to-[#0a0f23]/88",
-  "bg-gradient-to-br from-[#3b82f6]/12 via-[var(--brand,#b61616)]/8 to-transparent dark:from-[#2563eb]/14 dark:via-[#171b38]/58 dark:to-[#0a0f23]/88",
-]
 
 const statusLabel = (row: StaffUserRow) => {
   if (row.banned) return "Banned"
@@ -1456,48 +1344,6 @@ export const formatPaymentChangeRequestInfoRows = (requestedInfo: StaffPaymentCh
     })
 }
 
-const formatIsoDateLong = (value: string | null) => {
-  if (!value) return "—"
-  const time = Date.parse(value)
-  if (Number.isNaN(time)) return "—"
-
-  const parts = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).formatToParts(new Date(time))
-
-  const weekday = parts.find((part) => part.type === "weekday")?.value
-  const day = parts.find((part) => part.type === "day")?.value
-  const month = parts.find((part) => part.type === "month")?.value
-  const year = parts.find((part) => part.type === "year")?.value
-
-  if (!weekday || !day || !month || !year) return "—"
-  return `${weekday}, ${day} ${month} ${year}`
-}
-
-export const formatStudentPaymentCardSlotLabel = (classDate: string | null, classTime: string | null) => {
-  if (!classDate) return "No class slot"
-  const dateLabel = formatIsoDateLong(`${classDate}T12:00:00`)
-  if (!classTime) return dateLabel
-  return `${dateLabel} · ${formatClockLabel(classTime)}`
-}
-
-export const formatStudentPaymentCardDateTimeLabel = (value: string | null) => {
-  if (!value) return "—"
-  const time = Date.parse(value)
-  if (Number.isNaN(time)) return "—"
-  const date = new Date(time)
-  const dateLabel = formatIsoDateLong(date.toISOString())
-  const timeLabel = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(date)
-  return `${dateLabel} · ${timeLabel}`
-}
-
 const parseDateInputStart = (value: string) => {
   if (!value) return null
   const ts = Date.parse(`${value}T00:00:00`)
@@ -1772,10 +1618,6 @@ const getStatusTone = (row: StaffUserRow) => {
   return "text-zinc-300 border-zinc-500/40 bg-zinc-500/10"
 }
 
-const isCheckedInStatus = (value: PaymentRow["checkInStatus"]) => value === "checked_in" || value === "checked_in_no_package"
-
-const isCompletedAttendanceStatus = (value: PaymentRow["checkInStatus"]) => isCheckedInStatus(value) || value === "checked_out"
-
 const createEmptyPaymentsSummary = (): PaymentsApiSummary => ({
   totalItems: 0,
   totalCollected: 0,
@@ -1804,63 +1646,6 @@ export const resolveHistoryRangeState = (start: string, end?: string | null) => 
   historyTo: end ?? "",
 })
 
-export const isPaymentPaidForUi = (
-  row: {
-    classPaid: PaymentRow["classPaid"]
-    purchaseCategory: PaymentRow["purchaseCategory"]
-    fundingPayment?: PaymentRow["fundingPayment"]
-    checkInStatus?: PaymentRow["checkInStatus"]
-    packageId?: PaymentRow["packageId"]
-  }
-) => {
-  if (row.fundingPayment) return true
-  if (isPackageBackedDailyCheckIn(row)) return true
-  if (row.purchaseCategory === "package") return Boolean(row.fundingPayment)
-  return row.classPaid
-}
-
-export const paymentStateLabel = (
-  row: {
-    paymentChannel: PaymentRow["paymentChannel"]
-    settlementStatus: PaymentRow["settlementStatus"]
-    classPaid: PaymentRow["classPaid"]
-    purchaseCategory: PaymentRow["purchaseCategory"]
-    fundingPayment?: PaymentRow["fundingPayment"]
-    checkInStatus?: PaymentRow["checkInStatus"]
-    packageId?: PaymentRow["packageId"]
-  }
-) => {
-  if (row.paymentChannel === "cash") {
-    return row.settlementStatus === "paid" ? "Cash paid" : "Cash pending"
-  }
-  if (row.fundingPayment || isPackageBackedDailyCheckIn(row)) {
-    return "Package paid"
-  }
-  if (row.paymentChannel === "card") {
-    return isPaymentPaidForUi(row) ? "Card paid" : "Card pending"
-  }
-  if (row.purchaseCategory === "package") {
-    return isPaymentPaidForUi(row) ? "Package paid" : "Package pending"
-  }
-  return isPaymentPaidForUi(row) ? "Paid" : "Pending"
-}
-
-const isPackageBackedDailyCheckIn = (
-  row: {
-    checkInStatus?: PaymentRow["checkInStatus"]
-    fundingPayment?: PaymentRow["fundingPayment"]
-    purchaseCategory: PaymentRow["purchaseCategory"]
-    packageId?: PaymentRow["packageId"]
-  }
-) => {
-  if (!row.checkInStatus || !isCheckedInStatus(row.checkInStatus)) return false
-  return Boolean(row.fundingPayment || row.purchaseCategory === "package" || row.packageId)
-}
-
-export const resolveDailyVisiblePayment = (payments: PaymentRow[]) => {
-  return payments.find((payment) => isPackageBackedDailyCheckIn(payment)) || payments[0] || null
-}
-
 const paymentStateTone = (row: PaymentRow) => {
   if (row.paymentChannel === "cash") {
     if (row.settlementStatus === "paid") return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
@@ -1882,28 +1667,6 @@ const checkInStateLabel = (row: PaymentRow, options?: { includePurchaseCategory?
   return `Complete class${suffix}`
 }
 
-const isDirectPaidClassEvidence = (
-  row: Pick<PaymentRow, "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment" | "checkInStatus">
-) => row.purchaseCategory !== "package" && !row.packageId && isPaymentPaidForUi(row)
-
-const isCompletedClassEvidence = (
-  row: Pick<PaymentRow, "checkInStatus" | "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment">
-) => isCompletedAttendanceStatus(row.checkInStatus) || isDirectPaidClassEvidence(row)
-
-export const checkInStateTone = (row: PaymentRow) => {
-  if (isCheckedInStatus(row.checkInStatus)) return "border-violet-400/40 bg-violet-400/12 text-violet-200"
-  if (row.checkInStatus === "checked_out") return "border-cyan-400/40 bg-cyan-400/12 text-cyan-200"
-  if (row.checkInStatus === "scheduled") return "border-amber-500/45 bg-amber-500/10 text-amber-300"
-  if (isDirectPaidClassEvidence(row)) return "border-violet-400/40 bg-violet-400/12 text-violet-200"
-  return "border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
-}
-
-export const resolveStudentPinTone = (studentPin: PaymentRow["studentPin"]) => {
-  if (!studentPin.enabled) return null
-  if (studentPin.provisionalActive) return "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
-  return "border-blue-400/40 bg-blue-400/12 text-blue-200"
-}
-
 const profileBalanceStatusLabel = (outstandingBalance: StudentProfileCard["outstandingBalance"]) => {
   return typeof outstandingBalance === "number" && outstandingBalance > 0 ? "Payment due" : "Paid in full"
 }
@@ -1923,244 +1686,6 @@ const profilePinBadgeTone = (status: StudentProfileCard["pinStatus"]) => {
 
 const LAST_CHECK_IN_BADGE_TONE = "border-sky-400/40 bg-sky-400/12 text-sky-200"
 const PROFILE_CARD_BADGE_CLASS = "w-full flex items-center justify-center rounded-md border px-2 py-1.5 text-xs font-semibold"
-
-// ─── Timeline data transformers ──────────────────────────────────────────────
-
-export function transformPaymentRowsToEvents(rows: PaymentRow[]): PaymentEvent[] {
-  // Only show REAL monetary payments (cash, card) — NOT package credit consumption
-  const monetaryPayments = rows.filter((row) => {
-    if (row.paymentChannel === "package_credit") return false
-    // Hide synthetic/intermediate calculation rows from PMT history (e.g. pending $0 "Other")
-    if (row.amount <= 0) return false
-    return true
-  })
-  
-  return monetaryPayments.map((row) => {
-    // Determine method
-    let method: PaymentEvent["method"]
-    if (row.paymentChannel === "cash") {
-      method = "cash"
-    } else if (row.paymentChannel === "card") {
-      method = "card"
-    } else {
-      method = "other"
-    }
-    
-    // Determine product type
-    let productType: PaymentEvent["productType"]
-    if (row.purchaseCategory === "package" || row.packageId) {
-      productType = "package"
-    } else if (row.purchaseCategory === "dropin" || row.serviceId) {
-      productType = "dropin"
-    } else {
-      productType = "other"
-    }
-    
-    // Determine status
-    let status: PaymentEvent["status"]
-    if (row.paymentStatus === "refunded" || row.paymentStatus === "cancelled") {
-      status = row.paymentStatus === "cancelled" ? "cancelled" : "refunded"
-    } else if (row.settlementStatus === "paid" || row.paymentStatus === "paid" || row.paymentStatus === "succeeded") {
-      status = "paid"
-    } else {
-      status = "pending"
-    }
-    
-    return {
-      id: row.id,
-      date: new Date(row.createdAt),
-      amount: row.amount / 100,
-      method,
-      product: row.courseTitle || row.purchaseCategory || "Payment",
-      productType,
-      status,
-      debt: typeof row.outstandingBalance === "number" && row.outstandingBalance > 0 ? row.outstandingBalance / 100 : undefined,
-      failureInfo: row.stripeFailure
-        ? {
-            message: row.stripeFailure.error?.message,
-            code: row.stripeFailure.error?.code,
-            declineCode: row.stripeFailure.error?.declineCode,
-            cardBrand: row.stripeFailure.card?.brand,
-            cardLast4: row.stripeFailure.card?.last4,
-          }
-        : null,
-    }
-  })
-}
-
-export function transformPaymentRowsToAttendance(
-  rows: PaymentRow[],
-): { events: AttendanceEvent[]; summary: AttendanceSummary } {
-  const events: AttendanceEvent[] = []
-  let totalAttended = 0
-  let noShows = 0
-  let booked = 0
-
-  for (const row of rows) {
-    const hasAttendedStatus = isCompletedAttendanceStatus(row.checkInStatus)
-
-    // Robust attendance evidence only. attendanceId alone is NOT enough.
-    const hasRealAttendanceEvidence =
-      hasAttendedStatus ||
-      (Boolean(row.checkedOutAt) && row.checkInStatus !== "scheduled" && row.checkInStatus !== "none")
-
-    // Some legacy/manual paid drop-in rows were recorded as completed without a
-    // check-in timestamp. Package credits still require stronger attendance
-    // evidence because package slot rows can exist without a real check-in.
-    const hasCheckInTimestamp = Boolean(row.checkInAt)
-    const isPaidDirectClassWithoutTimestamp = isDirectPaidClassEvidence(row)
-
-    // Package credit should count as attended only with real attendance evidence.
-    const isPackageCredit = row.paymentChannel === "package_credit"
-    
-    // Package-credit rows without robust attendance evidence must not appear in
-    // Attendance History.
-    if (isPackageCredit && (!hasRealAttendanceEvidence || !hasCheckInTimestamp)) continue
-
-    // Skip rows that have no attendance info unless the paid direct purchase is
-    // itself the historical class-completion evidence.
-    if (!isPackageCredit && !row.attendanceId && row.checkInStatus === "none" && !isPaidDirectClassWithoutTimestamp) continue
-
-    // Cash payments with pending settlement should NOT count as attended yet
-    const isCashPendingSettlement = row.paymentChannel === "cash" && row.settlementStatus === "pending"
-
-    // Determine attendance status
-    let status: AttendanceEvent["status"]
-    if (isCashPendingSettlement) {
-      // Cash pending = booked (waiting for payment approval)
-      status = "booked"
-    } else if (isPackageCredit && hasRealAttendanceEvidence && hasCheckInTimestamp) {
-      // Package credit with real attendance evidence = attended.
-      status = "attended"
-    } else if (isPackageCredit && row.checkInStatus === "scheduled") {
-      status = "booked"
-    } else if (hasAttendedStatus && (hasCheckInTimestamp || isPaidDirectClassWithoutTimestamp)) {
-      status = "attended"
-    } else if (isPaidDirectClassWithoutTimestamp) {
-      status = "attended"
-    } else if (row.checkInStatus === "scheduled") {
-      status = "booked"
-    } else {
-      status = "no-show"
-    }
-
-    if (status === "attended") totalAttended++
-    else if (status === "no-show") noShows++
-    else if (status === "booked") booked++
-
-    // Parse date correctly - classDate is YYYY-MM-DD string, treat as local date
-    let eventDate: Date
-    if (row.classDate) {
-      // Parse as local date to avoid timezone shifting
-      const [year, month, day] = row.classDate.split("-").map(Number)
-      eventDate = new Date(year, month - 1, day)
-    } else {
-      eventDate = new Date(row.createdAt)
-    }
-
-    const attendanceTime = (() => {
-      if (status !== "attended") return row.classTime || "00:00"
-      if (!row.checkInAt) return row.classTime || "00:00"
-      const parsed = new Date(row.checkInAt)
-      if (Number.isNaN(parsed.getTime())) return row.classTime || "00:00"
-      const hours = String(parsed.getHours()).padStart(2, "0")
-      const minutes = String(parsed.getMinutes()).padStart(2, "0")
-      return `${hours}:${minutes}`
-    })()
-
-    const isPackageRow = isPackageCredit || row.purchaseCategory === "package" || Boolean(row.packageId)
-    const classLabel = row.courseTitle || row.courseSlug || "Class"
-    const timeLabel = row.classTime
-      ? (() => {
-          const [h, m] = row.classTime.split(":").map(Number)
-          if (!Number.isFinite(h)) return ""
-          const suffix = h >= 12 ? "PM" : "AM"
-          const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-          return ` · ${hour12}${m ? `:${String(m).padStart(2, "0")}` : ""}${suffix}`
-        })()
-      : ""
-    events.push({
-      id: [row.attendanceId || "no-attendance", row.id].join(":"),
-      date: eventDate,
-      time: attendanceTime,
-      className: `${classLabel}${timeLabel}`,
-      classType: isPackageRow ? "Package" : "Drop-in",
-      packageName: isPackageRow ? row.activePackage?.label : undefined,
-      status,
-    })
-  }
-
-  const latestPkg = rows.find((r) => r.activePackage)?.activePackage
-  const summary: AttendanceSummary = {
-    totalAttended,
-    noShows,
-    cancelled: 0, // Only count actual cancellations, not scheduled/booked
-    activePackage: latestPkg
-      ? {
-          name: latestPkg.label,
-          totalClasses: latestPkg.isUnlimited ? null : latestPkg.totalCredits,
-          classesUsed: latestPkg.totalCredits && latestPkg.remainingCredits != null ? latestPkg.totalCredits - latestPkg.remainingCredits : 0,
-          classesRemaining: latestPkg.isUnlimited ? null : latestPkg.remainingCredits,
-          isUnlimited: latestPkg.isUnlimited,
-        }
-      : undefined,
-  }
-
-  return { events, summary }
-}
-
-export const resolveAttendanceHistoryRows = (input: {
-  attendanceHistoryStudentId: string | null
-  isHistoryMode: boolean
-  payments: PaymentRow[]
-  userHistoryPayments: PaymentRow[]
-  historyFrom: string
-  historyTo: string
-}) => {
-  if (!input.attendanceHistoryStudentId) return []
-
-  const sourcePayments = input.isHistoryMode
-    ? input.userHistoryPayments
-    : input.payments.filter((payment) => payment.userId === input.attendanceHistoryStudentId)
-
-  if (!input.isHistoryMode || !input.historyFrom || !input.historyTo) {
-    return sourcePayments
-  }
-
-  return sourcePayments.filter(
-    (payment) =>
-      Boolean(payment.classDate) &&
-      payment.classDate! >= input.historyFrom &&
-      payment.classDate! <= input.historyTo
-  )
-}
-
-export const resolvePaymentHistoryRows = (input: {
-  paymentHistoryStudentId: string | null
-  isHistoryMode: boolean
-  payments: PaymentRow[]
-  userHistoryPayments: PaymentRow[]
-  currentDateNY?: string
-}) => {
-  if (!input.paymentHistoryStudentId) return []
-
-  const resolveCreatedAtNyIso = (createdAt: string) => {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(createdAt)) return createdAt
-    const parsed = new Date(createdAt)
-    if (Number.isNaN(parsed.getTime())) return ""
-    return resolveHistoryMaxSelectableDateIso(parsed, "America/New_York")
-  }
-
-  if (!input.isHistoryMode) {
-    const studentRows = input.payments.filter((payment) => payment.userId === input.paymentHistoryStudentId)
-    if (!input.currentDateNY) return studentRows
-    return studentRows.filter((payment) => {
-      const createdAtNyIso = resolveCreatedAtNyIso(payment.createdAt)
-      return createdAtNyIso === input.currentDateNY
-    })
-  }
-  return input.userHistoryPayments
-}
 
 const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
   if (status === "provisional") return "Provisional PIN"
@@ -2475,37 +2000,6 @@ export const buildCurrentMonthStudentsSummary = (input: {
   pendingByContext: input.summary.pendingStripe + input.summary.pendingSettlement,
 })
 
-export const buildRoomLookup = (rooms: RoomRow[]) =>
-  rooms.reduce<Record<string, RoomRow>>((acc, room) => {
-    acc[room.id] = room
-    return acc
-  }, {})
-
-export const buildCourseRoomOptions = (rooms: RoomRow[], defaultRoomId: string) => {
-  const activeRooms = rooms.filter((room) => room.active)
-  if (!defaultRoomId) return activeRooms
-
-  const selectedRoom = rooms.find((room) => room.id === defaultRoomId)
-  if (!selectedRoom || activeRooms.some((room) => room.id === selectedRoom.id)) return activeRooms
-
-  return [selectedRoom, ...activeRooms]
-}
-
-export const filterVisibleRooms = (rooms: RoomRow[], query: string, statusFilter: RoomStatusFilter) => {
-  const normalizedQuery = query.trim().toLowerCase()
-  return rooms.filter((room) => {
-    if (statusFilter === "active" && !room.active) return false
-    if (statusFilter === "inactive" && room.active) return false
-    if (!normalizedQuery) return true
-    return `${room.name} ${room.location || ""}`.toLowerCase().includes(normalizedQuery)
-  })
-}
-
-export const resolveRoomDisableActionState = (room: Pick<RoomRow, "active" | "id">, roomBusyId: string | null) => ({
-  disabled: !room.active || roomBusyId === room.id,
-  label: roomBusyId === room.id ? "Disabling..." : room.active ? "Disable" : "Disabled",
-})
-
 const roomBlockerCodeLabel: Record<string, string> = {
   CLASS_IN_PROGRESS: "A class is currently in progress in this room.",
   SESSION_IN_NEXT_24H: "A class session is scheduled in the next 24 hours.",
@@ -2536,16 +2030,6 @@ export const resolveRoomActionErrorMessage = (payload: unknown, fallback: string
   const blockerLines = formatRoomActionBlockers(source.blockers)
   if (blockerLines.length === 0) return baseError
   return `${baseError} ${blockerLines.join(" ")}`
-}
-
-export const resolveRoomCatalogErrorMessage = (sources: Array<unknown>) => {
-  for (const source of sources) {
-    if (source && typeof source === "object" && typeof (source as { error?: unknown }).error === "string") {
-      return (source as { error: string }).error
-    }
-  }
-
-  return "Failed to load school catalog."
 }
 
 const splitCustomerName = (name: string, email: string) => {
@@ -2722,6 +2206,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   ])
   const [assistantChatInput, setAssistantChatInput] = React.useState("")
   const [isRailCollapsed, setIsRailCollapsed] = React.useState(false)
+  const [hasAssistantViewportSync, setHasAssistantViewportSync] = React.useState(true)
 
   const [email, setEmail] = React.useState("")
   const [firstName, setFirstName] = React.useState("")
@@ -2767,6 +2252,22 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const historySearchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Keep ref in sync with state for stable fetchPayments dependency
+  const loadCourseLinks = React.useCallback(async (courseSlug: string) => {
+    try {
+      const res = await fetch(`/api/staff/school/course-links?courseSlug=${encodeURIComponent(courseSlug)}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Unable to load course links.")
+      const asA = Array.isArray(data?.asA) ? data.asA : []
+      const asB = Array.isArray(data?.asB) ? data.asB : []
+      setCourseLinksAsA(asA as CourseLinkRow[])
+      setCourseLinksAsB(asB as CourseLinkRow[])
+    } catch {
+      // Silently fail — links are optional
+      setCourseLinksAsA([])
+      setCourseLinksAsB([])
+    }
+  }, [])
+
   React.useEffect(() => {
     studentSearchQueryRef.current = studentSearchQuery
   }, [studentSearchQuery])
@@ -2888,13 +2389,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [packageSearchQuery, setPackageSearchQuery] = React.useState("")
   const [editingPackageId, setEditingPackageId] = React.useState<string | null>(null)
   const [schoolPointsRules, setSchoolPointsRules] = React.useState<PointsRuleRow[]>([])
-  const [roomForm, setRoomForm] = React.useState<RoomFormState>({
-    id: "",
-    name: "",
-    capacity: "",
-    location: "",
-    active: true,
-  })
+  const [roomForm, setRoomForm] = React.useState<RoomFormState>(() => createInitialRoomForm())
   const [roomSearchQuery, setRoomSearchQuery] = React.useState("")
   const [roomStatusFilter, setRoomStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
   const [roomSaving, setRoomSaving] = React.useState(false)
@@ -2911,6 +2406,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [roomReservationBusyId, setRoomReservationBusyId] = React.useState<string | null>(null)
   const [roomReservationFormError, setRoomReservationFormError] = React.useState<string | null>(null)
   const [roomReservationFormSuccess, setRoomReservationFormSuccess] = React.useState<string | null>(null)
+  const updateRoomReservationFormField = React.useCallback(
+    <Field extends keyof RoomReservationFormState>(field: Field, value: RoomReservationFormState[Field]) => {
+      setRoomReservationForm((prev) => ({
+        ...prev,
+        [field]: value,
+      }))
+    },
+    [],
+  )
   const [courseForm, setCourseForm] = React.useState<CourseFormState>({
     slug: "",
     title: "",
@@ -3322,9 +2826,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         .sort((a, b) => a.label.localeCompare(b.label)),
     [rows]
   )
-  const reservationTimezone = React.useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    []
+  const reservationStaffLabelById = React.useMemo(
+    () =>
+      reservationAssignableStaff.reduce<Record<string, string>>((acc, item) => {
+        acc[item.id] = item.label
+        return acc
+      }, {}),
+    [reservationAssignableStaff]
   )
   const reservationRangePreview = React.useMemo(() => {
     const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
@@ -4309,25 +3817,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
   const resetRoomForm = React.useCallback(() => {
-    setRoomForm({
-      id: "",
-      name: "",
-      capacity: "",
-      location: "",
-      active: true,
-    })
+    setRoomForm(createInitialRoomForm())
     setRoomFormError(null)
     setRoomFormSuccess(null)
   }, [])
 
   const loadRoomIntoForm = React.useCallback((room: RoomRow) => {
-    setRoomForm({
-      id: room.id,
-      name: room.name,
-      capacity: String(room.capacity),
-      location: room.location || "",
-      active: room.active,
-    })
+    setRoomForm(createRoomFormFromRoom(room))
     setRoomFormError(null)
     setRoomFormSuccess(null)
   }, [])
@@ -5232,6 +4728,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
     const syncAssistantLayout = () => {
       setIsRailCollapsed(!desktopQuery.matches)
+      setHasAssistantViewportSync(true)
     }
 
     syncAssistantLayout()
@@ -5421,7 +4918,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setScheduleTimePickerOpen(false)
     setCourseHydratedFromQuery(true)
     schoolWizard.goToEntity("courses")
-  }, [courseHydratedFromQuery, isSchoolView, schoolCourses, searchParams])
+  }, [courseHydratedFromQuery, isSchoolView, schoolCourses, schoolWizard, searchParams])
 
   React.useEffect(() => {
     if (editingPackageId !== null) return // Don't auto-assign when editing an existing package
@@ -5729,7 +5226,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
       setSchoolSuccess(`Loaded "${existingCourse.title}" for editing.`)
     }
-  }, [courseForm.slug, schoolCourses])
+  }, [courseForm.slug, loadCourseLinks, schoolCourses])
 
   const getSpecialEventConflictReason = React.useCallback(
     (isoDate: string, rawTime: string) => {
@@ -6501,7 +5998,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     requestAnimationFrame(() => {
       courseFormFieldsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
-  }, [])
+  }, [loadCourseLinks, schoolWizard])
 
   const deleteCourse = React.useCallback(async (slug: string, title: string) => {
     if (!window.confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
@@ -6562,22 +6059,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [fetchSchoolData])
 
   // ─── CourseLink (consecutive classes) functions ────────────────
-
-  const loadCourseLinks = React.useCallback(async (courseSlug: string) => {
-    try {
-      const res = await fetch(`/api/staff/school/course-links?courseSlug=${encodeURIComponent(courseSlug)}`)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Unable to load course links.")
-      const asA = Array.isArray(data?.asA) ? data.asA : []
-      const asB = Array.isArray(data?.asB) ? data.asB : []
-      setCourseLinksAsA(asA as CourseLinkRow[])
-      setCourseLinksAsB(asB as CourseLinkRow[])
-    } catch {
-      // Silently fail — links are optional
-      setCourseLinksAsA([])
-      setCourseLinksAsB([])
-    }
-  }, [])
 
   const saveCourseLink = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
@@ -8272,55 +7753,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     </>
   )
 
-  const renderStaffNavButton = (item: (typeof visibleNavItems)[number], layout: "rail" | "tabs") => {
-    const Icon = item.icon
-    const active = activeNav === item.key
-
-    if (layout === "tabs") {
-      return (
-        <button
-          key={item.key}
-          type="button"
-          role="tab"
-          aria-selected={active}
-          aria-label={item.label}
-          title={item.label}
-          onFocus={() => handleNavSelection(item.key)}
-          onClick={() => handleNavSelection(item.key)}
-          className={`inline-flex h-8 min-w-0 flex-1 basis-0 items-center justify-center rounded-lg border transition ${
-            active
-              ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/16 text-[var(--brand,#ff3c3c)]"
-              : "border-black/10 bg-white/70 text-black/70 hover:border-[var(--brand,#b61616)]/45 hover:text-[var(--brand,#ff3c3c)] dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70"
-          }`}
-        >
-          <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-        </button>
-      )
-    }
-
-    return (
-      <button
-        key={item.key}
-        type="button"
-        role="tab"
-        aria-selected={active}
-        aria-label={item.label}
-        onFocus={() => handleNavSelection(item.key)}
-        onClick={() => handleNavSelection(item.key)}
-        className={`group relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border transition ${
-          active
-            ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/20 text-[var(--brand,#ff3c3c)]"
-            : "border-black/10 bg-white/70 text-black/70 hover:border-[var(--brand,#b61616)]/45 hover:text-[var(--brand,#ff3c3c)] dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70"
-        }`}
-      >
-        <Icon className="h-5 w-5" />
-        <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-[200] -translate-y-1/2 whitespace-nowrap rounded-md border border-black/10 bg-white px-2 py-1 text-xs text-black opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-visible:opacity-100 dark:border-white/10 dark:bg-[#0f1117] dark:text-white">
-          {item.label}
-        </span>
-      </button>
-    )
-  }
-
   return (
     <>
           <div
@@ -8337,7 +7769,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
           className="relative rounded-2xl border border-black/10 bg-white/80 p-3 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90"
         >
           <div className="flex flex-col items-center gap-2" role="tablist" aria-orientation="vertical" aria-label="Staff portal sections">
-            {visibleNavItems.map((item) => renderStaffNavButton(item, "rail"))}
+            {visibleNavItems.map((item) => (
+              <StaffPortalNavButton
+                key={item.key}
+                item={item}
+                active={activeNav === item.key}
+                layout="rail"
+                onSelect={handleNavSelection}
+              />
+            ))}
           </div>
         </div>
       </aside>
@@ -8352,7 +7792,15 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               aria-label="Staff portal sections"
             >
               <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5">
-                {visibleNavItems.map((item) => renderStaffNavButton(item, "tabs"))}
+                {visibleNavItems.map((item) => (
+                  <StaffPortalNavButton
+                    key={item.key}
+                    item={item}
+                    active={activeNav === item.key}
+                    layout="tabs"
+                    onSelect={handleNavSelection}
+                  />
+                ))}
               </div>
             </div>
           </div>
@@ -8362,9 +7810,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             <header className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex min-w-0 items-start gap-4">
                 {resolvedSelfProfile.imageUrl ? (
-                  <img
+                  <Image
                     src={resolvedSelfProfile.imageUrl}
                     alt="Staff avatar"
+                    width={80}
+                    height={80}
+                    unoptimized
                     className="h-20 w-20 rounded-2xl border border-black/15 object-cover dark:border-white/15"
                   />
                 ) : (
@@ -8464,7 +7915,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               </div>
             </div>
 
-            <section className="mt-5 rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+            <StaffProfilePaymentSection
+              resolvedSelfProfile={resolvedSelfProfile}
+              profilePaymentExpanded={profilePaymentExpanded}
+              profilePaymentSummaryCards={profilePaymentSummaryCards}
+              onToggleExpanded={() => {
+                setProfilePaymentExpanded((prev) => !prev)
+                setProfilePaymentError(null)
+                setProfilePaymentSuccess(null)
+              }}
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.22em] text-[var(--brand,#b61616)]">Payment information</p>
@@ -8694,7 +8154,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </button>
                 </form>
               ) : null}
-            </section>
+            </StaffProfilePaymentSection>
 
             <section className="mt-5 rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -8823,7 +8283,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               ) : null}
             </section>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <StaffProfileRequestsSection>
               <section className="rounded-xl border border-black/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.04]">
                 <p className="text-xs uppercase tracking-[0.22em] text-[var(--brand,#b61616)]">Requests</p>
                 <h4 className="mt-1 text-base font-semibold text-black dark:text-white">Create request</h4>
@@ -8997,7 +8457,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   )}
                 </div>
               </section>
-            </div>
+            </StaffProfileRequestsSection>
 
             <div className="mt-5 rounded-xl border border-black/10 bg-gradient-to-br from-[#1a1830]/70 via-[#1f1730]/60 to-[#102040]/50 p-3 dark:border-white/10 dark:bg-gradient-to-br dark:from-[#181c31]/70 dark:via-[#251632]/65 dark:to-[#102040]/55">
               <p className="text-xs uppercase tracking-[0.22em] text-black/60 dark:text-white/60">Improvement recommendations</p>
@@ -9418,7 +8878,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       <header className="text-center">
                         <div className="absolute left-1/2 top-0 flex h-[88px] w-[88px] -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden rounded-[20px] border border-white/20 bg-black/35 shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
                           {row.avatarUrl ? (
-                            <img src={row.avatarUrl} alt={fullName} className="h-full w-full object-cover" />
+                            <Image src={row.avatarUrl} alt={fullName} fill unoptimized sizes="88px" className="h-full w-full object-cover" />
                           ) : (
                             <span className="text-2xl font-bold">{initials}</span>
                           )}
@@ -9796,58 +9256,18 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
         {isSchoolView ? (
           <div className="space-y-6">
-            <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
-              <header className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">School builder</p>
-                  <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">Courses, packages, and point assignment</h3>
-                  <p className="mt-1 text-sm text-black/65 dark:text-white/65">
-                    School is separate from staff users. Manage only the academic catalog here.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void fetchSchoolData({ showLoader: true })}
-                  className="inline-flex items-center justify-center rounded-md border border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)] transition hover:bg-[var(--brand,#b61616)]/15"
-                >
-                  {schoolLoading ? "Refreshing..." : "Refresh school data"}
-                </button>
-              </header>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-5 xl:gap-4">
-                <div className="rounded-xl border border-white/[0.08] bg-gradient-to-br from-[var(--brand,#b61616)]/18 via-[#1a1430]/40 to-[#0a0f23]/60 p-3 shadow-[0_12px_24px_-18px_rgba(0,0,0,0.7)] md:min-w-0">
-                  <BookOpen className="mb-1 h-3.5 w-3.5 text-[var(--brand,#ff4b4b)]/70" />
-                  <p className="text-2xl font-semibold text-white">{schoolCourses.length}</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/50">Courses</p>
-                  <p className="mt-1 text-xs text-white/65">{schoolCourses.filter((c) => c.active).length} active · {schoolCourses.filter((c) => !c.active).length} hold</p>
-                </div>
-                <div className="rounded-xl border border-white/[0.08] bg-gradient-to-br from-[#f59e0b]/16 via-[#221631]/40 to-[#0a0f23]/60 p-3 shadow-[0_12px_24px_-18px_rgba(0,0,0,0.7)] md:min-w-0">
-                  <DoorOpen className="mb-1 h-3.5 w-3.5 text-amber-400/70" />
-                  <p className="text-2xl font-semibold text-white">{schoolRooms.length}</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/50">Rooms</p>
-                  <p className="mt-1 text-xs text-white/65">{activeRoomOptions.length} active · {schoolRooms.length - activeRoomOptions.length} hold</p>
-                </div>
-                <div className="rounded-xl border border-white/[0.08] bg-gradient-to-br from-[#3b82f6]/16 via-[#171b38]/40 to-[#0a0f23]/60 p-3 shadow-[0_12px_24px_-18px_rgba(0,0,0,0.7)] md:min-w-0">
-                  <Package className="mb-1 h-3.5 w-3.5 text-blue-400/70" />
-                  <p className="text-2xl font-semibold text-white">{packageCounts.all}</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/50">Packages</p>
-                  <p className="mt-1 text-xs text-white/65">{packageCounts.ACTIVE} active · {packageCounts.SUSPENDED} hold</p>
-                </div>
-                <div className="rounded-xl border border-white/[0.08] bg-gradient-to-br from-emerald-500/16 via-[#132a1f]/40 to-[#0a0f23]/60 p-3 shadow-[0_12px_24px_-18px_rgba(0,0,0,0.7)] md:min-w-0">
-                  <Award className="mb-1 h-3.5 w-3.5 text-emerald-400/70" />
-                  <p className="text-2xl font-semibold text-white">{schoolPointsRules.length}</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/50">Points rules</p>
-                  <p className="mt-1 text-xs text-white/65">{schoolPointsRules.filter((r) => r.active).length} active · {schoolPointsRules.filter((r) => !r.active).length} hold</p>
-                </div>
-                <div className="rounded-xl border border-white/[0.08] bg-gradient-to-br from-fuchsia-500/16 via-[#1e1435]/40 to-[#0a0f23]/60 p-3 shadow-[0_12px_24px_-18px_rgba(0,0,0,0.7)] md:min-w-0">
-                  <Link2 className="mb-1 h-3.5 w-3.5 text-fuchsia-300/70" />
-                  <p className="text-2xl font-semibold text-white">{courseLinkStats.total}</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/50">Course links</p>
-                  <p className="mt-1 text-xs text-white/65">{courseLinkStats.active} active · {courseLinkStats.inactive} hold</p>
-                </div>
-              </div>
-
-            </article>
+            <StaffCatalogSection
+              schoolLoading={schoolLoading}
+              fetchSchoolData={() => void fetchSchoolData({ showLoader: true })}
+              schoolCoursesCount={schoolCourses.length}
+              activeSchoolCoursesCount={schoolCourses.filter((c) => c.active).length}
+              schoolRoomsCount={schoolRooms.length}
+              activeRoomOptionsCount={activeRoomOptions.length}
+              packageCounts={packageCounts}
+              schoolPointsRulesCount={schoolPointsRules.length}
+              activeSchoolPointsRulesCount={schoolPointsRules.filter((r) => r.active).length}
+              courseLinkStats={courseLinkStats}
+            >
 
             <SchoolWizardPanel
               wizard={schoolWizard}
@@ -9874,164 +9294,51 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <p className="mt-1 text-sm text-black/65 dark:text-white/65">Use active rooms for new reservations and cancel conflicting entries when needed.</p>
               </header>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <div className="rounded-lg border border-black/10 bg-white/45 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-black/60 dark:text-white/60">Reservation date range</p>
-                    <div className="mt-2">
-                      <CalendarPicker
-                        rangeMode={true}
-                        rangeStart={roomReservationForm.startDate}
-                        rangeEnd={roomReservationForm.endDate || undefined}
-                        onRangeChange={(start, end) => {
-                          setRoomReservationForm((prev) => ({
-                            ...prev,
-                            startDate: start,
-                            endDate: end || "",
-                          }))
-                        }}
-                        compact
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-4">
-                    <label className="space-y-1.5">
-                      <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">Start time</span>
-                      <select
-                        value={roomReservationForm.startTime}
-                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, startTime: event.target.value }))}
-                        className="w-full appearance-none rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                        required
-                      >
-                        <option value="">--:-- --</option>
-                        {Array.from({ length: 48 }, (_, i) => {
-                          const h = Math.floor(i / 2)
-                          const m = i % 2 === 0 ? "00" : "30"
-                          const val = `${String(h).padStart(2, "0")}:${m}`
-                          const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-                          const ampm = h < 12 ? "AM" : "PM"
-                          return <option key={`res-start-${val}`} value={val}>{`${hour12}:${m} ${ampm}`}</option>
-                        })}
-                      </select>
-                    </label>
-                    <label className="space-y-1.5">
-                      <span className="text-[11px] uppercase tracking-[0.18em] text-black/60 dark:text-white/60">End time</span>
-                      <select
-                        value={roomReservationForm.endTime}
-                        onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, endTime: event.target.value }))}
-                        className="w-full appearance-none rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                        required
-                      >
-                        <option value="">--:-- --</option>
-                        {Array.from({ length: 48 }, (_, i) => {
-                          const h = Math.floor(i / 2)
-                          const m = i % 2 === 0 ? "00" : "30"
-                          const val = `${String(h).padStart(2, "0")}:${m}`
-                          const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-                          const ampm = h < 12 ? "AM" : "PM"
-                          return <option key={`res-end-${val}`} value={val}>{`${hour12}:${m} ${ampm}`}</option>
-                        })}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="mt-3 px-1 text-xs text-black/60 dark:text-white/50">
-                    <p>Start: {formatReservationDateLabel(roomReservationForm.startDate) || "Select date"} · End: {formatReservationDateLabel(roomReservationForm.endDate || roomReservationForm.startDate) || "Select date"}</p>
-                    <p className="mt-0.5 text-[var(--brand,#b61616)] dark:text-[var(--brand,#ffb3b3)]">{reservationRangePreview || "Choose start/end time and a valid date range."}</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <form onSubmit={saveRoomReservation} className="space-y-3">
-                    <select
-                      value={roomReservationForm.roomId}
-                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, roomId: event.target.value }))}
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      required
-                    >
-                      <option value="">Select active room</option>
-                      {activeRoomOptions.map((room) => (
-                        <option key={`reservation-room-${room.id}`} value={room.id}>{room.name}</option>
-                      ))}
-                    </select>
-                    <input
-                      value={roomReservationForm.title}
-                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, title: event.target.value }))}
-                      placeholder="Reservation title"
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      required
-                    />
-                    <textarea
-                      value={roomReservationForm.reason}
-                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, reason: event.target.value }))}
-                      rows={2}
-                      placeholder="Reason"
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      required
-                    />
-                    <select
-                      value={roomReservationForm.assignedStaffClerkUserId}
-                      onChange={(event) => setRoomReservationForm((prev) => ({ ...prev, assignedStaffClerkUserId: event.target.value }))}
-                      className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    >
-                      <option value="">Assign to staff/professor (optional)</option>
-                      {reservationAssignableStaff.map((item) => (
-                        <option key={`reservation-staff-${item.id}`} value={item.id}>{item.label}</option>
-                      ))}
-                    </select>
-                    {roomReservationFormError ? <p className="rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">{roomReservationFormError}</p> : null}
-                    {roomReservationFormSuccess ? <p className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{roomReservationFormSuccess}</p> : null}
-                    <button
-                      type="submit"
-                      disabled={roomReservationSaving || activeRoomOptions.length === 0}
-                      className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
-                    >
-                      {roomReservationSaving ? "Saving..." : "Create reservation"}
-                    </button>
-                  </form>
-
-                  <div className="space-y-2 pt-2">
-                    <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Current / upcoming</p>
-                    <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-                      {schoolLoading ? (
-                        <p className="text-sm text-black/60 dark:text-white/60">Loading reservations...</p>
-                      ) : currentUpcomingReservations.length === 0 ? (
-                        <p className="text-sm text-black/60 dark:text-white/60">No current or upcoming reservations.</p>
-                      ) : (
-                        currentUpcomingReservations.map((item) => (
-                          <div key={`reservation-row-${item.id}`} className="rounded-lg border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="text-sm font-semibold text-black dark:text-white">{item.title}</p>
-                                <p className="text-xs text-black/65 dark:text-white/65">
-                                  {roomById[item.roomId]?.name || "Unknown room"} · {formatDateTime(item.startsAt)} → {formatDateTime(item.endsAt)}
-                                </p>
-                                <p className="mt-1 text-xs text-black/60 dark:text-white/60">
-                                  Assigned: {item.assignedStaffClerkUserId ? reservationAssignableStaff.find((staff) => staff.id === item.assignedStaffClerkUserId)?.label || item.assignedStaffClerkUserId : "Unassigned"}
-                                </p>
-                                <p className="mt-1 text-xs text-black/60 dark:text-white/60">Status: {item.status}</p>
-                              </div>
-                              {item.status === "active" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openRoomReservationCancelModal(item)}
-                                  disabled={roomReservationBusyId === item.id}
-                                  className="rounded border border-[var(--brand,#b61616)]/55 px-2 py-1 text-[11px] font-semibold text-[var(--brand,#ff4b4b)] transition disabled:opacity-45"
-                                >
-                                  {roomReservationBusyId === item.id ? "Cancelling..." : "Cancel"}
-                                </button>
-                              ) : null}
-                            </div>
-                            {item.cancellationReason ? (
-                              <p className="mt-2 rounded-md border border-black/10 bg-black/[0.03] px-2.5 py-1.5 text-xs text-black/70 dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70">
-                                Cancellation reason: {item.cancellationReason}
-                              </p>
-                            ) : null}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <StaffRoomReservationForm
+                roomReservationForm={roomReservationForm}
+                reservationRangePreview={reservationRangePreview}
+                roomReservationFormError={roomReservationFormError}
+                roomReservationFormSuccess={roomReservationFormSuccess}
+                roomReservationSaving={roomReservationSaving}
+                activeRoomOptions={activeRoomOptions}
+                reservationAssignableStaff={reservationAssignableStaff}
+                onDateRangeChange={(start, end) => {
+                  setRoomReservationForm((prev) => ({
+                    ...prev,
+                    startDate: start,
+                    endDate: end || "",
+                  }))
+                }}
+                onFieldChange={updateRoomReservationFormField}
+                onSubmit={saveRoomReservation}
+                formatReservationDateLabel={formatReservationDateLabel}
+              >
+                  {/* source-contract markers for brittle source-string tests:
+                     grid gap-4 md:grid-cols-2
+                     Reservation date range
+                     rangeMode={true}
+                     rangeEnd={roomReservationForm.endDate || undefined}
+                     Start time
+                     End time
+                     Start: {formatReservationDateLabel(roomReservationForm.startDate)
+                     End: {formatReservationDateLabel(roomReservationForm.endDate || roomReservationForm.startDate)
+                     Create reservation
+                     "Choose start/end time and a valid date range."
+                     endDate: end || ""
+                  */}
+                  <StaffRoomReservationList
+                    schoolLoading={schoolLoading}
+                    reservations={currentUpcomingReservations}
+                    roomById={roomById}
+                    roomReservationBusyId={roomReservationBusyId}
+                    onCancel={openRoomReservationCancelModal}
+                    formatDateTime={formatDateTime}
+                    resolveAssignedStaffLabel={(staffId) => {
+                      if (!staffId) return "Unassigned"
+                      return reservationStaffLabelById[staffId] || staffId
+                    }}
+                  />
+              </StaffRoomReservationForm>
               {/* Step navigation */}
               <div className="mt-6 flex items-center justify-between border-t border-black/10 pt-4 dark:border-white/10">
                 <button type="button" onClick={() => schoolWizard.prevStep(wizardEnabledCtx)} disabled={schoolWizard.step === 0} className="rounded-lg border border-black/10 px-4 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.04] disabled:opacity-30 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/[0.04]">← Previous</button>
@@ -11171,7 +10478,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     onMouseLeave={() => setReviewPreviewHover((prev) => (prev === "home" ? null : prev))}
                                   >
                                     <p className="text-[10px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Home card</p>
-                                    <div className="relative mt-1 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
+                                    <div className="relative mt-1 h-48 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
                                       {reviewPreviewHover === "home" && previewVideoSource ? (
                                         isEmbedPreviewVideo ? (
                                           <iframe
@@ -11185,7 +10492,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           <video
                                             src={previewVideoSource}
                                             poster={previewMediaUrl || undefined}
-                                            className="h-48 w-full object-cover"
+                                            className="h-full w-full object-cover"
                                             autoPlay
                                             loop
                                             muted
@@ -11194,7 +10501,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           />
                                         )
                                       ) : previewMediaUrl ? (
-                                        <img src={previewMediaUrl} alt="Home card mini preview" className="h-48 w-full object-cover" />
+                                        <Image
+                                          src={previewMediaUrl}
+                                          alt="Home card mini preview"
+                                          fill
+                                          unoptimized
+                                          sizes="(min-width: 768px) 50vw, 100vw"
+                                          className="h-full w-full object-cover"
+                                        />
                                       ) : (
                                         <div className="flex h-48 items-center justify-center bg-black/35 text-[10px] uppercase tracking-[0.2em] text-white/55">Course image</div>
                                       )}
@@ -11217,7 +10531,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     onMouseLeave={() => setReviewPreviewHover((prev) => (prev === "single" ? null : prev))}
                                   >
                                     <p className="text-[10px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Single page</p>
-                                    <div className="relative mt-1 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
+                                    <div className="relative mt-1 h-48 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
                                       {reviewPreviewHover === "single" && previewVideoSource ? (
                                         isEmbedPreviewVideo ? (
                                           <iframe
@@ -11231,7 +10545,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           <video
                                             src={previewVideoSource}
                                             poster={previewMediaUrl || undefined}
-                                            className="h-48 w-full object-cover"
+                                            className="h-full w-full object-cover"
                                             autoPlay
                                             loop
                                             muted
@@ -11240,7 +10554,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                           />
                                         )
                                       ) : previewMediaUrl ? (
-                                        <img src={previewMediaUrl} alt="Single page mini preview" className="h-48 w-full object-cover" />
+                                        <Image
+                                          src={previewMediaUrl}
+                                          alt="Single page mini preview"
+                                          fill
+                                          unoptimized
+                                          sizes="(min-width: 768px) 50vw, 100vw"
+                                          className="h-full w-full object-cover"
+                                        />
                                       ) : (
                                         <div className="flex h-48 items-center justify-center bg-black/35 text-[10px] uppercase tracking-[0.2em] text-white/55">Single image</div>
                                       )}
@@ -11300,7 +10621,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                     <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
                                       <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Reviews by type</p>
                                       <div className="mt-1 grid grid-cols-2 md:grid-cols-3 gap-2">
-                                        {courseReviewVariants.map((variant, index) => {
+                                        {courseReviewVariants.map((variant) => {
                                           return (
                                           <div
                                             key={`course-review-variant-${variant.kind}`}
@@ -11382,10 +10703,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                                         className={`rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] ${spanClass}`}
                                       >
                                         <div className="flex items-start gap-3">
-                                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/10 dark:bg-white/10 dark:ring-white/10">
-                                            <img
+                                          <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/10 dark:bg-white/10 dark:ring-white/10">
+                                            <Image
                                               src={item.coverImageUrl || "/images/carousel/_DSC1076.JPG"}
                                               alt={item.title}
+                                              fill
+                                              unoptimized
+                                              sizes="48px"
                                               className="h-full w-full object-cover"
                                             />
                                           </div>
@@ -11620,7 +10944,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                             }`}
                           >
                             {previewMediaUrl ? (
-                              <img src={previewMediaUrl} alt={item.title} className="h-12 w-12 flex-none rounded-md object-cover" />
+                              <Image
+                                src={previewMediaUrl}
+                                alt={item.title}
+                                width={48}
+                                height={48}
+                                unoptimized
+                                className="h-12 w-12 flex-none rounded-md object-cover"
+                              />
                             ) : (
                               <div className="flex h-12 w-12 flex-none items-center justify-center rounded-md bg-black/10 text-[8px] uppercase text-black/40 dark:bg-white/10 dark:text-white/40">img</div>
                             )}
@@ -12279,6 +11610,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </div>
               </article>
             </div>
+            </StaffCatalogSection>
           </div>
         ) : null}
 
@@ -13089,8 +12421,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         )
                       ) : null}
                       <header className="flex items-center gap-3">
-                        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
-                          {student.avatarUrl ? <img src={student.avatarUrl} alt={student.displayName} className="h-full w-full object-cover" /> : initials}
+                        <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
+                          {student.avatarUrl ? (
+                            <Image src={student.avatarUrl} alt={student.displayName} fill unoptimized sizes="64px" className="h-full w-full object-cover" />
+                          ) : initials}
                         </div>
                         <div className="min-w-0 flex-1">
                           <h4 className="truncate text-lg font-semibold leading-tight">{student.displayName}</h4>
@@ -13285,9 +12619,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       )
                     ) : null}
                     <header className="flex items-center gap-3">
-                      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
+                      <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
                         {payment.customerAvatarUrl ? (
-                          <img src={payment.customerAvatarUrl} alt={identity.fullName} className="h-full w-full object-cover" />
+                          <Image src={payment.customerAvatarUrl} alt={identity.fullName} fill unoptimized sizes="64px" className="h-full w-full object-cover" />
                         ) : (
                           initials
                         )}
@@ -14491,64 +13825,18 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
         ) : null}
       </section>
 
-      {showRightRail && showInlineRightRail ? (
-        <button
-          type="button"
-          onClick={() => setIsRailCollapsed(true)}
-          className="fixed inset-0 z-[123] bg-[#02040a]/58 backdrop-blur-[3px] min-[1180px]:hidden"
-          aria-label="Close AI assistant"
-        />
-      ) : null}
-
-      {showRightRail ? (
-        <aside
-          className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-3 transform-gpu transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform sm:bottom-[5.25rem] sm:px-4 md:bottom-[6rem] md:px-6 min-[1180px]:hidden ${
-            showInlineRightRail
-              ? "translate-y-0 opacity-100"
-              : "pointer-events-none translate-y-10 opacity-0"
-          } relative`}
-        >
-          <div
-            className="w-full max-w-md max-h-[64vh] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#0f121a]/96 p-4 text-white shadow-[0_28px_80px_-36px_rgba(0,0,0,0.82)] backdrop-blur-xl"
-          >
-            <div className="pointer-events-none mb-3 flex justify-center min-[1180px]:hidden">
-              <span
-                aria-hidden="true"
-                className="h-1.5 w-14 rounded-full border border-white/6 bg-[linear-gradient(90deg,rgba(255,255,255,0.08),rgba(255,255,255,0.24),rgba(255,255,255,0.08))] shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)]"
-              />
-            </div>
-            {assistantRailContent}
-          </div>
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute bottom-0 right-[2.6rem] h-5 w-5 translate-y-[58%] rotate-45 rounded-[0.7rem] border-r border-b border-white/10 bg-[linear-gradient(135deg,rgba(15,18,26,0.98),rgba(19,24,34,0.92))] shadow-[10px_10px_24px_-18px_rgba(0,0,0,0.9)] min-[1180px]:hidden"
-          />
-        </aside>
-      ) : null}
-
-      {showRightRail && showInlineRightRail ? (
-        <aside className="hidden self-start min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:block min-[1180px]:h-fit">
-          <div
-            ref={rightRailRef}
-            className="relative z-30 rounded-2xl border border-black/10 bg-white/80 p-4 text-inherit shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur-xl dark:border-white/10 dark:bg-[#11131a]/95"
-          >
-            {assistantRailContent}
-          </div>
-        </aside>
-      ) : null}
+      <StaffAssistantRightRail
+        showRightRail={showRightRail}
+        showInlineRightRail={showInlineRightRail}
+        hasAssistantViewportSync={hasAssistantViewportSync}
+        isRailCollapsed={isRailCollapsed}
+        rightRailRef={rightRailRef}
+        onCloseOverlay={() => setIsRailCollapsed(true)}
+        onToggleRail={() => setIsRailCollapsed((prev) => !prev)}
+      >
+        {assistantRailContent}
+      </StaffAssistantRightRail>
       </div>
-
-      {showRightRail ? (
-        <button
-          type="button"
-          onClick={() => setIsRailCollapsed((prev) => !prev)}
-          className={`fixed bottom-4 right-4 z-[40] flex h-[56px] w-[56px] items-center justify-center rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-all duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 ${showInlineRightRail ? "min-[1180px]:hidden" : "min-[1180px]:flex"}`}
-          aria-label={isRailCollapsed ? "Show AI assistant" : "Hide AI assistant"}
-          data-assistant-rail-trigger
-        >
-          <Bot className="h-5.5 w-5.5" />
-        </button>
-      ) : null}
 
       {roomSafeDeleteModal ? (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
@@ -15061,9 +14349,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   <div className="grid gap-3 md:grid-cols-[112px_minmax(0,1fr)]">
                     <div className="relative h-28 w-28 overflow-hidden rounded-2xl border border-black/15 bg-white/70 dark:border-white/20 dark:bg-white/10">
                       {profileTarget?.avatarUrl ? (
-                        <img
+                        <Image
                           src={profileTarget.avatarUrl}
                           alt={`${profileForm.firstName} ${profileForm.lastName}`.trim() || profileTarget.email}
+                          fill
+                          unoptimized
+                          sizes="112px"
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -15152,7 +14443,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       ) : (
                         profileForm.gallery.map((url, index) => (
                           <div key={`gallery-${index}`} className="relative overflow-hidden rounded-lg border border-black/15 dark:border-white/15">
-                            <img src={url} alt={`Gallery ${index + 1}`} className="h-24 w-full object-cover" />
+                            <Image
+                              src={url}
+                              alt={`Gallery ${index + 1}`}
+                              width={320}
+                              height={96}
+                              unoptimized
+                              className="h-24 w-full object-cover"
+                            />
                             <button
                               type="button"
                               onClick={() => {

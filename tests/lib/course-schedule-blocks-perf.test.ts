@@ -17,7 +17,6 @@ describe("expandCourseScheduleSlots — performance", () => {
       }
 
       courses.push({
-        id: `course-${i}`,
         defaultRoomId: `room-${i % 5}`, // 5 rooms total
         durationMinutes: 45 + (i % 3) * 15, // 45, 60, or 75 min
         scheduleRules: { mode: "regular", rules },
@@ -41,7 +40,6 @@ describe("expandCourseScheduleSlots — performance", () => {
     const elapsed = performance.now() - startTime
 
     // Log for observability
-    // eslint-disable-next-line no-console
     console.log(
       `[perf] expandCourseScheduleSlots: ${courses.length} courses, ` +
       `${totalSlots} total slots, ${elapsed.toFixed(2)}ms`
@@ -59,7 +57,6 @@ describe("expandCourseScheduleSlots — performance", () => {
 
   it("single course with daily rules (5 weekdays) across 90 days performs well", () => {
     const course: CourseScheduleLike = {
-      id: "course-daily",
       defaultRoomId: "room-1",
       durationMinutes: 60,
       scheduleRules: {
@@ -83,7 +80,6 @@ describe("expandCourseScheduleSlots — performance", () => {
     const slots = expandCourseScheduleSlots(course, windowStart, windowEnd)
     const elapsed = performance.now() - startTime
 
-    // eslint-disable-next-line no-console
     console.log(
       `[perf] single course daily: ${slots.length} slots in ${elapsed.toFixed(2)}ms`
     )
@@ -95,7 +91,6 @@ describe("expandCourseScheduleSlots — performance", () => {
 
   it("horizon cap prevents unbounded expansion beyond 90 days", () => {
     const course: CourseScheduleLike = {
-      id: "course-monday",
       defaultRoomId: "room-1",
       durationMinutes: 60,
       scheduleRules: {
