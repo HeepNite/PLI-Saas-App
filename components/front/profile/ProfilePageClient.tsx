@@ -31,7 +31,6 @@ import {
   getPendingProcessLabel,
   getProcessTypeTone,
   isPendingRequestStatus,
-  pointsTypeLabel,
   formatDateKeyInTimeZone,
   formatDateTimeInTimeZone,
 } from "./profile-formatters"
@@ -50,6 +49,11 @@ import { useAssignClassesFlow } from "./hooks/useAssignClassesFlow"
 import { useActionRequestModal } from "./hooks/useActionRequestModal"
 import { useAnalyticsChartData } from "./hooks/useAnalyticsChartData"
 import { useAgendaCalendar } from "./hooks/useAgendaCalendar"
+import { StudentMomentsCard } from "./sections/StudentMomentsCard"
+import { PliCoinsCard } from "./sections/PliCoinsCard"
+import { PointsHistoryCard } from "./sections/PointsHistoryCard"
+import { MedalsCard } from "./sections/MedalsCard"
+import { GearCard } from "./sections/GearCard"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -838,17 +842,7 @@ export default function ProfilePageClient() {
               </section>
             )}
 
-            <GlassyCard className="order-2 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Student moments</p>
-              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-                {mockProfile.moments.map((src, idx) => (
-                  <div key={`moment-${idx}`} className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt="moment" className="h-full w-full object-cover" />
-                  </div>
-                ))}
-              </div>
-            </GlassyCard>
+            <StudentMomentsCard moments={mockProfile.moments} />
 
             <GlassyCard className="order-8 p-4">
               <div className="relative overflow-visible rounded-3xl border border-white/10 bg-gradient-to-br from-[#120b14] via-[#0f0b12] to-[#0b0b0f] p-5 shadow-[0_30px_120px_-60px_rgba(182,22,22,0.8)]">
@@ -1113,113 +1107,22 @@ export default function ProfilePageClient() {
               </div>
             </GlassyCard>
 
-            <GlassyCard className="order-5 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">PLI Coins</p>
-                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
-                    You are <strong>{pointsToNextFreeClass}</strong> points away from a free class.
-                  </p>
-                </div>
-                <div className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/60">
-                  Goal: {freeClassThreshold} PLI Coins
-                </div>
-              </div>
-              <div className="relative mt-4 h-28 overflow-hidden rounded-2xl border border-white/10">
-                <div className="absolute inset-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/images/carousel/_DSC1087.JPG"
-                    alt="Free class"
-                    className="h-full w-full object-cover grayscale"
-                  />
-                </div>
-                <div className="absolute inset-0 overflow-hidden" style={{ width: `${progress}%` }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/images/carousel/_DSC1087.JPG"
-                    alt="Free class progress"
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                <div className="absolute bottom-3 left-3 text-sm font-semibold text-white">
-                  {currentCoins} / {freeClassThreshold} PLI Coins
-                </div>
-              </div>
-              <p className="mt-3 text-xs text-zinc-600 dark:text-white/60">
-                Available free classes: <strong>{freeClassesAvailable}</strong>
-              </p>
-            </GlassyCard>
+            <PliCoinsCard
+              pointsToNextFreeClass={pointsToNextFreeClass}
+              freeClassThreshold={freeClassThreshold}
+              progress={progress}
+              currentCoins={currentCoins}
+              freeClassesAvailable={freeClassesAvailable}
+            />
 
-            <GlassyCard className="order-6 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Points history</p>
-                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">Recent balance movements.</p>
-                </div>
-                <div className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs font-semibold text-zinc-800 dark:border-white/10 dark:bg-white/5 dark:text-white/80">
-                  Balance: {pointsBalance}
-                </div>
-              </div>
-              {pointsError && <p className="mt-3 text-xs text-red-400">{pointsError}</p>}
-              {pointsLoading ? (
-                <div className="mt-4 space-y-2">
-                  {Array.from({ length: 3 }).map((_, idx) => (
-                    <div key={`points-skeleton-${idx}`} className="h-10 animate-pulse rounded-lg border border-white/10 bg-white/5" />
-                  ))}
-                </div>
-              ) : latestPointEntries.length > 0 ? (
-                <div className="mt-4 space-y-2">
-                  {latestPointEntries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-zinc-800 dark:text-white/90">{pointsTypeLabel(entry.type)}</p>
-                        <p className="text-xs text-zinc-600 dark:text-white/55">
-                          {formatDateTimeInTimeZone(entry.createdAt)}
-                        </p>
-                      </div>
-                      <span
-                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                          entry.points >= 0
-                            ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
-                            : "border border-red-500/30 bg-red-500/10 text-red-400"
-                        }`}
-                      >
-                        {entry.points >= 0 ? `+${entry.points}` : entry.points}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-4 text-xs text-zinc-600 dark:text-white/60">You do not have any point activity yet.</p>
-              )}
-            </GlassyCard>
+            <PointsHistoryCard
+              pointsBalance={pointsBalance}
+              pointsError={pointsError}
+              pointsLoading={pointsLoading}
+              latestPointEntries={latestPointEntries}
+            />
 
-            <GlassyCard className="order-7 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Medals</p>
-              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {medalItems.map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <div key={item.label} className="flex flex-col items-center gap-2 text-center">
-                      <div className="relative">
-                        <div className="h-14 w-14 rounded-full bg-gradient-to-br from-[var(--brand,#b61616)] to-[#f97316] p-[2px] shadow-[0_12px_40px_-20px_rgba(182,22,22,0.85)]">
-                          <div className="flex h-full w-full items-center justify-center rounded-full bg-black/70">
-                            <Icon className="h-6 w-6 text-white" />
-                          </div>
-                        </div>
-                        <div className="absolute -bottom-2 left-1/2 h-4 w-10 -translate-x-1/2 rounded-full bg-[var(--brand,#b61616)]/40 blur-sm" />
-                      </div>
-                      <p className="text-xs text-zinc-700 dark:text-white/80">{item.label}</p>
-                    </div>
-                  )
-                })}
-              </div>
-            </GlassyCard>
+            <MedalsCard medalItems={medalItems} />
 
             <GlassyCard className="order-3 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1646,27 +1549,12 @@ export default function ProfilePageClient() {
               {assignSuccess && <p className="mt-3 text-xs text-emerald-300">{assignSuccess}</p>}
             </GlassyCard>
 
-            <GlassyCard className="order-9 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Gear</p>
-              <div className="mt-4 flex items-center gap-4">
-                <div className="h-20 w-28 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/images/shoes-pli.svg" alt="Shoes" className="h-full w-full object-cover" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm text-zinc-800 dark:text-white/80">Shoes: {mockProfile.shoeTracking.model}</p>
-                  <div className="mt-2 h-3 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full bg-[var(--brand,#b61616)]" style={{ width: `${shoeProgress}%` }} />
-                  </div>
-                  <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">
-                    {mockProfile.shoeTracking.km} km used · Recommended replacement at {mockProfile.shoeTracking.maxKm} km.
-                  </p>
-                </div>
-                <span className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
-                  {shoeProgress}% life
-                </span>
-              </div>
-            </GlassyCard>
+            <GearCard
+              model={mockProfile.shoeTracking.model}
+              usedKm={mockProfile.shoeTracking.km}
+              maxKm={mockProfile.shoeTracking.maxKm}
+              shoeProgress={shoeProgress}
+            />
           </section>
 
           {/* Right */}
