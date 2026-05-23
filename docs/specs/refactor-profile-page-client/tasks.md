@@ -46,11 +46,11 @@ Chain strategy: pending
 
 ## Phase 2: Right Rail (Unit B)
 
-- [ ] 2.1 Create `sections/ProfileRightRail.tsx`; move book/change/check-in/suspend-cancel/recent-requests UI without behavior changes.
-- [ ] 2.2 Keep right-rail actions as callback props (open picker, open request modal, reschedule open, check-in submit).
-- [ ] 2.3 Update `ProfilePageClient.tsx` to render `ProfileRightRail` and keep existing state/hook ownership.
-- [ ] 2.4 Validate (slice): `npx tsc --noEmit` + `npx eslint components/front/profile/`.
-- [ ] 2.5 Rollback boundary: revert Unit B commit only. Commit msg: `refactor(profile): extract ProfileRightRail section`.
+- [x] 2.1 Create `sections/ProfileRightRail.tsx`; move book/change/check-in/suspend-cancel/recent-requests UI without behavior changes.
+- [x] 2.2 Keep right-rail actions as callback props (open picker, open request modal, reschedule open, check-in submit).
+- [x] 2.3 Update `ProfilePageClient.tsx` to render `ProfileRightRail` and keep existing state/hook ownership.
+- [x] 2.4 Validate (slice): `npx tsc --noEmit` + `npx eslint components/front/profile/`.
+- [x] 2.5 Rollback boundary: revert Unit B commit only. Commit msg: `refactor(profile): extract ProfileRightRail section`.
 
 ## Phase 3: Modals (Unit C)
 
