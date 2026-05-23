@@ -36,7 +36,9 @@
 
 ## Slice 4 — Presentational Components
 
-- [ ] Create `sections/` directory with card components
+- [x] Create `sections/` directory with card components
+- [x] Extract simple presentational cards: StudentMoments, PliCoins, PointsHistory, Medals, Gear
+- [x] Extract `ProfileLeftRail` card preserving avatar upload, identity, activity, packages, and profile-completion UI
 - [ ] Create `modals/` directory with modal components
 - [ ] Extract each GlassyCard block into its own component
 - [ ] Extract each modal into its own component
