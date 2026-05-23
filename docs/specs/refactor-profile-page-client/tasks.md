@@ -1,56 +1,70 @@
-# Tasks: ProfilePageClient Refactor
+# Tasks: Refactor Profile Page Client (Behavior-Preserving Slices)
 
-## Slice 1 — Types + Constants + Formatters + Mock Data
+## Review Workload Forecast
 
-- [ ] Create `profile-types.ts` — move all type defs from ProfilePageClient (~100 LOC)
-- [ ] Create `profile-constants.ts` — move constants + config objects (~60 LOC)
-- [ ] Create `profile-formatters.ts` — move 12 pure helper functions (~150 LOC)
-- [ ] Create `mock-profile.ts` — move mockProfile, drop dead keys with grep evidence (~40 LOC)
-- [ ] Update ProfilePageClient imports to use new modules
-- [ ] Add unit tests for extracted formatters (`tests/profile-formatters.test.ts`)
-- [ ] Validate: tsc + vitest + eslint
+| Field | Value |
+|---|---|
+| Estimated changed lines (remaining) | 1,050–1,550 |
+| 400-line budget risk | High |
+| Chained PRs recommended | Yes |
+| Suggested split | PR-A cards → PR-B right rail → PR-C modals → PR-D orchestrator/audit |
+| Delivery strategy | ask-on-risk (preflight: ask-always) |
+| Chain strategy | pending |
 
-## Slice 2 — Simple Data Hooks
+Decision needed before apply: Yes
+Chained PRs recommended: Yes
+Chain strategy: pending
+400-line budget risk: High
 
-- [x] Create `hooks/useProfileForm.ts` — form state + save + avatar (~200 LOC)
-- [x] Create `hooks/useProfilePackages.ts` — packages + activity stats (~80 LOC)
-- [x] Create `hooks/usePointsHistory.ts` — points + balance (~50 LOC)
-- [x] Create `hooks/useActionRequests.ts` — load + state (~40 LOC)
-- [x] Create `hooks/useStudentPinForm.ts` — PIN rotation (~100 LOC)
-- [x] Update ProfilePageClient to consume hooks
-- [x] Validate: tsc + vitest + eslint
+### Suggested Work Units
 
-## Slice 3 — Complex Hooks + DOM Hooks
+| Unit | Goal | Likely PR | Notes |
+|---|---|---|---|
+| A | Center cards extraction | PR-A | Base: tracker/main per orchestrator choice |
+| B | `ProfileRightRail` extraction | PR-B | Depends on A wiring shape |
+| C | Modal extractions | PR-C | Depends on A+B prop/callback boundaries |
+| D | Final orchestrator cleanup + validation/audit | PR-D | Last mile, no behavior drift |
 
-- [x] Create `hooks/useAvailabilityCache.ts` — shared cache (~50 LOC)
-- [x] Create `hooks/useStickyRails.ts` — scroll/resize observer (~90 LOC)
-- [x] Create `hooks/useFloatingFooterOffset.ts` — CSS var (~20 LOC)
-- [x] Create `hooks/useProfileBookings.ts` — bookings + check-in (~120 LOC)
-- [x] Create `hooks/useRescheduleFlow.ts` — 3-step machine (~390 LOC)
-- [x] Create `hooks/useAssignClassesFlow.ts` — assign flow (~300 LOC)
-- [x] Create `hooks/useActionRequestModal.ts` — suspend/cancel (~275 LOC)
-- [x] Create `hooks/useAgendaCalendar.ts` — calendar derivations (~160 LOC)
-- [x] Create `hooks/useAnalyticsChartData.ts` — chart math (~125 LOC)
-- [x] Update ProfilePageClient to consume hooks
-- [x] Validate: tsc + vitest + eslint
+## Completed Baseline (Preserve as Done)
 
-## Slice 4 — Presentational Components
+- [x] Slice 1 completed (`460c0cd`).
+- [x] Slice 2 completed (`5349187`).
+- [x] Slice 3 completed (`e0a8266`, `38dd358`, `59be4db`, `4c1b97a`, `98f100e`, `c9af131`, `8da2889`).
+- [x] Simple presentational cards completed (`c7d769f`).
+- [x] `ProfileLeftRail` completed (`3dfe4c7`).
 
-- [x] Create `sections/` directory with card components
-- [x] Extract simple presentational cards: StudentMoments, PliCoins, PointsHistory, Medals, Gear
-- [x] Extract `ProfileLeftRail` card preserving avatar upload, identity, activity, packages, and profile-completion UI
-- [ ] Create `modals/` directory with modal components
-- [ ] Extract each GlassyCard block into its own component
-- [ ] Extract each modal into its own component
-- [ ] Update ProfilePageClient JSX to compose sections + modals
-- [ ] Validate: tsc + vitest + eslint + Playwright E2E
+## Phase 1: Center Cards (Unit A)
 
-## Slice 5 — Consolidation + Dead Code + Final Audit
+- [ ] 1.1 Create `sections/ProfileFormCard.tsx`; move profile form card JSX/copy only; keep handlers from `useProfileForm` passed as props.
+- [ ] 1.2 Create `sections/StudentPinCard.tsx`; move PIN/recovery JSX; keep `useStudentPinForm` ownership unchanged.
+- [ ] 1.3 Create `sections/AnalyticsCard.tsx`; move tabs/chart/donut JSX; keep active/hover state callbacks from orchestrator.
+- [ ] 1.4 Create `sections/AgendaCard.tsx`; move agenda month/day UI; keep `useAgendaCalendar` derivations as input props.
+- [ ] 1.5 Create `sections/AssignClassesCard.tsx`; move assign UI; keep add/remove/submit callbacks from `useAssignClassesFlow`.
+- [ ] 1.6 Update `ProfilePageClient.tsx` imports/render for cards only; no rail/modal extraction yet.
+- [ ] 1.7 Validate (slice): `npx tsc --noEmit` + `npx eslint components/front/profile/`.
+- [ ] 1.8 Rollback boundary: revert Unit A commit only. Commit msg: `refactor(profile): extract center cards from ProfilePageClient`.
 
-- [ ] Verify ProfilePageClient is thin orchestrator (<300 LOC)
-- [ ] Audit: no file >800 LOC
-- [ ] Dead code removal with evidence (grep + lint)
-- [ ] Run full Playwright E2E suite
-- [ ] Run full Vitest suite
-- [ ] Final tsc --noEmit
-- [ ] Final eslint on all changed files
+## Phase 2: Right Rail (Unit B)
+
+- [ ] 2.1 Create `sections/ProfileRightRail.tsx`; move book/change/check-in/suspend-cancel/recent-requests UI without behavior changes.
+- [ ] 2.2 Keep right-rail actions as callback props (open picker, open request modal, reschedule open, check-in submit).
+- [ ] 2.3 Update `ProfilePageClient.tsx` to render `ProfileRightRail` and keep existing state/hook ownership.
+- [ ] 2.4 Validate (slice): `npx tsc --noEmit` + `npx eslint components/front/profile/`.
+- [ ] 2.5 Rollback boundary: revert Unit B commit only. Commit msg: `refactor(profile): extract ProfileRightRail section`.
+
+## Phase 3: Modals (Unit C)
+
+- [ ] 3.1 Create `modals/RescheduleModal.tsx`; move 3-step tree unchanged.
+- [ ] 3.2 Create `modals/ActionRequestModal.tsx`; move suspend/cancel/reassign tree unchanged.
+- [ ] 3.3 Create `modals/CoursePickerModal.tsx`; move preferred-first picker + `EnrollModal` handoff unchanged.
+- [ ] 3.4 Wire modal components in `ProfilePageClient.tsx`; pass typed props/callbacks only.
+- [ ] 3.5 Validate (slice): `npx tsc --noEmit` + `npx eslint components/front/profile/`.
+- [ ] 3.6 Rollback boundary: revert Unit C commit only. Commit msg: `refactor(profile): extract reschedule/request/course-picker modals`.
+
+## Phase 4: Orchestrator Cleanup + Validation/Audit (Unit D)
+
+- [ ] 4.1 Remove now-dead inline JSX/helpers from `ProfilePageClient.tsx`; keep behavior/copy/contracts/security identical.
+- [ ] 4.2 Verify thin orchestrator target (~250–400 LOC practical), with hooks still owning durable state.
+- [ ] 4.3 Validation commands from `validation.md`: `npx tsc --noEmit`; `npx eslint components/front/profile/`; `npx vitest run`; `node scripts/run-playwright.mjs e2e/profile.spec.ts`.
+- [ ] 4.4 Record pass/fail/blocked with first actionable error; note known repo-level Playwright blocker is outside `e2e/profile.spec.ts`.
+- [ ] 4.5 Rollback boundary: revert Unit D commit only. Commit msg: `chore(profile): finalize ProfilePageClient orchestrator cleanup and validation audit`.
