@@ -54,12 +54,12 @@ Chain strategy: pending
 
 ## Phase 3: Modals (Unit C)
 
-- [ ] 3.1 Create `modals/RescheduleModal.tsx`; move 3-step tree unchanged.
-- [ ] 3.2 Create `modals/ActionRequestModal.tsx`; move suspend/cancel/reassign tree unchanged.
-- [ ] 3.3 Create `modals/CoursePickerModal.tsx`; move preferred-first picker + `EnrollModal` handoff unchanged.
-- [ ] 3.4 Wire modal components in `ProfilePageClient.tsx`; pass typed props/callbacks only.
-- [ ] 3.5 Validate (slice): `npx tsc --noEmit` + `npx eslint components/front/profile/`.
-- [ ] 3.6 Rollback boundary: revert Unit C commit only. Commit msg: `refactor(profile): extract reschedule/request/course-picker modals`.
+- [x] 3.1 Create `modals/RescheduleModal.tsx`; move 3-step tree unchanged.
+- [x] 3.2 Create `modals/ActionRequestModal.tsx`; move suspend/cancel/reassign tree unchanged.
+- [x] 3.3 Create `modals/CoursePickerModal.tsx`; move preferred-first picker + `EnrollModal` handoff unchanged.
+- [x] 3.4 Wire modal components in `ProfilePageClient.tsx`; pass typed props/callbacks only.
+- [x] 3.5 Validate (slice): `npx tsc --noEmit` + `npx eslint components/front/profile/`.
+- [x] 3.6 Rollback boundary: revert Unit C commit only. Commit msg: `refactor(profile): extract reschedule/request/course-picker modals`.
 
 ## Phase 4: Orchestrator Cleanup + Validation/Audit (Unit D)
 
