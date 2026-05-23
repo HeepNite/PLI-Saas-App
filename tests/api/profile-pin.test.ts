@@ -66,6 +66,7 @@ describe("profile PIN route", () => {
     mockWriteStudentPinAudit.mockReset()
     mockPrisma.studentPinCredential.findUnique.mockReset()
     mockPrisma.$transaction.mockReset()
+    usersApi.getUser.mockReset()
 
     mockClerkClient.mockResolvedValue({ users: usersApi })
     usersApi.getUser.mockResolvedValue({
@@ -83,6 +84,8 @@ describe("profile PIN route", () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     const { GET } = await import("@/app/api/profile/pin/route")
     const res = await GET(new Request("http://localhost/api/profile/pin"))
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ enabled: true, enrolled: true })
   })
@@ -107,6 +110,8 @@ describe("profile PIN route", () => {
       })
     )
 
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
     expect(res.status).toBe(200)
     expect(mockReplacePermanentStudentPin).toHaveBeenCalled()
     expect(mockClearStudentPinLockout).toHaveBeenCalled()
@@ -126,7 +131,49 @@ describe("profile PIN route", () => {
       })
     )
 
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
     expect(res.status).toBe(200)
     expect(mockVerifyStudentPinHash).not.toHaveBeenCalled()
+  })
+
+  it("validates malformed PUT JSON before resolving the authenticated DB user", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+
+    const { PUT } = await import("@/app/api/profile/pin/route")
+    const res = await PUT(
+      new Request("http://localhost/api/profile/pin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: "{not-json",
+      })
+    )
+
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "Invalid JSON body" })
+    expect(usersApi.getUser).not.toHaveBeenCalled()
+    expect(mockUpsertUser).not.toHaveBeenCalled()
+  })
+
+  it("validates PIN confirmation before resolving the authenticated DB user", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+
+    const { PUT } = await import("@/app/api/profile/pin/route")
+    const res = await PUT(
+      new Request("http://localhost/api/profile/pin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nextPin: "5678", confirmPin: "9999" }),
+      })
+    )
+
+    expect(res).toBeDefined()
+    if (!res) throw new Error("Expected response")
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "PIN confirmation does not match." })
+    expect(usersApi.getUser).not.toHaveBeenCalled()
+    expect(mockUpsertUser).not.toHaveBeenCalled()
   })
 })

@@ -33,7 +33,7 @@ const PACKAGE_ID = "pkg_purchase_1"
 const buildPackage = (overrides: Partial<{
   id: string
   userId: string
-  totalCredits: number
+  totalCredits: number | null
   remainingCredits: number
   isUnlimited: boolean
   status: string

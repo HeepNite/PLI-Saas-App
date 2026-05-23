@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
-import Image from "next/image"
 import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
 
 type TerminalSummary = {
