@@ -31,6 +31,7 @@ import {
   Trash2,
   Users,
   X,
+  Package,
 } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
@@ -82,6 +83,8 @@ import type { StripeFailureInfo } from "@/lib/stripe-failure"
 import {
   checkInStateTone,
   isCheckedInStatus,
+  isCompletedClassEvidence,
+  isDirectPaidClassEvidence,
   isPaymentPaidForUi,
   resolveDailyVisiblePayment,
   resolveStudentPinTone,
@@ -298,11 +301,16 @@ type HistoryContentFilterInput = {
   courseSlug: string
   paymentChannel: "cash" | "card" | "unknown" | "package_credit"
   purchaseCategory: "package" | "dropin" | "other"
-  packageId?: string | null
+  packageId: string | null
   classPaid: boolean
   fundingPayment?: PaymentRow["fundingPayment"]
   checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
 }
+
+const COMPLETED_PAYMENT_STATUS_VALUES = new Set(["succeeded", "paid", "completed"])
+
+const isCompletedPaymentStatusValue = (status: unknown) =>
+  typeof status === "string" && COMPLETED_PAYMENT_STATUS_VALUES.has(status.trim().toLowerCase())
 type ReportsSuggestion = {
   id: string
   objective: Exclude<ReportsObjectiveFilter, "all">
@@ -1655,6 +1663,7 @@ const checkInStateLabel = (row: PaymentRow, options?: { includePurchaseCategory?
   if (row.checkInStatus === "checked_in_no_package") return `Check-in${suffix}`
   if (row.checkInStatus === "checked_out") return `Checked out${suffix}`
   if (row.checkInStatus === "scheduled") return `Scheduled${suffix}`
+  if (isDirectPaidClassEvidence(row)) return `Attended${suffix}`
   return `Complete class${suffix}`
 }
 
@@ -1682,6 +1691,19 @@ const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
   if (status === "provisional") return "Provisional PIN"
   if (status === "enrolled") return "PIN enrolled"
   return "No PIN"
+}
+
+const resolveDirectClassRevenueCents = <
+  TPayment extends Pick<PaymentRow, "id" | "amount" | "classPaid" | "fundingPayment" | "purchaseCategory" | "settlementStatus" | "paymentStatus" | "packageId" | "serviceId">
+>(payments: TPayment[]) => {
+  const paidPurchases = new Map<string, number>()
+  for (const payment of payments) {
+    const isDirectClassPurchase = payment.purchaseCategory !== "package" || Boolean(payment.serviceId)
+    if (!isDirectClassPurchase) continue
+    if (!payment.classPaid && payment.settlementStatus !== "paid" && !isCompletedPaymentStatusValue(payment.paymentStatus)) continue
+    paidPurchases.set(payment.id, payment.amount)
+  }
+  return [...paidPurchases.values()].reduce((sum, amount) => sum + amount, 0)
 }
 
 type ProfileBadge = {
@@ -1875,11 +1897,11 @@ const matchesHistoryPaymentMethod = (
 }
 
 const matchesHistoryAttendanceFilter = (
-  row: Pick<PaymentRow, "checkInStatus">,
+  row: Pick<PaymentRow, "checkInStatus" | "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment">,
   filter: HistoryAttendanceFilter
 ) => {
   if (filter === "all") return true
-  if (filter === "attended") return isCheckedInStatus(row.checkInStatus) || row.checkInStatus === "checked_out"
+  if (filter === "attended") return isCompletedClassEvidence(row)
   if (filter === "scheduled") return row.checkInStatus === "scheduled"
   return row.checkInStatus === "none"
 }
@@ -2147,7 +2169,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const resolvedCurrentCategory: StaffCategory =
     currentCategory || (currentRole === "owner" ? "partner" : currentRole === "admin" ? "manager" : "guest")
   const defaultNav = getDefaultStaffPortalSection(currentRole, resolvedCurrentCategory) || "profile"
-  const stickyTop = 0
   const gridRef = React.useRef<HTMLDivElement>(null)
   const leftRailRef = React.useRef<HTMLDivElement>(null)
   const rightRailRef = React.useRef<HTMLDivElement>(null)
@@ -2625,6 +2646,16 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }),
     [schoolPackages]
   )
+  const courseLinkStats = React.useMemo(() => {
+    const all: CourseLinkRow[] = []
+    const seen = new Set<string>()
+    for (const entry of Object.values(allCourseLinksMap)) {
+      for (const link of [...entry.asA, ...entry.asB]) {
+        if (!seen.has(link.id)) { seen.add(link.id); all.push(link) }
+      }
+    }
+    return { total: all.length, active: all.filter((l) => l.active).length, inactive: all.filter((l) => !l.active).length }
+  }, [allCourseLinksMap])
   const canAccessUsersNav = allowedNavSections.includes("users")
   const canAccessStudentsNav = allowedNavSections.includes("students")
   const canAccessSchoolNav = allowedNavSections.includes("schedule")
@@ -6819,9 +6850,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const historyDerivedStats = React.useMemo(() => {
     const studentCount = filteredStudentCards.length
     const paidCount = filteredStudentCards.filter((item) => isPaymentPaidForUi(item.latestPayment)).length
-    const checkedInCount = filteredStudentCards.filter((item) => isCheckedInStatus(item.latestPayment.checkInStatus)).length
-    const totalCollected = filteredStudentCards.reduce((sum, item) => sum + item.totalCollectedCents, 0)
-    const pendingCount = filteredStudentCards.filter((item) => !isPaymentPaidForUi(item.latestPayment)).length
+    const checkedInCount = filteredStudentCards.filter((item) => item.allPayments.some(isCompletedClassEvidence)).length
+    const totalCollected = filteredStudentCards.reduce((sum, item) => sum + resolveDirectClassRevenueCents(item.allPayments), 0)
+    const pendingCount = filteredStudentCards.filter((item) => {
+      if (!isPaymentPaidForUi(item.latestPayment)) return true
+      const balance = "outstandingBalance" in item && typeof item.outstandingBalance === "number" ? item.outstandingBalance : item.latestPayment.outstandingBalance
+      return typeof balance === "number" && balance > 0
+    }).length
     const packages = payments.filter((p) => p.purchaseCategory === "package").length
     const dropIn = payments.filter((p) => p.purchaseCategory === "dropin").length
     return { studentCount, paidCount, pendingCount, totalCollected, checkedInCount, packages, dropIn }
@@ -6844,11 +6879,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     return {
       totalStudents: filteredStudentCards.length,
       paidStudents: filteredStudentCards.filter((item) => isPaymentPaidForUi(item.latestPayment)).length,
-      checkedInStudents: filteredStudentCards.filter((item) => isCheckedInStatus(item.latestPayment.checkInStatus)).length,
-      totalRevenueCents: filteredStudentCards.reduce((sum, item) => sum + item.totalCollectedCents, 0),
+      checkedInStudents: filteredStudentCards.filter((item) => item.allPayments.some(isCompletedClassEvidence)).length,
+      totalRevenueCents: filteredStudentCards.reduce((sum, item) => sum + resolveDirectClassRevenueCents(item.allPayments), 0),
       pendingByContext: filteredStudentCards.filter((item) => {
         if (paymentCategoryFilter === "cash") return item.latestPayment.settlementStatus === "pending"
-        return !isPaymentPaidForUi(item.latestPayment)
+        if (!isPaymentPaidForUi(item.latestPayment)) return true
+        const balance = "outstandingBalance" in item && typeof item.outstandingBalance === "number" ? item.outstandingBalance : item.latestPayment.outstandingBalance
+        return typeof balance === "number" && balance > 0
       }).length,
     }
   }, [currentMonthStudentsSummary, filteredStudentCards, paymentCategoryFilter])
@@ -7647,94 +7684,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setAssistantChatInput("")
   }, [activeNavLabel, assistantChatInput])
 
-  React.useEffect(() => {
-    const grid = gridRef.current
-    const left = leftRailRef.current
-    const right = rightRailRef.current
-    if (!grid || !left) return
-
-    let frame = 0
-
-    const reset = (el: HTMLElement) => {
-      el.style.position = ""
-      el.style.top = ""
-      el.style.left = ""
-      el.style.width = ""
-      el.style.zIndex = ""
-    }
-
-    const update = () => {
-      if (window.innerWidth < 1180) {
-        reset(left)
-        if (right) reset(right)
-        return
-      }
-
-      const scrollY = window.scrollY
-      const gridRect = grid.getBoundingClientRect()
-      const gridTop = gridRect.top + scrollY
-      const gridBottom = gridTop + grid.offsetHeight
-      const gridLeft = gridRect.left + window.scrollX
-      const gridWidth = gridRect.width
-
-      const leftParent = left.parentElement as HTMLElement | null
-      const rightParent = right?.parentElement as HTMLElement | null
-      const leftWidth = leftParent?.getBoundingClientRect().width ?? left.getBoundingClientRect().width
-      const rightWidth = right ? rightParent?.getBoundingClientRect().width ?? right.getBoundingClientRect().width : 0
-
-      const apply = (el: HTMLElement, leftPos: number, width: number) => {
-        if (scrollY + stickyTop < gridTop) {
-          reset(el)
-          return
-        }
-
-        const reachedBottom = scrollY + stickyTop + el.offsetHeight >= gridBottom
-        if (reachedBottom) {
-          el.style.position = "absolute"
-          el.style.top = `${Math.max(0, grid.offsetHeight - el.offsetHeight)}px`
-          el.style.left = `${Math.round(leftPos - gridLeft)}px`
-          el.style.width = `${Math.round(width)}px`
-          el.style.zIndex = "20"
-          return
-        }
-
-        el.style.position = "fixed"
-        el.style.top = `${stickyTop}px`
-        el.style.left = `${Math.round(leftPos)}px`
-        el.style.width = `${Math.round(width)}px`
-        el.style.zIndex = "20"
-      }
-
-      apply(left, gridLeft, leftWidth)
-      if (right) {
-        apply(right, gridLeft + gridWidth - rightWidth, rightWidth)
-      }
-    }
-
-    const onScroll = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(update)
-    }
-
-    const observer = new ResizeObserver(() => onScroll())
-      observer.observe(grid)
-      observer.observe(left)
-      if (right) observer.observe(right)
-
-    window.addEventListener("scroll", onScroll, { passive: true })
-    window.addEventListener("resize", onScroll)
-    update()
-
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      observer.disconnect()
-      window.removeEventListener("scroll", onScroll)
-      window.removeEventListener("resize", onScroll)
-      reset(left)
-      if (right) reset(right)
-    }
-  }, [stickyTop])
-
   const assistantRailContent = (
     <>
       <div className="flex flex-col gap-2.5 min-[1180px]:gap-3">
@@ -7814,10 +7763,10 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             : "min-[1180px]:grid-cols-[86px_minmax(0,1fr)] xl:grid-cols-[90px_minmax(0,1fr)]"
         }`}
       >
-      <aside className="hidden min-[1180px]:block min-[1180px]:self-start">
+      <aside className="hidden min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:block min-[1180px]:h-fit min-[1180px]:self-start">
         <div
           ref={leftRailRef}
-          className="relative z-40 rounded-2xl border border-black/10 bg-white/80 p-3 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90 lg:h-fit lg:sticky lg:top-0"
+          className="relative rounded-2xl border border-black/10 bg-white/80 p-3 shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90"
         >
           <div className="flex flex-col items-center gap-2" role="tablist" aria-orientation="vertical" aria-label="Staff portal sections">
             {visibleNavItems.map((item) => (
@@ -9311,11 +9260,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               schoolLoading={schoolLoading}
               fetchSchoolData={() => void fetchSchoolData({ showLoader: true })}
               schoolCoursesCount={schoolCourses.length}
+              activeSchoolCoursesCount={schoolCourses.filter((c) => c.active).length}
               schoolRoomsCount={schoolRooms.length}
               activeRoomOptionsCount={activeRoomOptions.length}
-              activePackagesCount={packageCounts.ACTIVE}
+              packageCounts={packageCounts}
               schoolPointsRulesCount={schoolPointsRules.length}
-              schoolCourseLinkCount={schoolCourseLinkCount}
+              activeSchoolPointsRulesCount={schoolPointsRules.filter((r) => r.active).length}
+              courseLinkStats={courseLinkStats}
             >
 
             <SchoolWizardPanel
@@ -9414,7 +9365,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 </button>
               </header>
 
-              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.2fr)]">
+              <div className="mt-5 grid gap-5">
                 <form onSubmit={saveRoom} className="space-y-3 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
@@ -9769,6 +9720,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                      </div>
 
                     <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 1 ? undefined : "none" }} className="space-y-2">
+                      {courseEditingSlug ? (<>
                       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Prices and special discounts</span>
                       <div className="grid grid-cols-2 gap-3">
                         <input
@@ -9833,9 +9785,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           className="mt-2 w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                         />
                       ) : null}
+                      </>) : (
+                        <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
+                      )}
                     </div>
 
                     <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 2 ? undefined : "none" }} className="space-y-2">
+                      {courseEditingSlug ? (<>
                       <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Media assets</p>
                       <div className="rounded-lg border border-black/10 bg-white/75 p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
                       <div className="grid gap-4 md:grid-cols-2">
@@ -9879,9 +9835,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         </div>
                       </div>
                     </div>
+                      </>) : (
+                        <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
+                      )}
                     </div>
 
                     <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step >= 3 && schoolWizard.step <= 5 ? undefined : "none" }} className="space-y-2">
+                      {courseEditingSlug ? (<>
                       <p style={{ display: schoolWizard.step === 3 ? undefined : "none" }} className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
                         {isSpecialEventCourse ? "Special events (calendar builder)" : "Schedules (guided builder)"}
                       </p>
@@ -10495,7 +10455,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                               )}
                               </>
                             ) : (
-                              <p className="mt-1 text-xs text-black/50 dark:text-white/50">Save the course first, then come back to link consecutive classes.</p>
+                              <p className="mt-1 text-xs text-black/50 dark:text-white/50">Create the course first to manage consecutive class links.</p>
                             )}
                           </div>
                           </div>
@@ -10798,10 +10758,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           </div>
                         </div>
                       </div>
+                      </>) : (
+                        <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
+                      )}
                     </div>
                   </div>
 
                   <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 6 ? undefined : "none" }} className="mt-5">
+                    {courseEditingSlug ? (<>
                     {/* Publish on Social */}
                     <div className="min-w-0 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
                       <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Publish on social</p>
@@ -10857,10 +10821,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                         </button>
                       </div>
                     </div>
+                    </>) : (
+                      <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
+                    )}
                   </div>
 
 
                   <div style={{ display: schoolWizard.activeEntity === "courses" && schoolWizard.step === 6 ? undefined : "none" }} className="mt-4 grid grid-cols-2 gap-2">
+                    {courseEditingSlug ? (<>
                     <button
                       type="button"
                       onClick={resetCourseBuilder}
@@ -10876,6 +10844,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     >
                       {schoolBusy === "course" ? "Saving..." : "Save course"}
                     </button>
+                    </>) : (
+                      <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
+                    )}
                   </div>
                 </form>
 
@@ -11037,7 +11008,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
               </div>
             </article>
 
-            <div style={{ display: schoolWizard.activeEntity === "packages" || schoolWizard.activeEntity === "points" ? undefined : "none" }} className="grid gap-4 xl:grid-cols-2">
+            <div style={{ display: schoolWizard.activeEntity === "packages" || schoolWizard.activeEntity === "points" ? undefined : "none" }} className="grid gap-4">
               <article style={{ display: schoolWizard.activeEntity === "packages" ? undefined : "none" }} className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
                 <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Package builder</p>
                 <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">
@@ -11175,7 +11146,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     </div>
                   </div>
                   <div style={{ display: schoolWizard.activeEntity === "packages" && schoolWizard.step === 2 ? undefined : "none" }}>
-                  <div className="grid gap-2 md:grid-cols-3">
+                  <div className="grid gap-2 md:grid-cols-4">
                     <input
                       name="packagePriceCents"
                       type="text"
@@ -11199,20 +11170,31 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       name="packageMakeUps"
                       type="number"
                       min={0}
-                      value={packageForm.makeUps}
+                      value={packageForm.makeUps || ""}
                       onChange={(event) => setPackageForm((prev) => ({ ...prev, makeUps: event.target.value }))}
                       placeholder="Extra make-up classes"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
+                    <label className="inline-flex items-center gap-2 rounded-md border border-black/15 bg-white px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-white">
+                      <input
+                        name="packageIsUnlimited"
+                        type="checkbox"
+                        checked={packageForm.isUnlimited}
+                        onChange={(event) => setPackageForm((prev) => ({ ...prev, isUnlimited: event.target.checked }))}
+                      />
+                      Unlimited
+                    </label>
                   </div>
-                  <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
-                    Public price preview: <span className="font-semibold text-black dark:text-white">{formatUsdInputLabel(packageForm.priceCents)}</span>
+                  <div className="mt-4 flex items-baseline justify-between gap-4">
+                    <p className="text-[11px] text-black/70 dark:text-white/70">
+                      Public price preview: <span className="font-semibold text-black dark:text-white">{formatUsdInputLabel(packageForm.priceCents)}</span>
+                    </p>
+                    <p className="text-[11px] text-black/70 dark:text-white/70">
+                      <span className="font-semibold text-black dark:text-white">Classes included</span> is the base number of classes in the package. <span className="font-semibold text-black dark:text-white">Make-ups</span> add extra usable classes on top of that total.
+                    </p>
                   </div>
-                  <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
-                    <span className="font-semibold text-black dark:text-white">Classes included</span> is the base number of classes in the package. <span className="font-semibold text-black dark:text-white">Make-ups</span> add extra usable classes on top of that total.
                   </div>
-                  </div>
-                  <div style={{ display: schoolWizard.activeEntity === "packages" && schoolWizard.step === 3 ? undefined : "none" }}>
+                  <div style={{ display: schoolWizard.activeEntity === "packages" && schoolWizard.step === 3 ? undefined : "none" }} className="space-y-3">
                   <div className="grid gap-2 md:grid-cols-3">
                     <input
                       name="packageValidDays"
@@ -11251,22 +11233,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
-                      <input
-                        name="packageIsUnlimited"
-                        type="checkbox"
-                        checked={packageForm.isUnlimited}
-                        onChange={(event) => setPackageForm((prev) => ({ ...prev, isUnlimited: event.target.checked }))}
-                      />
-                      Unlimited
-                    </label>
-                    <label className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white/60 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.02]">
-                      Lifecycle: <span className="font-semibold">{packageForm.status}</span>
-                    </label>
-                  </div>
-                  <div className="rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-[11px] text-black/70 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/70">
-                    <span className="font-semibold text-black dark:text-white">Active</span> shows in the catalog. <span className="font-semibold text-black dark:text-white">Suspended</span> hides it. <span className="font-semibold text-black dark:text-white">Scheduled</span> waits for the launch date. <span className="font-semibold text-black dark:text-white">Deleted</span> hides it from the default admin view.
+                  <div className="mt-4 flex items-baseline justify-between gap-4">
+                    <p className="text-[11px] text-black/70 dark:text-white/70">
+                      Lifecycle: <span className="font-semibold text-black dark:text-white">{packageForm.status}</span>
+                    </p>
+                    <p className="text-[11px] text-black/70 dark:text-white/70">
+                      <span className="font-semibold text-black dark:text-white">Active</span> shows in the catalog. <span className="font-semibold text-black dark:text-white">Suspended</span> hides it. <span className="font-semibold text-black dark:text-white">Scheduled</span> waits for the launch date. <span className="font-semibold text-black dark:text-white">Deleted</span> hides it from the default admin view.
+                    </p>
                   </div>
                   {packageForm.status === "SCHEDULED" ? (
                     <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
@@ -11290,7 +11263,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       disabled={schoolBusy !== null}
                       className="inline-flex w-full items-center justify-center rounded-md border border-black/10 px-4 py-2 text-sm font-semibold text-black transition hover:bg-black/5 disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
                     >
-                      Reset
+                      Reset package
                     </button>
                   </div>
                   </div>
@@ -11994,14 +11967,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 label: "Students",
                 icon: Users,
                 value: studentsSummary.totalStudents,
-                cardClass: "bg-[linear-gradient(145deg,rgba(120,143,255,0.28),rgba(22,30,56,0.92))]",
+                cardClass: "bg-gradient-to-br from-[#788fff]/22 via-[#171b38]/40 to-[#0a0f23]/60",
               },
               {
                 key: "revenue",
                 label: "Total revenue",
                 icon: CircleDollarSign,
                 value: formatMoney(studentsSummary.totalRevenueCents),
-                cardClass: "bg-[linear-gradient(145deg,rgba(16,185,129,0.25),rgba(20,38,53,0.92))]",
+                cardClass: "bg-gradient-to-br from-emerald-500/20 via-[#132a1f]/40 to-[#0a0f23]/60",
               },
               {
                 key: "pending",
@@ -12010,24 +11983,26 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     ? "Pending in scope"
                     : paymentCategoryFilter === "cash"
                       ? "Cash pending"
-                      : "Stripe pending",
+                      : paymentCategoryFilter === "card"
+                        ? "Card pending"
+                        : "Pending",
                 icon: Clock3,
                 value: studentsSummary.pendingByContext,
-                cardClass: "bg-[linear-gradient(145deg,rgba(245,158,11,0.22),rgba(49,30,15,0.9))]",
+                cardClass: "bg-gradient-to-br from-[#f59e0b]/18 via-[#221631]/40 to-[#0a0f23]/60",
               },
               {
                 key: "paid",
                 label: "Paid classes",
                 icon: CheckCircle2,
                 value: studentsSummary.paidStudents,
-                cardClass: "bg-[linear-gradient(145deg,rgba(99,102,241,0.28),rgba(24,22,54,0.92))]",
+                cardClass: "bg-gradient-to-br from-[#6366f1]/22 via-[#1e1435]/40 to-[#0a0f23]/60",
               },
               {
                 key: "checkin",
                 label: "With check-in",
                 icon: MapPin,
                 value: studentsSummary.checkedInStudents,
-                cardClass: "bg-[linear-gradient(145deg,rgba(6,182,212,0.22),rgba(14,36,48,0.92))]",
+                cardClass: "bg-gradient-to-br from-cyan-400/18 via-[#0e2430]/40 to-[#0a0f23]/60",
               },
             ].map((item) => {
               const Icon = item.icon
@@ -12035,12 +12010,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <div
                   key={item.key}
                   title={item.label}
-                  className={`min-w-[104px] flex-1 rounded-xl border border-white/10 p-3 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)] ${item.cardClass}`}
+                  className={`min-w-[104px] flex-1 rounded-xl border border-white/[0.08] p-3 shadow-[0_12px_24px_-18px_rgba(0,0,0,0.7)] ${item.cardClass}`}
                 >
-                  <div className="flex items-center gap-2 text-black/60 dark:text-white/60">
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                  </div>
-                  <p className="mt-1 text-lg font-semibold text-black dark:text-white">{item.value}</p>
+                  <Icon className="mb-1 h-3.5 w-3.5 shrink-0 opacity-60" />
+                  <p className="text-2xl font-semibold text-white">{item.value}</p>
+                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/50">{item.label}</p>
                 </div>
               )
             })}
@@ -12111,9 +12085,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
           {isHistoryMode ? (
             <div className="mt-4 rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(15,17,23,0.94),rgba(20,24,33,0.92))] p-4 shadow-[0_14px_28px_-20px_rgba(0,0,0,0.75)]">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[auto_1fr] xl:gap-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
                 {/* Left column: Calendar */}
-                <div className="w-full xl:w-auto xl:max-w-[20rem]">
+                <div className="w-full md:min-w-0">
                   <CalendarPicker
                     rangeMode={true}
                     rangeStart={historyFrom}
@@ -12144,13 +12118,13 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                   </div>
 
                   {/* Filters - compact row of chips/selects */}
-                  <div className="flex w-full justify-evenly flex-nowrap items-center gap-1 rounded-lg  py-2 mb-3 ">
-                    <div className="relative shrink-0">
+                  <div className="grid w-full grid-cols-1 gap-2 rounded-lg py-2 mb-3 sm:grid-cols-3">
+                    <div className="relative min-w-0">
                       <select
                         value={historyClassKey}
                         onChange={(event) => setHistoryClassKey(event.target.value)}
                         disabled={!historyFrom || !historyTo || historyClassOptions.length === 0}
-                        className="h-10 w-28 appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2 pr-6 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="h-10 w-full appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2.5 pr-7 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <option value="">All classes</option>
                         {historyClassOptions.map((option) => (
@@ -12162,12 +12136,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
                     </div>
 
-                    <div className="relative shrink-0">
+                    <div className="relative min-w-0">
                       <select
                         value={historyPaymentMethodFilter}
                         onChange={(event) => setHistoryPaymentMethodFilter(event.target.value as HistoryPaymentMethodFilter)}
-                        className="h-10 w-28  appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2 pr-6 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50"
-                        style={{ minWidth: "80px" }}
+                        className="h-10 w-full appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2.5 pr-7 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50"
                       >
                         <option value="all">All pay</option>
                         <option value="cash">Cash</option>
@@ -12178,12 +12151,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
                     </div>
 
-                    <div className="relative shrink-0">
+                    <div className="relative min-w-0">
                       <select
                         value={historyAttendanceFilter}
                         onChange={(event) => setHistoryAttendanceFilter(event.target.value as HistoryAttendanceFilter)}
-                        className="h-10 w-28 appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2 pr-6 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50"
-                        style={{ minWidth: "80px" }}
+                        className="h-10 w-full appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2.5 pr-7 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50"
                       >
                         <option value="all">All attend</option>
                         <option value="attended">Attended</option>
@@ -12208,10 +12180,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           <span className="relative text-[1.1rem] font-semibold leading-none">{historyDerivedStats.studentCount}</span>
                         </div>
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
-                            <svg aria-hidden className="h-3.5 w-3.5 text-[var(--brand,#b61616)]/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
+                          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
                             <span>Students</span>
                           </div>
                         </div>
@@ -12275,10 +12244,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           <span className="relative text-[1.1rem] font-semibold leading-none">{historyDerivedStats.packages}</span>
                         </div>
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
-                            <svg aria-hidden className="h-3.5 w-3.5 text-fuchsia-300/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8.5 8.5-4-4L4 15" />
-                            </svg>
+                          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
                             <span>Packages</span>
                           </div>
                         </div>
@@ -12380,7 +12346,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             </p>
           ) : null}
 
-          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-5 columns-1 gap-5 sm:columns-2 xl:columns-3 [&>*]:break-inside-avoid [&>*]:mb-5">
             {paymentsLoading ? (
               Array.from({ length: 6 }).map((_, index) => (
                 <div

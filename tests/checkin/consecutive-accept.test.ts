@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   resolvePackageConsecutiveAcceptAction,
   resolvePackageSuccessDoneAction,
+  resolveConsecutivePaymentSuccessAction,
 } from "@/lib/checkin/existing-customer-flow"
 
 /**
@@ -322,5 +323,23 @@ describe("resolvePackageSuccessDoneAction (pure)", () => {
         awaitingConsecutivePaymentSelection: false,
       }),
     ).toBe("complete-station")
+  })
+})
+
+describe("resolveConsecutivePaymentSuccessAction (pure)", () => {
+  it("completes the station immediately after kiosk consecutive payment succeeds", () => {
+    expect(
+      resolveConsecutivePaymentSuccessAction({
+        isKioskTerminalFlow: true,
+      })
+    ).toBe("complete-station")
+  })
+
+  it("keeps the inline success screen outside kiosk terminal flow", () => {
+    expect(
+      resolveConsecutivePaymentSuccessAction({
+        isKioskTerminalFlow: false,
+      })
+    ).toBe("show-success")
   })
 })

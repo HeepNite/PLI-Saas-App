@@ -962,7 +962,15 @@ export async function GET(req: Request) {
     userIds.length
       ? prisma.user.findMany({
           where: { id: { in: userIds } },
-          select: { id: true, clerkId: true, name: true, completedClassesOverride: true, packageClassesUsedOverride: true },
+          select: {
+            id: true,
+            clerkId: true,
+            name: true,
+            email: true,
+            phone: true,
+            completedClassesOverride: true,
+            packageClassesUsedOverride: true,
+          },
         })
       : Promise.resolve([]),
     loadStudentPinCredentials(userIds),
@@ -1284,8 +1292,12 @@ export async function GET(req: Request) {
 
   // Build DB name lookup from purchaseUsers
   const dbNameByUserId = new Map<string, string | null>()
+  const dbEmailByUserId = new Map<string, string>()
+  const dbPhoneByUserId = new Map<string, string>()
   for (const row of purchaseUsers) {
     dbNameByUserId.set(row.id, row.name)
+    if (row.email) dbEmailByUserId.set(row.id, row.email)
+    if (row.phone) dbPhoneByUserId.set(row.id, row.phone)
   }
 
   const studentPinByUserId = new Map<
@@ -1387,8 +1399,8 @@ export async function GET(req: Request) {
         dbNameByUserId.get(item.userId),
         purchase.name,
       ),
-      customerEmail: purchase.email || "—",
-      customerPhone: purchase.phone || "—",
+      customerEmail: purchase.email || dbEmailByUserId.get(item.userId) || "—",
+      customerPhone: purchase.phone || dbPhoneByUserId.get(item.userId) || "—",
       customerAvatarUrl: avatarByUserId.get(item.userId) || null,
       packageId: packageId || null,
       serviceId: serviceId || null,

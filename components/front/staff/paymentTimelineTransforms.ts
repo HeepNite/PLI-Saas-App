@@ -1,5 +1,6 @@
 import type { AttendanceEvent, AttendanceSummary } from "@/components/front/staff/AttendanceHistoryTimeline"
 import type { PaymentEvent } from "@/components/front/staff/PaymentHistoryTimeline"
+import { isCompletedAttendanceStatus, isDirectPaidClassEvidence } from "./paymentState"
 
 type PaymentChannel = "cash" | "card" | "unknown" | "package_credit"
 type PurchaseCategory = "package" | "dropin" | "other"
@@ -33,6 +34,7 @@ type PaymentTimelineRow = {
   amount: number
   paymentStatus: string
   settlementStatus: "pending" | "paid"
+  classPaid: boolean
   createdAt: string
   classDate: string | null
   classTime: string | null
@@ -129,20 +131,18 @@ export function transformPaymentRowsToAttendance(
   let noShows = 0
 
   for (const row of rows) {
-    const hasAttendedStatus =
-      row.checkInStatus === "checked_in" ||
-      row.checkInStatus === "checked_in_no_package" ||
-      row.checkInStatus === "checked_out"
+    const hasAttendedStatus = isCompletedAttendanceStatus(row.checkInStatus)
 
     const hasRealAttendanceEvidence =
       hasAttendedStatus ||
       (Boolean(row.checkedOutAt) && row.checkInStatus !== "scheduled" && row.checkInStatus !== "none")
 
     const hasCheckInTimestamp = Boolean(row.checkInAt)
+    const isPaidDirectClassWithoutTimestamp = isDirectPaidClassEvidence(row)
     const isPackageCredit = row.paymentChannel === "package_credit"
 
     if (isPackageCredit && (!hasRealAttendanceEvidence || !hasCheckInTimestamp)) continue
-    if (!isPackageCredit && !row.attendanceId && row.checkInStatus === "none") continue
+    if (!isPackageCredit && !row.attendanceId && row.checkInStatus === "none" && !isPaidDirectClassWithoutTimestamp) continue
 
     const isCashPendingSettlement = row.paymentChannel === "cash" && row.settlementStatus === "pending"
 
@@ -153,7 +153,9 @@ export function transformPaymentRowsToAttendance(
       status = "attended"
     } else if (isPackageCredit && row.checkInStatus === "scheduled") {
       status = "booked"
-    } else if (hasAttendedStatus && hasCheckInTimestamp) {
+    } else if (hasAttendedStatus && (hasCheckInTimestamp || isPaidDirectClassWithoutTimestamp)) {
+      status = "attended"
+    } else if (isPaidDirectClassWithoutTimestamp) {
       status = "attended"
     } else if (row.checkInStatus === "scheduled") {
       status = "booked"

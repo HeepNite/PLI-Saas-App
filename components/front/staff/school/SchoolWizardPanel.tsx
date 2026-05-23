@@ -32,11 +32,12 @@ export function SchoolWizardPanel({
   children,
 }: SchoolWizardPanelProps) {
   const steps = WIZARD_STEP_CONFIGS[wizard.activeEntity]
+  const inline = steps.length <= 5
 
   return (
     <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
-      {/* Entity tabs */}
-      <div className="flex items-center justify-between gap-3">
+      {/* Entity tabs + inline step nav when ≤5 steps */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1 rounded-lg border border-black/8 bg-black/[0.02] p-1 dark:border-white/8 dark:bg-white/[0.02]">
           {ENTITY_TABS.map((tab) => (
             <button
@@ -54,27 +55,31 @@ export function SchoolWizardPanel({
           ))}
         </div>
 
-        {onSave && (
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saveBusy}
-            className="rounded-lg bg-[var(--brand,#b61616)] px-4 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-          >
-            {saveBusy ? "Saving…" : "Save"}
-          </button>
+        {inline && (
+          <div className="ml-auto">
+            <SchoolWizardStepNav
+              steps={steps}
+              currentStep={wizard.step}
+              onStepClick={wizard.setStep}
+              enabledContext={enabledContext}
+            />
+          </div>
         )}
+
       </div>
 
-      {/* Step nav */}
-      <div className="mt-3">
-        <SchoolWizardStepNav
-          steps={steps}
-          currentStep={wizard.step}
-          onStepClick={wizard.setStep}
-          enabledContext={enabledContext}
-        />
-      </div>
+      {/* Step nav below when 6+ steps */}
+      {!inline && (
+        <div className="mt-3">
+          <SchoolWizardStepNav
+            steps={steps}
+            currentStep={wizard.step}
+            onStepClick={wizard.setStep}
+            enabledContext={enabledContext}
+            stretch
+          />
+        </div>
+      )}
 
       {/* Feedback */}
       {error && (

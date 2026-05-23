@@ -25,6 +25,8 @@ type PaymentStateRow = {
 
 export const isCheckedInStatus = (value: CheckInStatus) => value === "checked_in" || value === "checked_in_no_package"
 
+export const isCompletedAttendanceStatus = (value: CheckInStatus) => isCheckedInStatus(value) || value === "checked_out"
+
 const isPackageBackedDailyCheckIn = (
   row: {
     checkInStatus?: CheckInStatus
@@ -51,6 +53,14 @@ export const isPaymentPaidForUi = (
   if (row.purchaseCategory === "package") return Boolean(row.fundingPayment)
   return row.classPaid
 }
+
+export const isDirectPaidClassEvidence = (
+  row: Pick<PaymentStateRow, "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment" | "checkInStatus">
+) => row.purchaseCategory !== "package" && !row.packageId && isPaymentPaidForUi(row)
+
+export const isCompletedClassEvidence = (
+  row: Pick<PaymentStateRow, "checkInStatus" | "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment">
+) => isCompletedAttendanceStatus(row.checkInStatus) || isDirectPaidClassEvidence(row)
 
 export const paymentStateLabel = (
   row: {
@@ -91,6 +101,7 @@ export const checkInStateTone = (row: { checkInStatus: CheckInStatus }) => {
   if (isCheckedInStatus(row.checkInStatus)) return "border-violet-400/40 bg-violet-400/12 text-violet-200"
   if (row.checkInStatus === "checked_out") return "border-cyan-400/40 bg-cyan-400/12 text-cyan-200"
   if (row.checkInStatus === "scheduled") return "border-amber-500/45 bg-amber-500/10 text-amber-300"
+  if (isDirectPaidClassEvidence(row as Pick<PaymentStateRow, "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment" | "checkInStatus">)) return "border-violet-400/40 bg-violet-400/12 text-violet-200"
   return "border-[var(--brand,#b61616)]/50 bg-[var(--brand,#b61616)]/15 text-[var(--brand,#ff4b4b)]"
 }
 

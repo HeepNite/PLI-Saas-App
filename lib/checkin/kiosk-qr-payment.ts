@@ -87,8 +87,10 @@ export const createEmptyKioskQrCheckoutState = (): KioskQrCheckoutState => ({
 export const isKioskQrPendingPhase = (phase: KioskQrCheckoutPhase) =>
   phase === "qr_ready" || phase === "waiting_for_payment"
 
-export const shouldPauseKioskInactivityForQrPhase = (phase: KioskQrCheckoutPhase) =>
-  isKioskQrPendingPhase(phase)
+export const shouldPauseKioskInactivityForQrPhase = (phase: KioskQrCheckoutPhase) => {
+  void phase
+  return false
+}
 
 export const buildKioskCheckoutQrImageUrl = (url: string, size = 260) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=png&data=${encodeURIComponent(url)}`
