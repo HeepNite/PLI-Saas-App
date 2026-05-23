@@ -52,6 +52,8 @@ import { useActionRequests } from "./hooks/useActionRequests"
 import { useStudentPinForm } from "./hooks/useStudentPinForm"
 import { useProfilePackages } from "./hooks/useProfilePackages"
 import { useProfileForm } from "./hooks/useProfileForm"
+import { useStickyRails } from "./hooks/useStickyRails"
+import { useFloatingFooterOffset } from "./hooks/useFloatingFooterOffset"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -156,9 +158,8 @@ export default function ProfilePageClient() {
   const [agendaMonth, setAgendaMonth] = React.useState(() => new Date().getMonth())
   const [agendaYear, setAgendaYear] = React.useState(() => new Date().getFullYear())
   const stickyTop = 76
-  const gridRef = React.useRef<HTMLDivElement>(null)
-  const leftRailRef = React.useRef<HTMLDivElement>(null)
-  const rightRailRef = React.useRef<HTMLDivElement>(null)
+  const { gridRef, leftRailRef, rightRailRef } = useStickyRails(stickyTop)
+  useFloatingFooterOffset()
   const bookingPrefillContact = React.useMemo(
     () => buildBookingPrefillContact(profileForm, profileUser, user),
     [profileForm, profileUser, user]
@@ -897,93 +898,6 @@ export default function ProfilePageClient() {
     }
   }
 
-
-  React.useEffect(() => {
-    const grid = gridRef.current
-    const left = leftRailRef.current
-    const right = rightRailRef.current
-    if (!grid || !left || !right) return
-
-    let frame = 0
-
-    const reset = (el: HTMLDivElement) => {
-      el.style.position = ""
-      el.style.top = ""
-      el.style.left = ""
-      el.style.width = ""
-      el.style.zIndex = ""
-    }
-
-    const update = () => {
-      if (window.innerWidth < 1024) {
-        reset(left)
-        reset(right)
-        return
-      }
-
-      const scrollY = window.scrollY
-      const gridRect = grid.getBoundingClientRect()
-      const gridTop = gridRect.top + scrollY
-      const gridBottom = gridTop + grid.offsetHeight
-      const gridLeft = gridRect.left + window.scrollX
-      const gridWidth = gridRect.width
-
-      const leftParent = left.parentElement as HTMLElement | null
-      const rightParent = right.parentElement as HTMLElement | null
-      const leftWidth = leftParent?.getBoundingClientRect().width ?? left.getBoundingClientRect().width
-      const rightWidth = rightParent?.getBoundingClientRect().width ?? right.getBoundingClientRect().width
-
-      const apply = (el: HTMLDivElement, leftPos: number, width: number) => {
-        if (scrollY + stickyTop < gridTop) {
-          reset(el)
-          return
-        }
-
-        const reachedBottom = scrollY + stickyTop + el.offsetHeight >= gridBottom
-        if (reachedBottom) {
-          el.style.position = "absolute"
-          el.style.top = `${Math.max(0, grid.offsetHeight - el.offsetHeight)}px`
-          el.style.left = `${Math.round(leftPos - gridLeft)}px`
-          el.style.width = `${Math.round(width)}px`
-          el.style.zIndex = "20"
-          return
-        }
-
-        el.style.position = "fixed"
-        el.style.top = `${stickyTop}px`
-        el.style.left = `${Math.round(leftPos)}px`
-        el.style.width = `${Math.round(width)}px`
-        el.style.zIndex = "20"
-      }
-
-      apply(left, gridLeft, leftWidth)
-      apply(right, gridLeft + gridWidth - rightWidth, rightWidth)
-    }
-
-    const onScroll = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(update)
-    }
-
-    const resizeObserver = new ResizeObserver(() => onScroll())
-    resizeObserver.observe(grid)
-    resizeObserver.observe(left)
-    resizeObserver.observe(right)
-
-    window.addEventListener("scroll", onScroll, { passive: true })
-    window.addEventListener("resize", onScroll)
-    update()
-
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      resizeObserver.disconnect()
-      window.removeEventListener("scroll", onScroll)
-      window.removeEventListener("resize", onScroll)
-      reset(left)
-      reset(right)
-    }
-  }, [stickyTop])
-
   React.useEffect(() => {
     if (typeof window === "undefined") return
     const params = new URLSearchParams(window.location.search)
@@ -1163,26 +1077,6 @@ export default function ProfilePageClient() {
       setMobileAgendaOpenDay(null)
     }
   }, [agendaMonth, agendaYear, mobileAgendaOpenDay, visibleBookings])
-
-  React.useEffect(() => {
-    const footer = document.getElementById("site-footer")
-    if (!footer) return
-    const baseOffset = 24
-    const updateOffset = () => {
-      const rect = footer.getBoundingClientRect()
-      const overlap = Math.max(0, window.innerHeight - rect.top)
-      const next = overlap > 0 ? overlap + baseOffset : baseOffset
-      document.documentElement.style.setProperty("--floating-offset", `${next}px`)
-    }
-    updateOffset()
-    window.addEventListener("scroll", updateOffset, { passive: true })
-    window.addEventListener("resize", updateOffset)
-    return () => {
-      document.documentElement.style.removeProperty("--floating-offset")
-      window.removeEventListener("scroll", updateOffset)
-      window.removeEventListener("resize", updateOffset)
-    }
-  }, [])
 
   const chartLabels = React.useMemo(() => {
     if (!monthlyAttendance.length) return analyticsMonths
