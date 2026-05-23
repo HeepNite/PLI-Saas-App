@@ -22,17 +22,17 @@
 
 ## Slice 3 — Complex Hooks + DOM Hooks
 
-- [ ] Create `hooks/useAvailabilityCache.ts` — shared cache (~50 LOC)
-- [ ] Create `hooks/useStickyRails.ts` — scroll/resize observer (~90 LOC)
-- [ ] Create `hooks/useFloatingFooterOffset.ts` — CSS var (~20 LOC)
-- [ ] Create `hooks/useBookings.ts` — bookings + check-in (~80 LOC)
-- [ ] Create `hooks/useRescheduleFlow.ts` — 3-step machine (~200 LOC)
-- [ ] Create `hooks/useAssignClassesFlow.ts` — assign flow (~150 LOC)
-- [ ] Create `hooks/useActionRequestModal.ts` — suspend/cancel (~150 LOC)
-- [ ] Create `hooks/useAgendaCalendar.ts` — calendar derivations (~120 LOC)
-- [ ] Create `hooks/useAnalyticsChartData.ts` — chart math (~120 LOC)
-- [ ] Update ProfilePageClient to consume hooks
-- [ ] Validate: tsc + vitest + eslint
+- [x] Create `hooks/useAvailabilityCache.ts` — shared cache (~50 LOC)
+- [x] Create `hooks/useStickyRails.ts` — scroll/resize observer (~90 LOC)
+- [x] Create `hooks/useFloatingFooterOffset.ts` — CSS var (~20 LOC)
+- [x] Create `hooks/useProfileBookings.ts` — bookings + check-in (~120 LOC)
+- [x] Create `hooks/useRescheduleFlow.ts` — 3-step machine (~390 LOC)
+- [x] Create `hooks/useAssignClassesFlow.ts` — assign flow (~300 LOC)
+- [x] Create `hooks/useActionRequestModal.ts` — suspend/cancel (~275 LOC)
+- [x] Create `hooks/useAgendaCalendar.ts` — calendar derivations (~160 LOC)
+- [x] Create `hooks/useAnalyticsChartData.ts` — chart math (~125 LOC)
+- [x] Update ProfilePageClient to consume hooks
+- [x] Validate: tsc + vitest + eslint
 
 ## Slice 4 — Presentational Components
 
