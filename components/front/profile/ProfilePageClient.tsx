@@ -18,16 +18,13 @@ import {
 import type {
   ActionRequestItem,
   ActionRequestType,
-  AssignablePackage,
   BookingItem,
-  CachedAvailabilityEntry,
   MetricKey,
   SlotAvailability,
 } from "./profile-types"
 import {
   statusLabel,
   NY_TIMEZONE,
-  AVAILABILITY_CACHE_TTL_MS,
   CHECK_IN_OPEN_WINDOW_HOURS,
   CHECK_IN_OPEN_WINDOW_MS,
   analyticsMonths,
@@ -54,6 +51,8 @@ import { useProfilePackages } from "./hooks/useProfilePackages"
 import { useProfileForm } from "./hooks/useProfileForm"
 import { useStickyRails } from "./hooks/useStickyRails"
 import { useFloatingFooterOffset } from "./hooks/useFloatingFooterOffset"
+import { useAvailabilityCache } from "./hooks/useAvailabilityCache"
+import { useProfileBookings } from "./hooks/useProfileBookings"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -109,13 +108,6 @@ export default function ProfilePageClient() {
     submitStudentPin,
   } = useStudentPinForm(pinStatus, refreshPinStatus)
 
-  const [bookings, setBookings] = React.useState<BookingItem[]>([])
-  const [assignablePackages, setAssignablePackages] = React.useState<AssignablePackage[]>([])
-  const [bookingsLoading, setBookingsLoading] = React.useState(false)
-  const [bookingsError, setBookingsError] = React.useState<string | null>(null)
-  const [checkInSubmittingId, setCheckInSubmittingId] = React.useState<string | null>(null)
-  const [checkInError, setCheckInError] = React.useState<string | null>(null)
-  const [checkInSuccess, setCheckInSuccess] = React.useState<string | null>(null)
   const [changeModalOpen, setChangeModalOpen] = React.useState(false)
   const [rescheduleStep, setRescheduleStep] = React.useState<1 | 2 | 3>(1)
   const [selectedBookingId, setSelectedBookingId] = React.useState<string>("")
@@ -128,6 +120,25 @@ export default function ProfilePageClient() {
   const [rescheduleError, setRescheduleError] = React.useState<string | null>(null)
   const [rescheduleSuccess, setRescheduleSuccess] = React.useState<string | null>(null)
   const [assignPackageId, setAssignPackageId] = React.useState("")
+  const { clearAvailabilityCache, fetchAvailability } = useAvailabilityCache()
+  const {
+    bookings,
+    assignablePackages,
+    bookingsLoading,
+    bookingsError,
+    checkInSubmittingId,
+    checkInError,
+    checkInSuccess,
+    setCheckInSuccess,
+    loadBookings,
+    submitBookingCheckIn,
+  } = useProfileBookings({
+    canLoadProtectedData,
+    clearAvailabilityCache,
+    loadPointsHistory,
+    setSelectedBookingId,
+    setAssignPackageId,
+  })
   const [assignDate, setAssignDate] = React.useState("")
   const [assignTime, setAssignTime] = React.useState("")
   const [assignAvailability, setAssignAvailability] = React.useState<SlotAvailability[]>([])
@@ -148,8 +159,6 @@ export default function ProfilePageClient() {
   const [requestSubmitError, setRequestSubmitError] = React.useState<string | null>(null)
   const [requestSubmitSuccess, setRequestSubmitSuccess] = React.useState<string | null>(null)
   const [mobileAgendaOpenDay, setMobileAgendaOpenDay] = React.useState<number | null>(null)
-  const availabilityCacheRef = React.useRef<Map<string, CachedAvailabilityEntry>>(new Map())
-  const availabilityInflightRef = React.useRef<Map<string, Promise<SlotAvailability[] | null>>>(new Map())
   const rescheduleAvailabilityRequestRef = React.useRef(0)
   const assignAvailabilityRequestRef = React.useRef(0)
   const currentCoins = Math.max(0, pointsBalance)
@@ -375,81 +384,6 @@ export default function ProfilePageClient() {
     if (!assignDate) return new Set<string>()
     return assignBookedTimesByDate.get(assignDate) || new Set<string>()
   }, [assignBookedTimesByDate, assignDate])
-
-  const clearAvailabilityCache = React.useCallback(() => {
-    availabilityCacheRef.current.clear()
-    availabilityInflightRef.current.clear()
-  }, [])
-
-  const fetchAvailability = React.useCallback(
-    async (courseSlug: string, date: string, attendanceId?: string) => {
-      const cacheKey = `${courseSlug}|${date}|${attendanceId || ""}`
-      const now = Date.now()
-
-      const cached = availabilityCacheRef.current.get(cacheKey)
-      if (cached && now - cached.cachedAt <= AVAILABILITY_CACHE_TTL_MS) {
-        return cached.slots
-      }
-
-      const inflight = availabilityInflightRef.current.get(cacheKey)
-      if (inflight) {
-        return inflight
-      }
-
-      const request = (async () => {
-        const query = new URLSearchParams({
-          courseSlug,
-          date,
-          ...(attendanceId ? { excludeAttendanceId: attendanceId } : {}),
-        })
-        const res = await fetch(`/api/profile/bookings/availability?${query.toString()}`)
-        const data = await res.json().catch(() => null)
-        if (!res.ok) return null
-        const slots = Array.isArray(data?.slots) ? (data.slots as SlotAvailability[]) : []
-        availabilityCacheRef.current.set(cacheKey, { slots, cachedAt: Date.now() })
-        return slots
-      })()
-
-      availabilityInflightRef.current.set(cacheKey, request)
-      try {
-        return await request
-      } finally {
-        availabilityInflightRef.current.delete(cacheKey)
-      }
-    },
-    []
-  )
-
-  const loadBookings = React.useCallback(async () => {
-    if (!canLoadProtectedData) return
-    setBookingsLoading(true)
-    setBookingsError(null)
-    try {
-      const res = await fetch("/api/profile/bookings")
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        setBookingsError(data?.error || "Unable to load your scheduled classes.")
-        return
-      }
-      clearAvailabilityCache()
-      const bookingsData = Array.isArray(data?.bookings) ? (data.bookings as BookingItem[]) : []
-      const packagesData = Array.isArray(data?.packages) ? (data.packages as AssignablePackage[]) : []
-      setBookings(bookingsData)
-      setAssignablePackages(packagesData)
-      if (bookingsData.length > 0) {
-        setSelectedBookingId((prev) => (prev && bookingsData.some((item) => item.id === prev) ? prev : bookingsData[0].id))
-      } else {
-        setSelectedBookingId("")
-      }
-      setAssignPackageId((prev) => (prev && packagesData.some((item) => item.id === prev) ? prev : packagesData[0]?.id || ""))
-      return { bookings: bookingsData, packages: packagesData }
-    } catch {
-      setBookingsError("Unable to load your scheduled classes.")
-      return null
-    } finally {
-      setBookingsLoading(false)
-    }
-  }, [canLoadProtectedData, clearAvailabilityCache])
 
   const loadAvailability = React.useCallback(
     async (courseSlug: string, date: string, attendanceId?: string) => {
@@ -861,43 +795,6 @@ export default function ProfilePageClient() {
     }
   }
 
-  const submitBookingCheckIn = async (attendanceId: string) => {
-    if (!attendanceId) return
-    setCheckInSubmittingId(attendanceId)
-    setCheckInError(null)
-    setCheckInSuccess(null)
-    try {
-      const res = await fetch("/api/profile/bookings/checkin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attendanceId }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        setCheckInError(data?.error || "Could not register your check-in.")
-        return
-      }
-
-      const alreadyCheckedIn = Boolean(data?.alreadyCheckedIn)
-      const pointsAwarded = typeof data?.points?.awarded === "number" ? data.points.awarded : 0
-      const milestone = typeof data?.points?.milestone === "number" ? data.points.milestone : null
-      let message = alreadyCheckedIn
-        ? "This class was already marked as checked in."
-        : "Check-in recorded successfully."
-      if (!alreadyCheckedIn && pointsAwarded > 0) {
-        message += ` +${pointsAwarded} points`
-        if (milestone) message += ` (milestone ${milestone})`
-        message += "."
-      }
-      setCheckInSuccess(message)
-      await Promise.all([loadBookings(), loadPointsHistory()])
-    } catch {
-      setCheckInError("Could not register your check-in.")
-    } finally {
-      setCheckInSubmittingId(null)
-    }
-  }
-
   React.useEffect(() => {
     if (typeof window === "undefined") return
     const params = new URLSearchParams(window.location.search)
@@ -949,7 +846,7 @@ export default function ProfilePageClient() {
     if (!checkInSuccess) return
     const id = window.setTimeout(() => setCheckInSuccess(null), 4000)
     return () => window.clearTimeout(id)
-  }, [checkInSuccess])
+  }, [checkInSuccess, setCheckInSuccess])
 
   React.useEffect(() => {
     if (requestModalType !== "SUSPEND") return
