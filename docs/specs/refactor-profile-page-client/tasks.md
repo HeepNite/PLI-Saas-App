@@ -36,7 +36,7 @@ Chain strategy: pending
 ## Phase 1: Center Cards (Unit A)
 
 - [x] 1.1 Create `sections/ProfileFormCard.tsx`; move profile form card JSX/copy only; keep handlers from `useProfileForm` passed as props.
-- [ ] 1.2 Create `sections/StudentPinCard.tsx`; move PIN/recovery JSX; keep `useStudentPinForm` ownership unchanged.
+- [x] 1.2 Create `sections/StudentPinCard.tsx`; move PIN/recovery JSX; keep `useStudentPinForm` ownership unchanged.
 - [ ] 1.3 Create `sections/AnalyticsCard.tsx`; move tabs/chart/donut JSX; keep active/hover state callbacks from orchestrator.
 - [ ] 1.4 Create `sections/AgendaCard.tsx`; move agenda month/day UI; keep `useAgendaCalendar` derivations as input props.
 - [ ] 1.5 Create `sections/AssignClassesCard.tsx`; move assign UI; keep add/remove/submit callbacks from `useAssignClassesFlow`.
