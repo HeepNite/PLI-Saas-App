@@ -16,14 +16,12 @@ import {
 import type {
   ActionRequestItem,
   ActionRequestType,
-  MetricKey,
 } from "./profile-types"
 import {
   statusLabel,
   NY_TIMEZONE,
   CHECK_IN_OPEN_WINDOW_HOURS,
   CHECK_IN_OPEN_WINDOW_MS,
-  analyticsMonths,
   analyticsMetricConfig,
   actionRequestLabels,
 } from "./profile-constants"
@@ -50,6 +48,8 @@ import { useProfileBookings } from "./hooks/useProfileBookings"
 import { useRescheduleFlow } from "./hooks/useRescheduleFlow"
 import { useAssignClassesFlow } from "./hooks/useAssignClassesFlow"
 import { useActionRequestModal } from "./hooks/useActionRequestModal"
+import { useAnalyticsChartData } from "./hooks/useAnalyticsChartData"
+import { useAgendaCalendar } from "./hooks/useAgendaCalendar"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -61,8 +61,6 @@ export default function ProfilePageClient() {
     [catalogCourses]
   )
   const [e2eAuthBypass, setE2eAuthBypass] = React.useState(false)
-  const [activeMetric, setActiveMetric] = React.useState<MetricKey>("attendance")
-  const [hoverPoint, setHoverPoint] = React.useState<{ label: string; value: number; x: number; y: number; idx: number } | null>(null)
   const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
   const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
   const [enrollOpen, setEnrollOpen] = React.useState(false)
@@ -80,6 +78,24 @@ export default function ProfilePageClient() {
   } = useActionRequests(canLoadProtectedData)
 
   const { packagesData, packagesSummary, activityStats, monthlyAttendance } = useProfilePackages(canLoadProtectedData)
+  const {
+    activeMetric,
+    setActiveMetric,
+    hoverPoint,
+    setHoverPoint,
+    chartWidth,
+    chartHeight,
+    paddingX,
+    paddingY,
+    points,
+    targetValues,
+    targetPoints,
+    pathD,
+    targetPathD,
+    yTicks,
+    pieSegments,
+    pieGradient,
+  } = useAnalyticsChartData(monthlyAttendance)
 
   const onPointsBalanceChange = React.useCallback((balance: number) => {
     setPointsBalanceFromPoints(balance)
@@ -126,12 +142,9 @@ export default function ProfilePageClient() {
     setSelectedBookingId,
     setAssignPackageId,
   })
-  const [mobileAgendaOpenDay, setMobileAgendaOpenDay] = React.useState<number | null>(null)
   const currentCoins = Math.max(0, pointsBalance)
   const progress = Math.min(100, Math.round((currentCoins / Math.max(1, freeClassThreshold)) * 100))
   const shoeProgress = Math.min(100, Math.round((mockProfile.shoeTracking.km / mockProfile.shoeTracking.maxKm) * 100))
-  const [agendaMonth, setAgendaMonth] = React.useState(() => new Date().getMonth())
-  const [agendaYear, setAgendaYear] = React.useState(() => new Date().getFullYear())
   const stickyTop = 76
   const { gridRef, leftRailRef, rightRailRef } = useStickyRails(stickyTop)
   useFloatingFooterOffset()
@@ -164,6 +177,25 @@ export default function ProfilePageClient() {
     () => bookings.filter((item) => !classRequestsByAttendance.has(item.id)),
     [bookings, classRequestsByAttendance]
   )
+  const {
+    mobileAgendaOpenDay,
+    setMobileAgendaOpenDay,
+    agendaMonth,
+    setAgendaMonth,
+    agendaYear,
+    setAgendaYear,
+    calendarDays,
+    agendaMonthLabel,
+    agendaYears,
+    bookingEventsByDay,
+    pendingBookingEventsByDay,
+    nextBookedClass,
+  } = useAgendaCalendar({
+    visibleBookings,
+    pendingBookings,
+    classRequestsByAttendance,
+    activityStats,
+  })
   const selectedBooking = React.useMemo(
     () => visibleBookings.find((item) => item.id === selectedBookingId) || visibleBookings[0] || null,
     [visibleBookings, selectedBookingId]
@@ -352,94 +384,6 @@ export default function ProfilePageClient() {
     return () => window.clearTimeout(id)
   }, [checkInSuccess, setCheckInSuccess])
 
-  React.useEffect(() => {
-    if (mobileAgendaOpenDay === null) return
-    const hasEventsForDay = visibleBookings.some((booking) => {
-      const startsAt = new Date(booking.startsAt)
-      if (Number.isNaN(startsAt.getTime())) return false
-      return (
-        startsAt.getFullYear() === agendaYear &&
-        startsAt.getMonth() === agendaMonth &&
-        startsAt.getDate() === mobileAgendaOpenDay
-      )
-    })
-    if (!hasEventsForDay) {
-      setMobileAgendaOpenDay(null)
-    }
-  }, [agendaMonth, agendaYear, mobileAgendaOpenDay, visibleBookings])
-
-  const chartLabels = React.useMemo(() => {
-    if (!monthlyAttendance.length) return analyticsMonths
-    return monthlyAttendance.map((item) => item.label.split(" ")[0]).slice(0, 4)
-  }, [monthlyAttendance])
-  const attendanceSeriesValues = React.useMemo(() => {
-    if (!monthlyAttendance.length) return analyticsMetricConfig.attendance.values
-    return monthlyAttendance.map((item) => item.value).slice(0, 4)
-  }, [monthlyAttendance])
-  const activeSeriesValues = React.useMemo(() => {
-    if (activeMetric === "attendance") return attendanceSeriesValues
-    return analyticsMetricConfig[activeMetric].values
-  }, [activeMetric, attendanceSeriesValues])
-  const series = {
-    ...analyticsMetricConfig[activeMetric],
-    values: activeSeriesValues.length > 1 ? activeSeriesValues : [...activeSeriesValues, ...analyticsMetricConfig[activeMetric].values].slice(0, 4),
-  }
-  const maxValue = Math.max(...series.values, 6)
-  const chartWidth = 520
-  const chartHeight = 170
-  const paddingX = 20
-  const paddingY = 10
-  const gridCount = 5
-  const stepX = (chartWidth - paddingX * 2) / (series.values.length - 1)
-  const toPoint = (value: number, index: number) => {
-    const x = paddingX + index * stepX
-    const y = chartHeight - paddingY - (value / maxValue) * (chartHeight - paddingY * 2)
-    return { x, y }
-  }
-  const points = series.values.map((value, index) => ({
-    value,
-    label: chartLabels[index] || analyticsMonths[index],
-    ...toPoint(value, index),
-    idx: index,
-  }))
-  const pathD = points
-    .map((point, idx) => `${idx === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-    .join(" ")
-  const targetValues = series.values.map((value, idx) => {
-    const prev = series.values[idx - 1] ?? value
-    const next = series.values[idx + 1] ?? value
-    return Math.max(1, Math.round((value + prev + next) / 3))
-  })
-  const targetPoints = targetValues.map((value, index) => ({
-    value,
-    label: chartLabels[index] || analyticsMonths[index],
-    ...toPoint(value, index),
-  }))
-  const targetPathD = targetPoints.map((point, idx) => `${idx === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")
-  const yTicks = Array.from({ length: gridCount }).map((_, idx) => {
-    const ratio = idx / (gridCount - 1)
-    const y = paddingY + ratio * (chartHeight - paddingY * 2)
-    const value = Math.round(maxValue - ratio * maxValue)
-    return { y, value }
-  })
-
-  const pieSegments = [
-    { label: "Attendance", value: 42, color: "var(--brand,#b61616)" },
-    { label: "Progress", value: 34, color: "#ef6b6b" },
-    { label: "Rhythm", value: 24, color: "#f59e0b" },
-  ]
-  const pieStops = pieSegments.reduce<{ value: number; color: string }[]>((acc, segment) => {
-    const total = acc.reduce((sum, s) => sum + s.value, 0)
-    acc.push({ value: total + segment.value, color: segment.color })
-    return acc
-  }, [])
-  const pieGradient = pieStops
-    .map((stop, idx) => {
-      const start = idx === 0 ? 0 : pieStops[idx - 1].value
-      return `${stop.color} ${start}% ${stop.value}%`
-    })
-    .join(", ")
-
   const medalItems = [
     { label: "5 classes", icon: Trophy },
     { label: "10 classes", icon: Medal },
@@ -447,98 +391,6 @@ export default function ProfilePageClient() {
     { label: "Consistencia", icon: Star },
   ]
 
-  const buildCalendar = (year: number, monthIndex: number) => {
-    const firstDay = new Date(year, monthIndex, 1)
-    const lastDay = new Date(year, monthIndex + 1, 0)
-    const startWeekday = firstDay.getDay()
-    const totalDays = lastDay.getDate()
-    const days: Array<{ day: number; isCurrent: boolean }> = []
-    for (let i = 0; i < startWeekday; i += 1) {
-      days.push({ day: 0, isCurrent: false })
-    }
-    for (let day = 1; day <= totalDays; day += 1) {
-      days.push({ day, isCurrent: true })
-    }
-    while (days.length % 7 !== 0) {
-      days.push({ day: 0, isCurrent: false })
-    }
-    return days
-  }
-  const calendarDays = React.useMemo(() => buildCalendar(agendaYear, agendaMonth), [agendaYear, agendaMonth])
-  const agendaMonthLabel = React.useMemo(() => {
-    const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(agendaYear, agendaMonth, 1))
-    return monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
-  }, [agendaMonth, agendaYear])
-  const agendaYears = React.useMemo(() => {
-    const current = new Date().getFullYear()
-    return Array.from({ length: 7 }, (_, index) => current - 1 + index)
-  }, [])
-  const bookingEventsByDay = React.useMemo(() => {
-    const grouped = new Map<number, Array<{ id: string; time: string; courseTitle: string }>>()
-    for (const booking of visibleBookings) {
-      const startsAt = new Date(booking.startsAt)
-      if (Number.isNaN(startsAt.getTime())) continue
-      if (startsAt.getFullYear() !== agendaYear || startsAt.getMonth() !== agendaMonth) continue
-      const day = startsAt.getDate()
-      const list = grouped.get(day) || []
-      list.push({
-        id: booking.id,
-        time: formatDateTimeInTimeZone(startsAt, { hour: "numeric", minute: "2-digit" }),
-        courseTitle: booking.courseTitle,
-      })
-      grouped.set(day, list)
-    }
-    return grouped
-  }, [agendaMonth, agendaYear, visibleBookings])
-  const pendingBookingEventsByDay = React.useMemo(() => {
-    const grouped = new Map<
-      number,
-      Array<{ id: string; time: string; courseTitle: string; processLabel: string; processType: ActionRequestType | null }>
-    >()
-    for (const booking of pendingBookings) {
-      const startsAt = new Date(booking.startsAt)
-      if (Number.isNaN(startsAt.getTime())) continue
-      if (startsAt.getFullYear() !== agendaYear || startsAt.getMonth() !== agendaMonth) continue
-      const request = classRequestsByAttendance.get(booking.id)
-      const day = startsAt.getDate()
-      const list = grouped.get(day) || []
-      list.push({
-        id: booking.id,
-        time: formatDateTimeInTimeZone(startsAt, { hour: "numeric", minute: "2-digit" }),
-        courseTitle: booking.courseTitle,
-        processLabel: getPendingProcessLabel(request),
-        processType: request?.type || null,
-      })
-      grouped.set(day, list)
-    }
-    return grouped
-  }, [agendaMonth, agendaYear, classRequestsByAttendance, pendingBookings])
-  const nextBookedClass = React.useMemo(() => {
-    if (!visibleBookings.length) {
-      return {
-        scheduleLabel: activityStats.lastClassLabel || mockProfile.schedule.nextClass,
-        courseTitle: "",
-      }
-    }
-    const next = visibleBookings.find((booking) => new Date(booking.startsAt).getTime() >= Date.now()) || visibleBookings[0]
-    const startsAt = new Date(next.startsAt)
-    if (Number.isNaN(startsAt.getTime())) {
-      return {
-        scheduleLabel: activityStats.lastClassLabel || mockProfile.schedule.nextClass,
-        courseTitle: next.courseTitle || "",
-      }
-    }
-    return {
-      scheduleLabel: formatDateTimeInTimeZone(startsAt, {
-        weekday: "long",
-        day: "numeric",
-        month: "short",
-        hour: "numeric",
-        minute: "2-digit",
-      }),
-      courseTitle: next.courseTitle || "",
-    }
-  }, [activityStats.lastClassLabel, visibleBookings])
   const latestPointEntries = pointsEntries.slice(0, 6)
   const latestActionRequests = actionRequests.slice(0, 5)
   const rescheduleStepItems = [
