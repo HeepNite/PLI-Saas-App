@@ -3,7 +3,7 @@
 import React from "react"
 import dynamic from "next/dynamic"
 import GlassyCard from "@/components/front/courses/GlassyCard"
-import { Flame, Medal, Star, Trophy, X, Music2 } from "lucide-react"
+import { Flame, Medal, Star, Trophy, X } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import type { CourseData } from "@/constants/courses"
 import { useUser } from "@clerk/nextjs"
@@ -26,7 +26,6 @@ import {
 import {
   actionRequestStatusLabel,
   actionRequestMetaLabel,
-  getPendingProcessLabel,
   getProcessTypeTone,
   isPendingRequestStatus,
   formatDateKeyInTimeZone,
@@ -56,6 +55,8 @@ import { ProfileLeftRail } from "./sections/ProfileLeftRail"
 import { ProfileFormCard } from "./sections/ProfileFormCard"
 import { StudentPinCard } from "./sections/StudentPinCard"
 import { AnalyticsCard } from "./sections/AnalyticsCard"
+import { AgendaCard } from "./sections/AgendaCard"
+import { AssignClassesCard } from "./sections/AssignClassesCard"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -512,430 +513,50 @@ export default function ProfilePageClient() {
 
             <MedalsCard medalItems={medalItems} />
 
-            <GlassyCard className="order-3 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Agenda</p>
-                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
-                    Your scheduled classes and real-time slots.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextMonth = agendaMonth - 1
-                      if (nextMonth < 0) {
-                        setAgendaMonth(11)
-                        setAgendaYear((prev) => prev - 1)
-                        return
-                      }
-                      setAgendaMonth(nextMonth)
-                    }}
-                    className="rounded-full border border-black/10 px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
-                    aria-label="Previous month"
-                  >
-                    ‹
-                  </button>
-                  <select
-                    value={agendaYear}
-                    onChange={(event) => setAgendaYear(Number(event.target.value))}
-                    className="rounded-full border border-black/10 bg-transparent px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
-                  >
-                    {agendaYears.map((year) => (
-                      <option key={`agenda-year-${year}`} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextMonth = agendaMonth + 1
-                      if (nextMonth > 11) {
-                        setAgendaMonth(0)
-                        setAgendaYear((prev) => prev + 1)
-                        return
-                      }
-                      setAgendaMonth(nextMonth)
-                    }}
-                    className="rounded-full border border-black/10 px-2 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
-                    aria-label="Next month"
-                  >
-                    ›
-                  </button>
-                </div>
-              </div>
+            <AgendaCard
+              mobileAgendaOpenDay={mobileAgendaOpenDay}
+              setMobileAgendaOpenDay={setMobileAgendaOpenDay}
+              agendaMonth={agendaMonth}
+              setAgendaMonth={setAgendaMonth}
+              agendaYear={agendaYear}
+              setAgendaYear={setAgendaYear}
+              calendarDays={calendarDays}
+              agendaMonthLabel={agendaMonthLabel}
+              agendaYears={agendaYears}
+              bookingEventsByDay={bookingEventsByDay}
+              pendingBookingEventsByDay={pendingBookingEventsByDay}
+              nextBookedClass={nextBookedClass}
+              pendingBookings={pendingBookings}
+              visibleBookings={visibleBookings}
+              classRequestsByAttendance={classRequestsByAttendance}
+            />
 
-              <div className="mt-4 rounded-2xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/5">
-                <div className="flex items-center justify-between text-sm font-semibold">
-                  <span>{agendaMonthLabel} {agendaYear}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const now = new Date()
-                      setAgendaMonth(now.getMonth())
-                      setAgendaYear(now.getFullYear())
-                    }}
-                    className="rounded-full border border-black/10 px-3 py-1 text-xs text-zinc-600 dark:border-white/10 dark:text-white/60"
-                  >
-                    Today
-                  </button>
-                </div>
-                <div className="mt-3 grid grid-cols-7 text-[11px] uppercase tracking-[0.18em] text-zinc-500 dark:text-white/40">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                    <div key={d} className="py-2 text-center">{d}</div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-px rounded-lg border border-black/10 bg-black/[0.03] text-sm dark:border-white/10 dark:bg-white/5">
-                  {calendarDays.map((day, idx) => {
-                    const dayEvents = day.day > 0 ? bookingEventsByDay.get(day.day) || [] : []
-                    const pendingDayEvents = day.day > 0 ? pendingBookingEventsByDay.get(day.day) || [] : []
-                    const pendingTypes = Array.from(
-                      new Set(
-                        pendingDayEvents
-                          .map((entry) => entry.processType)
-                          .filter((type): type is ActionRequestType => Boolean(type))
-                      )
-                    )
-                    const pendingTone = pendingTypes.length === 1 ? getProcessTypeTone(pendingTypes[0]) : getProcessTypeTone(null)
-                    const pendingProcessLabels = Array.from(new Set(pendingDayEvents.map((entry) => entry.processLabel)))
-                    const pendingBadgeText =
-                      pendingProcessLabels.length === 1
-                        ? pendingProcessLabels[0]
-                        : `${pendingDayEvents.length} processes in progress`
-                    const mobileOpen = mobileAgendaOpenDay === day.day && dayEvents.length > 0
-                    return (
-                      <div
-                        key={`cal-${idx}`}
-                        className={`relative min-h-[72px] border border-black/5 px-2 py-2 text-right text-xs dark:border-white/5 ${
-                          day.isCurrent ? "text-zinc-700 dark:text-white/80" : "text-zinc-300 dark:text-white/20"
-                        }`}
-                      >
-                        {day.day > 0 && (
-                          <>
-                            <div>{day.day}</div>
-                            {dayEvents.slice(0, 2).map((entry) => (
-                              <div
-                                key={`calendar-entry-${entry.id}`}
-                                className="group relative mt-2 hidden items-center gap-1 rounded-full bg-[var(--brand,#b61616)]/70 px-2 py-1 text-[10px] text-left text-white sm:inline-flex"
-                              >
-                                Class {entry.time}
-                                <div className="pointer-events-none absolute left-1/2 top-0 z-30 w-44 -translate-x-1/2 -translate-y-[108%] rounded-xl border border-white/10 bg-[#16111a]/95 px-3 py-2 text-left text-[11px] opacity-0 shadow-[0_20px_55px_-30px_rgba(0,0,0,0.8)] transition group-hover:opacity-100">
-                                  <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--brand,#b61616)]">Class</p>
-                                  <p className="mt-1 text-white">{entry.courseTitle}</p>
-                                  <p className="mt-1 text-white/70">{entry.time}</p>
-                                </div>
-                              </div>
-                            ))}
-                            {dayEvents.length > 2 && (
-                              <div className="mt-1 hidden text-[10px] text-[var(--brand,#b61616)] sm:block">
-                                +{dayEvents.length - 2} more
-                              </div>
-                            )}
-                            {pendingDayEvents.length > 0 && (
-                              <div
-                                className="group relative mt-1 hidden sm:inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px]"
-                                style={{
-                                  borderColor: pendingTone.border,
-                                  background: pendingTone.bg,
-                                  color: pendingTone.text,
-                                }}
-                              >
-                                {pendingBadgeText}
-                                <div
-                                  className="pointer-events-none absolute left-1/2 top-0 z-30 w-56 -translate-x-1/2 -translate-y-[108%] rounded-xl border bg-[#16111a]/95 px-3 py-2 text-left text-[11px] opacity-0 shadow-[0_20px_55px_-30px_rgba(0,0,0,0.8)] transition group-hover:opacity-100"
-                                  style={{ borderColor: pendingTone.border }}
-                                >
-                                  {pendingDayEvents.map((entry) => (
-                                    <p
-                                      key={`pending-day-${entry.id}`}
-                                      className="mt-1 first:mt-0"
-                                      style={{ color: getProcessTypeTone(entry.processType).text }}
-                                    >
-                                      {entry.processLabel} · {entry.courseTitle} · {entry.time}
-                                    </p>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {dayEvents.length > 0 && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => setMobileAgendaOpenDay((prev) => (prev === day.day ? null : day.day))}
-                                  className="mt-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--brand,#b61616)]/80 text-white sm:hidden"
-                                  aria-label={`View classes for day ${day.day}`}
-                                >
-                                  <Music2 className="h-3.5 w-3.5" aria-hidden />
-                                </button>
-                                {mobileOpen && (
-                                  <div className="absolute left-1/2 top-9 z-30 w-[11rem] -translate-x-1/2 rounded-xl border border-white/10 bg-[#16111a]/95 p-2 text-left shadow-[0_20px_55px_-30px_rgba(0,0,0,0.8)] sm:hidden">
-                                    {dayEvents.map((entry) => (
-                                      <div key={`mobile-agenda-${entry.id}`} className="rounded-md px-2 py-1.5">
-                                        <p className="text-[11px] font-semibold text-white">{entry.courseTitle}</p>
-                                        <p className="text-[10px] text-white/70">{entry.time}</p>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                            {pendingDayEvents.length > 0 && (
-                              <div
-                                className="mt-1 sm:hidden text-[10px]"
-                                style={{ color: pendingTone.text }}
-                              >
-                                {pendingBadgeText}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm">
-                Next class: <strong>{nextBookedClass.scheduleLabel}</strong>
-                {nextBookedClass.courseTitle && (
-                  <span className="ml-2 text-zinc-600 dark:text-white/65">· {nextBookedClass.courseTitle}</span>
-                )}
-              </div>
-              {pendingBookings.length > 0 && (
-                <div className="mt-3 rounded-lg border border-black/10 bg-black/[0.03] px-3 py-3 text-sm dark:border-white/10 dark:bg-white/5">
-                  <p className="font-semibold text-zinc-800 dark:text-white">Processes for assigned classes</p>
-                  <div className="mt-2 space-y-2 text-xs">
-                    {pendingBookings.slice(0, 3).map((booking) => {
-                      const request = classRequestsByAttendance.get(booking.id)
-                      const tone = getProcessTypeTone(request?.type)
-                      return (
-                        <div
-                          key={`pending-booking-inline-${booking.id}`}
-                          className="rounded-md border px-2 py-1.5"
-                          style={{ borderColor: tone.border, background: tone.bg }}
-                        >
-                          <p style={{ color: tone.text }}>
-                            <span className="font-semibold">{getPendingProcessLabel(request)}</span> · {booking.courseTitle} ·{" "}
-                            {formatDateTimeInTimeZone(booking.startsAt)}
-                          </p>
-                        </div>
-                      )
-                    })}
-                    {pendingBookings.length > 3 && (
-                      <p className="text-zinc-700 dark:text-white/65">+{pendingBookings.length - 3} more in progress.</p>
-                    )}
-                  </div>
-                </div>
-              )}
-              {visibleBookings.length === 0 && (
-                <div className="mt-3 rounded-lg border border-[var(--brand,#b61616)]/40 bg-[rgba(182,22,22,0.1)] px-3 py-3 text-sm">
-                  You do not have scheduled classes. Would you like to book now?
-                </div>
-              )}
-            </GlassyCard>
-
-            <GlassyCard id="assign-classes-section" className="order-4 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Assign classes</p>
-                  <p className="mt-2 text-sm text-zinc-700 dark:text-white/70">
-                    Organize your remaining classes with available package time slots.
-                  </p>
-                </div>
-                {selectedPackageForAssign && (
-                  <span className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-xs text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
-                    {selectedPackageForAssign.isUnlimited
-                      ? "Unlimited"
-                      : `${selectedPackageForAssign.remainingCredits ?? 0} credits`}
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-                <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
-                  <label className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Package</label>
-                  <select
-                    value={assignPackageId}
-                    onChange={(event) => setAssignPackageId(event.target.value)}
-                    className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-zinc-900 dark:text-white"
-                  >
-                    <option value="">Select a package</option>
-                    {assignablePackages.map((pkg) => (
-                      <option key={pkg.id} value={pkg.id}>
-                        {pkg.label} {pkg.isUnlimited ? "(Unlimited)" : `(${pkg.remainingCredits ?? 0} credits)`}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedPackageForAssign && (
-                    <div className="rounded-lg border border-white/10 bg-black/[0.04] px-3 py-2 text-xs text-zinc-700 dark:bg-white/5 dark:text-white/65">
-                      <p>
-                        Class:{" "}
-                        <strong className="text-zinc-900 dark:text-white">
-                          {selectedPackageCourse?.title || selectedPackageForAssign.courseSlug || "No class"}
-                        </strong>
-                      </p>
-                      <p className="mt-1">
-                        Schedule: {selectedPackageCourse?.schedule.day || "According to calendar"}
-                      </p>
-                      {selectedPackageAssignmentStats && (
-                        <div className="mt-2 rounded-md border border-black/10 bg-black/[0.03] px-2 py-2 text-[11px] dark:border-white/10 dark:bg-white/5">
-                          <p>
-                            Assigned package classes:{" "}
-                            <strong className="text-zinc-900 dark:text-white">
-                              {selectedPackageAssignmentStats.assigned}
-                            </strong>
-                          </p>
-                          <p className="mt-1">
-                            Package classes left to assign:{" "}
-                            <strong className="text-zinc-900 dark:text-white">
-                              {selectedPackageAssignmentStats.isUnlimited
-                                ? "No limit"
-                                : selectedPackageAssignmentStats.remaining ?? 0}
-                            </strong>
-                          </p>
-                          {selectedPackageAssignmentStats.queued > 0 && (
-                            <p className="mt-1 text-[10px] text-zinc-600 dark:text-white/55">
-                              Includes {selectedPackageAssignmentStats.queued} class(es) in &quot;Classes to confirm&quot;.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">New time slot</p>
-                  <div className="mt-3">
-                    <CalendarPicker
-                      value={assignDate}
-                      onChange={(value) => {
-                        setAssignDate(value)
-                        setAssignTime("")
-                        setAssignError(null)
-                        setAssignSuccess(null)
-                      }}
-                      timezone="America/New_York"
-                      minDate={todayNyDateKey}
-                      availableWeekdays={selectedPackageCourse?.schedule.availableWeekdays}
-                      unavailableDates={assignUnavailableDates}
-                      allowClear
-                      compact
-                      className="bg-white/5"
-                    />
-                  </div>
-                  <p className="mt-3 text-xs text-zinc-600 dark:text-white/50">Available time slots</p>
-                  {assignAvailabilityLoading ? (
-                    <div className="mt-2 h-10 animate-pulse rounded-md border border-white/10 bg-white/5" />
-                  ) : assignAvailability.length > 0 ? (
-                    <div className="mt-2">
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {assignAvailability.map((slot) => {
-                          const alreadyBooked = assignBookedTimesForSelectedDate.has(slot.time)
-                          const isPast = Boolean(slot.isPast)
-                          const disabled = slot.isFull || alreadyBooked || isPast
-                          return (
-                            <button
-                              key={`assign-availability-${slot.time}`}
-                              type="button"
-                              onClick={() => setAssignTime(slot.time)}
-                              disabled={disabled}
-                              className={`rounded-md border px-2 py-2 text-xs transition ${
-                                disabled
-                                  ? "cursor-not-allowed border-white/10 bg-white/5 text-zinc-500 dark:text-white/35"
-                                  : assignTime === slot.time
-                                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.22)] text-zinc-900 dark:text-white"
-                                    : "border-white/15 bg-white/10 text-zinc-800 dark:bg-white/5 dark:text-white/80 hover:border-white/35"
-                              }`}
-                            >
-                              <span className="block">{slot.label}</span>
-                              <span className="mt-1 block text-[10px] text-zinc-500 dark:text-white/55">
-                                {alreadyBooked
-                                  ? "Already booked"
-                                  : isPast
-                                    ? "Past time slot"
-                                    : slot.isFull
-                                      ? "Full"
-                                      : `${slot.spotsLeft} spots`}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                      {assignAvailability.every(
-                        (slot) => slot.isFull || Boolean(slot.isPast) || assignBookedTimesForSelectedDate.has(slot.time)
-                      ) && (
-                        <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
-                          No available time slots for that date.
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
-                      Select a package and a date to view time slots.
-                    </p>
-                  )}
-
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={addAssignSlot}
-                      disabled={!assignDate || !assignTime}
-                      className="rounded-md border border-[var(--brand,#b61616)]/60 px-3 py-2 text-xs font-semibold text-[var(--brand,#b61616)] disabled:opacity-50"
-                    >
-                      Add class
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-zinc-600 dark:text-white/50">Classes to confirm</p>
-                {assignSlots.length > 0 ? (
-                  <div className="mt-3 space-y-2">
-                    {assignSlots.map((slot, idx) => (
-                      <div
-                        key={`assign-list-${slot.date}-${slot.time}-${idx}`}
-                        className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-black/[0.04] px-3 py-2 text-sm dark:bg-white/5"
-                      >
-                        <span>
-                          {formatDateTimeInTimeZone(`${slot.date}T${slot.time}:00`)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeAssignSlot(idx)}
-                          className="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold text-zinc-700 dark:text-white/80"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-xs text-zinc-600 dark:text-white/55">
-                    You have not added classes for this package yet.
-                  </p>
-                )}
-
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs text-zinc-600 dark:text-white/60">
-                    You earn 2.5 points for assigning this package for the first time.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={submitAssignClasses}
-                    disabled={assigning || !assignSlots.length || !assignPackageId}
-                    className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                  >
-                    {assigning ? "Assigning..." : "Assign classes"}
-                  </button>
-                </div>
-              </div>
-              {assignError && <p className="mt-3 text-xs text-red-400">{assignError}</p>}
-              {assignSuccess && <p className="mt-3 text-xs text-emerald-300">{assignSuccess}</p>}
-            </GlassyCard>
+            <AssignClassesCard
+              assignPackageId={assignPackageId}
+              setAssignPackageId={setAssignPackageId}
+              assignablePackages={assignablePackages}
+              todayNyDateKey={todayNyDateKey}
+              assignDate={assignDate}
+              setAssignDate={setAssignDate}
+              assignTime={assignTime}
+              setAssignTime={setAssignTime}
+              assignAvailability={assignAvailability}
+              assignAvailabilityLoading={assignAvailabilityLoading}
+              assignSlots={assignSlots}
+              assigning={assigning}
+              assignError={assignError}
+              setAssignError={setAssignError}
+              assignSuccess={assignSuccess}
+              setAssignSuccess={setAssignSuccess}
+              selectedPackageForAssign={selectedPackageForAssign}
+              selectedPackageCourse={selectedPackageCourse}
+              selectedPackageAssignmentStats={selectedPackageAssignmentStats}
+              assignUnavailableDates={assignUnavailableDates}
+              assignBookedTimesForSelectedDate={assignBookedTimesForSelectedDate}
+              addAssignSlot={addAssignSlot}
+              removeAssignSlot={removeAssignSlot}
+              submitAssignClasses={submitAssignClasses}
+            />
 
             <GearCard
               model={mockProfile.shoeTracking.model}
