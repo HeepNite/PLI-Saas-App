@@ -58,6 +58,8 @@ export const formatMinutesLabel = (minutes: number) => {
   return `${hours}h ${restMinutes}m`
 }
 
+// Intentionally separate from formatMinutesLabel: live/work durations should show
+// a concrete zero duration, while punctuality/delay labels use "On time".
 export const formatDurationLabel = (minutes: number) => {
   if (!Number.isFinite(minutes) || minutes <= 0) return "0m"
   const hours = Math.floor(minutes / 60)

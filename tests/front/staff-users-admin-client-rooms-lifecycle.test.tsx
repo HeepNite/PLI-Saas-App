@@ -17,9 +17,21 @@ const RESERVATION_LIST_SOURCE_PATH = join(
   "components/front/staff/StaffRoomReservationList.tsx"
 )
 
+const FORMATTERS_SOURCE_PATH = join(
+  process.cwd(),
+  "components/front/staff/staffAdminFormatters.ts"
+)
+
+const ROOM_HELPERS_SOURCE_PATH = join(
+  process.cwd(),
+  "components/front/staff/staffRoomHelpers.ts"
+)
+
 const source = readFileSync(SOURCE_PATH, "utf8")
 const reservationFormSource = readFileSync(RESERVATION_FORM_SOURCE_PATH, "utf8")
 const reservationListSource = readFileSync(RESERVATION_LIST_SOURCE_PATH, "utf8")
+const formattersSource = readFileSync(FORMATTERS_SOURCE_PATH, "utf8")
+const roomHelpersSource = readFileSync(ROOM_HELPERS_SOURCE_PATH, "utf8")
 
 describe("StaffUsersAdminClient rooms lifecycle actions", () => {
   it("includes activate action for inactive rooms", () => {
@@ -43,7 +55,7 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
 
   it("formats disable errors using blocker-aware resolver", () => {
     expect(source).toContain("resolveRoomActionErrorMessage(data, \"Unable to disable room.\")")
-    expect(source).toContain("formatRoomActionBlockers")
+    expect(roomHelpersSource).toContain("formatRoomActionBlockers")
   })
 
   it("includes room reassignment modal wired to reassign endpoint", () => {
@@ -85,7 +97,8 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
   })
 
   it("defines and uses a date-time formatter for reservation rendering", () => {
-    expect(source).toContain("const formatDateTime = (value: string | number | null | undefined) => {")
+    expect(formattersSource).toContain("export const formatDateTime = (value: string | number | null | undefined) => {")
+    expect(source).toContain("formatDateTime={formatDateTime}")
     expect(reservationListSource).toContain("{formatDateTime(item.startsAt)} → {formatDateTime(item.endsAt)}")
   })
 

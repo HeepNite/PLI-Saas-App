@@ -124,99 +124,105 @@ export const deriveCourseScheduleData = (slots: CourseScheduleSlot[]) => {
   return { weekdays, times }
 }
 
-export const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
+const asRecord = (value: unknown) => {
   if (!value || typeof value !== "object") return null
-  const source = value as Record<string, unknown>
-  const rulesInput = Array.isArray(source.rules) ? source.rules : []
-  const grouped = new Map<number, Set<string>>()
+  return value as Record<string, unknown>
+}
 
-  for (const rule of rulesInput) {
-    if (!rule || typeof rule !== "object") continue
-    const candidate = rule as Record<string, unknown>
-    const weekday =
-      typeof candidate.weekday === "number" && Number.isInteger(candidate.weekday) && candidate.weekday >= 0 && candidate.weekday <= 6
-        ? candidate.weekday
-        : null
-    if (weekday === null) continue
-    const times = Array.isArray(candidate.times)
-      ? candidate.times.map((time) => normalizeClockTime(String(time))).filter(Boolean)
-      : []
+const isValidWeekday = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 6
+
+const normalizeTimes = (values: unknown) => {
+  if (!Array.isArray(values)) return []
+  return values.map((time) => normalizeClockTime(String(time))).filter((time): time is string => Boolean(time))
+}
+
+const normalizeRuleEntries = (rulesInput: unknown): CourseScheduleRuleEntry[] => {
+  const grouped = new Map<number, Set<string>>()
+  const rules = Array.isArray(rulesInput) ? rulesInput : []
+
+  for (const rule of rules) {
+    const candidate = asRecord(rule)
+    if (!candidate || !isValidWeekday(candidate.weekday)) continue
+    const times = normalizeTimes(candidate.times)
     if (times.length === 0) continue
-    if (!grouped.has(weekday)) grouped.set(weekday, new Set<string>())
-    const bucket = grouped.get(weekday)!
+    if (!grouped.has(candidate.weekday)) grouped.set(candidate.weekday, new Set<string>())
+    const bucket = grouped.get(candidate.weekday)!
     times.forEach((time) => bucket.add(time))
   }
 
-  const rules = [...grouped.entries()]
+  return [...grouped.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([weekday, times]) => ({
       weekday,
       times: [...times].sort(),
     }))
+}
 
-  const specialEventsInput = Array.isArray(source.specialEvents) ? source.specialEvents : []
-  const specialEventsMap = new Map<string, Set<string>>()
-  for (const item of specialEventsInput) {
-    if (!item || typeof item !== "object") continue
-    const candidate = item as Record<string, unknown>
+const normalizeSpecialEventEntries = (specialEventsInput: unknown): CourseSpecialEventEntry[] => {
+  const grouped = new Map<string, Set<string>>()
+  const specialEvents = Array.isArray(specialEventsInput) ? specialEventsInput : []
+
+  for (const item of specialEvents) {
+    const candidate = asRecord(item)
+    if (!candidate) continue
     const date = typeof candidate.date === "string" && ISO_DATE_REGEX.test(candidate.date.trim()) ? candidate.date.trim() : ""
     if (!date) continue
-    const times = Array.isArray(candidate.times)
-      ? candidate.times.map((time) => normalizeClockTime(String(time))).filter(Boolean)
-      : []
+    const times = normalizeTimes(candidate.times)
     if (times.length === 0) continue
-    if (!specialEventsMap.has(date)) specialEventsMap.set(date, new Set<string>())
-    const bucket = specialEventsMap.get(date)!
+    if (!grouped.has(date)) grouped.set(date, new Set<string>())
+    const bucket = grouped.get(date)!
     times.forEach((time) => bucket.add(time))
   }
-  const specialEvents = [...specialEventsMap.entries()]
+
+  return [...grouped.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, times]) => ({
       date,
       times: [...times].sort(),
       label: "Special event",
     }))
+}
 
-  const publicationSource =
-    source.publication && typeof source.publication === "object"
-      ? (source.publication as Record<string, unknown>)
-      : null
+const normalizePublicationSettings = (publicationInput: unknown): CoursePublicationSettings => {
+  const publicationSource = asRecord(publicationInput)
   const publicationModeRaw = publicationSource?.mode
-  const publicationMode: CoursePublicationMode =
+  const mode: CoursePublicationMode =
     publicationModeRaw === "coming_soon" || publicationModeRaw === "launch_date" || publicationModeRaw === "publish_now"
       ? publicationModeRaw
       : "publish_now"
   const launchDateRaw = typeof publicationSource?.launchDate === "string" ? publicationSource.launchDate.trim() : ""
-  const launchDate = publicationMode === "launch_date" && ISO_DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
-  const publication: CoursePublicationSettings = {
-    mode: publicationMode,
-    launchDate,
-  }
+  const launchDate = mode === "launch_date" && ISO_DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
 
-  const specialDiscountSource =
-    source.specialDiscount && typeof source.specialDiscount === "object"
-      ? (source.specialDiscount as Record<string, unknown>)
-      : null
+  return { mode, launchDate }
+}
+
+const normalizeSpecialDiscountSettings = (specialDiscountInput: unknown): CourseSpecialDiscountSettings => {
+  const specialDiscountSource = asRecord(specialDiscountInput)
   const specialDiscountTypeRaw = specialDiscountSource?.type
-  const specialDiscountType: CourseSpecialDiscountType =
+  const type: CourseSpecialDiscountType =
     specialDiscountTypeRaw === "valentines_desc" ||
     specialDiscountTypeRaw === "christmas_desc" ||
     specialDiscountTypeRaw === "custom" ||
     specialDiscountTypeRaw === "none"
       ? specialDiscountTypeRaw
       : "none"
-  const specialDiscountLabelRaw = typeof specialDiscountSource?.label === "string" ? specialDiscountSource.label.trim() : ""
-  const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
-  const specialDiscountPriceRaw = Number(specialDiscountSource?.priceCents)
-  const specialDiscountPrice =
-    Number.isFinite(specialDiscountPriceRaw) && specialDiscountPriceRaw >= 0
-      ? Math.round(specialDiscountPriceRaw)
-      : null
-  const specialDiscount: CourseSpecialDiscountSettings = {
-    type: specialDiscountType,
-    label: specialDiscountLabel,
-    priceCents: specialDiscountPrice,
-  }
+  const labelRaw = typeof specialDiscountSource?.label === "string" ? specialDiscountSource.label.trim() : ""
+  const label = type === "custom" && labelRaw ? labelRaw : null
+  const priceRaw = Number(specialDiscountSource?.priceCents)
+  const priceCents = Number.isFinite(priceRaw) && priceRaw >= 0 ? Math.round(priceRaw) : null
+
+  return { type, label, priceCents }
+}
+
+export const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
+  const source = asRecord(value)
+  if (!source) return null
+
+  const rules = normalizeRuleEntries(source.rules)
+  const specialEvents = normalizeSpecialEventEntries(source.specialEvents)
+  const publication = normalizePublicationSettings(source.publication)
+  const specialDiscount = normalizeSpecialDiscountSettings(source.specialDiscount)
 
   const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
   const hasSpecialDiscount =

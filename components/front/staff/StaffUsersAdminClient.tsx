@@ -31,7 +31,6 @@ import {
   Trash2,
   Users,
   X,
-  Package,
 } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
@@ -79,7 +78,6 @@ import AuditHistoryPopover from "@/components/front/staff/AuditHistoryPopover"
 import { ClerkSyncMismatchBanner } from "@/components/front/staff/ClerkSyncMismatchBanner"
 import { useSchoolWizard, SchoolWizardPanel } from "@/components/front/staff/school"
 import type { StepEnabledContext } from "@/components/front/staff/school"
-import type { StripeFailureInfo } from "@/lib/stripe-failure"
 import {
   checkInStateTone,
   isCheckedInStatus,
@@ -161,14 +159,11 @@ import type {
   CourseLinkFormState,
   CourseLinkRow,
   CoursePublicationSettings,
-  CourseScheduleRuleEntry,
   CourseScheduleRulesPayload,
   CourseScheduleSlot,
   CourseSpecialDiscountSettings,
-  CourseSpecialEventEntry,
   HistoryAttendanceFilter,
   HistoryClassOption,
-  HistoryContentFilterInput,
   HistoryPaymentMethodFilter,
   PackageFormState,
   PackagePlanStatus,
@@ -177,7 +172,6 @@ import type {
   PaymentChangeRequestStatus,
   PaymentRow,
   PaymentsApiSummary,
-  PayrollDelayEntry,
   PayrollDelayModalState,
   PayrollModelActionState,
   PayrollStaffRow,
@@ -195,7 +189,6 @@ import type {
   ScheduleEvent,
   SchoolCourseRow,
   SchoolPackageRow,
-  SelfProfileMetrics,
   SelfProfileSnapshot,
   StaffApprovalFeedItem,
   StaffPaymentChangeRequestRow,
@@ -231,10 +224,7 @@ import {
   deriveRulesFromScheduleSlots,
   deriveSpecialEventsFromScheduleSlots,
   formatCourseSlotLabel,
-  formatCourseTimesList,
-  formatCourseWeekdayList,
   getCourseSlotKey,
-  getCourseSlotWeekday,
   normalizeCourseScheduleRules,
   normalizeQuickScheduleTimes,
   parseMinutesFromClassTime,
@@ -248,16 +238,11 @@ import {
   createEmptyPackageForm,
   duplicatePackageRowToFormState,
   getPackageLifecycleStatus,
-  matchesHistoryContentFilters,
-  matchesStudentSearchQuery,
   packageRowToFormState,
   resolveDirectClassRevenueCents,
   resolveStudentCardPayments,
 } from "./staffPaymentFilters"
-import {
-  formatRoomActionBlockers,
-  resolveRoomActionErrorMessage,
-} from "./staffRoomHelpers"
+import { resolveRoomActionErrorMessage } from "./staffRoomHelpers"
 import {
   buildSelfRecommendations,
   computeSelfPerformanceScore,
@@ -267,7 +252,6 @@ import {
   monthKey,
   previousWeekday,
   startOfDay,
-  toDateKey,
 } from "./staffCalendarHelpers"
 
 const COURSE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
