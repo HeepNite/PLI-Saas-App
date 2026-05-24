@@ -209,6 +209,28 @@ import type {
   TeacherAssignmentFormState,
 } from "./staffAdminTypes"
 
+import {
+  centsToUsdInput,
+  formatClockLabel,
+  formatDurationLabel,
+  formatMinutesLabel,
+  formatMoney,
+  formatReservationDateLabel,
+  formatUsdInputLabel,
+  normalizeClockTime,
+} from "./staffAdminFormatters"
+import {
+  buildSelfRecommendations,
+  computeSelfPerformanceScore,
+} from "./staffSelfProfileMetrics"
+import {
+  buildCalendar,
+  monthKey,
+  previousWeekday,
+  startOfDay,
+  toDateKey,
+} from "./staffCalendarHelpers"
+
 const COMPLETED_PAYMENT_STATUS_VALUES = new Set(["succeeded", "paid", "completed"])
 
 const isCompletedPaymentStatusValue = (status: unknown) =>
@@ -236,41 +258,6 @@ const statusLabel = (row: StaffUserRow) => {
   if (row.online) return "Checked in"
   if (row.authOnline) return "Signed in"
   return "Offline"
-}
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
-
-const computeSelfPerformanceScore = (metrics: SelfProfileMetrics) => {
-  const ratingBase = metrics.performanceRating ? clamp((metrics.performanceRating / 5) * 70, 0, 70) : 35
-  const reviewBase = metrics.performanceReviewsCount
-    ? clamp(metrics.performanceReviewsCount * 5, 0, 20)
-    : 6
-  const cadencePenalty =
-    typeof metrics.performanceReviewCycleDays === "number" && metrics.performanceReviewCycleDays > 45
-      ? clamp((metrics.performanceReviewCycleDays - 45) * 0.35, 0, 12)
-      : 0
-  return clamp(Math.round(ratingBase + reviewBase - cadencePenalty), 0, 100)
-}
-
-const buildSelfRecommendations = (metrics: SelfProfileMetrics) => {
-  const tips: string[] = []
-  if (typeof metrics.performanceRating !== "number") {
-    tips.push("Request your first performance review to establish a baseline score.")
-  } else if (metrics.performanceRating < 4.2) {
-    tips.push("Improve class delivery consistency to raise rating above 4.2.")
-  } else {
-    tips.push("Keep teaching consistency high and document repeatable class structure.")
-  }
-  if (!metrics.performanceReviewCycleDays || metrics.performanceReviewCycleDays > 45) {
-    tips.push("Ask for a shorter review cycle (every 30-45 days) to get faster feedback loops.")
-  }
-  if (metrics.payrollStatus === "pending") {
-    tips.push("Track pending payroll status and confirm payout date with management.")
-  }
-  if (tips.length < 3) {
-    tips.push("Log schedule or vacation requests early to avoid last-minute conflicts.")
-  }
-  return tips.slice(0, 3)
 }
 
 const normalizeTeacherAssignmentCourseSlugs = (value: string[] | null | undefined) =>
@@ -359,15 +346,6 @@ const toAutoplayEmbedUrl = (value: string) => {
   return base
 }
 
-const normalizeClockTime = (value: string) => {
-  const [hours, minutes] = value.split(":")
-  const h = Number(hours)
-  const m = Number(minutes)
-  if (!Number.isInteger(h) || !Number.isInteger(m)) return ""
-  if (h < 0 || h > 23 || m < 0 || m > 59) return ""
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-}
-
 const normalizeQuickScheduleTimes = (values: string[]) => {
   const normalized = [...new Set(values.map((item) => normalizeClockTime(String(item))).filter((item): item is string => Boolean(item)))]
     .sort((a, b) => a.localeCompare(b))
@@ -382,15 +360,6 @@ const normalizeQuickScheduleTimes = (values: string[]) => {
   }
 
   return normalized.sort((a, b) => a.localeCompare(b)).slice(0, QUICK_SCHEDULE_SLOT_COUNT)
-}
-
-const formatClockLabel = (value: string) => {
-  const normalized = normalizeClockTime(value)
-  if (!normalized) return value
-  const [hours, minutes] = normalized.split(":").map(Number)
-  const suffix = hours >= 12 ? "PM" : "AM"
-  const hour12 = hours % 12 || 12
-  return `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`
 }
 
 const toLocalIsoDate = (date: Date) =>
@@ -414,18 +383,6 @@ const buildReservationDateTime = (date: string, time: string) => {
   const parsed = new Date(`${date}T${time}:00`)
   if (Number.isNaN(parsed.getTime())) return null
   return parsed
-}
-
-const formatReservationDateLabel = (isoDate: string) => {
-  if (!ISO_DATE_REGEX.test(isoDate)) return ""
-  const parsed = new Date(`${isoDate}T12:00:00`)
-  if (Number.isNaN(parsed.getTime())) return ""
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(parsed)
 }
 
 const toCourseScheduleWeekday = (isoDate: string) => {
@@ -871,31 +828,12 @@ const resolveTimeWindowByMinute = (minutes: number) => {
   return "Night"
 }
 
-const formatMoney = (amount: number, currency = "usd") =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency.toUpperCase(),
-    maximumFractionDigits: 2,
-  }).format((amount || 0) / 100)
-
-const centsToUsdInput = (cents: number | null | undefined) => {
-  if (typeof cents !== "number" || !Number.isFinite(cents)) return ""
-  const value = (cents / 100).toFixed(2)
-  return value.endsWith(".00") ? value.slice(0, -3) : value
-}
-
 const usdInputToCents = (value: string) => {
   const clean = value.trim().replace(",", ".")
   if (!clean) return null
   const parsed = Number(clean)
   if (!Number.isFinite(parsed) || parsed < 0) return null
   return Math.round(parsed * 100)
-}
-
-const formatUsdInputLabel = (value: string) => {
-  const parsed = Number(value.trim().replace(",", "."))
-  if (!Number.isFinite(parsed) || parsed < 0) return "—"
-  return `$${parsed.toFixed(2)}`
 }
 
 function createEmptyPackageForm(): PackageFormState {
@@ -973,24 +911,6 @@ function duplicatePackageRowToFormState(item: SchoolPackageRow): PackageFormStat
     key: `${item.key}-copy`,
     label: `${item.label} Copy`,
   }
-}
-
-const formatMinutesLabel = (minutes: number) => {
-  if (minutes <= 0) return "On time"
-  const hours = Math.floor(minutes / 60)
-  const restMinutes = minutes % 60
-  if (hours <= 0) return `${restMinutes}m`
-  if (restMinutes <= 0) return `${hours}h`
-  return `${hours}h ${restMinutes}m`
-}
-
-const formatDurationLabel = (minutes: number) => {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "0m"
-  const hours = Math.floor(minutes / 60)
-  const restMinutes = minutes % 60
-  if (hours <= 0) return `${restMinutes}m`
-  if (restMinutes <= 0) return `${hours}h`
-  return `${hours}h ${restMinutes}m`
 }
 
 const toUtcCalendarStamp = (value: Date) =>
@@ -1530,53 +1450,6 @@ export const isInsideCriticalClassWindow = (
     }
   }
   return false
-}
-
-const monthKey = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`
-
-const toDateKey = (year: number, monthIndex: number, day: number) =>
-  `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-
-const buildCalendar = (year: number, monthIndex: number) => {
-  const firstDay = new Date(year, monthIndex, 1)
-  const offset = firstDay.getDay()
-  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate()
-  const daysInPrevMonth = new Date(year, monthIndex, 0).getDate()
-
-  const cells: Array<{ day: number; dateKey: string; inMonth: boolean }> = []
-
-  for (let i = offset - 1; i >= 0; i--) {
-    const day = daysInPrevMonth - i
-    const prevMonth = monthIndex === 0 ? 11 : monthIndex - 1
-    const prevYear = monthIndex === 0 ? year - 1 : year
-    cells.push({ day, dateKey: toDateKey(prevYear, prevMonth, day), inMonth: false })
-  }
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    cells.push({ day, dateKey: toDateKey(year, monthIndex, day), inMonth: true })
-  }
-
-  while (cells.length % 7 !== 0) {
-    const nextDay = cells.length - (offset + daysInMonth) + 1
-    const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1
-    const nextYear = monthIndex === 11 ? year + 1 : year
-    cells.push({ day: nextDay, dateKey: toDateKey(nextYear, nextMonth, nextDay), inMonth: false })
-  }
-
-  return cells
-}
-
-const startOfDay = (value: Date) => {
-  const out = new Date(value)
-  out.setHours(0, 0, 0, 0)
-  return out
-}
-
-const previousWeekday = (base: Date, weekday: number) => {
-  const out = startOfDay(base)
-  const diff = (out.getDay() - weekday + 7) % 7
-  out.setDate(out.getDate() - diff)
-  return out
 }
 
 const MIN_LOADING_DELAY_MS = 3000
