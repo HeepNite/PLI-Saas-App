@@ -99,19 +99,9 @@ import {
   formatStudentPaymentCardSlotLabel,
 } from "./studentPaymentCardFormatters"
 import {
-  buildCourseRoomOptions,
-  buildRoomLookup,
-  filterVisibleRooms,
   resolveRoomCatalogErrorMessage,
-  resolveRoomDisableActionState,
 } from "./staffRoomCatalogHelpers"
-import {
-  createEmptyRoomReservationForm,
-  createInitialRoomForm,
-  createRoomFormFromRoom,
-  type RoomFormState,
-  type RoomReservationFormState,
-} from "./staffRoomFormState"
+import { useStaffRoomsAdmin } from "./useStaffRoomsAdmin"
 import StaffPortalNavButton, { type StaffPortalNavItem } from "./StaffPortalNavButton"
 import StaffAssistantRightRail from "./StaffAssistantRightRail"
 import StaffRoomReservationForm from "./StaffRoomReservationForm"
@@ -181,11 +171,8 @@ import type {
   ProfileRequestFormState,
   ReportsSuggestion,
   ReportsSuggestionsApiResponse,
-  RoomReassignModalState,
-  RoomReservationCancelModalState,
   RoomReservationRow,
   RoomRow,
-  RoomSafeDeleteModalState,
   ScheduleEvent,
   SchoolCourseRow,
   SchoolPackageRow,
@@ -210,7 +197,6 @@ import {
   formatIsoDate,
   formatMinutesLabel,
   formatMoney,
-  formatReservationDateLabel,
   formatUsdInputLabel,
   normalizeClockTime,
   toLocalIsoDate,
@@ -242,7 +228,6 @@ import {
   resolveDirectClassRevenueCents,
   resolveStudentCardPayments,
 } from "./staffPaymentFilters"
-import { resolveRoomActionErrorMessage } from "./staffRoomHelpers"
 import {
   buildSelfRecommendations,
   computeSelfPerformanceScore,
@@ -358,13 +343,6 @@ export const resolveHistoryMaxSelectableDateIso = (referenceDate = new Date(), t
   } catch {
     return toLocalIsoDate(referenceDate)
   }
-}
-
-const buildReservationDateTime = (date: string, time: string) => {
-  if (!ISO_DATE_REGEX.test(date) || !normalizeClockTime(time)) return null
-  const parsed = new Date(`${date}T${time}:00`)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed
 }
 
 const PAYMENT_CHANGE_REQUEST_STATUS_LABELS: Record<StaffPaymentChangeRequestRow["status"], string> = {
@@ -1158,32 +1136,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [packageSearchQuery, setPackageSearchQuery] = React.useState("")
   const [editingPackageId, setEditingPackageId] = React.useState<string | null>(null)
   const [schoolPointsRules, setSchoolPointsRules] = React.useState<PointsRuleRow[]>([])
-  const [roomForm, setRoomForm] = React.useState<RoomFormState>(() => createInitialRoomForm())
-  const [roomSearchQuery, setRoomSearchQuery] = React.useState("")
-  const [roomStatusFilter, setRoomStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
-  const [roomSaving, setRoomSaving] = React.useState(false)
-  const [roomBusyId, setRoomBusyId] = React.useState<string | null>(null)
-  const [roomFormError, setRoomFormError] = React.useState<string | null>(null)
-  const [roomFormSuccess, setRoomFormSuccess] = React.useState<string | null>(null)
-  const [roomActionErrors, setRoomActionErrors] = React.useState<Record<string, string>>({})
-  const [roomSafeDeleteModal, setRoomSafeDeleteModal] = React.useState<RoomSafeDeleteModalState | null>(null)
-  const [roomReassignModal, setRoomReassignModal] = React.useState<RoomReassignModalState | null>(null)
   const [roomReservations, setRoomReservations] = React.useState<RoomReservationRow[]>([])
-  const [roomReservationForm, setRoomReservationForm] = React.useState<RoomReservationFormState>(() => createEmptyRoomReservationForm())
-  const [roomReservationSaving, setRoomReservationSaving] = React.useState(false)
-  const [roomReservationCancelModal, setRoomReservationCancelModal] = React.useState<RoomReservationCancelModalState | null>(null)
-  const [roomReservationBusyId, setRoomReservationBusyId] = React.useState<string | null>(null)
-  const [roomReservationFormError, setRoomReservationFormError] = React.useState<string | null>(null)
-  const [roomReservationFormSuccess, setRoomReservationFormSuccess] = React.useState<string | null>(null)
-  const updateRoomReservationFormField = React.useCallback(
-    <Field extends keyof RoomReservationFormState>(field: Field, value: RoomReservationFormState[Field]) => {
-      setRoomReservationForm((prev) => ({
-        ...prev,
-        [field]: value,
-      }))
-    },
-    [],
-  )
   const [courseForm, setCourseForm] = React.useState<CourseFormState>({
     slug: "",
     title: "",
@@ -1568,60 +1521,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     () => PROFILE_REQUEST_TYPE_OPTIONS.find((item) => item.value === profileRequestForm.type) || PROFILE_REQUEST_TYPE_OPTIONS[0],
     [profileRequestForm.type]
   )
-  const roomById = React.useMemo(() => buildRoomLookup(schoolRooms), [schoolRooms])
-  const activeRoomOptions = React.useMemo(() => schoolRooms.filter((room) => room.active), [schoolRooms])
-  const courseRoomOptions = React.useMemo(
-    () => buildCourseRoomOptions(schoolRooms, courseForm.defaultRoomId),
-    [courseForm.defaultRoomId, schoolRooms]
-  )
-  const visibleRooms = React.useMemo(
-    () => filterVisibleRooms(schoolRooms, roomSearchQuery, roomStatusFilter),
-    [roomSearchQuery, roomStatusFilter, schoolRooms]
-  )
-  const currentUpcomingReservations = React.useMemo(() => {
-    const now = Date.now()
-    return roomReservations
-      .filter((item) => {
-        const endsAtTime = new Date(item.endsAt).getTime()
-        return Number.isFinite(endsAtTime) && endsAtTime >= now
-      })
-      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
-  }, [roomReservations])
-  const reservationAssignableStaff = React.useMemo(
-    () =>
-      rows
-        .map((item) => ({ id: item.id, label: `${item.firstName} ${item.lastName}`.trim() || item.email }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [rows]
-  )
-  const reservationStaffLabelById = React.useMemo(
-    () =>
-      reservationAssignableStaff.reduce<Record<string, string>>((acc, item) => {
-        acc[item.id] = item.label
-        return acc
-      }, {}),
-    [reservationAssignableStaff]
-  )
-  const reservationRangePreview = React.useMemo(() => {
-    const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
-    const startsAt = buildReservationDateTime(roomReservationForm.startDate, roomReservationForm.startTime)
-    const endsAt = buildReservationDateTime(effectiveEndDate, roomReservationForm.endTime)
-    if (!startsAt || !endsAt) return ""
-    if (endsAt.getTime() <= startsAt.getTime()) return ""
-    return `${startsAt.toLocaleString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })} → ${endsAt.toLocaleString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })}`
-  }, [roomReservationForm.endDate, roomReservationForm.endTime, roomReservationForm.startDate, roomReservationForm.startTime])
   const ensureMinimumLoadingTime = React.useCallback(async (startedAt: number) => {
     const elapsed = Date.now() - startedAt
     if (elapsed < MIN_LOADING_DELAY_MS) {
@@ -2577,425 +2476,69 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
-  const resetRoomForm = React.useCallback(() => {
-    setRoomForm(createInitialRoomForm())
-    setRoomFormError(null)
-    setRoomFormSuccess(null)
-  }, [])
+  const roomsAdmin = useStaffRoomsAdmin({
+    rooms: schoolRooms,
+    reservations: roomReservations,
+    courses: schoolCourses,
+    staffRows: rows,
+    selectedCourseDefaultRoomId: courseForm.defaultRoomId,
+    fetchSchoolData,
+    handleStaffAuthFailure,
+  })
 
-  const loadRoomIntoForm = React.useCallback((room: RoomRow) => {
-    setRoomForm(createRoomFormFromRoom(room))
-    setRoomFormError(null)
-    setRoomFormSuccess(null)
-  }, [])
-
-  const saveRoom = React.useCallback(async (event: React.FormEvent) => {
-    event.preventDefault()
-    setRoomSaving(true)
-    setRoomFormError(null)
-    setRoomFormSuccess(null)
-    try {
-      const isEditing = Boolean(roomForm.id)
-      const endpoint = isEditing ? `/api/staff/rooms/${roomForm.id}` : "/api/staff/rooms"
-      const method = isEditing ? "PUT" : "POST"
-      const res = await fetch(endpoint, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: roomForm.name,
-          capacity: roomForm.capacity,
-          location: roomForm.location,
-          active: roomForm.active,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomFormError(typeof data?.error === "string" ? data.error : "Unable to save room.")
-        return
-      }
-      const nextSuccess = typeof data?.message === "string" ? data.message : isEditing ? "Room updated." : "Room created."
-      await fetchSchoolData({ showLoader: false })
-      resetRoomForm()
-      setRoomFormSuccess(nextSuccess)
-    } catch {
-      setRoomFormError("Network error while saving room.")
-    } finally {
-      setRoomSaving(false)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm])
-
-  const disableRoom = React.useCallback(async (roomId: string) => {
-    setRoomBusyId(roomId)
-    setRoomActionErrors((prev) => {
-      if (!prev[roomId]) return prev
-      const next = { ...prev }
-      delete next[roomId]
-      return next
-    })
-    setRoomFormSuccess(null)
-    try {
-      const res = await fetch(`/api/staff/rooms/${roomId}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [roomId]: resolveRoomActionErrorMessage(data, "Unable to disable room."),
-        }))
-        return
-      }
-      const nextSuccess = typeof data?.message === "string" ? data.message : "Room disabled."
-      await fetchSchoolData({ showLoader: false })
-      if (roomForm.id === roomId) {
-        resetRoomForm()
-      }
-      setRoomFormSuccess(nextSuccess)
-    } catch {
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [roomId]: "Network error while disabling room.",
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm.id])
-
-  const activateRoom = React.useCallback(async (roomId: string) => {
-    setRoomBusyId(roomId)
-    setRoomActionErrors((prev) => {
-      if (!prev[roomId]) return prev
-      const next = { ...prev }
-      delete next[roomId]
-      return next
-    })
-    setRoomFormSuccess(null)
-    try {
-      const res = await fetch(`/api/staff/rooms/${roomId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: true }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [roomId]: resolveRoomActionErrorMessage(data, "Unable to activate room."),
-        }))
-        return
-      }
-      await fetchSchoolData({ showLoader: false })
-      setRoomFormSuccess(typeof data?.message === "string" ? data.message : "Room activated.")
-    } catch {
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [roomId]: "Network error while activating room.",
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure])
-
-  const openRoomSafeDeleteModal = React.useCallback((room: RoomRow) => {
-    setRoomFormSuccess(null)
-    setRoomSafeDeleteModal({
-      room,
-      reason: "",
-      error: null,
-    })
-  }, [])
-
-  const closeRoomSafeDeleteModal = React.useCallback(() => {
-    setRoomSafeDeleteModal(null)
-  }, [])
-
-  const openRoomReassignModal = React.useCallback((room: RoomRow) => {
-    const affectedCourses = schoolCourses
-      .filter((course) => course.defaultRoomId === room.id)
-      .map((course) => ({
-        id: course.id,
-        title: course.title,
-        slug: course.slug,
-        scheduleLabel: buildAssignmentCourseScheduleLabel(course),
-      }))
-
-    setRoomFormSuccess(null)
-    setRoomReassignModal({
-      room,
-      targetRoomId: "",
-      moveFutureSessions: false,
-      availableCourses: affectedCourses,
-      selectedCourseIds: affectedCourses.map((course) => course.id),
-      error: null,
-    })
-  }, [schoolCourses])
-
-  const closeRoomReassignModal = React.useCallback(() => {
-    setRoomReassignModal(null)
-  }, [])
-
-  const confirmRoomSafeDelete = React.useCallback(async () => {
-    if (!roomSafeDeleteModal) return
-
-    const room = roomSafeDeleteModal.room
-    const reason = roomSafeDeleteModal.reason.trim()
-    if (!reason) {
-      setRoomSafeDeleteModal((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          error: "Deletion reason is required.",
-        }
-      })
-      return
-    }
-
-    setRoomBusyId(room.id)
-    setRoomSafeDeleteModal((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        error: null,
-      }
-    })
-    setRoomActionErrors((prev) => {
-      if (!prev[room.id]) return prev
-      const next = { ...prev }
-      delete next[room.id]
-      return next
-    })
-    setRoomFormSuccess(null)
-
-    try {
-      const res = await fetch(`/api/staff/rooms/${room.id}/safe-delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        const nextError = resolveRoomActionErrorMessage(data, "Unable to safe-delete room.")
-        setRoomSafeDeleteModal((prev) => {
-          if (!prev || prev.room.id !== room.id) return prev
-          return {
-            ...prev,
-            error: nextError,
-          }
-        })
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [room.id]: nextError,
-        }))
-        return
-      }
-
-      await fetchSchoolData({ showLoader: false })
-      if (roomForm.id === room.id) {
-        resetRoomForm()
-      }
-      closeRoomSafeDeleteModal()
-      setRoomFormSuccess("Room deleted.")
-    } catch {
-      const nextError = "Network error while deleting room."
-      setRoomSafeDeleteModal((prev) => {
-        if (!prev || prev.room.id !== room.id) return prev
-        return {
-          ...prev,
-          error: nextError,
-        }
-      })
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [room.id]: nextError,
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [closeRoomSafeDeleteModal, fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm.id, roomSafeDeleteModal])
-
-  const confirmRoomReassign = React.useCallback(async () => {
-    if (!roomReassignModal) return
-
-    const room = roomReassignModal.room
-    const targetRoomId = roomReassignModal.targetRoomId
-    const selectedCourseIds = roomReassignModal.selectedCourseIds
-    if (!targetRoomId) {
-      setRoomReassignModal((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          error: "Select a target room to continue.",
-        }
-      })
-      return
-    }
-    if (roomReassignModal.availableCourses.length > 0 && selectedCourseIds.length === 0) {
-      setRoomReassignModal((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          error: "Select at least one course to reassign.",
-        }
-      })
-      return
-    }
-
-    setRoomBusyId(room.id)
-    setRoomReassignModal((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        error: null,
-      }
-    })
-    setRoomActionErrors((prev) => {
-      if (!prev[room.id]) return prev
-      const next = { ...prev }
-      delete next[room.id]
-      return next
-    })
-    setRoomFormSuccess(null)
-
-    try {
-      const res = await fetch(`/api/staff/rooms/${room.id}/reassign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetRoomId,
-          moveFutureSessions: roomReassignModal.moveFutureSessions,
-          courseIds: selectedCourseIds,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        const nextError = resolveRoomActionErrorMessage(data, "Unable to reassign room.")
-        setRoomReassignModal((prev) => {
-          if (!prev || prev.room.id !== room.id) return prev
-          return {
-            ...prev,
-            error: nextError,
-          }
-        })
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [room.id]: nextError,
-        }))
-        return
-      }
-
-      const movedSessions = typeof data?.movedSessions === "number" ? data.movedSessions : 0
-      const movedDefaults = typeof data?.reassignedDefaults === "number" ? data.reassignedDefaults : 0
-      await fetchSchoolData({ showLoader: false })
-      closeRoomReassignModal()
-      setRoomFormSuccess(`Room reassigned. Defaults moved: ${movedDefaults}. Future sessions moved: ${movedSessions}.`)
-    } catch {
-      const nextError = "Network error while reassigning room."
-      setRoomReassignModal((prev) => {
-        if (!prev || prev.room.id !== room.id) return prev
-        return {
-          ...prev,
-          error: nextError,
-        }
-      })
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [room.id]: nextError,
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [closeRoomReassignModal, fetchSchoolData, handleStaffAuthFailure, roomReassignModal])
-
-  const saveRoomReservation = React.useCallback(async (event: React.FormEvent) => {
-    event.preventDefault()
-    setRoomReservationSaving(true)
-    setRoomReservationFormError(null)
-    setRoomReservationFormSuccess(null)
-    try {
-      const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
-      const startsAtDate = buildReservationDateTime(roomReservationForm.startDate, roomReservationForm.startTime)
-      const endsAtDate = buildReservationDateTime(effectiveEndDate, roomReservationForm.endTime)
-      if (!startsAtDate || !endsAtDate) {
-        setRoomReservationFormError("Select a valid start/end date and time.")
-        return
-      }
-      if (endsAtDate.getTime() <= startsAtDate.getTime()) {
-        setRoomReservationFormError("End date/time must be after start date/time. For overnight events, choose the next day as end date.")
-        return
-      }
-      const payload = {
-        roomId: roomReservationForm.roomId,
-        title: roomReservationForm.title.trim(),
-        reason: roomReservationForm.reason.trim(),
-        startsAt: startsAtDate.toISOString(),
-        endsAt: endsAtDate.toISOString(),
-        ...(roomReservationForm.assignedStaffClerkUserId
-          ? { assignedStaffClerkUserId: roomReservationForm.assignedStaffClerkUserId }
-          : {}),
-      }
-      const res = await fetch("/api/staff/room-reservations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomReservationFormError(resolveRoomActionErrorMessage(data, "Unable to create reservation."))
-        return
-      }
-      await fetchSchoolData({ showLoader: false })
-      setRoomReservationForm(createEmptyRoomReservationForm())
-      setRoomReservationFormSuccess("Reservation created.")
-    } catch {
-      setRoomReservationFormError("Network error while creating reservation.")
-    } finally {
-      setRoomReservationSaving(false)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure, roomReservationForm])
-
-  const closeRoomReservationCancelModal = React.useCallback(() => {
-    setRoomReservationCancelModal(null)
-  }, [])
-
-  const openRoomReservationCancelModal = React.useCallback((reservation: RoomReservationRow) => {
-    setRoomReservationFormSuccess(null)
-    setRoomReservationCancelModal({ reservation, reason: "", error: null })
-  }, [])
-
-  const confirmRoomReservationCancel = React.useCallback(async () => {
-    if (!roomReservationCancelModal) return
-    const reservation = roomReservationCancelModal.reservation
-    setRoomReservationBusyId(reservation.id)
-    setRoomReservationFormError(null)
-    try {
-      const res = await fetch(`/api/staff/room-reservations/${reservation.id}/cancel`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: roomReservationCancelModal.reason.trim() || undefined }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        const nextError = resolveRoomActionErrorMessage(data, "Unable to cancel reservation.")
-        setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: nextError } : prev))
-        return
-      }
-      await fetchSchoolData({ showLoader: false })
-      closeRoomReservationCancelModal()
-      setRoomReservationFormSuccess("Reservation cancelled.")
-    } catch {
-      setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: "Network error while cancelling reservation." } : prev))
-    } finally {
-      setRoomReservationBusyId(null)
-    }
-  }, [closeRoomReservationCancelModal, fetchSchoolData, handleStaffAuthFailure, roomReservationCancelModal])
+  const {
+    roomForm,
+    roomSearchQuery,
+    roomStatusFilter,
+    roomSaving,
+    roomBusyId,
+    roomFormError,
+    roomFormSuccess,
+    roomActionErrors,
+    roomSafeDeleteModal,
+    roomReassignModal,
+    roomReservationForm,
+    roomReservationSaving,
+    roomReservationCancelModal,
+    roomReservationBusyId,
+    roomReservationFormError,
+    roomReservationFormSuccess,
+    roomById,
+    activeRoomOptions,
+    courseRoomOptions,
+    visibleRooms,
+    currentUpcomingReservations,
+    reservationAssignableStaff,
+    reservationStaffLabelById,
+    reservationRangePreview,
+    setRoomSearchQuery,
+    setRoomStatusFilter,
+    resetRoomForm,
+    updateRoomFormField,
+    loadRoomIntoForm,
+    saveRoom,
+    disableRoom,
+    activateRoom,
+    openRoomSafeDeleteModal,
+    closeRoomSafeDeleteModal,
+    updateRoomSafeDeleteReason,
+    openRoomReassignModal,
+    closeRoomReassignModal,
+    updateRoomReassignTarget,
+    updateRoomReassignMoveFutureSessions,
+    updateRoomReassignCourseSelection,
+    confirmRoomSafeDelete,
+    confirmRoomReassign,
+    updateRoomReservationFormField,
+    updateRoomReservationDateRange,
+    saveRoomReservation,
+    closeRoomReservationCancelModal,
+    openRoomReservationCancelModal,
+    updateRoomReservationCancelReason,
+    confirmRoomReservationCancel,
+    formatReservationDateLabel,
+    resolveRoomDisableActionState,
+  } = roomsAdmin
 
   const resetCourseBuilder = React.useCallback(() => {
     setCourseForm({
@@ -8056,13 +7599,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 roomReservationSaving={roomReservationSaving}
                 activeRoomOptions={activeRoomOptions}
                 reservationAssignableStaff={reservationAssignableStaff}
-                onDateRangeChange={(start, end) => {
-                  setRoomReservationForm((prev) => ({
-                    ...prev,
-                    startDate: start,
-                    endDate: end || "",
-                  }))
-                }}
+                onDateRangeChange={updateRoomReservationDateRange}
                 onFieldChange={updateRoomReservationFormField}
                 onSubmit={saveRoomReservation}
                 formatReservationDateLabel={formatReservationDateLabel}
@@ -8133,7 +7670,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     <input
                       name="roomName"
                       value={roomForm.name}
-                      onChange={(event) => setRoomForm((prev) => ({ ...prev, name: event.target.value }))}
+                      onChange={(event) => updateRoomFormField("name", event.target.value)}
                       placeholder="Room name"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
@@ -8143,7 +7680,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       type="number"
                       min={1}
                       value={roomForm.capacity}
-                      onChange={(event) => setRoomForm((prev) => ({ ...prev, capacity: event.target.value }))}
+                      onChange={(event) => updateRoomFormField("capacity", event.target.value)}
                       placeholder="Capacity"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
@@ -8152,14 +7689,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       <input
                         type="checkbox"
                         checked={roomForm.active}
-                        onChange={(event) => setRoomForm((prev) => ({ ...prev, active: event.target.checked }))}
+                        onChange={(event) => updateRoomFormField("active", event.target.checked)}
                       />
                       Active room
                     </label>
                     <input
                       name="roomLocation"
                       value={roomForm.location}
-                      onChange={(event) => setRoomForm((prev) => ({ ...prev, location: event.target.value }))}
+                      onChange={(event) => updateRoomFormField("location", event.target.value)}
                       placeholder="Location details (optional)"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
@@ -12616,16 +12153,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <span className="text-sm font-medium text-black dark:text-white">Deletion reason (required)</span>
                 <textarea
                   value={roomSafeDeleteModal.reason}
-                  onChange={(event) =>
-                    setRoomSafeDeleteModal((prev) => {
-                      if (!prev) return prev
-                      return {
-                        ...prev,
-                        reason: event.target.value,
-                        error: prev.error === "Deletion reason is required." ? null : prev.error,
-                      }
-                    })
-                  }
+                  onChange={(event) => updateRoomSafeDeleteReason(event.target.value)}
                   rows={3}
                   placeholder="Example: Room permanently removed from service"
                   className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
@@ -12686,16 +12214,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <span className="text-sm font-medium text-black dark:text-white">Target active room</span>
                 <select
                   value={roomReassignModal.targetRoomId}
-                  onChange={(event) =>
-                    setRoomReassignModal((prev) => {
-                      if (!prev) return prev
-                      return {
-                        ...prev,
-                        targetRoomId: event.target.value,
-                        error: prev.error === "Select a target room to continue." ? null : prev.error,
-                      }
-                    })
-                  }
+                  onChange={(event) => updateRoomReassignTarget(event.target.value)}
                   className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                 >
                   <option value="">Select target room</option>
@@ -12713,15 +12232,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <input
                   type="checkbox"
                   checked={roomReassignModal.moveFutureSessions}
-                  onChange={(event) =>
-                    setRoomReassignModal((prev) => {
-                      if (!prev) return prev
-                      return {
-                        ...prev,
-                        moveFutureSessions: event.target.checked,
-                      }
-                    })
-                  }
+                  onChange={(event) => updateRoomReassignMoveFutureSessions(event.target.checked)}
                 />
                 Also move future sessions (all-or-nothing if any conflict exists)
               </label>
@@ -12747,19 +12258,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           <input
                             type="checkbox"
                             checked={checked}
-                            onChange={(event) =>
-                              setRoomReassignModal((prev) => {
-                                if (!prev) return prev
-                                const nextSelected = event.target.checked
-                                  ? [...prev.selectedCourseIds, course.id]
-                                  : prev.selectedCourseIds.filter((id) => id !== course.id)
-                                return {
-                                  ...prev,
-                                  selectedCourseIds: nextSelected,
-                                  error: prev.error === "Select at least one course to reassign." ? null : prev.error,
-                                }
-                              })
-                            }
+                            onChange={(event) => updateRoomReassignCourseSelection(course.id, event.target.checked)}
                           />
                           <div className="flex min-w-0 flex-col">
                             <div className="flex min-w-0 items-center gap-1.5">
@@ -12833,17 +12332,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <span className="text-sm font-medium text-black dark:text-white">Cancellation reason (optional)</span>
                 <textarea
                   value={roomReservationCancelModal.reason}
-                  onChange={(event) =>
-                    setRoomReservationCancelModal((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            reason: event.target.value,
-                            error: null,
-                          }
-                        : prev
-                    )
-                  }
+                  onChange={(event) => updateRoomReservationCancelReason(event.target.value)}
                   rows={3}
                   className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                 />
