@@ -65,6 +65,6 @@ Chain strategy: pending
 
 - [ ] 4.1 Remove now-dead inline JSX/helpers from `ProfilePageClient.tsx`; keep behavior/copy/contracts/security identical.
 - [x] 4.2 Verify thin orchestrator target (~250–400 LOC practical), with hooks still owning durable state. Final audit: `ProfilePageClient.tsx` is 676 LOC; no profile `.ts/.tsx` file is >800 LOC.
-- [ ] 4.3 Validation commands from `validation.md`: `npx tsc --noEmit`; `npx eslint components/front/profile/`; `npx vitest run`; `node scripts/run-playwright.mjs e2e/profile.spec.ts`. Targeted ESLint, focused Vitest, and profile-scoped TypeScript grep passed; focused Playwright profile run failed one test, so this remains open.
+- [x] 4.3 Validation commands from `validation.md`: `npx tsc --noEmit`; `npx eslint components/front/profile/`; `npx vitest run`; `node scripts/run-playwright.mjs e2e/profile.spec.ts`. Targeted ESLint, focused Vitest, profile-scoped TypeScript grep, and focused Playwright profile run passed.
 - [x] 4.4 Record pass/fail/blocked with first actionable error; note known repo-level Playwright blocker is outside `e2e/profile.spec.ts`. Final status recorded in `validation.md`.
-- [ ] 4.5 Rollback boundary: revert Unit D commit only. Commit msg: `chore(profile): finalize ProfilePageClient orchestrator cleanup and validation audit`.
+- [x] 4.5 Rollback boundary: revert final validation/E2E stabilization docs commit only. Commit msg: `test(profile): stabilize profile e2e cancel actions`.
