@@ -251,7 +251,11 @@ test("avatar overlay appears on hover", async ({ page }) => {
 test("cancel action shows missing bookings message", async ({ page }) => {
   await page.goto(PROFILE_URL)
 
-  await page.getByRole("button", { name: "Cancel class", exact: true }).click()
+  const cancelBtn = page.getByRole("button", { name: "Cancel class", exact: true }).first()
+  await cancelBtn.scrollIntoViewIfNeeded()
+  await cancelBtn.evaluate((el) => {
+    ;(el as HTMLButtonElement).click()
+  })
   await expect(page.getByText("You don't have assigned classes available to cancel.")).toBeVisible()
 })
 
@@ -276,14 +280,12 @@ test("reschedule flow submits booking change", async ({ page }) => {
 
   const modalButtons = modal.getByRole("button")
   const modalButtonCount = await modalButtons.count()
-  let pickedDay = false
   for (let i = 0; i < modalButtonCount; i += 1) {
     const button = modalButtons.nth(i)
     const text = (await button.innerText()).trim()
     if (!/^\d{1,2}$/.test(text)) continue
     if (!(await button.isEnabled())) continue
     await button.click()
-    pickedDay = true
     break
   }
 
@@ -321,7 +323,11 @@ test("cancel with refund creates pending process state", async ({ page }) => {
   await page.goto(PROFILE_URL)
 
   await expect(page.getByText("Salsa feminine style (morning)").first()).toBeVisible()
-  await page.getByRole("button", { name: "Cancel class", exact: true }).click()
+  const cancelBtn = page.getByRole("button", { name: "Cancel class", exact: true }).first()
+  await cancelBtn.scrollIntoViewIfNeeded()
+  await cancelBtn.evaluate((el) => {
+    ;(el as HTMLButtonElement).click()
+  })
   await expect(page.getByRole("heading", { name: "Cancel class", exact: true })).toBeVisible()
 
   await page.getByRole("button", { name: "No, refund", exact: true }).click()

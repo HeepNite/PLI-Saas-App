@@ -21,6 +21,9 @@ jobs:
           fetch-depth: 0  # a full history is required for pull request analysis
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2025.2
+        # Qodana Cloud licensing is currently expired. Keep publishing results when
+        # available, but do not block PRs until the license/token is renewed.
+        continue-on-error: true
         with:
           pr-mode: false
         env:
