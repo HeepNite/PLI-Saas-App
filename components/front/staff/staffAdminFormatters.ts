@@ -66,3 +66,36 @@ export const formatDurationLabel = (minutes: number) => {
   if (restMinutes <= 0) return `${hours}h`
   return `${hours}h ${restMinutes}m`
 }
+
+export const toLocalIsoDate = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+
+export const formatIsoDate = (value: string | null) => {
+  if (!value) return "—"
+  const time = Date.parse(value)
+  if (Number.isNaN(time)) return "—"
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(time))
+}
+
+export const formatDateTime = (value: string | number | null | undefined) => {
+  if (value == null || value === "") return "—"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(parsed)
+  } catch {
+    return "—"
+  }
+}

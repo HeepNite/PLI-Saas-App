@@ -212,13 +212,52 @@ import type {
 import {
   centsToUsdInput,
   formatClockLabel,
+  formatDateTime,
   formatDurationLabel,
+  formatIsoDate,
   formatMinutesLabel,
   formatMoney,
   formatReservationDateLabel,
   formatUsdInputLabel,
   normalizeClockTime,
+  toLocalIsoDate,
 } from "./staffAdminFormatters"
+import {
+  buildAssignmentCourseKindLabel,
+  buildAssignmentCourseScheduleLabel,
+  buildSlotsFromScheduleRules,
+  compareCourseSlots,
+  deriveCourseScheduleData,
+  deriveRulesFromScheduleSlots,
+  deriveSpecialEventsFromScheduleSlots,
+  formatCourseSlotLabel,
+  formatCourseTimesList,
+  formatCourseWeekdayList,
+  getCourseSlotKey,
+  getCourseSlotWeekday,
+  normalizeCourseScheduleRules,
+  normalizeQuickScheduleTimes,
+  parseMinutesFromClassTime,
+  resolveTimeWindowByMinute,
+  toCourseScheduleWeekday,
+} from "./staffCourseScheduleHelpers"
+import {
+  buildCurrentMonthPaymentsSummarySearchParams,
+  buildCurrentMonthStudentsSummary,
+  buildPaymentsRequestSearchParams,
+  createEmptyPackageForm,
+  duplicatePackageRowToFormState,
+  getPackageLifecycleStatus,
+  matchesHistoryContentFilters,
+  matchesStudentSearchQuery,
+  packageRowToFormState,
+  resolveDirectClassRevenueCents,
+  resolveStudentCardPayments,
+} from "./staffPaymentFilters"
+import {
+  formatRoomActionBlockers,
+  resolveRoomActionErrorMessage,
+} from "./staffRoomHelpers"
 import {
   buildSelfRecommendations,
   computeSelfPerformanceScore,
@@ -230,11 +269,6 @@ import {
   startOfDay,
   toDateKey,
 } from "./staffCalendarHelpers"
-
-const COMPLETED_PAYMENT_STATUS_VALUES = new Set(["succeeded", "paid", "completed"])
-
-const isCompletedPaymentStatusValue = (status: unknown) =>
-  typeof status === "string" && COMPLETED_PAYMENT_STATUS_VALUES.has(status.trim().toLowerCase())
 
 const COURSE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 const COURSE_VIDEO_MAX_BYTES = 15 * 1024 * 1024
@@ -295,23 +329,6 @@ const formatDate = (value: number | null) => {
   }
 }
 
-const formatDateTime = (value: string | number | null | undefined) => {
-  if (value == null || value === "") return "—"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return "—"
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(parsed)
-  } catch {
-    return "—"
-  }
-}
-
 const toEmbedVideoUrl = (input: string) => {
   const value = input.trim()
   if (!value) return ""
@@ -346,25 +363,6 @@ const toAutoplayEmbedUrl = (value: string) => {
   return base
 }
 
-const normalizeQuickScheduleTimes = (values: string[]) => {
-  const normalized = [...new Set(values.map((item) => normalizeClockTime(String(item))).filter((item): item is string => Boolean(item)))]
-    .sort((a, b) => a.localeCompare(b))
-
-  if (normalized.length < QUICK_SCHEDULE_SLOT_COUNT) {
-    for (const fallback of DEFAULT_QUICK_SCHEDULE_TIMES) {
-      const value = normalizeClockTime(fallback)
-      if (!value || normalized.includes(value)) continue
-      normalized.push(value)
-      if (normalized.length >= QUICK_SCHEDULE_SLOT_COUNT) break
-    }
-  }
-
-  return normalized.sort((a, b) => a.localeCompare(b)).slice(0, QUICK_SCHEDULE_SLOT_COUNT)
-}
-
-const toLocalIsoDate = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-
 export const resolveHistoryMaxSelectableDateIso = (referenceDate = new Date(), timeZone = "America/New_York") => {
   try {
     return new Intl.DateTimeFormat("en-CA", {
@@ -383,283 +381,6 @@ const buildReservationDateTime = (date: string, time: string) => {
   const parsed = new Date(`${date}T${time}:00`)
   if (Number.isNaN(parsed.getTime())) return null
   return parsed
-}
-
-const toCourseScheduleWeekday = (isoDate: string) => {
-  const date = new Date(`${isoDate}T12:00:00`)
-  if (Number.isNaN(date.getTime())) return null
-  return date.getDay()
-}
-
-const getCourseSlotWeekday = (slot: CourseScheduleSlot) => {
-  if (typeof slot.weekday === "number" && slot.weekday >= 0 && slot.weekday <= 6) return slot.weekday
-  if (slot.date) return toCourseScheduleWeekday(slot.date)
-  return null
-}
-
-const getCourseSlotKey = (slot: CourseScheduleSlot) => {
-  const time = normalizeClockTime(slot.time)
-  if (typeof slot.weekday === "number") return `w:${slot.weekday}|${time}`
-  return `d:${slot.date || ""}|${time}`
-}
-
-const formatCourseSlotLabel = (slot: CourseScheduleSlot) => {
-  const timeLabel = formatClockLabel(slot.time)
-  if (typeof slot.weekday === "number") {
-    const weekdayLabel = WEEKDAY_LABELS[slot.weekday] || `Day ${slot.weekday}`
-    return `Every ${weekdayLabel} · ${timeLabel}`
-  }
-  return `${slot.date || "—"} · ${timeLabel}`
-}
-
-const formatCourseWeekdayList = (weekdays: number[]) =>
-  weekdays
-    .map((weekday) => WEEKDAY_LABELS[weekday] || `Day ${weekday}`)
-    .filter(Boolean)
-    .join(" / ")
-
-const formatCourseTimesList = (times: string[]) =>
-  times
-    .map((time) => normalizeClockTime(time))
-    .filter((time): time is string => Boolean(time))
-    .map((time) => formatClockLabel(time))
-    .join(", ")
-
-const buildAssignmentCourseScheduleLabel = (course: SchoolCourseRow) => {
-  const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
-  const ruleWeekdays = parsedRules ? [...new Set(parsedRules.rules.map((rule) => rule.weekday))].sort((a, b) => a - b) : []
-  const ruleTimes = parsedRules
-    ? [...new Set(parsedRules.rules.flatMap((rule) => rule.times).map((time) => normalizeClockTime(time)).filter(Boolean))].sort()
-    : []
-  const weekdays = ruleWeekdays.length > 0 ? ruleWeekdays : course.availableWeekdays
-  const times = ruleTimes.length > 0 ? ruleTimes : course.availableTimes.map((time) => normalizeClockTime(time)).filter(Boolean)
-  const weekdayLabel = weekdays.length > 0 ? formatCourseWeekdayList(weekdays) : ""
-  const timeLabel = times.length > 0 ? formatCourseTimesList(times) : ""
-
-  if (weekdayLabel && timeLabel) return `${weekdayLabel} · ${timeLabel}`
-  if (weekdayLabel) return weekdayLabel
-  if (timeLabel) return timeLabel
-
-  const firstSpecialEvent = parsedRules?.specialEvents[0]
-  if (!firstSpecialEvent) return null
-  const specialEventTimes = formatCourseTimesList(firstSpecialEvent.times)
-  return specialEventTimes ? `${formatIsoDate(firstSpecialEvent.date)} · ${specialEventTimes}` : formatIsoDate(firstSpecialEvent.date)
-}
-
-const buildAssignmentCourseKindLabel = (course: SchoolCourseRow) => {
-  const kindLabel = COURSE_KIND_LABELS[course.kind] || course.kind || ""
-  if (kindLabel && course.category) return `${kindLabel} · ${course.category}`
-  return kindLabel || course.category || null
-}
-
-const compareCourseSlots = (a: CourseScheduleSlot, b: CourseScheduleSlot) => {
-  const aWeekday = getCourseSlotWeekday(a)
-  const bWeekday = getCourseSlotWeekday(b)
-  const aTime = normalizeClockTime(a.time)
-  const bTime = normalizeClockTime(b.time)
-  if (aWeekday !== null && bWeekday !== null && aWeekday !== bWeekday) return aWeekday - bWeekday
-  if (aTime !== bTime) return aTime.localeCompare(bTime)
-  const aDate = a.date || ""
-  const bDate = b.date || ""
-  return aDate.localeCompare(bDate)
-}
-
-const deriveCourseScheduleData = (slots: CourseScheduleSlot[]) => {
-  if (slots.length === 0) {
-    return { weekdays: [] as number[], times: [] as string[] }
-  }
-  const weekdays = [...new Set(slots.map((slot) => getCourseSlotWeekday(slot)).filter((item): item is number => item !== null))].sort(
-    (a, b) => a - b
-  )
-  const times = [...new Set(slots.map((slot) => normalizeClockTime(slot.time)).filter(Boolean))].sort()
-  return { weekdays, times }
-}
-
-const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
-  if (!value || typeof value !== "object") return null
-  const source = value as Record<string, unknown>
-  const rulesInput = Array.isArray(source.rules) ? source.rules : []
-  const grouped = new Map<number, Set<string>>()
-
-  for (const rule of rulesInput) {
-    if (!rule || typeof rule !== "object") continue
-    const candidate = rule as Record<string, unknown>
-    const weekday =
-      typeof candidate.weekday === "number" && Number.isInteger(candidate.weekday) && candidate.weekday >= 0 && candidate.weekday <= 6
-        ? candidate.weekday
-        : null
-    if (weekday === null) continue
-    const times = Array.isArray(candidate.times)
-      ? candidate.times.map((time) => normalizeClockTime(String(time))).filter(Boolean)
-      : []
-    if (times.length === 0) continue
-    if (!grouped.has(weekday)) grouped.set(weekday, new Set<string>())
-    const bucket = grouped.get(weekday)!
-    times.forEach((time) => bucket.add(time))
-  }
-
-  const rules = [...grouped.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([weekday, times]) => ({
-      weekday,
-      times: [...times].sort(),
-    }))
-
-  const specialEventsInput = Array.isArray(source.specialEvents) ? source.specialEvents : []
-  const specialEventsMap = new Map<string, Set<string>>()
-  for (const item of specialEventsInput) {
-    if (!item || typeof item !== "object") continue
-    const candidate = item as Record<string, unknown>
-    const date = typeof candidate.date === "string" && ISO_DATE_REGEX.test(candidate.date.trim()) ? candidate.date.trim() : ""
-    if (!date) continue
-    const times = Array.isArray(candidate.times)
-      ? candidate.times.map((time) => normalizeClockTime(String(time))).filter(Boolean)
-      : []
-    if (times.length === 0) continue
-    if (!specialEventsMap.has(date)) specialEventsMap.set(date, new Set<string>())
-    const bucket = specialEventsMap.get(date)!
-    times.forEach((time) => bucket.add(time))
-  }
-  const specialEvents = [...specialEventsMap.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, times]) => ({
-      date,
-      times: [...times].sort(),
-      label: "Special event",
-    }))
-
-  const publicationSource =
-    source.publication && typeof source.publication === "object"
-      ? (source.publication as Record<string, unknown>)
-      : null
-  const publicationModeRaw = publicationSource?.mode
-  const publicationMode: CoursePublicationMode =
-    publicationModeRaw === "coming_soon" || publicationModeRaw === "launch_date" || publicationModeRaw === "publish_now"
-      ? publicationModeRaw
-      : "publish_now"
-  const launchDateRaw = typeof publicationSource?.launchDate === "string" ? publicationSource.launchDate.trim() : ""
-  const launchDate = publicationMode === "launch_date" && ISO_DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
-  const publication: CoursePublicationSettings = {
-    mode: publicationMode,
-    launchDate,
-  }
-
-  const specialDiscountSource =
-    source.specialDiscount && typeof source.specialDiscount === "object"
-      ? (source.specialDiscount as Record<string, unknown>)
-      : null
-  const specialDiscountTypeRaw = specialDiscountSource?.type
-  const specialDiscountType: CourseSpecialDiscountType =
-    specialDiscountTypeRaw === "valentines_desc" ||
-    specialDiscountTypeRaw === "christmas_desc" ||
-    specialDiscountTypeRaw === "custom" ||
-    specialDiscountTypeRaw === "none"
-      ? specialDiscountTypeRaw
-      : "none"
-  const specialDiscountLabelRaw = typeof specialDiscountSource?.label === "string" ? specialDiscountSource.label.trim() : ""
-  const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
-  const specialDiscountPriceRaw = Number(specialDiscountSource?.priceCents)
-  const specialDiscountPrice =
-    Number.isFinite(specialDiscountPriceRaw) && specialDiscountPriceRaw >= 0
-      ? Math.round(specialDiscountPriceRaw)
-      : null
-  const specialDiscount: CourseSpecialDiscountSettings = {
-    type: specialDiscountType,
-    label: specialDiscountLabel,
-    priceCents: specialDiscountPrice,
-  }
-
-  const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
-  const hasSpecialDiscount =
-    specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
-  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
-
-  const target = Number(source.weeklyDaysTarget)
-  const weeklyDaysTarget = Number.isFinite(target) ? Math.max(1, Math.min(7, Math.round(target))) : Math.max(1, Math.min(7, rules.length))
-  const repeatAllMonth = typeof source.repeatAllMonth === "boolean" ? source.repeatAllMonth : true
-  const recurrenceMode = source.recurrenceMode === "until_date" ? "until_date" : "indefinite"
-  const recurrenceEndsAt = recurrenceMode === "until_date" && typeof source.recurrenceEndsAt === "string" ? source.recurrenceEndsAt : null
-  const modeSource = source.mode === "special_event" ? "special_event" : source.mode === "regular" ? "regular" : null
-  const mode: "regular" | "special_event" = modeSource || (specialEvents.length > 0 && rules.length === 0 ? "special_event" : "regular")
-
-  return {
-    mode,
-    weeklyDaysTarget,
-    repeatAllMonth,
-    recurrenceMode,
-    recurrenceEndsAt,
-    rules,
-    specialEvents,
-    publication,
-    specialDiscount,
-  }
-}
-
-const buildSlotsFromScheduleRules = (payload: CourseScheduleRulesPayload) => {
-  const slots: CourseScheduleSlot[] = []
-  for (const rule of payload.rules) {
-    for (const time of rule.times) {
-      const normalized = normalizeClockTime(time)
-      if (!normalized) continue
-      slots.push({ weekday: rule.weekday, recurring: true, time: normalized })
-    }
-  }
-  for (const event of payload.specialEvents) {
-    for (const time of event.times) {
-      const normalized = normalizeClockTime(time)
-      if (!normalized) continue
-      slots.push({ date: event.date, time: normalized })
-    }
-  }
-  return slots.sort(compareCourseSlots)
-}
-
-const deriveRulesFromScheduleSlots = (slots: CourseScheduleSlot[]): CourseScheduleRuleEntry[] => {
-  const grouped = new Map<number, Set<string>>()
-  for (const slot of slots) {
-    if (typeof slot.weekday !== "number") continue
-    const normalized = normalizeClockTime(slot.time)
-    if (!normalized) continue
-    if (!grouped.has(slot.weekday)) grouped.set(slot.weekday, new Set<string>())
-    grouped.get(slot.weekday)!.add(normalized)
-  }
-  return [...grouped.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([weekday, times]) => ({
-      weekday,
-      times: [...times].sort(),
-    }))
-}
-
-const deriveSpecialEventsFromScheduleSlots = (slots: CourseScheduleSlot[]): CourseSpecialEventEntry[] => {
-  const grouped = new Map<string, Set<string>>()
-  for (const slot of slots) {
-    if (!slot.date || !ISO_DATE_REGEX.test(slot.date)) continue
-    const normalized = normalizeClockTime(slot.time)
-    if (!normalized) continue
-    if (!grouped.has(slot.date)) grouped.set(slot.date, new Set<string>())
-    grouped.get(slot.date)!.add(normalized)
-  }
-  return [...grouped.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, times]) => ({
-      date,
-      times: [...times].sort(),
-      label: "Special event",
-    }))
-}
-
-const formatIsoDate = (value: string | null) => {
-  if (!value) return "—"
-  const time = Date.parse(value)
-  if (Number.isNaN(time)) return "—"
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(time))
 }
 
 const PAYMENT_CHANGE_REQUEST_STATUS_LABELS: Record<StaffPaymentChangeRequestRow["status"], string> = {
@@ -805,77 +526,12 @@ const formatWeekRangeLabel = (weekStartTs: number) => {
   return `${startLabel} – ${endLabel}`
 }
 
-const parseMinutesFromClassTime = (classTime: string | null) => {
-  if (!classTime) return null
-  const value = classTime.trim().toUpperCase()
-  if (!value) return null
-  const match = value.match(/(\d{1,2})[:h](\d{2})(?:\s*([AP]M))?/)
-  if (!match) return null
-  let hour = Number(match[1])
-  const minute = Number(match[2])
-  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) return null
-  const meridiem = match[3]
-  if (meridiem === "PM" && hour < 12) hour += 12
-  if (meridiem === "AM" && hour === 12) hour = 0
-  if (hour < 0 || hour > 23) return null
-  return hour * 60 + minute
-}
-
-const resolveTimeWindowByMinute = (minutes: number) => {
-  if (minutes >= 300 && minutes < 720) return "Morning"
-  if (minutes >= 720 && minutes < 1020) return "Afternoon"
-  if (minutes >= 1020 && minutes < 1320) return "Evening"
-  return "Night"
-}
-
 const usdInputToCents = (value: string) => {
   const clean = value.trim().replace(",", ".")
   if (!clean) return null
   const parsed = Number(clean)
   if (!Number.isFinite(parsed) || parsed < 0) return null
   return Math.round(parsed * 100)
-}
-
-function createEmptyPackageForm(): PackageFormState {
-  return {
-    id: "",
-    key: "",
-    courseSlugs: [],
-    label: "",
-    description: "",
-    priceCents: "",
-    cadence: "",
-    status: "ACTIVE",
-    launchAt: "",
-    totalCredits: "",
-    makeUps: "0",
-    validDays: "180",
-    isUnlimited: false,
-    active: true,
-  }
-}
-
-function packageRowToFormState(item: SchoolPackageRow): PackageFormState {
-  return {
-    id: item.id,
-    key: item.key,
-    courseSlugs: item.courseSlugs ?? (item.courseSlug ? [item.courseSlug] : []),
-    label: item.label,
-    description: item.description || "",
-    priceCents: centsToUsdInput(item.priceCents),
-    cadence: item.cadence || "",
-    status: item.status || (item.active ? "ACTIVE" : "SUSPENDED"),
-    launchAt: item.launchAt ? String(item.launchAt).slice(0, 16) : "",
-    totalCredits: item.totalCredits === null ? "" : String(item.totalCredits),
-    makeUps: String(item.makeUps),
-    validDays: String(item.validDays),
-    isUnlimited: item.isUnlimited,
-    active: item.active,
-  }
-}
-
-function getPackageLifecycleStatus(item: SchoolPackageRow): PackagePlanStatus {
-  return item.status || (item.active ? "ACTIVE" : "SUSPENDED")
 }
 
 function getPackageLifecycleBadgeClass(status: PackagePlanStatus) {
@@ -902,15 +558,6 @@ function formatPackageLaunchLabel(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(parsed)
-}
-
-function duplicatePackageRowToFormState(item: SchoolPackageRow): PackageFormState {
-  return {
-    ...packageRowToFormState(item),
-    id: "",
-    key: `${item.key}-copy`,
-    label: `${item.label} Copy`,
-  }
 }
 
 const toUtcCalendarStamp = (value: Date) =>
@@ -1086,19 +733,6 @@ const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
   return "No PIN"
 }
 
-const resolveDirectClassRevenueCents = <
-  TPayment extends Pick<PaymentRow, "id" | "amount" | "classPaid" | "fundingPayment" | "purchaseCategory" | "settlementStatus" | "paymentStatus" | "packageId" | "serviceId">
->(payments: TPayment[]) => {
-  const paidPurchases = new Map<string, number>()
-  for (const payment of payments) {
-    const isDirectClassPurchase = payment.purchaseCategory !== "package" || Boolean(payment.serviceId)
-    if (!isDirectClassPurchase) continue
-    if (!payment.classPaid && payment.settlementStatus !== "paid" && !isCompletedPaymentStatusValue(payment.paymentStatus)) continue
-    paidPurchases.set(payment.id, payment.amount)
-  }
-  return [...paidPurchases.values()].reduce((sum, amount) => sum + amount, 0)
-}
-
 type ProfileBadge = {
   key: string
   label: string
@@ -1229,200 +863,6 @@ export const resolveProfileCardDetails = (student: StudentProfileCard) => {
     outstandingBalanceLabel,
     latestLocationLabel,
   }
-}
-
-const matchesPaymentCategory = (row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory">, category: PaymentCategoryFilter) => {
-  if (category === "all") return true
-  if (category === "history") return true
-  if (category === "cash") return row.paymentChannel === "cash"
-  if (category === "card") return row.paymentChannel === "card" || row.paymentChannel === "unknown"
-  if (category === "packages") return row.purchaseCategory === "package"
-  if (category === "dropin") return row.purchaseCategory === "dropin"
-  return true
-}
-
-const matchesStripeStatus = (
-  row: {
-    classPaid: PaymentRow["classPaid"]
-    purchaseCategory: PaymentRow["purchaseCategory"]
-    fundingPayment?: PaymentRow["fundingPayment"]
-    checkInStatus?: PaymentRow["checkInStatus"]
-    packageId?: PaymentRow["packageId"]
-  },
-  filter: "all" | "pending" | "paid"
-) => {
-  if (filter === "all") return true
-  if (filter === "paid") return isPaymentPaidForUi(row)
-  return !isPaymentPaidForUi(row)
-}
-
-export const matchesStudentSearchQuery = (
-  row: Pick<PaymentRow, "customerName" | "customerEmail" | "customerPhone" | "courseTitle" | "courseSlug" | "location" | "activePackage">,
-  searchTerm: string
-) => {
-  const normalizedSearchTerm = searchTerm.trim().toLowerCase()
-  if (!normalizedSearchTerm) return true
-
-  const haystack = [
-    row.customerName,
-    row.customerEmail,
-    row.customerPhone,
-    row.courseTitle,
-    row.courseSlug,
-    row.location || "",
-    row.activePackage?.label || "",
-  ]
-    .join(" ")
-    .toLowerCase()
-
-  return haystack.includes(normalizedSearchTerm)
-}
-
-const matchesHistoryPaymentMethod = (
-  row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory">,
-  filter: HistoryPaymentMethodFilter
-) => {
-  if (filter === "all") return true
-  if (filter === "cash") return row.paymentChannel === "cash"
-  if (filter === "card") return row.paymentChannel === "card"
-  if (filter === "package") return row.purchaseCategory === "package"
-  return row.purchaseCategory === "dropin"
-}
-
-const matchesHistoryAttendanceFilter = (
-  row: Pick<PaymentRow, "checkInStatus" | "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment">,
-  filter: HistoryAttendanceFilter
-) => {
-  if (filter === "all") return true
-  if (filter === "attended") return isCompletedClassEvidence(row)
-  if (filter === "scheduled") return row.checkInStatus === "scheduled"
-  return row.checkInStatus === "none"
-}
-
-export const matchesHistoryContentFilters = (
-  row: HistoryContentFilterInput,
-  filters: {
-    classKey: string
-    paymentMethodFilter: HistoryPaymentMethodFilter
-    attendanceFilter: HistoryAttendanceFilter
-    paymentsFilter: "all" | "pending" | "paid"
-  }
-) => {
-  return (
-    (!filters.classKey || row.courseSlug === filters.classKey) &&
-    matchesHistoryPaymentMethod(row, filters.paymentMethodFilter) &&
-    matchesHistoryAttendanceFilter(row, filters.attendanceFilter) &&
-    matchesStripeStatus(row, filters.paymentsFilter)
-  )
-}
-
-export const resolveStudentCardPayments = (
-  payments: PaymentRow[],
-  options: {
-    isHistoryMode: boolean
-    historyClassKey: string
-    historyPaymentMethodFilter: HistoryPaymentMethodFilter
-    historyAttendanceFilter: HistoryAttendanceFilter
-    paymentCategoryFilter: PaymentCategoryFilter
-    paymentsFilter: "all" | "pending" | "paid"
-    studentSearchQuery: string
-  }
-) => {
-  const contentFilteredPayments = payments.filter((payment) => {
-    if (options.isHistoryMode) {
-      return matchesHistoryContentFilters(payment, {
-        classKey: options.historyClassKey,
-        paymentMethodFilter: options.historyPaymentMethodFilter,
-        attendanceFilter: options.historyAttendanceFilter,
-        paymentsFilter: "all",
-      })
-    }
-
-    return matchesPaymentCategory(payment, options.paymentCategoryFilter)
-  })
-
-  if (!options.studentSearchQuery.trim()) {
-    return contentFilteredPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
-  }
-
-  const searchMatchedPayments = contentFilteredPayments.filter((payment) => matchesStudentSearchQuery(payment, options.studentSearchQuery))
-  if (searchMatchedPayments.length === 0) return []
-
-  const statusMatchedPayments = searchMatchedPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
-  return statusMatchedPayments.length > 0 ? statusMatchedPayments : searchMatchedPayments
-}
-
-export const buildPaymentsRequestSearchParams = (input: {
-  isHistoryMode: boolean
-  historyFrom: string
-  historyTo: string
-  studentSearchQuery?: string
-}) => {
-  const searchParams = new URLSearchParams()
-  const normalizedStudentSearchQuery = input.studentSearchQuery?.trim() || ""
-  if (normalizedStudentSearchQuery) {
-    searchParams.set("q", normalizedStudentSearchQuery)
-  }
-  if (!input.isHistoryMode) return searchParams
-  searchParams.set("mode", "history")
-  searchParams.set("from", input.historyFrom)
-  searchParams.set("to", input.historyTo)
-  return searchParams
-}
-
-export const buildCurrentMonthPaymentsSummarySearchParams = (referenceDate = new Date()) => {
-  const monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1)
-  const monthEnd = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0)
-
-  return buildPaymentsRequestSearchParams({
-    isHistoryMode: true,
-    historyFrom: toLocalIsoDate(monthStart),
-    historyTo: toLocalIsoDate(monthEnd),
-  })
-}
-
-export const buildCurrentMonthStudentsSummary = (input: {
-  summary: PaymentsApiSummary
-  studentCount: number
-  checkedInStudents: number
-}) => ({
-  totalStudents: input.studentCount,
-  paidStudents: input.summary.paidStripe,
-  checkedInStudents: input.checkedInStudents,
-  totalRevenueCents: input.summary.totalCollected,
-  pendingByContext: input.summary.pendingStripe + input.summary.pendingSettlement,
-})
-
-const roomBlockerCodeLabel: Record<string, string> = {
-  CLASS_IN_PROGRESS: "A class is currently in progress in this room.",
-  SESSION_IN_NEXT_24H: "A class session is scheduled in the next 24 hours.",
-  RESERVATION_IN_NEXT_24H: "A private reservation exists in the next 24 hours.",
-  INVALID_COURSE_SELECTION: "One or more selected courses are not assigned to the source room.",
-}
-
-export const formatRoomActionBlockers = (blockers: unknown): string[] => {
-  if (!Array.isArray(blockers)) return []
-  return blockers
-    .map((item) => {
-      if (!item || typeof item !== "object") return null
-      const code = typeof (item as { code?: unknown }).code === "string" ? (item as { code: string }).code : null
-      const startsAtRaw = typeof (item as { startsAt?: unknown }).startsAt === "string" ? (item as { startsAt: string }).startsAt : null
-      const startsAt = startsAtRaw ? formatDateTime(startsAtRaw) : null
-      if (code && roomBlockerCodeLabel[code]) {
-        return startsAt ? `${roomBlockerCodeLabel[code]} (${startsAt})` : roomBlockerCodeLabel[code]
-      }
-      return null
-    })
-    .filter((value): value is string => Boolean(value))
-}
-
-export const resolveRoomActionErrorMessage = (payload: unknown, fallback: string) => {
-  if (!payload || typeof payload !== "object") return fallback
-  const source = payload as { error?: unknown; blockers?: unknown }
-  const baseError = typeof source.error === "string" ? source.error : fallback
-  const blockerLines = formatRoomActionBlockers(source.blockers)
-  if (blockerLines.length === 0) return baseError
-  return `${baseError} ${blockerLines.join(" ")}`
 }
 
 const splitCustomerName = (name: string, email: string) => {
@@ -14087,10 +13527,20 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             // Mark this user as having current-month audit entries so the change-history button appears
             setUsersWithAuditEntries((prev) => new Set(prev).add(overrideModalStudent.id))
             // Refresh the payments board to show updated data
-            void refreshPaymentsBoard()
+             void refreshPaymentsBoard()
           }}
         />
       )}
     </>
   )
 }
+
+// ── Re-exports for backward compatibility ──
+export {
+  buildCurrentMonthPaymentsSummarySearchParams,
+  buildCurrentMonthStudentsSummary,
+  buildPaymentsRequestSearchParams,
+  matchesHistoryContentFilters,
+  matchesStudentSearchQuery,
+  resolveStudentCardPayments,
+} from "./staffPaymentFilters"
