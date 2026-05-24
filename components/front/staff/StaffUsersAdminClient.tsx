@@ -155,596 +155,69 @@ import {
   type ReportsObjectiveFilter,
 } from "./staffAdminConstants"
 
-type StaffUserRow = {
-  id: string
-  paymentModelId: string | null
-  email: string
-  phone: string
-  avatarUrl: string
-  location: string
-  hasPin: boolean
-  firstName: string
-  lastName: string
-  role: StaffRole
-  category: StaffCategory
-  payrollHoursWorked: number | null
-  payrollHourlyRate: number | null
-  payrollStatus: "paid" | "pending" | null
-  payrollPaydayWeekday: number | null
-  payrollDelayEntries: PayrollDelayEntry[]
-  performanceRating: number | null
-  performanceReviewsCount: number | null
-  performanceReviewCycleDays: number | null
-  teacherType: string
-  teacherAssignedUserId: string
-  teacherRecurrenceUnit: "month" | "year"
-  teacherRecurrenceInterval: number | null
-  teacherCourseSlugs: string[]
-  teacherWeekdays: number[]
-  teacherShiftStart: string
-  teacherShiftEnd: string
-  teacherWeeklyHours: number | null
-  teacherBonusTargetHours: number | null
-  banned: boolean
-  locked: boolean
-  online: boolean
-  authOnline: boolean
-  lastActiveAt: number | null
-  staffLastCheckInAt: number | null
-  createdAt: number
-  lastSignInAt: number | null
-}
-
-type ScheduleEvent = {
-  attendanceId: string
-  status: string
-  startsAtIso: string
-  timeLabel: string
-  courseSlug: string
-  courseTitle: string
-  userId: string
-  userName: string
-  userEmail: string
-  userPhone: string
-}
-
-type PaymentRow = {
-  id: string
-  userId: string
-  courseSlug: string
-  courseTitle: string
-  customerName: string
-  customerEmail: string
-  customerPhone: string
-  customerAvatarUrl: string | null
-  packageId: string | null
-  serviceId: string | null
-  paymentChannel: "cash" | "card" | "unknown" | "package_credit"
-  purchaseCategory: "package" | "dropin" | "other"
-  amount: number
-  currency: string
-  paymentStatus: string
-  settlementStatus: "pending" | "paid"
-  settlementNote: string
-  settledAt: string | null
-  createdAt: string
-  updatedAt: string
-  classDate: string | null
-  classTime: string | null
-  classStartsAt: string | null
-  location: string | null
-  pointsBalance: number
-  pointsHistory: Array<{
-    id: string
-    type: string
-    points: number
-    createdAt: string
-    source: string | null
-    courseSlug: string | null
-    milestone: number | null
-  }>
-  classPaid: boolean
-  attendanceId: string | null
-  checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
-  checkInAt: string | null
-  checkedOutAt: string | null
-  activePackage: {
-    id: string
-    label: string
-    totalCredits: number | null
-    remainingCredits: number | null
-    isUnlimited: boolean
-    expiresAt: string | null
-    status: string
-  } | null
-  studentPin: {
-    enabled: boolean
-    enrolled: boolean
-    locked: boolean
-    needsEnrollment: boolean
-    permanentStatus: string | null
-    provisionalActive: boolean
-    provisionalExpiresAt: string | null
-  }
-  packageClassNumber: number | null
-  fundingPayment?: {
-    id: string
-    amount: number
-    currency: string
-    createdAt: string
-    courseTitle: string | null
-  } | null
-  completedClassesTotal: number
-  packageClassesUsedTotal: number
-  outstandingBalance: number | null
-  stripeFailure?: StripeFailureInfo | null
-}
-
-type HistoryClassOption = {
-  slug: string
-  title: string
-}
-
-type PaymentsApiSummary = {
-  totalItems: number
-  totalCollected: number
-  pendingSettlement: number
-  paidSettlement: number
-  pendingStripe: number
-  paidStripe: number
-}
-
-type PaymentCategoryFilter = "all" | "cash" | "card" | "packages" | "dropin" | "history"
-type HistoryPaymentMethodFilter = "all" | "cash" | "card" | "package" | "dropin"
-type HistoryAttendanceFilter = "all" | "attended" | "scheduled" | "no_attendance"
-type HistoryContentFilterInput = {
-  courseSlug: string
-  paymentChannel: "cash" | "card" | "unknown" | "package_credit"
-  purchaseCategory: "package" | "dropin" | "other"
-  packageId: string | null
-  classPaid: boolean
-  fundingPayment?: PaymentRow["fundingPayment"]
-  checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
-}
+import type {
+  AssignmentCourseOption,
+  CourseFormState,
+  CourseLinkFormState,
+  CourseLinkRow,
+  CoursePublicationSettings,
+  CourseScheduleRuleEntry,
+  CourseScheduleRulesPayload,
+  CourseScheduleSlot,
+  CourseSpecialDiscountSettings,
+  CourseSpecialEventEntry,
+  HistoryAttendanceFilter,
+  HistoryClassOption,
+  HistoryContentFilterInput,
+  HistoryPaymentMethodFilter,
+  PackageFormState,
+  PackagePlanStatus,
+  PackageStatusFilter,
+  PaymentCategoryFilter,
+  PaymentChangeRequestStatus,
+  PaymentRow,
+  PaymentsApiSummary,
+  PayrollDelayEntry,
+  PayrollDelayModalState,
+  PayrollModelActionState,
+  PayrollStaffRow,
+  PointsAssignFormState,
+  PointsRuleFormState,
+  PointsRuleRow,
+  ProfileRequestFormState,
+  ReportsSuggestion,
+  ReportsSuggestionsApiResponse,
+  RoomReassignModalState,
+  RoomReservationCancelModalState,
+  RoomReservationRow,
+  RoomRow,
+  RoomSafeDeleteModalState,
+  ScheduleEvent,
+  SchoolCourseRow,
+  SchoolPackageRow,
+  SelfProfileMetrics,
+  SelfProfileSnapshot,
+  StaffApprovalFeedItem,
+  StaffPaymentChangeRequestRow,
+  StaffPaymentForm,
+  StaffPaymentModelOption,
+  StaffProfileForm,
+  StaffRequestRow,
+  StaffRequestSummary,
+  StaffUserRow,
+  StudentPinModalState,
+  TeacherAssignmentFormState,
+} from "./staffAdminTypes"
 
 const COMPLETED_PAYMENT_STATUS_VALUES = new Set(["succeeded", "paid", "completed"])
 
 const isCompletedPaymentStatusValue = (status: unknown) =>
   typeof status === "string" && COMPLETED_PAYMENT_STATUS_VALUES.has(status.trim().toLowerCase())
-type ReportsSuggestion = {
-  id: string
-  objective: Exclude<ReportsObjectiveFilter, "all">
-  title: string
-  priority: "High" | "Medium" | "Low"
-  insight: string
-  proposal: string
-  actions: string[]
-  aiBrief: string
-}
-
-type ReportsSuggestionsApiResponse = {
-  ok?: boolean
-  provider?: "mock" | "custom-http"
-  usedFallback?: boolean
-  warning?: string | null
-  suggestions?: ReportsSuggestion[]
-  error?: string
-}
-
-type StaffRequestRow = {
-  id: string
-  type: StaffRequestType
-  status: StaffRequestStatus
-  message: string
-  meta: Record<string, unknown>
-  createdAt: string
-  updatedAt: string
-  resolvedAt: string | null
-  user: {
-    id: string
-    name: string
-    email: string
-    phone: string
-  }
-}
-
-type StaffRequestSummary = {
-  total: number
-  pending: number
-  inReview: number
-  approved: number
-  rejected: number
-}
-
-type PaymentChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled"
-
-type StaffPaymentChangeRequestRow = {
-  id: string
-  staffAccountId: string
-  requestedMethod: string
-  requestedInfo: unknown
-  reason: string | null
-  status: PaymentChangeRequestStatus
-  createdAt: string
-  staffAccount: {
-    firstName: string
-    lastName: string
-    email: string
-  }
-}
-
-type StaffApprovalFeedItem =
-  | {
-      id: string
-      createdAt: string
-      kind: "staff_request"
-      request: StaffRequestRow
-    }
-  | {
-      id: string
-      createdAt: string
-      kind: "payment_change_request"
-      request: StaffPaymentChangeRequestRow
-    }
-
-type SelfProfileMetrics = {
-  performanceRating: number | null
-  performanceReviewsCount: number | null
-  performanceReviewCycleDays: number | null
-  payrollHoursWorked: number | null
-  payrollHourlyRate: number | null
-  payrollStatus: "paid" | "pending" | null
-  payrollPaydayWeekday: number | null
-}
-
-type SelfProfileSnapshot = {
-  firstName: string
-  lastName: string
-  imageUrl: string
-  location: string
-  role: StaffRole
-  category: StaffCategory
-  paymentPreference: StaffPaymentPreference | null
-  assignedPaymentPreference: StaffPaymentPreference | null
-  paymentInfo: StaffPaymentInfo | null
-  metrics: SelfProfileMetrics
-  presence: {
-    online: boolean
-    authOnline: boolean
-    lastSignInAt: number | null
-    staffLastCheckInAt: number | null
-    status: "online" | "offline" | null
-  }
-  teaching: {
-    teacherCourseSlugs: string[]
-    teacherWeekdays: number[]
-    teacherShiftStart: string
-    teacherShiftEnd: string
-  }
-}
-
-type StaffPaymentForm = {
-  paymentPreference: StaffPaymentPreference | ""
-  cbu: string
-  alias: string
-  accountHolder: string
-  mercadoPagoId: string
-  bankName: string
-  routingNumber: string
-  accountNumber: string
-  zelleId: string
-  venmoUser: string
-  accountType: string
-}
-
-type ProfileRequestFormState = {
-  type: StaffRequestType
-  message: string
-  startDate: string
-  endDate: string
-  preferredShift: string
-  consultTopic: string
-}
-
-type PayrollStaffRow = {
-  userId: string
-  name: string
-  role: StaffRole
-  category: StaffCategory
-  hoursWorked: number | null
-  hourlyRate: number | null
-  amountCents: number | null
-  status: "paid" | "pending" | "unknown"
-  delayDays: number | null
-  paydayWeekday: number | null
-  paydayLabel: string
-  dueDateLabel: string | null
-  delayEntries: PayrollDelayEntry[]
-}
-
-type PayrollDelayEntry = {
-  id: string
-  dateLabel: string
-  expectedTime: string
-  actualTime: string
-  delayMinutes: number
-}
-
-type StaffPaymentModelOption = {
-  id: string
-  name: string
-  active: boolean
-  isDefault: boolean
-}
-
-type PayrollModelActionState = {
-  status: "idle" | "saving" | "success" | "error"
-  message: string | null
-}
-
-type PayrollDelayModalState = {
-  row: PayrollStaffRow
-  entries: PayrollDelayEntry[]
-  totalDelayMinutes: number
-  lateDays: number
-}
 
 const COURSE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 const COURSE_VIDEO_MAX_BYTES = 15 * 1024 * 1024
 const COURSE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 const COURSE_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"])
-
-type StudentPinModalState = {
-  userId: string
-  name: string
-  email: string
-  needsEnrollment: boolean
-  provisionalActive: boolean
-  provisionalExpiresAt: string | null
-}
-
-type RoomSafeDeleteModalState = {
-  room: RoomRow
-  reason: string
-  error: string | null
-}
-
-type RoomReassignModalState = {
-  room: RoomRow
-  targetRoomId: string
-  moveFutureSessions: boolean
-  availableCourses: Array<{ id: string; title: string; slug: string; scheduleLabel: string | null }>
-  selectedCourseIds: string[]
-  error: string | null
-}
-
-type RoomReservationRow = {
-  id: string
-  roomId: string
-  title: string
-  reason: string
-  category: string | null
-  startsAt: string
-  endsAt: string
-  status: string
-  assignedStaffClerkUserId: string | null
-  cancellationReason: string | null
-}
-
-type RoomReservationCancelModalState = {
-  reservation: RoomReservationRow
-  reason: string
-  error: string | null
-}
-
-type StaffProfileForm = {
-  firstName: string
-  lastName: string
-  role: StaffRole
-  category: StaffCategory
-  birthDate: string
-  addressLine1: string
-  addressLine2: string
-  city: string
-  state: string
-  postalCode: string
-  country: string
-  personalNote: string
-  location: string
-  gallery: string[]
-  pin: string
-  clearPin: boolean
-}
-
-type SchoolCourseRow = {
-  id: string
-  slug: string
-  title: string
-  kind: string
-  category: string | null
-  description: string | null
-  coverImageUrl: string | null
-  previewVideoUrl: string | null
-  dropInPriceCents: number | null
-  firstClassPriceCents: number | null
-  level: string | null
-  durationMinutes: number | null
-  location: string | null
-  defaultRoomId: string | null
-  availableWeekdays: number[]
-  availableTimes: string[]
-  scheduleRules: unknown | null
-  active: boolean
-  createdAt: string
-}
-
-type RoomRow = {
-  id: string
-  name: string
-  capacity: number
-  location: string | null
-  active: boolean
-}
-
-type PackagePlanStatus = "ACTIVE" | "SUSPENDED" | "SCHEDULED" | "DELETED"
-type PackageStatusFilter = "all" | PackagePlanStatus
-
-type AssignmentCourseOption = {
-  slug: string
-  title: string
-  description: string | null
-  imageUrl: string | null
-  scheduleLabel: string | null
-  kindLabel: string | null
-}
-
-type SchoolPackageRow = {
-  id: string
-  key: string
-  courseSlug: string | null
-  courseSlugs: string[]
-  label: string
-  description: string | null
-  priceCents: number | null
-  cadence: string | null
-   status?: PackagePlanStatus | null
-   launchAt?: string | null
-  totalCredits: number | null
-  makeUps: number
-  validDays: number
-  isUnlimited: boolean
-  active: boolean
-  createdAt: string
-}
-
-type PointsRuleRow = {
-  id: string
-  key: string
-  label: string
-  description: string | null
-  eventType: string
-  points: number
-  active: boolean
-  createdAt: string
-}
-
-type CourseFormState = {
-  slug: string
-  title: string
-  kind: string
-  category: string
-  description: string
-  previewImageUrl: string
-  previewVideoUrl: string
-  dropInPriceCents: string
-  firstClassPriceCents: string
-  level: string
-  durationMinutes: string
-  location: string
-  defaultRoomId: string
-  publicationMode: CoursePublicationMode
-  launchDate: string
-  specialDiscountType: CourseSpecialDiscountType
-  specialDiscountCustomLabel: string
-  specialDiscountPrice: string
-  availableTimesCsv: string
-  active: boolean
-}
-
-type CourseLinkRow = {
-  id: string
-  courseSlugA: string
-  courseSlugB: string
-  dropInConsecutiveCents: number
-  packageHolderConsecutiveCents: number
-  active: boolean
-}
-
-type CourseLinkFormState = {
-  courseSlugB: string
-  dropInConsecutiveCents: string
-  packageHolderConsecutiveCents: string
-  active: boolean
-}
-
-type CourseScheduleSlot = {
-  date?: string
-  weekday?: number
-  recurring?: boolean
-  time: string
-}
-
-type CourseScheduleRuleEntry = {
-  weekday: number
-  times: string[]
-}
-
-type CourseSpecialEventEntry = {
-  date: string
-  times: string[]
-  label: string | null
-}
-
-type CoursePublicationSettings = {
-  mode: CoursePublicationMode
-  launchDate: string | null
-}
-
-type CourseSpecialDiscountSettings = {
-  type: CourseSpecialDiscountType
-  label: string | null
-  priceCents: number | null
-}
-
-type CourseScheduleRulesPayload = {
-  mode: "regular" | "special_event"
-  weeklyDaysTarget: number
-  repeatAllMonth: boolean
-  recurrenceMode: "indefinite" | "until_date"
-  recurrenceEndsAt: string | null
-  rules: CourseScheduleRuleEntry[]
-  specialEvents: CourseSpecialEventEntry[]
-  publication?: CoursePublicationSettings
-  specialDiscount?: CourseSpecialDiscountSettings
-}
-
-type PackageFormState = {
-  id: string
-  key: string
-  courseSlugs: string[]
-  label: string
-  description: string
-  priceCents: string
-  cadence: string
-  status: PackagePlanStatus
-  launchAt: string
-  totalCredits: string
-  makeUps: string
-  validDays: string
-  isUnlimited: boolean
-  active: boolean
-}
-
-type PointsRuleFormState = {
-  templateKey: string
-  points: string
-  active: boolean
-}
-
-type PointsAssignFormState = {
-  userEmail: string
-  type: string
-  points: string
-  note: string
-  eventKey: string
-}
-
-type TeacherAssignmentFormState = {
-  assignedUserId: string
-  recurrenceUnit: "month" | "year"
-  recurrenceInterval: number
-  courseSlugs: string[]
-}
 
 const NAV_ITEMS: StaffPortalNavItem[] = [
   { key: "users", label: "User Management", icon: Users },
@@ -2206,7 +1679,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   ])
   const [assistantChatInput, setAssistantChatInput] = React.useState("")
   const [isRailCollapsed, setIsRailCollapsed] = React.useState(false)
-  const [hasAssistantViewportSync, setHasAssistantViewportSync] = React.useState(true)
 
   const [email, setEmail] = React.useState("")
   const [firstName, setFirstName] = React.useState("")
@@ -2239,7 +1711,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }>>([])
   const [paymentsFilter, setPaymentsFilter] = React.useState<"all" | "pending" | "paid">("all")
   const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("all")
-  const [isHistoryMode, setIsHistoryMode] = React.useState(false)
+  const isHistoryMode = paymentCategoryFilter === "history"
   const [historyFrom, setHistoryFrom] = React.useState("")
   const [historyTo, setHistoryTo] = React.useState("")
   const [historyPaymentMethodFilter, setHistoryPaymentMethodFilter] = React.useState<HistoryPaymentMethodFilter>("all")
@@ -2354,8 +1826,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     expiresAt: string | null
   } | null>(null)
   const [studentPinRevealIssued, setStudentPinRevealIssued] = React.useState(false)
-  const [overrideModalOpen, setOverrideModalOpen] = React.useState(false)
   const [overrideModalStudent, setOverrideModalStudent] = React.useState<{ id: string; name: string } | null>(null)
+  const overrideModalOpen = overrideModalStudent !== null
   const [usersWithAuditEntries, setUsersWithAuditEntries] = React.useState<Set<string>>(new Set())
   const [clerkSyncHealth, setClerkSyncHealth] = React.useState<ClerkSyncHealth | null>(null)
   const [clerkSyncLoading, setClerkSyncLoading] = React.useState(false)
@@ -2481,7 +1953,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [courseLinkSaving, setCourseLinkSaving] = React.useState(false)
   const [courseLinkError, setCourseLinkError] = React.useState<string | null>(null)
   const [courseLinkSuccess, setCourseLinkSuccess] = React.useState<string | null>(null)
-  const [schoolCourseLinkCount, setSchoolCourseLinkCount] = React.useState(0)
   const [allCourseLinksMap, setAllCourseLinksMap] = React.useState<Record<string, { asA: CourseLinkRow[]; asB: CourseLinkRow[] }>>({})
   const courseImageInputRef = React.useRef<HTMLInputElement>(null)
   const courseVideoInputRef = React.useRef<HTMLInputElement>(null)
@@ -3378,11 +2849,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
   const openOverrideModal = React.useCallback((studentId: string, studentName: string) => {
     setOverrideModalStudent({ id: studentId, name: studentName })
-    setOverrideModalOpen(true)
   }, [])
 
   const closeOverrideModal = React.useCallback(() => {
-    setOverrideModalOpen(false)
     setOverrideModalStudent(null)
   }, [])
 
@@ -3785,11 +3254,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setSchoolPackages(Array.isArray(packagesData?.items) ? packagesData.items : [])
       setSchoolPointsRules(Array.isArray(rulesData?.items) ? rulesData.items : [])
       setRoomReservations(Array.isArray(reservationsData?.items) ? reservationsData.items : [])
-      // Non-critical: fetch course link count (best-effort, doesn't block school data)
-      fetch("/api/staff/school/course-links", { headers: { "Content-Type": "application/json" } })
-        .then((r) => (r.ok ? r.json() : { count: 0 }))
-        .then((data) => setSchoolCourseLinkCount(data?.count ?? 0))
-        .catch(() => setSchoolCourseLinkCount(0))
       // Non-critical: fetch all course links per course for catalog display
       const courses: SchoolCourseRow[] = Array.isArray(coursesData?.items) ? coursesData.items : []
       if (courses.length > 0) {
@@ -4728,7 +4192,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
     const syncAssistantLayout = () => {
       setIsRailCollapsed(!desktopQuery.matches)
-      setHasAssistantViewportSync(true)
     }
 
     syncAssistantLayout()
@@ -6937,9 +6400,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
   const handlePaymentCategoryChange = React.useCallback((nextCategory: PaymentCategoryFilter) => {
     setPaymentCategoryFilter(nextCategory)
-    const nextIsHistoryMode = nextCategory === "history"
-    setIsHistoryMode(nextIsHistoryMode)
-    if (!nextIsHistoryMode) {
+    if (nextCategory !== "history") {
       setHistoryFrom("")
       setHistoryTo("")
       setHistoryPaymentMethodFilter("all")
@@ -6948,10 +6409,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setHistoryClassOptions([])
     }
   }, [])
-
-  React.useEffect(() => {
-    setIsHistoryMode(paymentCategoryFilter === "history")
-  }, [paymentCategoryFilter])
 
   const reportFilteredPayments = React.useMemo(() => {
     const rawStartTs = parseDateInputStart(reportsDateFrom)
@@ -13828,7 +13285,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       <StaffAssistantRightRail
         showRightRail={showRightRail}
         showInlineRightRail={showInlineRightRail}
-        hasAssistantViewportSync={hasAssistantViewportSync}
         isRailCollapsed={isRailCollapsed}
         rightRailRef={rightRailRef}
         onCloseOverlay={() => setIsRailCollapsed(true)}
