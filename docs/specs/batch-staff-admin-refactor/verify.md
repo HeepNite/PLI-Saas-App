@@ -1,133 +1,165 @@
-## Verification Report
+# Verification Gate: batch-staff-admin-refactor
 
-**Change**: batch-staff-admin-refactor
-**Version**: N/A
-**Mode**: Standard
+**Current verdict: BLOCK — do not integrate as refactor-complete.**
 
-### Completeness
+This branch contains valid preparatory refactor work: pure helpers/types were extracted, the rooms domain now has `useStaffRoomsAdmin`, and the course-builder domain now has `useStaffCoursesAdmin`. However, `StaffUsersAdminClient.tsx` still owns too many domains, state slices, effects, handlers, fetches, and JSX. Treat the current work as a chained refactor batch, not as the completed staff-admin split.
 
-| Metric | Value |
-|--------|-------|
-| Tasks total | 24 |
-| Tasks complete | 23 |
-| Tasks incomplete | 1 |
-| Incomplete item | B1.4 deferred stale room-specific cleanup |
+## Current Evidence
 
-### Build & Tests Execution
+Measured on branch `refactor/staff-admin-split` after commit `ad78c82` (`refactor(staff): extract courses admin hook`). Metrics below use executable-call counts in `StaffUsersAdminClient.tsx` with these exact regexes: `React\.useState\s*\(`, `React\.useEffect\s*\(`, `React\.useMemo\s*\(`, `React\.useCallback\s*\(`, and `fetch\s*\(`. The `React.useState` value is cross-checked against declarations matching `const [...] = React.useState(`; both methods currently return `56`.
 
-**Build**: ✅ Passed
+| Metric | Current value | Gate interpretation |
+|--------|---------------|---------------------|
+| `StaffUsersAdminClient.tsx` LOC | 11,971 | Still a god component; ~15x the directional 800-line target. |
+| `React.useState` calls/declarations | 56 | Improved, but state remains concentrated in the container. |
+| `React.useEffect` occurrences | 32 | Improved, but side-effect ownership remains concentrated. |
+| `React.useMemo` occurrences | 69 | High derived-state/cognitive surface remains. |
+| `React.useCallback` occurrences | 54 | Improved, but many handlers remain inline in the container. |
+| `fetch(` call sites | 46 | Improved, but network orchestration remains concentrated. |
+| JSX return starts | ~line 5,000+ | Thousands of lines of state/handlers still precede render. |
+| `useStaffRoomsAdmin.ts` LOC | 526 | Real bounded-context extraction for rooms only. |
+| `useStaffCoursesAdmin.ts` LOC | 1,307 | Real bounded-context extraction for course builder/schedule/media state. |
+
+## Judgment Day Result
+
+Two blind judges reviewed the branch using `solid`, `codebase-cleanup-refactor-clean`, and `judgment-day` criteria.
+
+| Finding | Status | Evidence |
+|---------|--------|----------|
+| `StaffUsersAdminClient` remains a god component | Confirmed | 11,971 LOC, 56 `useState`, 32 `useEffect`, 69 `useMemo`, 54 `useCallback`, 46 `fetch(`. |
+| Extraction is partly cosmetic/presentational | Confirmed | Most extracted LOC is types, constants, formatters, pure helpers, and thin presentational shells. |
+| Real domain extraction exists | Confirmed | `useStaffRoomsAdmin` moved rooms/reservations ownership; `useStaffCoursesAdmin` moved course-builder/schedule/media ownership. |
+| Refactor is complete | Refuted | Two stateful domain hooks exist, but many domains still live in the container. |
+| `verify.md` was reliable | Refuted | Previous report had stale LOC, stale branch/worktree notes, and over-optimistic compliance labels. |
+| Scope creep in current branch | Mixed | One judge flagged broad historical scope; the other found the current branch scoped to staff frontend/tests. Treat as packaging risk, not confirmed current defect. |
+
+## What Is Real vs. Not Enough
+
+| Category | Evidence | Verdict |
+|----------|----------|---------|
+| Pure helper/type extraction | `staffAdminTypes`, `staffAdminFormatters`, `staffCourseScheduleHelpers`, `staffPaymentFilters`, room helpers | Useful foundation, but mostly moves pure code. |
+| Rooms bounded context | `useStaffRoomsAdmin` | Real simplification pattern; keep and repeat. |
+| Course-builder bounded context | `useStaffCoursesAdmin` | Real simplification; moved course form/schedule/media/query-hydration ownership and added hook behavior tests. |
+| Presentational shells | `StaffCatalogSection`, profile/room reservation components | Helpful boundaries, but they do not remove most state/effect ownership. |
+| Container simplification | Metrics above | Insufficient; the container still owns most product workflows. |
+
+## Remaining Container Responsibilities
+
+`StaffUsersAdminClient.tsx` still owns orchestration for at least:
+
+- staff user list, filters, and sync flows
+- Clerk sync health and repair actions
+- schedule/calendar data
+- payments board, history filters, bulk payments, and payment summaries
+- student PIN and profile override workflows
+- staff requests and payroll change requests
+- self-profile payment/request workflows
+- school catalog residuals: packages, points, course links, and some school fetch/orchestration
+- reports, suggestions, terminal alerts, and assistant UI state
+- thousands of lines of JSX section rendering
+
+## Validation Commands Run Recently
 
 ```text
-$ npx tsc --noEmit
+npx eslint components/front/staff/StaffUsersAdminClient.tsx components/front/staff/useStaffRoomsAdmin.ts tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx
 # exit 0, no output
 ```
 
-**Staff refactor tests**: ✅ 89 passed
-
 ```text
-$ npx vitest run components/front/staff/__tests__/StaffUsersAdminClient.helpers.test.ts components/front/staff/__tests__/StaffUsersAdminClient.test.ts tests/front/staff-users-admin-client-fetch-cache.test.tsx tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx
-
-Test Files  4 passed (4)
-Tests       89 passed (89)
-```
-
-**Touched baseline/TSC-fix focused tests**: ✅ 87 passed
-
-```text
-$ npx vitest run tests/api/clerk-webhook.test.ts tests/api/profile-pin.test.ts tests/api/staff-room-reservations.test.ts tests/api/staff-rooms.test.ts tests/api/staff-schedule.test.ts tests/api/staff-student-packages-override.test.ts tests/api/staff-users.test.ts tests/checkin/kiosk-reset.test.ts tests/checkin/useKioskFlowCompletion.test.tsx tests/integration/staff-override-flow.test.ts tests/lib/course-schedule-blocks-perf.test.ts tests/api/staff-checkin-shared.test.ts
-
-Test Files  12 passed (12)
-Tests       87 passed (87)
-```
-
-**ESLint — staff refactor files**: ⚠️ Passed with warnings
-
-```text
-$ npx eslint components/front/staff/StaffUsersAdminClient.tsx components/front/staff/StaffTerminalShell.tsx components/front/staff/StaffAssistantRightRail.tsx components/front/staff/StaffCatalogSection.tsx components/front/staff/StaffPortalNavButton.tsx components/front/staff/StaffProfilePaymentSection.tsx components/front/staff/StaffProfileRequestsSection.tsx components/front/staff/StaffRoomReservationForm.tsx components/front/staff/StaffRoomReservationList.tsx components/front/staff/paymentState.ts components/front/staff/paymentTimelineTransforms.ts components/front/staff/staffAdminConstants.ts components/front/staff/staffRoomCatalogHelpers.ts components/front/staff/staffRoomFormState.ts components/front/staff/studentPaymentCardFormatters.ts components/front/staff/__tests__/StaffUsersAdminClient.helpers.test.ts components/front/staff/__tests__/StaffUsersAdminClient.test.ts tests/front/staff-users-admin-client-fetch-cache.test.tsx tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx
-
-0 errors, 13 warnings:
-- 3 react-hooks/exhaustive-deps warnings in StaffUsersAdminClient.tsx.
-- 10 @next/next/no-img-element warnings in StaffUsersAdminClient.tsx.
-```
-
-**ESLint — touched non-staff/TSC-fix files**: ✅ Passed
-
-```text
-$ npx eslint app/api/profile/pin/route.ts app/api/staff/checkin/route.ts app/api/staff/checkin/shared.ts app/api/staff/room-reservations/route.ts app/api/staff/rooms/route.ts app/api/staff/rooms/shared.ts app/api/staff/schedule/route.ts app/api/staff/school/courses/route.ts app/api/staff/users/route.ts app/api/staff/users/get-filters.ts lib/security/staff-category.ts tests/api/clerk-webhook.test.ts tests/api/profile-pin.test.ts tests/api/staff-room-reservations.test.ts tests/api/staff-rooms.test.ts tests/api/staff-schedule.test.ts tests/api/staff-student-packages-override.test.ts tests/api/staff-users.test.ts tests/checkin/kiosk-reset.test.ts tests/checkin/useKioskFlowCompletion.test.tsx tests/integration/staff-override-flow.test.ts tests/lib/course-schedule-blocks-perf.test.ts tests/api/staff-checkin-shared.test.ts
+npx eslint components/front/staff/StaffUsersAdminClient.tsx components/front/staff/useStaffCoursesAdmin.ts components/front/staff/__tests__/useStaffCoursesAdmin.test.tsx
 # exit 0, no output
 ```
 
-**Coverage**: ➖ Not available; no coverage command was required or run.
+```text
+npm run test -- components/front/staff/__tests__/staffCourseScheduleHelpers.test.ts components/front/staff/__tests__/StaffUsersAdminClient.test.ts components/front/staff/__tests__/StaffUsersAdminClient.helpers.test.ts tests/front/staff-users-admin-client-fetch-cache.test.tsx tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx
+# 5 files passed, 94 tests passed
+```
 
-### Size Evidence
+```text
+npm run test -- components/front/staff/__tests__/useStaffCoursesAdmin.test.tsx components/front/staff/__tests__/StaffUsersAdminClient.test.ts tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx components/front/staff/__tests__/staffCourseScheduleHelpers.test.ts
+# 4 files passed, 90 tests passed
+```
 
-| File | Original baseline | Current | Delta | Target status |
-|------|-------------------|---------|-------|---------------|
-| `components/front/staff/StaffUsersAdminClient.tsx` | 15,475 lines | 14,761 lines | -714 lines (-4.61%) | Still above directional <=800 target, but trending downward |
+```text
+npm run test -- components/front/staff/__tests__/useStaffCoursesAdmin.test.tsx components/front/staff/__tests__/staffCourseScheduleHelpers.test.ts tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx
+# 3 files passed, 20 tests passed
+```
 
-### Git Scope Evidence
+```text
+npm run test -- components/front/staff/__tests__/StaffUsersAdminClient.test.ts tests/front/staff-users-admin-client-fetch-cache.test.tsx tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx components/front/staff/__tests__/useStaffCoursesAdmin.test.tsx
+# 4 files passed, 92 tests passed
+```
 
-Current branch: `refactor/cleanup`.
+```text
+npx tsc --noEmit
+# exit 0, no output
+```
 
-`git status --short` shows a broad worktree: staff-admin frontend refactor files, SDD docs, API/checkin/security files, focused tests, and two additional untracked spec folders (`docs/specs/refactor-staff-payment-card-formatters/`, `docs/specs/refactor-staff-payment-state/`). `git diff --stat` for tracked files reports 25 changed files, 638 insertions, and 1,199 deletions; untracked extracted staff modules and spec folders are additional.
+```text
+npm run build
+# build passed; warnings remain in unrelated/baseline files
+```
 
-Notable changed/untracked scope groups:
-- Staff refactor surface: `components/front/staff/StaffUsersAdminClient.tsx`, extracted staff components/helpers, and staff client tests.
-- Batch docs: `docs/specs/batch-staff-admin-refactor/`.
-- Local TSC/baseline-fix surface: staff/profile/checkin API routes/shared modules, `lib/security/staff-category.ts`, and related API/checkin/integration tests.
-- Potential scope-review items: unrelated-looking untracked spec folders and broad API changes should be reviewed before PR packaging.
+These commands support behavior preservation for the current slices. They do **not** prove the refactor is complete.
 
-### Spec Compliance Matrix
+## Latest Slice Gate Result
 
-| Requirement | Scenario | Test / Evidence | Result |
-|-------------|----------|-----------------|--------|
-| R1 Behavior Preservation | Existing UI/API behavior and permission/network contracts remain equivalent. | Staff client suite: 89/89 passed; touched API/checkin/integration suite: 87/87 passed; `npx tsc --noEmit` passed. | ✅ COMPLIANT |
-| R2 Extraction Boundaries | Helper extraction and dependency migration continue to pass after dedicated module imports and seam removal. | `StaffUsersAdminClient.helpers.test.ts`, `StaffUsersAdminClient.test.ts`, fetch-cache, rooms lifecycle tests passed. Container imports extracted sections/helpers; presentational sections are prop/children driven. | ✅ COMPLIANT |
-| R3 Dead Code Cleanup Constraint | Proven stale code is deleted only after objective evidence. | `StaffTerminalShell.tsx` no longer imports `Image`; focused staff ESLint has 0 errors; TSC and focused tests pass. Runtime-specific coverage for import deletion is not meaningful, so this is static-proof based. | ⚠️ PARTIAL |
-| R4 Size and Reviewability Direction | Monolith trends downward without requiring one-shot <=800 compliance. | `wc -l StaffUsersAdminClient.tsx` = 14,761 vs 15,475 baseline (-714). | ✅ COMPLIANT |
-| R5 Validation and Baseline Discipline | Local validations run and baseline/new failures are separated. | TSC now passes; staff and touched baseline suites pass; ESLint staff has warnings but no errors. | ✅ COMPLIANT |
-| R6 Logic Simplification Policy | Helpers remain domain-scoped; no mega-utils introduced. | Extracted helper modules are staff-domain named (`paymentState`, `paymentTimelineTransforms`, `studentPaymentCardFormatters`, `staffRoomCatalogHelpers`, `staffRoomFormState`). No catch-all utility module observed. | ✅ COMPLIANT |
-| R7 Delete vs Report Rule | Ambiguous cleanup remains reported/deferred. | B1.4 remains unchecked/deferred; roadmap records no conclusive extra room-specific deletion. | ✅ COMPLIANT |
+`useStaffCoursesAdmin` was extracted as the next measurable bounded-context slice.
 
-**Compliance summary**: 6/7 requirement groups compliant, 1/7 partial.
+| Metric | Required improvement | Actual improvement | Result |
+|--------|----------------------|--------------------|--------|
+| `StaffUsersAdminClient.tsx` LOC | -800 to -1,500 lines | -1,048 lines | ✅ Met |
+| Container `useState` | at least -10 | -13 | ✅ Met |
+| Container `fetch(` | at least -5 | -4 | ⚠️ Slight miss; CourseLink/consecutive no-touch boundary kept link fetches in container. |
+| Container `useCallback` | at least -10 | -21 | ✅ Met |
+| Tests | behavior tests for extracted hook/helpers | `useStaffCoursesAdmin.test.tsx` covers schedule-slot state transitions, slug-conflict suggestion flow, course save happy path, unauthorized save response, and invalid local image rejection. | ✅ Met |
 
-### Correctness (Static Evidence)
+## Next Required Slice
 
-| Requirement | Status | Notes |
-|------------|--------|-------|
-| No product behavior changes | ✅ Supported | Focused staff and touched baseline tests pass; no new failing checks observed. |
-| Existing API contracts preserved | ✅ Supported | Staff/front tests plus touched API tests pass; TSC passes. |
-| Compatibility seam migration/removal | ✅ Supported | Helper tests import dedicated modules and pass; container still imports helpers for internal use but no compatibility re-export block was found. |
-| Component size direction | ✅ Supported | Container decreased 714 lines but remains far above target. |
-| Dead-code deletion gate | ⚠️ Partially supported | Verified current deletion via lint/TSC/tests; B1.4 deferred cleanup remains intentionally incomplete. |
+Implement one more measurable bounded-context extraction before any integration-complete claim.
 
-### Coherence (Design)
+Recommended next target: **`useStaffPaymentsAdmin.ts` / payments admin bounded context**.
 
-| Decision | Followed? | Notes |
-|----------|-----------|-------|
-| `StaffUsersAdminClient.tsx` remains orchestration shell during incremental extraction. | ✅ Yes | The file still owns extensive state/effects/API orchestration and passes child props/callbacks into extracted sections. |
-| Presentational sections stay prop-driven and avoid network side effects. | ✅ Yes | `StaffRoomReservationList`, `StaffRoomReservationForm`, `StaffProfilePaymentSection`, `StaffProfileRequestsSection`, and `StaffCatalogSection` are prop/children driven; no local fetch/axios/useEffect ownership observed in reviewed files. |
-| Pure helper modules remain domain-scoped and React-free. | ✅ Yes | Required helper module names are domain-specific; no catch-all utility sink observed. |
-| Consecutive-course-link internals remain no-touch. | ✅ Supported | Staff focused tests pass and roadmap records no functional edits to that domain. |
-| Chained/reviewable delivery. | ⚠️ Needs packaging review | Current worktree is broad and includes API/test/spec changes outside the frontend refactor surface; should be packaged carefully before PR. |
+Move real ownership out of the container:
 
-### Issues Found
+- payments list state
+- monthly summary state
+- payments loading/filter/history filters
+- selected payments / bulk actions
+- checkout menu state
+- payment history/audit anchors
+- related fetches for `GET /api/staff/payments`, `POST /api/staff/payments/bulk`, and payment/audit-log reads
 
-**CRITICAL**: None.
+Do **not** touch CourseLink / consecutive-course-link internals in this PR. Do **not** remove more compatibility seams in this PR.
 
-**WARNING**:
-- `StaffUsersAdminClient.tsx` is still 14,761 lines, well above the directional <=800 goal. It is trending down but still carries most orchestration and JSX complexity.
-- Staff ESLint exits successfully but reports 13 warnings in `StaffUsersAdminClient.tsx` (hook dependency and `<img>` usage warnings). These are not blocking regressions from this verification, but they remain cleanup debt.
-- Worktree scope is broader than the staff-admin frontend refactor surface, including API/checkin/security files and extra untracked spec folders. This may be justified by TSC/baseline fixes, but it should be reviewed before PR slicing to avoid scope drift.
-- Task B1.4 remains incomplete/deferred. It is cleanup/debt rather than core behavior, so this is not a release blocker for the completed batches.
+## Numeric Exit Gate for the Next Slice
 
-**SUGGESTION**:
-- Before opening PRs, split or document the API/checkin/security baseline-fix changes separately from the staff-admin component extraction if they are not part of the intended review slice.
-- Continue extracting domain hooks/sections from `StaffUsersAdminClient.tsx`; the current reduction is meaningful but small relative to the <=800 direction.
-- Preserve source-string tests only where necessary, but prefer behavior-oriented assertions in future cleanup batches.
+The next slice should meet all of these before review:
 
-### Verdict
+| Metric | Required improvement |
+|--------|----------------------|
+| `StaffUsersAdminClient.tsx` LOC | -800 to -1,500 lines |
+| Container `useState` | at least -10 |
+| Container `fetch(` | at least -3 |
+| Container `useCallback` | at least -10 |
+| Tests | at least 5 behavior-based tests for the new hook; avoid source-string-only coverage |
 
-PASS WITH WARNINGS
+## PR Framing
 
-Local validation passed (`tsc`, focused staff tests, touched baseline tests, and ESLint with no errors). The refactor meets behavior-preserving verification expectations, but the monolith remains far above the size target, one cleanup task is deferred, staff ESLint warnings remain, and PR scope needs careful review.
+Use this branch only as a valid chained batch:
+
+- **Title/frame**: `Batch staff-admin split: rooms + courses domain hooks.`
+- **Required caveat**: `Container shell goal NOT met yet.`
+- **Required caveat**: `This is a chained refactor batch, not final completion.`
+- **Do not claim** the staff-admin refactor is complete.
+
+## Final Gate
+
+Do not integrate this branch as refactor-complete until:
+
+1. at least one more high-density domain hook/reducer is extracted,
+2. this report is regenerated with fresh metrics,
+3. Judgment Day is rerun, and
+4. the branch is framed honestly as either a batch in a chain or a verified complete refactor.
+
+**Current terminal judgment: BLOCK / ESCALATED.**

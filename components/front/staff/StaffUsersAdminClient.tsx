@@ -31,7 +31,6 @@ import {
   Trash2,
   Users,
   X,
-  Package,
 } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
@@ -79,7 +78,6 @@ import AuditHistoryPopover from "@/components/front/staff/AuditHistoryPopover"
 import { ClerkSyncMismatchBanner } from "@/components/front/staff/ClerkSyncMismatchBanner"
 import { useSchoolWizard, SchoolWizardPanel } from "@/components/front/staff/school"
 import type { StepEnabledContext } from "@/components/front/staff/school"
-import type { StripeFailureInfo } from "@/lib/stripe-failure"
 import {
   checkInStateTone,
   isCheckedInStatus,
@@ -101,19 +99,10 @@ import {
   formatStudentPaymentCardSlotLabel,
 } from "./studentPaymentCardFormatters"
 import {
-  buildCourseRoomOptions,
-  buildRoomLookup,
-  filterVisibleRooms,
   resolveRoomCatalogErrorMessage,
-  resolveRoomDisableActionState,
 } from "./staffRoomCatalogHelpers"
-import {
-  createEmptyRoomReservationForm,
-  createInitialRoomForm,
-  createRoomFormFromRoom,
-  type RoomFormState,
-  type RoomReservationFormState,
-} from "./staffRoomFormState"
+import { useStaffRoomsAdmin } from "./useStaffRoomsAdmin"
+import { useStaffCoursesAdmin } from "./useStaffCoursesAdmin"
 import StaffPortalNavButton, { type StaffPortalNavItem } from "./StaffPortalNavButton"
 import StaffAssistantRightRail from "./StaffAssistantRightRail"
 import StaffRoomReservationForm from "./StaffRoomReservationForm"
@@ -124,14 +113,9 @@ import StaffCatalogSection from "./StaffCatalogSection"
 import {
   CATEGORY_LABELS,
   CATEGORY_OPTIONS,
-  COURSE_KIND_DATE_TONE,
-  COURSE_KIND_LABELS,
-  COURSE_KIND_REVIEW_HINTS,
   COURSE_PUBLICATION_MODE_OPTIONS,
   COURSE_SPECIAL_DISCOUNT_OPTIONS,
-  DEFAULT_QUICK_SCHEDULE_TIMES,
   getFixedCategoryForRole,
-  ISO_DATE_REGEX,
   normalizeCategoryForRole,
   PAYMENT_PREFERENCE_LABELS,
   PROFILE_REQUEST_STATUS_OPTIONS,
@@ -144,10 +128,8 @@ import {
   REQUEST_TYPE_LABELS,
   ROLE_FORM_LABELS,
   ROLE_LABELS,
-  SCHOOL_COURSE_KINDS,
-  SCHOOL_SCHEDULE_SHORTCUTS_STORAGE_KEY,
   SCHEDULE_SHORTCUT_TONES,
-  SPECIAL_EVENT_COURSE_KINDS,
+  SCHOOL_COURSE_KINDS,
   WEEKDAY_LABELS,
   WEEKDAY_LABELS_LONG,
   type CoursePublicationMode,
@@ -155,596 +137,88 @@ import {
   type ReportsObjectiveFilter,
 } from "./staffAdminConstants"
 
-type StaffUserRow = {
-  id: string
-  paymentModelId: string | null
-  email: string
-  phone: string
-  avatarUrl: string
-  location: string
-  hasPin: boolean
-  firstName: string
-  lastName: string
-  role: StaffRole
-  category: StaffCategory
-  payrollHoursWorked: number | null
-  payrollHourlyRate: number | null
-  payrollStatus: "paid" | "pending" | null
-  payrollPaydayWeekday: number | null
-  payrollDelayEntries: PayrollDelayEntry[]
-  performanceRating: number | null
-  performanceReviewsCount: number | null
-  performanceReviewCycleDays: number | null
-  teacherType: string
-  teacherAssignedUserId: string
-  teacherRecurrenceUnit: "month" | "year"
-  teacherRecurrenceInterval: number | null
-  teacherCourseSlugs: string[]
-  teacherWeekdays: number[]
-  teacherShiftStart: string
-  teacherShiftEnd: string
-  teacherWeeklyHours: number | null
-  teacherBonusTargetHours: number | null
-  banned: boolean
-  locked: boolean
-  online: boolean
-  authOnline: boolean
-  lastActiveAt: number | null
-  staffLastCheckInAt: number | null
-  createdAt: number
-  lastSignInAt: number | null
-}
+import type {
+  AssignmentCourseOption,
+  CourseLinkFormState,
+  CourseLinkRow,
+  HistoryAttendanceFilter,
+  HistoryClassOption,
+  HistoryPaymentMethodFilter,
+  PackageFormState,
+  PackagePlanStatus,
+  PackageStatusFilter,
+  PaymentCategoryFilter,
+  PaymentChangeRequestStatus,
+  PaymentRow,
+  PaymentsApiSummary,
+  PayrollDelayModalState,
+  PayrollModelActionState,
+  PayrollStaffRow,
+  PointsAssignFormState,
+  PointsRuleFormState,
+  PointsRuleRow,
+  ProfileRequestFormState,
+  ReportsSuggestion,
+  ReportsSuggestionsApiResponse,
+  RoomReservationRow,
+  RoomRow,
+  ScheduleEvent,
+  SchoolCourseRow,
+  SchoolPackageRow,
+  SelfProfileSnapshot,
+  StaffApprovalFeedItem,
+  StaffPaymentChangeRequestRow,
+  StaffPaymentForm,
+  StaffPaymentModelOption,
+  StaffProfileForm,
+  StaffRequestRow,
+  StaffRequestSummary,
+  StaffUserRow,
+  StudentPinModalState,
+  TeacherAssignmentFormState,
+} from "./staffAdminTypes"
 
-type ScheduleEvent = {
-  attendanceId: string
-  status: string
-  startsAtIso: string
-  timeLabel: string
-  courseSlug: string
-  courseTitle: string
-  userId: string
-  userName: string
-  userEmail: string
-  userPhone: string
-}
-
-type PaymentRow = {
-  id: string
-  userId: string
-  courseSlug: string
-  courseTitle: string
-  customerName: string
-  customerEmail: string
-  customerPhone: string
-  customerAvatarUrl: string | null
-  packageId: string | null
-  serviceId: string | null
-  paymentChannel: "cash" | "card" | "unknown" | "package_credit"
-  purchaseCategory: "package" | "dropin" | "other"
-  amount: number
-  currency: string
-  paymentStatus: string
-  settlementStatus: "pending" | "paid"
-  settlementNote: string
-  settledAt: string | null
-  createdAt: string
-  updatedAt: string
-  classDate: string | null
-  classTime: string | null
-  classStartsAt: string | null
-  location: string | null
-  pointsBalance: number
-  pointsHistory: Array<{
-    id: string
-    type: string
-    points: number
-    createdAt: string
-    source: string | null
-    courseSlug: string | null
-    milestone: number | null
-  }>
-  classPaid: boolean
-  attendanceId: string | null
-  checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
-  checkInAt: string | null
-  checkedOutAt: string | null
-  activePackage: {
-    id: string
-    label: string
-    totalCredits: number | null
-    remainingCredits: number | null
-    isUnlimited: boolean
-    expiresAt: string | null
-    status: string
-  } | null
-  studentPin: {
-    enabled: boolean
-    enrolled: boolean
-    locked: boolean
-    needsEnrollment: boolean
-    permanentStatus: string | null
-    provisionalActive: boolean
-    provisionalExpiresAt: string | null
-  }
-  packageClassNumber: number | null
-  fundingPayment?: {
-    id: string
-    amount: number
-    currency: string
-    createdAt: string
-    courseTitle: string | null
-  } | null
-  completedClassesTotal: number
-  packageClassesUsedTotal: number
-  outstandingBalance: number | null
-  stripeFailure?: StripeFailureInfo | null
-}
-
-type HistoryClassOption = {
-  slug: string
-  title: string
-}
-
-type PaymentsApiSummary = {
-  totalItems: number
-  totalCollected: number
-  pendingSettlement: number
-  paidSettlement: number
-  pendingStripe: number
-  paidStripe: number
-}
-
-type PaymentCategoryFilter = "all" | "cash" | "card" | "packages" | "dropin" | "history"
-type HistoryPaymentMethodFilter = "all" | "cash" | "card" | "package" | "dropin"
-type HistoryAttendanceFilter = "all" | "attended" | "scheduled" | "no_attendance"
-type HistoryContentFilterInput = {
-  courseSlug: string
-  paymentChannel: "cash" | "card" | "unknown" | "package_credit"
-  purchaseCategory: "package" | "dropin" | "other"
-  packageId: string | null
-  classPaid: boolean
-  fundingPayment?: PaymentRow["fundingPayment"]
-  checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
-}
-
-const COMPLETED_PAYMENT_STATUS_VALUES = new Set(["succeeded", "paid", "completed"])
-
-const isCompletedPaymentStatusValue = (status: unknown) =>
-  typeof status === "string" && COMPLETED_PAYMENT_STATUS_VALUES.has(status.trim().toLowerCase())
-type ReportsSuggestion = {
-  id: string
-  objective: Exclude<ReportsObjectiveFilter, "all">
-  title: string
-  priority: "High" | "Medium" | "Low"
-  insight: string
-  proposal: string
-  actions: string[]
-  aiBrief: string
-}
-
-type ReportsSuggestionsApiResponse = {
-  ok?: boolean
-  provider?: "mock" | "custom-http"
-  usedFallback?: boolean
-  warning?: string | null
-  suggestions?: ReportsSuggestion[]
-  error?: string
-}
-
-type StaffRequestRow = {
-  id: string
-  type: StaffRequestType
-  status: StaffRequestStatus
-  message: string
-  meta: Record<string, unknown>
-  createdAt: string
-  updatedAt: string
-  resolvedAt: string | null
-  user: {
-    id: string
-    name: string
-    email: string
-    phone: string
-  }
-}
-
-type StaffRequestSummary = {
-  total: number
-  pending: number
-  inReview: number
-  approved: number
-  rejected: number
-}
-
-type PaymentChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled"
-
-type StaffPaymentChangeRequestRow = {
-  id: string
-  staffAccountId: string
-  requestedMethod: string
-  requestedInfo: unknown
-  reason: string | null
-  status: PaymentChangeRequestStatus
-  createdAt: string
-  staffAccount: {
-    firstName: string
-    lastName: string
-    email: string
-  }
-}
-
-type StaffApprovalFeedItem =
-  | {
-      id: string
-      createdAt: string
-      kind: "staff_request"
-      request: StaffRequestRow
-    }
-  | {
-      id: string
-      createdAt: string
-      kind: "payment_change_request"
-      request: StaffPaymentChangeRequestRow
-    }
-
-type SelfProfileMetrics = {
-  performanceRating: number | null
-  performanceReviewsCount: number | null
-  performanceReviewCycleDays: number | null
-  payrollHoursWorked: number | null
-  payrollHourlyRate: number | null
-  payrollStatus: "paid" | "pending" | null
-  payrollPaydayWeekday: number | null
-}
-
-type SelfProfileSnapshot = {
-  firstName: string
-  lastName: string
-  imageUrl: string
-  location: string
-  role: StaffRole
-  category: StaffCategory
-  paymentPreference: StaffPaymentPreference | null
-  assignedPaymentPreference: StaffPaymentPreference | null
-  paymentInfo: StaffPaymentInfo | null
-  metrics: SelfProfileMetrics
-  presence: {
-    online: boolean
-    authOnline: boolean
-    lastSignInAt: number | null
-    staffLastCheckInAt: number | null
-    status: "online" | "offline" | null
-  }
-  teaching: {
-    teacherCourseSlugs: string[]
-    teacherWeekdays: number[]
-    teacherShiftStart: string
-    teacherShiftEnd: string
-  }
-}
-
-type StaffPaymentForm = {
-  paymentPreference: StaffPaymentPreference | ""
-  cbu: string
-  alias: string
-  accountHolder: string
-  mercadoPagoId: string
-  bankName: string
-  routingNumber: string
-  accountNumber: string
-  zelleId: string
-  venmoUser: string
-  accountType: string
-}
-
-type ProfileRequestFormState = {
-  type: StaffRequestType
-  message: string
-  startDate: string
-  endDate: string
-  preferredShift: string
-  consultTopic: string
-}
-
-type PayrollStaffRow = {
-  userId: string
-  name: string
-  role: StaffRole
-  category: StaffCategory
-  hoursWorked: number | null
-  hourlyRate: number | null
-  amountCents: number | null
-  status: "paid" | "pending" | "unknown"
-  delayDays: number | null
-  paydayWeekday: number | null
-  paydayLabel: string
-  dueDateLabel: string | null
-  delayEntries: PayrollDelayEntry[]
-}
-
-type PayrollDelayEntry = {
-  id: string
-  dateLabel: string
-  expectedTime: string
-  actualTime: string
-  delayMinutes: number
-}
-
-type StaffPaymentModelOption = {
-  id: string
-  name: string
-  active: boolean
-  isDefault: boolean
-}
-
-type PayrollModelActionState = {
-  status: "idle" | "saving" | "success" | "error"
-  message: string | null
-}
-
-type PayrollDelayModalState = {
-  row: PayrollStaffRow
-  entries: PayrollDelayEntry[]
-  totalDelayMinutes: number
-  lateDays: number
-}
-
-const COURSE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
-const COURSE_VIDEO_MAX_BYTES = 15 * 1024 * 1024
-const COURSE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
-const COURSE_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"])
-
-type StudentPinModalState = {
-  userId: string
-  name: string
-  email: string
-  needsEnrollment: boolean
-  provisionalActive: boolean
-  provisionalExpiresAt: string | null
-}
-
-type RoomSafeDeleteModalState = {
-  room: RoomRow
-  reason: string
-  error: string | null
-}
-
-type RoomReassignModalState = {
-  room: RoomRow
-  targetRoomId: string
-  moveFutureSessions: boolean
-  availableCourses: Array<{ id: string; title: string; slug: string; scheduleLabel: string | null }>
-  selectedCourseIds: string[]
-  error: string | null
-}
-
-type RoomReservationRow = {
-  id: string
-  roomId: string
-  title: string
-  reason: string
-  category: string | null
-  startsAt: string
-  endsAt: string
-  status: string
-  assignedStaffClerkUserId: string | null
-  cancellationReason: string | null
-}
-
-type RoomReservationCancelModalState = {
-  reservation: RoomReservationRow
-  reason: string
-  error: string | null
-}
-
-type StaffProfileForm = {
-  firstName: string
-  lastName: string
-  role: StaffRole
-  category: StaffCategory
-  birthDate: string
-  addressLine1: string
-  addressLine2: string
-  city: string
-  state: string
-  postalCode: string
-  country: string
-  personalNote: string
-  location: string
-  gallery: string[]
-  pin: string
-  clearPin: boolean
-}
-
-type SchoolCourseRow = {
-  id: string
-  slug: string
-  title: string
-  kind: string
-  category: string | null
-  description: string | null
-  coverImageUrl: string | null
-  previewVideoUrl: string | null
-  dropInPriceCents: number | null
-  firstClassPriceCents: number | null
-  level: string | null
-  durationMinutes: number | null
-  location: string | null
-  defaultRoomId: string | null
-  availableWeekdays: number[]
-  availableTimes: string[]
-  scheduleRules: unknown | null
-  active: boolean
-  createdAt: string
-}
-
-type RoomRow = {
-  id: string
-  name: string
-  capacity: number
-  location: string | null
-  active: boolean
-}
-
-type PackagePlanStatus = "ACTIVE" | "SUSPENDED" | "SCHEDULED" | "DELETED"
-type PackageStatusFilter = "all" | PackagePlanStatus
-
-type AssignmentCourseOption = {
-  slug: string
-  title: string
-  description: string | null
-  imageUrl: string | null
-  scheduleLabel: string | null
-  kindLabel: string | null
-}
-
-type SchoolPackageRow = {
-  id: string
-  key: string
-  courseSlug: string | null
-  courseSlugs: string[]
-  label: string
-  description: string | null
-  priceCents: number | null
-  cadence: string | null
-   status?: PackagePlanStatus | null
-   launchAt?: string | null
-  totalCredits: number | null
-  makeUps: number
-  validDays: number
-  isUnlimited: boolean
-  active: boolean
-  createdAt: string
-}
-
-type PointsRuleRow = {
-  id: string
-  key: string
-  label: string
-  description: string | null
-  eventType: string
-  points: number
-  active: boolean
-  createdAt: string
-}
-
-type CourseFormState = {
-  slug: string
-  title: string
-  kind: string
-  category: string
-  description: string
-  previewImageUrl: string
-  previewVideoUrl: string
-  dropInPriceCents: string
-  firstClassPriceCents: string
-  level: string
-  durationMinutes: string
-  location: string
-  defaultRoomId: string
-  publicationMode: CoursePublicationMode
-  launchDate: string
-  specialDiscountType: CourseSpecialDiscountType
-  specialDiscountCustomLabel: string
-  specialDiscountPrice: string
-  availableTimesCsv: string
-  active: boolean
-}
-
-type CourseLinkRow = {
-  id: string
-  courseSlugA: string
-  courseSlugB: string
-  dropInConsecutiveCents: number
-  packageHolderConsecutiveCents: number
-  active: boolean
-}
-
-type CourseLinkFormState = {
-  courseSlugB: string
-  dropInConsecutiveCents: string
-  packageHolderConsecutiveCents: string
-  active: boolean
-}
-
-type CourseScheduleSlot = {
-  date?: string
-  weekday?: number
-  recurring?: boolean
-  time: string
-}
-
-type CourseScheduleRuleEntry = {
-  weekday: number
-  times: string[]
-}
-
-type CourseSpecialEventEntry = {
-  date: string
-  times: string[]
-  label: string | null
-}
-
-type CoursePublicationSettings = {
-  mode: CoursePublicationMode
-  launchDate: string | null
-}
-
-type CourseSpecialDiscountSettings = {
-  type: CourseSpecialDiscountType
-  label: string | null
-  priceCents: number | null
-}
-
-type CourseScheduleRulesPayload = {
-  mode: "regular" | "special_event"
-  weeklyDaysTarget: number
-  repeatAllMonth: boolean
-  recurrenceMode: "indefinite" | "until_date"
-  recurrenceEndsAt: string | null
-  rules: CourseScheduleRuleEntry[]
-  specialEvents: CourseSpecialEventEntry[]
-  publication?: CoursePublicationSettings
-  specialDiscount?: CourseSpecialDiscountSettings
-}
-
-type PackageFormState = {
-  id: string
-  key: string
-  courseSlugs: string[]
-  label: string
-  description: string
-  priceCents: string
-  cadence: string
-  status: PackagePlanStatus
-  launchAt: string
-  totalCredits: string
-  makeUps: string
-  validDays: string
-  isUnlimited: boolean
-  active: boolean
-}
-
-type PointsRuleFormState = {
-  templateKey: string
-  points: string
-  active: boolean
-}
-
-type PointsAssignFormState = {
-  userEmail: string
-  type: string
-  points: string
-  note: string
-  eventKey: string
-}
-
-type TeacherAssignmentFormState = {
-  assignedUserId: string
-  recurrenceUnit: "month" | "year"
-  recurrenceInterval: number
-  courseSlugs: string[]
-}
+import {
+  centsToUsdInput,
+  formatClockLabel,
+  formatDateTime,
+  formatDurationLabel,
+  formatIsoDate,
+  formatMinutesLabel,
+  formatMoney,
+  formatUsdInputLabel,
+  normalizeClockTime,
+  toLocalIsoDate,
+} from "./staffAdminFormatters"
+import {
+  buildAssignmentCourseKindLabel,
+  buildAssignmentCourseScheduleLabel,
+  formatCourseSlotLabel,
+  getCourseSlotKey,
+  parseMinutesFromClassTime,
+  resolveTimeWindowByMinute,
+} from "./staffCourseScheduleHelpers"
+import {
+  buildCurrentMonthPaymentsSummarySearchParams,
+  buildCurrentMonthStudentsSummary,
+  buildPaymentsRequestSearchParams,
+  createEmptyPackageForm,
+  duplicatePackageRowToFormState,
+  getPackageLifecycleStatus,
+  packageRowToFormState,
+  resolveDirectClassRevenueCents,
+  resolveStudentCardPayments,
+} from "./staffPaymentFilters"
+import {
+  buildSelfRecommendations,
+  computeSelfPerformanceScore,
+} from "./staffSelfProfileMetrics"
+import {
+  buildCalendar,
+  monthKey,
+  previousWeekday,
+  startOfDay,
+} from "./staffCalendarHelpers"
 
 const NAV_ITEMS: StaffPortalNavItem[] = [
   { key: "users", label: "User Management", icon: Users },
@@ -763,41 +237,6 @@ const statusLabel = (row: StaffUserRow) => {
   if (row.online) return "Checked in"
   if (row.authOnline) return "Signed in"
   return "Offline"
-}
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
-
-const computeSelfPerformanceScore = (metrics: SelfProfileMetrics) => {
-  const ratingBase = metrics.performanceRating ? clamp((metrics.performanceRating / 5) * 70, 0, 70) : 35
-  const reviewBase = metrics.performanceReviewsCount
-    ? clamp(metrics.performanceReviewsCount * 5, 0, 20)
-    : 6
-  const cadencePenalty =
-    typeof metrics.performanceReviewCycleDays === "number" && metrics.performanceReviewCycleDays > 45
-      ? clamp((metrics.performanceReviewCycleDays - 45) * 0.35, 0, 12)
-      : 0
-  return clamp(Math.round(ratingBase + reviewBase - cadencePenalty), 0, 100)
-}
-
-const buildSelfRecommendations = (metrics: SelfProfileMetrics) => {
-  const tips: string[] = []
-  if (typeof metrics.performanceRating !== "number") {
-    tips.push("Request your first performance review to establish a baseline score.")
-  } else if (metrics.performanceRating < 4.2) {
-    tips.push("Improve class delivery consistency to raise rating above 4.2.")
-  } else {
-    tips.push("Keep teaching consistency high and document repeatable class structure.")
-  }
-  if (!metrics.performanceReviewCycleDays || metrics.performanceReviewCycleDays > 45) {
-    tips.push("Ask for a shorter review cycle (every 30-45 days) to get faster feedback loops.")
-  }
-  if (metrics.payrollStatus === "pending") {
-    tips.push("Track pending payroll status and confirm payout date with management.")
-  }
-  if (tips.length < 3) {
-    tips.push("Log schedule or vacation requests early to avoid last-minute conflicts.")
-  }
-  return tips.slice(0, 3)
 }
 
 const normalizeTeacherAssignmentCourseSlugs = (value: string[] | null | undefined) =>
@@ -835,94 +274,6 @@ const formatDate = (value: number | null) => {
   }
 }
 
-const formatDateTime = (value: string | number | null | undefined) => {
-  if (value == null || value === "") return "—"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return "—"
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(parsed)
-  } catch {
-    return "—"
-  }
-}
-
-const toEmbedVideoUrl = (input: string) => {
-  const value = input.trim()
-  if (!value) return ""
-  if (value.includes("youtube.com/watch?v=")) {
-    const id = value.split("watch?v=")[1]?.split("&")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("youtu.be/")) {
-    const id = value.split("youtu.be/")[1]?.split("?")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("vimeo.com/")) {
-    const id = value.split("vimeo.com/")[1]?.split("?")[0]
-    return id ? `https://player.vimeo.com/video/${id}` : value
-  }
-  return value
-}
-
-const isEmbedVideoUrl = (value: string) =>
-  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
-
-const toAutoplayEmbedUrl = (value: string) => {
-  const base = value.trim()
-  if (!base) return ""
-  const hasQuery = base.includes("?")
-  if (base.includes("youtube.com/embed/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=0&rel=0&playsinline=1`
-  }
-  if (base.includes("player.vimeo.com/video/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1&background=1`
-  }
-  return base
-}
-
-const normalizeClockTime = (value: string) => {
-  const [hours, minutes] = value.split(":")
-  const h = Number(hours)
-  const m = Number(minutes)
-  if (!Number.isInteger(h) || !Number.isInteger(m)) return ""
-  if (h < 0 || h > 23 || m < 0 || m > 59) return ""
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-}
-
-const normalizeQuickScheduleTimes = (values: string[]) => {
-  const normalized = [...new Set(values.map((item) => normalizeClockTime(String(item))).filter((item): item is string => Boolean(item)))]
-    .sort((a, b) => a.localeCompare(b))
-
-  if (normalized.length < QUICK_SCHEDULE_SLOT_COUNT) {
-    for (const fallback of DEFAULT_QUICK_SCHEDULE_TIMES) {
-      const value = normalizeClockTime(fallback)
-      if (!value || normalized.includes(value)) continue
-      normalized.push(value)
-      if (normalized.length >= QUICK_SCHEDULE_SLOT_COUNT) break
-    }
-  }
-
-  return normalized.sort((a, b) => a.localeCompare(b)).slice(0, QUICK_SCHEDULE_SLOT_COUNT)
-}
-
-const formatClockLabel = (value: string) => {
-  const normalized = normalizeClockTime(value)
-  if (!normalized) return value
-  const [hours, minutes] = normalized.split(":").map(Number)
-  const suffix = hours >= 12 ? "PM" : "AM"
-  const hour12 = hours % 12 || 12
-  return `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`
-}
-
-const toLocalIsoDate = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-
 export const resolveHistoryMaxSelectableDateIso = (referenceDate = new Date(), timeZone = "America/New_York") => {
   try {
     return new Intl.DateTimeFormat("en-CA", {
@@ -934,302 +285,6 @@ export const resolveHistoryMaxSelectableDateIso = (referenceDate = new Date(), t
   } catch {
     return toLocalIsoDate(referenceDate)
   }
-}
-
-const buildReservationDateTime = (date: string, time: string) => {
-  if (!ISO_DATE_REGEX.test(date) || !normalizeClockTime(time)) return null
-  const parsed = new Date(`${date}T${time}:00`)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed
-}
-
-const formatReservationDateLabel = (isoDate: string) => {
-  if (!ISO_DATE_REGEX.test(isoDate)) return ""
-  const parsed = new Date(`${isoDate}T12:00:00`)
-  if (Number.isNaN(parsed.getTime())) return ""
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(parsed)
-}
-
-const toCourseScheduleWeekday = (isoDate: string) => {
-  const date = new Date(`${isoDate}T12:00:00`)
-  if (Number.isNaN(date.getTime())) return null
-  return date.getDay()
-}
-
-const getCourseSlotWeekday = (slot: CourseScheduleSlot) => {
-  if (typeof slot.weekday === "number" && slot.weekday >= 0 && slot.weekday <= 6) return slot.weekday
-  if (slot.date) return toCourseScheduleWeekday(slot.date)
-  return null
-}
-
-const getCourseSlotKey = (slot: CourseScheduleSlot) => {
-  const time = normalizeClockTime(slot.time)
-  if (typeof slot.weekday === "number") return `w:${slot.weekday}|${time}`
-  return `d:${slot.date || ""}|${time}`
-}
-
-const formatCourseSlotLabel = (slot: CourseScheduleSlot) => {
-  const timeLabel = formatClockLabel(slot.time)
-  if (typeof slot.weekday === "number") {
-    const weekdayLabel = WEEKDAY_LABELS[slot.weekday] || `Day ${slot.weekday}`
-    return `Every ${weekdayLabel} · ${timeLabel}`
-  }
-  return `${slot.date || "—"} · ${timeLabel}`
-}
-
-const formatCourseWeekdayList = (weekdays: number[]) =>
-  weekdays
-    .map((weekday) => WEEKDAY_LABELS[weekday] || `Day ${weekday}`)
-    .filter(Boolean)
-    .join(" / ")
-
-const formatCourseTimesList = (times: string[]) =>
-  times
-    .map((time) => normalizeClockTime(time))
-    .filter((time): time is string => Boolean(time))
-    .map((time) => formatClockLabel(time))
-    .join(", ")
-
-const buildAssignmentCourseScheduleLabel = (course: SchoolCourseRow) => {
-  const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
-  const ruleWeekdays = parsedRules ? [...new Set(parsedRules.rules.map((rule) => rule.weekday))].sort((a, b) => a - b) : []
-  const ruleTimes = parsedRules
-    ? [...new Set(parsedRules.rules.flatMap((rule) => rule.times).map((time) => normalizeClockTime(time)).filter(Boolean))].sort()
-    : []
-  const weekdays = ruleWeekdays.length > 0 ? ruleWeekdays : course.availableWeekdays
-  const times = ruleTimes.length > 0 ? ruleTimes : course.availableTimes.map((time) => normalizeClockTime(time)).filter(Boolean)
-  const weekdayLabel = weekdays.length > 0 ? formatCourseWeekdayList(weekdays) : ""
-  const timeLabel = times.length > 0 ? formatCourseTimesList(times) : ""
-
-  if (weekdayLabel && timeLabel) return `${weekdayLabel} · ${timeLabel}`
-  if (weekdayLabel) return weekdayLabel
-  if (timeLabel) return timeLabel
-
-  const firstSpecialEvent = parsedRules?.specialEvents[0]
-  if (!firstSpecialEvent) return null
-  const specialEventTimes = formatCourseTimesList(firstSpecialEvent.times)
-  return specialEventTimes ? `${formatIsoDate(firstSpecialEvent.date)} · ${specialEventTimes}` : formatIsoDate(firstSpecialEvent.date)
-}
-
-const buildAssignmentCourseKindLabel = (course: SchoolCourseRow) => {
-  const kindLabel = COURSE_KIND_LABELS[course.kind] || course.kind || ""
-  if (kindLabel && course.category) return `${kindLabel} · ${course.category}`
-  return kindLabel || course.category || null
-}
-
-const compareCourseSlots = (a: CourseScheduleSlot, b: CourseScheduleSlot) => {
-  const aWeekday = getCourseSlotWeekday(a)
-  const bWeekday = getCourseSlotWeekday(b)
-  const aTime = normalizeClockTime(a.time)
-  const bTime = normalizeClockTime(b.time)
-  if (aWeekday !== null && bWeekday !== null && aWeekday !== bWeekday) return aWeekday - bWeekday
-  if (aTime !== bTime) return aTime.localeCompare(bTime)
-  const aDate = a.date || ""
-  const bDate = b.date || ""
-  return aDate.localeCompare(bDate)
-}
-
-const deriveCourseScheduleData = (slots: CourseScheduleSlot[]) => {
-  if (slots.length === 0) {
-    return { weekdays: [] as number[], times: [] as string[] }
-  }
-  const weekdays = [...new Set(slots.map((slot) => getCourseSlotWeekday(slot)).filter((item): item is number => item !== null))].sort(
-    (a, b) => a - b
-  )
-  const times = [...new Set(slots.map((slot) => normalizeClockTime(slot.time)).filter(Boolean))].sort()
-  return { weekdays, times }
-}
-
-const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
-  if (!value || typeof value !== "object") return null
-  const source = value as Record<string, unknown>
-  const rulesInput = Array.isArray(source.rules) ? source.rules : []
-  const grouped = new Map<number, Set<string>>()
-
-  for (const rule of rulesInput) {
-    if (!rule || typeof rule !== "object") continue
-    const candidate = rule as Record<string, unknown>
-    const weekday =
-      typeof candidate.weekday === "number" && Number.isInteger(candidate.weekday) && candidate.weekday >= 0 && candidate.weekday <= 6
-        ? candidate.weekday
-        : null
-    if (weekday === null) continue
-    const times = Array.isArray(candidate.times)
-      ? candidate.times.map((time) => normalizeClockTime(String(time))).filter(Boolean)
-      : []
-    if (times.length === 0) continue
-    if (!grouped.has(weekday)) grouped.set(weekday, new Set<string>())
-    const bucket = grouped.get(weekday)!
-    times.forEach((time) => bucket.add(time))
-  }
-
-  const rules = [...grouped.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([weekday, times]) => ({
-      weekday,
-      times: [...times].sort(),
-    }))
-
-  const specialEventsInput = Array.isArray(source.specialEvents) ? source.specialEvents : []
-  const specialEventsMap = new Map<string, Set<string>>()
-  for (const item of specialEventsInput) {
-    if (!item || typeof item !== "object") continue
-    const candidate = item as Record<string, unknown>
-    const date = typeof candidate.date === "string" && ISO_DATE_REGEX.test(candidate.date.trim()) ? candidate.date.trim() : ""
-    if (!date) continue
-    const times = Array.isArray(candidate.times)
-      ? candidate.times.map((time) => normalizeClockTime(String(time))).filter(Boolean)
-      : []
-    if (times.length === 0) continue
-    if (!specialEventsMap.has(date)) specialEventsMap.set(date, new Set<string>())
-    const bucket = specialEventsMap.get(date)!
-    times.forEach((time) => bucket.add(time))
-  }
-  const specialEvents = [...specialEventsMap.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, times]) => ({
-      date,
-      times: [...times].sort(),
-      label: "Special event",
-    }))
-
-  const publicationSource =
-    source.publication && typeof source.publication === "object"
-      ? (source.publication as Record<string, unknown>)
-      : null
-  const publicationModeRaw = publicationSource?.mode
-  const publicationMode: CoursePublicationMode =
-    publicationModeRaw === "coming_soon" || publicationModeRaw === "launch_date" || publicationModeRaw === "publish_now"
-      ? publicationModeRaw
-      : "publish_now"
-  const launchDateRaw = typeof publicationSource?.launchDate === "string" ? publicationSource.launchDate.trim() : ""
-  const launchDate = publicationMode === "launch_date" && ISO_DATE_REGEX.test(launchDateRaw) ? launchDateRaw : null
-  const publication: CoursePublicationSettings = {
-    mode: publicationMode,
-    launchDate,
-  }
-
-  const specialDiscountSource =
-    source.specialDiscount && typeof source.specialDiscount === "object"
-      ? (source.specialDiscount as Record<string, unknown>)
-      : null
-  const specialDiscountTypeRaw = specialDiscountSource?.type
-  const specialDiscountType: CourseSpecialDiscountType =
-    specialDiscountTypeRaw === "valentines_desc" ||
-    specialDiscountTypeRaw === "christmas_desc" ||
-    specialDiscountTypeRaw === "custom" ||
-    specialDiscountTypeRaw === "none"
-      ? specialDiscountTypeRaw
-      : "none"
-  const specialDiscountLabelRaw = typeof specialDiscountSource?.label === "string" ? specialDiscountSource.label.trim() : ""
-  const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
-  const specialDiscountPriceRaw = Number(specialDiscountSource?.priceCents)
-  const specialDiscountPrice =
-    Number.isFinite(specialDiscountPriceRaw) && specialDiscountPriceRaw >= 0
-      ? Math.round(specialDiscountPriceRaw)
-      : null
-  const specialDiscount: CourseSpecialDiscountSettings = {
-    type: specialDiscountType,
-    label: specialDiscountLabel,
-    priceCents: specialDiscountPrice,
-  }
-
-  const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
-  const hasSpecialDiscount =
-    specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
-  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
-
-  const target = Number(source.weeklyDaysTarget)
-  const weeklyDaysTarget = Number.isFinite(target) ? Math.max(1, Math.min(7, Math.round(target))) : Math.max(1, Math.min(7, rules.length))
-  const repeatAllMonth = typeof source.repeatAllMonth === "boolean" ? source.repeatAllMonth : true
-  const recurrenceMode = source.recurrenceMode === "until_date" ? "until_date" : "indefinite"
-  const recurrenceEndsAt = recurrenceMode === "until_date" && typeof source.recurrenceEndsAt === "string" ? source.recurrenceEndsAt : null
-  const modeSource = source.mode === "special_event" ? "special_event" : source.mode === "regular" ? "regular" : null
-  const mode: "regular" | "special_event" = modeSource || (specialEvents.length > 0 && rules.length === 0 ? "special_event" : "regular")
-
-  return {
-    mode,
-    weeklyDaysTarget,
-    repeatAllMonth,
-    recurrenceMode,
-    recurrenceEndsAt,
-    rules,
-    specialEvents,
-    publication,
-    specialDiscount,
-  }
-}
-
-const buildSlotsFromScheduleRules = (payload: CourseScheduleRulesPayload) => {
-  const slots: CourseScheduleSlot[] = []
-  for (const rule of payload.rules) {
-    for (const time of rule.times) {
-      const normalized = normalizeClockTime(time)
-      if (!normalized) continue
-      slots.push({ weekday: rule.weekday, recurring: true, time: normalized })
-    }
-  }
-  for (const event of payload.specialEvents) {
-    for (const time of event.times) {
-      const normalized = normalizeClockTime(time)
-      if (!normalized) continue
-      slots.push({ date: event.date, time: normalized })
-    }
-  }
-  return slots.sort(compareCourseSlots)
-}
-
-const deriveRulesFromScheduleSlots = (slots: CourseScheduleSlot[]): CourseScheduleRuleEntry[] => {
-  const grouped = new Map<number, Set<string>>()
-  for (const slot of slots) {
-    if (typeof slot.weekday !== "number") continue
-    const normalized = normalizeClockTime(slot.time)
-    if (!normalized) continue
-    if (!grouped.has(slot.weekday)) grouped.set(slot.weekday, new Set<string>())
-    grouped.get(slot.weekday)!.add(normalized)
-  }
-  return [...grouped.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([weekday, times]) => ({
-      weekday,
-      times: [...times].sort(),
-    }))
-}
-
-const deriveSpecialEventsFromScheduleSlots = (slots: CourseScheduleSlot[]): CourseSpecialEventEntry[] => {
-  const grouped = new Map<string, Set<string>>()
-  for (const slot of slots) {
-    if (!slot.date || !ISO_DATE_REGEX.test(slot.date)) continue
-    const normalized = normalizeClockTime(slot.time)
-    if (!normalized) continue
-    if (!grouped.has(slot.date)) grouped.set(slot.date, new Set<string>())
-    grouped.get(slot.date)!.add(normalized)
-  }
-  return [...grouped.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, times]) => ({
-      date,
-      times: [...times].sort(),
-      label: "Special event",
-    }))
-}
-
-const formatIsoDate = (value: string | null) => {
-  if (!value) return "—"
-  const time = Date.parse(value)
-  if (Number.isNaN(time)) return "—"
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(time))
 }
 
 const PAYMENT_CHANGE_REQUEST_STATUS_LABELS: Record<StaffPaymentChangeRequestRow["status"], string> = {
@@ -1375,98 +430,6 @@ const formatWeekRangeLabel = (weekStartTs: number) => {
   return `${startLabel} – ${endLabel}`
 }
 
-const parseMinutesFromClassTime = (classTime: string | null) => {
-  if (!classTime) return null
-  const value = classTime.trim().toUpperCase()
-  if (!value) return null
-  const match = value.match(/(\d{1,2})[:h](\d{2})(?:\s*([AP]M))?/)
-  if (!match) return null
-  let hour = Number(match[1])
-  const minute = Number(match[2])
-  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) return null
-  const meridiem = match[3]
-  if (meridiem === "PM" && hour < 12) hour += 12
-  if (meridiem === "AM" && hour === 12) hour = 0
-  if (hour < 0 || hour > 23) return null
-  return hour * 60 + minute
-}
-
-const resolveTimeWindowByMinute = (minutes: number) => {
-  if (minutes >= 300 && minutes < 720) return "Morning"
-  if (minutes >= 720 && minutes < 1020) return "Afternoon"
-  if (minutes >= 1020 && minutes < 1320) return "Evening"
-  return "Night"
-}
-
-const formatMoney = (amount: number, currency = "usd") =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency.toUpperCase(),
-    maximumFractionDigits: 2,
-  }).format((amount || 0) / 100)
-
-const centsToUsdInput = (cents: number | null | undefined) => {
-  if (typeof cents !== "number" || !Number.isFinite(cents)) return ""
-  const value = (cents / 100).toFixed(2)
-  return value.endsWith(".00") ? value.slice(0, -3) : value
-}
-
-const usdInputToCents = (value: string) => {
-  const clean = value.trim().replace(",", ".")
-  if (!clean) return null
-  const parsed = Number(clean)
-  if (!Number.isFinite(parsed) || parsed < 0) return null
-  return Math.round(parsed * 100)
-}
-
-const formatUsdInputLabel = (value: string) => {
-  const parsed = Number(value.trim().replace(",", "."))
-  if (!Number.isFinite(parsed) || parsed < 0) return "—"
-  return `$${parsed.toFixed(2)}`
-}
-
-function createEmptyPackageForm(): PackageFormState {
-  return {
-    id: "",
-    key: "",
-    courseSlugs: [],
-    label: "",
-    description: "",
-    priceCents: "",
-    cadence: "",
-    status: "ACTIVE",
-    launchAt: "",
-    totalCredits: "",
-    makeUps: "0",
-    validDays: "180",
-    isUnlimited: false,
-    active: true,
-  }
-}
-
-function packageRowToFormState(item: SchoolPackageRow): PackageFormState {
-  return {
-    id: item.id,
-    key: item.key,
-    courseSlugs: item.courseSlugs ?? (item.courseSlug ? [item.courseSlug] : []),
-    label: item.label,
-    description: item.description || "",
-    priceCents: centsToUsdInput(item.priceCents),
-    cadence: item.cadence || "",
-    status: item.status || (item.active ? "ACTIVE" : "SUSPENDED"),
-    launchAt: item.launchAt ? String(item.launchAt).slice(0, 16) : "",
-    totalCredits: item.totalCredits === null ? "" : String(item.totalCredits),
-    makeUps: String(item.makeUps),
-    validDays: String(item.validDays),
-    isUnlimited: item.isUnlimited,
-    active: item.active,
-  }
-}
-
-function getPackageLifecycleStatus(item: SchoolPackageRow): PackagePlanStatus {
-  return item.status || (item.active ? "ACTIVE" : "SUSPENDED")
-}
-
 function getPackageLifecycleBadgeClass(status: PackagePlanStatus) {
   switch (status) {
     case "ACTIVE":
@@ -1491,33 +454,6 @@ function formatPackageLaunchLabel(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(parsed)
-}
-
-function duplicatePackageRowToFormState(item: SchoolPackageRow): PackageFormState {
-  return {
-    ...packageRowToFormState(item),
-    id: "",
-    key: `${item.key}-copy`,
-    label: `${item.label} Copy`,
-  }
-}
-
-const formatMinutesLabel = (minutes: number) => {
-  if (minutes <= 0) return "On time"
-  const hours = Math.floor(minutes / 60)
-  const restMinutes = minutes % 60
-  if (hours <= 0) return `${restMinutes}m`
-  if (restMinutes <= 0) return `${hours}h`
-  return `${hours}h ${restMinutes}m`
-}
-
-const formatDurationLabel = (minutes: number) => {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "0m"
-  const hours = Math.floor(minutes / 60)
-  const restMinutes = minutes % 60
-  if (hours <= 0) return `${restMinutes}m`
-  if (restMinutes <= 0) return `${hours}h`
-  return `${hours}h ${restMinutes}m`
 }
 
 const toUtcCalendarStamp = (value: Date) =>
@@ -1693,19 +629,6 @@ const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
   return "No PIN"
 }
 
-const resolveDirectClassRevenueCents = <
-  TPayment extends Pick<PaymentRow, "id" | "amount" | "classPaid" | "fundingPayment" | "purchaseCategory" | "settlementStatus" | "paymentStatus" | "packageId" | "serviceId">
->(payments: TPayment[]) => {
-  const paidPurchases = new Map<string, number>()
-  for (const payment of payments) {
-    const isDirectClassPurchase = payment.purchaseCategory !== "package" || Boolean(payment.serviceId)
-    if (!isDirectClassPurchase) continue
-    if (!payment.classPaid && payment.settlementStatus !== "paid" && !isCompletedPaymentStatusValue(payment.paymentStatus)) continue
-    paidPurchases.set(payment.id, payment.amount)
-  }
-  return [...paidPurchases.values()].reduce((sum, amount) => sum + amount, 0)
-}
-
 type ProfileBadge = {
   key: string
   label: string
@@ -1838,200 +761,6 @@ export const resolveProfileCardDetails = (student: StudentProfileCard) => {
   }
 }
 
-const matchesPaymentCategory = (row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory">, category: PaymentCategoryFilter) => {
-  if (category === "all") return true
-  if (category === "history") return true
-  if (category === "cash") return row.paymentChannel === "cash"
-  if (category === "card") return row.paymentChannel === "card" || row.paymentChannel === "unknown"
-  if (category === "packages") return row.purchaseCategory === "package"
-  if (category === "dropin") return row.purchaseCategory === "dropin"
-  return true
-}
-
-const matchesStripeStatus = (
-  row: {
-    classPaid: PaymentRow["classPaid"]
-    purchaseCategory: PaymentRow["purchaseCategory"]
-    fundingPayment?: PaymentRow["fundingPayment"]
-    checkInStatus?: PaymentRow["checkInStatus"]
-    packageId?: PaymentRow["packageId"]
-  },
-  filter: "all" | "pending" | "paid"
-) => {
-  if (filter === "all") return true
-  if (filter === "paid") return isPaymentPaidForUi(row)
-  return !isPaymentPaidForUi(row)
-}
-
-export const matchesStudentSearchQuery = (
-  row: Pick<PaymentRow, "customerName" | "customerEmail" | "customerPhone" | "courseTitle" | "courseSlug" | "location" | "activePackage">,
-  searchTerm: string
-) => {
-  const normalizedSearchTerm = searchTerm.trim().toLowerCase()
-  if (!normalizedSearchTerm) return true
-
-  const haystack = [
-    row.customerName,
-    row.customerEmail,
-    row.customerPhone,
-    row.courseTitle,
-    row.courseSlug,
-    row.location || "",
-    row.activePackage?.label || "",
-  ]
-    .join(" ")
-    .toLowerCase()
-
-  return haystack.includes(normalizedSearchTerm)
-}
-
-const matchesHistoryPaymentMethod = (
-  row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory">,
-  filter: HistoryPaymentMethodFilter
-) => {
-  if (filter === "all") return true
-  if (filter === "cash") return row.paymentChannel === "cash"
-  if (filter === "card") return row.paymentChannel === "card"
-  if (filter === "package") return row.purchaseCategory === "package"
-  return row.purchaseCategory === "dropin"
-}
-
-const matchesHistoryAttendanceFilter = (
-  row: Pick<PaymentRow, "checkInStatus" | "purchaseCategory" | "packageId" | "classPaid" | "fundingPayment">,
-  filter: HistoryAttendanceFilter
-) => {
-  if (filter === "all") return true
-  if (filter === "attended") return isCompletedClassEvidence(row)
-  if (filter === "scheduled") return row.checkInStatus === "scheduled"
-  return row.checkInStatus === "none"
-}
-
-export const matchesHistoryContentFilters = (
-  row: HistoryContentFilterInput,
-  filters: {
-    classKey: string
-    paymentMethodFilter: HistoryPaymentMethodFilter
-    attendanceFilter: HistoryAttendanceFilter
-    paymentsFilter: "all" | "pending" | "paid"
-  }
-) => {
-  return (
-    (!filters.classKey || row.courseSlug === filters.classKey) &&
-    matchesHistoryPaymentMethod(row, filters.paymentMethodFilter) &&
-    matchesHistoryAttendanceFilter(row, filters.attendanceFilter) &&
-    matchesStripeStatus(row, filters.paymentsFilter)
-  )
-}
-
-export const resolveStudentCardPayments = (
-  payments: PaymentRow[],
-  options: {
-    isHistoryMode: boolean
-    historyClassKey: string
-    historyPaymentMethodFilter: HistoryPaymentMethodFilter
-    historyAttendanceFilter: HistoryAttendanceFilter
-    paymentCategoryFilter: PaymentCategoryFilter
-    paymentsFilter: "all" | "pending" | "paid"
-    studentSearchQuery: string
-  }
-) => {
-  const contentFilteredPayments = payments.filter((payment) => {
-    if (options.isHistoryMode) {
-      return matchesHistoryContentFilters(payment, {
-        classKey: options.historyClassKey,
-        paymentMethodFilter: options.historyPaymentMethodFilter,
-        attendanceFilter: options.historyAttendanceFilter,
-        paymentsFilter: "all",
-      })
-    }
-
-    return matchesPaymentCategory(payment, options.paymentCategoryFilter)
-  })
-
-  if (!options.studentSearchQuery.trim()) {
-    return contentFilteredPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
-  }
-
-  const searchMatchedPayments = contentFilteredPayments.filter((payment) => matchesStudentSearchQuery(payment, options.studentSearchQuery))
-  if (searchMatchedPayments.length === 0) return []
-
-  const statusMatchedPayments = searchMatchedPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
-  return statusMatchedPayments.length > 0 ? statusMatchedPayments : searchMatchedPayments
-}
-
-export const buildPaymentsRequestSearchParams = (input: {
-  isHistoryMode: boolean
-  historyFrom: string
-  historyTo: string
-  studentSearchQuery?: string
-}) => {
-  const searchParams = new URLSearchParams()
-  const normalizedStudentSearchQuery = input.studentSearchQuery?.trim() || ""
-  if (normalizedStudentSearchQuery) {
-    searchParams.set("q", normalizedStudentSearchQuery)
-  }
-  if (!input.isHistoryMode) return searchParams
-  searchParams.set("mode", "history")
-  searchParams.set("from", input.historyFrom)
-  searchParams.set("to", input.historyTo)
-  return searchParams
-}
-
-export const buildCurrentMonthPaymentsSummarySearchParams = (referenceDate = new Date()) => {
-  const monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1)
-  const monthEnd = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0)
-
-  return buildPaymentsRequestSearchParams({
-    isHistoryMode: true,
-    historyFrom: toLocalIsoDate(monthStart),
-    historyTo: toLocalIsoDate(monthEnd),
-  })
-}
-
-export const buildCurrentMonthStudentsSummary = (input: {
-  summary: PaymentsApiSummary
-  studentCount: number
-  checkedInStudents: number
-}) => ({
-  totalStudents: input.studentCount,
-  paidStudents: input.summary.paidStripe,
-  checkedInStudents: input.checkedInStudents,
-  totalRevenueCents: input.summary.totalCollected,
-  pendingByContext: input.summary.pendingStripe + input.summary.pendingSettlement,
-})
-
-const roomBlockerCodeLabel: Record<string, string> = {
-  CLASS_IN_PROGRESS: "A class is currently in progress in this room.",
-  SESSION_IN_NEXT_24H: "A class session is scheduled in the next 24 hours.",
-  RESERVATION_IN_NEXT_24H: "A private reservation exists in the next 24 hours.",
-  INVALID_COURSE_SELECTION: "One or more selected courses are not assigned to the source room.",
-}
-
-export const formatRoomActionBlockers = (blockers: unknown): string[] => {
-  if (!Array.isArray(blockers)) return []
-  return blockers
-    .map((item) => {
-      if (!item || typeof item !== "object") return null
-      const code = typeof (item as { code?: unknown }).code === "string" ? (item as { code: string }).code : null
-      const startsAtRaw = typeof (item as { startsAt?: unknown }).startsAt === "string" ? (item as { startsAt: string }).startsAt : null
-      const startsAt = startsAtRaw ? formatDateTime(startsAtRaw) : null
-      if (code && roomBlockerCodeLabel[code]) {
-        return startsAt ? `${roomBlockerCodeLabel[code]} (${startsAt})` : roomBlockerCodeLabel[code]
-      }
-      return null
-    })
-    .filter((value): value is string => Boolean(value))
-}
-
-export const resolveRoomActionErrorMessage = (payload: unknown, fallback: string) => {
-  if (!payload || typeof payload !== "object") return fallback
-  const source = payload as { error?: unknown; blockers?: unknown }
-  const baseError = typeof source.error === "string" ? source.error : fallback
-  const blockerLines = formatRoomActionBlockers(source.blockers)
-  if (blockerLines.length === 0) return baseError
-  return `${baseError} ${blockerLines.join(" ")}`
-}
-
 const splitCustomerName = (name: string, email: string) => {
   const source = name.trim() || email.trim()
   const parts = source.split(/\s+/).filter(Boolean)
@@ -2057,53 +786,6 @@ export const isInsideCriticalClassWindow = (
     }
   }
   return false
-}
-
-const monthKey = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`
-
-const toDateKey = (year: number, monthIndex: number, day: number) =>
-  `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-
-const buildCalendar = (year: number, monthIndex: number) => {
-  const firstDay = new Date(year, monthIndex, 1)
-  const offset = firstDay.getDay()
-  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate()
-  const daysInPrevMonth = new Date(year, monthIndex, 0).getDate()
-
-  const cells: Array<{ day: number; dateKey: string; inMonth: boolean }> = []
-
-  for (let i = offset - 1; i >= 0; i--) {
-    const day = daysInPrevMonth - i
-    const prevMonth = monthIndex === 0 ? 11 : monthIndex - 1
-    const prevYear = monthIndex === 0 ? year - 1 : year
-    cells.push({ day, dateKey: toDateKey(prevYear, prevMonth, day), inMonth: false })
-  }
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    cells.push({ day, dateKey: toDateKey(year, monthIndex, day), inMonth: true })
-  }
-
-  while (cells.length % 7 !== 0) {
-    const nextDay = cells.length - (offset + daysInMonth) + 1
-    const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1
-    const nextYear = monthIndex === 11 ? year + 1 : year
-    cells.push({ day: nextDay, dateKey: toDateKey(nextYear, nextMonth, nextDay), inMonth: false })
-  }
-
-  return cells
-}
-
-const startOfDay = (value: Date) => {
-  const out = new Date(value)
-  out.setHours(0, 0, 0, 0)
-  return out
-}
-
-const previousWeekday = (base: Date, weekday: number) => {
-  const out = startOfDay(base)
-  const diff = (out.getDay() - weekday + 7) % 7
-  out.setDate(out.getDate() - diff)
-  return out
 }
 
 const MIN_LOADING_DELAY_MS = 3000
@@ -2206,7 +888,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   ])
   const [assistantChatInput, setAssistantChatInput] = React.useState("")
   const [isRailCollapsed, setIsRailCollapsed] = React.useState(false)
-  const [hasAssistantViewportSync, setHasAssistantViewportSync] = React.useState(true)
 
   const [email, setEmail] = React.useState("")
   const [firstName, setFirstName] = React.useState("")
@@ -2239,7 +920,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }>>([])
   const [paymentsFilter, setPaymentsFilter] = React.useState<"all" | "pending" | "paid">("all")
   const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("all")
-  const [isHistoryMode, setIsHistoryMode] = React.useState(false)
+  const isHistoryMode = paymentCategoryFilter === "history"
   const [historyFrom, setHistoryFrom] = React.useState("")
   const [historyTo, setHistoryTo] = React.useState("")
   const [historyPaymentMethodFilter, setHistoryPaymentMethodFilter] = React.useState<HistoryPaymentMethodFilter>("all")
@@ -2354,8 +1035,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     expiresAt: string | null
   } | null>(null)
   const [studentPinRevealIssued, setStudentPinRevealIssued] = React.useState(false)
-  const [overrideModalOpen, setOverrideModalOpen] = React.useState(false)
   const [overrideModalStudent, setOverrideModalStudent] = React.useState<{ id: string; name: string } | null>(null)
+  const overrideModalOpen = overrideModalStudent !== null
   const [usersWithAuditEntries, setUsersWithAuditEntries] = React.useState<Set<string>>(new Set())
   const [clerkSyncHealth, setClerkSyncHealth] = React.useState<ClerkSyncHealth | null>(null)
   const [clerkSyncLoading, setClerkSyncLoading] = React.useState(false)
@@ -2389,85 +1070,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [packageSearchQuery, setPackageSearchQuery] = React.useState("")
   const [editingPackageId, setEditingPackageId] = React.useState<string | null>(null)
   const [schoolPointsRules, setSchoolPointsRules] = React.useState<PointsRuleRow[]>([])
-  const [roomForm, setRoomForm] = React.useState<RoomFormState>(() => createInitialRoomForm())
-  const [roomSearchQuery, setRoomSearchQuery] = React.useState("")
-  const [roomStatusFilter, setRoomStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
-  const [roomSaving, setRoomSaving] = React.useState(false)
-  const [roomBusyId, setRoomBusyId] = React.useState<string | null>(null)
-  const [roomFormError, setRoomFormError] = React.useState<string | null>(null)
-  const [roomFormSuccess, setRoomFormSuccess] = React.useState<string | null>(null)
-  const [roomActionErrors, setRoomActionErrors] = React.useState<Record<string, string>>({})
-  const [roomSafeDeleteModal, setRoomSafeDeleteModal] = React.useState<RoomSafeDeleteModalState | null>(null)
-  const [roomReassignModal, setRoomReassignModal] = React.useState<RoomReassignModalState | null>(null)
   const [roomReservations, setRoomReservations] = React.useState<RoomReservationRow[]>([])
-  const [roomReservationForm, setRoomReservationForm] = React.useState<RoomReservationFormState>(() => createEmptyRoomReservationForm())
-  const [roomReservationSaving, setRoomReservationSaving] = React.useState(false)
-  const [roomReservationCancelModal, setRoomReservationCancelModal] = React.useState<RoomReservationCancelModalState | null>(null)
-  const [roomReservationBusyId, setRoomReservationBusyId] = React.useState<string | null>(null)
-  const [roomReservationFormError, setRoomReservationFormError] = React.useState<string | null>(null)
-  const [roomReservationFormSuccess, setRoomReservationFormSuccess] = React.useState<string | null>(null)
-  const updateRoomReservationFormField = React.useCallback(
-    <Field extends keyof RoomReservationFormState>(field: Field, value: RoomReservationFormState[Field]) => {
-      setRoomReservationForm((prev) => ({
-        ...prev,
-        [field]: value,
-      }))
-    },
-    [],
-  )
-  const [courseForm, setCourseForm] = React.useState<CourseFormState>({
-    slug: "",
-    title: "",
-    kind: "course",
-    category: "",
-    description: "",
-    previewImageUrl: "",
-    previewVideoUrl: "",
-    dropInPriceCents: "",
-    firstClassPriceCents: "",
-    level: "Beginner",
-    durationMinutes: "55",
-    location: "54 Coles St, Jersey City, NJ",
-    defaultRoomId: "",
-    publicationMode: "publish_now",
-    launchDate: "",
-    specialDiscountType: "none",
-    specialDiscountCustomLabel: "",
-    specialDiscountPrice: "",
-    availableTimesCsv: "",
-    active: true,
-  })
-  const [courseWeekdays, setCourseWeekdays] = React.useState<number[]>([])
-  const [courseScheduleDate, setCourseScheduleDate] = React.useState("")
-  const [courseScheduleDates, setCourseScheduleDates] = React.useState<string[]>([])
-  const [courseRecurringWeekdays, setCourseRecurringWeekdays] = React.useState<number[]>([])
-  const [courseMirrorEnabled, setCourseMirrorEnabled] = React.useState(false)
-  const [courseMirrorWeekdays, setCourseMirrorWeekdays] = React.useState<number[]>([])
-  const [courseRepeatAllMonth, setCourseRepeatAllMonth] = React.useState(true)
-  const [courseRecurrenceMode, setCourseRecurrenceMode] = React.useState<"indefinite" | "until_date">("indefinite")
-  const [courseRecurrenceEndsAt, setCourseRecurrenceEndsAt] = React.useState("")
-  const [courseScheduleTime, setCourseScheduleTime] = React.useState("10:00")
-  const [courseScheduleSlots, setCourseScheduleSlots] = React.useState<CourseScheduleSlot[]>([])
-  const [quickScheduleTimes, setQuickScheduleTimes] = React.useState<string[]>(() => normalizeQuickScheduleTimes(DEFAULT_QUICK_SCHEDULE_TIMES))
-  const [editingQuickTimeIndex, setEditingQuickTimeIndex] = React.useState<number | null>(null)
-  const [quickTimeDraft, setQuickTimeDraft] = React.useState("")
-  const [scheduleTimePickerOpen, setScheduleTimePickerOpen] = React.useState(false)
   const [reviewPreviewHover, setReviewPreviewHover] = React.useState<"home" | "single" | null>(null)
-  const [courseLocalImagePreview, setCourseLocalImagePreview] = React.useState("")
-  const [courseLocalVideoPreview, setCourseLocalVideoPreview] = React.useState("")
-  const [courseLocalImageName, setCourseLocalImageName] = React.useState("")
-  const [courseLocalVideoName, setCourseLocalVideoName] = React.useState("")
-  const [courseMediaUploading, setCourseMediaUploading] = React.useState<null | "image" | "video">(null)
-  const [courseHydratedFromQuery, setCourseHydratedFromQuery] = React.useState(false)
-  const [courseEditingSlug, setCourseEditingSlug] = React.useState<string | null>(null) // The original slug when editing
-  const wizardEnabledCtx: StepEnabledContext = { courseEditingSlug }
-  const [courseCatalogSearch, setCourseCatalogSearch] = React.useState("")
-  const [courseCatalogFilter, setCourseCatalogFilter] = React.useState<"all" | "active" | "inactive">("all")
-  const [courseSlugConflict, setCourseSlugConflict] = React.useState<{ exists: boolean; suggestion: string | null; existingTitle: string | null }>({
-    exists: false,
-    suggestion: null,
-    existingTitle: null,
-  })
   // CourseLink (consecutive classes) state
   const [courseLinksAsA, setCourseLinksAsA] = React.useState<CourseLinkRow[]>([])
   const [courseLinksAsB, setCourseLinksAsB] = React.useState<CourseLinkRow[]>([])
@@ -2481,12 +1085,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const [courseLinkSaving, setCourseLinkSaving] = React.useState(false)
   const [courseLinkError, setCourseLinkError] = React.useState<string | null>(null)
   const [courseLinkSuccess, setCourseLinkSuccess] = React.useState<string | null>(null)
-  const [schoolCourseLinkCount, setSchoolCourseLinkCount] = React.useState(0)
   const [allCourseLinksMap, setAllCourseLinksMap] = React.useState<Record<string, { asA: CourseLinkRow[]; asB: CourseLinkRow[] }>>({})
-  const courseImageInputRef = React.useRef<HTMLInputElement>(null)
-  const courseVideoInputRef = React.useRef<HTMLInputElement>(null)
-  const scheduleTimePickerRef = React.useRef<HTMLDivElement>(null)
-  const courseFormFieldsRef = React.useRef<HTMLDivElement>(null)
   const resetCourseLinkForm = React.useCallback(() => {
     setCourseLinkForm({
       courseSlugB: "",
@@ -2529,37 +1128,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     pin: "",
     clearPin: false,
   })
-
-  React.useEffect(() => {
-    if (typeof window === "undefined") return
-    try {
-      const raw = window.localStorage.getItem(SCHOOL_SCHEDULE_SHORTCUTS_STORAGE_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as { quick?: unknown }
-      if (Array.isArray(parsed.quick)) {
-        const nextQuick = parsed.quick
-          .map((item) => normalizeClockTime(String(item)))
-          .filter((item): item is string => Boolean(item))
-        if (nextQuick.length > 0) setQuickScheduleTimes(normalizeQuickScheduleTimes(nextQuick))
-      }
-    } catch {
-      // ignore corrupted local storage
-    }
-  }, [])
-
-  React.useEffect(() => {
-    if (typeof window === "undefined") return
-    try {
-      window.localStorage.setItem(
-        SCHOOL_SCHEDULE_SHORTCUTS_STORAGE_KEY,
-        JSON.stringify({
-          quick: quickScheduleTimes,
-        })
-      )
-    } catch {
-      // ignore storage write failures
-    }
-  }, [quickScheduleTimes])
 
   // Load user payment history for history-range popovers only.
   // Daily PMT history must remain board-scoped to NY-today rows.
@@ -2674,7 +1242,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const isAssistantView = activeNav === "assistant" && canAccessAssistantNav
   const isSettingsView = activeNav === "settings" && canAccessSettingsNav
   const isProfileView = activeNav === "profile" && canAccessProfileNav
-  const isSpecialEventCourse = SPECIAL_EVENT_COURSE_KINDS.has(courseForm.kind)
   const showStaffOps = activeNav === "users" && canAccessUsersNav
   const showRightRail = true
   const showInlineRightRail = showRightRail && !isRailCollapsed
@@ -2800,60 +1367,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     () => PROFILE_REQUEST_TYPE_OPTIONS.find((item) => item.value === profileRequestForm.type) || PROFILE_REQUEST_TYPE_OPTIONS[0],
     [profileRequestForm.type]
   )
-  const roomById = React.useMemo(() => buildRoomLookup(schoolRooms), [schoolRooms])
-  const activeRoomOptions = React.useMemo(() => schoolRooms.filter((room) => room.active), [schoolRooms])
-  const courseRoomOptions = React.useMemo(
-    () => buildCourseRoomOptions(schoolRooms, courseForm.defaultRoomId),
-    [courseForm.defaultRoomId, schoolRooms]
-  )
-  const visibleRooms = React.useMemo(
-    () => filterVisibleRooms(schoolRooms, roomSearchQuery, roomStatusFilter),
-    [roomSearchQuery, roomStatusFilter, schoolRooms]
-  )
-  const currentUpcomingReservations = React.useMemo(() => {
-    const now = Date.now()
-    return roomReservations
-      .filter((item) => {
-        const endsAtTime = new Date(item.endsAt).getTime()
-        return Number.isFinite(endsAtTime) && endsAtTime >= now
-      })
-      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
-  }, [roomReservations])
-  const reservationAssignableStaff = React.useMemo(
-    () =>
-      rows
-        .map((item) => ({ id: item.id, label: `${item.firstName} ${item.lastName}`.trim() || item.email }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [rows]
-  )
-  const reservationStaffLabelById = React.useMemo(
-    () =>
-      reservationAssignableStaff.reduce<Record<string, string>>((acc, item) => {
-        acc[item.id] = item.label
-        return acc
-      }, {}),
-    [reservationAssignableStaff]
-  )
-  const reservationRangePreview = React.useMemo(() => {
-    const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
-    const startsAt = buildReservationDateTime(roomReservationForm.startDate, roomReservationForm.startTime)
-    const endsAt = buildReservationDateTime(effectiveEndDate, roomReservationForm.endTime)
-    if (!startsAt || !endsAt) return ""
-    if (endsAt.getTime() <= startsAt.getTime()) return ""
-    return `${startsAt.toLocaleString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })} → ${endsAt.toLocaleString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })}`
-  }, [roomReservationForm.endDate, roomReservationForm.endTime, roomReservationForm.startDate, roomReservationForm.startTime])
   const ensureMinimumLoadingTime = React.useCallback(async (startedAt: number) => {
     const elapsed = Date.now() - startedAt
     if (elapsed < MIN_LOADING_DELAY_MS) {
@@ -3378,11 +1891,9 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
   const openOverrideModal = React.useCallback((studentId: string, studentName: string) => {
     setOverrideModalStudent({ id: studentId, name: studentName })
-    setOverrideModalOpen(true)
   }, [])
 
   const closeOverrideModal = React.useCallback(() => {
-    setOverrideModalOpen(false)
     setOverrideModalStudent(null)
   }, [])
 
@@ -3785,11 +2296,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setSchoolPackages(Array.isArray(packagesData?.items) ? packagesData.items : [])
       setSchoolPointsRules(Array.isArray(rulesData?.items) ? rulesData.items : [])
       setRoomReservations(Array.isArray(reservationsData?.items) ? reservationsData.items : [])
-      // Non-critical: fetch course link count (best-effort, doesn't block school data)
-      fetch("/api/staff/school/course-links", { headers: { "Content-Type": "application/json" } })
-        .then((r) => (r.ok ? r.json() : { count: 0 }))
-        .then((data) => setSchoolCourseLinkCount(data?.count ?? 0))
-        .catch(() => setSchoolCourseLinkCount(0))
       // Non-critical: fetch all course links per course for catalog display
       const courses: SchoolCourseRow[] = Array.isArray(coursesData?.items) ? coursesData.items : []
       if (courses.length > 0) {
@@ -3816,614 +2322,168 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     }
   }, [ensureMinimumLoadingTime, handleStaffAuthFailure])
 
-  const resetRoomForm = React.useCallback(() => {
-    setRoomForm(createInitialRoomForm())
-    setRoomFormError(null)
-    setRoomFormSuccess(null)
-  }, [])
-
-  const loadRoomIntoForm = React.useCallback((room: RoomRow) => {
-    setRoomForm(createRoomFormFromRoom(room))
-    setRoomFormError(null)
-    setRoomFormSuccess(null)
-  }, [])
-
-  const saveRoom = React.useCallback(async (event: React.FormEvent) => {
-    event.preventDefault()
-    setRoomSaving(true)
-    setRoomFormError(null)
-    setRoomFormSuccess(null)
-    try {
-      const isEditing = Boolean(roomForm.id)
-      const endpoint = isEditing ? `/api/staff/rooms/${roomForm.id}` : "/api/staff/rooms"
-      const method = isEditing ? "PUT" : "POST"
-      const res = await fetch(endpoint, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: roomForm.name,
-          capacity: roomForm.capacity,
-          location: roomForm.location,
-          active: roomForm.active,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomFormError(typeof data?.error === "string" ? data.error : "Unable to save room.")
-        return
-      }
-      const nextSuccess = typeof data?.message === "string" ? data.message : isEditing ? "Room updated." : "Room created."
-      await fetchSchoolData({ showLoader: false })
-      resetRoomForm()
-      setRoomFormSuccess(nextSuccess)
-    } catch {
-      setRoomFormError("Network error while saving room.")
-    } finally {
-      setRoomSaving(false)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm])
-
-  const disableRoom = React.useCallback(async (roomId: string) => {
-    setRoomBusyId(roomId)
-    setRoomActionErrors((prev) => {
-      if (!prev[roomId]) return prev
-      const next = { ...prev }
-      delete next[roomId]
-      return next
-    })
-    setRoomFormSuccess(null)
-    try {
-      const res = await fetch(`/api/staff/rooms/${roomId}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [roomId]: resolveRoomActionErrorMessage(data, "Unable to disable room."),
-        }))
-        return
-      }
-      const nextSuccess = typeof data?.message === "string" ? data.message : "Room disabled."
-      await fetchSchoolData({ showLoader: false })
-      if (roomForm.id === roomId) {
-        resetRoomForm()
-      }
-      setRoomFormSuccess(nextSuccess)
-    } catch {
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [roomId]: "Network error while disabling room.",
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm.id])
-
-  const activateRoom = React.useCallback(async (roomId: string) => {
-    setRoomBusyId(roomId)
-    setRoomActionErrors((prev) => {
-      if (!prev[roomId]) return prev
-      const next = { ...prev }
-      delete next[roomId]
-      return next
-    })
-    setRoomFormSuccess(null)
-    try {
-      const res = await fetch(`/api/staff/rooms/${roomId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: true }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [roomId]: resolveRoomActionErrorMessage(data, "Unable to activate room."),
-        }))
-        return
-      }
-      await fetchSchoolData({ showLoader: false })
-      setRoomFormSuccess(typeof data?.message === "string" ? data.message : "Room activated.")
-    } catch {
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [roomId]: "Network error while activating room.",
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure])
-
-  const openRoomSafeDeleteModal = React.useCallback((room: RoomRow) => {
-    setRoomFormSuccess(null)
-    setRoomSafeDeleteModal({
-      room,
-      reason: "",
-      error: null,
-    })
-  }, [])
-
-  const closeRoomSafeDeleteModal = React.useCallback(() => {
-    setRoomSafeDeleteModal(null)
-  }, [])
-
-  const openRoomReassignModal = React.useCallback((room: RoomRow) => {
-    const affectedCourses = schoolCourses
-      .filter((course) => course.defaultRoomId === room.id)
-      .map((course) => ({
-        id: course.id,
-        title: course.title,
-        slug: course.slug,
-        scheduleLabel: buildAssignmentCourseScheduleLabel(course),
-      }))
-
-    setRoomFormSuccess(null)
-    setRoomReassignModal({
-      room,
-      targetRoomId: "",
-      moveFutureSessions: false,
-      availableCourses: affectedCourses,
-      selectedCourseIds: affectedCourses.map((course) => course.id),
-      error: null,
-    })
-  }, [schoolCourses])
-
-  const closeRoomReassignModal = React.useCallback(() => {
-    setRoomReassignModal(null)
-  }, [])
-
-  const confirmRoomSafeDelete = React.useCallback(async () => {
-    if (!roomSafeDeleteModal) return
-
-    const room = roomSafeDeleteModal.room
-    const reason = roomSafeDeleteModal.reason.trim()
-    if (!reason) {
-      setRoomSafeDeleteModal((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          error: "Deletion reason is required.",
-        }
-      })
-      return
-    }
-
-    setRoomBusyId(room.id)
-    setRoomSafeDeleteModal((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        error: null,
-      }
-    })
-    setRoomActionErrors((prev) => {
-      if (!prev[room.id]) return prev
-      const next = { ...prev }
-      delete next[room.id]
-      return next
-    })
-    setRoomFormSuccess(null)
-
-    try {
-      const res = await fetch(`/api/staff/rooms/${room.id}/safe-delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        const nextError = resolveRoomActionErrorMessage(data, "Unable to safe-delete room.")
-        setRoomSafeDeleteModal((prev) => {
-          if (!prev || prev.room.id !== room.id) return prev
-          return {
-            ...prev,
-            error: nextError,
-          }
-        })
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [room.id]: nextError,
-        }))
-        return
-      }
-
-      await fetchSchoolData({ showLoader: false })
-      if (roomForm.id === room.id) {
-        resetRoomForm()
-      }
-      closeRoomSafeDeleteModal()
-      setRoomFormSuccess("Room deleted.")
-    } catch {
-      const nextError = "Network error while deleting room."
-      setRoomSafeDeleteModal((prev) => {
-        if (!prev || prev.room.id !== room.id) return prev
-        return {
-          ...prev,
-          error: nextError,
-        }
-      })
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [room.id]: nextError,
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [closeRoomSafeDeleteModal, fetchSchoolData, handleStaffAuthFailure, resetRoomForm, roomForm.id, roomSafeDeleteModal])
-
-  const confirmRoomReassign = React.useCallback(async () => {
-    if (!roomReassignModal) return
-
-    const room = roomReassignModal.room
-    const targetRoomId = roomReassignModal.targetRoomId
-    const selectedCourseIds = roomReassignModal.selectedCourseIds
-    if (!targetRoomId) {
-      setRoomReassignModal((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          error: "Select a target room to continue.",
-        }
-      })
-      return
-    }
-    if (roomReassignModal.availableCourses.length > 0 && selectedCourseIds.length === 0) {
-      setRoomReassignModal((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          error: "Select at least one course to reassign.",
-        }
-      })
-      return
-    }
-
-    setRoomBusyId(room.id)
-    setRoomReassignModal((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        error: null,
-      }
-    })
-    setRoomActionErrors((prev) => {
-      if (!prev[room.id]) return prev
-      const next = { ...prev }
-      delete next[room.id]
-      return next
-    })
-    setRoomFormSuccess(null)
-
-    try {
-      const res = await fetch(`/api/staff/rooms/${room.id}/reassign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetRoomId,
-          moveFutureSessions: roomReassignModal.moveFutureSessions,
-          courseIds: selectedCourseIds,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        const nextError = resolveRoomActionErrorMessage(data, "Unable to reassign room.")
-        setRoomReassignModal((prev) => {
-          if (!prev || prev.room.id !== room.id) return prev
-          return {
-            ...prev,
-            error: nextError,
-          }
-        })
-        setRoomActionErrors((prev) => ({
-          ...prev,
-          [room.id]: nextError,
-        }))
-        return
-      }
-
-      const movedSessions = typeof data?.movedSessions === "number" ? data.movedSessions : 0
-      const movedDefaults = typeof data?.reassignedDefaults === "number" ? data.reassignedDefaults : 0
-      await fetchSchoolData({ showLoader: false })
-      closeRoomReassignModal()
-      setRoomFormSuccess(`Room reassigned. Defaults moved: ${movedDefaults}. Future sessions moved: ${movedSessions}.`)
-    } catch {
-      const nextError = "Network error while reassigning room."
-      setRoomReassignModal((prev) => {
-        if (!prev || prev.room.id !== room.id) return prev
-        return {
-          ...prev,
-          error: nextError,
-        }
-      })
-      setRoomActionErrors((prev) => ({
-        ...prev,
-        [room.id]: nextError,
-      }))
-    } finally {
-      setRoomBusyId(null)
-    }
-  }, [closeRoomReassignModal, fetchSchoolData, handleStaffAuthFailure, roomReassignModal])
-
-  const saveRoomReservation = React.useCallback(async (event: React.FormEvent) => {
-    event.preventDefault()
-    setRoomReservationSaving(true)
-    setRoomReservationFormError(null)
-    setRoomReservationFormSuccess(null)
-    try {
-      const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
-      const startsAtDate = buildReservationDateTime(roomReservationForm.startDate, roomReservationForm.startTime)
-      const endsAtDate = buildReservationDateTime(effectiveEndDate, roomReservationForm.endTime)
-      if (!startsAtDate || !endsAtDate) {
-        setRoomReservationFormError("Select a valid start/end date and time.")
-        return
-      }
-      if (endsAtDate.getTime() <= startsAtDate.getTime()) {
-        setRoomReservationFormError("End date/time must be after start date/time. For overnight events, choose the next day as end date.")
-        return
-      }
-      const payload = {
-        roomId: roomReservationForm.roomId,
-        title: roomReservationForm.title.trim(),
-        reason: roomReservationForm.reason.trim(),
-        startsAt: startsAtDate.toISOString(),
-        endsAt: endsAtDate.toISOString(),
-        ...(roomReservationForm.assignedStaffClerkUserId
-          ? { assignedStaffClerkUserId: roomReservationForm.assignedStaffClerkUserId }
-          : {}),
-      }
-      const res = await fetch("/api/staff/room-reservations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        setRoomReservationFormError(resolveRoomActionErrorMessage(data, "Unable to create reservation."))
-        return
-      }
-      await fetchSchoolData({ showLoader: false })
-      setRoomReservationForm(createEmptyRoomReservationForm())
-      setRoomReservationFormSuccess("Reservation created.")
-    } catch {
-      setRoomReservationFormError("Network error while creating reservation.")
-    } finally {
-      setRoomReservationSaving(false)
-    }
-  }, [fetchSchoolData, handleStaffAuthFailure, roomReservationForm])
-
-  const closeRoomReservationCancelModal = React.useCallback(() => {
-    setRoomReservationCancelModal(null)
-  }, [])
-
-  const openRoomReservationCancelModal = React.useCallback((reservation: RoomReservationRow) => {
-    setRoomReservationFormSuccess(null)
-    setRoomReservationCancelModal({ reservation, reason: "", error: null })
-  }, [])
-
-  const confirmRoomReservationCancel = React.useCallback(async () => {
-    if (!roomReservationCancelModal) return
-    const reservation = roomReservationCancelModal.reservation
-    setRoomReservationBusyId(reservation.id)
-    setRoomReservationFormError(null)
-    try {
-      const res = await fetch(`/api/staff/room-reservations/${reservation.id}/cancel`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: roomReservationCancelModal.reason.trim() || undefined }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (handleStaffAuthFailure(res.status)) return
-        const nextError = resolveRoomActionErrorMessage(data, "Unable to cancel reservation.")
-        setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: nextError } : prev))
-        return
-      }
-      await fetchSchoolData({ showLoader: false })
-      closeRoomReservationCancelModal()
-      setRoomReservationFormSuccess("Reservation cancelled.")
-    } catch {
-      setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: "Network error while cancelling reservation." } : prev))
-    } finally {
-      setRoomReservationBusyId(null)
-    }
-  }, [closeRoomReservationCancelModal, fetchSchoolData, handleStaffAuthFailure, roomReservationCancelModal])
-
-  const resetCourseBuilder = React.useCallback(() => {
-    setCourseForm({
-      slug: "",
-      title: "",
-      kind: "course",
-      category: "",
-      description: "",
-      previewImageUrl: "",
-      previewVideoUrl: "",
-      dropInPriceCents: "",
-      firstClassPriceCents: "",
-      level: "Beginner",
-      durationMinutes: "55",
-      location: "54 Coles St, Jersey City, NJ",
-      defaultRoomId: "",
-      publicationMode: "publish_now",
-      launchDate: "",
-      specialDiscountType: "none",
-      specialDiscountCustomLabel: "",
-      specialDiscountPrice: "",
-      availableTimesCsv: "",
-      active: true,
-    })
-    setCourseWeekdays([])
-    setCourseScheduleDate("")
-    setCourseScheduleDates([])
-    setCourseRecurringWeekdays([])
-    setCourseMirrorEnabled(false)
-    setCourseMirrorWeekdays([])
-    setCourseRepeatAllMonth(true)
-    setCourseRecurrenceMode("indefinite")
-    setCourseRecurrenceEndsAt("")
-    setCourseScheduleTime(normalizeClockTime(quickScheduleTimes[0] || "") || "10:00")
-    setCourseScheduleSlots([])
-    setEditingQuickTimeIndex(null)
-    setQuickTimeDraft("")
-    setScheduleTimePickerOpen(false)
-    setCourseHydratedFromQuery(false)
-    setCourseEditingSlug(null) // Clear editing state
+  const clearCourseLinks = React.useCallback(() => {
     setCourseLinksAsA([])
     setCourseLinksAsB([])
-    resetCourseLinkForm()
-    setCourseLocalImagePreview((prev) => {
-      if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-      return ""
-    })
-    setCourseLocalVideoPreview((prev) => {
-      if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-      return ""
-    })
-    setCourseLocalImageName("")
-    setCourseLocalVideoName("")
-  }, [quickScheduleTimes, resetCourseLinkForm])
+  }, [])
 
-  const saveCourseCatalog = React.useCallback(async (event: React.FormEvent) => {
-    event.preventDefault()
-    setSchoolError(null)
-    setSchoolSuccess(null)
-    // Block save if there's a slug conflict (user must choose an action)
-    if (courseSlugConflict.exists) {
-      setSchoolError("This slug already exists. Use the suggested slug or choose to edit the existing course.")
-      return
-    }
-    setSchoolBusy("course")
-    try {
-      const derivedSchedule = deriveCourseScheduleData(courseScheduleSlots)
-      const derivedRules = deriveRulesFromScheduleSlots(courseScheduleSlots)
-      const derivedSpecialEvents = deriveSpecialEventsFromScheduleSlots(courseScheduleSlots)
-      const fallbackTimes = courseForm.availableTimesCsv
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean)
-      const times = derivedSchedule.times.length > 0 ? derivedSchedule.times : fallbackTimes
-      const weekdays = derivedSchedule.weekdays.length > 0 ? derivedSchedule.weekdays : courseWeekdays
-      if (courseForm.publicationMode === "launch_date" && !ISO_DATE_REGEX.test(courseForm.launchDate.trim())) {
-        setSchoolError("Select a valid launch date for Launch date mode.")
-        return
-      }
-      if (courseForm.specialDiscountType === "custom" && !courseForm.specialDiscountCustomLabel.trim()) {
-        setSchoolError("Write a custom discount label.")
-        return
-      }
-      const scheduleRulesPayload: CourseScheduleRulesPayload | null = (() => {
-        const rules =
-          isSpecialEventCourse
-            ? []
-            : derivedRules.length > 0
-            ? derivedRules
-            : weekdays.length > 0 && times.length > 0
-              ? weekdays.map((weekday) => ({ weekday, times }))
-              : []
-        const specialEvents = derivedSpecialEvents
-        const publicationMode: CoursePublicationMode =
-          courseForm.publicationMode === "coming_soon" || courseForm.publicationMode === "launch_date"
-            ? courseForm.publicationMode
-            : "publish_now"
-        const launchDateRaw = courseForm.launchDate.trim()
-        const launchDate =
-          publicationMode === "launch_date" && ISO_DATE_REGEX.test(launchDateRaw)
-            ? launchDateRaw
-            : null
-        const publication: CoursePublicationSettings = {
-          mode: publicationMode,
-          launchDate,
-        }
-
-        const specialDiscountType: CourseSpecialDiscountType =
-          courseForm.specialDiscountType === "valentines_desc" ||
-          courseForm.specialDiscountType === "christmas_desc" ||
-          courseForm.specialDiscountType === "custom"
-            ? courseForm.specialDiscountType
-            : "none"
-        const specialDiscountLabelRaw = courseForm.specialDiscountCustomLabel.trim()
-        const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
-        const specialDiscountPriceCents = usdInputToCents(courseForm.specialDiscountPrice)
-        const specialDiscount: CourseSpecialDiscountSettings = {
-          type: specialDiscountType,
-          label: specialDiscountLabel,
-          priceCents: specialDiscountType === "none" ? null : specialDiscountPriceCents,
-        }
-
-        const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
-        const hasSpecialDiscount =
-          specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
-        if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
-        const derivedWeeklyTarget = [...new Set(rules.map((rule) => rule.weekday))].length
-        return {
-          mode: isSpecialEventCourse ? "special_event" : "regular",
-          weeklyDaysTarget: Math.max(1, Math.min(7, derivedWeeklyTarget || courseRecurringWeekdays.length || 1)),
-          repeatAllMonth: courseRepeatAllMonth,
-          recurrenceMode: courseRecurrenceMode,
-          recurrenceEndsAt:
-            courseRecurrenceMode === "until_date" && courseRecurrenceEndsAt.trim() ? courseRecurrenceEndsAt.trim() : null,
-          rules,
-          specialEvents,
-          publication,
-          specialDiscount,
-        }
-      })()
-      const res = await fetch("/api/staff/school/courses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slug: courseForm.slug,
-          title: courseForm.title,
-          kind: courseForm.kind,
-          category: courseForm.category,
-          description: courseForm.description,
-          coverImageUrl: courseForm.previewImageUrl,
-          previewVideoUrl: courseForm.previewVideoUrl,
-          dropInPriceCents: usdInputToCents(courseForm.dropInPriceCents),
-          firstClassPriceCents: usdInputToCents(courseForm.firstClassPriceCents),
-          level: courseForm.level,
-          durationMinutes: courseForm.durationMinutes,
-          location: courseForm.location,
-          defaultRoomId: courseForm.defaultRoomId || null,
-          availableWeekdays: weekdays,
-          availableTimes: times,
-          scheduleRules: scheduleRulesPayload,
-          active: courseForm.active,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setSchoolError(typeof data?.error === "string" ? data.error : "Unable to save course.")
-        return
-      }
-      setSchoolSuccess(typeof data?.message === "string" ? data.message : "Course saved.")
-      await fetchSchoolData({ showLoader: false })
-      resetCourseBuilder()
-    } catch {
-      setSchoolError("Network error while saving course.")
-    } finally {
-      setSchoolBusy(null)
-    }
-  }, [
-    courseForm,
-    courseRecurrenceEndsAt,
-    courseRecurrenceMode,
-    courseRecurringWeekdays,
-    courseRepeatAllMonth,
-    courseScheduleSlots,
-    courseSlugConflict.exists,
-    courseWeekdays,
+  const coursesAdmin = useStaffCoursesAdmin({
+    schoolCourses,
+    isSchoolView,
+    searchParams,
+    schoolWizard,
     fetchSchoolData,
+    loadCourseLinks,
+    clearCourseLinks,
+    resetCourseLinkForm,
+    handleStaffAuthFailure,
+    setSchoolError,
+    setSchoolSuccess,
+    setSchoolBusy,
+  })
+
+  const {
+    courseForm,
+    setCourseForm,
+    courseScheduleDate,
+    setCourseScheduleDate,
+    courseScheduleDates,
+    setCourseScheduleDates,
+    courseRecurringWeekdays,
+    courseMirrorEnabled,
+    setCourseMirrorEnabled,
+    courseMirrorWeekdays,
+    setCourseMirrorWeekdays,
+    courseRepeatAllMonth,
+    setCourseRepeatAllMonth,
+    courseRecurrenceMode,
+    setCourseRecurrenceMode,
+    courseRecurrenceEndsAt,
+    setCourseRecurrenceEndsAt,
+    courseScheduleTime,
+    setCourseScheduleTime,
+    courseScheduleSlots,
+    quickScheduleTimes,
+    editingQuickTimeIndex,
+    quickTimeDraft,
+    setQuickTimeDraft,
+    setEditingQuickTimeIndex,
+    scheduleTimePickerOpen,
+    setScheduleTimePickerOpen,
+    courseLocalImageName,
+    courseLocalVideoName,
+    courseMediaUploading,
+    courseEditingSlug,
+    courseCatalogSearch,
+    setCourseCatalogSearch,
+    courseCatalogFilter,
+    setCourseCatalogFilter,
+    courseSlugConflict,
+    courseImageInputRef,
+    courseVideoInputRef,
+    scheduleTimePickerRef,
+    courseFormFieldsRef,
     isSpecialEventCourse,
+    scheduleDerivedData,
+    scheduleCalendarMap,
+    previewMediaUrl,
+    isEmbedPreviewVideo,
+    previewVideoSource,
+    selectedCourseKindLabel,
+    selectedCourseKindReviewLabel,
+    courseReviewVariants,
+    previewEditorHref,
+    previewPublicHref,
+    regularScheduleWarningMessage,
+    scheduleSlotTimeUsage,
+    scheduleTimeCourseUsage,
+    scheduleTimeOptions,
     resetCourseBuilder,
-  ])
+    saveCourseCatalog,
+    getCourseScheduleDateTooltip,
+    getCourseScheduleDateTone,
+    copyCourseLink,
+    shareCourse,
+    handleUseSlugSuggestion,
+    handleEditExistingCourse,
+    addCourseScheduleSlot,
+    removeCourseScheduleSlot,
+    toggleCourseRecurringWeekday,
+    toggleCourseMirrorWeekday,
+    handleCourseLocalImage,
+    handleCourseLocalVideo,
+    loadCourseIntoForm,
+    deleteCourse,
+    toggleCourseActive,
+    startEditingQuickTime,
+    commitQuickTimeEdit,
+  } = coursesAdmin
+
+  const wizardEnabledCtx: StepEnabledContext = { courseEditingSlug }
+
+  const roomsAdmin = useStaffRoomsAdmin({
+    rooms: schoolRooms,
+    reservations: roomReservations,
+    courses: schoolCourses,
+    staffRows: rows,
+    selectedCourseDefaultRoomId: courseForm.defaultRoomId,
+    fetchSchoolData,
+    handleStaffAuthFailure,
+  })
+
+  const {
+    roomForm,
+    roomSearchQuery,
+    roomStatusFilter,
+    roomSaving,
+    roomBusyId,
+    roomFormError,
+    roomFormSuccess,
+    roomActionErrors,
+    roomSafeDeleteModal,
+    roomReassignModal,
+    roomReservationForm,
+    roomReservationSaving,
+    roomReservationCancelModal,
+    roomReservationBusyId,
+    roomReservationFormError,
+    roomReservationFormSuccess,
+    roomById,
+    activeRoomOptions,
+    courseRoomOptions,
+    visibleRooms,
+    currentUpcomingReservations,
+    reservationAssignableStaff,
+    reservationStaffLabelById,
+    reservationRangePreview,
+    setRoomSearchQuery,
+    setRoomStatusFilter,
+    resetRoomForm,
+    updateRoomFormField,
+    loadRoomIntoForm,
+    saveRoom,
+    disableRoom,
+    activateRoom,
+    openRoomSafeDeleteModal,
+    closeRoomSafeDeleteModal,
+    updateRoomSafeDeleteReason,
+    openRoomReassignModal,
+    closeRoomReassignModal,
+    updateRoomReassignTarget,
+    updateRoomReassignMoveFutureSessions,
+    updateRoomReassignCourseSelection,
+    confirmRoomSafeDelete,
+    confirmRoomReassign,
+    updateRoomReservationFormField,
+    updateRoomReservationDateRange,
+    saveRoomReservation,
+    closeRoomReservationCancelModal,
+    openRoomReservationCancelModal,
+    updateRoomReservationCancelReason,
+    confirmRoomReservationCancel,
+    formatReservationDateLabel,
+    resolveRoomDisableActionState,
+  } = roomsAdmin
 
   const togglePackageCourse = React.useCallback((courseSlug: string) => {
     setPackageForm((prev) => {
@@ -4728,7 +2788,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
     const syncAssistantLayout = () => {
       setIsRailCollapsed(!desktopQuery.matches)
-      setHasAssistantViewportSync(true)
     }
 
     syncAssistantLayout()
@@ -4857,602 +2916,12 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   }, [allowedNavSections, searchParams])
 
   React.useEffect(() => {
-    const selectedSlug = searchParams.get("course")
-    if (!selectedSlug) {
-      setCourseHydratedFromQuery(false)
-      return
-    }
-    if (!isSchoolView || courseHydratedFromQuery || schoolCourses.length === 0) return
-    const selected = schoolCourses.find((item) => item.slug === selectedSlug)
-    if (!selected) return
-    const parsedRules = normalizeCourseScheduleRules(selected.scheduleRules)
-    const scheduleSlotsFromRules = parsedRules ? buildSlotsFromScheduleRules(parsedRules) : []
-    const defaultWeekdays = parsedRules
-      ? [...new Set(parsedRules.rules.map((rule) => rule.weekday))].sort((a, b) => a - b)
-      : selected.availableWeekdays
-    const defaultTimes = parsedRules
-      ? [...new Set(parsedRules.rules.flatMap((rule) => rule.times).map((time) => normalizeClockTime(time)).filter(Boolean))].sort()
-      : selected.availableTimes.map((time) => normalizeClockTime(time)).filter(Boolean)
-    const publicationMode = parsedRules?.publication?.mode || "publish_now"
-    const launchDate = publicationMode === "launch_date" ? parsedRules?.publication?.launchDate || "" : ""
-    const specialDiscountType = parsedRules?.specialDiscount?.type || "none"
-    const specialDiscountCustomLabel = specialDiscountType === "custom" ? parsedRules?.specialDiscount?.label || "" : ""
-    const specialDiscountPrice =
-      parsedRules?.specialDiscount?.priceCents !== null && parsedRules?.specialDiscount?.priceCents !== undefined
-        ? centsToUsdInput(parsedRules.specialDiscount.priceCents)
-        : ""
-    setCourseForm((prev) => ({
-      ...prev,
-      slug: selected.slug,
-      title: selected.title,
-      kind: selected.kind,
-      category: selected.category || "",
-      description: selected.description || "",
-      previewImageUrl: selected.coverImageUrl || "",
-      previewVideoUrl: selected.previewVideoUrl || "",
-      dropInPriceCents: centsToUsdInput(selected.dropInPriceCents),
-      firstClassPriceCents: centsToUsdInput(selected.firstClassPriceCents),
-       level: selected.level || "",
-       durationMinutes: selected.durationMinutes?.toString() || "",
-       location: selected.location || "",
-       defaultRoomId: selected.defaultRoomId || "",
-       publicationMode,
-       launchDate,
-      specialDiscountType,
-      specialDiscountCustomLabel,
-      specialDiscountPrice,
-      availableTimesCsv: selected.availableTimes.join(","),
-      active: selected.active,
-    }))
-    setCourseWeekdays(defaultWeekdays)
-    setCourseRecurringWeekdays(defaultWeekdays)
-    setCourseScheduleSlots(scheduleSlotsFromRules)
-    setCourseRepeatAllMonth(parsedRules?.repeatAllMonth ?? true)
-    setCourseRecurrenceMode(parsedRules?.recurrenceMode || "indefinite")
-    setCourseRecurrenceEndsAt(parsedRules?.recurrenceEndsAt || "")
-    setCourseMirrorEnabled(false)
-    setCourseMirrorWeekdays([])
-    setQuickScheduleTimes((prev) => normalizeQuickScheduleTimes([...defaultTimes, ...prev]))
-    setEditingQuickTimeIndex(null)
-    setQuickTimeDraft("")
-    setScheduleTimePickerOpen(false)
-    setCourseHydratedFromQuery(true)
-    schoolWizard.goToEntity("courses")
-  }, [courseHydratedFromQuery, isSchoolView, schoolCourses, schoolWizard, searchParams])
-
-  React.useEffect(() => {
     if (editingPackageId !== null) return // Don't auto-assign when editing an existing package
     if (packageForm.courseSlugs.length > 0) return
     const firstCourseSlug = schoolCourses[0]?.slug || demoCourses[0]?.slug || ""
     if (!firstCourseSlug) return
     setPackageForm((prev) => ({ ...prev, courseSlugs: [firstCourseSlug] }))
   }, [editingPackageId, packageForm.courseSlugs, schoolCourses])
-
-  React.useEffect(() => {
-    return () => {
-      if (courseLocalImagePreview.startsWith("blob:")) URL.revokeObjectURL(courseLocalImagePreview)
-      if (courseLocalVideoPreview.startsWith("blob:")) URL.revokeObjectURL(courseLocalVideoPreview)
-    }
-  }, [courseLocalImagePreview, courseLocalVideoPreview])
-
-  const scheduleDerivedData = React.useMemo(() => deriveCourseScheduleData(courseScheduleSlots), [courseScheduleSlots])
-  const scheduleCalendarMap = React.useMemo(() => {
-    const map = new Map<string, string[]>()
-    const appendTime = (isoDate: string, rawTime: string) => {
-      const normalized = normalizeClockTime(rawTime)
-      if (!normalized) return
-      const existing = map.get(isoDate) || []
-      if (!existing.includes(normalized)) {
-        const next = [...existing, normalized].sort()
-        map.set(isoDate, next)
-      }
-    }
-
-    const recurring = courseScheduleSlots.filter(
-      (slot): slot is CourseScheduleSlot & { weekday: number } =>
-        typeof slot.weekday === "number" && slot.weekday >= 0 && slot.weekday <= 6 && !!normalizeClockTime(slot.time)
-    )
-    const explicitDates = courseScheduleSlots.filter((slot) => typeof slot.date === "string" && !!slot.date)
-
-    for (const slot of explicitDates) {
-      appendTime(slot.date!, slot.time)
-    }
-
-    if (recurring.length > 0) {
-      const start = new Date()
-      start.setHours(0, 0, 0, 0)
-      start.setMonth(start.getMonth() - 1)
-      const end = new Date(start)
-      end.setFullYear(end.getFullYear() + 2)
-
-      for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
-        const weekday = cursor.getDay()
-        const isoDate = toLocalIsoDate(cursor)
-        for (const slot of recurring) {
-          if (slot.weekday !== weekday) continue
-          appendTime(isoDate, slot.time)
-        }
-      }
-    }
-
-    return map
-  }, [courseScheduleSlots])
-  const getCourseScheduleDateTooltip = React.useCallback(
-    (isoDate: string) => {
-      const times = scheduleCalendarMap.get(isoDate)
-      if (!times || times.length === 0) return undefined
-      return `${courseForm.title || "Course"} · ${times.map((time) => formatClockLabel(time)).join(", ")}`
-    },
-    [courseForm.title, scheduleCalendarMap]
-  )
-  const getCourseScheduleDateTone = React.useCallback(
-    (isoDate: string) => {
-      const times = scheduleCalendarMap.get(isoDate)
-      if (!times || times.length === 0) return undefined
-      return COURSE_KIND_DATE_TONE[courseForm.kind] || "course"
-    },
-    [courseForm.kind, scheduleCalendarMap]
-  )
-
-  const previewMediaUrl = courseLocalImagePreview || courseForm.previewImageUrl.trim()
-  const previewVideoUrl = courseLocalVideoPreview || courseForm.previewVideoUrl.trim()
-  const embedPreviewVideoUrl = toEmbedVideoUrl(previewVideoUrl)
-  const isEmbedPreviewVideo = isEmbedVideoUrl(embedPreviewVideoUrl)
-  const previewVideoSource = isEmbedPreviewVideo ? toAutoplayEmbedUrl(embedPreviewVideoUrl) : previewVideoUrl
-  const selectedCourseKindLabel = COURSE_KIND_LABELS[courseForm.kind] || "Course"
-  const selectedCourseKindReviewLabel = `${selectedCourseKindLabel} review`
-  const courseReviewVariants = React.useMemo(
-    () =>
-      SCHOOL_COURSE_KINDS.map((kind) => ({
-        kind,
-        label: COURSE_KIND_LABELS[kind] || kind,
-        hint: COURSE_KIND_REVIEW_HINTS[kind] || "",
-        active: courseForm.kind === kind,
-      })),
-    [courseForm.kind]
-  )
-  const previewEditorHref = courseForm.slug.trim()
-    ? `/staff/school/course/${courseForm.slug.trim()}`
-    : "/staff/portal?nav=schedule"
-  const previewPublicHref = courseForm.slug.trim() ? `/courses/${courseForm.slug.trim()}` : ""
-
-  const getCourseShareUrl = React.useCallback(() => {
-    if (!previewPublicHref) return ""
-    if (typeof window === "undefined") return previewPublicHref
-    return `${window.location.origin}${previewPublicHref}`
-  }, [previewPublicHref])
-
-  const copyCourseLink = React.useCallback(async () => {
-    const link = getCourseShareUrl()
-    if (!link) return
-    try {
-      await navigator.clipboard.writeText(link)
-      setSchoolSuccess("Course link copied.")
-      setSchoolError(null)
-    } catch {
-      setSchoolError("Could not copy the course link.")
-    }
-  }, [getCourseShareUrl])
-
-  const shareCourse = React.useCallback(
-    (platform: "facebook" | "x" | "whatsapp" | "instagram" | "tiktok") => {
-      const link = getCourseShareUrl()
-      if (!link || typeof window === "undefined") return
-      const encodedUrl = encodeURIComponent(link)
-      const text = encodeURIComponent(`Check out this course: ${courseForm.title || "New PLI course"}`)
-      if (platform === "instagram" || platform === "tiktok") {
-        if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-          void navigator.clipboard
-            .writeText(link)
-            .then(() => {
-              setSchoolSuccess("Link copied. Paste it into your social media post.")
-              setSchoolError(null)
-            })
-            .catch(() => {
-              setSchoolError("Could not copy the course link.")
-            })
-        }
-        const socialHref = platform === "instagram" ? "https://www.instagram.com/" : "https://www.tiktok.com/"
-        window.open(socialHref, "_blank", "noopener,noreferrer")
-        return
-      }
-      const href =
-        platform === "facebook"
-          ? `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`
-          : platform === "x"
-            ? `https://twitter.com/intent/tweet?text=${text}&url=${encodedUrl}`
-            : `https://wa.me/?text=${text}%20${encodedUrl}`
-      window.open(href, "_blank", "noopener,noreferrer")
-    },
-    [courseForm.title, getCourseShareUrl]
-  )
-
-  const externalRecurringSlotsMap = React.useMemo(() => {
-    const map = new Map<string, { title: string; slug: string }[]>()
-    const currentSlug = courseForm.slug.trim()
-    for (const course of schoolCourses) {
-      if (currentSlug && course.slug === currentSlug) continue
-      const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
-      const fallbackRules =
-        !parsedRules && course.availableWeekdays.length > 0 && course.availableTimes.length > 0
-          ? course.availableWeekdays.map((weekday) => ({
-              weekday,
-              times: course.availableTimes,
-            }))
-          : []
-      const rules = parsedRules?.rules || fallbackRules
-      for (const rule of rules) {
-        for (const rawTime of rule.times) {
-          const time = normalizeClockTime(rawTime)
-          if (!time) continue
-          const key = `${rule.weekday}|${time}`
-          const current = map.get(key) || []
-          current.push({ title: course.title, slug: course.slug })
-          map.set(key, current)
-        }
-      }
-    }
-    return map
-  }, [courseForm.slug, schoolCourses])
-
-  const externalSpecialEventSlots = React.useMemo(() => {
-    const items: Array<{ date: string; time: string; title: string; slug: string }> = []
-    const currentSlug = courseForm.slug.trim()
-    for (const course of schoolCourses) {
-      if (currentSlug && course.slug === currentSlug) continue
-      const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
-      if (!parsedRules || parsedRules.specialEvents.length === 0) continue
-      for (const event of parsedRules.specialEvents) {
-        for (const rawTime of event.times) {
-          const time = normalizeClockTime(rawTime)
-          if (!time) continue
-          if (!ISO_DATE_REGEX.test(event.date)) continue
-          items.push({ date: event.date, time, title: course.title, slug: course.slug })
-        }
-      }
-    }
-    return items
-  }, [courseForm.slug, schoolCourses])
-
-  const externalSpecialEventSlotMap = React.useMemo(() => {
-    const map = new Map<string, { title: string; slug: string }[]>()
-    for (const item of externalSpecialEventSlots) {
-      const key = `${item.date}|${item.time}`
-      const current = map.get(key) || []
-      current.push({ title: item.title, slug: item.slug })
-      map.set(key, current)
-    }
-    return map
-  }, [externalSpecialEventSlots])
-
-  const regularSlotsBlockedByEvents = React.useMemo(() => {
-    if (isSpecialEventCourse) return [] as Array<{ date: string; time: string; title: string }>
-    const recurringSlots = courseScheduleSlots.filter(
-      (slot): slot is CourseScheduleSlot & { weekday: number } =>
-        typeof slot.weekday === "number" && slot.weekday >= 0 && slot.weekday <= 6
-    )
-    if (recurringSlots.length === 0) return [] as Array<{ date: string; time: string; title: string }>
-    const entries: Array<{ date: string; time: string; title: string }> = []
-    const seen = new Set<string>()
-    for (const recurringSlot of recurringSlots) {
-      const time = normalizeClockTime(recurringSlot.time)
-      if (!time) continue
-      for (const specialSlot of externalSpecialEventSlots) {
-        if (specialSlot.time !== time) continue
-        const eventWeekday = toCourseScheduleWeekday(specialSlot.date)
-        if (eventWeekday !== recurringSlot.weekday) continue
-        const key = `${specialSlot.date}|${time}|${specialSlot.slug}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        entries.push({ date: specialSlot.date, time, title: specialSlot.title })
-      }
-    }
-    return entries.sort((a, b) => `${a.date}|${a.time}`.localeCompare(`${b.date}|${b.time}`))
-  }, [courseScheduleSlots, externalSpecialEventSlots, isSpecialEventCourse])
-
-  const regularScheduleWarningMessage = React.useMemo(() => {
-    if (regularSlotsBlockedByEvents.length === 0) return null
-    const first = regularSlotsBlockedByEvents[0]
-    const next = regularSlotsBlockedByEvents.length > 1 ? ` +${regularSlotsBlockedByEvents.length - 1} more` : ""
-    return `Warning: there are special events that conflict with this time slot (${first.date} · ${formatClockLabel(first.time)} · ${first.title}${next}). That day skips the regular class and continues on the next available day.`
-  }, [regularSlotsBlockedByEvents])
-
-  // Detect slug conflicts when creating a new course
-  React.useEffect(() => {
-    const currentSlug = courseForm.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")
-    if (!currentSlug || currentSlug.length < 3) {
-      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
-      return
-    }
-    // If we're editing a course and the slug matches the original, no conflict
-    if (courseEditingSlug && courseEditingSlug.toLowerCase() === currentSlug) {
-      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
-      return
-    }
-    const existingCourse = schoolCourses.find((course) => course.slug.toLowerCase() === currentSlug)
-    if (!existingCourse) {
-      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
-      return
-    }
-    // Generate a unique suggestion by appending a number
-    let suffix = 2
-    let suggestion = `${currentSlug}-${suffix}`
-    while (schoolCourses.some((course) => course.slug.toLowerCase() === suggestion)) {
-      suffix++
-      suggestion = `${currentSlug}-${suffix}`
-    }
-    setCourseSlugConflict({ exists: true, suggestion, existingTitle: existingCourse.title })
-  }, [courseForm.slug, courseEditingSlug, schoolCourses])
-
-  const handleUseSlugSuggestion = React.useCallback(() => {
-    if (courseSlugConflict.suggestion) {
-      setCourseForm((prev) => ({ ...prev, slug: courseSlugConflict.suggestion! }))
-      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
-    }
-  }, [courseSlugConflict.suggestion])
-
-  const handleEditExistingCourse = React.useCallback(() => {
-    // Normalize the slug the same way as the conflict detection effect
-    const normalizedSlug = courseForm.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")
-    const existingCourse = schoolCourses.find((course) => course.slug.toLowerCase() === normalizedSlug)
-    if (existingCourse) {
-      // Hydrate the form with the existing course data
-      setCourseForm({
-        slug: existingCourse.slug,
-        title: existingCourse.title,
-        kind: existingCourse.kind || "course",
-        category: existingCourse.category || "",
-        description: existingCourse.description || "",
-        previewImageUrl: existingCourse.coverImageUrl || "",
-        previewVideoUrl: existingCourse.previewVideoUrl || "",
-        dropInPriceCents: existingCourse.dropInPriceCents ? String(existingCourse.dropInPriceCents / 100) : "",
-        firstClassPriceCents: existingCourse.firstClassPriceCents ? String(existingCourse.firstClassPriceCents / 100) : "",
-        level: existingCourse.level || "Beginner",
-        durationMinutes: existingCourse.durationMinutes ? String(existingCourse.durationMinutes) : "55",
-        location: existingCourse.location || "54 Coles St, Jersey City, NJ",
-        defaultRoomId: existingCourse.defaultRoomId || "",
-        publicationMode: "publish_now",
-        launchDate: "",
-        specialDiscountType: "none",
-        specialDiscountCustomLabel: "",
-        specialDiscountPrice: "",
-        availableTimesCsv: (existingCourse.availableTimes || []).join(", "),
-        active: existingCourse.active ?? true,
-      })
-      setCourseWeekdays(existingCourse.availableWeekdays || [])
-      setCourseHydratedFromQuery(true)
-      setCourseEditingSlug(existingCourse.slug) // Track which course we're editing
-      loadCourseLinks(existingCourse.slug) // Load consecutive class links for admin table
-      setCourseSlugConflict({ exists: false, suggestion: null, existingTitle: null })
-      setSchoolSuccess(`Loaded "${existingCourse.title}" for editing.`)
-    }
-  }, [courseForm.slug, loadCourseLinks, schoolCourses])
-
-  const getSpecialEventConflictReason = React.useCallback(
-    (isoDate: string, rawTime: string) => {
-      const time = normalizeClockTime(rawTime)
-      if (!time || !ISO_DATE_REGEX.test(isoDate)) return undefined
-      const existingDateSlot = externalSpecialEventSlotMap.get(`${isoDate}|${time}`)
-      if (existingDateSlot && existingDateSlot.length > 0) {
-        return `Blocked: ${existingDateSlot[0].title} already uses ${formatClockLabel(time)} that day.`
-      }
-      const weekday = toCourseScheduleWeekday(isoDate)
-      if (weekday !== null) {
-        const recurring = externalRecurringSlotsMap.get(`${weekday}|${time}`)
-        if (recurring && recurring.length > 0) {
-          return `Blocked: ${recurring[0].title} has a regular class at ${formatClockLabel(time)}.`
-        }
-      }
-      return undefined
-    },
-    [externalRecurringSlotsMap, externalSpecialEventSlotMap]
-  )
-
-  const addCourseScheduleSlot = React.useCallback(() => {
-    const time = normalizeClockTime(courseScheduleTime)
-    if (!time) return
-
-    if (isSpecialEventCourse) {
-      const dates = courseScheduleDates.length > 0 ? courseScheduleDates : []
-      if (dates.length === 0) {
-        setSchoolError("Select at least one date in the calendar to connect the event time slot.")
-        return
-      }
-      const blockedDate = dates.find((date) => getSpecialEventConflictReason(date, time))
-      if (blockedDate) {
-        setSchoolError(getSpecialEventConflictReason(blockedDate, time) || "That time slot is already occupied.")
-        return
-      }
-      setCourseScheduleSlots((prev) => {
-        const next = [...prev]
-        for (const date of dates) {
-          const slot: CourseScheduleSlot = { date, time }
-          const key = getCourseSlotKey(slot)
-          if (next.some((item) => getCourseSlotKey(item) === key)) continue
-          next.push(slot)
-        }
-        return next.sort(compareCourseSlots)
-      })
-      setCourseScheduleDate("")
-      setCourseScheduleDates([])
-      setCourseScheduleTime(normalizeClockTime(quickScheduleTimes[0] || "") || "10:00")
-      setScheduleTimePickerOpen(false)
-      setSchoolError(null)
-      return
-    }
-
-    const recurringBase = [...new Set(courseRecurringWeekdays)].sort((a, b) => a - b)
-    const mirrorWeekdays = courseMirrorEnabled
-      ? courseMirrorWeekdays.filter((weekday) => !recurringBase.includes(weekday))
-      : []
-    const recurringWeekdays = [...new Set([...recurringBase, ...mirrorWeekdays])].sort((a, b) => a - b)
-    if (recurringWeekdays.length === 0) return
-    if (!quickScheduleTimes.includes(time) && typeof window !== "undefined") {
-      const shouldAddShortcut = window.confirm("Do you want to add this time slot to your shortcuts?")
-      if (shouldAddShortcut) {
-        setQuickScheduleTimes((prev) => normalizeQuickScheduleTimes([...prev, time]))
-      }
-    }
-    setCourseScheduleSlots((prev) => {
-      const next = [...prev]
-      for (const weekday of recurringWeekdays) {
-        const candidate: CourseScheduleSlot = { weekday, recurring: true, time }
-        const key = getCourseSlotKey(candidate)
-        if (next.some((slot) => getCourseSlotKey(slot) === key)) continue
-        next.push(candidate)
-      }
-      return next.sort(compareCourseSlots)
-    })
-    setCourseScheduleDate("")
-    setCourseScheduleDates([])
-    setCourseRecurringWeekdays([])
-    setCourseMirrorEnabled(false)
-    setCourseMirrorWeekdays([])
-    setCourseScheduleTime(normalizeClockTime(quickScheduleTimes[0] || "") || "10:00")
-    setScheduleTimePickerOpen(false)
-  }, [
-    courseMirrorEnabled,
-    courseMirrorWeekdays,
-    courseRecurringWeekdays,
-    courseScheduleDates,
-    courseScheduleTime,
-    getSpecialEventConflictReason,
-    isSpecialEventCourse,
-    quickScheduleTimes,
-    setSchoolError,
-    setScheduleTimePickerOpen,
-  ])
-
-  const removeCourseScheduleSlot = React.useCallback((slotKey: string) => {
-    setCourseScheduleSlots((prev) => prev.filter((slot) => getCourseSlotKey(slot) !== slotKey))
-  }, [])
-
-  const toggleCourseRecurringWeekday = React.useCallback((weekday: number) => {
-    setCourseRecurringWeekdays((prev) => {
-      if (prev.includes(weekday)) return prev.filter((item) => item !== weekday)
-      return [...prev, weekday].sort((a, b) => a - b)
-    })
-  }, [])
-
-  const toggleCourseMirrorWeekday = React.useCallback((weekday: number) => {
-    setCourseMirrorWeekdays((prev) => {
-      if (prev.includes(weekday)) return prev.filter((item) => item !== weekday)
-      return [...prev, weekday].sort((a, b) => a - b)
-    })
-  }, [])
-
-  const uploadCourseMedia = React.useCallback(
-    async (file: File, kind: "image" | "video"): Promise<string | null> => {
-      const payload = new FormData()
-      payload.set("file", file)
-      payload.set("kind", kind)
-
-      try {
-        const res = await fetch("/api/staff/school/courses/upload", {
-          method: "POST",
-          body: payload,
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          if (handleStaffAuthFailure(res.status)) return null
-          setSchoolError(typeof data?.error === "string" ? data.error : `Unable to upload ${kind}.`)
-          return null
-        }
-        const uploadedUrl = typeof data?.url === "string" ? data.url.trim() : ""
-        if (!uploadedUrl) {
-          setSchoolError(`Upload completed but ${kind} URL was empty.`)
-          return null
-        }
-        return uploadedUrl
-      } catch {
-        setSchoolError(`Network error while uploading ${kind}.`)
-        return null
-      }
-    },
-    [handleStaffAuthFailure]
-  )
-
-  const handleCourseLocalImage = React.useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (!file) return
-      if (!COURSE_IMAGE_MIME_TYPES.has(file.type)) {
-        setSchoolError("Formato inválido. Solo jpeg/png/webp.")
-        event.target.value = ""
-        return
-      }
-      if (file.size > COURSE_IMAGE_MAX_BYTES) {
-        setSchoolError("Imagen demasiado grande. Máximo 2MB.")
-        event.target.value = ""
-        return
-      }
-
-      setSchoolError(null)
-      setSchoolSuccess(null)
-      const localPreviewUrl = URL.createObjectURL(file)
-      setCourseLocalImagePreview((prev) => {
-        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-        return localPreviewUrl
-      })
-      setCourseMediaUploading("image")
-      try {
-        const uploadedUrl = await uploadCourseMedia(file, "image")
-        if (!uploadedUrl) return
-        setCourseForm((prev) => ({ ...prev, previewImageUrl: uploadedUrl }))
-        setCourseLocalImagePreview((prev) => {
-          if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-          return uploadedUrl
-        })
-        setCourseLocalImageName(file.name)
-        setSchoolSuccess("Course image uploaded and linked. Save course to publish.")
-      } finally {
-        setCourseMediaUploading((prev) => (prev === "image" ? null : prev))
-        event.target.value = ""
-      }
-    },
-    [uploadCourseMedia]
-  )
-
-  const handleCourseLocalVideo = React.useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (!file) return
-      if (!COURSE_VIDEO_MIME_TYPES.has(file.type)) {
-        setSchoolError("Formato inválido. Solo mp4/webm.")
-        event.target.value = ""
-        return
-      }
-      if (file.size > COURSE_VIDEO_MAX_BYTES) {
-        setSchoolError("Video demasiado grande. Máximo 15MB.")
-        event.target.value = ""
-        return
-      }
-
-      setSchoolError(null)
-      setSchoolSuccess(null)
-      const localPreviewUrl = URL.createObjectURL(file)
-      setCourseLocalVideoPreview((prev) => {
-        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-        return localPreviewUrl
-      })
-      setCourseMediaUploading("video")
-      try {
-        const uploadedUrl = await uploadCourseMedia(file, "video")
-        if (!uploadedUrl) return
-        setCourseForm((prev) => ({ ...prev, previewVideoUrl: uploadedUrl }))
-        setCourseLocalVideoPreview((prev) => {
-          if (prev.startsWith("blob:")) URL.revokeObjectURL(prev)
-          return uploadedUrl
-        })
-        setCourseLocalVideoName(file.name)
-        setSchoolSuccess("Course video uploaded and linked. Save course to publish.")
-      } finally {
-        setCourseMediaUploading((prev) => (prev === "video" ? null : prev))
-        event.target.value = ""
-      }
-    },
-    [uploadCourseMedia]
-  )
 
   const runAction = async (userId: string, action: string, payload?: Record<string, unknown>) => {
     setBusyUserId(userId)
@@ -5843,220 +3312,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       }
     })
   }, [selectedPointsRuleRecord, selectedPointsRuleTemplate])
-
-  React.useEffect(() => {
-    setCourseMirrorWeekdays((prev) => prev.filter((weekday) => !courseRecurringWeekdays.includes(weekday)))
-    if (courseRecurringWeekdays.length !== 1) {
-      setCourseMirrorEnabled(false)
-    }
-  }, [courseRecurringWeekdays])
-
-  React.useEffect(() => {
-    if (courseRecurrenceMode === "indefinite" && courseRecurrenceEndsAt) {
-      setCourseRecurrenceEndsAt("")
-    }
-  }, [courseRecurrenceEndsAt, courseRecurrenceMode])
-
-  React.useEffect(() => {
-    if (!scheduleTimePickerOpen) return
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!scheduleTimePickerRef.current) return
-      if (scheduleTimePickerRef.current.contains(event.target as Node)) return
-      setScheduleTimePickerOpen(false)
-    }
-    document.addEventListener("mousedown", handlePointerDown)
-    return () => document.removeEventListener("mousedown", handlePointerDown)
-  }, [scheduleTimePickerOpen])
-
-  const scheduleSlotTimeUsage = React.useMemo(() => {
-    const counter = new Map<string, number>()
-    for (const slot of courseScheduleSlots) {
-      const normalized = normalizeClockTime(slot.time)
-      if (!normalized) continue
-      counter.set(normalized, (counter.get(normalized) || 0) + 1)
-    }
-    return counter
-  }, [courseScheduleSlots])
-
-  const scheduleTimeCourseUsage = React.useMemo(() => {
-    const counter = new Map<string, number>()
-    for (const course of schoolCourses) {
-      const courseTimes = new Set<string>()
-      const parsedRules = normalizeCourseScheduleRules(course.scheduleRules)
-      if (parsedRules) {
-        for (const rule of parsedRules.rules) {
-          for (const rawTime of rule.times) {
-            const normalized = normalizeClockTime(rawTime)
-            if (normalized) courseTimes.add(normalized)
-          }
-        }
-      } else {
-        for (const rawTime of course.availableTimes) {
-          const normalized = normalizeClockTime(rawTime)
-          if (normalized) courseTimes.add(normalized)
-        }
-      }
-      courseTimes.forEach((time) => counter.set(time, (counter.get(time) || 0) + 1))
-    }
-    return counter
-  }, [schoolCourses])
-
-  const scheduleTimeOptions = React.useMemo(() => {
-    const options: string[] = []
-    for (let hour = 0; hour < 24; hour++) {
-      options.push(`${String(hour).padStart(2, "0")}:00`)
-      options.push(`${String(hour).padStart(2, "0")}:30`)
-    }
-    return options
-  }, [])
-
-  const startEditingQuickTime = React.useCallback(
-    (index: number) => {
-      const current = quickScheduleTimes[index] || ""
-      setEditingQuickTimeIndex(index)
-      setQuickTimeDraft(current)
-    },
-    [quickScheduleTimes]
-  )
-
-  const commitQuickTimeEdit = React.useCallback(() => {
-    if (editingQuickTimeIndex === null) return
-    const normalized = normalizeClockTime(quickTimeDraft)
-    if (!normalized) {
-      setEditingQuickTimeIndex(null)
-      setQuickTimeDraft("")
-      return
-    }
-    setQuickScheduleTimes((prev) => {
-      if (!prev[editingQuickTimeIndex]) return prev
-      const next = [...prev]
-      next[editingQuickTimeIndex] = normalized
-      return normalizeQuickScheduleTimes(next)
-    })
-    setEditingQuickTimeIndex(null)
-    setQuickTimeDraft("")
-  }, [editingQuickTimeIndex, quickTimeDraft])
-
-  const loadCourseIntoForm = React.useCallback((item: SchoolCourseRow) => {
-    const parsedRules = normalizeCourseScheduleRules(item.scheduleRules)
-    const scheduleSlotsFromRules = parsedRules ? buildSlotsFromScheduleRules(parsedRules) : []
-    const defaultWeekdays = parsedRules
-      ? [...new Set(parsedRules.rules.map((rule) => rule.weekday))].sort((a, b) => a - b)
-      : item.availableWeekdays
-    const defaultTimes = parsedRules
-      ? [...new Set(parsedRules.rules.flatMap((rule) => rule.times).map((time) => normalizeClockTime(time)).filter(Boolean))].sort()
-      : item.availableTimes.map((time) => normalizeClockTime(time)).filter(Boolean)
-    const publicationMode = parsedRules?.publication?.mode || "publish_now"
-    const launchDate = publicationMode === "launch_date" ? parsedRules?.publication?.launchDate || "" : ""
-    const specialDiscountType = parsedRules?.specialDiscount?.type || "none"
-    const specialDiscountCustomLabel = specialDiscountType === "custom" ? parsedRules?.specialDiscount?.label || "" : ""
-    const specialDiscountPrice =
-      parsedRules?.specialDiscount?.priceCents !== null && parsedRules?.specialDiscount?.priceCents !== undefined
-        ? centsToUsdInput(parsedRules.specialDiscount.priceCents)
-        : ""
-    setCourseForm({
-      slug: item.slug,
-      title: item.title,
-      kind: item.kind,
-      category: item.category || "",
-      description: item.description || "",
-      previewImageUrl: item.coverImageUrl || "",
-      previewVideoUrl: item.previewVideoUrl || "",
-      dropInPriceCents: centsToUsdInput(item.dropInPriceCents),
-      firstClassPriceCents: centsToUsdInput(item.firstClassPriceCents),
-      level: item.level || "",
-      durationMinutes: item.durationMinutes?.toString() || "",
-      location: item.location || "",
-      defaultRoomId: item.defaultRoomId || "",
-      publicationMode,
-      launchDate,
-      specialDiscountType,
-      specialDiscountCustomLabel,
-      specialDiscountPrice,
-      availableTimesCsv: item.availableTimes.join(","),
-      active: item.active,
-    })
-    setCourseWeekdays(defaultWeekdays)
-    setCourseScheduleDate("")
-    setCourseScheduleDates([])
-    setCourseRecurringWeekdays(defaultWeekdays)
-    setCourseScheduleSlots(scheduleSlotsFromRules)
-    setCourseRepeatAllMonth(parsedRules?.repeatAllMonth ?? true)
-    setCourseRecurrenceMode(parsedRules?.recurrenceMode || "indefinite")
-    setCourseRecurrenceEndsAt(parsedRules?.recurrenceEndsAt || "")
-    setCourseMirrorEnabled(false)
-    setCourseMirrorWeekdays([])
-    setQuickScheduleTimes((prev) => normalizeQuickScheduleTimes([...defaultTimes, ...prev]))
-    setEditingQuickTimeIndex(null)
-    setQuickTimeDraft("")
-    setScheduleTimePickerOpen(false)
-    setCourseHydratedFromQuery(true)
-    setCourseEditingSlug(item.slug) // Track which course we're editing
-    loadCourseLinks(item.slug) // Load consecutive class links
-    schoolWizard.goToEntity("courses")
-    schoolWizard.setStep(0)
-    requestAnimationFrame(() => {
-      courseFormFieldsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-    })
-  }, [loadCourseLinks, schoolWizard])
-
-  const deleteCourse = React.useCallback(async (slug: string, title: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
-      return
-    }
-    setSchoolError(null)
-    setSchoolSuccess(null)
-    setSchoolBusy("course")
-    try {
-      const res = await fetch("/api/staff/school/courses", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setSchoolError(typeof data?.error === "string" ? data.error : "Unable to delete course.")
-        return
-      }
-      setSchoolSuccess(typeof data?.message === "string" ? data.message : "Course deleted.")
-      await fetchSchoolData({ showLoader: false })
-      // If we were editing this course, reset the form
-      if (courseForm.slug === slug) {
-        resetCourseBuilder()
-      }
-    } catch {
-      setSchoolError("Network error while deleting course.")
-    } finally {
-      setSchoolBusy(null)
-    }
-  }, [courseForm.slug, fetchSchoolData, resetCourseBuilder])
-
-  const toggleCourseActive = React.useCallback(async (item: SchoolCourseRow) => {
-    const next = !item.active
-    const label = next ? "activate" : "deactivate"
-    if (!window.confirm(`Are you sure you want to ${label} "${item.title}"?`)) return
-    setSchoolError(null)
-    setSchoolSuccess(null)
-    setSchoolBusy("course")
-    try {
-      const res = await fetch("/api/staff/school/courses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: item.slug, title: item.title, kind: item.kind, active: next }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setSchoolError(typeof data?.error === "string" ? data.error : `Unable to ${label} course.`)
-        return
-      }
-      setSchoolSuccess(`Course ${next ? "activated" : "deactivated"}.`)
-      await fetchSchoolData({ showLoader: false })
-    } catch {
-      setSchoolError(`Network error while trying to ${label} course.`)
-    } finally {
-      setSchoolBusy(null)
-    }
-  }, [fetchSchoolData])
 
   // ─── CourseLink (consecutive classes) functions ────────────────
 
@@ -6937,9 +4192,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
   const handlePaymentCategoryChange = React.useCallback((nextCategory: PaymentCategoryFilter) => {
     setPaymentCategoryFilter(nextCategory)
-    const nextIsHistoryMode = nextCategory === "history"
-    setIsHistoryMode(nextIsHistoryMode)
-    if (!nextIsHistoryMode) {
+    if (nextCategory !== "history") {
       setHistoryFrom("")
       setHistoryTo("")
       setHistoryPaymentMethodFilter("all")
@@ -6948,10 +4201,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       setHistoryClassOptions([])
     }
   }, [])
-
-  React.useEffect(() => {
-    setIsHistoryMode(paymentCategoryFilter === "history")
-  }, [paymentCategoryFilter])
 
   const reportFilteredPayments = React.useMemo(() => {
     const rawStartTs = parseDateInputStart(reportsDateFrom)
@@ -9302,13 +6551,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 roomReservationSaving={roomReservationSaving}
                 activeRoomOptions={activeRoomOptions}
                 reservationAssignableStaff={reservationAssignableStaff}
-                onDateRangeChange={(start, end) => {
-                  setRoomReservationForm((prev) => ({
-                    ...prev,
-                    startDate: start,
-                    endDate: end || "",
-                  }))
-                }}
+                onDateRangeChange={updateRoomReservationDateRange}
                 onFieldChange={updateRoomReservationFormField}
                 onSubmit={saveRoomReservation}
                 formatReservationDateLabel={formatReservationDateLabel}
@@ -9379,7 +6622,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                     <input
                       name="roomName"
                       value={roomForm.name}
-                      onChange={(event) => setRoomForm((prev) => ({ ...prev, name: event.target.value }))}
+                      onChange={(event) => updateRoomFormField("name", event.target.value)}
                       placeholder="Room name"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
@@ -9389,7 +6632,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       type="number"
                       min={1}
                       value={roomForm.capacity}
-                      onChange={(event) => setRoomForm((prev) => ({ ...prev, capacity: event.target.value }))}
+                      onChange={(event) => updateRoomFormField("capacity", event.target.value)}
                       placeholder="Capacity"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       required
@@ -9398,14 +6641,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                       <input
                         type="checkbox"
                         checked={roomForm.active}
-                        onChange={(event) => setRoomForm((prev) => ({ ...prev, active: event.target.checked }))}
+                        onChange={(event) => updateRoomFormField("active", event.target.checked)}
                       />
                       Active room
                     </label>
                     <input
                       name="roomLocation"
                       value={roomForm.location}
-                      onChange={(event) => setRoomForm((prev) => ({ ...prev, location: event.target.value }))}
+                      onChange={(event) => updateRoomFormField("location", event.target.value)}
                       placeholder="Location details (optional)"
                       className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                     />
@@ -13828,7 +11071,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
       <StaffAssistantRightRail
         showRightRail={showRightRail}
         showInlineRightRail={showInlineRightRail}
-        hasAssistantViewportSync={hasAssistantViewportSync}
         isRailCollapsed={isRailCollapsed}
         rightRailRef={rightRailRef}
         onCloseOverlay={() => setIsRailCollapsed(true)}
@@ -13863,16 +11105,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <span className="text-sm font-medium text-black dark:text-white">Deletion reason (required)</span>
                 <textarea
                   value={roomSafeDeleteModal.reason}
-                  onChange={(event) =>
-                    setRoomSafeDeleteModal((prev) => {
-                      if (!prev) return prev
-                      return {
-                        ...prev,
-                        reason: event.target.value,
-                        error: prev.error === "Deletion reason is required." ? null : prev.error,
-                      }
-                    })
-                  }
+                  onChange={(event) => updateRoomSafeDeleteReason(event.target.value)}
                   rows={3}
                   placeholder="Example: Room permanently removed from service"
                   className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
@@ -13933,16 +11166,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <span className="text-sm font-medium text-black dark:text-white">Target active room</span>
                 <select
                   value={roomReassignModal.targetRoomId}
-                  onChange={(event) =>
-                    setRoomReassignModal((prev) => {
-                      if (!prev) return prev
-                      return {
-                        ...prev,
-                        targetRoomId: event.target.value,
-                        error: prev.error === "Select a target room to continue." ? null : prev.error,
-                      }
-                    })
-                  }
+                  onChange={(event) => updateRoomReassignTarget(event.target.value)}
                   className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                 >
                   <option value="">Select target room</option>
@@ -13960,15 +11184,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <input
                   type="checkbox"
                   checked={roomReassignModal.moveFutureSessions}
-                  onChange={(event) =>
-                    setRoomReassignModal((prev) => {
-                      if (!prev) return prev
-                      return {
-                        ...prev,
-                        moveFutureSessions: event.target.checked,
-                      }
-                    })
-                  }
+                  onChange={(event) => updateRoomReassignMoveFutureSessions(event.target.checked)}
                 />
                 Also move future sessions (all-or-nothing if any conflict exists)
               </label>
@@ -13994,19 +11210,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                           <input
                             type="checkbox"
                             checked={checked}
-                            onChange={(event) =>
-                              setRoomReassignModal((prev) => {
-                                if (!prev) return prev
-                                const nextSelected = event.target.checked
-                                  ? [...prev.selectedCourseIds, course.id]
-                                  : prev.selectedCourseIds.filter((id) => id !== course.id)
-                                return {
-                                  ...prev,
-                                  selectedCourseIds: nextSelected,
-                                  error: prev.error === "Select at least one course to reassign." ? null : prev.error,
-                                }
-                              })
-                            }
+                            onChange={(event) => updateRoomReassignCourseSelection(course.id, event.target.checked)}
                           />
                           <div className="flex min-w-0 flex-col">
                             <div className="flex min-w-0 items-center gap-1.5">
@@ -14080,17 +11284,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
                 <span className="text-sm font-medium text-black dark:text-white">Cancellation reason (optional)</span>
                 <textarea
                   value={roomReservationCancelModal.reason}
-                  onChange={(event) =>
-                    setRoomReservationCancelModal((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            reason: event.target.value,
-                            error: null,
-                          }
-                        : prev
-                    )
-                  }
+                  onChange={(event) => updateRoomReservationCancelReason(event.target.value)}
                   rows={3}
                   className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                 />
@@ -14758,10 +11952,20 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
             // Mark this user as having current-month audit entries so the change-history button appears
             setUsersWithAuditEntries((prev) => new Set(prev).add(overrideModalStudent.id))
             // Refresh the payments board to show updated data
-            void refreshPaymentsBoard()
+             void refreshPaymentsBoard()
           }}
         />
       )}
     </>
   )
 }
+
+// ── Re-exports for backward compatibility ──
+export {
+  buildCurrentMonthPaymentsSummarySearchParams,
+  buildCurrentMonthStudentsSummary,
+  buildPaymentsRequestSearchParams,
+  matchesHistoryContentFilters,
+  matchesStudentSearchQuery,
+  resolveStudentCardPayments,
+} from "./staffPaymentFilters"

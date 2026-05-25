@@ -4,7 +4,6 @@ import { Bot } from "lucide-react"
 type StaffAssistantRightRailProps = {
   showRightRail: boolean
   showInlineRightRail: boolean
-  hasAssistantViewportSync: boolean
   isRailCollapsed: boolean
   rightRailRef: React.RefObject<HTMLDivElement | null>
   onCloseOverlay: () => void
@@ -15,7 +14,6 @@ type StaffAssistantRightRailProps = {
 export default function StaffAssistantRightRail({
   showRightRail,
   showInlineRightRail,
-  hasAssistantViewportSync,
   isRailCollapsed,
   rightRailRef,
   onCloseOverlay,
@@ -26,7 +24,7 @@ export default function StaffAssistantRightRail({
 
   return (
     <>
-      {showInlineRightRail && hasAssistantViewportSync ? (
+      {showInlineRightRail ? (
         <button
           type="button"
           onClick={onCloseOverlay}
@@ -40,7 +38,7 @@ export default function StaffAssistantRightRail({
           showInlineRightRail
             ? "translate-y-0 opacity-100"
             : "pointer-events-none translate-y-10 opacity-0 min-[1180px]:hidden"
-        } ${!hasAssistantViewportSync ? "pointer-events-none translate-y-10 opacity-0 min-[1180px]:pointer-events-auto min-[1180px]:translate-y-0 min-[1180px]:opacity-100" : ""} relative`}
+        } relative`}
       >
         <div
           ref={rightRailRef}
