@@ -227,4 +227,18 @@ describe("useStaffCoursesAdmin", () => {
     expect(target.value).toBe("")
     expect(fetch).not.toHaveBeenCalled()
   })
+
+  it("does not treat lookalike video hosts as trusted embeds", async () => {
+    await renderHook()
+
+    await act(async () => {
+      captured!.setCourseForm((prev) => ({
+        ...prev,
+        previewVideoUrl: "https://evil.example/vimeo.com/12345",
+      }))
+    })
+
+    expect(captured!.embedPreviewVideoUrl).toBe("https://evil.example/vimeo.com/12345")
+    expect(captured!.previewVideoSource).toBe("https://evil.example/vimeo.com/12345")
+  })
 })

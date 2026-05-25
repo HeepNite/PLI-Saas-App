@@ -53,35 +53,55 @@ const COURSE_VIDEO_MAX_BYTES = 15 * 1024 * 1024
 const COURSE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 const COURSE_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"])
 
+const parseAbsoluteVideoUrl = (value: string) => {
+  try {
+    return new URL(value)
+  } catch {
+    return null
+  }
+}
+
 const toEmbedVideoUrl = (input: string) => {
   const value = input.trim()
   if (!value) return ""
-  if (value.includes("youtube.com/watch?v=")) {
-    const id = value.split("watch?v=")[1]?.split("&")[0]
+  const url = parseAbsoluteVideoUrl(value)
+  if (!url) return value
+  const hostname = url.hostname.toLowerCase()
+  if (hostname === "youtube.com" || hostname === "www.youtube.com" || hostname === "m.youtube.com") {
+    const id = url.searchParams.get("v")?.trim()
     return id ? `https://www.youtube.com/embed/${id}` : value
   }
-  if (value.includes("youtu.be/")) {
-    const id = value.split("youtu.be/")[1]?.split("?")[0]
+  if (hostname === "youtu.be") {
+    const id = url.pathname.split("/").filter(Boolean)[0]
     return id ? `https://www.youtube.com/embed/${id}` : value
   }
-  if (value.includes("vimeo.com/")) {
-    const id = value.split("vimeo.com/")[1]?.split("?")[0]
+  if (hostname === "vimeo.com" || hostname === "www.vimeo.com") {
+    const id = url.pathname.split("/").filter(Boolean)[0]
     return id ? `https://player.vimeo.com/video/${id}` : value
   }
   return value
 }
 
-const isEmbedVideoUrl = (value: string) =>
-  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
+const isEmbedVideoUrl = (value: string) => {
+  const url = parseAbsoluteVideoUrl(value)
+  if (!url) return false
+  const hostname = url.hostname.toLowerCase()
+  return (
+    ((hostname === "youtube.com" || hostname === "www.youtube.com") && url.pathname.startsWith("/embed/")) ||
+    (hostname === "player.vimeo.com" && url.pathname.startsWith("/video/"))
+  )
+}
 
 const toAutoplayEmbedUrl = (value: string) => {
   const base = value.trim()
   if (!base) return ""
   const hasQuery = base.includes("?")
-  if (base.includes("youtube.com/embed/")) {
+  const url = parseAbsoluteVideoUrl(base)
+  const hostname = url?.hostname.toLowerCase()
+  if ((hostname === "youtube.com" || hostname === "www.youtube.com") && url?.pathname.startsWith("/embed/")) {
     return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=0&rel=0&playsinline=1`
   }
-  if (base.includes("player.vimeo.com/video/")) {
+  if (hostname === "player.vimeo.com" && url?.pathname.startsWith("/video/")) {
     return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1&background=1`
   }
   return base
