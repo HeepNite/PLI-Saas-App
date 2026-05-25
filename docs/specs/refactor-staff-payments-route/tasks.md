@@ -27,5 +27,14 @@
   - [x] user history user/date scoping
 - [x] Run focused staff payments tests.
 - [x] Run `npx tsc --noEmit`.
-- [ ] Evaluate response-row mapping extraction.
-- [ ] Continue only if the slice reduces responsibility and cognitive load.
+- [x] Remove inline non-null assertions for today session bounds.
+- [x] Add direct tests for staff payments time helpers.
+- [x] Evaluate response-row mapping extraction.
+- [x] Extract visible payment row mapping into `payments-row.ts`.
+- [x] Add direct tests for response row mapping:
+  - [x] default visible payment fields and student PIN fallback
+  - [x] cash outstanding balance settlement status
+  - [x] completed card settlement status
+  - [x] package-credit attendance inference guard
+  - [x] history package class number from linked attendance
+- [x] Confirm the slice reduces responsibility and cognitive load.

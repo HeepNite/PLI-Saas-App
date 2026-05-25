@@ -12,7 +12,8 @@ import {
   TODAY_MODE_TAKE_LIMIT,
 } from "@/app/api/staff/payments/payments-request"
 import { buildStaffPaymentsFindManyArgs } from "@/app/api/staff/payments/payments-query"
-import { getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
+import { buildStaffPaymentResponseRow } from "@/app/api/staff/payments/payments-row"
+import { getStaffPaymentsTodaySessionBounds, getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
 import {
   asObject,
   asText,
@@ -20,10 +21,7 @@ import {
   buildClerkDisplayName,
   buildOutstandingBalanceByUser,
   isCompletedPaymentStatus,
-  normalizePaymentChannel,
-  normalizePurchaseCategory,
   normalizeSettlementStatus,
-  resolveCanonicalName,
   selectActivePackagesByUser,
 } from "@/app/api/staff/payments/shared"
 import {
@@ -32,11 +30,8 @@ import {
   isStudentPinLifecycleEnabled,
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
-import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failure"
 
 export const runtime = "nodejs"
-
-type CheckInStatus = "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
 
 const ATTENDED_CHECKIN_STATUSES = ["checked_in", "checked_in_no_package", "checked_out"] as const
 const ATTENDED_CHECKIN_STATUS_SET = new Set<string>(ATTENDED_CHECKIN_STATUSES)
@@ -47,26 +42,6 @@ const getAttendanceStatusRank = (status: string) => {
   if (status === "checked_in_no_package") return 2
   if (status === "scheduled") return 1
   return 0
-}
-
-const resolveChildDropInCategory = (input: {
-  purchasePackageId: string | null
-  metadataPackageId: string
-  isConsecutiveChild: boolean
-  serviceId: string
-}) => {
-  if (input.isConsecutiveChild && !input.purchasePackageId) {
-    return {
-      packageId: "",
-      purchaseCategory: normalizePurchaseCategory({ packageId: "", serviceId: input.serviceId }),
-    }
-  }
-
-  const packageId = input.purchasePackageId || input.metadataPackageId
-  return {
-    packageId,
-    purchaseCategory: normalizePurchaseCategory({ packageId, serviceId: input.serviceId }),
-  }
 }
 
 const buildPurchaseAttendanceDedupKey = (input: {
@@ -281,32 +256,6 @@ const buildPaymentsSummary = <TItem extends {
   paidStripe: items.filter((item) => item.paymentChannel === "card" && item.classPaid).length,
 })
 
-const resolveSettlementStatus = (input: {
-  paymentChannel: string
-  currentSettlementStatus: string
-  isPaid: boolean
-  hasOutstandingBalance: boolean
-}) => {
-  if (input.paymentChannel === "cash") {
-    return input.hasOutstandingBalance ? "pending" : input.currentSettlementStatus
-  }
-
-  return input.isPaid ? "paid" : input.currentSettlementStatus
-}
-
-const resolveCheckInStatus = (attendanceStatus: string | null | undefined): CheckInStatus => {
-  if (
-    attendanceStatus === "checked_in" ||
-    attendanceStatus === "checked_in_no_package" ||
-    attendanceStatus === "checked_out" ||
-    attendanceStatus === "scheduled"
-  ) {
-    return attendanceStatus
-  }
-
-  return "none"
-}
-
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:payments:get", getClientIp(req)),
@@ -437,8 +386,7 @@ export async function GET(req: Request) {
   const dedupedCompletedTodayByUser = new Map<string, Set<string>>()
   const attendedRowsTodayByUser = new Map<string, number>()
   if (paymentsRequest.mode === "today") {
-    const minStart = buildSessionStartsAt(todayNY, "00:00")!
-    const maxStart = buildSessionStartsAt(todayNY, "23:59")!
+    const { minStart, maxStart } = getStaffPaymentsTodaySessionBounds(todayNY)
 
     const todayAttendances = await prisma.attendance.findMany({
       where: {
@@ -922,10 +870,8 @@ export async function GET(req: Request) {
     }>
   >()
   for (const entry of pointsEntries) {
-    if (!pointsHistoryByUser.has(entry.userId)) {
-      pointsHistoryByUser.set(entry.userId, [])
-    }
-    const list = pointsHistoryByUser.get(entry.userId)!
+    const list = pointsHistoryByUser.get(entry.userId) ?? []
+    pointsHistoryByUser.set(entry.userId, list)
     if (list.length >= 12) continue
     const meta = asObject(entry.meta)
     const milestoneRaw = Number(meta.milestone)
@@ -1213,135 +1159,30 @@ export async function GET(req: Request) {
     }
   }
 
-  const mapped = scopedPurchases.map((item) => {
-    const purchase = item.purchase
-    const metadataParentPurchaseId = asText(item.metadata.parentPurchaseId)
-    const metadataConsecutiveLinkedFrom = asText(item.metadata.consecutiveLinkedFrom)
-    const isConsecutiveChild = Boolean(metadataParentPurchaseId || metadataConsecutiveLinkedFrom)
-    const courseSlug = purchase.courseSlug
-    const paymentStatus = purchase.status
-    const metadataPackageId = asText(item.metadata.packageId)
-    const serviceId = purchase.serviceId || asText(item.metadata.serviceId)
-    const { packageId, purchaseCategory } = resolveChildDropInCategory({
-      purchasePackageId: purchase.packageId,
-      metadataPackageId,
-      isConsecutiveChild,
-      serviceId,
-    })
-    const paymentChannel = normalizePaymentChannel({
-      metadata: item.metadata,
-      status: paymentStatus,
-      stripePaymentIntentId: purchase.stripePaymentIntentId,
-      stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
-    })
-    const isPackageCredit = paymentChannel === "package_credit"
-
-    const metadataAttendanceId = asText(item.metadata.attendanceId) || null
-    const explicitAttendance = metadataAttendanceId ? attendanceById.get(metadataAttendanceId) || null : null
-    const purchaseLinkedAttendance = todayAttendanceByPurchaseId.get(purchase.id) || null
-    const slotKey =
-      item.classStartsAt && courseSlug
-        ? attendanceSlotKey(item.userId, courseSlug, item.classStartsAt.getTime())
-        : null
-    const slotAttendance = slotKey ? attendanceBySlot.get(slotKey) : null
-    const resolvedAttendance = isPackageCredit
-      ? explicitAttendance || purchaseLinkedAttendance
-      : explicitAttendance || purchaseLinkedAttendance || slotAttendance
-    const activePackage = activePackageByUser.get(item.userId)
-    const metadataPackagePurchaseId = asText(item.metadata.packagePurchaseId) || null
-    const linkedPackagePurchaseId =
-      packagePurchaseIdByPurchaseId.get(purchase.id) || metadataPackagePurchaseId || resolvedAttendance?.packagePurchaseId || null
-    const isPaid = isCompletedPaymentStatus(paymentStatus)
-    const normalizedSettlementStatus = resolveSettlementStatus({
-      paymentChannel,
-      currentSettlementStatus: item.settlementStatus,
-      isPaid,
-      hasOutstandingBalance: (outstandingBalanceByUser.get(item.userId) ?? 0) > 0,
-    })
-    // Don't infer check-in without an actual attendance record
-    // Cash payments without attendance linkage should show as "none", not assumed attended
-    const checkInStatus = resolveCheckInStatus(resolvedAttendance?.status)
-    const packageClassesUsedTotal = packageUsedOverrideByUser.get(item.userId)
-      ?? (activePackage
-        ? (activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0)
-        : 0)
-    const completedClassesTotal = completedOverrideByUser.get(item.userId)
-      ?? (paymentsRequest.mode === "today"
-        ? (completedClassesByUser.get(item.userId) || 0)
-        : Math.max(completedClassesByUser.get(item.userId) || 0, packageClassesUsedTotal))
-
-    return {
-      id: purchase.id,
-      userId: item.userId,
-      courseSlug,
-      courseTitle: purchase.courseTitle || courseSlug,
-      customerName: resolveCanonicalName(
-        clerkNameByUserId.get(item.userId),
-        dbNameByUserId.get(item.userId),
-        purchase.name,
-      ),
-      customerEmail: purchase.email || dbEmailByUserId.get(item.userId) || "—",
-      customerPhone: purchase.phone || dbPhoneByUserId.get(item.userId) || "—",
-      customerAvatarUrl: avatarByUserId.get(item.userId) || null,
-      packageId: packageId || null,
-      serviceId: serviceId || null,
-       paymentChannel,
-       purchaseCategory,
-       amount: purchase.amount,
-       currency: purchase.currency,
-       paymentStatus,
-       settlementStatus: normalizedSettlementStatus,
-       settlementNote: item.settlementNote,
-      settledAt: item.settledAt,
-      createdAt: purchase.createdAt.toISOString(),
-      updatedAt: purchase.updatedAt.toISOString(),
-      classDate: item.classDate,
-      classTime: item.classTime,
-      classStartsAt: item.classStartsAt ? item.classStartsAt.toISOString() : null,
-      location: courseLocationBySlug.get(courseSlug) || null,
-      pointsBalance: pointsByUser.get(item.userId) || 0,
-      pointsHistory: pointsHistoryByUser.get(item.userId) || [],
-      classPaid: isPaid,
-      attendanceId: resolvedAttendance?.id ?? null,
-      checkInStatus,
-      checkInAt: resolvedAttendance?.checkedInAt ?? null,
-      checkedOutAt: resolvedAttendance?.checkedOutAt ?? null,
-      activePackage: activePackage
-        ? {
-            id: activePackage.packageId,
-            label: activePackage.packageLabel || activePackage.packageId,
-            totalCredits: activePackage.totalCredits,
-            remainingCredits: activePackage.remainingCredits,
-            isUnlimited: activePackage.isUnlimited,
-            expiresAt: activePackage.expiresAt,
-            status: activePackage.status,
-          }
-        : null,
-      completedClassesTotal,
-      packageClassesUsedTotal,
-      outstandingBalance: (() => {
-        const value = outstandingBalanceByUser.get(item.userId)
-        return typeof value === "number" && value > 0 ? value : null
-      })(),
-      studentPin: studentPinByUserId.get(item.userId) || {
-        enabled: false,
-        enrolled: false,
-        locked: false,
-        needsEnrollment: false,
-        permanentStatus: null,
-        provisionalActive: false,
-        provisionalExpiresAt: null,
-      },
-      packageClassNumber:
-        paymentsRequest.mode === "history" && linkedPackagePurchaseId && slotAttendance?.id
-          ? packageClassNumberByUsageKey.get(`${linkedPackagePurchaseId}|${slotAttendance.id}`) ?? null
-          : null,
-      fundingPayment: linkedPackagePurchaseId ? fundingPurchaseByPackagePurchaseId.get(linkedPackagePurchaseId) || null : null,
-      stripeFailure: isStripeFailureInfo((purchase.metadata as Record<string, unknown> | null)?.stripeFailure)
-        ? ((purchase.metadata as Record<string, unknown>).stripeFailure as StripeFailureInfo)
-        : null,
-    }
-  })
+  const mapped = scopedPurchases.map((item) => buildStaffPaymentResponseRow(item, {
+    mode: paymentsRequest.mode,
+    clerkNameByUserId,
+    dbNameByUserId,
+    dbEmailByUserId,
+    dbPhoneByUserId,
+    avatarByUserId,
+    courseLocationBySlug,
+    pointsByUser,
+    pointsHistoryByUser,
+    attendanceById,
+    todayAttendanceByPurchaseId,
+    attendanceBySlot,
+    activePackageByUser,
+    activePackageClassesUsedById,
+    completedClassesByUser,
+    completedOverrideByUser,
+    packageUsedOverrideByUser,
+    outstandingBalanceByUser,
+    packagePurchaseIdByPurchaseId,
+    packageClassNumberByUsageKey,
+    fundingPurchaseByPackagePurchaseId,
+    studentPinByUserId,
+  }))
 
   const filtered = settlementFilter === "all" ? mapped : mapped.filter((item) => item.settlementStatus === settlementFilter)
 
