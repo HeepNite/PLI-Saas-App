@@ -6,14 +6,14 @@ This branch contains valid preparatory refactor work: pure helpers/types were ex
 
 ## Current Evidence
 
-Measured on branch `refactor/staff-admin-split` after the `useStaffCoursesAdmin` working-tree slice.
+Measured on branch `refactor/staff-admin-split` after commit `ad78c82` (`refactor(staff): extract courses admin hook`). Metrics below use executable-call counts in `StaffUsersAdminClient.tsx` with these exact regexes: `React\.useState\s*\(`, `React\.useEffect\s*\(`, `React\.useMemo\s*\(`, `React\.useCallback\s*\(`, and `fetch\s*\(`. The `React.useState` value is cross-checked against declarations matching `const [...] = React.useState(`; both methods currently return `56`.
 
 | Metric | Current value | Gate interpretation |
 |--------|---------------|---------------------|
 | `StaffUsersAdminClient.tsx` LOC | 11,971 | Still a god component; ~15x the directional 800-line target. |
-| `React.useState` occurrences | 153 | Improved, but state remains concentrated in the container. |
+| `React.useState` calls/declarations | 56 | Improved, but state remains concentrated in the container. |
 | `React.useEffect` occurrences | 32 | Improved, but side-effect ownership remains concentrated. |
-| `React.useMemo` occurrences | 78 | High derived-state/cognitive surface remains. |
+| `React.useMemo` occurrences | 69 | High derived-state/cognitive surface remains. |
 | `React.useCallback` occurrences | 54 | Improved, but many handlers remain inline in the container. |
 | `fetch(` call sites | 46 | Improved, but network orchestration remains concentrated. |
 | JSX return starts | ~line 5,000+ | Thousands of lines of state/handlers still precede render. |
@@ -26,7 +26,7 @@ Two blind judges reviewed the branch using `solid`, `codebase-cleanup-refactor-c
 
 | Finding | Status | Evidence |
 |---------|--------|----------|
-| `StaffUsersAdminClient` remains a god component | Confirmed | 11,971 LOC, 153 `useState`, 32 `useEffect`, 54 `useCallback`, 46 `fetch(`. |
+| `StaffUsersAdminClient` remains a god component | Confirmed | 11,971 LOC, 56 `useState`, 32 `useEffect`, 69 `useMemo`, 54 `useCallback`, 46 `fetch(`. |
 | Extraction is partly cosmetic/presentational | Confirmed | Most extracted LOC is types, constants, formatters, pure helpers, and thin presentational shells. |
 | Real domain extraction exists | Confirmed | `useStaffRoomsAdmin` moved rooms/reservations ownership; `useStaffCoursesAdmin` moved course-builder/schedule/media ownership. |
 | Refactor is complete | Refuted | Two stateful domain hooks exist, but many domains still live in the container. |
@@ -81,6 +81,21 @@ npm run test -- components/front/staff/__tests__/useStaffCoursesAdmin.test.tsx c
 ```
 
 ```text
+npm run test -- components/front/staff/__tests__/useStaffCoursesAdmin.test.tsx components/front/staff/__tests__/staffCourseScheduleHelpers.test.ts tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx
+# 3 files passed, 20 tests passed
+```
+
+```text
+npm run test -- components/front/staff/__tests__/StaffUsersAdminClient.test.ts tests/front/staff-users-admin-client-fetch-cache.test.tsx tests/front/staff-users-admin-client-rooms-lifecycle.test.tsx components/front/staff/__tests__/useStaffCoursesAdmin.test.tsx
+# 4 files passed, 92 tests passed
+```
+
+```text
+npx tsc --noEmit
+# exit 0, no output
+```
+
+```text
 npm run build
 # build passed; warnings remain in unrelated/baseline files
 ```
@@ -94,21 +109,28 @@ These commands support behavior preservation for the current slices. They do **n
 | Metric | Required improvement | Actual improvement | Result |
 |--------|----------------------|--------------------|--------|
 | `StaffUsersAdminClient.tsx` LOC | -800 to -1,500 lines | -1,048 lines | ✅ Met |
-| Container `useState` | at least -10 | -26 | ✅ Met |
+| Container `useState` | at least -10 | -13 | ✅ Met |
 | Container `fetch(` | at least -5 | -4 | ⚠️ Slight miss; CourseLink/consecutive no-touch boundary kept link fetches in container. |
 | Container `useCallback` | at least -10 | -21 | ✅ Met |
-| Tests | behavior tests for extracted hook/helpers | `useStaffCoursesAdmin.test.tsx` covers schedule-slot state transitions and slug-conflict suggestion flow. | ✅ Met |
+| Tests | behavior tests for extracted hook/helpers | `useStaffCoursesAdmin.test.tsx` covers schedule-slot state transitions, slug-conflict suggestion flow, course save happy path, unauthorized save response, and invalid local image rejection. | ✅ Met |
 
 ## Next Required Slice
 
 Implement one more measurable bounded-context extraction before any integration-complete claim.
 
-Recommended next target: **payments/admin or residual school package/points context**.
+Recommended next target: **`useStaffPaymentsAdmin.ts` / payments admin bounded context**.
 
 Move real ownership out of the container:
 
-- payment query state, payment summary loading, bulk settlement actions, checkout menu state, and related fetches; or
-- residual school package/points state and handlers, while keeping CourseLink/consecutive as an explicit no-touch slice unless separately approved.
+- payments list state
+- monthly summary state
+- payments loading/filter/history filters
+- selected payments / bulk actions
+- checkout menu state
+- payment history/audit anchors
+- related fetches for `GET /api/staff/payments`, `POST /api/staff/payments/bulk`, and payment/audit-log reads
+
+Do **not** touch CourseLink / consecutive-course-link internals in this PR. Do **not** remove more compatibility seams in this PR.
 
 ## Numeric Exit Gate for the Next Slice
 
@@ -118,9 +140,18 @@ The next slice should meet all of these before review:
 |--------|----------------------|
 | `StaffUsersAdminClient.tsx` LOC | -800 to -1,500 lines |
 | Container `useState` | at least -10 |
-| Container `fetch(` | at least -5 |
+| Container `fetch(` | at least -3 |
 | Container `useCallback` | at least -10 |
-| Tests | behavior tests for extracted hook/helpers; avoid adding source-string-only coverage |
+| Tests | at least 5 behavior-based tests for the new hook; avoid source-string-only coverage |
+
+## PR Framing
+
+Use this branch only as a valid chained batch:
+
+- **Title/frame**: `Batch staff-admin split: rooms + courses domain hooks.`
+- **Required caveat**: `Container shell goal NOT met yet.`
+- **Required caveat**: `This is a chained refactor batch, not final completion.`
+- **Do not claim** the staff-admin refactor is complete.
 
 ## Final Gate
 
