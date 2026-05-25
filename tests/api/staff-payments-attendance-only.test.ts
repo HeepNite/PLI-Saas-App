@@ -52,6 +52,8 @@ vi.mock("@/lib/class-schedule", () => ({
   buildSessionStartsAt: (...args: unknown[]) => mockBuildSessionStartsAt(...args),
   getTodayNewYork: () => mockGetTodayNewYork(),
   getTimeKeyInTimeZone: (date: Date) => date.toISOString().split("T")[1].substring(0, 5),
+  // Match the current EDT fixtures.
+  getStartOfDayNY: (dateStr: string) => new Date(`${dateStr}T04:00:00.000Z`),
 }))
 
 vi.mock("@/lib/security/student-pin", () => ({

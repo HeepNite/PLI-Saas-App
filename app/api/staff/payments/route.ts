@@ -4,8 +4,16 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { buildSessionStartsAt, getTodayNewYork, getTimeKeyInTimeZone, getStartOfDayNY } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { getCurrentMonthBoundariesNY } from "@/lib/monthly-boundary"
+import {
+  HISTORY_MODE_TAKE_LIMIT,
+  parseStaffPaymentsRequest,
+  TODAY_MODE_TAKE_LIMIT,
+} from "@/app/api/staff/payments/payments-request"
+import { buildStaffPaymentsFindManyArgs } from "@/app/api/staff/payments/payments-query"
+import { buildStaffPaymentResponseRow } from "@/app/api/staff/payments/payments-row"
+import { getStaffPaymentsTodaySessionBounds, getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
 import {
   asObject,
   asText,
@@ -13,10 +21,7 @@ import {
   buildClerkDisplayName,
   buildOutstandingBalanceByUser,
   isCompletedPaymentStatus,
-  normalizePaymentChannel,
-  normalizePurchaseCategory,
   normalizeSettlementStatus,
-  resolveCanonicalName,
   selectActivePackagesByUser,
 } from "@/app/api/staff/payments/shared"
 import {
@@ -25,16 +30,9 @@ import {
   isStudentPinLifecycleEnabled,
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
-import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failure"
 
 export const runtime = "nodejs"
 
-type CheckInStatus = "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
-type PaymentsMode = "today" | "history" | "userHistory"
-
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
-const TODAY_MODE_TAKE_LIMIT = 200
-const HISTORY_MODE_TAKE_LIMIT = 2000
 const ATTENDED_CHECKIN_STATUSES = ["checked_in", "checked_in_no_package", "checked_out"] as const
 const ATTENDED_CHECKIN_STATUS_SET = new Set<string>(ATTENDED_CHECKIN_STATUSES)
 
@@ -44,26 +42,6 @@ const getAttendanceStatusRank = (status: string) => {
   if (status === "checked_in_no_package") return 2
   if (status === "scheduled") return 1
   return 0
-}
-
-const resolveChildDropInCategory = (input: {
-  purchasePackageId: string | null
-  metadataPackageId: string
-  isConsecutiveChild: boolean
-  serviceId: string
-}) => {
-  if (input.isConsecutiveChild && !input.purchasePackageId) {
-    return {
-      packageId: "",
-      purchaseCategory: normalizePurchaseCategory({ packageId: "", serviceId: input.serviceId }),
-    }
-  }
-
-  const packageId = input.purchasePackageId || input.metadataPackageId
-  return {
-    packageId,
-    purchaseCategory: normalizePurchaseCategory({ packageId, serviceId: input.serviceId }),
-  }
 }
 
 const buildPurchaseAttendanceDedupKey = (input: {
@@ -238,62 +216,6 @@ const loadStudentPinCredentials = async (userIds: string[]) => {
   }
 }
 
-const normalizeHistoryRangeInputs = (input: { from: string; to: string; date: string }) => {
-  const normalizedFrom = input.from || input.date
-  const normalizedTo = input.to || input.date
-
-  if (!normalizedFrom || !normalizedTo) {
-    return {
-      ok: false as const,
-      error: "History mode requires both from and to dates.",
-    }
-  }
-
-  if (!DATE_REGEX.test(normalizedFrom) || !DATE_REGEX.test(normalizedTo)) {
-    return {
-      ok: false as const,
-      error: "History mode requires valid YYYY-MM-DD from/to dates.",
-    }
-  }
-
-  if (normalizedFrom > normalizedTo) {
-    return {
-      ok: false as const,
-      error: "History mode requires from to be on or before to.",
-    }
-  }
-
-  return {
-    ok: true as const,
-    from: normalizedFrom,
-    to: normalizedTo,
-  }
-}
-
-const getTrimmedSearchParam = (searchParams: URLSearchParams, key: string) => searchParams.get(key)?.trim() || ""
-
-const parsePaymentsQueryParams = (searchParams: URLSearchParams) => {
-  const query = getTrimmedSearchParam(searchParams, "q")
-  const settlementFilter = getTrimmedSearchParam(searchParams, "settlement").toLowerCase() || "all"
-  const requestedMode = getTrimmedSearchParam(searchParams, "mode").toLowerCase()
-  const userHistoryId = getTrimmedSearchParam(searchParams, "userId")
-  const selectedDate = getTrimmedSearchParam(searchParams, "date")
-  const selectedFrom = getTrimmedSearchParam(searchParams, "from")
-  const selectedTo = getTrimmedSearchParam(searchParams, "to")
-  const selectedClass = getTrimmedSearchParam(searchParams, "class")
-
-  return {
-    query,
-    settlementFilter,
-    requestedMode,
-    userHistoryId,
-    selectedDate,
-    selectedFrom,
-    selectedTo,
-    selectedClass,
-  }
-}
-
 const filterPurchasesByClassDateRange = <TItem extends { classDate: string | null }>(
   items: TItem[],
   from: string,
@@ -334,32 +256,6 @@ const buildPaymentsSummary = <TItem extends {
   paidStripe: items.filter((item) => item.paymentChannel === "card" && item.classPaid).length,
 })
 
-const resolveSettlementStatus = (input: {
-  paymentChannel: string
-  currentSettlementStatus: string
-  isPaid: boolean
-  hasOutstandingBalance: boolean
-}) => {
-  if (input.paymentChannel === "cash") {
-    return input.hasOutstandingBalance ? "pending" : input.currentSettlementStatus
-  }
-
-  return input.isPaid ? "paid" : input.currentSettlementStatus
-}
-
-const resolveCheckInStatus = (attendanceStatus: string | null | undefined): CheckInStatus => {
-  if (
-    attendanceStatus === "checked_in" ||
-    attendanceStatus === "checked_in_no_package" ||
-    attendanceStatus === "checked_out" ||
-    attendanceStatus === "scheduled"
-  ) {
-    return attendanceStatus
-  }
-
-  return "none"
-}
-
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:payments:get", getClientIp(req)),
@@ -378,95 +274,29 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status })
   }
 
-  const url = new URL(req.url)
-  const {
-    query,
-    settlementFilter,
-    requestedMode,
-    userHistoryId,
-    selectedDate,
-    selectedFrom,
-    selectedTo,
-    selectedClass,
-  } = parsePaymentsQueryParams(url.searchParams)
-  const mode: PaymentsMode = userHistoryId ? "userHistory" : requestedMode === "history" ? "history" : "today"
-
-  const historyRange =
-    mode === "history"
-      ? normalizeHistoryRangeInputs({ from: selectedFrom, to: selectedTo, date: selectedDate })
-      : null
-
-  if (historyRange && !historyRange.ok) {
+  const paymentsRequest = parseStaffPaymentsRequest(req)
+  if (!paymentsRequest.ok) {
     return NextResponse.json(
-      { error: historyRange.error },
-      { status: 400 }
+      { error: paymentsRequest.error },
+      { status: paymentsRequest.status }
     )
   }
 
-  const where = query
-    ? {
-        OR: [
-          { email: { contains: query, mode: "insensitive" as const } },
-          { name: { contains: query, mode: "insensitive" as const } },
-          { phone: { contains: query, mode: "insensitive" as const } },
-          {
-            user: {
-              is: {
-                OR: [
-                  { email: { contains: query, mode: "insensitive" as const } },
-                  { name: { contains: query, mode: "insensitive" as const } },
-                  { phone: { contains: query, mode: "insensitive" as const } },
-                ],
-              },
-            },
-          },
-          { courseTitle: { contains: query, mode: "insensitive" as const } },
-          { courseSlug: { contains: query, mode: "insensitive" as const } },
-        ],
-      }
-    : undefined
+  const {
+    query,
+    settlementFilter,
+    selectedFrom,
+    selectedTo,
+    selectedClass,
+  } = paymentsRequest
+  const { todayNY, startOfTodayNY, endOfTodayNY } = getStaffPaymentsTodayWindow()
 
-  const todayNY = getTodayNewYork()
-  // Compute today's NY day boundaries as UTC Date objects.
-  // Dynamically handles EDT (UTC-4) and EST (UTC-5).
-  const startOfTodayNY = getStartOfDayNY(todayNY)
-  const endOfTodayNY = new Date(startOfTodayNY.getTime() + 24 * 60 * 60 * 1000 - 1)
+  const purchases = await prisma.purchase.findMany(buildStaffPaymentsFindManyArgs(paymentsRequest, {
+    startOfTodayNY,
+    endOfTodayNY,
+  }))
 
-  const purchases = await prisma.purchase.findMany({
-    where:
-      mode === "userHistory"
-        ? {
-            userId: userHistoryId,
-            ...(selectedFrom && selectedTo
-              ? {
-                  AND: [
-                    { metadata: { path: ["date"], gte: selectedFrom } },
-                    { metadata: { path: ["date"], lte: selectedTo } },
-                  ],
-                }
-              : {}),
-          }
-        : mode === "history"
-          ? {
-              AND: [
-                ...(where ? [where] : []),
-                { metadata: { path: ["date"], gte: historyRange!.from } },
-                { metadata: { path: ["date"], lte: historyRange!.to } },
-              ],
-            }
-          : mode === "today"
-            ? {
-                AND: [
-                  ...(where ? [where] : []),
-                  { createdAt: { gte: startOfTodayNY, lte: endOfTodayNY } },
-                ],
-              }
-            : where,
-    orderBy: { createdAt: "desc" },
-    take: mode === "userHistory" ? 100 : mode === "history" ? HISTORY_MODE_TAKE_LIMIT + 1 : TODAY_MODE_TAKE_LIMIT,
-  })
-
-  const historyTruncated = mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT
+  const historyTruncated = paymentsRequest.mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT
   const scopedBasePurchases = historyTruncated ? purchases.slice(0, HISTORY_MODE_TAKE_LIMIT) : purchases
   const normalizedPurchases = normalizeConsecutivePurchases(scopedBasePurchases)
 
@@ -555,9 +385,8 @@ export async function GET(req: Request) {
   >()
   const dedupedCompletedTodayByUser = new Map<string, Set<string>>()
   const attendedRowsTodayByUser = new Map<string, number>()
-  if (mode === "today") {
-    const minStart = buildSessionStartsAt(todayNY, "00:00")!
-    const maxStart = buildSessionStartsAt(todayNY, "23:59")!
+  if (paymentsRequest.mode === "today") {
+    const { minStart, maxStart } = getStaffPaymentsTodaySessionBounds(todayNY)
 
     const todayAttendances = await prisma.attendance.findMany({
       where: {
@@ -565,7 +394,7 @@ export async function GET(req: Request) {
           startsAt: { gte: minStart, lte: maxStart },
         },
         checkedInAt: { gte: startOfTodayNY, lte: endOfTodayNY },
-        ...(where
+        ...(query
           ? {
               user: {
                 OR: [
@@ -718,16 +547,16 @@ export async function GET(req: Request) {
   }
 
   const historyEligiblePurchases = deduplicatedEnrichedPurchases.filter((item) => item.classDate)
-  const historyDatePurchases = mode === "history"
-    ? filterPurchasesByClassDateRange(historyEligiblePurchases, historyRange!.from, historyRange!.to)
+  const historyDatePurchases = paymentsRequest.mode === "history"
+    ? filterPurchasesByClassDateRange(historyEligiblePurchases, paymentsRequest.historyRange.from, paymentsRequest.historyRange.to)
     : []
-  const classOptions = mode === "history"
+  const classOptions = paymentsRequest.mode === "history"
     ? buildHistoryClassOptions(historyDatePurchases)
     : []
   const scopedPurchases =
-    mode === "history"
+    paymentsRequest.mode === "history"
       ? historyDatePurchases.filter((item) => !selectedClass || item.purchase.courseSlug === selectedClass)
-      : mode === "userHistory"
+      : paymentsRequest.mode === "userHistory"
         ? (selectedFrom && selectedTo
           ? filterPurchasesByClassDateRange(deduplicatedEnrichedPurchases, selectedFrom, selectedTo)
           : deduplicatedEnrichedPurchases)
@@ -815,7 +644,7 @@ export async function GET(req: Request) {
           })
 
           const packagePurchaseIds = packagePurchases.map((item) => item.id)
-          const usageEntries = mode === "history" && packagePurchaseIds.length
+          const usageEntries = paymentsRequest.mode === "history" && packagePurchaseIds.length
             ? await prisma.packageUsageLedger.findMany({
                 where: {
                   packagePurchaseId: { in: packagePurchaseIds },
@@ -871,7 +700,7 @@ export async function GET(req: Request) {
 
       // In today mode, also clamp to current month boundaries to avoid
       // fetching attendances from previous months.
-      if (mode === "today") {
+      if (paymentsRequest.mode === "today") {
         const { start: monthStart, end: monthEnd } = getCurrentMonthBoundariesNY()
         if (minStart < monthStart) minStart = monthStart
         if (maxStart > monthEnd) maxStart = monthEnd
@@ -904,7 +733,7 @@ export async function GET(req: Request) {
       // In today mode, scope completed attendances to NY today only.
       // In userHistory/history mode, count all attendances (no date filter).
       if (!userIds.length) return Promise.resolve([])
-      if (mode === "today") {
+      if (paymentsRequest.mode === "today") {
         return prisma.attendance.groupBy({
           by: ["userId"],
           where: {
@@ -928,7 +757,7 @@ export async function GET(req: Request) {
       // In today mode, scope purchases to NY today only.
       // In userHistory/history mode, fetch all purchases (no date filter).
       if (!userIds.length) return Promise.resolve([])
-      if (mode === "today") {
+      if (paymentsRequest.mode === "today") {
         return prisma.purchase.findMany({
           where: {
             userId: { in: userIds },
@@ -1041,10 +870,8 @@ export async function GET(req: Request) {
     }>
   >()
   for (const entry of pointsEntries) {
-    if (!pointsHistoryByUser.has(entry.userId)) {
-      pointsHistoryByUser.set(entry.userId, [])
-    }
-    const list = pointsHistoryByUser.get(entry.userId)!
+    const list = pointsHistoryByUser.get(entry.userId) ?? []
+    pointsHistoryByUser.set(entry.userId, list)
     if (list.length >= 12) continue
     const meta = asObject(entry.meta)
     const milestoneRaw = Number(meta.milestone)
@@ -1063,7 +890,7 @@ export async function GET(req: Request) {
   for (const row of completedAttendances) {
     completedClassesByUser.set(row.userId, row._count._all)
   }
-  if (mode === "today") {
+  if (paymentsRequest.mode === "today") {
     for (const [userId, keys] of dedupedCompletedTodayByUser.entries()) {
       const rawAttended = attendedRowsTodayByUser.get(userId) || 0
       const duplicateCount = Math.max(0, rawAttended - keys.size)
@@ -1332,149 +1159,44 @@ export async function GET(req: Request) {
     }
   }
 
-  const mapped = scopedPurchases.map((item) => {
-    const purchase = item.purchase
-    const metadataParentPurchaseId = asText(item.metadata.parentPurchaseId)
-    const metadataConsecutiveLinkedFrom = asText(item.metadata.consecutiveLinkedFrom)
-    const isConsecutiveChild = Boolean(metadataParentPurchaseId || metadataConsecutiveLinkedFrom)
-    const courseSlug = purchase.courseSlug
-    const paymentStatus = purchase.status
-    const metadataPackageId = asText(item.metadata.packageId)
-    const serviceId = purchase.serviceId || asText(item.metadata.serviceId)
-    const { packageId, purchaseCategory } = resolveChildDropInCategory({
-      purchasePackageId: purchase.packageId,
-      metadataPackageId,
-      isConsecutiveChild,
-      serviceId,
-    })
-    const paymentChannel = normalizePaymentChannel({
-      metadata: item.metadata,
-      status: paymentStatus,
-      stripePaymentIntentId: purchase.stripePaymentIntentId,
-      stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
-    })
-    const isPackageCredit = paymentChannel === "package_credit"
-
-    const metadataAttendanceId = asText(item.metadata.attendanceId) || null
-    const explicitAttendance = metadataAttendanceId ? attendanceById.get(metadataAttendanceId) || null : null
-    const purchaseLinkedAttendance = todayAttendanceByPurchaseId.get(purchase.id) || null
-    const slotKey =
-      item.classStartsAt && courseSlug
-        ? attendanceSlotKey(item.userId, courseSlug, item.classStartsAt.getTime())
-        : null
-    const slotAttendance = slotKey ? attendanceBySlot.get(slotKey) : null
-    const resolvedAttendance = isPackageCredit
-      ? explicitAttendance || purchaseLinkedAttendance
-      : explicitAttendance || purchaseLinkedAttendance || slotAttendance
-    const activePackage = activePackageByUser.get(item.userId)
-    const metadataPackagePurchaseId = asText(item.metadata.packagePurchaseId) || null
-    const linkedPackagePurchaseId =
-      packagePurchaseIdByPurchaseId.get(purchase.id) || metadataPackagePurchaseId || resolvedAttendance?.packagePurchaseId || null
-    const isPaid = isCompletedPaymentStatus(paymentStatus)
-    const normalizedSettlementStatus = resolveSettlementStatus({
-      paymentChannel,
-      currentSettlementStatus: item.settlementStatus,
-      isPaid,
-      hasOutstandingBalance: (outstandingBalanceByUser.get(item.userId) ?? 0) > 0,
-    })
-    // Don't infer check-in without an actual attendance record
-    // Cash payments without attendance linkage should show as "none", not assumed attended
-    const checkInStatus = resolveCheckInStatus(resolvedAttendance?.status)
-    const packageClassesUsedTotal = packageUsedOverrideByUser.get(item.userId)
-      ?? (activePackage
-        ? (activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0)
-        : 0)
-    const completedClassesTotal = completedOverrideByUser.get(item.userId)
-      ?? (mode === "today"
-        ? (completedClassesByUser.get(item.userId) || 0)
-        : Math.max(completedClassesByUser.get(item.userId) || 0, packageClassesUsedTotal))
-
-    return {
-      id: purchase.id,
-      userId: item.userId,
-      courseSlug,
-      courseTitle: purchase.courseTitle || courseSlug,
-      customerName: resolveCanonicalName(
-        clerkNameByUserId.get(item.userId),
-        dbNameByUserId.get(item.userId),
-        purchase.name,
-      ),
-      customerEmail: purchase.email || dbEmailByUserId.get(item.userId) || "—",
-      customerPhone: purchase.phone || dbPhoneByUserId.get(item.userId) || "—",
-      customerAvatarUrl: avatarByUserId.get(item.userId) || null,
-      packageId: packageId || null,
-      serviceId: serviceId || null,
-       paymentChannel,
-       purchaseCategory,
-       amount: purchase.amount,
-       currency: purchase.currency,
-       paymentStatus,
-       settlementStatus: normalizedSettlementStatus,
-       settlementNote: item.settlementNote,
-      settledAt: item.settledAt,
-      createdAt: purchase.createdAt.toISOString(),
-      updatedAt: purchase.updatedAt.toISOString(),
-      classDate: item.classDate,
-      classTime: item.classTime,
-      classStartsAt: item.classStartsAt ? item.classStartsAt.toISOString() : null,
-      location: courseLocationBySlug.get(courseSlug) || null,
-      pointsBalance: pointsByUser.get(item.userId) || 0,
-      pointsHistory: pointsHistoryByUser.get(item.userId) || [],
-      classPaid: isPaid,
-      attendanceId: resolvedAttendance?.id ?? null,
-      checkInStatus,
-      checkInAt: resolvedAttendance?.checkedInAt ?? null,
-      checkedOutAt: resolvedAttendance?.checkedOutAt ?? null,
-      activePackage: activePackage
-        ? {
-            id: activePackage.packageId,
-            label: activePackage.packageLabel || activePackage.packageId,
-            totalCredits: activePackage.totalCredits,
-            remainingCredits: activePackage.remainingCredits,
-            isUnlimited: activePackage.isUnlimited,
-            expiresAt: activePackage.expiresAt,
-            status: activePackage.status,
-          }
-        : null,
-      completedClassesTotal,
-      packageClassesUsedTotal,
-      outstandingBalance: (() => {
-        const value = outstandingBalanceByUser.get(item.userId)
-        return typeof value === "number" && value > 0 ? value : null
-      })(),
-      studentPin: studentPinByUserId.get(item.userId) || {
-        enabled: false,
-        enrolled: false,
-        locked: false,
-        needsEnrollment: false,
-        permanentStatus: null,
-        provisionalActive: false,
-        provisionalExpiresAt: null,
-      },
-      packageClassNumber:
-        mode === "history" && linkedPackagePurchaseId && slotAttendance?.id
-          ? packageClassNumberByUsageKey.get(`${linkedPackagePurchaseId}|${slotAttendance.id}`) ?? null
-          : null,
-      fundingPayment: linkedPackagePurchaseId ? fundingPurchaseByPackagePurchaseId.get(linkedPackagePurchaseId) || null : null,
-      stripeFailure: isStripeFailureInfo((purchase.metadata as Record<string, unknown> | null)?.stripeFailure)
-        ? ((purchase.metadata as Record<string, unknown>).stripeFailure as StripeFailureInfo)
-        : null,
-    }
-  })
+  const mapped = scopedPurchases.map((item) => buildStaffPaymentResponseRow(item, {
+    mode: paymentsRequest.mode,
+    clerkNameByUserId,
+    dbNameByUserId,
+    dbEmailByUserId,
+    dbPhoneByUserId,
+    avatarByUserId,
+    courseLocationBySlug,
+    pointsByUser,
+    pointsHistoryByUser,
+    attendanceById,
+    todayAttendanceByPurchaseId,
+    attendanceBySlot,
+    activePackageByUser,
+    activePackageClassesUsedById,
+    completedClassesByUser,
+    completedOverrideByUser,
+    packageUsedOverrideByUser,
+    outstandingBalanceByUser,
+    packagePurchaseIdByPurchaseId,
+    packageClassNumberByUsageKey,
+    fundingPurchaseByPackagePurchaseId,
+    studentPinByUserId,
+  }))
 
   const filtered = settlementFilter === "all" ? mapped : mapped.filter((item) => item.settlementStatus === settlementFilter)
 
   const summary = buildPaymentsSummary(filtered)
 
-  if (mode === "history") {
+  if (paymentsRequest.mode === "history") {
       return NextResponse.json({
         items: filtered,
         summary,
         classOptions,
         meta: {
-          mode,
-          from: historyRange!.from,
-          to: historyRange!.to,
+          mode: paymentsRequest.mode,
+          from: paymentsRequest.historyRange.from,
+          to: paymentsRequest.historyRange.to,
           truncated: historyTruncated,
         },
       })
