@@ -13,6 +13,7 @@ Use small modules named by responsibility:
 | Query parsing and mode validation | `app/api/staff/payments/payments-request.ts` |
 | Today NY window calculation | `app/api/staff/payments/payments-time.ts` |
 | Prisma purchase query construction | `app/api/staff/payments/payments-query.ts` |
+| Staff payments data loading/orchestration | `app/api/staff/payments/payments-loader.ts` |
 | Response row mapping | `app/api/staff/payments/payments-row.ts` |
 
 ## Request model
@@ -47,6 +48,14 @@ It preserves the existing mode contracts:
 - today mode scopes purchases to the NY today window and optional text search.
 - history mode scopes purchases to metadata date range and optional text search, fetching one extra row for truncation detection.
 - user history mode scopes purchases to `userId` and optional selected metadata date range.
+
+## Loader model
+
+`loadStaffPaymentsData(request, todayWindow)` owns the Prisma read orchestration needed by the staff payments board.
+
+The route remains responsible for cross-cutting HTTP concerns: authentication, authorization, rate limiting, request parsing, invalid-request responses, invoking the loader, and returning the final JSON response. The loader owns the data-loading sequence after those gates pass: purchase loading, related package/attendance/user enrichment, truncation metadata, and preparation of row-mapping inputs.
+
+This extraction is allowed because the route's previous loading block was a distinct responsibility from HTTP gating. It keeps the public API contract unchanged while making the orchestration testable and reviewable without turning `route.ts` into another monolith.
 
 ## Response row model
 
