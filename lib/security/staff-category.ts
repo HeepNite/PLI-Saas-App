@@ -31,6 +31,11 @@ export type StaffPaymentPreference = (typeof PAYMENT_PREFERENCES)[number]
 const STAFF_CATEGORY_SET = new Set<StaffCategory>(STAFF_CATEGORIES)
 const STAFF_SUB_CATEGORY_SET = new Set<StaffSubCategory>(STAFF_SUB_CATEGORIES)
 
+export const isStaffCategory = (value: unknown): value is StaffCategory => {
+  if (typeof value !== "string") return false
+  return STAFF_CATEGORY_SET.has(value as StaffCategory)
+}
+
 export const parseStaffCategory = (value: unknown): StaffCategory | null => {
   if (typeof value !== "string") return null
   const normalized = value.trim().toLowerCase()
