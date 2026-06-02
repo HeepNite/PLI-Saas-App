@@ -275,6 +275,51 @@ describe("package consecutive add-on", () => {
     })
   })
 
+  it("allows cash add-on after class A consumed the package's last credit", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    mockCourseLinkFindUnique.mockResolvedValue({
+      id: "link_1",
+      courseSlugA: "salsa",
+      courseSlugB: "bachata",
+      packageHolderConsecutiveCents: 500,
+      active: true,
+    })
+    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([
+      {
+        id: "pkg_purchase_1",
+        packageId: "pkg_10",
+        packageLabel: "10 Classes",
+        courseSlug: "salsa",
+        isUnlimited: false,
+        remainingCredits: 0,
+        expiresAt: new Date("2026-04-30T00:00:00.000Z"),
+        status: "active",
+      },
+    ])
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-31",
+          time: "20:00",
+          consecutiveAddOn: true,
+          consecutiveCashPayment: true,
+          linkedFromCourseSlug: "salsa",
+          consecutivePriceCents: 500,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+  })
+
   it("rejects monetary consecutive add-on without cash/card evidence (guard against silent auto-paid)", async () => {
     // Regression: Jhon Doe purchase cmpbkyowj001ow3gpqxwdpexa was created
     // as `paid` with paymentChannel:consecutive_addon and no Stripe IDs

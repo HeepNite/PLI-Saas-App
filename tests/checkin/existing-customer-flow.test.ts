@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   getExistingCustomerInitialStep,
   hasExistingCustomerPrefillContact,
+  resolveDuplicatePurchaseDoneAction,
   resolvePackageConsecutiveDeclineAction,
   shouldAutoOpenExistingPurchase,
   shouldSurfaceClosedWindowPackageError,
@@ -285,7 +286,7 @@ describe("existing customer kiosk helpers", () => {
     ).toBe(false)
   })
 
-  it("shows the consecutive add-class gate before payment selection starts", () => {
+  it("does not show the consecutive add-class gate before package check-in", () => {
     expect(
       shouldShowConsecutiveOfferGate({
         hasConsecutiveOffer: true,
@@ -300,7 +301,7 @@ describe("existing customer kiosk helpers", () => {
         hasConsecutiveSuccess: false,
         hasConsecutiveError: false,
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it("surfaces a closed-window error instead of leaving the customer on loading", () => {
@@ -352,6 +353,35 @@ describe("existing customer kiosk helpers", () => {
       expect(
         resolvePackageConsecutiveDeclineAction({ hasPackageCheckInResult: true })
       ).toBe("post-checkin")
+    })
+  })
+
+  describe("resolveDuplicatePurchaseDoneAction", () => {
+    it("opens the consecutive overlay only when a usable current-class package exists", () => {
+      expect(
+        resolveDuplicatePurchaseDoneAction({
+          hasConsecutiveOffer: true,
+          hasPackage: true,
+        })
+      ).toBe("open-consecutive-overlay")
+    })
+
+    it("completes the station when an offer exists but there is no usable current-class package", () => {
+      expect(
+        resolveDuplicatePurchaseDoneAction({
+          hasConsecutiveOffer: true,
+          hasPackage: false,
+        })
+      ).toBe("complete-station")
+    })
+
+    it("completes the station when there is no consecutive offer", () => {
+      expect(
+        resolveDuplicatePurchaseDoneAction({
+          hasConsecutiveOffer: false,
+          hasPackage: true,
+        })
+      ).toBe("complete-station")
     })
   })
 })
