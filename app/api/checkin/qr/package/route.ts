@@ -241,7 +241,7 @@ export async function POST(req: Request) {
             select: { id: true },
           })
         : null
-      const hasAttendedA = Boolean(linkedAttendance) || await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
+      const hasAttendedA = Boolean(linkedAttendance) || await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, context.startsAt)
       if (!hasAttendedA) {
         return NextResponse.json(
           { error: "You must attend the first class before adding the consecutive class" },

@@ -2,6 +2,7 @@ import React from "react"
 import { CreditCard, Banknote, XCircle } from "lucide-react"
 
 export type ConsecutiveOfferData = {
+  linkedFromCourseSlug?: string
   linkedCourseSlug: string
   linkedCourseTitle: string
   linkedCourseTime?: string

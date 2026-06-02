@@ -133,6 +133,7 @@ export async function GET(req: NextRequest) {
 
     // TODO: REMOVE - diagnostic
     const offer = {
+      linkedFromCourseSlug: nextClass.link.courseSlugA,
       linkedCourseSlug: nextClass.course.slug,
       linkedCourseTitle: nextClass.course.title,
       linkedCourseTime: nextClass.time,

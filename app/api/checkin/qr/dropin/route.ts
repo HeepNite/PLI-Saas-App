@@ -219,7 +219,7 @@ export async function POST(req: Request) {
 
     // ─── Verify attendance for Class A when using consecutive discount ──
     if (consecutiveDiscountApplied && linkedFromCourseSlug) {
-      const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
+      const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, context.startsAt)
       if (!hasAttendedA) {
         return NextResponse.json(
           { error: "You must attend the first class before purchasing the consecutive class at a discount" },

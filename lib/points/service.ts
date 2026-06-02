@@ -100,6 +100,20 @@ export async function awardPointsFromRule(options: {
     }
   }
 
+  if (eventKey) {
+    const existing = await db.pointsLedger.findUnique({ where: { eventKey } })
+    if (existing) {
+      return {
+        awarded: false,
+        points: 0,
+        type,
+        eventKey,
+        duplicate: true,
+        skipped: false,
+      }
+    }
+  }
+
   try {
     await db.pointsLedger.create({
       data: {
