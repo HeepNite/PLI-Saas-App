@@ -229,19 +229,21 @@ export async function POST(req: Request) {
       }
 
       // Verify student attended Class A. Prefer the exact attendance created
-      // by the package check-in flow; fallback to the legacy same-day lookup.
+      // by the package check-in flow, but keep it anchored to the class-B
+      // session date so stale attendance IDs from another day cannot unlock
+      // the consecutive add-on.
       const linkedAttendance = linkedFromAttendanceId
         ? await prisma.attendance.findFirst({
             where: {
               id: linkedFromAttendanceId,
               userId: dbUser.id,
               status: { in: [...ATTENDANCE_POINT_STATUSES] },
-              session: { courseSlug: linkedFromCourseSlug },
+              session: { courseSlug: linkedFromCourseSlug, startsAt: context.startsAt },
             },
             select: { id: true },
           })
         : null
-      const hasAttendedA = Boolean(linkedAttendance) || await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
+      const hasAttendedA = Boolean(linkedAttendance) || await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, context.startsAt)
       if (!hasAttendedA) {
         return NextResponse.json(
           { error: "You must attend the first class before adding the consecutive class" },

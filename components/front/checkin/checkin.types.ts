@@ -11,6 +11,7 @@ export type PackageOfferContext = {
 } | null
 
 export type ConsecutiveOffer = {
+  linkedFromCourseSlug?: string
   linkedCourseSlug: string
   linkedCourseTitle: string
   linkedCourseTime?: string

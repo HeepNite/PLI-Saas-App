@@ -74,6 +74,7 @@ vi.mock("@/lib/points/service", () => ({
 
 vi.mock("@/lib/course-links", () => ({
   findConsecutiveLink: (...args: unknown[]) => mockCourseLinkFindUnique(...args),
+  findConsecutiveLinkBetween: (...args: unknown[]) => mockCourseLinkFindUnique(...args),
 }))
 
 vi.mock("@/lib/checkin/consecutive-class", () => ({
