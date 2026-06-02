@@ -24,6 +24,7 @@ const mockPrisma = {
     upsert: vi.fn(),
   },
   attendance: {
+    findFirst: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
     create: vi.fn(),
@@ -123,6 +124,7 @@ describe("package consecutive add-on", () => {
     mockPrisma.packagePurchase.findMany.mockReset()
     mockPrisma.classSession.upsert.mockReset()
     mockPrisma.attendance.findUnique.mockReset()
+    mockPrisma.attendance.findFirst.mockReset()
     mockPrisma.attendance.update.mockReset()
     mockPrisma.attendance.create.mockReset()
     mockPrisma.attendance.count.mockReset()
@@ -455,6 +457,51 @@ describe("package consecutive add-on", () => {
     )
 
     expect(res.status).toBe(403)
+    const data = await res.json()
+    expect(data.error).toContain("must attend the first class")
+  })
+
+  it("rejects stale linked attendance ids that do not match the class date", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    mockCourseLinkFindUnique.mockResolvedValue({
+      id: "link_1",
+      courseSlugA: "salsa",
+      courseSlugB: "bachata",
+      packageHolderConsecutiveCents: 500,
+      active: true,
+    })
+    mockPrisma.attendance.findFirst.mockResolvedValue(null)
+    mockAttendanceFindFirst.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-31",
+          time: "20:00",
+          consecutiveAddOn: true,
+          consecutiveCashPayment: true,
+          linkedFromCourseSlug: "salsa",
+          linkedFromAttendanceId: "attendance_old_day",
+          consecutivePriceCents: 500,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(403)
+    expect(mockPrisma.attendance.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "attendance_old_day",
+        userId: "db_user_1",
+        status: { in: ["checked_in", "checked_in_no_package"] },
+        session: { courseSlug: "salsa", startsAt: new Date("2026-04-01T00:00:00.000Z") },
+      },
+      select: { id: true },
+    })
     const data = await res.json()
     expect(data.error).toContain("must attend the first class")
   })
