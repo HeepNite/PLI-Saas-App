@@ -40,7 +40,7 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setConsecutiveOffer: React.Dispatch<React.SetStateAction<ConsecutiveOffer | null>>
   setConsecutiveOfferSettled: React.Dispatch<React.SetStateAction<boolean>>
   setConsecutiveFetchKey: React.Dispatch<React.SetStateAction<number>>
-  setPackageCheckInResult: React.Dispatch<React.SetStateAction<{ remainingCredits: number | null; points: number } | null>>
+  setPackageCheckInResult: React.Dispatch<React.SetStateAction<{ attendanceId?: string | null; remainingCredits: number | null; points: number } | null>>
   setShowConsecutiveOverlay: React.Dispatch<React.SetStateAction<boolean>>
   setShowConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>
   setAwaitingConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>

@@ -176,6 +176,7 @@ export async function POST(req: Request) {
     const consecutiveAddOn = payload?.consecutiveAddOn === true
     const consecutiveCashPayment = payload?.consecutiveCashPayment === true
     const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const linkedFromAttendanceId = normalizeString(payload?.linkedFromAttendanceId)
     const consecutivePriceCents = payload?.consecutivePriceCents != null
       ? Number(payload.consecutivePriceCents)
       : null
@@ -227,8 +228,20 @@ export async function POST(req: Request) {
         )
       }
 
-      // Verify student attended Class A today
-      const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
+      // Verify student attended Class A. Prefer the exact attendance created
+      // by the package check-in flow; fallback to the legacy same-day lookup.
+      const linkedAttendance = linkedFromAttendanceId
+        ? await prisma.attendance.findFirst({
+            where: {
+              id: linkedFromAttendanceId,
+              userId: dbUser.id,
+              status: { in: [...ATTENDANCE_POINT_STATUSES] },
+              session: { courseSlug: linkedFromCourseSlug },
+            },
+            select: { id: true },
+          })
+        : null
+      const hasAttendedA = Boolean(linkedAttendance) || await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
       if (!hasAttendedA) {
         return NextResponse.json(
           { error: "You must attend the first class before adding the consecutive class" },
@@ -236,15 +249,15 @@ export async function POST(req: Request) {
         )
       }
 
-      // Verify student has an active package (any package — the consecutive charge is separate)
+      // Verify student has an active, non-expired package (any package — the
+      // consecutive charge is separate). Do NOT require remaining credits here:
+      // the normal class-A package check-in may have just consumed the last
+      // credit before the student pays for class B's monetary add-on.
       const activePackages = await prisma.packagePurchase.findMany({
         where: {
           userId: dbUser.id,
           status: "active",
-          AND: [
-            { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-            { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
-          ],
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         },
         select: {
           id: true,
@@ -392,7 +405,7 @@ export async function POST(req: Request) {
             ],
           },
           { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-          { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
+          { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
         ],
       },
       select: {
@@ -416,6 +429,13 @@ export async function POST(req: Request) {
     })
     if (!selectedPackage) {
       return NextResponse.json({ error: "No active package available for this class." }, { status: 409 })
+    }
+
+    const selectedPackageHasCredit =
+      (selectedPackage.isUnlimited && selectedPackage.remainingCredits == null) ||
+      (selectedPackage.remainingCredits ?? 0) > 0
+    if (!selectedPackageHasCredit) {
+      return NextResponse.json({ error: "This package has no credits left." }, { status: 409 })
     }
 
     const result = await prisma.$transaction(async (tx) => {

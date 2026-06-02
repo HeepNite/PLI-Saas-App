@@ -153,11 +153,9 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   if (!input.hasPackage || !input.effectiveCheckInWindowOpen) return false
   // No active session → no auto-trigger
   if (!input.hasActiveSession) return false
-  // Consecutive offer exists and is settled → suppress auto-trigger (caller shows overlay first)
-  if (input.hasConsecutiveOffer && input.consecutiveOfferSettled) return false
-  // Consecutive offer fetch not yet settled → wait (effect will re-fire when settled)
-  if (!input.consecutiveOfferSettled) return false
-  // No consecutive offer → original auto-trigger behavior
+  // Always check in with package first. Consecutive promotion can only be
+  // offered after a successful class-A check-in, so no-credit users go to the
+  // regular purchase flow instead of seeing a stale promotion popup.
   return true
 }
 
@@ -178,11 +176,7 @@ export const shouldShowConsecutiveOfferGate = (input: {
   if (input.awaitingConsecutivePaymentSelection) return false
   if (!input.isConsecutiveQrCheckoutIdle) return false
   if (input.hasConsecutiveSuccess || input.hasConsecutiveError) return false
-  if (!input.hasConsecutiveOffer || !input.consecutiveOfferSettled) return false
-  if (input.hasPackageCheckInResult) return false
-  if (input.mode !== "existing") return false
-  if (!input.hasBootstrap || !input.hasPackage) return false
-  return true
+  return false
 }
 
 export const shouldSurfaceClosedWindowPackageError = (input: {
@@ -322,3 +316,29 @@ export const resolveConsecutivePaymentSuccessAction = (input: {
   isKioskTerminalFlow: boolean
 }): "complete-station" | "show-success" =>
   input.isKioskTerminalFlow ? "complete-station" : "show-success"
+
+/**
+ * Resolves what should happen when KioskDuplicatePurchaseOverlay's `onDone`
+ * fires (operator dismiss or auto-timeout).
+ *
+ * - `open-consecutive-overlay`: a consecutive offer exists AND the customer
+ *   has a USABLE current-class package (`hasPackage: true`). The
+ *   consecutive overlay must NEVER appear for someone without a usable
+ *   package for the current class, because the package-holder branches
+ *   would mis-route them and could trigger a package check-in that has no
+ *   credits to consume. See `shouldShowConsecutiveOfferGate` which also
+ *   requires `hasPackage`.
+ *
+ * - `complete-station`: no offer or no usable package → existing
+ *   registered-customer purchase flow already concluded for class A; just
+ *   complete the station.
+ */
+export const resolveDuplicatePurchaseDoneAction = (input: {
+  hasConsecutiveOffer: boolean
+  hasPackage: boolean
+}): "open-consecutive-overlay" | "complete-station" => {
+  if (input.hasConsecutiveOffer && input.hasPackage) {
+    return "open-consecutive-overlay"
+  }
+  return "complete-station"
+}

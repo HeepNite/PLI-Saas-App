@@ -391,7 +391,7 @@ export async function POST(req: Request) {
           status: "active",
           AND: [
             { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-            { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
+            { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
           ],
         },
         select: {
