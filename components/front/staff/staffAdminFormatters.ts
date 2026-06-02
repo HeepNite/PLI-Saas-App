@@ -72,6 +72,24 @@ export const formatDurationLabel = (minutes: number) => {
 export const toLocalIsoDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 
+export const resolveHistoryDateIso = (referenceDate = new Date(), timeZone = "America/New_York") => {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(referenceDate)
+  } catch {
+    return toLocalIsoDate(referenceDate)
+  }
+}
+
+export const resolveHistoryRangeState = (start: string, end?: string | null) => ({
+  historyFrom: start,
+  historyTo: end ?? "",
+})
+
 export const formatIsoDate = (value: string | null) => {
   if (!value) return "—"
   const time = Date.parse(value)

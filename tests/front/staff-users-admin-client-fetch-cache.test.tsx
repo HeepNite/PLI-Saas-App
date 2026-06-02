@@ -11,12 +11,15 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-const SOURCE_PATH = join(
-  process.cwd(),
-  "components/front/staff/StaffUsersAdminClient.tsx"
-)
+const SOURCE_PATHS = [
+  "components/front/staff/StaffUsersAdminClient.tsx",
+  "components/front/staff/useStaffDirectoryAdmin.ts",
+  "components/front/staff/useStaffRequestsAdmin.ts",
+]
 
-const source = readFileSync(SOURCE_PATH, "utf8")
+const source = SOURCE_PATHS
+  .map((path) => readFileSync(join(process.cwd(), path), "utf8"))
+  .join("\n")
 
 /**
  * Finds the fetch invocation for a given URL literal and returns the text of

@@ -1,25 +1,33 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  isInsideCriticalClassWindow,
+} from "@/components/front/staff/StaffUsersAdminClient"
+import {
+  resolveHistoryDateIso,
+  resolveHistoryRangeState,
+} from "@/components/front/staff/staffAdminFormatters"
+import {
   buildStaffApprovalsFeed,
   buildStaffApprovalsSummary,
+  formatPaymentChangeRequestInfoRows,
+  formatPaymentChangeRequestMethodLabel,
+} from "@/components/front/staff/staffApprovals"
+import {
   buildCurrentMonthStudentsSummary,
   buildCurrentMonthPaymentsSummarySearchParams,
   buildPaymentsRequestSearchParams,
-  isInsideCriticalClassWindow,
-  formatPaymentChangeRequestInfoRows,
-  formatPaymentChangeRequestMethodLabel,
   matchesHistoryContentFilters,
   matchesStudentSearchQuery,
+  resolveStudentCardPayments,
+} from "@/components/front/staff/staffPaymentFilters"
+import {
   resolveProfileCardBadges,
   resolveProfileCardDetailRows,
   resolveProfileCashSettlementControl,
   resolveProfileSettlementControl,
   resolveProfileCardDetails,
-  resolveHistoryMaxSelectableDateIso,
-  resolveStudentCardPayments,
-  resolveHistoryRangeState,
-} from "@/components/front/staff/StaffUsersAdminClient"
+} from "@/components/front/staff/staffPaymentCardPresentation"
 import {
   checkInStateTone,
   isPaymentPaidForUi,
@@ -759,10 +767,10 @@ describe("buildCurrentMonthPaymentsSummarySearchParams", () => {
   })
 })
 
-describe("resolveHistoryMaxSelectableDateIso", () => {
+describe("resolveHistoryDateIso", () => {
   it("uses New York date so history can include current NY day", () => {
-    expect(resolveHistoryMaxSelectableDateIso(new Date("2026-05-05T02:30:00.000Z"))).toBe("2026-05-04")
-    expect(resolveHistoryMaxSelectableDateIso(new Date("2026-05-05T16:30:00.000Z"))).toBe("2026-05-05")
+    expect(resolveHistoryDateIso(new Date("2026-05-05T02:30:00.000Z"))).toBe("2026-05-04")
+    expect(resolveHistoryDateIso(new Date("2026-05-05T16:30:00.000Z"))).toBe("2026-05-05")
   })
 })
 

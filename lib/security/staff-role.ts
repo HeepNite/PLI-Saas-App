@@ -15,6 +15,11 @@ const normalizeRole = (value: string): StaffRole | null => {
   return STAFF_ROLE_SET.has(normalized as StaffRole) ? (normalized as StaffRole) : null
 }
 
+export const isStaffRole = (value: unknown): value is StaffRole => {
+  if (typeof value !== "string") return false
+  return STAFF_ROLE_SET.has(value as StaffRole)
+}
+
 const pickHighestRole = (roles: string[]): StaffRole | null => {
   const normalized = roles
     .map((role) => normalizeRole(role))

@@ -1,6 +1,7 @@
 import type { AttendanceEvent, AttendanceSummary } from "@/components/front/staff/AttendanceHistoryTimeline"
 import type { PaymentEvent } from "@/components/front/staff/PaymentHistoryTimeline"
 import { isCompletedAttendanceStatus, isDirectPaidClassEvidence } from "./paymentState"
+import { resolveHistoryDateIso } from "./staffAdminFormatters"
 
 type PaymentChannel = "cash" | "card" | "unknown" | "package_credit"
 type PurchaseCategory = "package" | "dropin" | "other"
@@ -48,22 +49,6 @@ type PaymentTimelineRow = {
   checkInAt: string | null
   checkedOutAt: string | null
   activePackage?: ActivePackage | null
-}
-
-const toLocalIsoDate = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-
-const resolveHistoryDateIso = (referenceDate: Date, timeZone = "America/New_York") => {
-  try {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(referenceDate)
-  } catch {
-    return toLocalIsoDate(referenceDate)
-  }
 }
 
 export function transformPaymentRowsToEvents(rows: PaymentTimelineRow[]): PaymentEvent[] {

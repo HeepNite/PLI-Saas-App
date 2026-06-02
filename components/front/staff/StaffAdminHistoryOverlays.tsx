@@ -1,0 +1,136 @@
+"use client"
+
+import React from "react"
+
+import PaymentHistoryTimeline from "./PaymentHistoryTimeline"
+import AttendanceHistoryTimeline from "./AttendanceHistoryTimeline"
+import StudentDataOverrideModal from "./StudentDataOverrideModal"
+import AuditHistoryPopover from "./AuditHistoryPopover"
+import {
+  resolveAttendanceHistoryRows,
+  resolvePaymentHistoryRows,
+  transformPaymentRowsToAttendance,
+  transformPaymentRowsToEvents,
+} from "./paymentTimelineTransforms"
+import type { StaffRole } from "@/lib/security/staff-role"
+import type { PaymentRow } from "./staffAdminTypes"
+
+type OverrideModalStudent = { id: string; name: string } | null
+
+type StaffAdminHistoryOverlaysProps = {
+  payments: PaymentRow[]
+  userHistoryPayments: PaymentRow[]
+  isHistoryMode: boolean
+  currentDateNY: string
+  historyFrom: string
+  historyTo: string
+  userHistoryLoading: boolean
+  paymentHistoryStudentId: string | null
+  paymentHistoryAnchor: HTMLElement | null
+  attendanceHistoryStudentId: string | null
+  attendanceHistoryAnchor: HTMLElement | null
+  auditHistoryStudentId: string | null
+  auditHistoryStudentName: string | null
+  auditHistoryAnchor: HTMLElement | null
+  overrideModalOpen: boolean
+  overrideModalStudent: OverrideModalStudent
+  currentRole: StaffRole
+  onClosePaymentHistory: () => void
+  onCloseAttendanceHistory: () => void
+  onCloseAuditHistory: () => void
+  onCloseOverrideModal: () => void
+  onOverrideSuccess: (studentId: string) => void
+  resolveHistoryDateIso: (date: Date, timeZone: string) => string
+}
+
+export default function StaffAdminHistoryOverlays({
+  payments,
+  userHistoryPayments,
+  isHistoryMode,
+  currentDateNY,
+  historyFrom,
+  historyTo,
+  userHistoryLoading,
+  paymentHistoryStudentId,
+  paymentHistoryAnchor,
+  attendanceHistoryStudentId,
+  attendanceHistoryAnchor,
+  auditHistoryStudentId,
+  auditHistoryStudentName,
+  auditHistoryAnchor,
+  overrideModalOpen,
+  overrideModalStudent,
+  currentRole,
+  onClosePaymentHistory,
+  onCloseAttendanceHistory,
+  onCloseAuditHistory,
+  onCloseOverrideModal,
+  onOverrideSuccess,
+  resolveHistoryDateIso,
+}: StaffAdminHistoryOverlaysProps) {
+  const paymentHistoryRows = resolvePaymentHistoryRows({
+    paymentHistoryStudentId,
+    isHistoryMode,
+    payments,
+    userHistoryPayments,
+    currentDateNY,
+  }).filter((payment) => {
+    if (isHistoryMode) return true
+    const createdAtNyIso = /^\d{4}-\d{2}-\d{2}$/.test(payment.createdAt)
+      ? payment.createdAt
+      : resolveHistoryDateIso(new Date(payment.createdAt), "America/New_York")
+    return createdAtNyIso === currentDateNY
+  })
+
+  const attendanceHistoryRows = resolveAttendanceHistoryRows({
+    attendanceHistoryStudentId,
+    isHistoryMode,
+    payments,
+    userHistoryPayments,
+    historyFrom,
+    historyTo,
+  })
+  const attendanceTimeline = attendanceHistoryStudentId
+    ? transformPaymentRowsToAttendance(attendanceHistoryRows)
+    : { events: [], summary: { totalAttended: 0, noShows: 0, cancelled: 0 } }
+
+  return (
+    <>
+      <PaymentHistoryTimeline
+        payments={transformPaymentRowsToEvents(paymentHistoryRows)}
+        loading={userHistoryLoading}
+        anchorEl={paymentHistoryAnchor}
+        isOpen={!!paymentHistoryStudentId}
+        onClose={onClosePaymentHistory}
+      />
+
+      <AttendanceHistoryTimeline
+        attendance={attendanceTimeline.events}
+        summary={attendanceTimeline.summary}
+        loading={userHistoryLoading}
+        anchorEl={attendanceHistoryAnchor}
+        isOpen={!!attendanceHistoryStudentId}
+        onClose={onCloseAttendanceHistory}
+      />
+
+      <AuditHistoryPopover
+        studentId={auditHistoryStudentId || ""}
+        studentName={auditHistoryStudentName || ""}
+        anchorEl={auditHistoryAnchor}
+        isOpen={!!auditHistoryAnchor}
+        onClose={onCloseAuditHistory}
+      />
+
+      {overrideModalStudent ? (
+        <StudentDataOverrideModal
+          open={overrideModalOpen}
+          onClose={onCloseOverrideModal}
+          studentId={overrideModalStudent.id}
+          studentName={overrideModalStudent.name}
+          currentRole={currentRole === "staff" ? "staff" : currentRole === "admin" ? "admin" : "owner"}
+          onSuccess={() => onOverrideSuccess(overrideModalStudent.id)}
+        />
+      ) : null}
+    </>
+  )
+}
