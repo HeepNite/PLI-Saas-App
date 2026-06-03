@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveCheckInBootstrapContextPayload } from "@/lib/checkin/checkin-bootstrap-context"
+import { resolveCheckInActiveContext, resolveCheckInBootstrapContextPayload } from "@/lib/checkin/checkin-bootstrap-context"
 
 describe("resolveCheckInBootstrapContextPayload", () => {
   it("uses the active class context by default", () => {
@@ -40,6 +40,27 @@ describe("resolveCheckInBootstrapContextPayload", () => {
       time: "18:30",
       durationMinutes: 75,
       linkedFromCourseSlug: "bachata",
+    })
+  })
+})
+
+describe("resolveCheckInActiveContext", () => {
+  it("uses explicit QR context from search params", () => {
+    const searchParams = new URLSearchParams("courseSlug=SALSA&date=2026-06-03&time=20:00")
+
+    expect(
+      resolveCheckInActiveContext({
+        sourceCourses: [],
+        shellVariant: "qr",
+        searchParams,
+        forcedCourseSlug: "bachata",
+        nowTick: new Date("2026-06-03T12:00:00.000Z"),
+      })
+    ).toEqual({
+      activeCourseSlug: "salsa",
+      activeDate: "2026-06-03",
+      activeTime: "20:00",
+      contextIsValid: true,
     })
   })
 })
