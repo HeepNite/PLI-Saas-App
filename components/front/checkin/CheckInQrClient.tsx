@@ -63,6 +63,14 @@ import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
 import { hasTerminalSensitiveCustomerState } from "@/lib/checkin/terminal-sensitive-state"
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
+import {
+  requestCheckInBootstrapApi,
+  requestCheckoutSessionApi,
+  requestCheckoutSessionStatusApi,
+  requestDropInCheckInApi,
+  requestPackageCheckInApi,
+  requestTerminalConsecutiveOfferApi,
+} from "@/lib/checkin/checkin-qr-api"
 import type { EntryMode, BootstrapResponse, CheckInQrClientProps, PackageOfferContext, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
 
 export default function CheckInQrClient({
@@ -332,14 +340,13 @@ export default function CheckInQrClient({
     setConsecutiveOfferSettled(false)
 
     const controller = new AbortController()
-    const params = new URLSearchParams({ courseSlug: activeCourseSlug })
-    if (activeTime) params.set("time", activeTime)
 
-    fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
+    requestTerminalConsecutiveOfferApi({
+      courseSlug: activeCourseSlug,
+      time: activeTime || undefined,
       signal: controller.signal,
     })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+      .then(({ data }) => {
         if (data) setConsecutiveOffer(data as ConsecutiveOffer)
       })
       .catch(() => {}) // silencioso — no crítico
@@ -440,20 +447,14 @@ export default function CheckInQrClient({
     setError(null)
     try {
       const token = await getToken({ skipCache: true })
-      const res = await fetch("/api/checkin/qr/bootstrap", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify({
+      const { res, data } = await requestCheckInBootstrapApi({
+        token,
+        payload: {
           ...contextPayload,
           flowContext: photoFlowContext,
           ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
-        }),
+        },
       })
-      const data = await res.json().catch(() => null)
       if (!res.ok) {
         setBootstrap(null)
         setError(typeof data?.error === "string" ? data.error : null)
@@ -508,14 +509,9 @@ export default function CheckInQrClient({
 
     try {
       const token = await getToken({ skipCache: true })
-      const res = await fetch("/api/checkin/qr/bootstrap", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify({
+      const { res, data } = await requestCheckInBootstrapApi({
+        token,
+        payload: {
           courseSlug: latePaymentEntryOverride?.courseSlug ?? newBookingOverride?.courseSlug ?? activeCourseSlug,
           date: latePaymentEntryOverride?.date ?? newBookingOverride?.date ?? activeDate,
           time: latePaymentEntryOverride?.time ?? newBookingOverride?.time ?? activeTime,
@@ -523,9 +519,8 @@ export default function CheckInQrClient({
           linkedFromCourseSlug: latePaymentEntryOverride?.courseSlug ?? newBookingOverride?.courseSlug ?? activeCourseSlug,
           flowContext: photoFlowContext,
           ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
-        }),
+        },
       })
-      const data = await res.json().catch(() => null)
       const hasUsablePackage = Boolean(
         data?.package &&
           ((data.package.isUnlimited && data.package.remainingCredits == null) ||
@@ -556,24 +551,18 @@ export default function CheckInQrClient({
 
     try {
       const token = await getToken({ skipCache: true })
-      const res = await fetch("/api/checkin/qr/package", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify({
+      const { res, data } = await requestPackageCheckInApi({
+        token,
+        payload: {
           courseSlug: bootstrap.context.courseSlug,
           date: bootstrap.context.date,
           time: bootstrap.context.time,
           durationMinutes: bootstrap.context.durationMinutes,
           flowContext: photoFlowContext,
           ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
-        }),
+        },
       })
 
-      const data = await res.json().catch(() => null)
       if (!res.ok) return null
 
       const remainingCredits =
@@ -768,17 +757,7 @@ export default function CheckInQrClient({
             : {}),
         }
 
-        const res = await fetch("/api/checkin/qr/package", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          credentials: "include",
-          body: JSON.stringify(body),
-        })
-
-        const data = await res.json().catch(() => null)
+        const { res, data } = await requestPackageCheckInApi({ token, payload: body })
         if (!res.ok) {
           setConsecutiveError(typeof data?.error === "string" ? data.error : "Unable to add consecutive class.")
           return
@@ -817,17 +796,7 @@ export default function CheckInQrClient({
         ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
       }
 
-      const res = await fetch("/api/checkin/qr/dropin", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify(body),
-      })
-
-      const data = await res.json().catch(() => null)
+      const { res, data } = await requestDropInCheckInApi({ token, payload: body })
       if (!res.ok) {
         setConsecutiveError(typeof data?.error === "string" ? data.error : "Unable to add consecutive class.")
         return
@@ -947,10 +916,6 @@ export default function CheckInQrClient({
       const token = await getToken({ skipCache: true })
       const isPackage = hasUsablePackageForCurrentClass
 
-      const endpoint = isPackage
-        ? "/api/checkin/qr/package"
-        : "/api/checkin/qr/dropin"
-
       const priceCents = isPackage
         ? consecutiveOffer.packageHolderConsecutiveCents
         : consecutiveOffer.dropInConsecutiveCents
@@ -978,17 +943,9 @@ export default function CheckInQrClient({
         if (priceCents != null) body.consecutivePriceCents = priceCents
       }
 
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify(body),
-      })
-
-      const data = await res.json().catch(() => null)
+      const { res, data } = isPackage
+        ? await requestPackageCheckInApi({ token, payload: body })
+        : await requestDropInCheckInApi({ token, payload: body })
       if (!res.ok) {
         setConsecutiveError(typeof data?.error === "string" ? data.error : "Unable to process cash payment.")
         return
@@ -1071,10 +1028,8 @@ export default function CheckInQrClient({
     })
 
     try {
-      const res = await fetch("/api/checkout/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const { res, data } = await requestCheckoutSessionApi({
+        payload: {
           courseSlug: consecutiveOffer.linkedCourseSlug,
           courseTitle: consecutiveOffer.linkedCourseTitle,
           amount: priceCents,
@@ -1096,10 +1051,8 @@ export default function CheckInQrClient({
           consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
           consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
           consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime ?? activeTime,
-        }),
+        },
       })
-
-      const data = await res.json().catch(() => null)
 
       if (!res.ok || typeof data?.url !== "string" || typeof data?.sessionId !== "string") {
         const message = typeof data?.error === "string" && data.error.trim().length > 0
@@ -1170,13 +1123,9 @@ export default function CheckInQrClient({
 
     const poll = async () => {
       try {
-        const res = await fetch(
-          `/api/checkout/session/status?sessionId=${encodeURIComponent(consecutiveQrCheckout.sessionId || "")}`,
-          {
-            credentials: "include",
-          }
-        )
-        const data = await res.json().catch(() => null)
+        const { res, data } = await requestCheckoutSessionStatusApi({
+          sessionId: consecutiveQrCheckout.sessionId || "",
+        })
         if (cancelled) return
 
         const nextPhase = resolveKioskQrPhaseFromStatus(typeof data?.status === "string" ? data.status : null)

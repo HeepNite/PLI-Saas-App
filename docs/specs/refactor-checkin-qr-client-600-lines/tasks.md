@@ -29,11 +29,11 @@
 
 ## Phase 1 — API Adapter Extraction
 
-- [ ] 1.1 Create `lib/checkin/checkin-qr-api.ts`.
-- [ ] 1.2 Move bootstrap/package/dropin/checkout/session-status/terminal-offer fetch shapes into the adapter.
-- [ ] 1.3 Add `tests/checkin/checkin-qr-api.test.ts` with mocked fetch payload assertions.
-- [ ] 1.4 Replace callsites in `CheckInQrClient.tsx` without changing behavior.
-- [ ] 1.5 Validate typecheck, lint, focused tests.
+- [x] 1.1 Create `lib/checkin/checkin-qr-api.ts`.
+- [x] 1.2 Move bootstrap/package/dropin/checkout/session-status/terminal-offer fetch shapes into the adapter.
+- [x] 1.3 Add `tests/checkin/checkin-qr-api.test.ts` with mocked fetch payload assertions.
+- [x] 1.4 Replace callsites in `CheckInQrClient.tsx` without changing behavior.
+- [x] 1.5 Validate typecheck, lint, focused tests.
 - Suggested commit: `refactor(checkin): extract qr api adapter`
 - Rollback boundary: adapter + callsite replacement only.
 
