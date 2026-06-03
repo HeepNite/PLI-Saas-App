@@ -72,10 +72,7 @@ import {
 import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
 import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
 import type { EnrollFlowState } from "@/components/front/courses/enroll/model/enroll-flow.types"
-import {
-  PHONE_INPUT_ATTRIBUTES,
-} from "@/lib/checkin/sign-in-inputs"
-import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
+import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 import {
@@ -2841,183 +2838,33 @@ export default function EnrollModal({
                 )}
 
                 {activeStepKey === "info" && (
-                  shouldMaskKioskInfoContent ? (
-                     <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-8 text-center">
-                       <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-[var(--brand,#ff7a7a)]" aria-hidden />
-                       <h4 className="mt-4 text-lg font-semibold text-white">Getting payment ready</h4>
-                       <p className="mt-2 text-sm leading-relaxed text-white/68">
-                         We are using the saved student details and moving straight to payment.
-                       </p>
-                     </div>
-                   ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <fieldset className="space-y-2">
-                      <label className="text-sm font-medium">{t("label_firstName")}</label>
-                      <input value={contact.firstName} onChange={(e)=>setContact((c)=>({...c, firstName: e.target.value}))} onFocus={() => setActiveNumericField(null)} placeholder={t("placeholder_firstName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
-                    </fieldset>
-                    <fieldset className="space-y-2">
-                      <label className="text-sm font-medium">{t("label_lastName")}</label>
-                      <input value={contact.lastName} onChange={(e)=>setContact((c)=>({...c, lastName: e.target.value}))} onFocus={() => setActiveNumericField(null)} placeholder={t("placeholder_lastName")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
-                    </fieldset>
-                  <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">{t("label_email")}</label>
-                      <input type="email" value={contact.email} onChange={(e)=>setContact((c)=>({...c, email: e.target.value}))} onFocus={() => setActiveNumericField(null)} placeholder={t("placeholder_email")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
-                    {!isCheckInFlow && (
-                      <p className="text-xs text-neutral-500">
-                        Already have an account?{" "}
-                        <button
-                          type="button"
-                          onClick={() => {
-                          setRequiresSignIn(true)
-                          setExistingAccountDetected(false)
-                          setResumeAfterSignInStep(null)
-                          setPendingAutoPay(false)
-                        }}
-                          className="underline font-medium"
-                        >
-                          Sign in
-                        </button>{" "}
-                        and your details will be filled in automatically.
-                      </p>
-                    )}
-                  </fieldset>
-                  <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">Phone</label>
-                    <div className="flex items-center gap-2">
-                        <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-2 text-[11px] font-semibold text-blue-900 dark:text-blue-200">
-                        US
-                      </span>
-                      <div className="relative w-full">
-                        <input
-                          type={PHONE_INPUT_ATTRIBUTES.type}
-                          value={contact.phone}
-                          onChange={(e) => {
-                            setPhoneTouched(true)
-                            setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
-                          }}
-                          onBlur={() => setPhoneTouched(true)}
-                          onFocus={() => { if (isKioskTerminalFlow) setActiveNumericField("phone") }}
-                          readOnly={isKioskTerminalFlow}
-                          onClick={() => { if (isKioskTerminalFlow) setActiveNumericField("phone") }}
-                          placeholder="(929) 387-6584"
-                          inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
-                          autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
-                          enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
-                          pattern={PHONE_INPUT_ATTRIBUTES.pattern}
-                          aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
-                          className={`w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 px-3 py-2 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "phone" ? " border-white/30" : ""}`}
-                        />
-                        {isKioskTerminalFlow && activeNumericField === "phone" && (
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-white/70 animate-pulse" />
-                        )}
-                      </div>
-                    </div>
-                    {phoneTouched && !isCompleteUSPhone(contact.phone) && (
-                      <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
-                    )}
-                  </fieldset>
-                  {!isKioskTerminalFlow && (
-                  <fieldset className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium">{t("label_notes")}</label>
-                    <textarea value={contact.note} onChange={(e)=>setContact((c)=>({...c, note: e.target.value}))} rows={3} placeholder={t("placeholder_notes")} className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2" />
-                  </fieldset>
-                  )}
-
-                  {/* PIN for new students */}
-                  {service === "new-student" && (
-                    <div className="sm:col-span-2 rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 p-3 space-y-3">
-                      <div>
-                        <div className="text-sm font-semibold">Create student PIN</div>
-                        <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
-                          This 4-digit PIN is required for future kiosk check-ins and account recovery.
-                        </div>
-                      </div>
-                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                         <div className="relative">
-                           <input
-                             type="tel"
-                             inputMode="numeric"
-                             pattern="[0-9]*"
-                             maxLength={4}
-                             autoComplete="off"
-                             name="kiosk-pin"
-                             value={isKioskTerminalFlow ? "\u2022".repeat(studentPin.length) : studentPin}
-                             onChange={(e) => {
-                               setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))
-                               setPinAvailabilityError(null)
-                             }}
-                             readOnly={isKioskTerminalFlow}
-                             onClick={() => { if (isKioskTerminalFlow) setActiveNumericField("pin") }}
-                             onFocus={() => { if (isKioskTerminalFlow) setActiveNumericField("pin") }}
-                             style={!isKioskTerminalFlow ? { WebkitTextSecurity: "disc" } as React.CSSProperties : undefined}
-                             className={`w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm${isKioskTerminalFlow && activeNumericField === "pin" ? " border-white/30" : ""}`}
-                             placeholder="4-digit PIN"
-                           />
-                           {isKioskTerminalFlow && activeNumericField === "pin" && (
-                             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-white/70 animate-pulse" />
-                           )}
-                         </div>
-                         <div className="relative">
-                           <input
-                             type="tel"
-                             inputMode="numeric"
-                             pattern="[0-9]*"
-                             maxLength={4}
-                             autoComplete="off"
-                             name="kiosk-pin-confirm"
-                             value={isKioskTerminalFlow ? "\u2022".repeat(studentPinConfirm.length) : studentPinConfirm}
-                             onChange={(e) => {
-                               setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))
-                               setPinAvailabilityError(null)
-                             }}
-                             readOnly={isKioskTerminalFlow}
-                             onClick={() => { if (isKioskTerminalFlow) setActiveNumericField("pin-confirm") }}
-                             onFocus={() => { if (isKioskTerminalFlow) setActiveNumericField("pin-confirm") }}
-                             onBlur={() => {
-                               if (
-                                 service === "new-student" &&
-                                 /^\d{4}$/.test(studentPin) &&
-                                 studentPin === studentPinConfirm
-                               ) {
-                                 void checkPinAvailability(studentPin)
-                               }
-                             }}
-                             style={!isKioskTerminalFlow ? { WebkitTextSecurity: "disc" } as React.CSSProperties : undefined}
-                             className={`w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm${isKioskTerminalFlow && activeNumericField === "pin-confirm" ? " border-white/30" : ""}`}
-                             placeholder="Confirm PIN"
-                           />
-                           {isKioskTerminalFlow && activeNumericField === "pin-confirm" && (
-                             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-white/70 animate-pulse" />
-                           )}
-                         </div>
-                        </div>
-                      {pinAvailabilityError && (
-                        <p className="text-xs text-red-600">{pinAvailabilityError}</p>
-                      )}
-                      <p className="text-xs text-neutral-500 dark:text-white/50">
-                         Remember your PIN — you&apos;ll use it for a faster check-in next time.
-                      </p>
-                    </div>
-                  )}
-
-                   {isKioskTerminalFlow && (
-                     <div
-                       className={`sm:col-span-2 transition-all duration-300 ease-in-out overflow-hidden ${
-                         activeNumericField !== null
-                           ? "max-h-[400px] opacity-100 mt-2"
-                           : "max-h-0 opacity-0 mt-0"
-                       }`}
-                     >
-                       <KioskNumericKeypad
-                         onDigit={handleNumpadDigit}
-                         onBackspace={handleNumpadBackspace}
-                         onClear={handleNumpadClear}
-                         size="modal"
-                       />
-                     </div>
-                   )}
-                </div>
-                  )
+                  <EnrollInfoStep
+                    activeNumericField={activeNumericField}
+                    checkPinAvailability={checkPinAvailability}
+                    contact={contact}
+                    handleNumpadBackspace={handleNumpadBackspace}
+                    handleNumpadClear={handleNumpadClear}
+                    handleNumpadDigit={handleNumpadDigit}
+                    isCheckInFlow={isCheckInFlow}
+                    isKioskTerminalFlow={isKioskTerminalFlow}
+                    phoneTouched={phoneTouched}
+                    pinAvailabilityError={pinAvailabilityError}
+                    service={service}
+                    setActiveNumericField={setActiveNumericField}
+                    setContact={setContact}
+                    setExistingAccountDetected={setExistingAccountDetected}
+                    setPendingAutoPay={setPendingAutoPay}
+                    setPhoneTouched={setPhoneTouched}
+                    setPinAvailabilityError={setPinAvailabilityError}
+                    setRequiresSignIn={setRequiresSignIn}
+                    setResumeAfterSignInStep={setResumeAfterSignInStep}
+                    setStudentPin={setStudentPin}
+                    setStudentPinConfirm={setStudentPinConfirm}
+                    shouldMaskKioskInfoContent={shouldMaskKioskInfoContent}
+                    studentPin={studentPin}
+                    studentPinConfirm={studentPinConfirm}
+                    t={t}
+                  />
                 )}
 
                 {activeStepKey === "photo" && (
