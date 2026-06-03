@@ -49,11 +49,9 @@ import {
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
 import {
   createEmptyKioskQrCheckoutState,
-  resolveKioskQrPhaseFromStatus,
-  KIOSK_QR_POLL_INTERVAL_MS,
-  isKioskQrPendingPhase,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
+import { useKioskQrCheckoutPoller } from "@/components/front/checkin/hooks/useKioskQrCheckoutPoller"
 import {
   toEsDateTime,
   parseDuration,
@@ -66,7 +64,6 @@ import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
   requestCheckInBootstrapApi,
   requestCheckoutSessionApi,
-  requestCheckoutSessionStatusApi,
   requestDropInCheckInApi,
   requestPackageCheckInApi,
   requestTerminalConsecutiveOfferApi,
@@ -1111,97 +1108,11 @@ export default function CheckInQrClient({
   }, [handleStationCompletion])
 
   // ─── Poll consecutive QR checkout status ────────────────────
-  const consecutiveQrPendingPhase = isKioskQrPendingPhase(consecutiveQrCheckout.phase)
-
-  React.useEffect(() => {
-    if (!consecutiveQrCheckout.sessionId || !consecutiveQrPendingPhase) {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const poll = async () => {
-      try {
-        const { res, data } = await requestCheckoutSessionStatusApi({
-          sessionId: consecutiveQrCheckout.sessionId || "",
-        })
-        if (cancelled) return
-
-        const nextPhase = resolveKioskQrPhaseFromStatus(typeof data?.status === "string" ? data.status : null)
-
-        if (nextPhase === "complete") {
-          setConsecutiveQrCheckout((prev) => ({
-            ...prev,
-            phase: "complete",
-            purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : null,
-            paymentStatus: typeof data?.paymentStatus === "string" ? data.paymentStatus : null,
-          }))
-          // Trigger success after a brief delay so the panel can update
-          window.setTimeout(() => {
-            handleConsecutiveQrComplete()
-          }, 800)
-          return
-        }
-
-        if (nextPhase === "expired") {
-          setConsecutiveQrCheckout((prev) => ({
-            ...prev,
-            phase: "expired",
-            awaitingWebhook: false,
-            error: typeof data?.error === "string" && data.error.trim().length > 0
-              ? data.error
-              : "The hosted checkout session expired before payment completed.",
-          }))
-          return
-        }
-
-        if (!res.ok) {
-          setConsecutiveQrCheckout((prev) => ({
-            ...prev,
-            phase: "error",
-            awaitingWebhook: false,
-            error: typeof data?.error === "string" && data.error.trim().length > 0
-              ? data.error
-              : "Unable to refresh checkout status.",
-          }))
-          return
-        }
-
-        setConsecutiveQrCheckout((prev) => ({
-          ...prev,
-          phase: nextPhase,
-          awaitingWebhook: Boolean(data?.awaitingWebhook),
-          purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : null,
-          paymentStatus: typeof data?.paymentStatus === "string" ? data.paymentStatus : null,
-          error: null,
-        }))
-      } catch (error) {
-        if (cancelled) return
-        console.warn("Unable to poll consecutive checkout session status", error)
-        setConsecutiveQrCheckout((prev) => ({
-          ...prev,
-          phase: "error",
-          awaitingWebhook: false,
-          error: "Unable to refresh checkout status.",
-        }))
-        return
-      }
-
-      if (!cancelled) {
-        timeoutId = window.setTimeout(poll, KIOSK_QR_POLL_INTERVAL_MS)
-      }
-    }
-
-    void poll()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [consecutiveQrCheckout.sessionId, consecutiveQrPendingPhase, handleConsecutiveQrComplete])
+  useKioskQrCheckoutPoller({
+    checkoutState: consecutiveQrCheckout,
+    setCheckoutState: setConsecutiveQrCheckout,
+    onComplete: handleConsecutiveQrComplete,
+  })
 
   React.useEffect(() => {
     return () => {
