@@ -70,6 +70,9 @@
 ## Phase 4 — Consecutive Offer Flow Hook
 
 - [ ] 4.1 Decide whether to split this phase into multiple PRs if forecast exceeds 400 changed lines.
+- [x] 4a.1 Extract post-check-in consecutive offer lookup into `useConsecutiveOfferLookup`.
+- [x] 4a.2 Preserve kiosk/auth gating, override payloads, usable package checks, and silent false fallbacks.
+- [x] 4a.3 Add focused lookup tests.
 - [ ] 4.2 Create `components/front/checkin/hooks/useConsecutiveOfferFlow.ts`.
 - [ ] 4.3 Move consecutive state atoms and handlers.
 - [ ] 4.4 Move early offer fetch and post-check-in offer lookup.
