@@ -4,6 +4,7 @@ import {
   requestCheckoutFinalizeApi,
   requestCheckoutIntentApi,
   requestCheckoutSessionApi,
+  requestCheckoutSessionStatusApi,
   requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
   requestPinAvailabilityApi,
@@ -65,6 +66,27 @@ describe("checkout/checkin api adapters", () => {
       body: JSON.stringify(payload),
     })
     expect(data).toEqual({ ok: true })
+  })
+
+  it("uses the correct request contract for checkout session status", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ status: "open" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    const { data } = await requestCheckoutSessionStatusApi({
+      sessionId: "cs_test/value with spaces",
+      fetchImpl,
+    })
+
+    const [url, init] = getSingleFetchCall(fetchImpl)
+    expect(url).toBe("/api/checkout/session/status?sessionId=cs_test%2Fvalue%20with%20spaces")
+    expect(init).toMatchObject({
+      credentials: "include",
+    })
+    expect(data).toEqual({ status: "open" })
   })
 
   it("uses the correct request contract for checkout cash", async () => {

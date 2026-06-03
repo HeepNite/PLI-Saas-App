@@ -48,10 +48,10 @@ Chain strategy: pending
 - [x] 3.1 Add callback timing tests for `CheckInQrClient` contracts: `onPaymentsStepReadyAction`, `onKioskSessionCreated`, `onExistingUserDetected`, `onTimeoutAction`, and `kioskSessionToken`.
 - [x] 3.2 Verify pre-extraction gate: callback timing tests + current Phase 1/2 suites + `npx tsc --noEmit` must all pass.
 - [x] 3.3 Extract checkout/checkin API calls into `effects/checkout-api.ts` only after 3.1/3.2 pass; preserve `kioskSessionToken` payload propagation.
-- [ ] 3.4 Extract kiosk QR polling orchestration into `effects/kiosk-qr-poller.ts` only after phase/status contract coverage exists; reuse `lib/checkin/kiosk-qr-payment.ts` decisions (no duplication).
-- [ ] 3.5 Keep EnrollModal behavior identical; replace inline effect bodies with adapter calls only after prior gates pass.
-- [ ] 3.6 Keep `field/set-*` as a temporary compatibility adapter during Phase 3; do not treat it as the final architecture destination.
-- [ ] 3.7 Add focused tests for adapter/mappers introduced in 3.3/3.4 (response-to-state mapping, retry branch decisions).
+- [x] 3.4 Extract kiosk QR polling orchestration into `effects/kiosk-qr-poller.ts` only after phase/status contract coverage exists; reuse `lib/checkin/kiosk-qr-payment.ts` decisions (no duplication).
+- [x] 3.5 Keep EnrollModal behavior identical; replace inline effect bodies with adapter calls only after prior gates pass.
+- [x] 3.6 Keep `field/set-*` as a temporary compatibility adapter during Phase 3; do not treat it as the final architecture destination.
+- [x] 3.7 Add focused tests for adapter/mappers introduced in 3.3/3.4 (response-to-state mapping, retry branch decisions).
 - Rollback boundary: revert adapter usage and keep reducer/model.
 - Suggested commit: `refactor(enroll): isolate checkout and kiosk side effects`
 

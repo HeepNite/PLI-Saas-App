@@ -109,3 +109,20 @@ export const requestCheckoutFinalizeApi = async ({
   const data = await res.json().catch(() => null)
   return { res, data }
 }
+
+export const requestCheckoutSessionStatusApi = async ({
+  sessionId,
+  fetchImpl,
+}: {
+  sessionId: string
+  fetchImpl?: FetchImpl
+}) => {
+  const res = await resolveFetch(fetchImpl)(
+    `/api/checkout/session/status?sessionId=${encodeURIComponent(sessionId)}`,
+    {
+      credentials: "include",
+    }
+  )
+  const data = await res.json().catch(() => null)
+  return { res, data }
+}
