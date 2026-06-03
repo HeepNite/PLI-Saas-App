@@ -141,7 +141,6 @@ export default function CheckInQrClient({
     (value) => setBootstrapRef.current(value),
     []
   )
-  const loadBootstrapRef = React.useRef<() => Promise<void>>(async () => {})
   const handleStationCompletionRef = React.useRef<() => void | Promise<void>>(() => {})
   const checkConsecutiveOfferAfterCheckInRef = React.useRef<() => Promise<boolean>>(async () => false)
 
@@ -281,7 +280,6 @@ export default function CheckInQrClient({
     setShowConsecutivePaymentSelection,
   })
   setBootstrapRef.current = setBootstrap
-  loadBootstrapRef.current = loadBootstrap
 
   // ─── Derived display data (extracted hook) ──────────────────
   const display = useCheckInDisplayData({
@@ -367,7 +365,6 @@ export default function CheckInQrClient({
         (bootstrap.package.remainingCredits ?? 0) > 0)
   )
   const currentCheckInCourseSlug = bootstrap?.context.courseSlug ?? activeCourseSlug
-  const loadBootstrapFromRef = React.useCallback(() => loadBootstrapRef.current(), [])
   const checkConsecutiveOfferAfterCheckInFromRef = React.useCallback(
     () => checkConsecutiveOfferAfterCheckInRef.current(),
     []
@@ -392,7 +389,7 @@ export default function CheckInQrClient({
     awaitingConsecutivePaymentSelection,
     setError,
     setSuccess,
-    loadBootstrap: loadBootstrapFromRef,
+    loadBootstrap,
     checkConsecutiveOfferAfterCheckIn: checkConsecutiveOfferAfterCheckInFromRef,
     handleStationCompletion: handleStationCompletionFromRef,
     setAwaitingConsecutivePaymentSelection,

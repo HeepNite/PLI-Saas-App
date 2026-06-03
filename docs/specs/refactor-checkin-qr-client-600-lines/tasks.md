@@ -56,13 +56,15 @@
 - [x] 3c.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts` for bootstrap/loading ownership.
 - [x] 3c.2 Move `loadBootstrap` into `useCheckInBootstrap` while preserving kiosk session, PIN rotation, and consecutive-offer side effects.
 - [x] 3c.3 Keep package check-in ownership in `useCheckInPackageFlow`; full Phase 3 cleanup remains open for temporary seam removal.
+- [x] 3d.1 Remove obsolete `loadBootstrapRef` seam after bootstrap loader extraction.
+- [x] 3d.2 Keep `setBootstrapRef`, `handleStationCompletionRef`, and `checkConsecutiveOfferAfterCheckInRef` documented as remaining hook-order seams.
 
 - [x] 3.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts`.
-- [ ] 3.2 Move `bootstrap`, `loadingBootstrap`, `packageCheckInResult`, `processingPackageCheckIn` ownership.
-- [ ] 3.3 Move remaining package-flow ownership seams and remove temporary refs.
-- [ ] 3.4 Keep package success timeout and cleanup inside this hook.
-- [ ] 3.5 Add hook tests for package/no-package, usable/unusable package, success timer, and #35 regression path.
-- [ ] 3.6 Validate API and existing customer flow tests.
+- [ ] 3.2 Move remaining `processingPackageCheckIn` ownership after display state no longer depends on it.
+- [ ] 3.3 Remove remaining temporary refs after Phase 4 owns consecutive flow and kiosk PIN reset seams are untangled.
+- [x] 3.4 Keep package success timeout and cleanup inside this hook.
+- [x] 3.5 Add hook tests for package/no-package, usable/unusable package, success timer, and #35 regression path.
+- [x] 3.6 Validate API and existing customer flow tests.
 - Suggested commit: `refactor(checkin): extract bootstrap package hook`
 
 ## Phase 4 — Consecutive Offer Flow Hook
