@@ -39,11 +39,11 @@
 
 ## Phase 2 — Consecutive QR Poller Hook
 
-- [ ] 2.1 Create `components/front/checkin/hooks/useKioskQrCheckoutPoller.ts`.
-- [ ] 2.2 Move consecutive QR polling effect into the hook.
-- [ ] 2.3 Reuse `lib/checkin/kiosk-qr-payment.ts` phase decisions.
-- [ ] 2.4 Add focused hook tests.
-- [ ] 2.5 Validate consecutive QR and checkout adapter suites.
+- [x] 2.1 Create `components/front/checkin/hooks/useKioskQrCheckoutPoller.ts`.
+- [x] 2.2 Move consecutive QR polling effect into the hook.
+- [x] 2.3 Reuse `lib/checkin/kiosk-qr-payment.ts` phase decisions.
+- [x] 2.4 Add focused hook tests.
+- [x] 2.5 Validate consecutive QR and checkout adapter suites.
 - Suggested commit: `refactor(checkin): extract consecutive qr poller hook`
 
 ## Phase 3 — Bootstrap and Package Check-in Hook
