@@ -52,12 +52,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Find active CourseLinks involving this course. The actual consecutive
-    // direction is resolved from today's schedule time, not from stored A/B.
+    // Find active CourseLinks where the selected course is courseSlugA
+    // (the earlier class in the directed A → B link). We intentionally
+    // exclude reverse-direction links so a course saved as B never surfaces
+    // an offer for its A on a day where the schedule doesn't make sense
+    // (e.g. selecting "Salsa Beginner" on a Monday must not offer Rueda,
+    // which is only scheduled on Fridays).
     const links = await prisma.courseLink.findMany({
       where: {
         active: true,
-        OR: [{ courseSlugA: courseSlug }, { courseSlugB: courseSlug }],
+        courseSlugA: courseSlug,
       },
     })
     if (links.length === 0) {
@@ -75,7 +79,7 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    const linkedSlugs = links.map((link) => (link.courseSlugA === courseSlug ? link.courseSlugB : link.courseSlugA))
+    const linkedSlugs = links.map((link) => link.courseSlugB)
 
     const linkedCourses = await prisma.courseCatalog.findMany({
       where: { slug: { in: linkedSlugs } },
@@ -108,7 +112,7 @@ export async function GET(req: NextRequest) {
           .map((time) => {
             const minutes = toMinutes(time)
             if (courseAStartMinutes === null || minutes === null || minutes <= courseAStartMinutes) return null
-            const link = links.find((item) => item.courseSlugA === candidate.slug || item.courseSlugB === candidate.slug)
+            const link = links.find((item) => item.courseSlugB === candidate.slug)
             return link ? { course: candidate, time, minutes, link } : null
           })
           .filter((item): item is { course: typeof candidate; time: string; minutes: number; link: (typeof links)[number] } => Boolean(item))
@@ -129,6 +133,7 @@ export async function GET(req: NextRequest) {
 
     // TODO: REMOVE - diagnostic
     const offer = {
+      linkedFromCourseSlug: nextClass.link.courseSlugA,
       linkedCourseSlug: nextClass.course.slug,
       linkedCourseTitle: nextClass.course.title,
       linkedCourseTime: nextClass.time,

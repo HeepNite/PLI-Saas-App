@@ -91,3 +91,30 @@ export const roomHasScheduledUsage = (sessions: Array<{ startsAt: Date; duration
     const endsAt = new Date(session.startsAt.getTime() + session.durationMinutes * 60_000)
     return endsAt > now
   })
+
+export const parsePositiveSearchParam = (value: string | null, fallback: number) => {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback
+  return parsed
+}
+
+export const parseActiveSearchParam = (value: string | null) => {
+  if (!value) return null
+
+  const normalized = value.trim().toLowerCase()
+  if (normalized === "true") return true
+  if (normalized === "false") return false
+  return null
+}
+
+export const buildRoomListWhere = (query: string, active: boolean | null) => ({
+  ...(active === null ? {} : { active }),
+  ...(query
+    ? {
+        OR: [
+          { name: { contains: query, mode: "insensitive" as const } },
+          { location: { contains: query, mode: "insensitive" as const } },
+        ],
+      }
+    : {}),
+})

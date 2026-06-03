@@ -176,6 +176,7 @@ export async function POST(req: Request) {
     const consecutiveAddOn = payload?.consecutiveAddOn === true
     const consecutiveCashPayment = payload?.consecutiveCashPayment === true
     const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const linkedFromAttendanceId = normalizeString(payload?.linkedFromAttendanceId)
     const consecutivePriceCents = payload?.consecutivePriceCents != null
       ? Number(payload.consecutivePriceCents)
       : null
@@ -203,8 +204,46 @@ export async function POST(req: Request) {
         )
       }
 
-      // Verify student attended Class A today
-      const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug)
+      // Hardening: a MONETARY consecutive add-on must NEVER reach this
+      // endpoint without explicit cash evidence. The card path goes through
+      // /api/checkout/session (Stripe), not here. Without this guard, the
+      // route would mark the purchase as `paid` with
+      // `paymentChannel: consecutive_addon` and no Stripe IDs — money never
+      // collected. See Jhon Doe purchase cmpbkyowj001ow3gpqxwdpexa.
+      const effectivePriceCents =
+        consecutivePriceCents !== null
+          ? consecutivePriceCents
+          : link.packageHolderConsecutiveCents
+      if (
+        typeof effectivePriceCents === "number" &&
+        effectivePriceCents > 0 &&
+        !consecutiveCashPayment
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Monetary consecutive add-on requires payment selection. Use cash flow (consecutiveCashPayment) or card flow via /api/checkout/session.",
+          },
+          { status: 400 }
+        )
+      }
+
+      // Verify student attended Class A. Prefer the exact attendance created
+      // by the package check-in flow, but keep it anchored to the class-B
+      // session date so stale attendance IDs from another day cannot unlock
+      // the consecutive add-on.
+      const linkedAttendance = linkedFromAttendanceId
+        ? await prisma.attendance.findFirst({
+            where: {
+              id: linkedFromAttendanceId,
+              userId: dbUser.id,
+              status: { in: [...ATTENDANCE_POINT_STATUSES] },
+              session: { courseSlug: linkedFromCourseSlug, startsAt: context.startsAt },
+            },
+            select: { id: true },
+          })
+        : null
+      const hasAttendedA = Boolean(linkedAttendance) || await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, context.startsAt)
       if (!hasAttendedA) {
         return NextResponse.json(
           { error: "You must attend the first class before adding the consecutive class" },
@@ -212,15 +251,15 @@ export async function POST(req: Request) {
         )
       }
 
-      // Verify student has an active package (any package — the consecutive charge is separate)
+      // Verify student has an active, non-expired package (any package — the
+      // consecutive charge is separate). Do NOT require remaining credits here:
+      // the normal class-A package check-in may have just consumed the last
+      // credit before the student pays for class B's monetary add-on.
       const activePackages = await prisma.packagePurchase.findMany({
         where: {
           userId: dbUser.id,
           status: "active",
-          AND: [
-            { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-            { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
-          ],
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         },
         select: {
           id: true,
@@ -299,12 +338,13 @@ export async function POST(req: Request) {
 
         // Create a purchase record for the consecutive monetary charge
         // This is NOT a package credit deduction — it's a separate charge
+        const recordedConsecutivePriceCents = effectivePriceCents ?? 0
         await tx.purchase.create({
           data: {
             userId: dbUser.id,
             courseSlug: context.courseSlug,
             courseTitle: course.title,
-            amount: consecutivePriceCents ?? 0,
+            amount: recordedConsecutivePriceCents,
             currency: "usd",
             status: consecutiveCashPayment ? "pending" : "paid",
             participants: 1,
@@ -317,7 +357,7 @@ export async function POST(req: Request) {
               source: "qr_package_consecutive_addon",
               attendanceId: attendance.id,
               linkedFromCourseSlug,
-              consecutivePriceCents,
+              consecutivePriceCents: recordedConsecutivePriceCents,
               packagePurchaseId: activePackages[0].id,
             },
           },
@@ -367,7 +407,7 @@ export async function POST(req: Request) {
             ],
           },
           { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-          { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
+          { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
         ],
       },
       select: {
@@ -391,6 +431,13 @@ export async function POST(req: Request) {
     })
     if (!selectedPackage) {
       return NextResponse.json({ error: "No active package available for this class." }, { status: 409 })
+    }
+
+    const selectedPackageHasCredit =
+      (selectedPackage.isUnlimited && selectedPackage.remainingCredits == null) ||
+      (selectedPackage.remainingCredits ?? 0) > 0
+    if (!selectedPackageHasCredit) {
+      return NextResponse.json({ error: "This package has no credits left." }, { status: 409 })
     }
 
     const result = await prisma.$transaction(async (tx) => {

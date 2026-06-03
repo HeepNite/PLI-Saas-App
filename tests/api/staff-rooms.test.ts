@@ -110,6 +110,27 @@ describe("staff rooms routes", () => {
     })
   })
 
+  it("GET falls back invalid filters and clamps page size", async () => {
+    mockPrisma.room.count.mockResolvedValue(0)
+    mockPrisma.room.findMany.mockResolvedValue([])
+
+    const { GET } = await import("@/app/api/staff/rooms/route")
+    const res = await GET(new Request("http://localhost/api/staff/rooms?page=0&pageSize=1000&active=maybe"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.room.count).toHaveBeenCalledWith({ where: {} })
+    expect(mockPrisma.room.findMany).toHaveBeenCalledWith({
+      where: {},
+      select: expect.any(Object),
+      orderBy: [{ name: "asc" }],
+      skip: 0,
+      take: 100,
+    })
+    expect(data.pagination).toMatchObject({ page: 1, pageSize: 100, totalPages: 0 })
+    expect(data.filters).toEqual({ q: null, active: null })
+  })
+
   it("POST creates a room and returns the shared response shape", async () => {
     mockPrisma.room.create.mockResolvedValue(buildRoom({ name: "Studio B", capacity: 30, location: "Upstairs" }))
 

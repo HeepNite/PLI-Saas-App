@@ -9,6 +9,7 @@ import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { buildSessionEndsAtUtc, findOverlappingRoomSession, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { findRoomAvailabilityConflict } from "@/lib/room-availability"
+import { buildCheckInUserLookupCriteria } from "./shared"
 
 export const runtime = "nodejs"
 const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"]
@@ -76,9 +77,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error }, { status: parsed.status })
   }
 
-    const userSearchOr: Array<Record<string, string>> = []
-  if (parsed.userClerkId) userSearchOr.push({ clerkId: parsed.userClerkId })
-  if (parsed.email) userSearchOr.push({ email: parsed.email })
+  const userSearchOr = buildCheckInUserLookupCriteria({
+    userClerkId: parsed.userClerkId,
+    email: parsed.email,
+  })
 
   const user = await prisma.user.findFirst({
     where: {

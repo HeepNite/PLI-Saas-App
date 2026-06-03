@@ -330,6 +330,13 @@ export default function AttendanceHistoryTimeline({
     onClose()
   }, [isOpen, onClose])
 
+  const containPopoverWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    if (!(event.target as HTMLElement | null)?.closest("[data-history-scroll-body]")) {
+      event.preventDefault()
+    }
+  }, [])
+
   useClickOutside(popoverRef, handleClose)
   useKeyboardClose(handleClose)
 
@@ -366,11 +373,11 @@ export default function AttendanceHistoryTimeline({
 
       const tl = gsap.timeline({ defaults: { ease: "power2.out" } })
 
-      // 1. Popover container scales in from badge
+      // 1. Popover container fades in (no scale to avoid creating a containing block that breaks child overflow)
       tl.fromTo(
         popoverRef.current,
-        { scale: 0.8, opacity: 0, transformOrigin: "top left" },
-        { scale: 1, opacity: 1, duration: 0.3 }
+        { opacity: 0 },
+        { opacity: 1, duration: 0.2, clearProps: "opacity" }
       )
 
       // 2. Summary section fades in
@@ -438,10 +445,10 @@ export default function AttendanceHistoryTimeline({
         tl.to(summaryEl, { y: -10, opacity: 0, duration: 0.15 }, "-=0.15")
       }
 
-      // Popover scales out
+      // Popover fades out
       tl.to(
         popoverRef.current,
-        { scale: 0.8, opacity: 0, duration: 0.2 },
+        { opacity: 0, duration: 0.15 },
         "-=0.15"
       )
     },
@@ -460,7 +467,7 @@ export default function AttendanceHistoryTimeline({
   const arrowRotation = getArrowRotation(position)
 
   return (
-    <div ref={containerRef} className="fixed inset-0 z-50 pointer-events-none" aria-hidden={!isOpen}>
+    <div ref={containerRef} className="fixed inset-0 z-[150] pointer-events-none" aria-hidden={!isOpen}>
       {/* Backdrop (transparent, captures clicks) */}
       <div className="absolute inset-0 pointer-events-auto" aria-hidden />
 
@@ -471,6 +478,7 @@ export default function AttendanceHistoryTimeline({
         aria-modal="true"
         aria-label="Attendance history timeline"
         className="pointer-events-auto absolute"
+        onWheel={containPopoverWheel}
         style={
           position
             ? {
@@ -492,7 +500,7 @@ export default function AttendanceHistoryTimeline({
 
         <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-700/70 bg-zinc-950 shadow-2xl shadow-black/65 ring-1 ring-black/60 backdrop-blur-md">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div className="flex shrink-0 items-center justify-between px-5 py-4 border-b border-white/10">
             <div className="flex items-center gap-2">
               <CalendarDays className="w-4 h-4 text-white/60" />
               <h3 className="text-sm font-semibold text-white">Attendance History</h3>
@@ -510,7 +518,7 @@ export default function AttendanceHistoryTimeline({
           </div>
 
           {/* Timeline content */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 no-scrollbar">
+          <div data-history-scroll-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 no-scrollbar">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-3" />
@@ -542,7 +550,7 @@ export default function AttendanceHistoryTimeline({
 
           {/* Footer summary */}
           {sortedAttendance.length > 0 && (
-            <div className="px-5 py-3 border-t border-white/10 bg-white/5">
+            <div className="shrink-0 px-5 py-3 border-t border-white/10 bg-white/5">
               <div className="flex items-center justify-between text-xs text-white/50">
                 <span>Total classes</span>
                 <span className="text-white/70 font-medium tabular-nums">

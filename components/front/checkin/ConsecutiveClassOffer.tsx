@@ -1,6 +1,8 @@
+import React from "react"
 import { CreditCard, Banknote, XCircle } from "lucide-react"
 
 export type ConsecutiveOfferData = {
+  linkedFromCourseSlug?: string
   linkedCourseSlug: string
   linkedCourseTitle: string
   linkedCourseTime?: string
@@ -19,6 +21,7 @@ type ConsecutiveClassOfferProps = {
   onPayCash?: () => void
   onPayCard?: () => void
   isProcessing?: boolean
+  processingAction?: "accept" | "decline" | "cash" | "card" | null
   showPaymentSelection?: boolean
 }
 
@@ -45,6 +48,7 @@ export function ConsecutiveClassOffer({
   onPayCash,
   onPayCard,
   isProcessing = false,
+  processingAction = null,
   showPaymentSelection = false,
 }: ConsecutiveClassOfferProps) {
   const displayPriceCents = isPackageHolder
@@ -91,7 +95,7 @@ export function ConsecutiveClassOffer({
               className="w-full flex items-center justify-center gap-3 rounded-xl bg-[var(--brand,#b61616)] px-6 py-4 text-lg font-semibold text-white transition-colors hover:bg-[#a01212] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Banknote className="h-6 w-6" />
-              {isProcessing ? "Processing..." : "Pay with Cash"}
+              {processingAction === "cash" ? "Processing..." : "Pay with Cash"}
             </button>
             <button
               type="button"
@@ -100,7 +104,7 @@ export function ConsecutiveClassOffer({
               className="w-full flex items-center justify-center gap-3 rounded-xl border border-white/15 bg-white/10 px-6 py-4 text-lg font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CreditCard className="h-6 w-6" />
-              {isProcessing ? "Processing..." : "Pay with Card"}
+              {processingAction === "card" ? "Processing..." : "Pay with Card"}
             </button>
           </div>
         </div>
@@ -145,7 +149,7 @@ export function ConsecutiveClassOffer({
             disabled={isProcessing}
             className="w-full rounded-xl bg-[var(--brand,#b61616)] px-6 py-4 text-lg font-semibold text-white transition-colors hover:bg-[#a01212] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isProcessing ? "Adding..." : "Add Class"}
+            {processingAction === "accept" ? "Processing..." : "Add Class"}
           </button>
           <button
             type="button"
@@ -153,7 +157,7 @@ export function ConsecutiveClassOffer({
             disabled={isProcessing}
             className="w-full rounded-xl border border-white/15 bg-white/10 px-6 py-4 text-lg font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            No Thanks
+            {processingAction === "decline" ? "Processing..." : "No Thanks"}
           </button>
         </div>
       </div>

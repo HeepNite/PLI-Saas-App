@@ -144,7 +144,7 @@ export const consumePackageCreditForAttendance = async (input: {
       status: "active",
       AND: [
         { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-        { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
+        { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
       ],
     },
     orderBy: [{ expiresAt: "asc" }, { purchasedAt: "asc" }],
@@ -163,7 +163,7 @@ export const consumePackageCreditForAttendance = async (input: {
   if (!selected) return { packagePurchase: null, usage: null, consumed: false }
 
   for (const candidate of ordered) {
-    if (candidate.isUnlimited) {
+    if (candidate.isUnlimited && candidate.remainingCredits == null) {
       try {
         const usage = await prisma.packageUsageLedger.create({
           data: {
@@ -301,7 +301,7 @@ export const reservePackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
     throw new Error("PACKAGE_NOT_AVAILABLE")
   }
 
-  if (selectedPackage.isUnlimited) {
+  if (selectedPackage.isUnlimited && selectedPackage.remainingCredits == null) {
     const usage = await tx.packageUsageLedger.create({
       data: {
         packagePurchaseId: selectedPackage.id,

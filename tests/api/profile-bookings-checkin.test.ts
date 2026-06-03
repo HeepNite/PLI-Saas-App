@@ -14,6 +14,7 @@ const mockPrisma = {
     findUnique: vi.fn(),
   },
   pointsLedger: {
+    findUnique: vi.fn(),
     create: vi.fn(),
   },
 }
@@ -43,7 +44,9 @@ describe("profile bookings check-in route", () => {
     mockPrisma.attendance.update.mockReset()
     mockPrisma.attendance.count.mockReset()
     mockPrisma.pointsRule.findUnique.mockReset()
+    mockPrisma.pointsLedger.findUnique.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
+    mockPrisma.pointsLedger.findUnique.mockResolvedValue(null)
     mockClerkClient.mockResolvedValue({ users: usersApi })
   })
 

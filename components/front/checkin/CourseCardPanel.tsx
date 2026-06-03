@@ -335,14 +335,14 @@ function CourseCardContent({
             <div className={`relative flex h-full flex-col justify-between ${isSplit ? (compact ? "p-3 sm:p-4" : "p-4 sm:p-5") : "min-h-[18rem] p-3 sm:p-5"}`}>
               <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/28 to-transparent" />
               <div>
-              <h3 className={`font-semibold leading-tight text-white ${isSplit ? (compact ? "text-lg" : "text-2xl") : "text-xl sm:text-2xl"}`}>
+              <h3 className={`font-semibold leading-tight text-white ${isSplit ? (compact ? "text-base" : "text-2xl") : "text-xl sm:text-2xl"}`}>
                 {courseTitle}
               </h3>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <span className="rounded-full border border-white/15 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/85">
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-full border border-white/15 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/85">
                   $20 drop-in
                 </span>
-                <span className="rounded-full border border-emerald-300/25 bg-emerald-400/[0.10] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-100/90">
+                <span className="rounded-full border border-emerald-300/25 bg-emerald-400/[0.10] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-100/90">
                   $15 first time
                 </span>
               </div>

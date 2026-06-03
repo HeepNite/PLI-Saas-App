@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest"
 import {
   getExistingCustomerInitialStep,
   hasExistingCustomerPrefillContact,
+  resolveDuplicatePurchaseDoneAction,
+  resolvePackageConsecutiveDeclineAction,
   shouldAutoOpenExistingPurchase,
   shouldSurfaceClosedWindowPackageError,
   shouldAutoTriggerPackageCheckIn,
+  shouldShowConsecutiveOfferGate,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
 
@@ -192,6 +195,115 @@ describe("existing customer kiosk helpers", () => {
     ).toBe(true)
   })
 
+  it("does not auto-trigger package success when the student is already checked in for the session", () => {
+    expect(
+      shouldAutoTriggerPackageCheckIn({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasPackage: true,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: false,
+        hasExistingPurchaseForSession: true,
+        effectiveCheckInWindowOpen: true,
+        hasActiveSession: true,
+        hasConsecutiveOffer: false,
+        consecutiveOfferSettled: true,
+      })
+    ).toBe(false)
+  })
+
+  it("keeps consecutive payment selection open instead of falling back to Add Class", () => {
+    expect(
+      shouldShowConsecutiveOfferGate({
+        hasConsecutiveOffer: true,
+        consecutiveOfferSettled: true,
+        hasPackageCheckInResult: false,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        showConsecutivePaymentSelection: true,
+        awaitingConsecutivePaymentSelection: false,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+  })
+
+  it("does not reopen Add Class while the package success overlay is handing off to payment", () => {
+    expect(
+      shouldShowConsecutiveOfferGate({
+        hasConsecutiveOffer: true,
+        consecutiveOfferSettled: true,
+        hasPackageCheckInResult: true,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        showConsecutivePaymentSelection: false,
+        awaitingConsecutivePaymentSelection: true,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+  })
+
+  it("does not reopen Add Class while card checkout or final consecutive states are active", () => {
+    const base = {
+      hasConsecutiveOffer: true,
+      consecutiveOfferSettled: true,
+      hasPackageCheckInResult: false,
+      mode: "existing" as const,
+      hasBootstrap: true,
+      hasPackage: true,
+      showConsecutivePaymentSelection: false,
+      awaitingConsecutivePaymentSelection: false,
+    }
+
+    expect(
+      shouldShowConsecutiveOfferGate({
+        ...base,
+        isConsecutiveQrCheckoutIdle: false,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+    expect(
+      shouldShowConsecutiveOfferGate({
+        ...base,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: true,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+    expect(
+      shouldShowConsecutiveOfferGate({
+        ...base,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: true,
+      })
+    ).toBe(false)
+  })
+
+  it("does not show the consecutive add-class gate before package check-in", () => {
+    expect(
+      shouldShowConsecutiveOfferGate({
+        hasConsecutiveOffer: true,
+        consecutiveOfferSettled: true,
+        hasPackageCheckInResult: false,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        showConsecutivePaymentSelection: false,
+        awaitingConsecutivePaymentSelection: false,
+        isConsecutiveQrCheckoutIdle: true,
+        hasConsecutiveSuccess: false,
+        hasConsecutiveError: false,
+      })
+    ).toBe(false)
+  })
+
   it("surfaces a closed-window error instead of leaving the customer on loading", () => {
     expect(
       shouldSurfaceClosedWindowPackageError({
@@ -220,5 +332,56 @@ describe("existing customer kiosk helpers", () => {
         hasExistingRegularBookingOverride: true,
       })
     ).toBe(false)
+  })
+
+  describe("resolvePackageConsecutiveDeclineAction", () => {
+    it("returns 'pre-checkin' when the package check-in has not happened yet", () => {
+      // Pre-checkin mode: the consecutive offer was shown BEFORE class A
+      // check-in. Declining must trigger class A check-in (and surface the
+      // standard package success overlay) rather than completing the station
+      // immediately — otherwise the kiosk wipes packageCheckInResult before
+      // the operator sees confirmation.
+      expect(
+        resolvePackageConsecutiveDeclineAction({ hasPackageCheckInResult: false })
+      ).toBe("pre-checkin")
+    })
+
+    it("returns 'post-checkin' when the package check-in already completed", () => {
+      // Post-checkin mode: class A was already checked in (legacy flow path).
+      // Declining the offer just dismisses the overlay and completes the
+      // station.
+      expect(
+        resolvePackageConsecutiveDeclineAction({ hasPackageCheckInResult: true })
+      ).toBe("post-checkin")
+    })
+  })
+
+  describe("resolveDuplicatePurchaseDoneAction", () => {
+    it("opens the consecutive overlay only when a usable current-class package exists", () => {
+      expect(
+        resolveDuplicatePurchaseDoneAction({
+          hasConsecutiveOffer: true,
+          hasPackage: true,
+        })
+      ).toBe("open-consecutive-overlay")
+    })
+
+    it("completes the station when an offer exists but there is no usable current-class package", () => {
+      expect(
+        resolveDuplicatePurchaseDoneAction({
+          hasConsecutiveOffer: true,
+          hasPackage: false,
+        })
+      ).toBe("complete-station")
+    })
+
+    it("completes the station when there is no consecutive offer", () => {
+      expect(
+        resolveDuplicatePurchaseDoneAction({
+          hasConsecutiveOffer: false,
+          hasPackage: true,
+        })
+      ).toBe("complete-station")
+    })
   })
 })

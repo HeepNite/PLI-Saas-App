@@ -2,12 +2,12 @@ import type { SchoolWizardEntity, SchoolWizardStepConfig } from "./school-wizard
 
 export const WIZARD_STEP_CONFIGS: Record<SchoolWizardEntity, SchoolWizardStepConfig[]> = {
   courses: [
-    { key: "main-info", label: "Main Info" },
+    { key: "main-info", label: "Info" },
     { key: "prices", label: "Prices" },
-    { key: "media-assets", label: "Media Assets" },
+    { key: "media-assets", label: "Media" },
     { key: "schedule", label: "Schedule" },
-    { key: "course-links", label: "Course Links", enabled: (ctx) => Boolean(ctx.courseEditingSlug) },
-    { key: "preview-calendar", label: "Preview & Calendar" },
+    { key: "course-links", label: "Relations" },
+    { key: "preview-calendar", label: "Preview" },
     { key: "publish", label: "Publish" },
   ],
   rooms: [
@@ -17,8 +17,8 @@ export const WIZARD_STEP_CONFIGS: Record<SchoolWizardEntity, SchoolWizardStepCon
   packages: [
     { key: "main-info", label: "Main Info" },
     { key: "assign-courses", label: "Assign Courses" },
-    { key: "pricing-credits", label: "Pricing & Credits" },
-    { key: "valid-days-status", label: "Valid Days & Status" },
+    { key: "pricing-credits", label: "Pricing" },
+    { key: "valid-days-status", label: "Valid Days" },
   ],
   points: [
     { key: "rule-builder", label: "Rule Builder" },

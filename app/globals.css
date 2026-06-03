@@ -122,10 +122,11 @@
     @apply border-border outline-ring/50;
   }
   html {
-    @apply overflow-x-hidden;
+    /* Keep the document element overflow visible so position: sticky can use the viewport scrollport. */
   }
   body {
-    @apply bg-background text-foreground overflow-x-hidden;
+    @apply bg-background text-foreground;
+    overflow-x: clip;
     scroll-behavior: auto;
   }
   main {

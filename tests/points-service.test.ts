@@ -7,6 +7,7 @@ const buildDb = () => ({
     findUnique: vi.fn(),
   },
   pointsLedger: {
+    findUnique: vi.fn().mockResolvedValue(null),
     create: vi.fn(),
     aggregate: vi.fn(),
   },
@@ -70,6 +71,34 @@ describe("points service", () => {
     )
   })
 
+  it("returns duplicate without creating a ledger entry when event key already exists", async () => {
+    const db = buildDb()
+    db.pointsRule.findUnique.mockResolvedValue({
+      key: POINTS_RULE_KEYS.PACKAGE_ASSIGNMENT,
+      points: 2.5,
+      eventType: "PACKAGE_ASSIGNMENT",
+      active: true,
+    })
+    db.pointsLedger.findUnique.mockResolvedValue({ id: "ledger_existing" })
+
+    const result = await awardPointsFromRule({
+      db: db as never,
+      userId: "u_1",
+      ruleKey: POINTS_RULE_KEYS.PACKAGE_ASSIGNMENT,
+      eventKey: "package-assignment:pkg_1",
+    })
+
+    expect(result).toEqual({
+      awarded: false,
+      points: 0,
+      type: "PACKAGE_ASSIGNMENT",
+      eventKey: "package-assignment:pkg_1",
+      duplicate: true,
+      skipped: false,
+    })
+    expect(db.pointsLedger.create).not.toHaveBeenCalled()
+  })
+
   it("returns configured free-class threshold when present", async () => {
     const db = buildDb()
     db.pointsRule.findUnique.mockResolvedValue({
@@ -89,4 +118,3 @@ describe("points service", () => {
     expect(balance).toBe(42.5)
   })
 })
-

@@ -134,6 +134,7 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   hasPackage: boolean
   processingPackageCheckIn: boolean
   hasPackageCheckInResult: boolean
+  hasExistingPurchaseForSession?: boolean
   effectiveCheckInWindowOpen: boolean
   hasActiveSession: boolean
   /** Whether a consecutive class offer was fetched for this course */
@@ -143,18 +144,39 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
 }) => {
   // Already checked in or currently processing → don't re-trigger
   if (input.hasPackageCheckInResult || input.processingPackageCheckIn) return false
+  // Existing successful attendance/purchase should show the duplicate/status
+  // popup, not run another package check-in success flow.
+  if (input.hasExistingPurchaseForSession) return false
   // Not a kiosk terminal existing-customer flow → no auto-trigger
   if (!input.isKioskTerminalFlow || input.mode !== "existing") return false
   // No package or check-in window closed → no auto-trigger
   if (!input.hasPackage || !input.effectiveCheckInWindowOpen) return false
   // No active session → no auto-trigger
   if (!input.hasActiveSession) return false
-  // Consecutive offer exists and is settled → suppress auto-trigger (caller shows overlay first)
-  if (input.hasConsecutiveOffer && input.consecutiveOfferSettled) return false
-  // Consecutive offer fetch not yet settled → wait (effect will re-fire when settled)
-  if (!input.consecutiveOfferSettled) return false
-  // No consecutive offer → original auto-trigger behavior
+  // Always check in with package first. Consecutive promotion can only be
+  // offered after a successful class-A check-in, so no-credit users go to the
+  // regular purchase flow instead of seeing a stale promotion popup.
   return true
+}
+
+export const shouldShowConsecutiveOfferGate = (input: {
+  hasConsecutiveOffer: boolean
+  consecutiveOfferSettled: boolean
+  hasPackageCheckInResult: boolean
+  mode: "idle" | "existing" | "new"
+  hasBootstrap: boolean
+  hasPackage: boolean
+  showConsecutivePaymentSelection: boolean
+  awaitingConsecutivePaymentSelection: boolean
+  isConsecutiveQrCheckoutIdle: boolean
+  hasConsecutiveSuccess: boolean
+  hasConsecutiveError: boolean
+}) => {
+  if (input.showConsecutivePaymentSelection) return false
+  if (input.awaitingConsecutivePaymentSelection) return false
+  if (!input.isConsecutiveQrCheckoutIdle) return false
+  if (input.hasConsecutiveSuccess || input.hasConsecutiveError) return false
+  return false
 }
 
 export const shouldSurfaceClosedWindowPackageError = (input: {
@@ -192,3 +214,131 @@ export const resolvePackageOfferDeclineAction = (
   scenario: PackageOfferScenario | null
 ): "station-completion" | "existing-purchase" =>
   scenario === "new-user-upsell" ? "station-completion" : "existing-purchase"
+
+/**
+ * Resolves what should happen after a package holder declines the consecutive
+ * class offer.
+ *
+ * - `pre-checkin`: class A has NOT been checked in yet → the caller must
+ *   perform the package check-in, then show the standard package success
+ *   overlay so the operator can confirm completion (which then triggers
+ *   station completion via the overlay's "Done" button or the kiosk
+ *   inactivity timer). The caller must NOT call `handleStationCompletion`
+ *   directly here — doing so wipes `packageCheckInResult` before the overlay
+ *   can render and looks like a silent failure.
+ *
+ * - `post-checkin`: class A was already checked in BEFORE the offer was
+ *   shown → the success overlay was already displayed. The caller dismisses
+ *   the consecutive overlay and proceeds to station completion.
+ *
+ * This is intentionally derived from a single boolean so the caller can read
+ * it BEFORE awaiting any check-in API call, avoiding stale-closure bugs that
+ * arise when re-reading React state after `await`.
+ */
+export const resolvePackageConsecutiveDeclineAction = (input: {
+  hasPackageCheckInResult: boolean
+}): "pre-checkin" | "post-checkin" =>
+  input.hasPackageCheckInResult ? "post-checkin" : "pre-checkin"
+
+/**
+ * Resolves what should happen when a PACKAGE HOLDER accepts the consecutive
+ * class offer.
+ *
+ * - `pre-checkin-then-payment-selection`: class A has NOT been checked in yet
+ *   AND the consecutive class has a positive price. The caller must check
+ *   class A in first (via package), then show the Cash/Card payment
+ *   selection for class B. The monetary add-on must NOT be created until the
+ *   user picks a payment method.
+ *
+ * - `show-payment-selection`: class A was already checked in AND the
+ *   consecutive class has a positive price. The caller must show Cash/Card
+ *   selection. The monetary add-on must NOT be created until the user picks
+ *   a payment method.
+ *
+ * - `direct-add`: the consecutive class is free (price 0, null, or
+ *   negative). No payment collection is required, so the caller may add the
+ *   class directly via `/api/checkin/qr/package` (without
+ *   `consecutiveCashPayment`).
+ *
+ * RATIONALE: Hitting `/api/checkin/qr/package` directly with
+ * `consecutiveAddOn: true` and a positive price (and no
+ * `consecutiveCashPayment`) causes the backend to mark the monetary
+ * purchase as `paid` with `paymentChannel: consecutive_addon` and no Stripe
+ * IDs — money never collected. See Jhon Doe purchase
+ * `cmpbkyowj001ow3gpqxwdpexa`.
+ */
+export const resolvePackageConsecutiveAcceptAction = (input: {
+  hasPackageCheckInResult: boolean
+  priceCents: number | null
+}):
+  | "pre-checkin-then-payment-selection"
+  | "show-payment-selection"
+  | "direct-add" => {
+  const hasPositivePrice =
+    typeof input.priceCents === "number" && input.priceCents > 0
+
+  if (!hasPositivePrice) {
+    return "direct-add"
+  }
+
+  return input.hasPackageCheckInResult
+    ? "show-payment-selection"
+    : "pre-checkin-then-payment-selection"
+}
+
+/**
+ * Resolves what should happen when the user presses "Done" on the
+ * KioskPackageSuccessOverlay (the credit-consumed confirmation screen).
+ *
+ * - `open-payment-selection`: the success overlay is showing because class A
+ *   was checked in as part of a consecutive ACCEPT flow with a positive
+ *   price. The credit-consumed confirmation has been acknowledged; the
+ *   caller must NOW open the Cash/Card payment selection for class B
+ *   (instead of resetting the station).
+ *
+ * - `complete-station`: the success overlay is showing for a normal package
+ *   check-in (no pending consecutive add-on). The caller resets the station.
+ *
+ * RATIONALE: The original ACCEPT flow set `showConsecutivePaymentSelection`
+ * immediately after recording `packageCheckInResult`, racing the success
+ * overlay so the operator never saw the credit-consumed confirmation. The
+ * confirmation must be acknowledged explicitly BEFORE the payment selection
+ * appears.
+ */
+export const resolvePackageSuccessDoneAction = (input: {
+  awaitingConsecutivePaymentSelection: boolean
+}): "open-payment-selection" | "complete-station" =>
+  input.awaitingConsecutivePaymentSelection
+    ? "open-payment-selection"
+    : "complete-station"
+
+export const resolveConsecutivePaymentSuccessAction = (input: {
+  isKioskTerminalFlow: boolean
+}): "complete-station" | "show-success" =>
+  input.isKioskTerminalFlow ? "complete-station" : "show-success"
+
+/**
+ * Resolves what should happen when KioskDuplicatePurchaseOverlay's `onDone`
+ * fires (operator dismiss or auto-timeout).
+ *
+ * - `open-consecutive-overlay`: a consecutive offer exists AND the customer
+ *   has a USABLE current-class package (`hasPackage: true`). The
+ *   consecutive overlay must NEVER appear for someone without a usable
+ *   package for the current class, because the package-holder branches
+ *   would mis-route them and could trigger a package check-in that has no
+ *   credits to consume. See `shouldShowConsecutiveOfferGate` which also
+ *   requires `hasPackage`.
+ *
+ * - `complete-station`: no offer or no usable package → existing
+ *   registered-customer purchase flow already concluded for class A; just
+ *   complete the station.
+ */
+export const resolveDuplicatePurchaseDoneAction = (input: {
+  hasConsecutiveOffer: boolean
+  hasPackage: boolean
+}): "open-consecutive-overlay" | "complete-station" => {
+  if (input.hasConsecutiveOffer && input.hasPackage) {
+    return "open-consecutive-overlay"
+  }
+  return "complete-station"
+}

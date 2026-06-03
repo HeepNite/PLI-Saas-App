@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockAuth = vi.fn()
 const mockClerkClient = vi.fn()
@@ -24,6 +24,7 @@ const mockPrisma = {
     upsert: vi.fn(),
   },
   attendance: {
+    findFirst: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
     create: vi.fn(),
@@ -92,6 +93,7 @@ vi.mock("@/lib/security/kiosk-customer-auth", () => ({
 
 vi.mock("@/lib/course-links", () => ({
   findConsecutiveLink: (...args: unknown[]) => mockCourseLinkFindUnique(...args),
+  findConsecutiveLinkBetween: (...args: unknown[]) => mockCourseLinkFindUnique(...args),
 }))
 
 vi.mock("@/lib/checkin/consecutive-class", () => ({
@@ -122,6 +124,7 @@ describe("package consecutive add-on", () => {
     mockPrisma.packagePurchase.findMany.mockReset()
     mockPrisma.classSession.upsert.mockReset()
     mockPrisma.attendance.findUnique.mockReset()
+    mockPrisma.attendance.findFirst.mockReset()
     mockPrisma.attendance.update.mockReset()
     mockPrisma.attendance.create.mockReset()
     mockPrisma.attendance.count.mockReset()
@@ -180,7 +183,7 @@ describe("package consecutive add-on", () => {
     mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => callback(mockPrisma))
   })
 
-  it("creates separate charge (NOT package credit deduction)", async () => {
+  it("creates separate charge for cash flow (NOT package credit deduction)", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
     mockCourseLinkFindUnique.mockResolvedValue({
@@ -202,6 +205,7 @@ describe("package consecutive add-on", () => {
           date: "2026-03-31",
           time: "20:00",
           consecutiveAddOn: true,
+          consecutiveCashPayment: true,
           linkedFromCourseSlug: "salsa",
           consecutivePriceCents: 500,
         }),
@@ -217,6 +221,177 @@ describe("package consecutive add-on", () => {
     expect(data.package).toBeNull()
     // Should NOT call reservePackageCreditForAttendanceTx
     expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        amount: 500,
+        status: "pending",
+        metadata: expect.objectContaining({
+          paymentChannel: "cash",
+          settlementStatus: "pending",
+          consecutivePriceCents: 500,
+        }),
+      }),
+    })
+  })
+
+  it("records configured price for cash flow when client omits consecutivePriceCents", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    mockCourseLinkFindUnique.mockResolvedValue({
+      id: "link_1",
+      courseSlugA: "salsa",
+      courseSlugB: "bachata",
+      packageHolderConsecutiveCents: 500,
+      active: true,
+    })
+    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-31",
+          time: "20:00",
+          consecutiveAddOn: true,
+          consecutiveCashPayment: true,
+          linkedFromCourseSlug: "salsa",
+          // consecutivePriceCents intentionally omitted: server must use CourseLink price.
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        amount: 500,
+        status: "pending",
+        metadata: expect.objectContaining({
+          paymentChannel: "cash",
+          settlementStatus: "pending",
+          consecutivePriceCents: 500,
+        }),
+      }),
+    })
+  })
+
+  it("allows cash add-on after class A consumed the package's last credit", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    mockCourseLinkFindUnique.mockResolvedValue({
+      id: "link_1",
+      courseSlugA: "salsa",
+      courseSlugB: "bachata",
+      packageHolderConsecutiveCents: 500,
+      active: true,
+    })
+    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([
+      {
+        id: "pkg_purchase_1",
+        packageId: "pkg_10",
+        packageLabel: "10 Classes",
+        courseSlug: "salsa",
+        isUnlimited: false,
+        remainingCredits: 0,
+        expiresAt: new Date("2026-04-30T00:00:00.000Z"),
+        status: "active",
+      },
+    ])
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-31",
+          time: "20:00",
+          consecutiveAddOn: true,
+          consecutiveCashPayment: true,
+          linkedFromCourseSlug: "salsa",
+          consecutivePriceCents: 500,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+  })
+
+  it("rejects monetary consecutive add-on without cash/card evidence (guard against silent auto-paid)", async () => {
+    // Regression: Jhon Doe purchase cmpbkyowj001ow3gpqxwdpexa was created
+    // as `paid` with paymentChannel:consecutive_addon and no Stripe IDs
+    // because the route accepted consecutiveAddOn:true with a positive
+    // price and no consecutiveCashPayment. The card flow goes through
+    // /api/checkout/session, never this endpoint — so a monetary add-on
+    // here without cash evidence must be rejected.
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    mockCourseLinkFindUnique.mockResolvedValue({
+      id: "link_1",
+      courseSlugA: "salsa",
+      courseSlugB: "bachata",
+      packageHolderConsecutiveCents: 1000,
+      active: true,
+    })
+    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-31",
+          time: "20:00",
+          consecutiveAddOn: true,
+          // consecutiveCashPayment intentionally OMITTED
+          linkedFromCourseSlug: "salsa",
+          consecutivePriceCents: 1000,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.error).toContain("requires payment selection")
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("allows zero-price consecutive add-on without cash flag (free add-on)", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    mockCourseLinkFindUnique.mockResolvedValue({
+      id: "link_1",
+      courseSlugA: "salsa",
+      courseSlugB: "bachata",
+      packageHolderConsecutiveCents: 0,
+      active: true,
+    })
+    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-31",
+          time: "20:00",
+          consecutiveAddOn: true,
+          linkedFromCourseSlug: "salsa",
+          consecutivePriceCents: 0,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
   })
 
   it("validates CourseLink price", async () => {
@@ -274,6 +449,7 @@ describe("package consecutive add-on", () => {
           date: "2026-03-31",
           time: "20:00",
           consecutiveAddOn: true,
+          consecutiveCashPayment: true,
           linkedFromCourseSlug: "salsa",
           consecutivePriceCents: 500,
         }),
@@ -281,6 +457,51 @@ describe("package consecutive add-on", () => {
     )
 
     expect(res.status).toBe(403)
+    const data = await res.json()
+    expect(data.error).toContain("must attend the first class")
+  })
+
+  it("rejects stale linked attendance ids that do not match the class date", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    mockCourseLinkFindUnique.mockResolvedValue({
+      id: "link_1",
+      courseSlugA: "salsa",
+      courseSlugB: "bachata",
+      packageHolderConsecutiveCents: 500,
+      active: true,
+    })
+    mockPrisma.attendance.findFirst.mockResolvedValue(null)
+    mockAttendanceFindFirst.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-31",
+          time: "20:00",
+          consecutiveAddOn: true,
+          consecutiveCashPayment: true,
+          linkedFromCourseSlug: "salsa",
+          linkedFromAttendanceId: "attendance_old_day",
+          consecutivePriceCents: 500,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(403)
+    expect(mockPrisma.attendance.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "attendance_old_day",
+        userId: "db_user_1",
+        status: { in: ["checked_in", "checked_in_no_package"] },
+        session: { courseSlug: "salsa", startsAt: new Date("2026-04-01T00:00:00.000Z") },
+      },
+      select: { id: true },
+    })
     const data = await res.json()
     expect(data.error).toContain("must attend the first class")
   })
@@ -356,6 +577,7 @@ describe("package consecutive add-on", () => {
           date: "2026-03-31",
           time: "20:00",
           consecutiveAddOn: true,
+          consecutiveCashPayment: true,
           linkedFromCourseSlug: "salsa",
           consecutivePriceCents: 500,
         }),

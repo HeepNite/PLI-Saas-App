@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import {
+  buildRoomListWhere,
   isUniqueConstraintError,
+  parseActiveSearchParam,
+  parsePositiveSearchParam,
   prismaRoomRouteError,
   type RoomRecord,
   ROOM_SELECT,
@@ -34,20 +37,6 @@ const getRoomDelegate = (): RoomDelegate | null => {
   return room ?? null
 }
 
-const parsePositiveParam = (value: string | null, fallback: number) => {
-  const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed <= 0) return fallback
-  return parsed
-}
-
-const parseActiveFilter = (value: string | null) => {
-  if (!value) return null
-  const normalized = value.trim().toLowerCase()
-  if (normalized === "true") return true
-  if (normalized === "false") return false
-  return null
-}
-
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("staff:rooms:get", getClientIp(req)),
@@ -65,21 +54,11 @@ export async function GET(req: Request) {
 
   const requestUrl = new URL(req.url)
   const query = toSafeRoomText(requestUrl.searchParams.get("q"), 100)
-  const active = parseActiveFilter(requestUrl.searchParams.get("active"))
-  const page = parsePositiveParam(requestUrl.searchParams.get("page"), DEFAULT_PAGE)
-  const pageSize = Math.min(parsePositiveParam(requestUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE)
+  const active = parseActiveSearchParam(requestUrl.searchParams.get("active"))
+  const page = parsePositiveSearchParam(requestUrl.searchParams.get("page"), DEFAULT_PAGE)
+  const pageSize = Math.min(parsePositiveSearchParam(requestUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE)
 
-  const where = {
-    ...(active === null ? {} : { active }),
-    ...(query
-      ? {
-          OR: [
-            { name: { contains: query, mode: "insensitive" as const } },
-            { location: { contains: query, mode: "insensitive" as const } },
-          ],
-        }
-      : {}),
-  }
+  const where = buildRoomListWhere(query, active)
 
   const roomDelegate = getRoomDelegate()
   if (!roomDelegate) {

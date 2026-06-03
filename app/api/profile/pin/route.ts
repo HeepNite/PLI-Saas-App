@@ -31,6 +31,25 @@ const getAuthenticatedDbUser = async (authUserId: string) => {
   return { clerkUser, dbUser }
 }
 
+const unauthorizedResponse = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+const unresolvedUserResponse = () =>
+  NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+
+const resolveAuthenticatedDbUser = async () => {
+  const authResult = await auth()
+  if (!authResult.userId) {
+    return { response: unauthorizedResponse() }
+  }
+
+  const { dbUser } = await getAuthenticatedDbUser(authResult.userId)
+  if (!dbUser) {
+    return { response: unresolvedUserResponse() }
+  }
+
+  return { authUserId: authResult.userId, dbUser }
+}
+
 export async function GET(req: Request) {
   if (!isStudentPinLifecycleEnabled()) {
     return NextResponse.json({ error: "Student PIN lifecycle is disabled." }, { status: 404 })
@@ -48,17 +67,12 @@ export async function GET(req: Request) {
     )
   }
 
-  const authResult = await auth()
-  if (!authResult.userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userResolution = await resolveAuthenticatedDbUser()
+  if ("response" in userResolution) {
+    return userResolution.response
   }
 
-  const { dbUser } = await getAuthenticatedDbUser(authResult.userId)
-  if (!dbUser) {
-    return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
-  }
-
-  const status = await getStudentPinStatus(dbUser.id)
+  const status = await getStudentPinStatus(userResolution.dbUser.id)
   return NextResponse.json(status)
 }
 
@@ -79,11 +93,6 @@ export async function PUT(req: Request) {
     )
   }
 
-  const authResult = await auth()
-  if (!authResult.userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   let body: unknown
   try {
     body = await req.json()
@@ -101,15 +110,15 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: confirmationError.error }, { status: confirmationError.status })
   }
 
-  const { dbUser } = await getAuthenticatedDbUser(authResult.userId)
-  if (!dbUser) {
-    return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+  const userResolution = await resolveAuthenticatedDbUser()
+  if ("response" in userResolution) {
+    return userResolution.response
   }
 
   const existingPermanent = await prisma.studentPinCredential.findUnique({
     where: {
       userId_kind: {
-        userId: dbUser.id,
+        userId: userResolution.dbUser.id,
         kind: "permanent",
       },
     },
@@ -130,8 +139,8 @@ export async function PUT(req: Request) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      await replacePermanentStudentPin(tx as typeof prisma, { userId: dbUser.id, nextPin })
-      await clearStudentPinLockout(tx as typeof prisma, dbUser.id)
+      await replacePermanentStudentPin(tx as typeof prisma, { userId: userResolution.dbUser.id, nextPin })
+      await clearStudentPinLockout(tx as typeof prisma, userResolution.dbUser.id)
     })
   } catch (error) {
     if (isStudentPinConflictError(error)) {
@@ -141,15 +150,15 @@ export async function PUT(req: Request) {
   }
 
   await writeStudentPinAudit({
-    userId: dbUser.id,
+    userId: userResolution.dbUser.id,
     action: currentPin ? STUDENT_PIN_AUDIT_ACTIONS.RESET : STUDENT_PIN_AUDIT_ACTIONS.RECOVERY_RESET,
     result: "success",
     actorType: "student",
-    actorClerkId: authResult.userId,
+    actorClerkId: userResolution.authUserId,
     credentialKind: "permanent",
     metadata: { recoveredWithoutCurrentPin: !currentPin },
   })
 
-  const status = await getStudentPinStatus(dbUser.id)
+  const status = await getStudentPinStatus(userResolution.dbUser.id)
   return NextResponse.json({ ok: true, status })
 }
