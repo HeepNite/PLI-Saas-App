@@ -2,7 +2,7 @@
 import React from "react"
 import Link from "next/link"
 import CalendarPicker from "../ui/CalendarPicker"
-import { demoCourses, type CourseData, type EnrollmentOption } from "@/constants/courses"
+import { demoCourses, type EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
 import {
   Calendar as CalendarIcon,
@@ -41,11 +41,15 @@ import {
 } from "@/lib/checkin/photo-context-policy"
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
+  createKioskSessionCheckoutPayloadFields,
   getCheckInSignInModalVariant,
+  handleEmbeddedSignInSessionCreated,
+  handleExistingUserDetected,
   isCheckInContactGateStep,
+  resolveStationTimeoutAction,
   resolveEnrollInitialStep,
-  resolvePostPhotoStepIndex,
   resolveEnrollStepKeys,
+  notifyPaymentsStepReadyForOpenSession,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
 import {
@@ -67,61 +71,38 @@ import {
   normalizePhoneKey,
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
+import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
+import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
+import type { EnrollFlowState } from "@/components/front/courses/enroll/model/enroll-flow.types"
 import {
   PHONE_INPUT_ATTRIBUTES,
 } from "@/lib/checkin/sign-in-inputs"
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
+import {
+  requestCheckoutCashApi,
+  requestCheckoutFinalizeApi,
+  requestCheckoutIntentApi,
+  requestCheckoutSessionApi,
+  requestDropInCheckInApi,
+  requestNewStudentOutcomeApi,
+  requestPinAvailabilityApi,
+} from "@/components/front/courses/enroll/effects/checkout-api"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
-// - This is a client-only component. It does not call a backend; instead, it logs the payload
-//   and shows a local success state. Replace the `handleSubmit` implementation with a real API
+// - This is a client-only component. It does not call a backend; it shows a local success state.
+//   Replace the `handleSubmit` implementation with a real API
 //   call when you are ready.
 // - All inputs are controlled in the local state for simplicity.
+
+type EnrollFlowVariant = "default" | "checkin-new" | "checkin-existing"
+type EnrollCompletionMode = "default" | "personal" | "station"
 
 const CHECKIN_TIME_ZONE = "America/New_York"
 const CHECKIN_LATE_GRACE_MINUTES = 20
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_24_REGEX = /^\d{2}:\d{2}$/
-
-type EnrollFlowVariant = "default" | "checkin-new" | "checkin-existing"
-type EnrollCompletionMode = "default" | "personal" | "station"
-
-type EnrollCheckInContext = {
-  date?: string
-  time?: string
-  durationMinutes?: number
-}
-
-type EnrollPrefillSelection = {
-  service?: string
-  packageId?: string
-  addons?: string[]
-  participants?: number
-  paymentMethod?: PaymentMethod
-}
-
-type PreparedAccountState = {
-  clerkUserId: string | null
-  created: boolean
-  requiresSignIn: boolean
-  hasAvatar: boolean
-}
-
-type NewStudentVerifyResponse = {
-  outcome?: "eligible" | "requires_sms_verification" | "fallback_regular"
-  reason?: string
-  message?: string
-  eligibleForNewStudent?: boolean
-  requiresSmsVerification?: boolean
-  shouldFallbackToRegular?: boolean
-}
-
-type FlowPopupState = {
-  title: string
-  message: string
-}
 
 const normalizeIsoDate = (value: unknown) => {
   if (typeof value !== "string") return ""
@@ -166,9 +147,42 @@ export const formatCheckInSummaryDateTime = formatCheckInSummaryDateTimeModel
 export const computeCheckInAutofill = computeCheckInAutofillModel
 
 const sortTime24 = (values: string[]) =>
-  [...new Set(values.filter((value) => TIME_24_REGEX.test(value)))]
-    .sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0))
+  [...new Set(values.filter((value) => TIME_24_REGEX.test(value)))].sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0))
 
+type EnrollCheckInContext = {
+  date?: string
+  time?: string
+  durationMinutes?: number
+}
+
+type EnrollPrefillSelection = {
+  service?: string
+  packageId?: string
+  addons?: string[]
+  participants?: number
+  paymentMethod?: PaymentMethod
+}
+
+type PreparedAccountState = {
+  clerkUserId: string | null
+  created: boolean
+  requiresSignIn: boolean
+  hasAvatar: boolean
+}
+
+type NewStudentVerifyResponse = {
+  outcome?: "eligible" | "requires_sms_verification" | "fallback_regular"
+  reason?: string
+  message?: string
+  eligibleForNewStudent?: boolean
+  requiresSmsVerification?: boolean
+  shouldFallbackToRegular?: boolean
+}
+
+type FlowPopupState = {
+  title: string
+  message: string
+}
 const normalizeEnrollPhonePrefill = (value?: string) => {
   if (typeof value !== "string" || value.trim().length === 0) return "+1 "
   return formatUSPhone(value)
@@ -278,53 +292,60 @@ export default function EnrollModal({
   const forcedNewStudentServiceId = hasNewStudentService
     ? "new-student"
     : (availableServices[0]?.id ?? "")
-  // Paso 0: opciones/servicios
-  const [service, setService] = React.useState<string>(availableServices[0]?.id ?? "")
-  const [pkg, setPkg] = React.useState<string>("")
-  const [addons, setAddons] = React.useState<string[]>([])
-  const [participants, setParticipants] = React.useState<number>(1)
+  const initialContact = React.useMemo<EnrollmentContact>(
+    () => ({
+      firstName: "",
+      lastName: "",
+      email: "",
+      phone: "+1 ",
+      note: "",
+    }),
+    []
+  )
+  const [flowState, dispatchFlow] = React.useReducer(
+    enrollFlowReducer,
+    createInitialEnrollFlowState({
+      contact: initialContact,
+      maxStep: 0,
+      service: availableServices[0]?.id ?? "",
+    })
+  )
+  const service = flowState.service
+  const pkg = flowState.pkg
+  const addons = flowState.addons
+  const participants = flowState.participants
   // Paso 1: fecha/hora
   const [date, setDate] = React.useState<string>("") // YYYY-MM-DD
   const [time, setTime] = React.useState<string>("") // HH:MM
   // Paso 3: pagos
   const [couponInput, setCouponInput] = React.useState<string>("")
   const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
-  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>("")
+  const paymentMethod = flowState.paymentMethod
   const [studentPin, setStudentPin] = React.useState("")
   const [studentPinConfirm, setStudentPinConfirm] = React.useState("")
   const [pinAvailabilityError, setPinAvailabilityError] = React.useState<string | null>(null)
   const [checkingPinAvailability, setCheckingPinAvailability] = React.useState(false)
   const [activeNumericField, setActiveNumericField] = React.useState<"phone" | "pin" | "pin-confirm" | null>(null)
   // Paso 2: datos de contacto (modular, sin teléfono)
-  const [contact, setContact] = React.useState<EnrollmentContact>(
-    {
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "+1 ",
-      note: "",
-    }
-  )
+  const contact = flowState.contact
   // Flujo multi‑paso + éxito
-  const [step, setStep] = React.useState<number>(0)
-  const [success, setSuccess] = React.useState<boolean>(false)
-  const [successMessage, setSuccessMessage] = React.useState<string | null>(null)
-  const [processing, setProcessing] = React.useState<boolean>(false)
+  const step = flowState.step
+  const success = flowState.success
+  const successMessage = flowState.successMessage
+  const processing = flowState.processing
   const [timeLoading, setTimeLoading] = React.useState<boolean>(false)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
-  const [formError, setFormError] = React.useState<string | null>(null)
-  const [requiresSignIn, setRequiresSignIn] = React.useState<boolean>(false)
-  const [existingAccountDetected, setExistingAccountDetected] = React.useState<boolean>(false)
-  const [resumeAfterSignInStep, setResumeAfterSignInStep] = React.useState<number | null>(null)
+  const formError = flowState.formError
+  const requiresSignIn = flowState.requiresSignIn
+  const existingAccountDetected = flowState.existingAccountDetected
+  const resumeAfterSignInStep = flowState.resumeAfterSignInStep
   const [pendingAutoPay, setPendingAutoPay] = React.useState<boolean>(false)
-  const [resumeContactFlowAfterSignIn, setResumeContactFlowAfterSignIn] = React.useState<boolean>(false)
+  const resumeContactFlowAfterSignIn = flowState.resumeContactFlowAfterSignIn
   const [identityCheckBusy, setIdentityCheckBusy] = React.useState<boolean>(false)
   const [phoneTouched, setPhoneTouched] = React.useState<boolean>(false)
   const [stripeClientSecret, setStripeClientSecret] = React.useState<string>("")
   const [showStripeModal, setShowStripeModal] = React.useState<boolean>(false)
-  const [kioskQrCheckout, setKioskQrCheckout] = React.useState<KioskQrCheckoutState>(
-    () => createEmptyKioskQrCheckoutState()
-  )
+  const kioskQrCheckout = flowState.kioskQrCheckout
   const [preparedAccount, setPreparedAccount] = React.useState<PreparedAccountState | null>(null)
   const [photoSaved, setPhotoSaved] = React.useState<boolean>(false)
 
@@ -334,7 +355,7 @@ export default function EnrollModal({
 
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
-  const [signInPurpose, setSignInPurpose] = React.useState<"existing" | "sms_verification" | "account_preparation">("existing")
+  const signInPurpose = flowState.signInPurpose
   const [checkInScheduleNotice, setCheckInScheduleNotice] = React.useState<string | null>(null)
   const [checkInNow, setCheckInNow] = React.useState<Date>(() => new Date())
   const [kioskStepHydrating, setKioskStepHydrating] = React.useState(false)
@@ -370,7 +391,7 @@ export default function EnrollModal({
   )
   const stepKeys = React.useMemo(
     () => {
-      const keys = resolveEnrollStepKeys({
+      return resolveFlowStepKeys({
         isCheckInFlow,
         isCheckInNewFlow,
         isKioskTerminalFlow,
@@ -378,8 +399,6 @@ export default function EnrollModal({
         hasPackages: course.enrollment.packages.length > 0,
         hasConsecutiveOffer: Boolean(consecutiveOffer),
       })
-      console.log("[stepKeys-debug] recomputed", { keys, hasConsecutiveOffer: Boolean(consecutiveOffer), consecutiveOffer }) // TODO: REMOVE - diagnostic
-      return keys
     },
     [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, course.enrollment.packages.length, consecutiveOffer]
   )
@@ -495,6 +514,58 @@ export default function EnrollModal({
   const signInReturnTo = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
+  const setService = React.useCallback((value: React.SetStateAction<string>) => {
+    dispatchFlow({ type: "field/set-service", value })
+  }, [])
+  const setPkg = React.useCallback((value: React.SetStateAction<string>) => {
+    dispatchFlow({ type: "field/set-package", value })
+  }, [])
+  const setAddons: React.Dispatch<React.SetStateAction<string[]>> = React.useCallback((value) => {
+    dispatchFlow({ type: "field/set-addons", value })
+  }, [])
+  const setParticipants = React.useCallback((value: React.SetStateAction<number>) => {
+    dispatchFlow({ type: "field/set-participants", value })
+  }, [])
+  const setContact: React.Dispatch<React.SetStateAction<EnrollmentContact>> = React.useCallback((value) => {
+    dispatchFlow({ type: "field/set-contact", value })
+  }, [])
+  const setPaymentMethod = React.useCallback((value: React.SetStateAction<PaymentMethod>) => {
+    dispatchFlow({ type: "field/set-payment-method", value })
+  }, [])
+  const setStep = React.useCallback((value: React.SetStateAction<number>) => {
+    dispatchFlow({ type: "field/set-step", value, maxStep: Math.max(0, steps.length - 1) })
+  }, [steps.length])
+  const setSuccess = React.useCallback((value: React.SetStateAction<boolean>) => {
+    dispatchFlow({ type: "field/set-success", value })
+  }, [])
+  const setSuccessMessage = React.useCallback((value: React.SetStateAction<string | null>) => {
+    dispatchFlow({ type: "field/set-success-message", value })
+  }, [])
+  const setProcessing = React.useCallback((value: React.SetStateAction<boolean>) => {
+    dispatchFlow({ type: "field/set-processing", value })
+  }, [])
+  const setFormError = React.useCallback((value: React.SetStateAction<string | null>) => {
+    dispatchFlow({ type: "field/set-form-error", value })
+  }, [])
+  const setRequiresSignIn = React.useCallback((value: React.SetStateAction<boolean>) => {
+    dispatchFlow({ type: "field/set-sign-in-required", value })
+  }, [])
+  const setExistingAccountDetected = React.useCallback((value: React.SetStateAction<boolean>) => {
+    dispatchFlow({ type: "field/set-existing-account-detected", value })
+  }, [])
+  const setResumeAfterSignInStep = React.useCallback((value: React.SetStateAction<number | null>) => {
+    dispatchFlow({ type: "field/set-resume-after-sign-in-step", value })
+  }, [])
+  const setResumeContactFlowAfterSignIn = React.useCallback((value: React.SetStateAction<boolean>) => {
+    dispatchFlow({ type: "field/set-resume-contact-flow", value })
+  }, [])
+  const setKioskQrCheckout: React.Dispatch<React.SetStateAction<KioskQrCheckoutState>> = React.useCallback((value) => {
+    dispatchFlow({ type: "field/set-kiosk-qr-checkout", value })
+  }, [])
+  const setSignInPurpose = React.useCallback((value: React.SetStateAction<EnrollFlowState["signInPurpose"]>) => {
+    dispatchFlow({ type: "field/set-sign-in-purpose", value })
+  }, [])
+
   useEnrollDraft({
     open: useDraft ? open : false,
     success,
@@ -539,7 +610,7 @@ export default function EnrollModal({
           ? normalizeEnrollPhonePrefill(prefillContact.phone)
           : prev.phone,
     }))
-  }, [isCheckInNewFlow, open, prefillContact])
+  }, [isCheckInNewFlow, open, prefillContact, setContact])
 
   React.useEffect(() => {
     const id = window.setTimeout(() => setInitialLoading(false), 400)
@@ -588,7 +659,22 @@ export default function EnrollModal({
     kioskPaymentTransitionStartedAtRef.current = null
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false
-  }, [])
+  }, [
+    setAddons,
+    setContact,
+    setExistingAccountDetected,
+    setFormError,
+    setKioskQrCheckout,
+    setParticipants,
+    setProcessing,
+    setRequiresSignIn,
+    setResumeAfterSignInStep,
+    setResumeContactFlowAfterSignIn,
+    setSignInPurpose,
+    setStep,
+    setSuccess,
+    setSuccessMessage,
+  ])
 
   const handleClose = React.useCallback(() => {
     resetForm()
@@ -643,7 +729,7 @@ export default function EnrollModal({
       return
     }
 
-    const timeoutAction = onTimeoutAction ?? onCompletedAction
+    const timeoutAction = resolveStationTimeoutAction(onTimeoutAction, onCompletedAction)
     const controller = createKioskInactivityController({
       onTimeout: () => {
         void timeoutAction?.()
@@ -697,13 +783,16 @@ export default function EnrollModal({
     isCheckInNewFlow,
     hasNewStudentService,
     regularFallbackLocked,
+    setAddons,
+    setPkg,
+    setService,
   ])
 
   React.useEffect(() => {
     if (isNewStudent && participants !== 1) {
       setParticipants(1)
     }
-  }, [isNewStudent, participants])
+  }, [isNewStudent, participants, setParticipants])
 
   React.useEffect(() => {
     if (!isCheckInFlow) return
@@ -724,7 +813,7 @@ export default function EnrollModal({
     if (service !== "new-student") {
       setService("new-student")
     }
-  }, [hasNewStudentService, isCheckInNewFlow, open, regularFallbackLocked, service])
+  }, [hasNewStudentService, isCheckInNewFlow, open, regularFallbackLocked, service, setService])
 
   React.useEffect(() => {
     if (isCheckInNewFlow) return
@@ -739,7 +828,7 @@ export default function EnrollModal({
       email: prev.email || user.primaryEmailAddress?.emailAddress || "",
       phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
     }))
-  }, [isCheckInNewFlow, isLoaded, isSignedIn, user, open, isInline])
+  }, [isCheckInNewFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
 
   const initialServiceId = React.useMemo(() => {
     if (isCheckInNewFlow) return forcedNewStudentServiceId
@@ -843,6 +932,18 @@ export default function EnrollModal({
     checkInContextDate,
     checkInContextTime,
     effectiveInitialStep,
+    setAddons,
+    setContact,
+    setExistingAccountDetected,
+    setFormError,
+    setKioskQrCheckout,
+    setParticipants,
+    setPaymentMethod,
+    setPkg,
+    setRequiresSignIn,
+    setResumeAfterSignInStep,
+    setService,
+    setStep,
     sourceCourses,
   ])
 
@@ -1107,7 +1208,7 @@ export default function EnrollModal({
       phone: contact.phone,
       photoContext: photoFlowContext,
       flowContext: photoFlowContext,
-      kioskSessionToken: kioskSessionToken || undefined,
+      ...createKioskSessionCheckoutPayloadFields(kioskSessionToken),
       kioskCurrentCourseDate: checkInContextDate || undefined,
       kioskCurrentCourseTime: checkInContextTime || undefined,
       studentPin: service === "new-student" ? studentPin : undefined,
@@ -1150,18 +1251,7 @@ export default function EnrollModal({
   )
 
   const requestNewStudentOutcome = React.useCallback(async () => {
-    const res = await fetch("/api/checkin/qr/new-student/verify", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify({
-        phone: contact.phone,
-      }),
-    })
-    const contentType = res.headers.get("content-type") || ""
-    const data = contentType.includes("application/json") ? await res.json().catch(() => null) : null
+    const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
 
     if (!res.ok || !data || typeof data.outcome !== "string") {
       setFormError(
@@ -1173,18 +1263,12 @@ export default function EnrollModal({
     }
 
     return data as NewStudentVerifyResponse
-  }, [contact.phone])
+  }, [contact.phone, setFormError])
 
   const requestAccountPreparation = React.useCallback(async () => {
-    const res = await fetch("/api/checkout/intent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify(buildCheckoutPayload({ prepareOnly: true })),
+    const { res, data } = await requestCheckoutIntentApi({
+      payload: buildCheckoutPayload({ prepareOnly: true }),
     })
-    const data = await res.json().catch(() => null)
     const account = data?.account as PreparedAccountState | undefined
 
     if (!res.ok || !account || typeof account.hasAvatar !== "boolean") {
@@ -1198,7 +1282,7 @@ export default function EnrollModal({
 
     setPreparedAccount(account)
     return account
-  }, [buildCheckoutPayload])
+  }, [buildCheckoutPayload, setFormError])
 
   const showRegularFallbackPopup = React.useCallback(
     (message?: string) => {
@@ -1216,18 +1300,13 @@ export default function EnrollModal({
           `We switched this booking to the regular $${regularServicePrice.toFixed(0)} price. Continue without restarting the flow.`,
       })
     },
-    [contact.phone, regularServiceId, regularServicePrice, service]
+    [contact.phone, regularServiceId, regularServicePrice, service, setService]
   )
 
   const checkPinAvailability = React.useCallback(async (pin: string): Promise<boolean> => {
     try {
       setCheckingPinAvailability(true)
-      const res = await fetch("/api/checkin/pin/check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
-      })
-      const data = await res.json()
+      const { data } = await requestPinAvailabilityApi({ pin })
       if (!data.available) {
         setPinAvailabilityError(data.message || "This PIN is already in use. Please choose a different one.")
         setStudentPin("")
@@ -1261,7 +1340,7 @@ export default function EnrollModal({
       setStudentPinConfirm((prev) => (prev + digit).slice(0, 4))
       setPinAvailabilityError(null)
     }
-  }, [activeNumericField])
+  }, [activeNumericField, setContact])
 
   const handleNumpadBackspace = React.useCallback(() => {
     if (activeNumericField === "phone") {
@@ -1271,7 +1350,7 @@ export default function EnrollModal({
     } else if (activeNumericField === "pin-confirm") {
       setStudentPinConfirm((prev) => prev.slice(0, -1))
     }
-  }, [activeNumericField])
+  }, [activeNumericField, setContact])
 
   const handleNumpadClear = React.useCallback(() => {
     if (activeNumericField === "phone") {
@@ -1281,13 +1360,7 @@ export default function EnrollModal({
     } else if (activeNumericField === "pin-confirm") {
       setStudentPinConfirm("")
     }
-  }, [activeNumericField])
-
-  const activateNumericField = React.useCallback((field: "phone" | "pin" | "pin-confirm") => {
-    if (isKioskTerminalFlow) {
-      setActiveNumericField(field)
-    }
-  }, [isKioskTerminalFlow])
+  }, [activeNumericField, setContact])
 
   const advanceFromContactStep = React.useCallback(async () => {
     if (!isCheckInFlow) {
@@ -1308,9 +1381,13 @@ export default function EnrollModal({
       if (service === "new-student" && isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
         // Kiosk new-student flow: use the verification state machine
         const result = await verifyNewStudent(contact.phone, contact.email)
-        if (result === "existing_detected") {
+        if (handleExistingUserDetected({
+          isKioskTerminalFlow,
+          service,
+          verifyResult: result,
+          onExistingUserDetected,
+        })) {
           // Parent (CheckInQrClient) handles transition to PIN flow
-          onExistingUserDetected?.()
           return
         }
         if (result === "sms_pending") {
@@ -1405,6 +1482,13 @@ export default function EnrollModal({
     preparedAccount,
     requestAccountPreparation,
     requestNewStudentOutcome,
+    setExistingAccountDetected,
+    setFormError,
+    setRequiresSignIn,
+    setResumeAfterSignInStep,
+    setResumeContactFlowAfterSignIn,
+    setSignInPurpose,
+    setStep,
     service,
     showRegularFallbackPopup,
     step,
@@ -1414,50 +1498,32 @@ export default function EnrollModal({
   ])
 
   const requestStripeIntent = async (token?: string | null) => {
-    const res = await fetch("/api/checkout/intent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      credentials: "include",
-      body: JSON.stringify(buildCheckoutPayload()),
+    const { res, data } = await requestCheckoutIntentApi({
+      token,
+      payload: buildCheckoutPayload(),
     })
-    const data = await res.json().catch(() => ({}))
     return { res, data }
   }
 
   const requestKioskCheckoutSession = React.useCallback(async (token?: string | null) => {
-    const res = await fetch("/api/checkout/session", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      credentials: "include",
-      body: JSON.stringify(buildCheckoutPayload()),
+    const { res, data } = await requestCheckoutSessionApi({
+      token,
+      payload: buildCheckoutPayload(),
     })
-    const data = await res.json().catch(() => ({}))
     return { res, data }
   }, [buildCheckoutPayload])
 
   const requestCashCheckout = async (token?: string | null) => {
-    const res = await fetch("/api/checkout/cash", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      credentials: "include",
-      body: JSON.stringify(buildCheckoutPayload({ cashNote: contact.note || undefined })),
+    const { res, data } = await requestCheckoutCashApi({
+      token,
+      payload: buildCheckoutPayload({ cashNote: contact.note || undefined }),
     })
-    const data = await res.json().catch(() => ({}))
     return { res, data }
   }
 
   const resetKioskQrCheckout = React.useCallback(() => {
     setKioskQrCheckout(createEmptyKioskQrCheckoutState())
-  }, [])
+  }, [setKioskQrCheckout])
 
   const completeDropInCheckInAfterCardPayment = React.useCallback(
     async ({ paymentIntentId, purchaseId }: { paymentIntentId?: string | null; purchaseId?: string | null }) => {
@@ -1476,22 +1542,16 @@ export default function EnrollModal({
       }
 
       try {
-        const dropInRes = await fetch("/api/checkin/qr/dropin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
+        const { res: dropInRes, data: dropInData } = await requestDropInCheckInApi({
+          payload: {
             ...(resolvedPaymentIntentId ? { paymentIntentId: resolvedPaymentIntentId } : {}),
             ...(resolvedPurchaseId ? { purchaseId: resolvedPurchaseId } : {}),
             courseSlug: course.slug,
             date,
             time,
             durationMinutes: checkInContextDuration,
-          }),
+          },
         })
-        const dropInData = await dropInRes.json().catch(() => null)
         return dropInRes.ok
           ? "Purchase and check-in recorded successfully."
           : typeof dropInData?.error === "string"
@@ -1562,7 +1622,7 @@ export default function EnrollModal({
       error: null,
     })
     return true
-  }, [getToken, isSignedIn, requestKioskCheckoutSession])
+  }, [getToken, isSignedIn, requestKioskCheckoutSession, setFormError, setKioskQrCheckout])
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
@@ -1575,25 +1635,6 @@ export default function EnrollModal({
       return
     }
     setProcessing(true)
-    // DEMO: log payload; replace with POST /api/enroll when ready
-    const payload = {
-      course: course.slug,
-      service,
-      package: pkg,
-      addons,
-      date,
-      time,
-      name: `${contact.firstName} ${contact.lastName}`.trim(),
-      email: contact.email,
-      phone: contact.phone,
-      note: contact.note,
-      participants,
-      coupon: appliedCoupon?.code || null,
-      paymentMethod,
-      total,
-    }
-    console.log("[EnrollModal] demo submit", payload)
-
     if (paymentMethod === "stripe" && isKioskTerminalFlow) {
       try {
         await startKioskQrCheckout()
@@ -1751,22 +1792,16 @@ export default function EnrollModal({
       // Only auto-check-in if payment is confirmed (not pending cash)
       if (isCheckInFlow && !pkg && date && time && typeof result.data?.purchaseId === "string" && result.data?.paymentStatus !== "pending") {
         try {
-          const dropInRes = await fetch("/api/checkin/qr/dropin", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            credentials: "include",
-            body: JSON.stringify({
+          const { res: dropInRes, data: dropInData } = await requestDropInCheckInApi({
+            token,
+            payload: {
               purchaseId: result.data.purchaseId,
               courseSlug: course.slug,
               date,
               time,
               durationMinutes: checkInContextDuration,
-            }),
+            },
           })
-          const dropInData = await dropInRes.json().catch(() => null)
           completionMessage = dropInRes.ok
             ? "Cash payment recorded and check-in completed successfully."
             : typeof dropInData?.error === "string"
@@ -1800,13 +1835,11 @@ export default function EnrollModal({
   }
 
   const handleFormStepSubmit = async () => {
-    console.log("[step-debug] handleFormStepSubmit", { step, activeStepKey, stepKeys, stepsLength: steps.length, consecutiveOfferTruthy: Boolean(consecutiveOffer) }) // TODO: REMOVE - diagnostic
     if (step < steps.length - 1) {
       if (isCheckInContactGateStep({ isCheckInFlow, activeStepKey })) {
         await advanceFromContactStep()
         return
       }
-      console.log("[step-debug] advancing to next step", { from: step, to: step + 1, nextKey: stepKeys[step + 1] }) // TODO: REMOVE - diagnostic
       setStep(step + 1)
       return
     }
@@ -1841,7 +1874,7 @@ export default function EnrollModal({
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [pendingAutoPay, isSignedIn, processing, getToken])
+  }, [pendingAutoPay, isSignedIn, processing, getToken, setRequiresSignIn])
 
   React.useEffect(() => {
     if (!isSignedIn) return
@@ -1875,6 +1908,13 @@ export default function EnrollModal({
     requiresSignIn,
     resumeContactFlowAfterSignIn,
     resumeAfterSignInStep,
+    setExistingAccountDetected,
+    setFormError,
+    setRequiresSignIn,
+    setResumeAfterSignInStep,
+    setResumeContactFlowAfterSignIn,
+    setService,
+    setStep,
     service,
     steps.length,
   ])
@@ -1882,7 +1922,7 @@ export default function EnrollModal({
   React.useEffect(() => {
     if (!open) return
     setStep((prev) => Math.max(0, Math.min(prev, steps.length - 1)))
-  }, [open, steps.length])
+  }, [open, steps.length, setStep])
 
   // Kiosk new-student: after SMS verification succeeds, continue to account prep
   React.useEffect(() => {
@@ -1902,7 +1942,7 @@ export default function EnrollModal({
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification])
+  }, [verificationState, isKioskTerminalFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
 
   const activeStepKey = steps[step]?.key || ""
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
@@ -1957,17 +1997,16 @@ export default function EnrollModal({
       paymentsReadyFiredRef.current = false
       return
     }
-    if (paymentsReadyFiredRef.current) return
-    // Fire when we reach packages OR payments step (the target steps for existing customers)
-    if (activeStepKey === "info") {
-      onPaymentsStepReadyAction?.()
-      paymentsReadyFiredRef.current = true
-      return
-    }
-    if (activeStepKey !== "payments" && activeStepKey !== "packages") return
-    if (showKioskPaymentTransition) return
-    paymentsReadyFiredRef.current = true
-    onPaymentsStepReadyAction?.()
+    notifyPaymentsStepReadyForOpenSession({
+      open,
+      hasFired: paymentsReadyFiredRef.current,
+      activeStepKey,
+      showKioskPaymentTransition,
+      markFired: () => {
+        paymentsReadyFiredRef.current = true
+      },
+      onPaymentsStepReadyAction,
+    })
   }, [activeStepKey, onPaymentsStepReadyAction, open, showKioskPaymentTransition])
 
   React.useEffect(() => {
@@ -2135,7 +2174,19 @@ export default function EnrollModal({
         window.clearTimeout(timeoutId)
       }
     }
-  }, [completeDropInCheckInAfterCardPayment, isKioskTerminalFlow, kioskQrCheckout.sessionId, kioskQrCheckoutPending, open])
+  }, [
+    completeDropInCheckInAfterCardPayment,
+    isKioskTerminalFlow,
+    kioskQrCheckout.sessionId,
+    kioskQrCheckoutPending,
+    open,
+    setExistingAccountDetected,
+    setKioskQrCheckout,
+    setRequiresSignIn,
+    setResumeAfterSignInStep,
+    setSuccess,
+    setSuccessMessage,
+  ])
 
   const stepValid = (s: number) => {
     const stepKey = steps[s]?.key
@@ -2200,7 +2251,16 @@ export default function EnrollModal({
         `Phone verification was not completed. We switched this booking to the regular $${regularServicePrice.toFixed(0)} price.`
       )
     }
-  }, [regularServicePrice, showRegularFallbackPopup, signInPurpose])
+  }, [
+    regularServicePrice,
+    setExistingAccountDetected,
+    setRequiresSignIn,
+    setResumeAfterSignInStep,
+    setResumeContactFlowAfterSignIn,
+    setSignInPurpose,
+    showRegularFallbackPopup,
+    signInPurpose,
+  ])
 
   if (!open && !isInline) return null
 
@@ -3484,15 +3544,7 @@ export default function EnrollModal({
               if (paymentIntentId) {
                 try {
                   const token = isSignedIn ? await getToken({ skipCache: true }) : null
-                  const finalizeRes = await fetch("/api/checkout/finalize", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                    },
-                    credentials: "include",
-                    body: JSON.stringify({ paymentIntentId }),
-                  })
+                  const { res: finalizeRes } = await requestCheckoutFinalizeApi({ token, paymentIntentId })
                   purchaseFinalized = finalizeRes.ok
 
                   if (finalizeRes.ok) {
@@ -3584,7 +3636,7 @@ export default function EnrollModal({
                 verification.onSmsSent()
               }}
               onSessionCreated={(sessionId) => {
-                onKioskSessionCreated?.(sessionId)
+                handleEmbeddedSignInSessionCreated({ onKioskSessionCreated, sessionId })
               }}
               onSuccessAction={async () => {
                 markSmsVerified()
