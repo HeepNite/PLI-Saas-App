@@ -63,6 +63,7 @@ Phase 3 guardrails (must hold):
 ## Phase 4 — UI Decomposition After Logic Stabilization
 - [ ] 4.1 Start only after reducer/effects are stable and tested; do not use UI decomposition to change behavior.
 - [ ] 4.2 Extract step components under `steps/` without behavior/copy changes.
+  - Progress: info/contact step extracted to `components/front/courses/enroll/steps/EnrollInfoStep.tsx`; remaining steps still inline.
 - [ ] 4.3 Extract summary/overlay rendering into `ui/` modules.
 - [ ] 4.4 Remove only obsolete internal indirection; keep diagnostics removal for dedicated cleanup task.
 - [ ] 4.5 Run focused tests + existing e2e smoke (`e2e/course-flow.spec.ts`, `e2e/checkin.spec.ts`) before merge.
