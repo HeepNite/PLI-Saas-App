@@ -115,3 +115,42 @@ export const resolveStationTimeoutAction = (
   onTimeoutAction?: () => void,
   onCompletedAction?: () => void | Promise<void>
 ) => onTimeoutAction ?? onCompletedAction
+
+export const shouldHandleExistingUserDetected = (input: {
+  isKioskTerminalFlow: boolean
+  service: string
+  verifyResult: string
+}) => input.isKioskTerminalFlow && input.service === "new-student" && input.verifyResult === "existing_detected"
+
+export const handleExistingUserDetected = (input: {
+  isKioskTerminalFlow: boolean
+  service: string
+  verifyResult: string
+  onExistingUserDetected?: () => void
+}) => {
+  if (!shouldHandleExistingUserDetected(input)) return false
+
+  input.onExistingUserDetected?.()
+  return true
+}
+
+export const forwardKioskSessionCreated = (
+  onKioskSessionCreated: ((sessionId: string) => void) | undefined,
+  sessionId: string
+) => {
+  onKioskSessionCreated?.(sessionId)
+}
+
+export const handleEmbeddedSignInSessionCreated = (input: {
+  sessionId: string
+  onKioskSessionCreated?: (sessionId: string) => void
+}) => {
+  forwardKioskSessionCreated(input.onKioskSessionCreated, input.sessionId)
+}
+
+export const resolveKioskSessionToken = (kioskSessionToken?: string) => kioskSessionToken || undefined
+
+export const createKioskSessionCheckoutPayloadFields = (kioskSessionToken?: string) => {
+  const resolvedToken = resolveKioskSessionToken(kioskSessionToken)
+  return resolvedToken ? { kioskSessionToken: resolvedToken } : {}
+}
