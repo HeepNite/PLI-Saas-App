@@ -48,6 +48,10 @@
 
 ## Phase 3 — Bootstrap and Package Check-in Hook
 
+- [x] 3a.1 Extract package check-in lifecycle into `components/front/checkin/hooks/useCheckInPackageFlow.ts`.
+- [x] 3a.2 Preserve package success timeout, cleanup, and station-completion behavior for #35.
+- [x] 3a.3 Keep `processingPackageCheckIn` in `CheckInQrClient.tsx` temporarily because display derivation still reads it before bootstrap is untangled.
+
 - [ ] 3.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts`.
 - [ ] 3.2 Move `bootstrap`, `loadingBootstrap`, `packageCheckInResult`, `processingPackageCheckIn` ownership.
 - [ ] 3.3 Move `loadBootstrap`, `performPackageCheckIn`, `handlePackageCheckIn`, `handlePackageSuccessDone`.
