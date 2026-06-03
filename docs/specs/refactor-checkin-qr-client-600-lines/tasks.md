@@ -51,6 +51,8 @@
 - [x] 3a.1 Extract package check-in lifecycle into `components/front/checkin/hooks/useCheckInPackageFlow.ts`.
 - [x] 3a.2 Preserve package success timeout, cleanup, and station-completion behavior for #35.
 - [x] 3a.3 Keep `processingPackageCheckIn` in `CheckInQrClient.tsx` temporarily because display derivation still reads it before bootstrap is untangled.
+- [x] 3b.1 Extract bootstrap context payload derivation into `lib/checkin/checkin-bootstrap-context.ts`.
+- [x] 3b.2 Cover normal active context and late-payment override context with focused tests.
 
 - [ ] 3.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts`.
 - [ ] 3.2 Move `bootstrap`, `loadingBootstrap`, `packageCheckInResult`, `processingPackageCheckIn` ownership.

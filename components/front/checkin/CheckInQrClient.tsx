@@ -59,6 +59,7 @@ import {
 } from "@/lib/checkin/checkin-helpers"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
+import { resolveCheckInBootstrapContextPayload } from "@/lib/checkin/checkin-bootstrap-context"
 import { hasTerminalSensitiveCustomerState } from "@/lib/checkin/terminal-sensitive-state"
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
@@ -397,12 +398,12 @@ export default function CheckInQrClient({
     [activeDate, activeTime, durationMinutes, newBookingOverride?.date, newBookingOverride?.time]
   )
   const contextPayload = React.useMemo(
-    () => ({
-      courseSlug: latePaymentEntryOverride?.courseSlug ?? activeCourseSlug,
-      date: latePaymentEntryOverride?.date ?? activeDate,
-      time: latePaymentEntryOverride?.time ?? activeTime,
+    () => resolveCheckInBootstrapContextPayload({
+      activeCourseSlug,
+      activeDate,
+      activeTime,
       durationMinutes,
-      linkedFromCourseSlug: latePaymentEntryOverride?.courseSlug ?? activeCourseSlug,
+      latePaymentEntryOverride,
     }),
     [latePaymentEntryOverride, activeCourseSlug, activeDate, activeTime, durationMinutes]
   )
