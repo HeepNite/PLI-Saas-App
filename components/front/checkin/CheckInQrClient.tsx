@@ -53,6 +53,7 @@ import {
 import { useKioskQrCheckoutPoller } from "@/components/front/checkin/hooks/useKioskQrCheckoutPoller"
 import { useCheckInPackageFlow } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
 import { useCheckInBootstrap } from "@/components/front/checkin/hooks/useCheckInBootstrap"
+import { useConsecutiveOfferLookup } from "@/components/front/checkin/hooks/useConsecutiveOfferLookup"
 import {
   toEsDateTime,
   parseDuration,
@@ -64,7 +65,6 @@ import { resolveCheckInActiveContext, resolveCheckInBootstrapContextPayload } fr
 import { hasTerminalSensitiveCustomerState } from "@/lib/checkin/terminal-sensitive-state"
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
-  requestCheckInBootstrapApi,
   requestCheckoutSessionApi,
   requestDropInCheckInApi,
   requestPackageCheckInApi,
@@ -509,41 +509,22 @@ export default function CheckInQrClient({
   }, [])
 
   // ─── Consecutive offer handlers ─────────────────────────────
-  const checkConsecutiveOfferAfterCheckIn = React.useCallback(async (): Promise<boolean> => {
-    if (!isKioskTerminalFlow) return false
-    if (!activeCourseSlug) return false
-    if (!hasActiveClerkSession && !kioskPinSessionToken) return false
-
-    try {
-      const token = await getToken({ skipCache: true })
-      const { res, data } = await requestCheckInBootstrapApi({
-        token,
-        payload: {
-          courseSlug: latePaymentEntryOverride?.courseSlug ?? newBookingOverride?.courseSlug ?? activeCourseSlug,
-          date: latePaymentEntryOverride?.date ?? newBookingOverride?.date ?? activeDate,
-          time: latePaymentEntryOverride?.time ?? newBookingOverride?.time ?? activeTime,
-          durationMinutes,
-          linkedFromCourseSlug: latePaymentEntryOverride?.courseSlug ?? newBookingOverride?.courseSlug ?? activeCourseSlug,
-          flowContext: photoFlowContext,
-          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
-        },
-      })
-      const hasUsablePackage = Boolean(
-        data?.package &&
-          ((data.package.isUnlimited && data.package.remainingCredits == null) ||
-            (data.package.remainingCredits ?? 0) > 0)
-      )
-      if (res.ok && hasUsablePackage && data?.consecutiveOffer) {
-        setConsecutiveOffer(data.consecutiveOffer as ConsecutiveOffer)
-        setShowConsecutivePaymentSelection(false)
-        setShowConsecutiveOverlay(true)
-        return true
-      }
-    } catch {
-      // Silently ignore — not critical
-    }
-    return false
-  }, [isKioskTerminalFlow, activeCourseSlug, activeDate, activeTime, durationMinutes, getToken, hasActiveClerkSession, kioskPinSessionToken, photoFlowContext, latePaymentEntryOverride, newBookingOverride])
+  const { checkConsecutiveOfferAfterCheckIn } = useConsecutiveOfferLookup({
+    isKioskTerminalFlow,
+    activeCourseSlug,
+    activeDate,
+    activeTime,
+    durationMinutes,
+    latePaymentEntryOverride,
+    newBookingOverride,
+    getToken,
+    hasActiveClerkSession,
+    kioskPinSessionToken,
+    photoFlowContext,
+    setConsecutiveOffer,
+    setShowConsecutivePaymentSelection,
+    setShowConsecutiveOverlay,
+  })
   checkConsecutiveOfferAfterCheckInRef.current = checkConsecutiveOfferAfterCheckIn
 
   const handleConsecutiveAccept = React.useCallback(async () => {
