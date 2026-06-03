@@ -5,6 +5,7 @@ import {
   resolveDuplicatePurchaseDoneAction,
   resolvePackageConsecutiveDeclineAction,
   shouldAutoOpenExistingPurchase,
+  shouldAutoPromoteExistingMode,
   shouldSurfaceClosedWindowPackageError,
   shouldAutoTriggerPackageCheckIn,
   shouldShowConsecutiveOfferGate,
@@ -143,6 +144,39 @@ describe("existing customer kiosk helpers", () => {
         openNewBooking: false,
         processingPackageCheckIn: false,
         hasPackage: false,
+      })
+    ).toBe(true)
+  })
+
+  it("does not auto-promote kiosk terminals to existing mode from the staff Clerk session", () => {
+    expect(
+      shouldAutoPromoteExistingMode({
+        entryMode: null,
+        mode: "idle",
+        hasActiveClerkSession: true,
+        isKioskTerminalFlow: true,
+      })
+    ).toBe(false)
+  })
+
+  it("still auto-promotes personal QR users with an active Clerk session", () => {
+    expect(
+      shouldAutoPromoteExistingMode({
+        entryMode: null,
+        mode: "idle",
+        hasActiveClerkSession: true,
+        isKioskTerminalFlow: false,
+      })
+    ).toBe(true)
+  })
+
+  it("honors explicit existing entry mode even on kiosk terminals", () => {
+    expect(
+      shouldAutoPromoteExistingMode({
+        entryMode: "existing",
+        mode: "idle",
+        hasActiveClerkSession: false,
+        isKioskTerminalFlow: true,
       })
     ).toBe(true)
   })

@@ -19,6 +19,7 @@ import {
   resolvePackageConsecutiveAcceptAction,
   resolvePackageSuccessDoneAction,
   resolveConsecutivePaymentSuccessAction,
+  shouldAutoPromoteExistingMode,
 } from "@/lib/checkin/existing-customer-flow"
 import {
   pickEnrollPrefill,
@@ -1455,14 +1456,17 @@ export default function CheckInQrClient({
   }, [hasActiveClerkSession, isLoaded, kioskPinSessionToken, loadBootstrap, mode])
 
   React.useEffect(() => {
-    if (entryMode === "existing" && mode !== "existing") {
+    if (
+      shouldAutoPromoteExistingMode({
+        entryMode,
+        mode,
+        hasActiveClerkSession,
+        isKioskTerminalFlow,
+      })
+    ) {
       setMode("existing")
-      return
     }
-    if (hasActiveClerkSession && mode === "idle") {
-      setMode("existing")
-    }
-  }, [entryMode, hasActiveClerkSession, mode])
+  }, [entryMode, hasActiveClerkSession, isKioskTerminalFlow, mode])
 
   React.useEffect(() => {
     if (!hasActiveClerkSession) return
