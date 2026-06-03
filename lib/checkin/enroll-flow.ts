@@ -82,3 +82,36 @@ export const resolvePostPhotoStepIndex = (input: {
   const maxStep = Math.max(0, input.stepsLength - 1)
   return Math.max(0, Math.min(maxStep, input.currentStep + 1))
 }
+
+export const shouldNotifyPaymentsStepReady = (input: {
+  open: boolean
+  hasFired: boolean
+  activeStepKey: string
+  showKioskPaymentTransition: boolean
+}) => {
+  if (!input.open || input.hasFired) return false
+  if (input.activeStepKey === "info") return true
+  if (input.activeStepKey !== "payments" && input.activeStepKey !== "packages") return false
+  return !input.showKioskPaymentTransition
+}
+
+export const notifyPaymentsStepReadyForOpenSession = (input: {
+  open: boolean
+  hasFired: boolean
+  activeStepKey: string
+  showKioskPaymentTransition: boolean
+  markFired: () => void
+  onPaymentsStepReadyAction?: () => void
+}) => {
+  if (!input.open) return false
+  if (!shouldNotifyPaymentsStepReady(input)) return false
+
+  input.markFired()
+  input.onPaymentsStepReadyAction?.()
+  return true
+}
+
+export const resolveStationTimeoutAction = (
+  onTimeoutAction?: () => void,
+  onCompletedAction?: () => void | Promise<void>
+) => onTimeoutAction ?? onCompletedAction
