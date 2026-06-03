@@ -9,7 +9,7 @@
  * Usage: node scripts/demo-setup.mjs
  */
 
-import { execSync, spawn } from "node:child_process"
+import { execSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 
