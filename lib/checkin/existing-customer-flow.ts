@@ -105,6 +105,17 @@ export const shouldAutoOpenExistingPurchase = (input: {
   return !input.hasPackage
 }
 
+export const shouldAutoPromoteExistingMode = (input: {
+  entryMode?: "existing" | string | null
+  mode: "idle" | "existing" | "new"
+  hasActiveClerkSession: boolean
+  isKioskTerminalFlow: boolean
+}) => {
+  if (input.entryMode === "existing" && input.mode !== "existing") return true
+  if (input.isKioskTerminalFlow) return false
+  return input.hasActiveClerkSession && input.mode === "idle"
+}
+
 export const shouldShowPackageOffer = (input: {
   isKioskTerminalFlow: boolean
   hasPackage: boolean
