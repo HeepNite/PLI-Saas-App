@@ -98,8 +98,6 @@ describe("createKioskQrPoller", () => {
       state: {
         phase: "expired",
         awaitingWebhook: false,
-        purchaseId: null,
-        paymentStatus: null,
         error: "Session expired.",
       },
     })
@@ -124,8 +122,6 @@ describe("createKioskQrPoller", () => {
       state: {
         phase: "error",
         awaitingWebhook: false,
-        purchaseId: null,
-        paymentStatus: null,
         error: "Gateway unavailable.",
       },
     })

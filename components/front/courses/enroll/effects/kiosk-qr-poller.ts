@@ -1,18 +1,17 @@
-import { KIOSK_QR_POLL_INTERVAL_MS, resolveKioskQrPhaseFromStatus } from "@/lib/checkin/kiosk-qr-payment"
+import {
+  KIOSK_QR_POLL_INTERVAL_MS,
+  resolveKioskQrPhaseFromStatus,
+  type KioskQrCheckoutState,
+} from "@/lib/checkin/kiosk-qr-payment"
 
 import { requestCheckoutSessionStatusApi } from "./checkout-api"
 
-type KioskQrPollerState = {
-  phase: ReturnType<typeof resolveKioskQrPhaseFromStatus>
-  awaitingWebhook: boolean
-  purchaseId: string | null
-  paymentStatus: string | null
-  error: string | null
-}
+type KioskQrPollerStatePatch = Pick<KioskQrCheckoutState, "phase" | "awaitingWebhook" | "error"> &
+  Partial<Pick<KioskQrCheckoutState, "purchaseId" | "paymentStatus">>
 
 type KioskQrPollerOutcome =
   | { type: "complete"; purchaseId: string | null; paymentStatus: string | null }
-  | { type: "state"; state: KioskQrPollerState }
+  | { type: "state"; state: KioskQrPollerStatePatch }
   | { type: "error"; error: unknown; message: string }
 
 type KioskQrPollerOptions = {
@@ -95,8 +94,6 @@ export const createKioskQrPoller = ({
           state: {
             phase: "expired",
             awaitingWebhook: false,
-            purchaseId: null,
-            paymentStatus: null,
             error: resolveExpiredMessage(statusData),
           },
         })
@@ -109,8 +106,6 @@ export const createKioskQrPoller = ({
           state: {
             phase: "error",
             awaitingWebhook: false,
-            purchaseId: null,
-            paymentStatus: null,
             error: resolveRefreshErrorMessage(statusData),
           },
         })
