@@ -52,6 +52,7 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 import { useKioskQrCheckoutPoller } from "@/components/front/checkin/hooks/useKioskQrCheckoutPoller"
 import { useCheckInPackageFlow } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
+import { useCheckInBootstrap } from "@/components/front/checkin/hooks/useCheckInBootstrap"
 import {
   toEsDateTime,
   parseDuration,
@@ -59,7 +60,7 @@ import {
 } from "@/lib/checkin/checkin-helpers"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
-import { resolveCheckInBootstrapContextPayload } from "@/lib/checkin/checkin-bootstrap-context"
+import { resolveCheckInActiveContext, resolveCheckInBootstrapContextPayload } from "@/lib/checkin/checkin-bootstrap-context"
 import { hasTerminalSensitiveCustomerState } from "@/lib/checkin/terminal-sensitive-state"
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
@@ -114,8 +115,6 @@ export default function CheckInQrClient({
   } | null>(null)
   const [showPhoneSignIn, setShowPhoneSignIn] = React.useState(false)
   const [pendingLoginPhone, setPendingLoginPhone] = React.useState("")
-  const [loadingBootstrap, setLoadingBootstrap] = React.useState(false)
-  const [bootstrap, setBootstrap] = React.useState<BootstrapResponse | null>(null)
   const [existingRegularBookingOverride, setExistingRegularBookingOverride] = React.useState<{
     courseSlug: string
     date: string
@@ -137,6 +136,11 @@ export default function CheckInQrClient({
   const [showDuplicatePurchasePopup, setShowDuplicatePurchasePopup] = React.useState(false)
   const [packageOfferContext, setPackageOfferContext] = React.useState<PackageOfferContext>(null)
   const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
+  const setBootstrapRef = React.useRef<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(() => {})
+  const setBootstrapFromRef = React.useCallback<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(
+    (value) => setBootstrapRef.current(value),
+    []
+  )
   const loadBootstrapRef = React.useRef<() => Promise<void>>(async () => {})
   const handleStationCompletionRef = React.useRef<() => void | Promise<void>>(() => {})
   const checkConsecutiveOfferAfterCheckInRef = React.useRef<() => Promise<boolean>>(async () => false)
@@ -155,6 +159,28 @@ export default function CheckInQrClient({
   // ─── Consecutive card QR checkout state ─────────────────────
   const [consecutiveQrCheckout, setConsecutiveQrCheckout] = React.useState<KioskQrCheckoutState>(
     createEmptyKioskQrCheckoutState()
+  )
+
+  const preDisplayActiveContext = React.useMemo(
+    () => resolveCheckInActiveContext({
+      sourceCourses,
+      shellVariant,
+      searchParams,
+      forcedCourseSlug,
+      selectedCourseSlug,
+      nowTick,
+    }),
+    [forcedCourseSlug, nowTick, searchParams, selectedCourseSlug, shellVariant, sourceCourses]
+  )
+  const contextPayload = React.useMemo(
+    () => resolveCheckInBootstrapContextPayload({
+      activeCourseSlug: preDisplayActiveContext.activeCourseSlug,
+      activeDate: preDisplayActiveContext.activeDate,
+      activeTime: preDisplayActiveContext.activeTime,
+      durationMinutes,
+      latePaymentEntryOverride,
+    }),
+    [durationMinutes, latePaymentEntryOverride, preDisplayActiveContext.activeCourseSlug, preDisplayActiveContext.activeDate, preDisplayActiveContext.activeTime]
   )
 
   // ─── Derived error ──────────────────────────────────────────
@@ -219,7 +245,7 @@ export default function CheckInQrClient({
     setKioskPinSessionToken,
   } = useKioskPinFlow<BootstrapResponse>({
     isKioskTerminalFlow,
-    setBootstrap,
+    setBootstrap: setBootstrapFromRef,
     setError,
     setSuccess,
   })
@@ -235,6 +261,27 @@ export default function CheckInQrClient({
     isSignedIn,
     user,
   })
+
+  const {
+    bootstrap,
+    loadingBootstrap,
+    setBootstrap,
+    loadBootstrap,
+  } = useCheckInBootstrap({
+    contextIsValid: preDisplayActiveContext.contextIsValid,
+    contextPayload,
+    getToken,
+    hasActiveClerkSession,
+    kioskPinRotationRequired,
+    kioskPinSessionToken,
+    photoFlowContext,
+    setError,
+    setConsecutiveOffer,
+    setShowConsecutiveOverlay,
+    setShowConsecutivePaymentSelection,
+  })
+  setBootstrapRef.current = setBootstrap
+  loadBootstrapRef.current = loadBootstrap
 
   // ─── Derived display data (extracted hook) ──────────────────
   const display = useCheckInDisplayData({
@@ -397,16 +444,6 @@ export default function CheckInQrClient({
     }),
     [activeDate, activeTime, durationMinutes, newBookingOverride?.date, newBookingOverride?.time]
   )
-  const contextPayload = React.useMemo(
-    () => resolveCheckInBootstrapContextPayload({
-      activeCourseSlug,
-      activeDate,
-      activeTime,
-      durationMinutes,
-      latePaymentEntryOverride,
-    }),
-    [latePaymentEntryOverride, activeCourseSlug, activeDate, activeTime, durationMinutes]
-  )
   const existingRegularBookingCourse = React.useMemo(() => {
     const baseCourse =
       sourceCourses.find((course) => course.slug === (existingRegularBookingOverride?.courseSlug || "")) ||
@@ -465,53 +502,6 @@ export default function CheckInQrClient({
     setAwaitingConsecutivePaymentSelection,
   })
   handleStationCompletionRef.current = handleStationCompletion
-
-  // ─── API callbacks ──────────────────────────────────────────
-  const loadBootstrap = React.useCallback(async () => {
-    if (!contextIsValid) return
-    if (!hasActiveClerkSession && !kioskPinSessionToken) return
-    if (!hasActiveClerkSession && kioskPinRotationRequired) return
-    setLoadingBootstrap(true)
-    setError(null)
-    try {
-      const token = await getToken({ skipCache: true })
-      const { res, data } = await requestCheckInBootstrapApi({
-        token,
-        payload: {
-          ...contextPayload,
-          flowContext: photoFlowContext,
-          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
-        },
-      })
-      if (!res.ok) {
-        setBootstrap(null)
-        setError(typeof data?.error === "string" ? data.error : null)
-        return
-      }
-      setBootstrap(data as BootstrapResponse)
-      // Only package holders with a usable current-class package may see the
-      // consecutive promotion in the existing-customer flow. A stale early
-      // terminal offer must not leak into package-expired/no-credit users.
-      const hasUsablePackage = Boolean(
-        data?.package &&
-          ((data.package.isUnlimited && data.package.remainingCredits == null) ||
-            (data.package.remainingCredits ?? 0) > 0)
-      )
-      if (hasUsablePackage && data?.consecutiveOffer) {
-        setConsecutiveOffer(data.consecutiveOffer as ConsecutiveOffer)
-      } else if (!hasUsablePackage) {
-        setConsecutiveOffer(null)
-        setShowConsecutiveOverlay(false)
-        setShowConsecutivePaymentSelection(false)
-      }
-    } catch {
-      setBootstrap(null)
-      setError(null)
-    } finally {
-      setLoadingBootstrap(false)
-    }
-  }, [contextIsValid, contextPayload, getToken, hasActiveClerkSession, kioskPinRotationRequired, kioskPinSessionToken, photoFlowContext])
-  loadBootstrapRef.current = loadBootstrap
 
   const openExistingPurchaseFlow = React.useCallback((context: { courseSlug: string; date: string; time: string }) => {
     setError(null)
@@ -1027,7 +1017,7 @@ export default function CheckInQrClient({
       return
     }
     void loadBootstrap()
-  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse])
+  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse, setBootstrap])
 
   const handleNewClick = React.useCallback(() => {
     void reloadCatalogCourses()
@@ -1068,7 +1058,7 @@ export default function CheckInQrClient({
     setSuccess(null)
     setBootstrap(null)
     setMode("idle")
-  }, [latePaymentRecommendation])
+  }, [latePaymentRecommendation, setBootstrap])
 
   const handleLatePaymentPhone = React.useCallback(() => {
     if (!display.latePaymentQrLink || typeof window === "undefined") return
@@ -1088,7 +1078,7 @@ export default function CheckInQrClient({
       time: latePaymentRecommendation.time,
     })
     setMode("existing")
-  }, [latePaymentRecommendation, reloadCatalogCourses, resetKioskPinFlow])
+  }, [latePaymentRecommendation, reloadCatalogCourses, resetKioskPinFlow, setBootstrap])
 
   const handleLatePaymentNew = React.useCallback(() => {
     if (!latePaymentRecommendation) return
@@ -1111,7 +1101,7 @@ export default function CheckInQrClient({
     setError(null)
     setSuccess(null)
     setBootstrap(null)
-  }, [clearSuppressedClerkSessionId])
+  }, [clearSuppressedClerkSessionId, setBootstrap])
 
   const handlePhoneSignInSession = React.useCallback(async (sessionId: string) => {
     registerKioskClerkSession(sessionId)
@@ -1178,7 +1168,7 @@ export default function CheckInQrClient({
     setBootstrap(null)
     setLatePaymentEntryOverride(null)
     setMode("idle")
-  }, [])
+  }, [setBootstrap])
 
   React.useEffect(() => {
     if (!bootstrap && packageOfferContext) {

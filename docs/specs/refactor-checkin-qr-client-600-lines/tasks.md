@@ -53,10 +53,13 @@
 - [x] 3a.3 Keep `processingPackageCheckIn` in `CheckInQrClient.tsx` temporarily because display derivation still reads it before bootstrap is untangled.
 - [x] 3b.1 Extract bootstrap context payload derivation into `lib/checkin/checkin-bootstrap-context.ts`.
 - [x] 3b.2 Cover normal active context and late-payment override context with focused tests.
+- [x] 3c.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts` for bootstrap/loading ownership.
+- [x] 3c.2 Move `loadBootstrap` into `useCheckInBootstrap` while preserving kiosk session, PIN rotation, and consecutive-offer side effects.
+- [x] 3c.3 Keep package check-in ownership in `useCheckInPackageFlow`; full Phase 3 cleanup remains open for temporary seam removal.
 
-- [ ] 3.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts`.
+- [x] 3.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts`.
 - [ ] 3.2 Move `bootstrap`, `loadingBootstrap`, `packageCheckInResult`, `processingPackageCheckIn` ownership.
-- [ ] 3.3 Move `loadBootstrap`, `performPackageCheckIn`, `handlePackageCheckIn`, `handlePackageSuccessDone`.
+- [ ] 3.3 Move remaining package-flow ownership seams and remove temporary refs.
 - [ ] 3.4 Keep package success timeout and cleanup inside this hook.
 - [ ] 3.5 Add hook tests for package/no-package, usable/unusable package, success timer, and #35 regression path.
 - [ ] 3.6 Validate API and existing customer flow tests.
