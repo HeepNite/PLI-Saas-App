@@ -59,8 +59,6 @@ import {
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
   isKioskQrPendingPhase,
-  KIOSK_QR_POLL_INTERVAL_MS,
-  resolveKioskQrPhaseFromStatus,
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
   shouldPauseKioskInactivityForQrPhase,
@@ -89,6 +87,7 @@ import {
   requestNewStudentOutcomeApi,
   requestPinAvailabilityApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
+import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; it shows a local success state.
@@ -2080,30 +2079,17 @@ export default function EnrollModal({
       return
     }
 
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const poll = async () => {
-      try {
-        const res = await fetch(
-          `/api/checkout/session/status?sessionId=${encodeURIComponent(kioskQrCheckout.sessionId || "")}`,
-          {
-            credentials: "include",
-          }
-        )
-        const data = await res.json().catch(() => null)
-        if (cancelled) return
-
-        const nextPhase = resolveKioskQrPhaseFromStatus(typeof data?.status === "string" ? data.status : null)
-
-        if (nextPhase === "complete") {
+    return createKioskQrPoller({
+      sessionId: kioskQrCheckout.sessionId,
+      onOutcome: async (outcome) => {
+        if (outcome.type === "complete") {
           const completionMessage = await completeDropInCheckInAfterCardPayment({
-            purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : null,
+            purchaseId: outcome.purchaseId,
           })
           setSuccessMessage(
             completionMessage ||
-              (typeof data?.paymentStatus === "string" && data.paymentStatus.trim().length > 0
-                ? `Payment recorded successfully (${data.paymentStatus}).`
+              (outcome.paymentStatus
+                ? `Payment recorded successfully (${outcome.paymentStatus}).`
                 : "Payment recorded successfully.")
           )
           setSuccess(true)
@@ -2115,65 +2101,23 @@ export default function EnrollModal({
           return
         }
 
-        if (nextPhase === "expired") {
-          setKioskQrCheckout((prev) => ({
-            ...prev,
-            phase: "expired",
-            awaitingWebhook: false,
-            error:
-              typeof data?.error === "string" && data.error.trim().length > 0
-                ? data.error
-                : "The hosted checkout session expired before payment completed.",
-          }))
-          return
-        }
-
-        if (!res.ok) {
+        if (outcome.type === "error") {
+          console.warn("Unable to poll hosted checkout session status", outcome.error)
           setKioskQrCheckout((prev) => ({
             ...prev,
             phase: "error",
             awaitingWebhook: false,
-            error:
-              typeof data?.error === "string" && data.error.trim().length > 0
-                ? data.error
-                : "Unable to refresh checkout status.",
+            error: outcome.message,
           }))
           return
         }
 
         setKioskQrCheckout((prev) => ({
           ...prev,
-          phase: nextPhase,
-          awaitingWebhook: Boolean(data?.awaitingWebhook),
-          purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : null,
-          paymentStatus: typeof data?.paymentStatus === "string" ? data.paymentStatus : null,
-          error: null,
+          ...outcome.state,
         }))
-      } catch (error) {
-        if (cancelled) return
-        console.warn("Unable to poll hosted checkout session status", error)
-        setKioskQrCheckout((prev) => ({
-          ...prev,
-          phase: "error",
-          awaitingWebhook: false,
-          error: "Unable to refresh checkout status.",
-        }))
-        return
-      }
-
-      if (!cancelled) {
-        timeoutId = window.setTimeout(poll, KIOSK_QR_POLL_INTERVAL_MS)
-      }
-    }
-
-    void poll()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId)
-      }
-    }
+      },
+    })
   }, [
     completeDropInCheckInAfterCardPayment,
     isKioskTerminalFlow,
