@@ -10,7 +10,8 @@ test("checkin page renders qr block and entry options", async ({ page }) => {
   await expect(page.getByText(/QR Code/i)).toBeVisible()
   await expect(page.getByRole("button", { name: /I am already a customer/i }).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /I am new/i }).first()).toBeVisible()
-  await expect(page.getByText("or complete the process right here")).toBeVisible()
+  await expect(page.getByText("Sign in and repurchase the current course.")).toBeVisible()
+  await expect(page.getByText("Open regular purchase with account creation included.")).toBeVisible()
   await expect(page.getByRole("button", { name: /Open login/i })).toHaveCount(0)
 })
 
@@ -25,28 +26,27 @@ test("existing customer entry activates existing flow", async ({ page }) => {
 
   await expect
     .poll(async () => {
-      const breadcrumbCount = await page.getByRole("navigation", { name: "Breadcrumb" }).getByText("I am already a customer").count()
-      const loginPopupCount = await page.getByText(/Sign in with your account/i).count()
-      const signedFlowCount = await page.getByText(/Active session for fast flow/i).count()
-      return breadcrumbCount + loginPopupCount + signedFlowCount
+      const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" })
+      const existingCount = await breadcrumb.getByText("Existing customer").count()
+      const signInCount = await breadcrumb.getByText("Sign in").count()
+      return existingCount + signInCount
     }, { timeout: 15_000 })
-    .toBeGreaterThan(0)
+    .toBe(2)
 })
 
-test("new customer opens booking modal from checkin", async ({ page }) => {
+test("new customer entry activates new flow breadcrumb", async ({ page }) => {
   await page.goto(CHECKIN_URL, { waitUntil: "domcontentloaded" })
   await page.waitForTimeout(250)
   const newButton = page.getByRole("button", { name: /I am new/i }).first()
   await newButton.scrollIntoViewIfNeeded()
   await newButton.click({ force: true })
 
-  await expect(page.locator("#booking-service").first()).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole("button", { name: /Continue/i }).first()).toBeVisible({
-    timeout: 15_000,
-  })
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" })
+  await expect(breadcrumb.getByText("I am new")).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator("#booking-service")).toHaveCount(0)
 })
 
-test("kiosk flow returns to ready state after inactivity timeout", async ({ page }) => {
+test("kiosk flow keeps entry cards visible after new customer selection", async ({ page }) => {
   await page.addInitScript({
     content: `
       (() => {
@@ -66,13 +66,8 @@ test("kiosk flow returns to ready state after inactivity timeout", async ({ page
   await newButton.scrollIntoViewIfNeeded()
   await newButton.click({ force: true })
 
-  const bookingService = page.locator("#booking-service").first()
-  await expect(bookingService).toBeVisible({ timeout: 15_000 })
-
-  await expect
-    .poll(async () => await bookingService.count(), { timeout: 5_000 })
-    .toBe(0)
-
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("I am new")).toBeVisible()
+  await expect(page.locator("#booking-service")).toHaveCount(0)
   await expect(page.getByRole("heading", { name: "Student check-in", exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: /I am new/i }).first()).toBeVisible()
 })
