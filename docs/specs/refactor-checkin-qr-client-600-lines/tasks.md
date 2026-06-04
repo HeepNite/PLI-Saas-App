@@ -76,6 +76,9 @@
 - [x] 4b.1 Extract base consecutive offer state and early terminal offer fetch into `useConsecutiveOfferState`.
 - [x] 4b.2 Preserve refresh behavior for station completion and consecutive payment exits.
 - [x] 4b.3 Add focused state/fetch tests.
+- [x] 4c.1 Extract consecutive accept/decline actions into `useConsecutiveOfferActions`.
+- [x] 4c.2 Preserve package-holder paid add-on routing through payment selection.
+- [x] 4c.3 Keep cash/card handlers in `CheckInQrClient.tsx` for a later slice.
 - [ ] 4.2 Create `components/front/checkin/hooks/useConsecutiveOfferFlow.ts`.
 - [ ] 4.3 Move consecutive state atoms and handlers.
 - [ ] 4.4 Move early offer fetch and post-check-in offer lookup.
