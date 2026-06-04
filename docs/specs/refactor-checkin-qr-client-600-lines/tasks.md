@@ -73,6 +73,9 @@
 - [x] 4a.1 Extract post-check-in consecutive offer lookup into `useConsecutiveOfferLookup`.
 - [x] 4a.2 Preserve kiosk/auth gating, override payloads, usable package checks, and silent false fallbacks.
 - [x] 4a.3 Add focused lookup tests.
+- [x] 4b.1 Extract base consecutive offer state and early terminal offer fetch into `useConsecutiveOfferState`.
+- [x] 4b.2 Preserve refresh behavior for station completion and consecutive payment exits.
+- [x] 4b.3 Add focused state/fetch tests.
 - [ ] 4.2 Create `components/front/checkin/hooks/useConsecutiveOfferFlow.ts`.
 - [ ] 4.3 Move consecutive state atoms and handlers.
 - [ ] 4.4 Move early offer fetch and post-check-in offer lookup.

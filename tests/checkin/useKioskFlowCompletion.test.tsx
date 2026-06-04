@@ -41,7 +41,7 @@ function createMockParams() {
     setPackageOfferSelectedId: vi.fn(),
     setConsecutiveOffer: vi.fn(),
     setConsecutiveOfferSettled: vi.fn(),
-    setConsecutiveFetchKey: vi.fn(),
+    refreshConsecutiveOffer: vi.fn(),
     setPackageCheckInResult: vi.fn(),
     setShowConsecutiveOverlay: vi.fn(),
     setShowConsecutivePaymentSelection: vi.fn(),
@@ -141,7 +141,7 @@ describe("useKioskFlowCompletion — reset/cleanup", () => {
     expect(params.resetKioskCustomerSession).toHaveBeenCalled()
     expect(params.setConsecutiveOffer).toHaveBeenCalledWith(null)
     expect(params.setConsecutiveOfferSettled).toHaveBeenCalledWith(false)
-    expect(params.setConsecutiveFetchKey).toHaveBeenCalledWith(expect.any(Function))
+    expect(params.refreshConsecutiveOffer).toHaveBeenCalled()
     expect(params.setPackageCheckInResult).toHaveBeenCalledWith(null)
     expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
     expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)

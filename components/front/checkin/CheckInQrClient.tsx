@@ -54,6 +54,7 @@ import { useKioskQrCheckoutPoller } from "@/components/front/checkin/hooks/useKi
 import { useCheckInPackageFlow } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
 import { useCheckInBootstrap } from "@/components/front/checkin/hooks/useCheckInBootstrap"
 import { useConsecutiveOfferLookup } from "@/components/front/checkin/hooks/useConsecutiveOfferLookup"
+import { useConsecutiveOfferState } from "@/components/front/checkin/hooks/useConsecutiveOfferState"
 import {
   toEsDateTime,
   parseDuration,
@@ -68,9 +69,8 @@ import {
   requestCheckoutSessionApi,
   requestDropInCheckInApi,
   requestPackageCheckInApi,
-  requestTerminalConsecutiveOfferApi,
 } from "@/lib/checkin/checkin-qr-api"
-import type { EntryMode, BootstrapResponse, CheckInQrClientProps, PackageOfferContext, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
+import type { EntryMode, BootstrapResponse, CheckInQrClientProps, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 
 export default function CheckInQrClient({
   forcedDeviceMode,
@@ -121,7 +121,6 @@ export default function CheckInQrClient({
     time: string
   } | null>(null)
   const [existingRegularBookingKey, setExistingRegularBookingKey] = React.useState(0)
-  const [showConsecutivePaymentSelection, setShowConsecutivePaymentSelection] = React.useState(false)
   // When the user accepts a consecutive offer pre-check-in with a positive
   // price, we first show the package success overlay (credit consumed,
   // remaining credits) and wait for the operator/student to press "Done"
@@ -143,17 +142,6 @@ export default function CheckInQrClient({
   )
   const handleStationCompletionRef = React.useRef<() => void | Promise<void>>(() => {})
   const checkConsecutiveOfferAfterCheckInRef = React.useRef<() => Promise<boolean>>(async () => false)
-
-  // ─── Consecutive offer state ────────────────────────────────
-  const [consecutiveOffer, setConsecutiveOffer] = React.useState<ConsecutiveOffer | null>(null)
-  const [consecutiveOfferSettled, setConsecutiveOfferSettled] = React.useState(false)
-  const [showConsecutiveOverlay, setShowConsecutiveOverlay] = React.useState(false)
-  const [consecutiveProcessing, setConsecutiveProcessing] = React.useState(false)
-  const [consecutiveProcessingAction, setConsecutiveProcessingAction] = React.useState<"accept" | "decline" | "cash" | "card" | null>(null)
-  const [consecutiveSuccess, setConsecutiveSuccess] = React.useState<{ courseTitle: string } | null>(null)
-  const [consecutiveError, setConsecutiveError] = React.useState<string | null>(null)
-  const [consecutiveFetchKey, setConsecutiveFetchKey] = React.useState(0)
-  const [pendingNewBooking, setPendingNewBooking] = React.useState(false)
 
   // ─── Consecutive card QR checkout state ─────────────────────
   const [consecutiveQrCheckout, setConsecutiveQrCheckout] = React.useState<KioskQrCheckoutState>(
@@ -204,6 +192,32 @@ export default function CheckInQrClient({
     [isQrEntry, shellVariant]
   )
   const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
+
+  const {
+    consecutiveOffer,
+    setConsecutiveOffer,
+    consecutiveOfferSettled,
+    setConsecutiveOfferSettled,
+    showConsecutiveOverlay,
+    setShowConsecutiveOverlay,
+    showConsecutivePaymentSelection,
+    setShowConsecutivePaymentSelection,
+    consecutiveProcessing,
+    setConsecutiveProcessing,
+    consecutiveProcessingAction,
+    setConsecutiveProcessingAction,
+    consecutiveSuccess,
+    setConsecutiveSuccess,
+    consecutiveError,
+    setConsecutiveError,
+    pendingNewBooking,
+    setPendingNewBooking,
+    refreshConsecutiveOffer,
+  } = useConsecutiveOfferState({
+    isKioskTerminalFlow,
+    activeCourseSlug: preDisplayActiveContext.activeCourseSlug,
+    activeTime: preDisplayActiveContext.activeTime,
+  })
 
   // ─── Kiosk hooks ────────────────────────────────────────────
   const {
@@ -397,37 +411,6 @@ export default function CheckInQrClient({
     setShowConsecutivePaymentSelection,
   })
 
-  // ─── Early fetch consecutive offer for pre-payment step (no auth needed) ──
-  React.useEffect(() => {
-    if (!isKioskTerminalFlow) {
-      setConsecutiveOfferSettled(true)
-      return
-    }
-    if (!activeCourseSlug) {
-      setConsecutiveOfferSettled(true)
-      return
-    }
-
-    setConsecutiveOfferSettled(false)
-
-    const controller = new AbortController()
-
-    requestTerminalConsecutiveOfferApi({
-      courseSlug: activeCourseSlug,
-      time: activeTime || undefined,
-      signal: controller.signal,
-    })
-      .then(({ data }) => {
-        if (data) setConsecutiveOffer(data as ConsecutiveOffer)
-      })
-      .catch(() => {}) // silencioso — no crítico
-      .finally(() => {
-        setConsecutiveOfferSettled(true)
-      })
-
-    return () => controller.abort()
-  }, [isKioskTerminalFlow, activeCourseSlug, activeTime, consecutiveFetchKey])
-
   // ─── Booking contexts ───────────────────────────────────────
   const newBookingCourse = React.useMemo(
     () => sourceCourses.find((course) => course.slug === (newBookingOverride?.courseSlug || "")) || selectedCourse || qrCourse,
@@ -492,7 +475,7 @@ export default function CheckInQrClient({
     setPackageOfferSelectedId,
     setConsecutiveOffer,
     setConsecutiveOfferSettled,
-    setConsecutiveFetchKey,
+    refreshConsecutiveOffer,
     setPackageCheckInResult,
     setShowConsecutiveOverlay,
     setShowConsecutivePaymentSelection,
@@ -668,7 +651,7 @@ export default function CheckInQrClient({
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
     }
-  }, [consecutiveOffer, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken, packageCheckInResult, currentCheckInCourseSlug, performPackageCheckInApi, openExistingPurchaseFlow, handleStationCompletion, hasUsablePackageForCurrentClass, setPackageCheckInResult])
+  }, [consecutiveOffer, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken, packageCheckInResult, currentCheckInCourseSlug, performPackageCheckInApi, openExistingPurchaseFlow, handleStationCompletion, hasUsablePackageForCurrentClass, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveSuccess, setPackageCheckInResult, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
 
   const handleConsecutiveDecline = React.useCallback(async () => {
     // Defensive: if the consecutive overlay surfaced without a usable
@@ -728,26 +711,26 @@ export default function CheckInQrClient({
     setConsecutiveOffer(null)
     setShowConsecutiveOverlay(false)
     void handleStationCompletion()
-  }, [bootstrap, handleStationCompletion, openExistingPurchaseFlow, packageCheckInResult, performPackageCheckInApi, hasUsablePackageForCurrentClass, setPackageCheckInResult])
+  }, [bootstrap, handleStationCompletion, openExistingPurchaseFlow, packageCheckInResult, performPackageCheckInApi, hasUsablePackageForCurrentClass, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setPackageCheckInResult, setShowConsecutiveOverlay])
 
   const handleConsecutiveSuccessDone = React.useCallback(() => {
     setConsecutiveSuccess(null)
     setShowConsecutiveOverlay(false)
-    setConsecutiveFetchKey((k) => k + 1)
+    refreshConsecutiveOffer()
     void handleStationCompletion()
-  }, [handleStationCompletion])
+  }, [handleStationCompletion, refreshConsecutiveOffer, setConsecutiveSuccess, setShowConsecutiveOverlay])
 
   const handleConsecutiveRetry = React.useCallback(() => {
     setConsecutiveError(null)
     void handleConsecutiveAccept()
-  }, [handleConsecutiveAccept])
+  }, [handleConsecutiveAccept, setConsecutiveError])
 
   const handleConsecutiveErrorDismiss = React.useCallback(() => {
     setConsecutiveError(null)
     setConsecutiveOffer(null)
-    setConsecutiveFetchKey((k) => k + 1)
+    refreshConsecutiveOffer()
     void handleStationCompletion()
-  }, [handleStationCompletion])
+  }, [handleStationCompletion, refreshConsecutiveOffer, setConsecutiveError, setConsecutiveOffer])
 
   // ─── Consecutive payment handlers ───────────────────────────
   const handleConsecutivePayCash = React.useCallback(async () => {
@@ -827,7 +810,7 @@ export default function CheckInQrClient({
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
     }
-  }, [consecutiveOffer, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken, packageCheckInResult, currentCheckInCourseSlug, handleStationCompletion, isKioskTerminalFlow, openExistingPurchaseFlow, hasUsablePackageForCurrentClass])
+  }, [consecutiveOffer, activeDate, activeTime, durationMinutes, getToken, bootstrap, photoFlowContext, hasActiveClerkSession, kioskPinSessionToken, packageCheckInResult, currentCheckInCourseSlug, handleStationCompletion, isKioskTerminalFlow, openExistingPurchaseFlow, hasUsablePackageForCurrentClass, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveSuccess, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
 
   const handleConsecutivePayCard = React.useCallback(async () => {
     if (!consecutiveOffer) return
@@ -947,13 +930,13 @@ export default function CheckInQrClient({
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
     }
-  }, [consecutiveOffer, sourceCourses, bootstrap, activeDate, activeTime, hasActiveClerkSession, kioskPinSessionToken, packageCheckInResult, currentCheckInCourseSlug, hasUsablePackageForCurrentClass, openExistingPurchaseFlow, handleStationCompletion])
+  }, [consecutiveOffer, sourceCourses, bootstrap, activeDate, activeTime, hasActiveClerkSession, kioskPinSessionToken, packageCheckInResult, currentCheckInCourseSlug, hasUsablePackageForCurrentClass, openExistingPurchaseFlow, handleStationCompletion, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
 
   const handleConsecutiveQrCancel = React.useCallback(() => {
     setConsecutiveQrCheckout(createEmptyKioskQrCheckoutState())
     // Return to payment selection
     setShowConsecutivePaymentSelection(true)
-  }, [])
+  }, [setShowConsecutivePaymentSelection])
 
   const handleConsecutiveQrRetry = React.useCallback(() => {
     void handleConsecutivePayCard()
@@ -964,9 +947,9 @@ export default function CheckInQrClient({
     setConsecutiveOffer(null)
     setShowConsecutivePaymentSelection(false)
     setShowConsecutiveOverlay(false)
-    setConsecutiveFetchKey((k) => k + 1)
+    refreshConsecutiveOffer()
     void handleStationCompletion()
-  }, [handleStationCompletion])
+  }, [handleStationCompletion, refreshConsecutiveOffer, setConsecutiveOffer, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
 
   // ─── Poll consecutive QR checkout status ────────────────────
   useKioskQrCheckoutPoller({
@@ -1020,7 +1003,7 @@ export default function CheckInQrClient({
     } else {
       setPendingNewBooking(true)
     }
-  }, [activeDate, activeTime, contextIsValid, reloadCatalogCourses, selectedCourse, consecutiveOfferSettled])
+  }, [activeDate, activeTime, contextIsValid, reloadCatalogCourses, selectedCourse, consecutiveOfferSettled, setPendingNewBooking])
 
   // Open EnrollModal once consecutive offer fetch settles if user clicked "New Student" early
   React.useEffect(() => {
@@ -1028,7 +1011,7 @@ export default function CheckInQrClient({
       setOpenNewBooking(true)
       setPendingNewBooking(false)
     }
-  }, [pendingNewBooking, consecutiveOfferSettled])
+  }, [pendingNewBooking, consecutiveOfferSettled, setPendingNewBooking])
 
   const handleLatePaymentTablet = React.useCallback(() => {
     if (!latePaymentRecommendation) return
@@ -1115,13 +1098,13 @@ export default function CheckInQrClient({
       setNewBookingOverride(null)   // clean up override
       const hasOffer = await checkConsecutiveOfferAfterCheckIn()
       if (!hasOffer) {
-        setConsecutiveFetchKey((k) => k + 1)
+        refreshConsecutiveOffer()
         void handleStationCompletion()
       }
       return
     }
     void handleStationCompletion()
-  }, [isKioskTerminalFlow, checkConsecutiveOfferAfterCheckIn, handleStationCompletion])
+  }, [isKioskTerminalFlow, checkConsecutiveOfferAfterCheckIn, handleStationCompletion, refreshConsecutiveOffer])
 
   const handleBootstrapAction = React.useCallback(() => {
     if (processingPackageCheckIn) return
@@ -1324,6 +1307,8 @@ export default function CheckInQrClient({
     awaitingConsecutivePaymentSelection,
     packageCheckInResult,
     processingPackageCheckIn,
+    setShowConsecutiveOverlay,
+    setShowConsecutivePaymentSelection,
     showConsecutivePaymentSelection,
     hasUsablePackageForCurrentClass,
   ])
@@ -1755,14 +1740,14 @@ export default function CheckInQrClient({
             if (hasUsablePackageForCurrentClass && consecutiveOffer) {
               setConsecutiveOffer(null)
               // Re-fetch consecutive offer for the next student
-              setConsecutiveFetchKey((k) => k + 1)
+              refreshConsecutiveOffer()
               void handleStationCompletion()
               return
             }
             const hasOffer = await checkConsecutiveOfferAfterCheckIn()
             if (!hasOffer) {
               // Re-fetch consecutive offer for the next student
-              setConsecutiveFetchKey((k) => k + 1)
+              refreshConsecutiveOffer()
               void handleStationCompletion()
             }
           } : undefined}
