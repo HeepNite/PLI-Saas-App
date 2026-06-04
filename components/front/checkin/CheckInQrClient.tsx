@@ -53,6 +53,7 @@ import { useCheckInBootstrap } from "@/components/front/checkin/hooks/useCheckIn
 import { useConsecutiveOfferLookup } from "@/components/front/checkin/hooks/useConsecutiveOfferLookup"
 import { useConsecutiveOfferState } from "@/components/front/checkin/hooks/useConsecutiveOfferState"
 import { useConsecutiveOfferActions } from "@/components/front/checkin/hooks/useConsecutiveOfferActions"
+import { useEntryModeRouter } from "@/components/front/checkin/hooks/useEntryModeRouter"
 import {
   toEsDateTime,
   parseDuration,
@@ -128,6 +129,7 @@ export default function CheckInQrClient({
   const [showDuplicatePurchasePopup, setShowDuplicatePurchasePopup] = React.useState(false)
   const [packageOfferContext, setPackageOfferContext] = React.useState<PackageOfferContext>(null)
   const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
+  const [returnedFromNewStudentFlow, setReturnedFromNewStudentFlow] = React.useState(false)
   const setBootstrapRef = React.useRef<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(() => {})
   const setBootstrapFromRef = React.useCallback<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(
     (value) => setBootstrapRef.current(value),
@@ -262,7 +264,7 @@ export default function CheckInQrClient({
     registerKioskClerkSession,
     resetKioskCustomerSession,
   } = useKioskCustomerSession({
-    activeSessionId,
+    activeSessionId: activeSessionId ?? null,
     isKioskTerminalFlow,
     isSignedIn,
     user,
@@ -573,177 +575,60 @@ export default function CheckInQrClient({
   })
 
   // ─── UI handlers ────────────────────────────────────────────
-  const handleExistingClick = React.useCallback(() => {
-    void reloadCatalogCourses()
-    setMode("existing")
-    setError(null)
-    setSuccess(null)
-    setBootstrap(null)
-    resetKioskPinFlow()
-    if (!selectedCourse || !contextIsValid) {
-      setError("We couldn't open the purchase because QR data is missing.")
-      return
-    }
-    if (isKioskTerminalFlow && !hasActiveClerkSession) {
-      return
-    }
-    if (!hasActiveClerkSession) {
-      setShowPhoneSignIn(true)
-      return
-    }
-    void loadBootstrap()
-  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse, setBootstrap])
-
-  const handleNewClick = React.useCallback(() => {
-    void reloadCatalogCourses()
-    setMode("new")
-    setError(null)
-    setSuccess(null)
-    if (!selectedCourse || !contextIsValid) {
-      setError("We couldn't open the purchase because QR data is missing.")
-      return
-    }
-    setNewBookingOverride({
-      courseSlug: selectedCourse.slug,
-      date: activeDate,
-      time: activeTime,
-    })
-
-    // New users go directly to EnrollModal — packages are selected in a dedicated
-    // step AFTER user info is collected (to determine new vs existing pricing)
-    // Gate: wait for consecutive offer fetch to settle so EnrollModal has the offer
-    if (consecutiveOfferSettled) {
-      setOpenNewBooking(true)
-    } else {
-      setPendingNewBooking(true)
-    }
-  }, [activeDate, activeTime, contextIsValid, reloadCatalogCourses, selectedCourse, consecutiveOfferSettled, setPendingNewBooking])
-
-  // Open EnrollModal once consecutive offer fetch settles if user clicked "New Student" early
-  React.useEffect(() => {
-    if (pendingNewBooking && consecutiveOfferSettled) {
-      setOpenNewBooking(true)
-      setPendingNewBooking(false)
-    }
-  }, [pendingNewBooking, consecutiveOfferSettled, setPendingNewBooking])
-
-  const handleLatePaymentTablet = React.useCallback(() => {
-    if (!latePaymentRecommendation) return
-    setError(null)
-    setSuccess(null)
-    setBootstrap(null)
-    setMode("idle")
-  }, [latePaymentRecommendation, setBootstrap])
-
-  const handleLatePaymentPhone = React.useCallback(() => {
-    if (!display.latePaymentQrLink || typeof window === "undefined") return
-    window.open(display.latePaymentQrLink, "_blank", "noopener,noreferrer")
-  }, [display.latePaymentQrLink])
-
-  const handleLatePaymentExisting = React.useCallback(() => {
-    if (!latePaymentRecommendation) return
-    void reloadCatalogCourses()
-    setError(null)
-    setSuccess(null)
-    setBootstrap(null)
-    resetKioskPinFlow()
-    setLatePaymentEntryOverride({
-      courseSlug: latePaymentRecommendation.courseSlug,
-      date: latePaymentRecommendation.date,
-      time: latePaymentRecommendation.time,
-    })
-    setMode("existing")
-  }, [latePaymentRecommendation, reloadCatalogCourses, resetKioskPinFlow, setBootstrap])
-
-  const handleLatePaymentNew = React.useCallback(() => {
-    if (!latePaymentRecommendation) return
-    void reloadCatalogCourses()
-    setError(null)
-    setSuccess(null)
-    setMode("new")
-    setNewBookingOverride({
-      courseSlug: latePaymentRecommendation.courseSlug,
-      date: latePaymentRecommendation.date,
-      time: latePaymentRecommendation.time,
-    })
-    setOpenNewBooking(true)
-  }, [latePaymentRecommendation, reloadCatalogCourses])
-
-  const handlePhoneSignInSuccess = React.useCallback(async () => {
-    clearSuppressedClerkSessionId()
-    setShowPhoneSignIn(false)
-    setPendingLoginPhone("")
-    setError(null)
-    setSuccess(null)
-    setBootstrap(null)
-  }, [clearSuppressedClerkSessionId, setBootstrap])
-
-  const handlePhoneSignInSession = React.useCallback(async (sessionId: string) => {
-    registerKioskClerkSession(sessionId)
-  }, [registerKioskClerkSession])
-
-  const handleSwitchAccount = React.useCallback(() => {
-    void clerk.signOut({
-      redirectUrl: forceRedirectUrl,
-      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
-    })
-  }, [activeSessionId, clerk, forceRedirectUrl])
-
-  const [returnedFromNewStudentFlow, setReturnedFromNewStudentFlow] = React.useState(false)
-
-  const handleExistingUserDetected = React.useCallback(() => {
-    setOpenNewBooking(false)
-    setNewBookingOverride(null)
-    setPendingLoginPhone("")
-    setShowPhoneSignIn(false)
-    setReturnedFromNewStudentFlow(true)
-    setMode("existing")
-  }, [])
-
-  // Clear the "returned from new student" flag when leaving existing mode
-  React.useEffect(() => {
-    if (mode !== "existing") setReturnedFromNewStudentFlow(false)
-  }, [mode])
-
-  const handleNewUserPostPurchase = React.useCallback(async () => {
-    // After new-student purchase, check for consecutive offer before resetting.
-    if (isKioskTerminalFlow) {
-      setOpenNewBooking(false)      // close modal so consecutive overlay is visible
-      setNewBookingOverride(null)   // clean up override
-      const hasOffer = await checkConsecutiveOfferAfterCheckIn()
-      if (!hasOffer) {
-        refreshConsecutiveOffer()
-        void handleStationCompletion()
-      }
-      return
-    }
-    void handleStationCompletion()
-  }, [isKioskTerminalFlow, checkConsecutiveOfferAfterCheckIn, handleStationCompletion, refreshConsecutiveOffer])
-
-  const handleBootstrapAction = React.useCallback(() => {
-    if (processingPackageCheckIn) return
-    if (!effectiveCheckInWindowOpen) {
-      setError("The check-in window for this class is closed.")
-      return
-    }
-    if (bootstrap?.package) {
-      void handlePackageCheckIn()
-      return
-    }
-    openExistingPurchaseFlow({
-      courseSlug: bootstrap!.context.courseSlug,
-      date: bootstrap!.context.date,
-      time: bootstrap!.context.time,
-    })
-  }, [bootstrap, effectiveCheckInWindowOpen, handlePackageCheckIn, openExistingPurchaseFlow, processingPackageCheckIn, setError])
-
-  const handleBackToCurrentClass = React.useCallback(() => {
-    setError(null)
-    setSuccess(null)
-    setBootstrap(null)
-    setLatePaymentEntryOverride(null)
-    setMode("idle")
-  }, [setBootstrap])
+  const {
+    handleBackToCurrentClass,
+    handleBootstrapAction,
+    handleExistingClick,
+    handleExistingUserDetected,
+    handleLatePaymentExisting,
+    handleLatePaymentNew,
+    handleLatePaymentPhone,
+    handleLatePaymentTablet,
+    handleNewClick,
+    handleNewUserPostPurchase,
+    handlePhoneSignInSession,
+    handlePhoneSignInSuccess,
+    handleSwitchAccount,
+  } = useEntryModeRouter({
+    activeDate,
+    activeTime,
+    activeSessionId: activeSessionId ?? null,
+    bootstrap,
+    checkConsecutiveOfferAfterCheckIn,
+    clearSuppressedClerkSessionId,
+    clerkSignOut: clerk.signOut.bind(clerk),
+    consecutiveOfferSettled,
+    contextIsValid,
+    displayLatePaymentQrLink: display.latePaymentQrLink ?? null,
+    effectiveCheckInWindowOpen,
+    forceRedirectUrl,
+    handlePackageCheckIn,
+    handleStationCompletion,
+    hasActiveClerkSession,
+    isKioskTerminalFlow,
+    latePaymentRecommendation,
+    loadBootstrap,
+    mode,
+    openExistingPurchaseFlow,
+    pendingNewBooking,
+    processingPackageCheckIn,
+    refreshConsecutiveOffer,
+    registerKioskClerkSession,
+    reloadCatalogCourses,
+    resetKioskPinFlow,
+    selectedCourse,
+    setBootstrap,
+    setError,
+    setLatePaymentEntryOverride,
+    setMode,
+    setNewBookingOverride,
+    setOpenNewBooking,
+    setPendingLoginPhone,
+    setPendingNewBooking,
+    setReturnedFromNewStudentFlow,
+    setShowPhoneSignIn,
+    setSuccess,
+  })
 
   React.useEffect(() => {
     if (!bootstrap && packageOfferContext) {
