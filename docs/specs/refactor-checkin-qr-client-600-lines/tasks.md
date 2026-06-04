@@ -92,6 +92,9 @@
 
 ## Phase 5 — Entry Mode Router Hook
 
+- [x] 5a.1 Extract entry-mode routing handlers into `useEntryModeRouter`.
+- [x] 5a.2 Preserve existing/new/late-payment/phone sign-in/post-purchase/bootstrap action behavior.
+- [x] 5a.3 Keep state ownership in `CheckInQrClient.tsx` for this slice to avoid a `useCheckInDisplayData` dependency cycle.
 - [ ] 5.1 Create `components/front/checkin/hooks/useEntryModeRouter.ts`.
 - [ ] 5.2 Move mode/open booking/late payment/sign-in state and handlers.
 - [ ] 5.3 Move auto-promote effect using `shouldAutoPromoteExistingMode`.
