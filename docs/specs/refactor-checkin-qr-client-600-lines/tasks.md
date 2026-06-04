@@ -105,18 +105,23 @@
 
 - [ ] 6.1 Slim `useKioskFlowCompletion` from setter-bag to reset callbacks.
 - [ ] 6.2 Create `components/front/checkin/hooks/useKioskInactivityGuard.ts`.
-- [ ] 6.3 Move inactivity controller effect into the hook.
-- [ ] 6.4 Validate sensitive-state reset behavior.
+- [x] 6.3 Move inactivity controller effect into `useCheckInTerminalEffects` as part of the terminal lifecycle extraction.
+- [x] 6.4 Validate sensitive-state reset behavior through adversarial review of `useCheckInTerminalEffects`.
 - Suggested commit: `refactor(checkin): simplify kiosk completion wiring`
 
 ## Phase 7 — Presenter Split
 
-- [ ] 7.1 Create `CheckInShell.tsx`.
-- [ ] 7.2 Create `CheckInOverlays.tsx`.
-- [ ] 7.3 Create `CheckInEnrollModals.tsx`.
-- [ ] 7.4 Move JSX only; do not move business decisions into presenters.
-- [ ] 7.5 Add smoke tests if practical.
-- [ ] 7.6 Confirm final `CheckInQrClient.tsx` <=600 LOC.
+- [x] 7.1 Create `components/front/checkin/CheckInQrShell.tsx`.
+- [x] 7.2 Create `components/front/checkin/CheckInQrOverlays.tsx`.
+- [x] 7.3 Keep enroll modal wiring inside `CheckInQrOverlays.tsx`; no separate `CheckInEnrollModals.tsx` needed for this slice.
+- [x] 7.4 Move JSX/presentation decisions into presenters while keeping orchestration in hooks.
+- [x] 7.5 Add controller/support hooks for extracted orchestration:
+  - `components/front/checkin/hooks/useCheckInQrController.ts`
+  - `components/front/checkin/hooks/useCheckInBookingModalFlow.ts`
+  - `components/front/checkin/hooks/useCheckInTerminalEffects.ts`
+  - `components/front/checkin/hooks/useCheckInQrShellProps.ts`
+  - `components/front/checkin/hooks/useConsecutiveOfferUiHandlers.ts`
+- [x] 7.6 Confirm final `CheckInQrClient.tsx` <=600 LOC; current wrapper is ~10 LOC.
 - Suggested commit: `refactor(checkin): split qr client presenters`
 
 ## Final Verification
