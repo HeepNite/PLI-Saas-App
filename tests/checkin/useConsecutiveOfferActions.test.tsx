@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { useConsecutiveOfferActions } from "@/components/front/checkin/hooks/useConsecutiveOfferActions"
 import type { BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
+import type { CourseData } from "@/constants/courses"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -25,7 +26,22 @@ const offer: ConsecutiveOffer = {
 
 const bootstrap = {
   context: { courseSlug: "salsa", date: "2026-06-04", time: "20:00" },
+  customer: { firstName: "Ada", lastName: "Lovelace", email: "ada@example.com", phone: "+15555550123" },
 } as BootstrapResponse
+
+const sourceCourses = [
+  {
+    slug: "bachata",
+    title: "Bachata",
+    description: "Bachata class",
+    level: "Beginner",
+    duration: "60 min",
+    schedule: { day: "Thursday", time: "21:00", starts: "2026-06-04T21:00:00.000Z" },
+    location: { address: "Studio" },
+    instructors: [],
+    enrollment: { services: [{ id: "svc_bachata", label: "Drop-in" }], packages: [] },
+  },
+] satisfies CourseData[]
 
 const packageResult = { attendanceId: "att_1", remainingCredits: 2, points: 10 }
 
@@ -41,10 +57,12 @@ const defaultParams = (override: Partial<HookParams> = {}): HookParams => ({
   kioskPinSessionToken: "",
   packageCheckInResult: null,
   currentCheckInCourseSlug: "salsa",
+  sourceCourses,
   performPackageCheckInApi: vi.fn().mockResolvedValue(packageResult),
   openExistingPurchaseFlow: vi.fn(),
   handleStationCompletion: vi.fn(),
   hasUsablePackageForCurrentClass: true,
+  isKioskTerminalFlow: true,
   setAwaitingConsecutivePaymentSelection: vi.fn(),
   setConsecutiveError: vi.fn(),
   setConsecutiveOffer: vi.fn(),
@@ -56,6 +74,10 @@ const defaultParams = (override: Partial<HookParams> = {}): HookParams => ({
   setShowConsecutivePaymentSelection: vi.fn(),
   requestPackageCheckIn: vi.fn().mockResolvedValue({ res: { ok: true } as Response, data: {} }),
   requestDropInCheckIn: vi.fn().mockResolvedValue({ res: { ok: true } as Response, data: {} }),
+  requestCheckoutSession: vi.fn().mockResolvedValue({ res: { ok: true } as Response, data: { url: "https://pay.test/qr", sessionId: "cs_1", expiresAt: "2026-06-04T22:00:00.000Z" } }),
+  setConsecutiveQrCheckout: vi.fn(),
+  setShowDuplicatePurchasePopup: vi.fn(),
+  refreshConsecutiveOffer: vi.fn(),
   ...override,
 })
 
@@ -174,5 +196,82 @@ describe("useConsecutiveOfferActions", () => {
       date: "2026-06-04",
       time: "20:00",
     })
+  })
+
+  it("processes cash package add-on payment with linked attendance", async () => {
+    const { params, getResult } = await mount(defaultParams({ packageCheckInResult: packageResult }))
+
+    await act(async () => getResult().handleConsecutivePayCash())
+
+    expect(params.requestPackageCheckIn).toHaveBeenCalledWith({
+      token: "token-1",
+      payload: expect.objectContaining({
+        courseSlug: "bachata",
+        paymentMethod: "cash",
+        consecutiveAddOn: true,
+        consecutiveCashPayment: true,
+        linkedFromCourseSlug: "salsa",
+        linkedFromAttendanceId: "att_1",
+        consecutivePriceCents: 500,
+      }),
+    })
+    expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)
+    expect(params.setConsecutiveOffer).toHaveBeenCalledWith(null)
+    expect(params.handleStationCompletion).toHaveBeenCalled()
+  })
+
+  it("cash payment falls back to existing purchase flow when no usable package is available", async () => {
+    const { params, getResult } = await mount(defaultParams({ hasUsablePackageForCurrentClass: false }))
+
+    await act(async () => getResult().handleConsecutivePayCash())
+
+    expect(params.requestDropInCheckIn).not.toHaveBeenCalled()
+    expect(params.openExistingPurchaseFlow).toHaveBeenCalledWith({
+      courseSlug: "salsa",
+      date: "2026-06-04",
+      time: "20:00",
+    })
+  })
+
+  it("starts card QR checkout with linked course and customer payload", async () => {
+    const { params, getResult } = await mount(defaultParams({ packageCheckInResult: packageResult }))
+
+    await act(async () => getResult().handleConsecutivePayCard())
+
+    expect(params.requestCheckoutSession).toHaveBeenCalledWith({
+      payload: expect.objectContaining({
+        courseSlug: "bachata",
+        courseTitle: "Bachata",
+        amount: 500,
+        serviceId: "svc_bachata",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        email: "ada@example.com",
+        phone: "+15555550123",
+        consecutiveAddOnOnly: true,
+        linkedFromCourseSlug: "salsa",
+        linkedFromAttendanceId: "att_1",
+        consecutivePriceCents: 500,
+        consecutiveLinkedCourseSlug: "bachata",
+        consecutiveCourseTitle: "Bachata",
+        consecutiveLinkedCourseTime: "21:00",
+      }),
+    })
+    expect(params.setConsecutiveQrCheckout).toHaveBeenCalledWith(expect.objectContaining({ phase: "creating" }))
+    expect(params.setConsecutiveQrCheckout).toHaveBeenCalledWith(expect.objectContaining({ phase: "qr_ready", sessionId: "cs_1", url: "https://pay.test/qr" }))
+  })
+
+  it("cancels and completes QR checkout with the existing reset behavior", async () => {
+    const { params, getResult } = await mount()
+
+    act(() => getResult().handleConsecutiveQrCancel())
+    act(() => getResult().handleConsecutiveQrComplete())
+
+    expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(true)
+    expect(params.setConsecutiveQrCheckout).toHaveBeenCalled()
+    expect(params.setConsecutiveOffer).toHaveBeenCalledWith(null)
+    expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
+    expect(params.refreshConsecutiveOffer).toHaveBeenCalled()
+    expect(params.handleStationCompletion).toHaveBeenCalled()
   })
 })
