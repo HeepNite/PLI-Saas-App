@@ -79,6 +79,9 @@
 - [x] 4c.1 Extract consecutive accept/decline actions into `useConsecutiveOfferActions`.
 - [x] 4c.2 Preserve package-holder paid add-on routing through payment selection.
 - [x] 4c.3 Keep cash/card handlers in `CheckInQrClient.tsx` for a later slice.
+- [x] 4d.1 Move consecutive cash/card actions into `useConsecutiveOfferActions`.
+- [x] 4d.2 Preserve cash package add-on and card QR checkout payloads.
+- [x] 4d.3 Preserve QR cancel/complete behavior.
 - [ ] 4.2 Create `components/front/checkin/hooks/useConsecutiveOfferFlow.ts`.
 - [ ] 4.3 Move consecutive state atoms and handlers.
 - [ ] 4.4 Move early offer fetch and post-check-in offer lookup.
