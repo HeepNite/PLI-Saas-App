@@ -39,7 +39,7 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setPackageOfferSelectedId: React.Dispatch<React.SetStateAction<string | null>>
   setConsecutiveOffer: React.Dispatch<React.SetStateAction<ConsecutiveOffer | null>>
   setConsecutiveOfferSettled: React.Dispatch<React.SetStateAction<boolean>>
-  setConsecutiveFetchKey: React.Dispatch<React.SetStateAction<number>>
+  refreshConsecutiveOffer: () => void
   setPackageCheckInResult: React.Dispatch<React.SetStateAction<{ attendanceId?: string | null; remainingCredits: number | null; points: number } | null>>
   setShowConsecutiveOverlay: React.Dispatch<React.SetStateAction<boolean>>
   setShowConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>
@@ -72,7 +72,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
   setPackageOfferSelectedId,
   setConsecutiveOffer,
   setConsecutiveOfferSettled,
-  setConsecutiveFetchKey,
+  refreshConsecutiveOffer,
   setPackageCheckInResult,
   setShowConsecutiveOverlay,
   setShowConsecutivePaymentSelection,
@@ -103,7 +103,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setPackageOfferSelectedId(null)
     setConsecutiveOffer(null)
     setConsecutiveOfferSettled(false)
-    setConsecutiveFetchKey((k) => k + 1)
+    refreshConsecutiveOffer()
     setPackageCheckInResult(null)
     setShowConsecutiveOverlay(false)
     setShowConsecutivePaymentSelection(false)
@@ -111,7 +111,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
   }, [
     resetKioskCustomerSession,
     setBootstrap,
-    setConsecutiveFetchKey,
+    refreshConsecutiveOffer,
     setConsecutiveOffer,
     setConsecutiveOfferSettled,
     setError,
