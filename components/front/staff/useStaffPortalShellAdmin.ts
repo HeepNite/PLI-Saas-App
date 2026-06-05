@@ -133,9 +133,13 @@ export function useStaffPortalShellAdmin({
       window.location.href = `/staff/checkin${navSuffix}`
       return true
     }
+    // 403 from data endpoints means the user lacks permission for that
+    // specific resource, NOT that their session is invalid. Redirecting to
+    // /staff/resolve would cause an infinite loop because resolve sends the
+    // user right back to the portal. Instead, surface the error in-place and
+    // let the caller decide how to degrade gracefully.
     if (status === 403) {
-      setError("Insufficient staff permissions. Resolving access...")
-      window.location.href = `/staff/resolve${navSuffix}`
+      setError("You don't have permission for this action.")
       return true
     }
     return false

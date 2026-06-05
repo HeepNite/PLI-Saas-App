@@ -22,12 +22,22 @@ const sessionsApi = {
   getSessionList: vi.fn(),
 }
 
+const mockPrisma = {
+  staffAccount: {
+    findMany: vi.fn(),
+  },
+}
+
 vi.mock("@/lib/security/staff-portal-auth", () => ({
   authorizeStaffPortalRequest: (...args: unknown[]) => mockAuthorizePortal(...args),
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: (...args: unknown[]) => mockClerkClient(...args),
+}))
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: mockPrisma,
 }))
 
 describe("staff users routes", () => {
@@ -44,9 +54,11 @@ describe("staff users routes", () => {
     usersApi.unbanUser.mockReset()
     invitationsApi.createInvitation.mockReset()
     sessionsApi.getSessionList.mockReset()
+    mockPrisma.staffAccount.findMany.mockReset()
 
     mockClerkClient.mockResolvedValue({ users: usersApi, invitations: invitationsApi, sessions: sessionsApi })
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
+    mockPrisma.staffAccount.findMany.mockResolvedValue([])
   })
 
   it("GET returns 401 when portal auth fails", async () => {

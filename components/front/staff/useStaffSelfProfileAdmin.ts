@@ -232,20 +232,26 @@ export const useStaffSelfProfileAdmin = ({
         return
       }
 
-      const firstName = typeof data?.firstName === "string" ? data.firstName : ""
-      const lastName = typeof data?.lastName === "string" ? data.lastName : ""
-      const location = typeof data?.location === "string" ? data.location : ""
-      const imageUrl = typeof data?.imageUrl === "string" ? data.imageUrl : ""
-      const rawRole = typeof data?.role === "string" ? data.role : currentRole
+      // The profile endpoint wraps user fields inside data.user; payment
+      // fields (paymentPreference, assignedPaymentPreference, paymentInfo)
+      // live at the top level of the response.
+      const user = typeof data?.user === "object" && data.user ? data.user as Record<string, unknown> : data
+      const profile = typeof user.profile === "object" && user.profile ? user.profile as Record<string, unknown> : {}
+
+      const firstName = typeof user.firstName === "string" ? user.firstName : ""
+      const lastName = typeof user.lastName === "string" ? user.lastName : ""
+      const location = typeof profile.location === "string" ? profile.location : typeof user.location === "string" ? user.location : ""
+      const imageUrl = typeof user.imageUrl === "string" ? user.imageUrl : ""
+      const rawRole = typeof user.role === "string" ? user.role : currentRole
       const nextRole: StaffRole = rawRole === "owner" || rawRole === "admin" || rawRole === "staff" ? rawRole : currentRole
-      const rawCategory = typeof data?.category === "string" ? data.category : resolvedCurrentCategory
+      const rawCategory = typeof user.category === "string" ? user.category : resolvedCurrentCategory
       const nextCategory = normalizeCategoryForRole(nextRole, rawCategory as StaffCategory)
       const paymentPreference = parsePaymentPreferenceValue(data?.paymentPreference)
       const assignedPaymentPreference = parsePaymentPreferenceValue(data?.assignedPaymentPreference)
       const paymentInfo = normalizeStaffProfilePaymentInfo(data?.paymentInfo)
-      const metrics = typeof data?.metrics === "object" && data.metrics ? data.metrics as Record<string, unknown> : {}
-      const presence = typeof data?.presence === "object" && data.presence ? data.presence as Record<string, unknown> : {}
-      const teaching = typeof data?.teaching === "object" && data.teaching ? data.teaching as Record<string, unknown> : {}
+      const metrics = typeof user.metrics === "object" && user.metrics ? user.metrics as Record<string, unknown> : {}
+      const presence = typeof user.presence === "object" && user.presence ? user.presence as Record<string, unknown> : {}
+      const teaching = typeof user.teaching === "object" && user.teaching ? user.teaching as Record<string, unknown> : {}
       const statusValue = presence.status === "online" || presence.status === "offline"
         ? presence.status
         : null

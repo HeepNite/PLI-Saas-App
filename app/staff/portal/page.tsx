@@ -18,10 +18,12 @@ export default async function StaffUsersAdminPage({
   const navParam = Array.isArray(params.nav) ? params.nav[0] : params.nav
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) {
-    redirect("/staff/resolve")
+    // Redirect to log-in instead of resolve to break potential redirect loops
+    // (resolve may re-redirect here if it finds a role the portal cannot validate).
+    redirect("/staff/log-in?error=session_expired")
   }
   if (!authResult.role) {
-    redirect("/staff/resolve")
+    redirect("/staff/log-in?error=staff_invite_required")
   }
   const allowedSections = resolveStaffPortalSections(authResult.role, authResult.category)
   if (allowedSections.length === 0) {

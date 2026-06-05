@@ -9,6 +9,7 @@ import {
   Monitor,
   School,
   Settings,
+  UserCircle,
   Users,
 } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
@@ -77,6 +78,7 @@ const NAV_ITEMS: StaffPortalNavItem[] = [
   { key: "reports", label: "Reports", icon: CircleDollarSign },
   { key: "assistant", label: "AI Assistant", icon: Bot },
   { key: "settings", label: "Settings", icon: Settings },
+  { key: "profile", label: "My Profile", icon: UserCircle },
 ]
 
 

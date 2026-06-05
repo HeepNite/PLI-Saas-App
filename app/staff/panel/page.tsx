@@ -11,14 +11,14 @@ export const metadata: Metadata = {
 export default async function StaffPanelPage() {
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok || !authResult.userId) {
-    redirect("/staff/resolve")
+    redirect("/staff/log-in?error=session_expired")
   }
 
   const role = authResult.role
   const category = authResult.category
 
   if (!role) {
-    redirect("/staff/resolve")
+    redirect("/staff/log-in?error=staff_invite_required")
   }
 
   const defaultSection = getDefaultStaffPortalSection(role, category)
