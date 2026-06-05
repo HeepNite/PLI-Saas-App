@@ -85,7 +85,7 @@ export function useCheckInPackageFlow({
           time: bootstrap.context.time,
           durationMinutes: bootstrap.context.durationMinutes,
           flowContext: photoFlowContext,
-          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+          ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
         },
       })
       if (!res.ok) return null
@@ -119,11 +119,8 @@ export function useCheckInPackageFlow({
 
     if (isKioskTerminalFlow) {
       clearPackageCheckInTimeout()
+      await checkConsecutiveOfferAfterCheckIn()
       setPackageCheckInResult(result)
-      packageCheckInTimeoutRef.current = window.setTimeout(() => {
-        packageCheckInTimeoutRef.current = null
-        void checkConsecutiveOfferAfterCheckIn()
-      }, 2500)
       setProcessingPackageCheckIn(false)
       return
     }

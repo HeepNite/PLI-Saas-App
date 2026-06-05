@@ -96,8 +96,10 @@ export async function POST(req: Request) {
       flowContext === "kiosk_terminal"
         ? await resolveKioskCustomerClerkAuth(authResult.userId)
         : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
-    const customerClerkUserId = kioskCustomerAuth.userId
-    const kioskSessionResult = !customerClerkUserId && kioskSessionToken
+    const shouldPreferKioskSession = flowContext === "kiosk_terminal" && Boolean(kioskSessionToken)
+    const customerClerkUserId = shouldPreferKioskSession ? null : kioskCustomerAuth.userId
+    const shouldResolveKioskSession = shouldPreferKioskSession || (!customerClerkUserId && Boolean(kioskSessionToken))
+    const kioskSessionResult = shouldResolveKioskSession
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
 
@@ -147,7 +149,9 @@ export async function POST(req: Request) {
     let phone = kioskSessionResult?.ok ? normalizePhoneDigits(kioskSessionResult.session.user.phone || "") : ""
     let name = kioskSessionResult?.ok ? kioskSessionResult.session.user.name || "" : ""
 
-    const dbUser = customerClerkUserId
+    const dbUser = kioskSessionResult?.ok
+      ? { id: kioskSessionResult.session.user.id }
+      : customerClerkUserId
       ? await (async () => {
           const clerkUser = kioskCustomerAuth.clerkUser || await (async () => {
             const client = await clerkClient()
@@ -165,9 +169,7 @@ export async function POST(req: Request) {
             nameIsCanonical: true,
           })
         })()
-      : kioskSessionResult?.ok
-        ? { id: kioskSessionResult.session.user.id }
-        : null
+      : null
     if (!dbUser) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
     }

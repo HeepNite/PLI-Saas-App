@@ -36,8 +36,8 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
  * GET /api/checkin/terminal/consecutive-offer?courseSlug=<slug>
  *
  * Returns a consecutive class offer for pre-payment step (no auth needed).
- * Looks up an active CourseLink where the given course is courseSlugA,
- * then resolves course B's availability for today.
+ * Looks up active CourseLinks involving the given course, then uses today's
+ * schedule to resolve the next linked class.
  *
  * Used by the terminal to show the consecutive offer early in the flow,
  * before the student checks in or authenticates.
@@ -45,28 +45,22 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
 export async function GET(req: NextRequest) {
   const courseSlug = req.nextUrl.searchParams.get("courseSlug")
   const selectedTime = req.nextUrl.searchParams.get("time")
-  // TODO: REMOVE - diagnostic
-  console.log('[consecutive-offer-api] request received, courseSlug:', courseSlug)
   if (!courseSlug) {
     return NextResponse.json(null)
   }
 
   try {
-    // Find active CourseLinks where the selected course is courseSlugA
-    // (the earlier class in the directed A → B link). We intentionally
-    // exclude reverse-direction links so a course saved as B never surfaces
-    // an offer for its A on a day where the schedule doesn't make sense
-    // (e.g. selecting "Salsa Beginner" on a Monday must not offer Rueda,
-    // which is only scheduled on Fridays).
+    // Find active CourseLinks involving the selected course. The link itself is
+    // not treated as direction-authoritative; today's schedule decides which
+    // side is the first class and which side can be offered as the consecutive
+    // class.
     const links = await prisma.courseLink.findMany({
       where: {
         active: true,
-        courseSlugA: courseSlug,
+        OR: [{ courseSlugA: courseSlug }, { courseSlugB: courseSlug }],
       },
     })
     if (links.length === 0) {
-      // TODO: REMOVE - diagnostic
-      console.log('[consecutive-offer-api] returning null, reason:', 'no active CourseLink found')
       return NextResponse.json(null)
     }
 
@@ -79,7 +73,9 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    const linkedSlugs = links.map((link) => link.courseSlugB)
+    const linkedSlugs = links.map((link) =>
+      link.courseSlugA === courseSlug ? link.courseSlugB : link.courseSlugA
+    )
 
     const linkedCourses = await prisma.courseCatalog.findMany({
       where: { slug: { in: linkedSlugs } },
@@ -112,7 +108,10 @@ export async function GET(req: NextRequest) {
           .map((time) => {
             const minutes = toMinutes(time)
             if (courseAStartMinutes === null || minutes === null || minutes <= courseAStartMinutes) return null
-            const link = links.find((item) => item.courseSlugB === candidate.slug)
+            const link = links.find((item) =>
+              (item.courseSlugA === courseSlug && item.courseSlugB === candidate.slug) ||
+              (item.courseSlugB === courseSlug && item.courseSlugA === candidate.slug)
+            )
             return link ? { course: candidate, time, minutes, link } : null
           })
           .filter((item): item is { course: typeof candidate; time: string; minutes: number; link: (typeof links)[number] } => Boolean(item))
@@ -120,8 +119,6 @@ export async function GET(req: NextRequest) {
       .sort((left, right) => left.minutes - right.minutes)[0]
 
     if (!nextClass) {
-      // TODO: REMOVE - diagnostic
-      console.log('[consecutive-offer-api] returning null, reason:', 'no times available for today')
       return NextResponse.json(null)
     }
 
@@ -131,9 +128,8 @@ export async function GET(req: NextRequest) {
     const packageHolderConsecutiveCents = nextClass.link.packageHolderConsecutiveCents ?? 0
     const discountPercent = computeDiscountPercent(regularDropInCents, dropInConsecutiveCents)
 
-    // TODO: REMOVE - diagnostic
     const offer = {
-      linkedFromCourseSlug: nextClass.link.courseSlugA,
+      linkedFromCourseSlug: courseSlug,
       linkedCourseSlug: nextClass.course.slug,
       linkedCourseTitle: nextClass.course.title,
       linkedCourseTime: nextClass.time,
@@ -143,11 +139,8 @@ export async function GET(req: NextRequest) {
       discountPercent,
       hasAttendedFirstClass: false, // pre-payment — attendance hasn't happened yet
     }
-    console.log('[consecutive-offer-api] returning offer:', Boolean(offer))
     return NextResponse.json(offer)
-  } catch (err) {
-    // TODO: REMOVE - diagnostic
-    console.log('[consecutive-offer-api] returning null, reason:', 'uncaught error', err)
+  } catch {
     return NextResponse.json(null)
   }
 }

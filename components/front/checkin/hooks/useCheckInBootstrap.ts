@@ -55,7 +55,7 @@ export function useCheckInBootstrap({
         payload: {
           ...contextPayload,
           flowContext: photoFlowContext,
-          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+          ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
         },
       })
       if (!res.ok) {
@@ -69,7 +69,9 @@ export function useCheckInBootstrap({
       if (hasUsablePackage(nextBootstrap) && nextBootstrap.consecutiveOffer) {
         setConsecutiveOffer(nextBootstrap.consecutiveOffer)
       } else if (!hasUsablePackage(nextBootstrap)) {
-        setConsecutiveOffer(null)
+        // No-credit / no-package customers should not see the consecutive
+        // overlay, but the terminal prefetch offer must remain available for
+        // the EnrollModal purchase/drop-in flow.
         setShowConsecutiveOverlay(false)
         setShowConsecutivePaymentSelection(false)
       }

@@ -62,7 +62,6 @@ export function useConsecutiveOfferActions({
   getToken,
   bootstrap,
   photoFlowContext,
-  hasActiveClerkSession,
   kioskPinSessionToken,
   packageCheckInResult,
   currentCheckInCourseSlug,
@@ -157,7 +156,7 @@ export function useConsecutiveOfferActions({
           linkedFromCourseSlug: currentCheckInCourseSlug,
           ...(packageCheckInResult?.attendanceId ? { linkedFromAttendanceId: packageCheckInResult.attendanceId } : {}),
           ...(priceCents != null ? { consecutivePriceCents: priceCents } : {}),
-          ...(!hasActiveClerkSession && kioskPinSessionToken
+          ...(kioskPinSessionToken
             ? { kioskSessionToken: kioskPinSessionToken }
             : {}),
         }
@@ -194,7 +193,7 @@ export function useConsecutiveOfferActions({
         consecutiveDiscountApplied: true,
         linkedFromCourseSlug: currentCheckInCourseSlug,
         ...(priceCents != null ? { consecutivePriceCents: priceCents } : {}),
-        ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+        ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
       }
 
       const { res, data } = await requestDropInCheckIn({ token, payload: body })
@@ -211,7 +210,7 @@ export function useConsecutiveOfferActions({
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
     }
-  }, [activeDate, activeTime, consecutiveOffer, currentCheckInCourseSlug, durationMinutes, getToken, hasActiveClerkSession, hasUsablePackageForCurrentClass, kioskPinSessionToken, packageCheckInResult, performPackageCheckInApi, photoFlowContext, requestDropInCheckIn, requestPackageCheckIn, setAwaitingConsecutivePaymentSelection, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveSuccess, setPackageCheckInResult, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
+  }, [activeDate, activeTime, consecutiveOffer, currentCheckInCourseSlug, durationMinutes, getToken, hasUsablePackageForCurrentClass, kioskPinSessionToken, packageCheckInResult, performPackageCheckInApi, photoFlowContext, requestDropInCheckIn, requestPackageCheckIn, setAwaitingConsecutivePaymentSelection, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveSuccess, setPackageCheckInResult, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
 
   const handleConsecutiveDecline = React.useCallback(async () => {
     if (!hasUsablePackageForCurrentClass) {
@@ -268,7 +267,7 @@ export function useConsecutiveOfferActions({
         durationMinutes,
         flowContext: photoFlowContext,
         paymentMethod: "cash",
-        ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+        ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
       }
 
       if (isPackage) {
@@ -310,7 +309,7 @@ export function useConsecutiveOfferActions({
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
     }
-  }, [activeDate, activeTime, consecutiveOffer, currentCheckInCourseSlug, durationMinutes, fallbackToExistingPurchaseOrCompletion, getToken, handleStationCompletion, hasActiveClerkSession, hasUsablePackageForCurrentClass, isKioskTerminalFlow, kioskPinSessionToken, packageCheckInResult, photoFlowContext, requestDropInCheckIn, requestPackageCheckIn, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveSuccess, setShowConsecutivePaymentSelection])
+  }, [activeDate, activeTime, consecutiveOffer, currentCheckInCourseSlug, durationMinutes, fallbackToExistingPurchaseOrCompletion, getToken, handleStationCompletion, hasUsablePackageForCurrentClass, isKioskTerminalFlow, kioskPinSessionToken, packageCheckInResult, photoFlowContext, requestDropInCheckIn, requestPackageCheckIn, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveSuccess, setShowConsecutivePaymentSelection])
 
   const handleConsecutivePayCard = React.useCallback(async () => {
     if (!consecutiveOffer) return
@@ -372,7 +371,7 @@ export function useConsecutiveOfferActions({
           phone: bootstrap?.customer?.phone,
           participants: 1,
           photoContext: "kiosk_terminal",
-          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+          ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
           consecutiveAddOnOnly: hasUsablePackageForCurrentClass,
           linkedFromCourseSlug: currentCheckInCourseSlug,
           ...(packageCheckInResult?.attendanceId ? { linkedFromAttendanceId: packageCheckInResult.attendanceId } : {}),
@@ -418,7 +417,7 @@ export function useConsecutiveOfferActions({
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
     }
-  }, [activeDate, activeTime, bootstrap, consecutiveOffer, currentCheckInCourseSlug, fallbackToExistingPurchaseOrCompletion, hasActiveClerkSession, hasUsablePackageForCurrentClass, kioskPinSessionToken, packageCheckInResult, requestCheckoutSession, setConsecutiveError, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveQrCheckout, setShowConsecutivePaymentSelection, setShowDuplicatePurchasePopup, sourceCourses])
+  }, [activeDate, activeTime, bootstrap, consecutiveOffer, currentCheckInCourseSlug, fallbackToExistingPurchaseOrCompletion, hasUsablePackageForCurrentClass, kioskPinSessionToken, packageCheckInResult, requestCheckoutSession, setConsecutiveError, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveQrCheckout, setShowConsecutivePaymentSelection, setShowDuplicatePurchasePopup, sourceCourses])
 
   const handleConsecutiveQrCancel = React.useCallback(() => {
     setConsecutiveQrCheckout(createEmptyKioskQrCheckoutState())

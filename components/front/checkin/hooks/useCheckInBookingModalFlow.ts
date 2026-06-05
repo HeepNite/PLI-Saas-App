@@ -232,8 +232,17 @@ export function useCheckInBookingModalFlow(
 
   const handleExistingBookingCompleted = React.useCallback(async () => {
     setExistingRegularBookingOverride(null)
+    // Package holder who already consumed a consecutive offer — done
     if (hasUsablePackageForCurrentClass && consecutiveOffer) {
       setConsecutiveOffer(null)
+      refreshConsecutiveOffer()
+      void handleStationCompletion()
+      return
+    }
+    // Non-package user (drop-in / rebuy): consecutive offers don't apply.
+    // Skip the async bootstrap re-fetch to avoid a flash of the camera/photo
+    // screen between modal close and station reset (issue #32 follow-up).
+    if (!hasUsablePackageForCurrentClass) {
       refreshConsecutiveOffer()
       void handleStationCompletion()
       return

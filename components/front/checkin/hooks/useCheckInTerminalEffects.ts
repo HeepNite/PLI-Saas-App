@@ -228,6 +228,11 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
     }
 
     // Package offer screen removed - packages step is now in EnrollModal
+    // Wait for terminal consecutive-offer prefetch before opening the purchase
+    // flow, otherwise no-credit/drop-in customers can jump straight to payment
+    // before the Promo step is inserted.
+    if (!consecutiveOfferSettled) return
+
     if (
       !shouldAutoOpenExistingPurchase({
         mode,

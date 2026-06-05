@@ -418,6 +418,62 @@ describe("prepareCheckoutAccount", () => {
     })
   })
 
+  it("prepares checkout from kiosk session instead of an active customer Clerk session", async () => {
+    const activeClerkUser = makeClerkUser({
+      id: "melanie_clerk_1",
+      firstName: "Melanie",
+      lastName: "Padilla",
+      primaryEmailAddress: { emailAddress: "melanie@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 000 9999" },
+    })
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(activeClerkUser)
+    mockAuth.mockResolvedValue({ userId: activeClerkUser.id })
+    mockClerkClient.mockResolvedValue(client)
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: {
+        user: {
+          id: "jhon_db_1",
+          clerkId: "jhon_clerk_1",
+          email: "jhon@doe.com",
+          phone: "+1 555 666 6666",
+          name: "Jhon Doe",
+        },
+      },
+    })
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(
+      new Request("http://localhost/checkout"),
+      {},
+      {
+        photoContext: "kiosk_terminal",
+        kioskSessionToken: "jhon_kiosk_session",
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    if ("status" in result) throw new Error("Expected prepared checkout account")
+    expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("jhon_kiosk_session", {
+      terminalAuth: undefined,
+      touch: undefined,
+    })
+    expect(result.userId).toBeNull()
+    expect(result.resolvedUserId).toBe("jhon_clerk_1")
+    expect(result.identity).toMatchObject({
+      resolvedEmail: "jhon@doe.com",
+      phoneNormalized: "15556666666",
+    })
+    expect(result.account).toMatchObject({
+      clerkUserId: "jhon_clerk_1",
+      requiresSignIn: false,
+      created: false,
+      hasAvatar: true,
+    })
+  })
+
   it("does not leak staff clerkUser into new-student prepareOnly when no kiosk session exists", async () => {
     const staffUser = makeClerkUser({
       id: "staff_user_leak_guard",

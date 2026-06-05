@@ -198,8 +198,9 @@ export const prepareCheckoutAccount = async (
       ? await resolveKioskCustomerClerkAuth(authUser.userId)
       : null
 
-  const userId = kioskCustomerAuth ? kioskCustomerAuth.userId : authUser.userId
-  const clerkUser = kioskCustomerAuth?.clerkUser || authUser.clerkUser
+  const shouldPreferKioskSession = options.photoContext === "kiosk_terminal" && Boolean(options.kioskSessionToken)
+  const userId = shouldPreferKioskSession ? null : kioskCustomerAuth ? kioskCustomerAuth.userId : authUser.userId
+  const clerkUser = shouldPreferKioskSession ? null : kioskCustomerAuth?.clerkUser || authUser.clerkUser
 
   const isNewStudentKioskFlow = options.serviceId ? NEW_STUDENT_SERVICE_IDS.has(options.serviceId) : false
   // The blocked check prevents staff from checking out as customers.
@@ -217,7 +218,7 @@ export const prepareCheckoutAccount = async (
     } satisfies ApiError
   }
 
-  if (!userId && options.photoContext === "kiosk_terminal" && options.kioskSessionToken) {
+  if (options.photoContext === "kiosk_terminal" && options.kioskSessionToken) {
     const kioskSessionResult = await resolveTerminalKioskSession(options.kioskSessionToken, {
       terminalAuth: options.terminalAuth || undefined,
       touch: options.touchKioskSession,

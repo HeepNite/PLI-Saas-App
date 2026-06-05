@@ -402,6 +402,93 @@ describe("qr check-in bootstrap route", () => {
     expect(getUser).toHaveBeenNthCalledWith(2, "customer_clerk_1")
   })
 
+  it("prefers kiosk session identity over an active customer Clerk session in terminal flow", async () => {
+    const getUser = vi.fn(async (userId: string) => {
+      if (userId === "melanie_clerk_1") {
+        return {
+          id: "melanie_clerk_1",
+          firstName: "Melanie",
+          lastName: "Padilla",
+          hasImage: true,
+          primaryEmailAddress: { emailAddress: "melanie@example.com" },
+          primaryPhoneNumber: { phoneNumber: "+1 555 000 9999" },
+        }
+      }
+
+      return {
+        id: "jhon_clerk_1",
+        firstName: "Jhon",
+        lastName: "Doe",
+        hasImage: true,
+        primaryEmailAddress: { emailAddress: "jhon@doe.com" },
+        primaryPhoneNumber: { phoneNumber: "+1 555 666 6666" },
+      }
+    })
+    mockClerkClient.mockResolvedValue({
+      users: {
+        getUser,
+        getUserList: vi.fn().mockResolvedValue({ data: [] }),
+      },
+    })
+    mockAuth.mockResolvedValue({ userId: "melanie_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      terminalAuth: {
+        ok: true,
+        sessionId: "terminal_session_1",
+        terminal: {
+          id: "terminal_1",
+          slug: "terminal-1",
+          name: "Terminal 1",
+          location: null,
+          defaultCourseSlug: null,
+          active: true,
+        },
+      },
+      session: {
+        id: "jhon_kiosk_session",
+        user: {
+          id: "jhon_db_1",
+          clerkId: "jhon_clerk_1",
+          email: "jhon@doe.com",
+          name: "Jhon Doe",
+          phone: "+1 555 666 6666",
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-02-24",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+        kioskSessionToken: "jhon_kiosk_session",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      customer: {
+        userId: "jhon_db_1",
+        clerkUserId: "jhon_clerk_1",
+        firstName: "Jhon",
+        lastName: "Doe",
+        email: "jhon@doe.com",
+        phone: "15556666666",
+      },
+    })
+    expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("jhon_kiosk_session")
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(getUser).toHaveBeenNthCalledWith(1, "melanie_clerk_1")
+    expect(getUser).toHaveBeenNthCalledWith(2, "jhon_clerk_1")
+  })
+
   it("creates prepared checkout context and slims terminal-only bootstrap payload", async () => {
     mockAuth.mockResolvedValue({ userId: null })
     mockResolveTerminalKioskSession.mockResolvedValue({

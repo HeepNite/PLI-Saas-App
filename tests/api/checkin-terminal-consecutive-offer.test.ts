@@ -89,7 +89,7 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     expect(mockCourseLinkFindMany).not.toHaveBeenCalled()
   })
 
-  it("queries CourseLink only on the A-direction (selected slug must be courseSlugA)", async () => {
+  it("queries CourseLink on either side and lets today's schedule resolve direction", async () => {
     mockCourseLinkFindMany.mockResolvedValue([])
 
     const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
@@ -99,10 +99,8 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     const args = mockCourseLinkFindMany.mock.calls[0][0] as { where: Record<string, unknown> }
     expect(args.where).toMatchObject({
       active: true,
-      courseSlugA: "salsa-night-beginner",
+      OR: [{ courseSlugA: "salsa-night-beginner" }, { courseSlugB: "salsa-night-beginner" }],
     })
-    // Must NOT include reverse-direction OR clause
-    expect(args.where).not.toHaveProperty("OR")
   })
 
   it("does NOT surface a Monday offer for the Rueda link saved as A=beginner B=rueda when Rueda is Fri-only", async () => {

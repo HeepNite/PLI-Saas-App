@@ -33,10 +33,12 @@ export function useConsecutiveOfferState({
 
   React.useEffect(() => {
     if (!isKioskTerminalFlow) {
+      setConsecutiveOffer(null)
       setConsecutiveOfferSettled(true)
       return
     }
     if (!activeCourseSlug) {
+      setConsecutiveOffer(null)
       setConsecutiveOfferSettled(true)
       return
     }
@@ -51,7 +53,7 @@ export function useConsecutiveOfferState({
       signal: controller.signal,
     })
       .then(({ data }) => {
-        if (data) setConsecutiveOffer(data as ConsecutiveOffer)
+        setConsecutiveOffer(data ? (data as ConsecutiveOffer) : null)
       })
       .catch(() => {})
       .finally(() => {

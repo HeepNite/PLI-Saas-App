@@ -148,6 +148,7 @@ export function CheckInQrOverlays({
 
       {newBookingCourse && (
         <EnrollModal
+          key={`new-booking-${newBookingCourse.slug}-${newBookingContext.date}-${newBookingContext.time}-${consecutiveOffer?.linkedCourseSlug ?? "no-promo"}`}
           course={newBookingCourse}
           open={openNewBooking}
           onCloseAction={onNewBookingClose}
@@ -156,7 +157,7 @@ export function CheckInQrOverlays({
           completionMode={isKioskTerminalFlow ? "station" : completionMode}
           checkInContext={newBookingContext}
           photoFlowContext={photoFlowContext}
-          kioskSessionToken={!hasActiveClerkSession && kioskPinSessionToken ? kioskPinSessionToken : undefined}
+          kioskSessionToken={kioskPinSessionToken || undefined}
           useDraft={false}
           mode="modal"
           preventOutsideClose={isKioskTerminalFlow}
@@ -164,12 +165,12 @@ export function CheckInQrOverlays({
           onTimeoutAction={isKioskTerminalFlow ? onStationCompletion : undefined}
           onExistingUserDetected={isKioskTerminalFlow ? onExistingUserDetected : undefined}
           onKioskSessionCreated={isKioskTerminalFlow ? onKioskSessionCreated : undefined}
-          consecutiveOffer={undefined}
+          consecutiveOffer={consecutiveOffer ?? undefined}
           isPackageHolder={false}
         />
       )}
 
-      {packageCheckInResult && (
+      {packageCheckInResult && !showConsecutiveOverlay && (
         <KioskPackageSuccessOverlay
           remainingCredits={packageCheckInResult.remainingCredits}
           points={packageCheckInResult.points}
@@ -218,7 +219,7 @@ export function CheckInQrOverlays({
 
       {existingRegularBookingCourse && (
         <EnrollModal
-          key={`existing-regular-${existingRegularBookingKey}-${existingRegularBookingOverride?.courseSlug || existingRegularBookingCourse.slug}-${existingRegularBookingOverride?.date || ""}-${existingRegularBookingOverride?.time || ""}`}
+          key={`existing-regular-${existingRegularBookingKey}-${existingRegularBookingOverride?.courseSlug || existingRegularBookingCourse.slug}-${existingRegularBookingOverride?.date || ""}-${existingRegularBookingOverride?.time || ""}-${consecutiveOffer?.linkedCourseSlug ?? "no-promo"}`}
           course={existingRegularBookingCourse}
           open={Boolean(existingRegularBookingOverride)}
           onCloseAction={onExistingBookingClose}
@@ -228,7 +229,7 @@ export function CheckInQrOverlays({
           flowVariant="checkin-existing"
           completionMode={isKioskTerminalFlow ? "station" : completionMode}
           checkInContext={existingRegularBookingContext}
-          kioskSessionToken={!hasActiveClerkSession && kioskPinSessionToken ? kioskPinSessionToken : undefined}
+          kioskSessionToken={kioskPinSessionToken || undefined}
           photoFlowContext={photoFlowContext}
           prefillHasAvatar={bootstrap?.customer.hasAvatar}
           useDraft={false}
@@ -237,7 +238,7 @@ export function CheckInQrOverlays({
           onCompletedAction={isKioskTerminalFlow ? onExistingBookingCompleted : undefined}
           onTimeoutAction={isKioskTerminalFlow ? onStationCompletion : undefined}
           prefillContact={bootstrapContact || undefined}
-          consecutiveOffer={undefined}
+          consecutiveOffer={consecutiveOffer ?? undefined}
           isPackageHolder={activeCourseHasUsablePackage}
         />
       )}

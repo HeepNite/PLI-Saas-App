@@ -269,6 +269,57 @@ describe("qr check-in package route", () => {
     expect(getUser).toHaveBeenNthCalledWith(1, "staff_user_1")
   })
 
+  it("applies the kiosk customer package instead of an active customer Clerk session", async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      id: "melanie_clerk_1",
+      firstName: "Melanie",
+      lastName: "Padilla",
+      primaryEmailAddress: { emailAddress: "melanie@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 000 9999" },
+    })
+
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "melanie_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: {
+        user: {
+          id: "jhon_db_1",
+          clerkId: "jhon_clerk_1",
+          email: "jhon@doe.com",
+          name: "Jhon Doe",
+          phone: "+1 555 666 6666",
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+        kioskSessionToken: "jhon_kiosk_session",
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("jhon_kiosk_session")
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.packagePurchase.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ userId: "jhon_db_1" }),
+      })
+    )
+    expect(getUser).toHaveBeenCalledTimes(1)
+    expect(getUser).toHaveBeenCalledWith("melanie_clerk_1")
+  })
+
   it("does not create a duplicate package purchase when the attendance already has one", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })

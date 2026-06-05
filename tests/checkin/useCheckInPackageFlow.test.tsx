@@ -85,8 +85,7 @@ describe("useCheckInPackageFlow", () => {
     return { params, getResult: () => result! }
   }
 
-  it("checks in kiosk package users and schedules consecutive offer lookup", async () => {
-    vi.useFakeTimers()
+  it("checks in kiosk package users and immediately looks up consecutive offers", async () => {
     const params = defaultParams()
     const { getResult } = await mount(params)
 
@@ -97,9 +96,6 @@ describe("useCheckInPackageFlow", () => {
       token: "token-1",
       payload: { courseSlug: "salsa", date: "2026-06-03", time: "20:00", durationMinutes: 60, flowContext: "kiosk_terminal" },
     })
-    expect(params.checkConsecutiveOfferAfterCheckIn).not.toHaveBeenCalled()
-
-    await act(async () => vi.advanceTimersByTimeAsync(2500))
     expect(params.checkConsecutiveOfferAfterCheckIn).toHaveBeenCalledTimes(1)
   })
 
@@ -135,7 +131,7 @@ describe("useCheckInPackageFlow", () => {
     expect(getResult().packageCheckInResult).toBeNull()
 
     await act(async () => vi.advanceTimersByTimeAsync(2500))
-    expect(params.checkConsecutiveOfferAfterCheckIn).not.toHaveBeenCalled()
+    expect(params.checkConsecutiveOfferAfterCheckIn).toHaveBeenCalledTimes(1)
   })
 
   it("opens consecutive payment selection instead of resetting station when awaiting selection", async () => {

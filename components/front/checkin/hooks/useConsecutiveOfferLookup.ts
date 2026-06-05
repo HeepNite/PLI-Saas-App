@@ -68,7 +68,7 @@ export function useConsecutiveOfferLookup({
           durationMinutes,
           linkedFromCourseSlug: courseSlug,
           flowContext: photoFlowContext,
-          ...(!hasActiveClerkSession && kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+          ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
         },
       })
 
