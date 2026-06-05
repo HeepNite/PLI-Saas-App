@@ -585,7 +585,7 @@ export default function AuditHistoryPopover({
           )}
 
           {/* Content */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 no-scrollbar">
+          <div className="min-h-0 flex-1 overflow-y-scroll overscroll-contain px-5 py-4">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Loader2 className="w-6 h-6 text-white/40 animate-spin mb-2" />

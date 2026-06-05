@@ -136,22 +136,34 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
       userId,
       sessionId: { in: sessionIds },
     },
-    select: { sessionId: true, status: true },
+    include: {
+      packageUsage: { select: { packagePurchaseId: true } },
+    },
   })
 
-  const attendanceMap = new Map<string, string>()
+  const attendanceMap = new Map<string, { status: string; paymentSource: "package" | "dropin" | null }>()
   for (const att of existingAttendances) {
-    attendanceMap.set(att.sessionId, att.status)
+    const attendance = att as typeof att & { packageUsage?: { packagePurchaseId: string | null } | null }
+    const hasPackageUsage = Boolean(attendance.packageUsage?.packagePurchaseId)
+    attendanceMap.set(att.sessionId, {
+      status: att.status,
+      paymentSource: hasPackageUsage ? "package" : att.status === "checked_in_no_package" ? "dropin" : null,
+    })
   }
 
-  const result = sessions.map((s) => ({
-    id: s.id,
-    courseSlug: s.courseSlug,
-    title: s.title,
-    startsAt: s.startsAt.toISOString(),
-    location: s.location,
-    existingAttendanceStatus: attendanceMap.get(s.id) ?? null,
-  }))
+  const result = sessions.map((s) => {
+    const attendance = attendanceMap.get(s.id)
+
+    return {
+      id: s.id,
+      courseSlug: s.courseSlug,
+      title: s.title,
+      startsAt: s.startsAt.toISOString(),
+      location: s.location,
+      existingAttendanceStatus: attendance?.status ?? null,
+      existingAttendancePaymentSource: attendance?.paymentSource ?? null,
+    }
+  })
 
   return NextResponse.json({
     ok: true,

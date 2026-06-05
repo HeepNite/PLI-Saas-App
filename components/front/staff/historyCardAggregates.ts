@@ -49,6 +49,8 @@ export type HistoryStudentCardAggregate<TPayment extends HistoryCardPaymentLike 
   checkedInPayments: number
   coursesPurchasedCount: number
   totalPackageClassesConsumed: number
+  completedClassesTotal: number
+  packageClassesUsedTotal: number
 }
 
 const toTimestamp = (value: string | null | undefined) => {
@@ -142,6 +144,10 @@ export const buildHistoryStudentCard = <TPayment extends HistoryCardPaymentLike>
   )
   const payloadCompletedTotal = allPayments.find((payment) => typeof payment.completedClassesTotal === "number")?.completedClassesTotal
   const payloadPackageUsedTotal = allPayments.find((payment) => typeof payment.packageClassesUsedTotal === "number")?.packageClassesUsedTotal
+  const visibleCompletedClasses = allPayments.filter(isAttendedPayment).length
+  const visiblePackageClassesUsed = packageAttendanceKeys.size
+  const completedClassesTotal = typeof payloadCompletedTotal === "number" ? payloadCompletedTotal : visibleCompletedClasses
+  const packageClassesUsedTotal = typeof payloadPackageUsedTotal === "number" ? payloadPackageUsedTotal : visiblePackageClassesUsed
 
   return {
     source: "payment",
@@ -155,12 +161,14 @@ export const buildHistoryStudentCard = <TPayment extends HistoryCardPaymentLike>
     checkedInPayments:
       mode === "history" && typeof payloadCompletedTotal === "number"
         ? payloadCompletedTotal
-        : allPayments.filter(isAttendedPayment).length,
+        : visibleCompletedClasses,
     coursesPurchasedCount: courseKeys.size,
     totalPackageClassesConsumed:
       mode === "history" && typeof payloadPackageUsedTotal === "number"
         ? payloadPackageUsedTotal
-        : packageAttendanceKeys.size,
+        : visiblePackageClassesUsed,
+    completedClassesTotal,
+    packageClassesUsedTotal,
   }
 }
 

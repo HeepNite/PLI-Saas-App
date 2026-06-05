@@ -168,6 +168,13 @@ type StaffPaymentsBoardControlsProps = React.ComponentProps<
   typeof StaffPaymentsBoardControls
 >
 
+const resolveMasonryColumnCount = () => {
+  if (typeof window === "undefined") return 1
+  if (window.matchMedia("(min-width: 1280px)").matches) return 3
+  if (window.matchMedia("(min-width: 640px)").matches) return 2
+  return 1
+}
+
 export type StaffStudentsBoardPanelProps = {
   isStudentsView: boolean
   loadingStatus: StudentsBoardLoadingProps
@@ -453,6 +460,46 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
     historyFrom,
     historyTo,
   } = props
+  const [masonryColumnCount, setMasonryColumnCount] = React.useState(resolveMasonryColumnCount)
+
+  React.useEffect(() => {
+    const mediaQueries = [
+      window.matchMedia("(min-width: 1280px)"),
+      window.matchMedia("(min-width: 640px)"),
+    ]
+    const updateColumnCount = () => setMasonryColumnCount(resolveMasonryColumnCount())
+
+    updateColumnCount()
+    mediaQueries.forEach((query) => query.addEventListener("change", updateColumnCount))
+    return () => mediaQueries.forEach((query) => query.removeEventListener("change", updateColumnCount))
+  }, [])
+
+  const renderStudentCard = (student: AnyStudentCardForPanel) =>
+    student.source === "profile" ? (
+      <ProfileStudentCard
+        key={`student-card-${student.key}`}
+        student={student}
+        {...props}
+      />
+    ) : (
+      <PaymentStudentCard
+        key={`student-card-${student.key}`}
+        student={student}
+        {...props}
+      />
+    )
+
+  const masonryColumns = React.useMemo(
+    () =>
+      displayedStudentCards.reduce<Array<AnyStudentCardForPanel[]>>(
+        (columns, student, index) => {
+          columns[index % columns.length].push(student)
+          return columns
+        },
+        Array.from({ length: masonryColumnCount }, () => []),
+      ),
+    [displayedStudentCards, masonryColumnCount],
+  )
 
   return (
     <>
@@ -465,14 +512,16 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
         </p>
       ) : null}
 
-      <div className="mt-5 columns-1 gap-5 sm:columns-2 xl:columns-3 [&>*]:break-inside-avoid [&>*]:mb-5">
+      <div className="mt-5">
         {paymentsLoading ? (
-          Array.from({ length: 6 }).map((_, index) => (
-            <div
-              key={`students-skeleton-${index}`}
-              className="h-[190px] rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 shimmer"
-            />
-          ))
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={`students-skeleton-${index}`}
+                className="h-[190px] rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 shimmer"
+              />
+            ))}
+          </div>
         ) : cardContext === "global-search" && (searchResultCards?.length ?? 0) === 0 ? (
           <p className="col-span-full rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
             No students found.
@@ -488,21 +537,13 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
                 : "No student payments found."}
           </p>
         ) : (
-          displayedStudentCards.map((student) =>
-            student.source === "profile" ? (
-              <ProfileStudentCard
-                key={`student-card-${student.key}`}
-                student={student}
-                {...props}
-              />
-            ) : (
-              <PaymentStudentCard
-                key={`student-card-${student.key}`}
-                student={student}
-                {...props}
-              />
-            ),
-          )
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {masonryColumns.map((column, columnIndex) => (
+              <div key={`student-card-column-${columnIndex}`} className="flex flex-col gap-5">
+                {column.map(renderStudentCard)}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </>
@@ -1055,7 +1096,7 @@ function PaymentStudentCard({
         <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
           <span>Completed classes</span>
           <span className="group relative cursor-help">
-            <span>{student.checkedInPayments}</span>
+            <span>{student.completedClassesTotal}</span>
             <span className="pointer-events-auto invisible absolute bottom-full right-0 z-[200] max-h-52 w-[17rem] overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
               <span className="font-semibold text-white">Completed classes</span>
               <span className="mt-1 block border-t border-white/10" />
@@ -1092,7 +1133,7 @@ function PaymentStudentCard({
         </p>
         <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
           <span>Package classes used</span>
-          <span>{student.totalPackageClassesConsumed}</span>
+          <span>{student.packageClassesUsedTotal}</span>
         </p>
       </div>
 

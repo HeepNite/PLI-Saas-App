@@ -32,6 +32,7 @@ type SessionItem = {
   startsAt: string
   location: string | null
   existingAttendanceStatus: string | null
+  existingAttendancePaymentSource?: "package" | "dropin" | null
 }
 
 type CourseOption = {
@@ -115,6 +116,12 @@ function formatAttendanceStatus(status: string): string {
   }
 }
 
+function formatAttendanceBadge(session: SessionItem): string {
+  if (session.existingAttendancePaymentSource === "package") return "package"
+  if (session.existingAttendancePaymentSource === "dropin") return "drop-in"
+  return formatAttendanceStatus(session.existingAttendanceStatus ?? "")
+}
+
 const SETTLEMENT_STATUSES = [
   { value: "pending", label: "Pending" },
   { value: "paid", label: "Paid" },
@@ -134,6 +141,8 @@ const PACKAGE_STATUSES = [
   { value: "expired", label: "Expired" },
   { value: "cancelled", label: "Cancelled" },
 ]
+
+const hasFormValue = (value: string) => value.trim().length > 0
 
 function createEmptyFormState(): FormState {
   return {
@@ -393,10 +402,10 @@ export default function StudentDataOverrideModal({
         break
       }
       case "stats": {
-        if (form.statsCompletedClasses && (isNaN(Number(form.statsCompletedClasses)) || Number(form.statsCompletedClasses) < 0)) {
+        if (hasFormValue(form.statsCompletedClasses) && (isNaN(Number(form.statsCompletedClasses)) || Number(form.statsCompletedClasses) < 0)) {
           return "Completed classes must be non-negative."
         }
-        if (form.statsPackageClassesUsed && (isNaN(Number(form.statsPackageClassesUsed)) || Number(form.statsPackageClassesUsed) < 0)) {
+        if (hasFormValue(form.statsPackageClassesUsed) && (isNaN(Number(form.statsPackageClassesUsed)) || Number(form.statsPackageClassesUsed) < 0)) {
           return "Package classes used must be non-negative."
         }
         break
@@ -405,6 +414,14 @@ export default function StudentDataOverrideModal({
 
     return null
   }, [form])
+
+  const visibleAttendanceSessions = React.useMemo(() => {
+    if (form.attendanceAction === "add") {
+      return availableSessions.filter((session) => session.existingAttendanceStatus === null)
+    }
+
+    return availableSessions.filter((session) => session.existingAttendanceStatus !== null)
+  }, [availableSessions, form.attendanceAction])
 
   const handleSubmit = React.useCallback(async () => {
     const validationError = validate()
@@ -449,8 +466,8 @@ export default function StudentDataOverrideModal({
 
         case "stats":
           endpoint = `/api/staff/students/${encodeURIComponent(studentId)}/stats`
-          if (form.statsCompletedClasses) body.completedClasses = Number(form.statsCompletedClasses)
-          if (form.statsPackageClassesUsed) body.packageClassesUsed = Number(form.statsPackageClassesUsed)
+          if (hasFormValue(form.statsCompletedClasses)) body.completedClasses = Number(form.statsCompletedClasses)
+          if (hasFormValue(form.statsPackageClassesUsed)) body.packageClassesUsed = Number(form.statsPackageClassesUsed)
           break
       }
 
@@ -634,7 +651,15 @@ export default function StudentDataOverrideModal({
                       <span className="text-xs text-black/65 dark:text-white/65">Action</span>
                       <select
                         value={form.attendanceAction}
-                        onChange={(e) => updateField("attendanceAction", e.target.value as FormState["attendanceAction"])}
+                        onChange={(e) => {
+                          setForm((prev) => ({
+                            ...prev,
+                            attendanceAction: e.target.value as FormState["attendanceAction"],
+                            attendanceSessionIds: [],
+                          }))
+                          setErrorMessage(null)
+                          setSuccessMessage(null)
+                        }}
                         className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
                       >
                         {ATTENDANCE_ACTIONS.map((opt) => (
@@ -680,16 +705,16 @@ export default function StudentDataOverrideModal({
                         <div className="rounded-md border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/5 px-3 py-2 text-sm text-[var(--brand,#b61616)]">
                           {sessionsError}
                         </div>
-                      ) : availableSessions.length === 0 ? (
+                      ) : visibleAttendanceSessions.length === 0 ? (
                         <div className="rounded-md border border-black/10 bg-black/[0.02] px-3 py-6 text-center text-sm text-black/50 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/50">
-                          No sessions found in the current date range.
+                          {form.attendanceAction === "add"
+                            ? "No sessions without existing attendance found in the current date range."
+                            : "No existing attendance records found in the current date range."}
                         </div>
                       ) : (
                         <div className="max-h-52 overflow-y-auto rounded-md border border-black/15 bg-white dark:border-white/15 dark:bg-white/5">
-                          {availableSessions.map((session) => {
+                          {visibleAttendanceSessions.map((session) => {
                             const isSelected = form.attendanceSessionIds.includes(session.id)
-                            const hasAttendance = session.existingAttendanceStatus !== null
-                            const isDisabled = form.attendanceAction === "add" && hasAttendance
 
                             return (
                               <label
@@ -698,13 +723,12 @@ export default function StudentDataOverrideModal({
                                   isSelected
                                     ? "bg-[var(--brand,#b61616)]/5 dark:bg-[var(--brand,#b61616)]/10"
                                     : "hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
-                                } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                                } cursor-pointer`}
                               >
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
-                                  disabled={isDisabled}
-                                  onChange={() => !isDisabled && toggleSession(session.id)}
+                                  onChange={() => toggleSession(session.id)}
                                   className="mt-0.5 h-4 w-4 rounded border-black/30 text-[var(--brand,#b61616)] focus:ring-[var(--brand,#b61616)] dark:border-white/30"
                                 />
                                 <div className="flex-1 min-w-0">
@@ -712,7 +736,7 @@ export default function StudentDataOverrideModal({
                                     <span className="text-sm font-medium text-black dark:text-white truncate">
                                       {session.title || session.courseSlug}
                                     </span>
-                                    {hasAttendance && (
+                                    {session.existingAttendanceStatus && (
                                                       <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                                                         session.existingAttendanceStatus === "checked_in" || session.existingAttendanceStatus === "checked_out" || session.existingAttendanceStatus === "checked_in_no_package"
                                                           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
@@ -720,7 +744,7 @@ export default function StudentDataOverrideModal({
                                                           ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
                                                           : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
                                                       }`}>
-                                                        {formatAttendanceStatus(session.existingAttendanceStatus ?? "")}
+                                                        {formatAttendanceBadge(session)}
                                                       </span>
                                     )}
                                   </div>
@@ -742,12 +766,17 @@ export default function StudentDataOverrideModal({
                       )}
                       {form.attendanceAction === "add" && (
                         <p className="text-[11px] text-black/40 dark:text-white/40">
-                          Sessions with existing attendance are disabled for &quot;add&quot; action.
+                          Sessions with existing attendance are hidden for &quot;add&quot; action.
+                        </p>
+                      )}
+                      {(form.attendanceAction === "remove" || form.attendanceAction === "update") && (
+                        <p className="text-[11px] text-black/40 dark:text-white/40">
+                          Only sessions with an existing attendance record are shown.
                         </p>
                       )}
                     </div>
 
-                    <label className="block space-y-1">
+                    {form.attendanceAction !== "remove" ? <label className="block space-y-1">
                       <span className="text-xs text-black/65 dark:text-white/65">Status</span>
                       <select
                         value={form.attendanceStatus}
@@ -758,7 +787,7 @@ export default function StudentDataOverrideModal({
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
                         ))}
                       </select>
-                    </label>
+                    </label> : null}
                   </div>
                 )}
 
