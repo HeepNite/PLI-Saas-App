@@ -3,7 +3,7 @@
 Checklist operativo para validar la versión demo online después de deploy.
 
 ## 1. Pre-requisitos
-- Branch desplegada: `Develop` (commit objetivo).
+- Branch desplegada: `codex/develop` (commit objetivo).
 - Base de datos remota accesible por `DATABASE_URL`.
 - Variables de entorno configuradas en Vercel:
   - `DATABASE_URL`
@@ -31,7 +31,7 @@ npx prisma migrate status
 ## 3. Deploy en Vercel (plan free)
 1. Importar repo `HeepNite/PLI-Saas-App` en Vercel.
 2. Configurar env vars del punto 1 para el entorno Preview/Demo.
-3. Deploy de la rama `Develop` (o promover preview a demo).
+3. Deploy de la rama `codex/develop` (o promover preview a demo).
 4. Confirmar que build termina sin errores.
 
 ## 4. Smoke tests funcionales (manual)
