@@ -60,7 +60,7 @@ export async function GET(req: Request) {
       id: pkg.id,
       packageId: pkg.packageId,
       label: pkg.packageLabel || pkg.packagePlan?.label || pkg.packageId,
-      courseSlug: pkg.courseSlug || pkg.packagePlan?.courseSlug || null,
+      courseSlug: pkg.courseSlug || (pkg.packagePlan?.courseSlugs as string[] | undefined)?.[0] || null,
       status: pkg.status,
       isUnlimited: pkg.isUnlimited,
       totalCredits: pkg.totalCredits,

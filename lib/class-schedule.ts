@@ -1,9 +1,11 @@
-import { demoCourses } from "@/constants/courses"
+import { demoCourses, type CourseData } from "@/constants/courses"
+import { getTimesForWeekday } from "@/lib/schedule-rules"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_REGEX = /^\d{2}:\d{2}$/
 
 const toMonBasedWeekday = (date: Date) => (date.getDay() + 6) % 7 // Mon=0...Sun=6
+type ScheduleCourseLike = Pick<CourseData, "slug" | "schedule" | "title" | "scheduleRules">
 
 export const parseIsoDate = (value: string) => {
   if (!DATE_REGEX.test(value)) return null
@@ -37,37 +39,101 @@ export const formatTime12h = (time24: string) => {
   return `${h}:${mm} ${ampm}`
 }
 
-export const getCourseBySlug = (courseSlug: string) => demoCourses.find((course) => course.slug === courseSlug) || null
+export const formatReadableDate = (dateIso: string) => {
+  const parsed = parseIsoDate(dateIso)
+  if (!parsed) return dateIso
 
-export const getAvailableTimesForCourseDate = (courseSlug: string, dateIso: string) => {
-  const date = parseIsoDate(dateIso)
-  if (!date) return [] as string[]
-  const course = getCourseBySlug(courseSlug)
-  if (!course) return [] as string[]
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).formatToParts(parsed)
 
-  const weekday = toMonBasedWeekday(date)
+    const weekday = parts.find((part) => part.type === "weekday")?.value ?? ""
+    const day = parts.find((part) => part.type === "day")?.value ?? ""
+    const month = parts.find((part) => part.type === "month")?.value ?? ""
+    const year = parts.find((part) => part.type === "year")?.value ?? ""
 
-  if (course.slug === "salsa-nocturno") {
+    if (!weekday || !day || !month || !year) return dateIso
+    return `${weekday} ${day} ${month} ${year}`
+  } catch {
+    return dateIso
+  }
+}
+
+const getLegacyFallbackTimes = (courseSlug: string, weekday: number) => {
+  if (courseSlug === "salsa-nocturno") {
     if (weekday === 0 || weekday === 3) return ["21:10"]
     if (weekday === 1 || weekday === 4) return ["20:10"]
     if (weekday === 6) return ["17:00"]
-    return []
+  }
+  return [] as string[]
+}
+
+export const getCourseBySlug = (
+  courseSlug: string,
+  courses: ScheduleCourseLike[] = demoCourses
+) => courses.find((course) => course.slug === courseSlug) || null
+
+export const getAvailableTimesForCourseDateFromCourse = (course: ScheduleCourseLike, dateIso: string) => {
+  const date = parseIsoDate(dateIso)
+  if (!date) return [] as string[]
+  const schedule = course.schedule
+
+  // Try scheduleRules first (day-specific per-weekday times).
+  // scheduleRules.rules[].weekday uses JS getDay() convention (0=Sun, 1=Mon, ... 6=Sat).
+  const jsWeekday = date.getDay()
+  const ruleTimes = getTimesForWeekday(course.scheduleRules, jsWeekday)
+  if (ruleTimes) {
+    return ruleTimes.filter((value) => Boolean(parseTime24(value)))
   }
 
-  if (Array.isArray(course.schedule.availableWeekdays) && course.schedule.availableWeekdays.length > 0) {
-    if (!course.schedule.availableWeekdays.includes(weekday)) return []
+  // Fall back to legacy flat availableTimes (union of all days).
+  const weekday = toMonBasedWeekday(date)
+
+  if (
+    (!Array.isArray(schedule.availableWeekdays) || !schedule.availableWeekdays.length) &&
+    (!Array.isArray(schedule.availableTimes) || !schedule.availableTimes.length)
+  ) {
+    return getLegacyFallbackTimes(course.slug, weekday)
   }
 
-  if (Array.isArray(course.schedule.availableTimes) && course.schedule.availableTimes.length > 0) {
-    return course.schedule.availableTimes.filter((value) => Boolean(parseTime24(value)))
+  if (Array.isArray(schedule.availableWeekdays) && schedule.availableWeekdays.length > 0) {
+    if (!schedule.availableWeekdays.includes(weekday)) return []
+  }
+
+  if (Array.isArray(schedule.availableTimes) && schedule.availableTimes.length > 0) {
+    return schedule.availableTimes.filter((value) => Boolean(parseTime24(value)))
   }
 
   return [] as string[]
 }
 
+export const getAvailableTimesForCourseDate = (
+  courseSlug: string,
+  dateIso: string,
+  courses: ScheduleCourseLike[] = demoCourses
+) => {
+  const course = getCourseBySlug(courseSlug, courses)
+  if (!course) return [] as string[]
+  return getAvailableTimesForCourseDateFromCourse(course, dateIso)
+}
+
 export const isTimeAllowedForCourseDate = (courseSlug: string, dateIso: string, time24: string) => {
   const times = getAvailableTimesForCourseDate(courseSlug, dateIso)
   return times.includes(time24)
+}
+
+/**
+ * Returns today's date in YYYY-MM-DD format using America/New_York timezone.
+ * Uses Intl.DateTimeFormat with 'en-CA' locale for ISO format (no external deps).
+ */
+export function getTodayNewYork(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date())
 }
 
 export const getDateKeyInTimeZone = (value: Date, timeZone = "America/New_York") => {
@@ -110,4 +176,132 @@ export const isSlotInPastForTimeZone = (
   if (dateIso < nowDateKey) return true
   if (dateIso > nowDateKey) return false
   return time24 <= nowTimeKey
+}
+
+export type RoomOverlapSessionLike = {
+  id: string
+  roomId: string | null
+  startsAt: Date
+  durationMinutes: number | null
+}
+
+const isValidDate = (value: Date) => Number.isFinite(value.getTime())
+
+export const buildSessionEndsAtUtc = (startsAt: Date, durationMinutes: number | null | undefined) => {
+  if (!isValidDate(startsAt)) return null
+
+  const normalizedDuration = Number.isFinite(durationMinutes)
+    ? Math.max(0, Math.round(durationMinutes as number))
+    : 0
+
+  return new Date(startsAt.getTime() + normalizedDuration * 60_000)
+}
+
+export const doUtcIntervalsOverlap = (
+  leftStartsAt: Date,
+  leftEndsAt: Date,
+  rightStartsAt: Date,
+  rightEndsAt: Date
+) => {
+  if (!isValidDate(leftStartsAt) || !isValidDate(leftEndsAt) || !isValidDate(rightStartsAt) || !isValidDate(rightEndsAt)) {
+    return false
+  }
+
+  const leftStartMs = leftStartsAt.getTime()
+  const leftEndMs = leftEndsAt.getTime()
+  const rightStartMs = rightStartsAt.getTime()
+  const rightEndMs = rightEndsAt.getTime()
+
+  if (leftEndMs <= leftStartMs || rightEndMs <= rightStartMs) return false
+  return leftStartMs < rightEndMs && leftEndMs > rightStartMs
+}
+
+/**
+ * Buffer-aware interval overlap check.
+ *
+ * Returns true when two UTC intervals overlap OR when the gap between them
+ * is smaller than the specified buffer. A buffer of 0 behaves identically
+ * to `doUtcIntervalsOverlap`.
+ *
+ * Pads both intervals by bufferMs/2 on each side, so a gap exactly equal
+ * to the buffer triggers a conflict (boundary-inclusive).
+ *
+ * @param bufferMs — minimum required gap in milliseconds (0 = no buffer)
+ */
+export const doUtcIntervalsOverlapWithBuffer = (
+  leftStartsAt: Date,
+  leftEndsAt: Date,
+  rightStartsAt: Date,
+  rightEndsAt: Date,
+  bufferMs = 0
+) => {
+  if (!isValidDate(leftStartsAt) || !isValidDate(leftEndsAt) || !isValidDate(rightStartsAt) || !isValidDate(rightEndsAt)) {
+    return false
+  }
+
+  const leftStartMs = leftStartsAt.getTime()
+  const leftEndMs = leftEndsAt.getTime()
+  const rightStartMs = rightStartsAt.getTime()
+  const rightEndMs = rightEndsAt.getTime()
+
+  if (leftEndMs <= leftStartMs || rightEndMs <= rightStartMs) return false
+
+  // Pad each interval by bufferMs/2 on both sides.
+  // Uses >= for boundary-inclusive: gap exactly equal to buffer = conflict.
+  const halfBuffer = bufferMs / 2
+  const paddedLeftStart = leftStartMs - halfBuffer
+  const paddedLeftEnd = leftEndMs + halfBuffer
+  const paddedRightStart = rightStartMs - halfBuffer
+  const paddedRightEnd = rightEndMs + halfBuffer
+
+  return paddedLeftStart <= paddedRightEnd && paddedLeftEnd >= paddedRightStart
+}
+
+/**
+ * Compute the start of a given day in America/New_York as a UTC Date.
+ * Dynamically handles EDT (UTC-4) and EST (UTC-5).
+ */
+export function getStartOfDayNY(dateStr: string): Date {
+  // Use noon UTC as reference point (safe from DST transition edges)
+  const ref = new Date(`${dateStr}T12:00:00Z`)
+  // Determine what hour it is in NY when it's noon UTC
+  const nyHourStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    hour12: false,
+  }).format(ref)
+  const nyHour = parseInt(nyHourStr, 10)
+  // At noon UTC (12:00), NY shows 8 (EDT=UTC-4) or 7 (EST=UTC-5)
+  const offsetHours = 12 - nyHour
+  // Midnight NY = offsetHours:00:00 UTC on that date
+  return new Date(`${dateStr}T${String(offsetHours).padStart(2, "0")}:00:00Z`)
+}
+
+export const findOverlappingRoomSession = <Session extends RoomOverlapSessionLike>(
+  sessions: Session[],
+  options: {
+    roomId: string | null | undefined
+    startsAt: Date
+    durationMinutes: number | null | undefined
+    excludeSessionId?: string
+  }
+) => {
+  if (!options.roomId || !isValidDate(options.startsAt)) return null
+
+  const requestedEndsAt = buildSessionEndsAtUtc(options.startsAt, options.durationMinutes)
+  if (!requestedEndsAt) return null
+
+  for (const session of sessions) {
+    if (session.roomId !== options.roomId) continue
+    if (options.excludeSessionId && session.id === options.excludeSessionId) continue
+
+    const existingEndsAt = buildSessionEndsAtUtc(session.startsAt, session.durationMinutes)
+    if (!existingEndsAt) continue
+
+    if (doUtcIntervalsOverlap(options.startsAt, requestedEndsAt, session.startsAt, existingEndsAt)) {
+      return session
+    }
+  }
+
+  return null
 }

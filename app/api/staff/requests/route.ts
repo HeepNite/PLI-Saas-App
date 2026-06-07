@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { authorizeStaffPortalBaseRequest, authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
+import { canAccessStaffPortalSection } from "@/lib/security/staff-access"
+import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import {
   parseStaffRequestStatus,
@@ -34,18 +35,25 @@ export async function GET(req: Request) {
     )
   }
 
-  const authResult = await authorizeStaffPortalRequest()
+  const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
+  if (!authResult.role) {
+    return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
   }
 
   const url = new URL(req.url)
   const statusFilter = parseStaffRequestStatus(url.searchParams.get("status"))
   const typeFilter = parseStaffRequestType(url.searchParams.get("type"))
   const query = url.searchParams.get("q")?.trim() || ""
+  const scope = url.searchParams.get("scope") === "mine" ? "mine" : "all"
+  const canReviewAllRequests = canAccessStaffPortalSection(authResult.role, authResult.category, "users")
+  const ownOnly = scope === "mine" || !canReviewAllRequests
 
   const requests = await prisma.actionRequest.findMany({
     where: {
+      ...(ownOnly ? { userId: authResult.userId } : {}),
       type: typeFilter || { in: [...STAFF_REQUEST_TYPES] },
       ...(statusFilter ? { status: statusFilter } : {}),
       ...(query

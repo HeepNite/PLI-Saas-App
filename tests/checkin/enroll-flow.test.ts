@@ -1,0 +1,146 @@
+import { describe, expect, it } from "vitest"
+import {
+  getCheckInSignInModalVariant,
+  isCheckInContactGateStep,
+  resolveEnrollInitialStep,
+  resolvePostPhotoStepIndex,
+  resolveEnrollStepKeys,
+  shouldIncludePhotoStep,
+} from "@/lib/checkin/enroll-flow"
+
+describe("enroll flow helpers", () => {
+  it("keeps the existing-customer flow on the requested info step", () => {
+    expect(resolveEnrollInitialStep({ initialStep: 2, stepsLength: 5 })).toBe(2)
+  })
+
+  it("clamps an invalid initial step to the end of the flow", () => {
+    expect(resolveEnrollInitialStep({ initialStep: 9, stepsLength: 4 })).toBe(3)
+  })
+
+  it("omits the photo step when the account already has an avatar", () => {
+    expect(
+      shouldIncludePhotoStep({
+        isCheckInFlow: true,
+        photoPolicyRequired: true,
+        hasAvatar: true,
+        photoSaved: false,
+      })
+    ).toBe(false)
+  })
+
+  it("keeps the photo step when the account still needs a photo", () => {
+    expect(
+      shouldIncludePhotoStep({
+        isCheckInFlow: true,
+        photoPolicyRequired: true,
+        hasAvatar: false,
+        photoSaved: false,
+      })
+    ).toBe(true)
+  })
+
+  it("starts kiosk new-customer check-in on info and hides party/datetime", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: false,
+      })
+    ).toEqual(["info", "payments"])
+  })
+
+  it("starts kiosk existing-customer check-in on info and hides party/datetime", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: true,
+      })
+    ).toEqual(["info", "photo", "payments"])
+  })
+
+  it("keeps the standard non-kiosk flow steps unchanged", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: false,
+        requiresPhotoStep: true,
+      })
+    ).toEqual(["party", "datetime", "info", "photo", "payments", "review"])
+  })
+
+  it("uses the compact sign-in modal variant for check-in flows", () => {
+    expect(getCheckInSignInModalVariant(true)).toBe("compact")
+    expect(getCheckInSignInModalVariant(false)).toBe("sheet")
+  })
+
+  it("treats the info step as the semantic contact gate for check-in flows", () => {
+    expect(isCheckInContactGateStep({ isCheckInFlow: true, activeStepKey: "info" })).toBe(true)
+    expect(isCheckInContactGateStep({ isCheckInFlow: true, activeStepKey: "payments" })).toBe(false)
+  })
+
+  it("does not run the contact gate outside check-in flows", () => {
+    expect(isCheckInContactGateStep({ isCheckInFlow: false, activeStepKey: "info" })).toBe(false)
+  })
+
+  it("includes packages step in kiosk flow when hasPackages is true", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: false,
+        hasPackages: true,
+      })
+    ).toEqual(["info", "packages", "payments"])
+  })
+
+  it("includes packages step with photo in kiosk flow when both are needed", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: true,
+        hasPackages: true,
+      })
+    ).toEqual(["info", "photo", "packages", "payments"])
+  })
+
+  it("skips packages step in kiosk flow when hasPackages is false", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+        requiresPhotoStep: false,
+        hasPackages: false,
+      })
+    ).toEqual(["info", "payments"])
+  })
+
+  it("routes photo skip to packages before payments when packages are available", () => {
+    expect(
+      resolvePostPhotoStepIndex({
+        currentStep: 1,
+        packagesStepIndex: 2,
+        paymentsStepIndex: 3,
+        stepsLength: 4,
+      })
+    ).toBe(2)
+  })
+
+  it("routes photo skip to payments when packages are unavailable", () => {
+    expect(
+      resolvePostPhotoStepIndex({
+        currentStep: 1,
+        packagesStepIndex: -1,
+        paymentsStepIndex: 2,
+        stepsLength: 3,
+      })
+    ).toBe(2)
+  })
+})

@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import {
-  ensureGuestClerkUser,
+  clearPreparedCheckoutAfterSuccess,
+  enrollStudentPinForCheckout,
   enforceNewStudentRules,
-  resolveAuthUser,
-  resolveContactIdentity,
+  resolveCheckoutPreparation,
   type ApiError,
 } from "@/lib/checkout"
+import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
+import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 const secret = process.env.STRIPE_SECRET_KEY
@@ -27,6 +29,7 @@ const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
 
 export async function POST(req: Request) {
+  const startedAt = Date.now()
   if (!stripe) {
     return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
   }
@@ -55,44 +58,55 @@ export async function POST(req: Request) {
     firstName,
     lastName,
     name,
-    phone,
+    phone = "",
+    kioskSessionToken,
+    studentPin,
+    studentPinConfirm,
   } = body || {}
+  const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
-  const validation = validateCheckoutPayload(body)
+  const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
+  })
 
   const base = getBaseUrl()
-  const success = `${base}/cursos/${validation.courseSlug}?status=success`
-  const cancel = `${base}/cursos/${validation.courseSlug}?status=cancel`
+  const success = `${base}/courses/${validation.courseSlug}?status=success`
+  const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
-  const { userId, clerkUser } = await resolveAuthUser(req, { firstName, lastName, name, phone })
-  const identity = resolveContactIdentity({ clerkUser, email, phone })
-  if (isApiError(identity)) {
-    return toErrorResponse(identity)
+  const preparation = await resolveCheckoutPreparation(
+    req,
+    {
+      email,
+      firstName,
+      lastName,
+      name,
+      phone,
+    },
+    {
+      photoContext,
+      allowExistingAccountLookup: photoContext === "kiosk_terminal",
+      kioskSessionToken,
+      serviceId: validation.serviceId,
+      validation,
+    }
+  )
+  if (isApiError(preparation)) {
+    return toErrorResponse(preparation)
   }
 
-  const guestResult = await ensureGuestClerkUser({
-    userId: userId || undefined,
-    resolvedEmail: identity.resolvedEmail,
-    phoneRaw: identity.phoneRaw,
-    firstName,
-    lastName,
-    name,
-    phone,
-  })
-  if (isApiError(guestResult)) {
-    return toErrorResponse(guestResult)
-  }
-
-  const ensuredClerkUser = guestResult.ensuredClerkUser
-  const resolvedUserId = userId || ensuredClerkUser?.id
+  const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
+  const { clerkUser, resolvedUserId, identity } = preparedAccount
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
-    clerkUserForVerification: clerkUser || ensuredClerkUser,
-    resolvedUserId,
+    clerkUserForVerification: clerkUser,
+    hasVerifiedPhone: verification.hasVerifiedPhone,
+    resolvedUserId: resolvedUserId || undefined,
     resolvedEmail: identity.resolvedEmail,
     phoneNormalized: identity.phoneNormalized,
   })
@@ -100,11 +114,27 @@ export async function POST(req: Request) {
     return toErrorResponse(newStudentError)
   }
 
+  const studentPinEnrollment = await enrollStudentPinForCheckout({
+    serviceId: validation.serviceId,
+    resolvedClerkUserId: resolvedUserId,
+    resolvedEmail: identity.resolvedEmail,
+    phoneNormalized: identity.phoneNormalized,
+    name: name || [firstName, lastName].filter(Boolean).join(" ") || undefined,
+    studentPin,
+    studentPinConfirm,
+  })
+  if (isApiError(studentPinEnrollment)) {
+    return toErrorResponse(studentPinEnrollment)
+  }
+
+  const expiresAt =
+    photoContext === "kiosk_terminal" ? Math.floor(Date.now() / 1000) + 30 * 60 : undefined
+
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
-      client_reference_id: resolvedUserId,
+      client_reference_id: resolvedUserId || undefined,
       line_items: [
         {
           quantity: 1,
@@ -113,7 +143,7 @@ export async function POST(req: Request) {
             unit_amount: validation.amountInt,
             product_data: {
               name: validation.courseTitle,
-              description: [validation.courseSlug, validation.date, validation.time].filter(Boolean).join(" • "),
+              description: [validation.courseSlug, effectiveSession.date, effectiveSession.time].filter(Boolean).join(" • "),
             },
           },
         },
@@ -121,11 +151,12 @@ export async function POST(req: Request) {
       success_url: success,
       cancel_url: cancel,
       customer_email: identity.resolvedEmail,
+      expires_at: expiresAt,
       metadata: {
         courseSlug: validation.courseSlug,
         courseTitle: validation.courseTitle,
-        date: validation.date,
-        time: validation.time,
+        date: effectiveSession.date,
+        time: effectiveSession.time,
         packageId: validation.packageId,
         packageLabel: validation.pkg?.label || "",
         packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),
@@ -142,10 +173,36 @@ export async function POST(req: Request) {
         phone: identity.phoneNormalized,
         phoneRaw: phone || "",
         email: identity.resolvedEmail,
+        flowContext: photoContext,
+        paymentSurface: photoContext === "kiosk_terminal" ? "hosted_checkout" : "web_checkout",
+        // Consecutive class fields (present when user accepted the consecutive offer)
+        consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
+        consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
+        consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
+        consecutiveLinkedCourseTime: validation.consecutiveLinkedCourseTime || "",
+        consecutiveAddOnOnly: String(validation.consecutiveAddOnOnly),
+        linkedFromCourseSlug: validation.linkedFromCourseSlug || "",
       },
     })
 
-    return NextResponse.json({ url: session.url })
+    await clearPreparedCheckoutAfterSuccess({
+      terminalAuth,
+      kioskSessionToken,
+      validation,
+    })
+
+    console.info("[staff-terminal-checkout-latency] checkout-session", {
+      segment: "card_next_step",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
+    })
+
+    return NextResponse.json({
+      url: session.url,
+      sessionId: session.id,
+      expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+    })
   } catch (err) {
     console.error("Stripe checkout error", err)
     return NextResponse.json({ error: "Unable to create checkout session" }, { status: 500 })

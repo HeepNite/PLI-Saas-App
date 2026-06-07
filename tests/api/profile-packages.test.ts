@@ -67,7 +67,7 @@ describe("profile packages route", () => {
         expiresAt: new Date("2026-08-01T00:00:00.000Z"),
         lastUsedAt: null,
         source: "stripe",
-        packagePlan: { label: "Morning 3-week pack", courseSlug: "zumba-matutino", cadence: "3/semana" },
+        packagePlan: { label: "Morning 3-week pack", courseSlugs: ["zumba-matutino"], cadence: "3/week" },
       },
     ])
 

@@ -34,61 +34,64 @@ const buildPayload = (overrides: Record<string, unknown> = {}) => {
 }
 
 describe("validateCheckoutPayload", () => {
-  it("accepts a valid payload", () => {
+  it("accepts a valid payload", async () => {
     const payload = buildPayload()
-    const result = validateCheckoutPayload(payload)
+    const result = await validateCheckoutPayload(payload)
     expect("status" in result).toBe(false)
+    if ("status" in result) {
+      throw new Error(`Expected valid payload, got error: ${result.error}`)
+    }
     expect(result.courseSlug).toBe(payload.courseSlug)
     expect(result.amountInt).toBe(payload.amount)
   })
 
-  it("rejects missing slug or amount", () => {
-    const result = validateCheckoutPayload({ amount: 0 })
+  it("rejects missing slug or amount", async () => {
+    const result = await validateCheckoutPayload({ amount: 0 })
     expect("status" in result).toBe(true)
     if ("status" in result) {
       expect(result.status).toBe(400)
     }
   })
 
-  it("rejects invalid service", () => {
+  it("rejects invalid service", async () => {
     const payload = buildPayload({ serviceId: "invalid-service" })
-    const result = validateCheckoutPayload(payload)
+    const result = await validateCheckoutPayload(payload)
     expect("status" in result).toBe(true)
     if ("status" in result) {
       expect(result.error).toMatch(/Invalid service/)
     }
   })
 
-  it("rejects invalid package", () => {
+  it("rejects invalid package", async () => {
     const payload = buildPayload({ packageId: "invalid-package" })
-    const result = validateCheckoutPayload(payload)
+    const result = await validateCheckoutPayload(payload)
     expect("status" in result).toBe(true)
     if ("status" in result) {
       expect(result.error).toMatch(/Invalid package/)
     }
   })
 
-  it("rejects invalid add-ons", () => {
+  it("rejects invalid add-ons", async () => {
     const payload = buildPayload({ addons: ["invalid-addon"] })
-    const result = validateCheckoutPayload(payload)
+    const result = await validateCheckoutPayload(payload)
     expect("status" in result).toBe(true)
     if ("status" in result) {
       expect(result.error).toMatch(/Invalid add-ons/)
     }
   })
 
-  it("rejects amount mismatch", () => {
+  it("rejects amount mismatch", async () => {
     const payload = buildPayload({ amount: 123 })
-    const result = validateCheckoutPayload(payload)
+    const result = await validateCheckoutPayload(payload)
     expect("status" in result).toBe(true)
     if ("status" in result) {
       expect(result.error).toMatch(/Amount mismatch/)
     }
   })
 
-  it("rejects amount mismatch when participants are changed", () => {
+  it("rejects amount mismatch when participants are changed", async () => {
     const payload = buildPayload({ participants: 99 })
-    const result = validateCheckoutPayload(payload)
+    const result = await validateCheckoutPayload(payload)
     expect("status" in result).toBe(true)
     if ("status" in result) {
       expect(result.error).toMatch(/Amount mismatch/)

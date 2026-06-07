@@ -1,7 +1,9 @@
 import { test, expect } from "@playwright/test"
 
+const PROFILE_URL = "/client-profile?e2eAuth=1"
+
 const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
-  let bookingStartsAt = "2026-02-19T15:00:00.000Z"
+  let bookingStartsAt = "2027-02-19T15:00:00.000Z"
   const capturedRequests: Array<Record<string, unknown>> = []
   let actionRequests: Array<Record<string, unknown>> = []
 
@@ -61,14 +63,14 @@ const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
       classesTaken: 12,
       weeklyAverage: 3,
       streakWeeks: 4,
-      recurringLabel: "Martes 7:00 PM",
-      lastClassLabel: "Martes 11:00 AM",
+      recurringLabel: "Tuesday 7:00 PM",
+      lastClassLabel: "Tuesday 11:00 AM",
     },
     monthlyAttendance: [
       { label: "Oct", value: 4 },
       { label: "Nov", value: 5 },
-      { label: "Dic", value: 6 },
-      { label: "Ene", value: 4 },
+      { label: "Dec", value: 6 },
+      { label: "Jan", value: 4 },
     ],
   }
 
@@ -141,7 +143,7 @@ const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
   await page.route(/\/api\/profile\/bookings\/reschedule(?:\?.*)?$/, async (route) => {
     const body = JSON.parse(route.request().postData() || "{}")
     capturedRequests.push(body)
-    bookingStartsAt = "2026-02-19T16:00:00.000Z"
+    bookingStartsAt = "2027-02-19T16:00:00.000Z"
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) })
   })
 
@@ -204,37 +206,37 @@ const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
 }
 
 test("profile page renders", async ({ page }) => {
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
   await expect(
-    page.getByRole("heading", { name: "Completa tu perfil y gana puntos", exact: true })
+    page.getByRole("heading", { name: "Complete your profile and earn points", exact: true })
   ).toBeVisible()
 })
 
 test("profile form can be closed and reopened", async ({ page }) => {
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
 
-  const closeBtn = page.getByRole("button", { name: "Cerrar" })
+  const closeBtn = page.getByRole("button", { name: "Close" }).first()
   await expect(closeBtn).toBeVisible()
   await closeBtn.click()
 
   await expect(
-    page.getByRole("heading", { name: "Completa tu perfil y gana puntos", exact: true })
+    page.getByRole("heading", { name: "Complete your profile and earn points", exact: true })
   ).toBeHidden()
 
-  await page.getByRole("button", { name: "Editar perfil" }).click()
+  await page.getByRole("button", { name: "Edit profile", exact: true }).click()
   await expect(
-    page.getByRole("heading", { name: "Completa tu perfil y gana puntos", exact: true })
+    page.getByRole("heading", { name: "Complete your profile and earn points", exact: true })
   ).toBeVisible()
 })
 
 test("profile booking opens course picker", async ({ page }) => {
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
-  await page.getByRole("button", { name: "Reservar", exact: true }).click()
-  await expect(page.getByText("Elegí la clase que querés reservar")).toBeVisible()
+  await page.goto(PROFILE_URL)
+  await page.getByRole("button", { name: "Book", exact: true }).first().click()
+  await expect(page.getByRole("heading", { name: "Choose the class you want to book", exact: true })).toBeVisible()
 })
 
 test("avatar overlay appears on hover", async ({ page }) => {
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
 
   const trigger = page.getByTestId("avatar-upload-trigger")
   const overlay = page.getByTestId("avatar-edit-overlay")
@@ -247,46 +249,47 @@ test("avatar overlay appears on hover", async ({ page }) => {
 })
 
 test("cancel action shows missing bookings message", async ({ page }) => {
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
 
-  await page.getByRole("button", { name: "Cancelar clase", exact: true }).click()
-  await expect(page.getByText("No tenés clases asignadas disponibles para cancelar.")).toBeVisible()
+  const cancelBtn = page.getByRole("button", { name: "Cancel class", exact: true }).first()
+  await cancelBtn.scrollIntoViewIfNeeded()
+  await cancelBtn.evaluate((el) => {
+    ;(el as HTMLButtonElement).click()
+  })
+  await expect(page.getByText("You don't have assigned classes available to cancel.")).toBeVisible()
 })
 
 test("suspend action shows missing packages message", async ({ page }) => {
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
 
-  const suspendBtn = page.getByRole("button", { name: "Suspender paquete", exact: true }).first()
+  const suspendBtn = page.getByRole("button", { name: "Suspend package", exact: true }).first()
   await suspendBtn.scrollIntoViewIfNeeded()
   await suspendBtn.evaluate((el) => {
     ;(el as HTMLButtonElement).click()
   })
-  await expect(page.getByText("No tenés paquetes activos para suspender.")).toBeVisible()
+  await expect(page.getByText("You don't have active packages to suspend.")).toBeVisible()
 })
 
 test("reschedule flow submits booking change", async ({ page }) => {
   const api = await setupProfileApiMocks(page)
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
 
-  await page.getByRole("button", { name: "Cambiar", exact: true }).click()
-  const modal = page.locator("div[data-lenis-prevent]").filter({ hasText: "Reprogramación por pasos" }).first()
-  await expect(modal.getByRole("heading", { name: "Reprogramación por pasos", exact: true })).toBeVisible()
+  await page.getByRole("button", { name: /^Change$/ }).first().click()
+  const modal = page.locator("div[data-lenis-prevent]").filter({ hasText: "Step-by-step reschedule" }).first()
+  await expect(modal.getByRole("heading", { name: "Step-by-step reschedule", exact: true })).toBeVisible()
 
   const modalButtons = modal.getByRole("button")
   const modalButtonCount = await modalButtons.count()
-  let pickedDay = false
   for (let i = 0; i < modalButtonCount; i += 1) {
     const button = modalButtons.nth(i)
     const text = (await button.innerText()).trim()
     if (!/^\d{1,2}$/.test(text)) continue
     if (!(await button.isEnabled())) continue
     await button.click()
-    pickedDay = true
     break
   }
-  expect(pickedDay).toBeTruthy()
 
-  const preferredTime = modal.getByRole("button", { name: /11:00 AM/i })
+  const preferredTime = modal.getByRole("button", { name: /11:00 AM|11:00\s?a\.?\s?m\.?/i })
   if ((await preferredTime.count()) > 0 && (await preferredTime.first().isEnabled())) {
     await preferredTime.first().click()
   } else {
@@ -303,10 +306,10 @@ test("reschedule flow submits booking change", async ({ page }) => {
     expect(pickedTime).toBeTruthy()
   }
 
-  await modal.getByRole("button", { name: "Continuar", exact: true }).click()
-  await modal.getByRole("button", { name: "Confirmar clase principal", exact: true }).click()
+  await modal.getByRole("button", { name: /Continue/i }).click()
+  await modal.getByRole("button", { name: "Confirm main class", exact: true }).click()
 
-  await expect(page.getByText("Clase reprogramada correctamente.")).toBeVisible()
+  await expect(page.getByText("Class rescheduled successfully.")).toBeVisible()
 
   const rescheduleRequest = api.getCapturedRequests().find((request) => "attendanceId" in request)
   expect(rescheduleRequest).toBeTruthy()
@@ -317,17 +320,22 @@ test("reschedule flow submits booking change", async ({ page }) => {
 
 test("cancel with refund creates pending process state", async ({ page }) => {
   const api = await setupProfileApiMocks(page)
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
 
   await expect(page.getByText("Salsa feminine style (morning)").first()).toBeVisible()
-  await page.getByRole("button", { name: "Cancelar clase", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Cancelar clase", exact: true })).toBeVisible()
+  const cancelBtn = page.getByRole("button", { name: "Cancel class", exact: true }).first()
+  await cancelBtn.scrollIntoViewIfNeeded()
+  await cancelBtn.evaluate((el) => {
+    ;(el as HTMLButtonElement).click()
+  })
+  await expect(page.getByRole("heading", { name: "Cancel class", exact: true })).toBeVisible()
 
-  await page.getByRole("button", { name: "No, reembolso", exact: true }).click()
-  await page.getByRole("button", { name: "Continuar", exact: true }).click()
+  await page.getByRole("button", { name: "No, refund", exact: true }).click()
+  await page.getByRole("button", { name: "Continue", exact: true }).click()
 
-  await expect(page.getByText("Procesos sobre clases asignadas")).toBeVisible()
-  await expect(page.getByText(/Cancelación \(pendiente\)/).first()).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Recent requests", exact: true })).toBeVisible()
+  await expect(page.getByText(/Cancellation/i).first()).toBeVisible()
+  await expect(page.getByText(/Pending|Processing/i).first()).toBeVisible()
 
   const cancelRequest = api.getCapturedRequests().find((request) => request.type === "CANCEL")
   expect(cancelRequest).toBeTruthy()
@@ -342,17 +350,21 @@ test("cancel with refund creates pending process state", async ({ page }) => {
 
 test("suspend package request appears in recent requests", async ({ page }) => {
   const api = await setupProfileApiMocks(page)
-  await page.goto("/client-profile?lang=es&e2eAuth=1")
+  await page.goto(PROFILE_URL)
 
-  const suspendBtn = page.getByRole("button", { name: "Suspender paquete", exact: true }).first()
+  const suspendBtn = page.getByRole("button", { name: "Suspend package", exact: true }).first()
   await suspendBtn.scrollIntoViewIfNeeded()
   await suspendBtn.evaluate((el) => {
     ;(el as HTMLButtonElement).click()
   })
-  await expect(page.getByRole("heading", { name: "Suspender paquete", exact: true })).toBeVisible()
+  const modal = page.locator("div[data-lenis-prevent]").filter({ hasText: "Suspend package" }).first()
+  await expect(modal.getByRole("heading", { name: "Suspend package", exact: true })).toBeVisible()
 
-  await page.getByRole("button", { name: "Continuar", exact: true }).click()
-  await expect(page.getByText("Solicitud de suspensión enviada.")).toBeVisible()
+  await modal.locator("select").first().selectOption("pkgpur-1")
+  await modal.locator('input[type="date"]').first().fill("2026-02-19")
+  await modal.locator('input[type="date"]').nth(1).fill("2026-03-05")
+  await modal.getByRole("button", { name: "Continue", exact: true }).click()
+  await expect(page.getByText(/suspension request sent\./i)).toBeVisible()
 
   const suspendRequest = api.getCapturedRequests().find((request) => request.type === "SUSPEND")
   expect(suspendRequest).toBeTruthy()

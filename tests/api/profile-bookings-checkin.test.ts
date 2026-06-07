@@ -14,6 +14,7 @@ const mockPrisma = {
     findUnique: vi.fn(),
   },
   pointsLedger: {
+    findUnique: vi.fn(),
     create: vi.fn(),
   },
 }
@@ -43,7 +44,9 @@ describe("profile bookings check-in route", () => {
     mockPrisma.attendance.update.mockReset()
     mockPrisma.attendance.count.mockReset()
     mockPrisma.pointsRule.findUnique.mockReset()
+    mockPrisma.pointsLedger.findUnique.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
+    mockPrisma.pointsLedger.findUnique.mockResolvedValue(null)
     mockClerkClient.mockResolvedValue({ users: usersApi })
   })
 
@@ -90,7 +93,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
       },
       packageUsage: {
@@ -112,7 +115,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
       },
       packageUsage: {
@@ -165,7 +168,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
       },
       packageUsage: null,
@@ -201,7 +204,7 @@ describe("profile bookings check-in route", () => {
       session: {
         id: "session_1",
         courseSlug: "salsa-femenina-matutina",
-        title: "Salsa Femenina",
+        title: "Salsa Feminine Style",
         startsAt,
         durationMinutes: 60,
       },

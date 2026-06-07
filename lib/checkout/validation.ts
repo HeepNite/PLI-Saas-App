@@ -1,5 +1,5 @@
 import type { CourseData, EnrollmentOption } from "@/constants/courses"
-import { courseRepository } from "@/lib/courses-repository"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 
 export type ApiError = { status: number; error: string; code?: string }
 
@@ -20,6 +20,28 @@ export type CheckoutBody = {
   lastName?: string
   name?: string
   phone?: string
+  prepareOnly?: boolean
+  photoContext?: string
+  flowContext?: string
+  kioskSessionToken?: string
+  studentPin?: string
+  studentPinConfirm?: string
+  /** Price in cents for the consecutive class add-on */
+  consecutivePriceCents?: number
+  /** Slug of the course that the consecutive class links from */
+  consecutiveLinkedCourseSlug?: string
+  /** Human-readable title of the consecutive class */
+  consecutiveCourseTitle?: string
+  /** Time slot for the consecutive class (class B's time, falls back to class A's time) */
+  consecutiveLinkedCourseTime?: string
+  /** True when hosted checkout is only charging the consecutive add-on for an existing package holder. */
+  consecutiveAddOnOnly?: boolean
+  /** Slug of the first class that unlocked the consecutive add-on. */
+  linkedFromCourseSlug?: string
+  /** Authoritative current class date from kiosk context (YYYY-MM-DD) */
+  kioskCurrentCourseDate?: string
+  /** Authoritative current class time from kiosk context (HH:MM) */
+  kioskCurrentCourseTime?: string
 }
 
 export type CheckoutValidation = {
@@ -44,6 +66,15 @@ export type CheckoutValidation = {
   packageCadence: string
   packageMakeUps: number
   packageValidDays: number
+  /** Consecutive class fields (present when user accepted the consecutive offer) */
+  consecutivePriceCents: number | null
+  consecutiveLinkedCourseSlug: string | null
+  consecutiveCourseTitle: string | null
+  consecutiveLinkedCourseTime: string | null
+  kioskCurrentCourseDate: string | null
+  kioskCurrentCourseTime: string | null
+  consecutiveAddOnOnly: boolean
+  linkedFromCourseSlug: string | null
 }
 
 const getPackageCredits = (pkg?: EnrollmentOption) => {
@@ -65,6 +96,18 @@ const getPackageCredits = (pkg?: EnrollmentOption) => {
   }
 }
 
+const normalizeIsoDate = (value: unknown): string | null => {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
+}
+
+const normalizeTime24 = (value: unknown): string | null => {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null
+}
+
 export const isEmail = (val: string | undefined): val is string => Boolean(val && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val))
 
 export const normalizePhone = (val?: string | null) => {
@@ -72,7 +115,7 @@ export const normalizePhone = (val?: string | null) => {
   return digits && digits.length >= 6 ? digits : undefined
 }
 
-export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation | ApiError => {
+export const validateCheckoutPayload = async (body: CheckoutBody): Promise<CheckoutValidation | ApiError> => {
   const {
     courseSlug,
     courseTitle = "Course booking",
@@ -85,6 +128,14 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
     addons = [],
     participants = 1,
     coupon = "",
+    consecutivePriceCents,
+    consecutiveLinkedCourseSlug,
+    consecutiveCourseTitle,
+    consecutiveLinkedCourseTime,
+    consecutiveAddOnOnly = false,
+    linkedFromCourseSlug,
+    kioskCurrentCourseDate,
+    kioskCurrentCourseTime,
   } = body || {}
 
   const rawAmount = typeof amount === "number" ? amount : Number.NaN
@@ -93,7 +144,16 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
     return { status: 400, error: "Missing course slug or amount" }
   }
 
-  const course = courseRepository.getCourseBySlug(courseSlug)
+  // Validate consecutive fields consistency
+  const hasConsecutive = typeof consecutivePriceCents === "number" && consecutivePriceCents > 0
+  if (hasConsecutive && !consecutiveLinkedCourseSlug && !consecutiveAddOnOnly) {
+    return { status: 400, error: "consecutiveLinkedCourseSlug is required when consecutivePriceCents is provided" }
+  }
+  if (consecutiveAddOnOnly && (!hasConsecutive || !linkedFromCourseSlug)) {
+    return { status: 400, error: "linkedFromCourseSlug and consecutivePriceCents are required for consecutive add-on checkout" }
+  }
+
+  const course = await getCatalogCourseBySlug(courseSlug)
   if (!course) {
     return { status: 404, error: "Course not found" }
   }
@@ -118,8 +178,54 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
   const subtotal = perPerson * safeParticipants
   const discountPercent = coupon?.toUpperCase() === "PLI10" ? 10 : coupon?.toUpperCase() === "PLI20" ? 20 : 0
   const discount = (subtotal * discountPercent) / 100
-  const expected = Math.max(0, subtotal - discount)
+  let expected = Math.max(0, subtotal - discount)
   const packageInfo = getPackageCredits(pkg)
+
+  // Validate consecutive class link and price when present
+  let validatedConsecutivePriceCents: number | null = null
+  let validatedConsecutiveLinkedCourseSlug: string | null = null
+  let validatedConsecutiveCourseTitle: string | null = null
+  let validatedConsecutiveLinkedCourseTime: string | null = null
+  const validatedKioskCurrentCourseDate = normalizeIsoDate(kioskCurrentCourseDate)
+  const validatedKioskCurrentCourseTime = normalizeTime24(kioskCurrentCourseTime)
+
+  if (consecutiveAddOnOnly && hasConsecutive && linkedFromCourseSlug) {
+    const { findConsecutiveLinkBetween } = await import("@/lib/course-links")
+    const link = await findConsecutiveLinkBetween(linkedFromCourseSlug, courseSlug)
+    if (!link) {
+      return { status: 400, error: "No active consecutive link found for this course pair" }
+    }
+    if (link.packageHolderConsecutiveCents !== consecutivePriceCents) {
+      return { status: 400, error: "Consecutive price does not match configured package-holder price" }
+    }
+
+    validatedConsecutivePriceCents = consecutivePriceCents
+    validatedConsecutiveLinkedCourseSlug = courseSlug
+    validatedConsecutiveCourseTitle = consecutiveCourseTitle || courseTitle || null
+    validatedConsecutiveLinkedCourseTime = consecutiveLinkedCourseTime || null
+    expected = consecutivePriceCents / 100
+  } else if (hasConsecutive && consecutiveLinkedCourseSlug) {
+    // Validate the CourseLink exists and price matches
+    const { findConsecutiveLinkBetween } = await import("@/lib/course-links")
+    const link = await findConsecutiveLinkBetween(courseSlug, consecutiveLinkedCourseSlug)
+    if (!link) {
+      return { status: 400, error: "No active consecutive link found for this course pair" }
+    }
+    const validPrices = [link.dropInConsecutiveCents, link.packageHolderConsecutiveCents].filter(
+      (p): p is number => p != null && p > 0
+    )
+    if (!validPrices.includes(consecutivePriceCents)) {
+      return { status: 400, error: "Consecutive price does not match configured price" }
+    }
+
+    validatedConsecutivePriceCents = consecutivePriceCents
+    validatedConsecutiveLinkedCourseSlug = consecutiveLinkedCourseSlug
+    validatedConsecutiveCourseTitle = consecutiveCourseTitle || null
+    validatedConsecutiveLinkedCourseTime = consecutiveLinkedCourseTime || null
+
+    // Add consecutive price to expected total
+    expected = expected + consecutivePriceCents / 100
+  }
 
   if (Math.round(expected * 100) !== amountInt) {
     return { status: 400, error: "Amount mismatch" }
@@ -147,5 +253,13 @@ export const validateCheckoutPayload = (body: CheckoutBody): CheckoutValidation 
     packageCadence: pkg?.meta?.cadence || "",
     packageMakeUps: packageInfo.packageMakeUps,
     packageValidDays: 180,
+    consecutivePriceCents: validatedConsecutivePriceCents,
+    consecutiveLinkedCourseSlug: validatedConsecutiveLinkedCourseSlug,
+    consecutiveCourseTitle: validatedConsecutiveCourseTitle,
+    consecutiveLinkedCourseTime: validatedConsecutiveLinkedCourseTime,
+    kioskCurrentCourseDate: validatedKioskCurrentCourseDate,
+    kioskCurrentCourseTime: validatedKioskCurrentCourseTime,
+    consecutiveAddOnOnly: Boolean(consecutiveAddOnOnly),
+    linkedFromCourseSlug: typeof linkedFromCourseSlug === "string" && linkedFromCourseSlug.trim() ? linkedFromCourseSlug.trim() : null,
   }
 }

@@ -56,11 +56,11 @@ const Header = () => {
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator className="my-2" />
                                 <div className="grid gap-2 text-sm">
-                                    <Link href="/cursos" className="rounded-md border border-white/10 px-3 py-2 hover:bg-white/5">
-                                        Cursos
+                                    <Link href="/courses" className="rounded-md border border-white/10 px-3 py-2 hover:bg-white/5">
+                                        Courses
                                     </Link>
-                                    <Link href="/programas" className="rounded-md border border-white/10 px-3 py-2 hover:bg-white/5">
-                                        Programas
+                                    <Link href="/programs/personalization" className="rounded-md border border-white/10 px-3 py-2 hover:bg-white/5">
+                                        Programs
                                     </Link>
                                 </div>
                                 <DropdownMenuSeparator className="my-3" />

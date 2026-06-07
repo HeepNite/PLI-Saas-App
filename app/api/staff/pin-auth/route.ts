@@ -81,7 +81,7 @@ export async function POST(req: Request) {
   if (!role) {
     return NextResponse.json({ error: "User does not have staff access." }, { status: 403 })
   }
-  const category = extractStaffCategoryFromUserMetadata(user) || "guest_staff"
+  const category = extractStaffCategoryFromUserMetadata(user) || "guest"
   const privateMetadata =
     user.privateMetadata && typeof user.privateMetadata === "object"
       ? (user.privateMetadata as Record<string, unknown>)

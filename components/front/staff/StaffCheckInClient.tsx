@@ -1,13 +1,24 @@
 "use client"
 
 import React from "react"
-import { ArrowLeft, CheckCircle2, Clock3, Loader2 } from "lucide-react"
-import { useSignIn } from "@clerk/nextjs"
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Loader2, MapPin } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { useAuth, useClerk, useSignIn } from "@clerk/nextjs"
+
+type PinLoginResponse = {
+  ok: boolean
+  signInUrl?: string
+  ticket?: string
+  staff: {
+    id: string
+    name: string
+    role: string
+    category: string | null
+  }
+}
 
 type PinCheckInResponse = {
   ok: boolean
-  signInUrl: string
-  ticket?: string
   checkedInAt: string
   staff: {
     id: string
@@ -17,29 +28,68 @@ type PinCheckInResponse = {
   }
 }
 
+type StaffCheckInClientProps = {
+  mode?: "checkin" | "login"
+}
+
 const PIN_LENGTH = 4
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
 
-export default function StaffCheckInClient() {
+const formatRoomConflictStartsAt = (value: string | null) => {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsed)
+}
+
+export default function StaffCheckInClient({ mode = "checkin" }: StaffCheckInClientProps) {
+  const searchParams = useSearchParams()
+  const { userId: activeUserId, sessionId: activeSessionId } = useAuth()
+  const { signOut } = useClerk()
   const { isLoaded, signIn, setActive } = useSignIn()
   const [pin, setPin] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState<string | null>(null)
-  const [now, setNow] = React.useState(() => new Date())
+  const [now, setNow] = React.useState<Date | null>(null)
+  
+  // For backward compatibility, support legacy terminalMode query param
+  const legacyTerminalMode =
+    (searchParams.get("mode") || "").trim().toLowerCase() === "terminal" ||
+    (searchParams.get("terminal") || "").trim() === "1"
+  
+  // In checkin mode: attendance only, no session, no redirect
+  // In login mode: create session and redirect
+  const isCheckinMode = mode === "checkin" || legacyTerminalMode
+  
+  const roomName = (searchParams.get("room") || "").trim()
+  const roomLocation = (searchParams.get("roomLocation") || "").trim()
+  const roomCapacity = (searchParams.get("roomCapacity") || "").trim()
+  const conflictTitle = (searchParams.get("conflictTitle") || "").trim()
+  const conflictCourse = (searchParams.get("conflictCourse") || "").trim()
+  const conflictStartsAt = formatRoomConflictStartsAt(searchParams.get("conflictStartsAt"))
+  const showRoomConflict = Boolean((searchParams.get("error") || "").trim() === "room-conflict" || conflictTitle || conflictCourse)
 
   React.useEffect(() => {
+    setNow(new Date())
     const timer = window.setInterval(() => setNow(new Date()), 1000)
     return () => window.clearInterval(timer)
   }, [])
 
   const nowLabel = React.useMemo(
-    () =>
-      new Intl.DateTimeFormat("en-US", {
+    () => {
+      if (!now) return "—:—:—"
+      return new Intl.DateTimeFormat("en-US", {
         hour: "numeric",
         minute: "2-digit",
         second: "2-digit",
-      }).format(now),
+      }).format(now)
+    },
     [now]
   )
 
@@ -49,6 +99,7 @@ export default function StaffCheckInClient() {
       return `${prev}${digit}`
     })
     setError(null)
+    setSuccess(null)
   }, [])
 
   const clearPin = React.useCallback(() => {
@@ -60,11 +111,12 @@ export default function StaffCheckInClient() {
   const removeDigit = React.useCallback(() => {
     setPin((prev) => prev.slice(0, -1))
     setError(null)
+    setSuccess(null)
   }, [])
 
   const submitPin = React.useCallback(async () => {
     if (pin.length !== PIN_LENGTH) {
-      setError("Ingresá un PIN válido de 4 dígitos.")
+      setError("Enter a valid 4-digit PIN.")
       setPin("")
       return
     }
@@ -73,51 +125,93 @@ export default function StaffCheckInClient() {
     setError(null)
     setSuccess(null)
     try {
-      const res = await fetch("/api/staff/checkin/pin", {
+      if (isCheckinMode) {
+        // Check-in mode: record attendance via check-in endpoint
+        const res = await fetch("/api/staff/checkin/pin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pin,
+            skipSession: true,
+          }),
+        })
+        const data = (await res.json().catch(() => ({}))) as Partial<PinCheckInResponse> & { error?: string }
+        if (!res.ok) {
+          setError(typeof data?.error === "string" ? data.error : "Invalid PIN.")
+          setPin("")
+          return
+        }
+
+        const name = data?.staff?.name || "staff"
+        setSuccess(`Check-in recorded for ${name}.`)
+        setPin("")
+        return
+      }
+
+      // Login mode: authenticate only via login endpoint (no attendance mutation)
+      const res = await fetch("/api/staff/login/pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({
+          pin,
+          preferUserId: activeUserId || "",
+        }),
       })
-      const data = (await res.json().catch(() => ({}))) as Partial<PinCheckInResponse> & { error?: string }
+      const data = (await res.json().catch(() => ({}))) as Partial<PinLoginResponse> & { error?: string }
       if (!res.ok || !data?.signInUrl) {
-        setError(typeof data?.error === "string" ? data.error : "PIN inválido.")
+        setError(typeof data?.error === "string" ? data.error : "Invalid PIN.")
         setPin("")
         return
       }
 
       const name = data?.staff?.name || "staff"
-      setSuccess(`Check-in registrado para ${name}. Redirigiendo...`)
+      setSuccess(`Signed in as ${name}. Redirecting...`)
       setPin("")
 
-      const ticket = typeof data.ticket === "string" ? data.ticket.trim() : ""
-      if (!isLoaded || !signIn || !setActive || !ticket) {
-        window.location.assign(data.signInUrl)
+      const navParam = searchParams.get("nav")
+      const resolveUrl = navParam ? `/staff/resolve?nav=${encodeURIComponent(navParam)}` : "/staff/resolve"
+
+      if (activeUserId && data?.staff?.id === activeUserId) {
+        window.location.assign(resolveUrl)
         return
       }
 
-      try {
-        const attempt = (await signIn.create({
-          strategy: "ticket",
-          ticket,
-        })) as { status?: string; createdSessionId?: string | null }
-        if (attempt.status === "complete" && attempt.createdSessionId) {
-          await setActive({ session: attempt.createdSessionId })
-          window.location.assign("/staff/resolve")
-          return
+      if (activeSessionId && activeUserId && data?.staff?.id && data.staff.id !== activeUserId) {
+        try {
+          await signOut({ sessionId: activeSessionId })
+        } catch {
+          // continue with the new sign-in attempt even if the previous session could not be cleared.
         }
-      } catch {
-        // Fallback to direct sign-in token URL if Clerk client ticket flow fails.
       }
 
-      window.location.assign(data.signInUrl)
+      const ticket = typeof data.ticket === "string" ? data.ticket.trim() : ""
+      if (isLoaded && signIn && setActive && ticket) {
+        try {
+          const attempt = await signIn.create({
+            strategy: "ticket",
+            ticket,
+          })
+          if (attempt.status === "complete") {
+            if (attempt.createdSessionId) {
+              await setActive({ session: attempt.createdSessionId })
+            }
+            window.location.assign(resolveUrl)
+            return
+          }
+        } catch {
+          // fallback below
+        }
+      }
+
+      window.location.assign(data.signInUrl!)
     } catch {
-      setError("No se pudo validar el PIN. Intentá nuevamente.")
+      setError("We couldn't validate the PIN. Please try again.")
       setPin("")
       setSuccess(null)
     } finally {
       setBusy(false)
     }
-  }, [isLoaded, pin, setActive, signIn])
+  }, [activeSessionId, activeUserId, isLoaded, pin, setActive, signIn, signOut, isCheckinMode])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -150,12 +244,45 @@ export default function StaffCheckInClient() {
   return (
     <section className="rounded-2xl border border-black/10 bg-white/80 p-5 shadow-[0_14px_38px_-14px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-white/5 sm:p-6">
       <header className="text-center">
-        <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Check-in</p>
-        <h2 className="mt-2 text-2xl font-semibold text-black dark:text-white">Ingreso por PIN</h2>
+        <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">{isCheckinMode ? "Check-in" : "Log-in"}</p>
+        <h2 className="mt-2 text-2xl font-semibold text-black dark:text-white">{isCheckinMode ? "PIN check-in" : "PIN log-in"}</h2>
         <p className="mt-2 text-sm text-black/65 dark:text-white/65">
-          Ingresá tu PIN para marcar entrada. Al validar, entrás directo a tu panel según tu rol.
+          {isCheckinMode
+            ? "Enter your PIN to record check-in. After validation, the terminal registers access without changing the active session."
+            : "Enter your PIN to log in and go directly to your panel based on your role."}
         </p>
       </header>
+
+      {roomName || roomLocation || roomCapacity ? (
+        <div className="mt-5 rounded-xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm text-black/75 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/75">
+          <div className="flex items-start gap-3">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand,#b61616)]" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-black/55 dark:text-white/55">Room context</p>
+              <p className="mt-1 font-semibold text-black dark:text-white">{roomName || "Assigned room"}</p>
+              <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+                {[roomLocation || null, roomCapacity ? `Capacity ${roomCapacity}` : null].filter(Boolean).join(" · ") || "No extra room details provided."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showRoomConflict ? (
+        <div className="mt-4 rounded-xl border border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 px-4 py-3 text-sm text-[var(--brand,#ffb3b3)]">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-[var(--brand,#ff8a8a)]">Room conflict</p>
+              <p className="mt-1 font-semibold text-white">This room is already booked for the requested time slot.</p>
+              <p className="mt-1 text-xs text-[var(--brand,#ffd0d0)]">
+                {[conflictTitle || null, conflictCourse || null, conflictStartsAt || null].filter(Boolean).join(" · ") ||
+                  "Review the room assignment before retrying the check-in flow."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-5 rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.03]">
         <div className="mb-4 flex items-center justify-center gap-2">
@@ -175,7 +302,7 @@ export default function StaffCheckInClient() {
         </div>
         <div className="mb-4 flex items-center justify-center gap-2 text-sm text-black/70 dark:text-white/70">
           <Clock3 className="h-4 w-4 text-[var(--brand,#b61616)]" />
-          <span>Hora actual: {nowLabel}</span>
+          <span>Current time: {nowLabel}</span>
         </div>
 
         <div className="mx-auto grid w-full max-w-sm grid-cols-3 gap-2">
@@ -211,7 +338,7 @@ export default function StaffCheckInClient() {
             onClick={removeDigit}
             disabled={busy}
             className="inline-flex items-center justify-center rounded-md border border-black/15 bg-white px-3 py-3 text-black transition hover:border-[var(--brand,#b61616)] hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.02] dark:text-white"
-            aria-label="Borrar último número"
+            aria-label="Delete last digit"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -225,7 +352,7 @@ export default function StaffCheckInClient() {
             className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand,#b61616)] px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {busy ? "Validando..." : "Marcar entrada"}
+            {busy ? "Validating..." : isCheckinMode ? "Check in" : "Sign in"}
           </button>
         </div>
       </div>

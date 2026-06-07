@@ -3,11 +3,16 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
-import { courseRepository } from "@/lib/courses-repository"
+import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
+import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
-import { awardPointsFromRule } from "@/lib/points/service"
-import { ATTENDANCE_STREAK_MILESTONE, POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
+import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
+import { findConsecutiveLinkBetween } from "@/lib/course-links"
+import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 
 export const runtime = "nodejs"
 
@@ -21,6 +26,11 @@ const normalizePhoneDigits = (value: string) => {
   return digits.length >= 6 ? digits : ""
 }
 
+const normalizeString = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim()
+}
+
 const toRecord = (value: unknown) =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
@@ -31,6 +41,7 @@ const pickPreferredPackage = (input: {
     packageId: string
     packageLabel: string | null
     courseSlug: string | null
+    packagePlan?: { courseSlugs: string[] } | null
     isUnlimited: boolean
     remainingCredits: number | null
     expiresAt: Date | null
@@ -38,8 +49,16 @@ const pickPreferredPackage = (input: {
   }>
 }) => {
   const ordered = [...input.packages].sort((a, b) => {
-    const aPriority = a.courseSlug && a.courseSlug === input.courseSlug ? 0 : 1
-    const bPriority = b.courseSlug && b.courseSlug === input.courseSlug ? 0 : 1
+    const aPriority = a.courseSlug === input.courseSlug
+      ? 0
+      : a.packagePlan?.courseSlugs?.includes(input.courseSlug)
+        ? 1
+        : 2
+    const bPriority = b.courseSlug === input.courseSlug
+      ? 0
+      : b.packagePlan?.courseSlugs?.includes(input.courseSlug)
+        ? 1
+        : 2
     if (aPriority !== bPriority) return aPriority - bPriority
     const aExpires = a.expiresAt ? a.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
     const bExpires = b.expiresAt ? b.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
@@ -62,11 +81,6 @@ export async function POST(req: Request) {
       )
     }
 
-    const authResult = await auth()
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     let body: unknown
     try {
       body = await req.json()
@@ -75,21 +89,46 @@ export async function POST(req: Request) {
     }
 
     const payload = toRecord(body)
+    const authResult = await auth()
+    const kioskSessionToken = typeof payload?.kioskSessionToken === "string" ? payload.kioskSessionToken.trim() : ""
+    const flowContext = typeof payload?.flowContext === "string" ? payload.flowContext.trim() : ""
+    const kioskCustomerAuth =
+      flowContext === "kiosk_terminal"
+        ? await resolveKioskCustomerClerkAuth(authResult.userId)
+        : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
+    const shouldPreferKioskSession = flowContext === "kiosk_terminal" && Boolean(kioskSessionToken)
+    const customerClerkUserId = shouldPreferKioskSession ? null : kioskCustomerAuth.userId
+    const shouldResolveKioskSession = shouldPreferKioskSession || (!customerClerkUserId && Boolean(kioskSessionToken))
+    const kioskSessionResult = shouldResolveKioskSession
+      ? await resolveTerminalKioskSession(kioskSessionToken)
+      : null
+
+    if (!customerClerkUserId && !kioskSessionResult?.ok) {
+      return NextResponse.json(
+        {
+          error:
+            kioskCustomerAuth.blocked && flowContext === "kiosk_terminal"
+              ? "Kiosk customer identification is required before continuing."
+              : kioskSessionResult?.error || "Unauthorized",
+        },
+        { status: kioskSessionResult?.status || 401 }
+      )
+    }
+
     const context = parseQrCheckInContext(
       {
         courseSlug: payload?.courseSlug,
         date: payload?.date,
         time: payload?.time,
         durationMinutes: payload?.durationMinutes,
-      },
-      { requireKnownCourse: true }
+      }
     )
     if ("status" in context) {
       return NextResponse.json({ error: context.error }, { status: context.status })
     }
 
     const now = new Date()
-    if (!isQrCheckInWindowOpen(context, now)) {
+    if (!isQrCheckInWindowAllowed(context, now)) {
       return NextResponse.json(
         {
           error: "Check-in is closed for this class.",
@@ -100,26 +139,261 @@ export async function POST(req: Request) {
       )
     }
 
-    const course = courseRepository.getCourseBySlug(context.courseSlug)
+    const course = await getCatalogCourseBySlug(context.courseSlug)
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
-    const client = await clerkClient()
-    const clerkUser = await client.users.getUser(authResult.userId)
-    const email = clerkUser.primaryEmailAddress?.emailAddress || ""
-    const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-    const phone = normalizePhoneDigits(phoneRaw)
-    const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+    // ─── Resolve user (needed for both consecutive add-on and normal flow) ──
+    let email = kioskSessionResult?.ok ? kioskSessionResult.session.user.email : ""
+    let phone = kioskSessionResult?.ok ? normalizePhoneDigits(kioskSessionResult.session.user.phone || "") : ""
+    let name = kioskSessionResult?.ok ? kioskSessionResult.session.user.name || "" : ""
 
-    const dbUser = await upsertUserByIdentifiers({
-      clerkId: authResult.userId,
-      email,
-      phone,
-      name,
-    })
+    const dbUser = kioskSessionResult?.ok
+      ? { id: kioskSessionResult.session.user.id }
+      : customerClerkUserId
+      ? await (async () => {
+          const clerkUser = kioskCustomerAuth.clerkUser || await (async () => {
+            const client = await clerkClient()
+            return client.users.getUser(customerClerkUserId)
+          })()
+          email = clerkUser.primaryEmailAddress?.emailAddress || ""
+          const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+          phone = normalizePhoneDigits(phoneRaw)
+          name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+          return upsertUserByIdentifiers({
+            clerkId: customerClerkUserId,
+            email,
+            phone,
+            name,
+            nameIsCanonical: true,
+          })
+        })()
+      : null
     if (!dbUser) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+    }
+
+    // ─── Consecutive package-holder add-on ───────────────────
+    const consecutiveAddOn = payload?.consecutiveAddOn === true
+    const consecutiveCashPayment = payload?.consecutiveCashPayment === true
+    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const linkedFromAttendanceId = normalizeString(payload?.linkedFromAttendanceId)
+    const consecutivePriceCents = payload?.consecutivePriceCents != null
+      ? Number(payload.consecutivePriceCents)
+      : null
+
+    if (consecutiveAddOn) {
+      if (!linkedFromCourseSlug) {
+        return NextResponse.json(
+          { error: "linkedFromCourseSlug is required for consecutive add-on" },
+          { status: 400 }
+        )
+      }
+
+      const link = await findConsecutiveLinkBetween(linkedFromCourseSlug, context.courseSlug)
+      if (!link) {
+        return NextResponse.json(
+          { error: "No active consecutive link found for this course pair" },
+          { status: 400 }
+        )
+      }
+
+      if (consecutivePriceCents !== null && consecutivePriceCents !== link.packageHolderConsecutiveCents) {
+        return NextResponse.json(
+          { error: "Price mismatch: consecutive price does not match configured price" },
+          { status: 400 }
+        )
+      }
+
+      // Hardening: a MONETARY consecutive add-on must NEVER reach this
+      // endpoint without explicit cash evidence. The card path goes through
+      // /api/checkout/session (Stripe), not here. Without this guard, the
+      // route would mark the purchase as `paid` with
+      // `paymentChannel: consecutive_addon` and no Stripe IDs — money never
+      // collected. See Jhon Doe purchase cmpbkyowj001ow3gpqxwdpexa.
+      const effectivePriceCents =
+        consecutivePriceCents !== null
+          ? consecutivePriceCents
+          : link.packageHolderConsecutiveCents
+      if (
+        typeof effectivePriceCents === "number" &&
+        effectivePriceCents > 0 &&
+        !consecutiveCashPayment
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Monetary consecutive add-on requires payment selection. Use cash flow (consecutiveCashPayment) or card flow via /api/checkout/session.",
+          },
+          { status: 400 }
+        )
+      }
+
+      // Verify student attended Class A. Prefer the exact attendance created
+      // by the package check-in flow, but keep it anchored to the class-B
+      // session date so stale attendance IDs from another day cannot unlock
+      // the consecutive add-on.
+      const linkedAttendance = linkedFromAttendanceId
+        ? await prisma.attendance.findFirst({
+            where: {
+              id: linkedFromAttendanceId,
+              userId: dbUser.id,
+              status: { in: [...ATTENDANCE_POINT_STATUSES] },
+              session: { courseSlug: linkedFromCourseSlug, startsAt: context.startsAt },
+            },
+            select: { id: true },
+          })
+        : null
+      const hasAttendedA = Boolean(linkedAttendance) || await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, context.startsAt)
+      if (!hasAttendedA) {
+        return NextResponse.json(
+          { error: "You must attend the first class before adding the consecutive class" },
+          { status: 403 }
+        )
+      }
+
+      // Verify student has an active, non-expired package (any package — the
+      // consecutive charge is separate). Do NOT require remaining credits here:
+      // the normal class-A package check-in may have just consumed the last
+      // credit before the student pays for class B's monetary add-on.
+      const activePackages = await prisma.packagePurchase.findMany({
+        where: {
+          userId: dbUser.id,
+          status: "active",
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        select: {
+          id: true,
+          packageId: true,
+          packageLabel: true,
+          courseSlug: true,
+          isUnlimited: true,
+          remainingCredits: true,
+          expiresAt: true,
+          status: true,
+        },
+        take: 10,
+      })
+
+      if (activePackages.length === 0) {
+        return NextResponse.json(
+          { error: "No active package found. Consecutive add-on requires an active package." },
+          { status: 409 }
+        )
+      }
+
+      // Create attendance for Class B WITHOUT deducting package credits
+      // This is a SEPARATE monetary charge (consecutivePriceCents)
+      const result = await prisma.$transaction(async (tx) => {
+        const session = await tx.classSession.upsert({
+          where: {
+            courseSlug_startsAt: {
+              courseSlug: context.courseSlug,
+              startsAt: context.startsAt,
+            },
+          },
+          update: {
+            title: course.title,
+            durationMinutes: context.durationMinutes,
+          },
+          create: {
+            courseSlug: context.courseSlug,
+            title: course.title,
+            startsAt: context.startsAt,
+            durationMinutes: context.durationMinutes,
+          },
+        })
+
+        const existingAttendance = await tx.attendance.findUnique({
+          where: {
+            userId_sessionId: {
+              userId: dbUser.id,
+              sessionId: session.id,
+            },
+          },
+        })
+
+        if (existingAttendance) {
+          return {
+            attendance: existingAttendance,
+            consecutive: true,
+            packagePurchase: null,
+          }
+        }
+
+        const attendance = await tx.attendance.create({
+          data: {
+            userId: dbUser.id,
+            sessionId: session.id,
+            status: "checked_in_no_package",
+            checkedInAt: now,
+            metadata: {
+              source: "qr_package_consecutive_addon",
+              linkedFromCourseSlug,
+              consecutivePriceCents,
+              qrDate: context.date,
+              qrTime: context.time,
+            },
+          },
+        })
+
+        // Create a purchase record for the consecutive monetary charge
+        // This is NOT a package credit deduction — it's a separate charge
+        const recordedConsecutivePriceCents = effectivePriceCents ?? 0
+        await tx.purchase.create({
+          data: {
+            userId: dbUser.id,
+            courseSlug: context.courseSlug,
+            courseTitle: course.title,
+            amount: recordedConsecutivePriceCents,
+            currency: "usd",
+            status: consecutiveCashPayment ? "pending" : "paid",
+            participants: 1,
+            metadata: {
+              paymentChannel: consecutiveCashPayment ? "cash" : "consecutive_addon",
+              settlementStatus: consecutiveCashPayment ? "pending" : "paid",
+              settledAt: consecutiveCashPayment ? null : undefined,
+              date: context.date,
+              time: context.time,
+              source: "qr_package_consecutive_addon",
+              attendanceId: attendance.id,
+              linkedFromCourseSlug,
+              consecutivePriceCents: recordedConsecutivePriceCents,
+              packagePurchaseId: activePackages[0].id,
+            },
+          },
+        })
+
+        return {
+          attendance,
+          consecutive: true,
+          packagePurchase: null,
+        }
+      })
+
+      return NextResponse.json({
+        attendance: {
+          id: result.attendance.id,
+          status: result.attendance.status,
+          checkedInAt: result.attendance.checkedInAt.toISOString(),
+          courseSlug: context.courseSlug,
+          courseTitle: course.title,
+          startsAt: context.startsAt.toISOString(),
+        },
+        consecutive: {
+          isConsecutiveAddOn: true,
+          linkedFromCourseSlug,
+          priceCents: consecutivePriceCents,
+        },
+        package: null,
+        points: {
+          awarded: 0,
+          milestone: null,
+          attendanceCount: 0,
+          milestoneEvery: 0,
+        },
+      })
     }
 
     const activePackages = await prisma.packagePurchase.findMany({
@@ -127,9 +401,15 @@ export async function POST(req: Request) {
         userId: dbUser.id,
         status: "active",
         AND: [
-          { OR: [{ courseSlug: null }, { courseSlug: context.courseSlug }] },
+          {
+            OR: [
+              { courseSlug: context.courseSlug },
+              { packagePlan: { courseSlugs: { has: context.courseSlug } } },
+              { courseSlug: null, packagePlanId: null },
+            ],
+          },
           { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-          { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
+          { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
         ],
       },
       select: {
@@ -141,6 +421,7 @@ export async function POST(req: Request) {
         remainingCredits: true,
         expiresAt: true,
         status: true,
+        packagePlan: { select: { courseSlugs: true } },
       },
       orderBy: [{ expiresAt: "asc" }, { purchasedAt: "desc" }],
       take: 10,
@@ -152,6 +433,13 @@ export async function POST(req: Request) {
     })
     if (!selectedPackage) {
       return NextResponse.json({ error: "No active package available for this class." }, { status: 409 })
+    }
+
+    const selectedPackageHasCredit =
+      (selectedPackage.isUnlimited && selectedPackage.remainingCredits == null) ||
+      (selectedPackage.remainingCredits ?? 0) > 0
+    if (!selectedPackageHasCredit) {
+      return NextResponse.json({ error: "This package has no credits left." }, { status: 409 })
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -225,6 +513,21 @@ export async function POST(req: Request) {
         reason: "QR_CHECKIN_PACKAGE",
       })
 
+      await ensureAttendancePackagePurchase(tx, {
+        attendanceId: attendance.id,
+        userId: dbUser.id,
+        courseSlug: context.courseSlug,
+        courseTitle: course.title,
+        email: email || null,
+        name: name || null,
+        phone: phone || null,
+        packageId: reserveResult.packagePurchase?.packageId || selectedPackage.packageId,
+        packagePurchaseId: reserveResult.packagePurchase?.id || selectedPackage.id,
+        source: "qr_package_checkin",
+        date: context.date,
+        time: context.time,
+      })
+
       const checkedInCount = await tx.attendance.count({
         where: {
           userId: dbUser.id,
@@ -233,10 +536,11 @@ export async function POST(req: Request) {
         },
       })
 
+      const attendanceMilestoneEvery = await getAttendanceMilestoneClasses(tx)
       let pointsAwarded = 0
       let attendanceMilestone = 0
-      if (checkedInCount > 0 && checkedInCount % ATTENDANCE_STREAK_MILESTONE === 0) {
-        attendanceMilestone = Math.floor(checkedInCount / ATTENDANCE_STREAK_MILESTONE)
+      if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {
+        attendanceMilestone = Math.floor(checkedInCount / attendanceMilestoneEvery)
         const pointsResult = await awardPointsFromRule({
           db: tx,
           userId: dbUser.id,
@@ -246,7 +550,7 @@ export async function POST(req: Request) {
           meta: {
             source: "qr_package_checkin",
             courseSlug: context.courseSlug,
-            milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+            milestoneEvery: attendanceMilestoneEvery,
             milestone: attendanceMilestone,
             attendanceCount: checkedInCount,
           },
@@ -260,6 +564,7 @@ export async function POST(req: Request) {
         attendance,
         packagePurchase: reserveResult.packagePurchase,
         checkedInCount,
+        attendanceMilestoneEvery,
         pointsAwarded,
         attendanceMilestone,
       }
@@ -289,7 +594,7 @@ export async function POST(req: Request) {
         awarded: result.pointsAwarded,
         milestone: result.attendanceMilestone > 0 ? result.attendanceMilestone : null,
         attendanceCount: result.checkedInCount,
-        milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+        milestoneEvery: result.attendanceMilestoneEvery,
       },
     })
   } catch (error) {

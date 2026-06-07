@@ -18,6 +18,7 @@ const mockPrisma = {
   },
   pointsLedger: {
     aggregate: vi.fn(),
+    findUnique: vi.fn(),
     create: vi.fn(),
   },
   pointsRule: {
@@ -57,12 +58,14 @@ describe("profile route", () => {
     mockPrisma.billingAddress.deleteMany.mockReset()
     mockPrisma.purchase.count.mockReset()
     mockPrisma.pointsLedger.aggregate.mockReset()
+    mockPrisma.pointsLedger.findUnique.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
     mockPrisma.pointsRule.findUnique.mockReset()
 
     mockClerkClient.mockResolvedValue({ users: usersApi })
     mockPrisma.purchase.count.mockResolvedValue(0)
     mockPrisma.pointsRule.findUnique.mockResolvedValue(null)
+    mockPrisma.pointsLedger.findUnique.mockResolvedValue(null)
   })
 
   it("returns 401 when unauthenticated", async () => {

@@ -89,7 +89,7 @@ describe("profile bookings route", () => {
         totalCredits: 10,
         isUnlimited: false,
         expiresAt: new Date("2026-08-01T00:00:00.000Z"),
-        packagePlan: { courseSlug: "musica-bebes", label: "Babies 2-week pack" },
+        packagePlan: { courseSlugs: ["musica-bebes"], label: "Babies 2-week pack" },
       },
     ])
 

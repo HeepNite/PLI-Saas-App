@@ -12,7 +12,7 @@ export default function VerifyPhonePage() {
   const searchParams = useSearchParams()
   const { isLoaded, user } = useUser()
   const returnParam = searchParams.get("return")
-  const safeReturnTo = returnParam && returnParam.startsWith("/") ? returnParam : "/cursos"
+  const safeReturnTo = returnParam && returnParam.startsWith("/") ? returnParam : "/courses"
   const verifyUrl = `/verify-phone?return=${encodeURIComponent(safeReturnTo)}`
   const signInUrl = `/sign-in?redirect_url=${encodeURIComponent(verifyUrl)}`
 

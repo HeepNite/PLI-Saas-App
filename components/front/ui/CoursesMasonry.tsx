@@ -20,6 +20,51 @@ const BRAND = "var(--brand,#b61616)"
 const BRAND_DARK = "var(--brand-dark,#7d0000)"
 const BRAND_SOFT = "rgba(182,22,22,0.35)"
 const BRAND_STRONG = "rgba(182,22,22,0.65)"
+const TOP_BADGES = ["New", "Most Popular", "Best Value", "Hot"] as const
+
+const toEmbedVideoUrl = (input: string) => {
+  const value = input.trim()
+  if (!value) return ""
+  if (value.includes("youtube.com/watch?v=")) {
+    const id = value.split("watch?v=")[1]?.split("&")[0]
+    return id ? `https://www.youtube.com/embed/${id}` : value
+  }
+  if (value.includes("youtu.be/")) {
+    const id = value.split("youtu.be/")[1]?.split("?")[0]
+    return id ? `https://www.youtube.com/embed/${id}` : value
+  }
+  if (value.includes("vimeo.com/")) {
+    const id = value.split("vimeo.com/")[1]?.split("?")[0]
+    return id ? `https://player.vimeo.com/video/${id}` : value
+  }
+  return value
+}
+
+const isEmbedVideoUrl = (value: string) =>
+  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
+
+const toAutoplayEmbedUrl = (value: string) => {
+  const base = value.trim()
+  if (!base) return ""
+  const hasQuery = base.includes("?")
+  if (base.includes("youtube.com/embed/")) {
+    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=0&rel=0&playsinline=1`
+  }
+  if (base.includes("player.vimeo.com/video/")) {
+    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1&background=1`
+  }
+  return base
+}
+
+const pickTopBadge = (course: HomeCourse) => {
+  const seed = `${course.slug || course.id || course.title}`.trim().toLowerCase()
+  if (!seed) return TOP_BADGES[0]
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  }
+  return TOP_BADGES[hash % TOP_BADGES.length]
+}
 
 export default function CoursesMasonry({
   title = "Latin Dance, Music, and Art Courses",
@@ -92,8 +137,13 @@ export default function CoursesMasonry({
     const studentsLabel = c.students ?? "Grupos reducidos"
     const durationLabel = c.duration ?? "55 min"
     const teacherLabel = c.teacher ?? "Instructor invitado"
-    const categoryLabel = c.category ?? "Programa"
+    const categoryLabel = c.category ?? "Program"
     const comingSoon = c.badge?.toLowerCase().includes("coming")
+    const previewVideoRaw = c.previewVideo?.trim() || ""
+    const previewEmbedVideo = toEmbedVideoUrl(previewVideoRaw)
+    const isEmbedPreviewVideo = isEmbedVideoUrl(previewEmbedVideo)
+    const previewVideoSrc = isEmbedPreviewVideo ? toAutoplayEmbedUrl(previewEmbedVideo) : previewVideoRaw
+    const topBadge = pickTopBadge(c)
 
     return (
       <article
@@ -101,7 +151,7 @@ export default function CoursesMasonry({
         className={`group relative isolate overflow-hidden rounded-2xl border border-white/10 bg-[#0b0a0f]/80 backdrop-blur-xl shadow-[0_25px_120px_-60px_rgba(0,0,0,0.9)] ${isSingle ? "xl:col-span-2" : ""}`}
         style={{ minHeight: "400px" }}
         onMouseEnter={
-          c.previewVideo
+          previewVideoRaw && !isEmbedPreviewVideo
             ? (e) => {
                 const video = e.currentTarget.querySelector("video")
                 if (video) {
@@ -112,7 +162,7 @@ export default function CoursesMasonry({
             : undefined
         }
         onMouseLeave={
-          c.previewVideo
+          previewVideoRaw && !isEmbedPreviewVideo
             ? (e) => {
                 const video = e.currentTarget.querySelector("video") as HTMLVideoElement | null
                 video?.pause()
@@ -132,45 +182,42 @@ export default function CoursesMasonry({
                 sizes="(max-width: 768px) 100vw, 40vw"
                 className="object-cover transition duration-300 group-hover:scale-[1.02] group-hover:opacity-90"
               />
-              {c.previewVideo && (
-                <video
-                  muted
-                  playsInline
-                  preload="auto"
-                  autoPlay
-                  loop
-                  poster={c.image}
-                  className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                  src={c.previewVideo}
-                />
-              )}
+              {previewVideoRaw &&
+                (isEmbedPreviewVideo ? (
+                  <iframe
+                    src={previewVideoSrc}
+                    title={`${c.title} preview`}
+                    className="absolute inset-0 h-full w-full opacity-0 transition-opacity duration-300 group-hover:opacity-100 pointer-events-none"
+                    allow="autoplay; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video
+                    muted
+                    playsInline
+                    preload="auto"
+                    autoPlay
+                    loop
+                    poster={c.image}
+                    className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                    src={previewVideoSrc}
+                  />
+                ))}
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent" />
 
               <div className="absolute top-3 left-3 max-w-[60%]">
-                {c.badge && (
-                  <span
-                    className="inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-[0_15px_45px_-25px_rgba(182,22,22,0.65)] whitespace-normal break-words leading-tight text-center max-w-[240px]"
-                    style={{
-                      borderColor: BRAND_STRONG,
-                      background: `linear-gradient(135deg, ${BRAND} 0%, ${BRAND_DARK} 100%)`,
-                    }}
-                  >
-                    {c.badge}
-                  </span>
-                )}
-              </div>
-              <div className="absolute top-3 right-3">
-                <span className="rounded-full border border-white/15 bg-black/60 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-white">
-                  {categoryLabel}
+                <span
+                  className="inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-[0_15px_45px_-25px_rgba(182,22,22,0.65)] whitespace-nowrap"
+                  style={{
+                    borderColor: BRAND_STRONG,
+                    background: `linear-gradient(135deg, ${BRAND} 0%, ${BRAND_DARK} 100%)`,
+                  }}
+                >
+                  {topBadge}
                 </span>
               </div>
-
-              {c.previewVideo && (
+              {previewVideoRaw && (
                 <>
-                  <span className="absolute right-3 bottom-3 inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/60 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-white/80 group-hover:opacity-0 transition-opacity duration-200">
-                    <Play className="h-3.5 w-3.5" />
-                    Preview
-                  </span>
                   <span className="absolute inset-0 flex items-center justify-center text-white/80 opacity-90 transition-opacity duration-200 group-hover:opacity-0 pointer-events-none">
                     <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/30 bg-black/40 backdrop-blur-sm">
                       <Play className="h-6 w-6" />
@@ -206,9 +253,14 @@ export default function CoursesMasonry({
               {c.description ?? `Guided class by ${teacherLabel}. Live practice and corrections.`}
             </p>
 
+            {c.badge ? (
+              <p className="text-sm font-semibold text-[var(--brand,#ff4b4b)]">
+                Price: {c.badge}
+              </p>
+            ) : null}
+
             <div className="flex flex-wrap gap-2 text-xs text-white/70">
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Instructor: {teacherLabel}</span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Duration {durationLabel}</span>
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Group size {studentsLabel}</span>
             </div>
 
@@ -231,7 +283,7 @@ export default function CoursesMasonry({
               )}
 
               <Link
-                href={c.slug ? `/cursos/${c.slug}` : "#"}
+                href={c.slug ? `/courses/${c.slug}` : "#"}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 px-3.5 py-2 text-[12px] uppercase tracking-[0.14em] text-white/75 transition hover:border-[rgba(182,22,22,0.5)]"
                 aria-label={`View details for ${c.title}`}
               >

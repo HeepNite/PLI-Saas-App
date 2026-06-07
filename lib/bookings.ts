@@ -18,6 +18,8 @@ export const syncScheduledAttendanceFromPurchase = async (input: {
   date?: string | null
   time?: string | null
   packagePurchaseId?: string | null
+  preferredStatus?: "scheduled" | "checked_in" | "checked_in_no_package"
+  source?: string
 }) => {
   const date = input.date?.trim()
   const time = input.time?.trim()
@@ -28,8 +30,60 @@ export const syncScheduledAttendanceFromPurchase = async (input: {
 
   const course = getCourseBySlug(input.courseSlug)
   const sessionTitle = course?.title || input.courseTitle || input.courseSlug
+  const preferredStatus = input.preferredStatus || "scheduled"
+  const source = input.source || "purchase_booking"
+
+  const shouldUpgradeStatus = (current: string) => {
+    if (preferredStatus === "checked_in") return current === "scheduled"
+    if (preferredStatus === "checked_in_no_package") return current === "scheduled"
+    return false
+  }
 
   return prisma.$transaction(async (tx) => {
+    const existingByPurchase = await tx.attendance.findFirst({
+      where: {
+        userId: input.userId,
+        metadata: {
+          path: ["purchaseId"],
+          equals: input.purchaseId,
+        },
+        session: {
+          courseSlug: input.courseSlug,
+          startsAt,
+        },
+      },
+    })
+
+    if (existingByPurchase) {
+      if (shouldUpgradeStatus(existingByPurchase.status)) {
+        await tx.attendance.update({
+          where: { id: existingByPurchase.id },
+          data: {
+            status: preferredStatus,
+            checkedInAt: startsAt,
+          },
+        })
+      }
+      if (input.packagePurchaseId) {
+        try {
+          await reservePackageCreditForAttendanceTx(tx, {
+            packagePurchaseId: input.packagePurchaseId,
+            userId: input.userId,
+            attendanceId: existingByPurchase.id,
+            courseSlug: input.courseSlug,
+            at: startsAt,
+            reason: "PACKAGE_INITIAL_BOOKING",
+          })
+        } catch (error) {
+          if (!isUniqueConstraintError(error)) {
+            console.error("Failed to reserve package credit for existing purchase attendance", error)
+          }
+        }
+      }
+
+      return { session: null, attendance: existingByPurchase }
+    }
+
     const session = await tx.classSession.upsert({
       where: {
         courseSlug_startsAt: {
@@ -65,14 +119,37 @@ export const syncScheduledAttendanceFromPurchase = async (input: {
         data: {
           userId: input.userId,
           sessionId: session.id,
-          status: "scheduled",
+          status: preferredStatus,
           checkedInAt: startsAt,
           metadata: {
-            source: "purchase_booking",
+            source,
             purchaseId: input.purchaseId,
           },
         },
       })
+    } else {
+      const metadata = (attendance.metadata || {}) as Record<string, unknown>
+      const existingPurchaseId = typeof metadata.purchaseId === "string" ? metadata.purchaseId : null
+      const needsPurchaseLink = !existingPurchaseId
+      const needsStatusUpgrade = shouldUpgradeStatus(attendance.status)
+
+      if (needsPurchaseLink || needsStatusUpgrade) {
+        attendance = await tx.attendance.update({
+          where: { id: attendance.id },
+          data: {
+            ...(needsStatusUpgrade ? { status: preferredStatus, checkedInAt: startsAt } : {}),
+            ...(needsPurchaseLink
+              ? {
+                  metadata: {
+                    ...metadata,
+                    source,
+                    purchaseId: input.purchaseId,
+                  },
+                }
+              : {}),
+          },
+        })
+      }
     }
 
     if (input.packagePurchaseId) {

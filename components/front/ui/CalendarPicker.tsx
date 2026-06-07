@@ -1,5 +1,10 @@
 "use client"
 import React from "react"
+import {
+  getCalendarRangePosition,
+  isCalendarDateWithinRange,
+  resolveCalendarRangeSelection,
+} from "./calendarPickerRange"
 
 // CalendarPicker: pequeño calendario mensual con selects de mes/año y flechas prev/next.
 // - Mantiene el estilo de la marca (bordes suaves, fondo glassy)
@@ -15,7 +20,7 @@ function toISODate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-
 
 export type CalendarPickerProps = {
   value?: string // YYYY-MM-DD
-  onChange: (value: string) => void
+  onChange?: (value: string) => void // optional when rangeMode is used
   values?: string[] // selección múltiple (YYYY-MM-DD[])
   onValuesChange?: (values: string[]) => void
   multiple?: boolean
@@ -42,6 +47,10 @@ export type CalendarPickerProps = {
         | undefined)
   allowClear?: boolean
   locked?: boolean
+  rangeMode?: boolean
+  rangeStart?: string
+  rangeEnd?: string
+  onRangeChange?: (rangeStart: string, rangeEnd?: string) => void
 }
 
 export default function CalendarPicker({
@@ -62,12 +71,17 @@ export default function CalendarPicker({
   getDateTone,
   allowClear = false,
   locked = false,
+  rangeMode = false,
+  rangeStart,
+  rangeEnd,
+  onRangeChange,
 }: CalendarPickerProps) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
   const fieldId = React.useId()
 
   // Mes/año visibles en el encabezado
-  const initial = value ? new Date(value + "T00:00:00") : new Date()
+  const initialValue = rangeMode ? (rangeStart || rangeEnd || value) : (value || rangeStart || rangeEnd)
+  const initial = initialValue ? new Date(initialValue + "T00:00:00") : new Date()
   const [year, setYear] = React.useState<number>(initial.getFullYear())
   const [month, setMonth] = React.useState<number>(initial.getMonth()) // 0-11
 
@@ -133,21 +147,21 @@ export default function CalendarPicker({
 
   return (
     <div
-      className={`rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 ${
-        compact ? "p-3" : "p-3 sm:p-5 lg:p-6"
+      className={`flex h-full w-full min-w-0 flex-col rounded-md border border-black/10 bg-white/70 dark:border-white/10 dark:bg-white/10 ${
+        compact ? "p-2 pt-3" : "p-3 pt-4 sm:p-5 lg:p-6"
       } ${className}`}
     >
-      <div className="mx-auto grid w-full max-w-none grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
-        <div className={`grid min-w-0 items-center gap-2 ${compact ? "grid-cols-[minmax(0,1fr)_98px]" : "grid-cols-[minmax(0,1fr)_122px]"}`}>
+      <div className="flex w-full items-center gap-2 md:gap-3">
+        <div className="grid min-w-0 flex-1 items-center gap-2 grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           {locked ? (
             <>
-              <div className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 text-sm ${
-                compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
+              <div className={`w-full min-w-0 px-1 text-sm font-medium text-black/80 dark:text-white/80 ${
+                compact ? "py-1" : "py-1 md:py-1.5 md:text-base"
               }`}>
                 {MONTHS[month]}
               </div>
-              <div className={`w-full min-w-0 rounded-md border bg-white/80 dark:bg-white/10 px-3 text-sm ${
-                compact ? "py-1.5" : "py-1.5 md:py-2 md:text-base"
+              <div className={`w-full min-w-0 px-1 text-sm font-medium text-black/80 dark:text-white/80 ${
+                compact ? "py-1" : "py-1 md:py-1.5 md:text-base"
               }`}>
                 {year}
               </div>
@@ -189,7 +203,7 @@ export default function CalendarPicker({
           <div className="flex items-center justify-end gap-2 shrink-0">
             <button
               type="button"
-              aria-label="Mes anterior"
+              aria-label="Previous month"
               onClick={()=>go(-1)}
               className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
             >
@@ -197,7 +211,7 @@ export default function CalendarPicker({
             </button>
             <button
               type="button"
-              aria-label="Mes siguiente"
+              aria-label="Next month"
               onClick={()=>go(1)}
               className={`rounded-md border ${compact ? "h-8 w-8" : "h-8 w-8 md:h-10 md:w-10"}`}
             >
@@ -207,12 +221,15 @@ export default function CalendarPicker({
               <button
                 type="button"
                 aria-label="Clear date"
-                onClick={() => {
-                  if (multiple) {
-                    onValuesChange?.([])
-                  }
-                  onChange("")
-                }}
+                  onClick={() => {
+                    if (multiple) {
+                      onValuesChange?.([])
+                    }
+                    if (rangeMode && rangeStart) {
+                      onRangeChange?.("")
+                    }
+                    onChange?.("")
+                  }}
                 className={`rounded-md border text-xs bg-white/70 dark:bg-white/10 ${
                   compact ? "h-8 px-2.5" : "h-8 md:h-10 px-2.5 md:px-3 md:text-sm"
                 }`}
@@ -222,15 +239,13 @@ export default function CalendarPicker({
             )}
           </div>
         )}
+        <span className={`shrink-0 px-1 font-medium text-black/80 dark:text-white/80 ${compact ? "text-sm" : "text-sm md:text-base"}`}>{tz}</span>
       </div>
 
-      <div className={`mt-3 flex justify-center ${compact ? "text-xs" : "text-xs sm:text-sm"}`}>
-        <span className={`rounded-full bg-black/5 dark:bg-white/10 px-2 py-1 ${compact ? "" : "md:px-3"}`}>{tz}</span>
-      </div>
-
+      <div className="mt-3 border-t border-black/10 dark:border-white/10" />
       <div
-        className={`mx-auto mt-4 grid w-full max-w-none grid-cols-7 text-center ${
-          compact ? "gap-1 text-xs" : "gap-1 sm:gap-2 lg:gap-3 text-xs sm:text-sm lg:text-base"
+        className={`mt-2 grid w-full max-w-none flex-1 grid-cols-7 content-center text-center ${
+          compact ? "gap-1.5 text-sm" : "gap-1 sm:gap-2 lg:gap-3 text-xs sm:text-sm lg:text-base"
         }`}
       >
         {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((w)=>(
@@ -242,9 +257,19 @@ export default function CalendarPicker({
           </div>
         ))}
         {weeks.flat().map((d, idx)=>{
-          if (!d) return <div key={idx} className="py-2" />
+          if (!d) return <div key={idx} className={compact ? "h-10" : "py-2"} />
           const iso = toISODate(d)
-          const selected = multiple ? selectedValues.has(iso) : value === iso
+          const rangePosition = rangeMode
+            ? getCalendarRangePosition(iso, rangeStart, rangeEnd)
+            : null
+          const inRange = rangeMode
+            ? isCalendarDateWithinRange(iso, rangeStart, rangeEnd)
+            : false
+          const selected = rangeMode
+            ? rangePosition === "single" || rangePosition === "start" || rangePosition === "end"
+            : multiple
+              ? selectedValues.has(iso)
+              : value === iso
           const disabled = isDisabled(d)
           const disabledReason = disabled ? getDateDisabledReason?.(iso) : undefined
           const dateTooltip = getDateTooltip?.(iso)
@@ -261,23 +286,45 @@ export default function CalendarPicker({
               else nextSet.add(iso)
               const nextValues = [...nextSet].sort()
               onValuesChange?.(nextValues)
-              onChange(iso)
+              onChange?.(iso)
               return
             }
-            if (selected && allowClear) onChange("")
-            else onChange(iso)
+            if (rangeMode) {
+              const nextRange = resolveCalendarRangeSelection(rangeStart, rangeEnd, iso)
+              onRangeChange?.(nextRange.rangeStart || "", nextRange.rangeEnd)
+              onChange?.(nextRange.rangeEnd || nextRange.rangeStart || iso)
+              return
+            }
+            if (selected && allowClear) onChange?.("")
+            else onChange?.(iso)
           }
+          const rangeFillClass = rangeMode && inRange
+            ? rangePosition === "single"
+              ? "rounded-md md:rounded-lg"
+              : rangePosition === "start"
+                ? "rounded-l-md md:rounded-l-lg"
+                : rangePosition === "end"
+                  ? "rounded-r-md md:rounded-r-lg"
+                  : "rounded-none"
+            : ""
           return (
-            <div key={idx} className="relative group">
+            <div
+              key={idx}
+              className={`relative group ${rangeMode && inRange && rangePosition !== "single" ? "before:absolute before:inset-y-1 before:bg-[var(--brand,#b61616)]/12 before:content-[''] before:pointer-events-none" : ""} ${rangeMode && inRange && rangePosition === "start" ? "before:left-1/2 before:right-0" : ""} ${rangeMode && inRange && rangePosition === "end" ? "before:left-0 before:right-1/2" : ""} ${rangeMode && inRange && rangePosition === "middle" ? "before:left-0 before:right-0" : ""}`}
+              data-range-position={rangePosition || undefined}
+            >
               <button
                 type="button"
                 onClick={handleClick}
                 disabled={interactive ? disabled : false}
-                className={`w-full rounded-md md:rounded-lg border transition-colors ${
-                  compact ? "py-2 text-sm" : "py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
+                data-range-highlight={inRange ? "true" : undefined}
+                className={`rounded-md md:rounded-lg border transition-colors flex items-center justify-center ${
+                  compact ? "h-10 w-full text-sm" : "w-full py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg"
                 } ${
                   selected
                     ? toneClasses || "bg-[var(--brand,#b61616)] text-white border-transparent shadow-[0_0_0_2px_rgba(182,22,22,0.35)]"
+                    : rangeMode && inRange
+                      ? "border-[var(--brand,#b61616)]/25 bg-[var(--brand,#b61616)]/8 text-inherit"
                     : toneClasses
                       ? toneClasses
                     : dateTooltip
@@ -291,7 +338,7 @@ export default function CalendarPicker({
                     : disabled
                       ? "opacity-40 cursor-not-allowed"
                       : "hover:bg-black/10 dark:hover:bg-white/10"
-                }`}
+                } ${rangeFillClass}`}
               >
                 {d.getDate()}
               </button>

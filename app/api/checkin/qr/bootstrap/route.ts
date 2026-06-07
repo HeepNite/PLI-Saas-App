@@ -4,9 +4,22 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
-import { courseRepository } from "@/lib/courses-repository"
+import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
+import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled, snapshotPreparedCheckoutVerification } from "@/lib/checkout/prepared-context"
+import type { CourseData } from "@/constants/courses"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
+import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
+import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
+import { computeDiscountPercent } from "@/lib/course-links"
+import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
+import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 
 export const runtime = "nodejs"
+
+const DUPLICATE_BLOCKING_PURCHASE_STATUSES = [...SUCCESSFUL_PURCHASE_STATUSES, "pending"]
+
+type ClerkUser = Awaited<ReturnType<Awaited<ReturnType<typeof clerkClient>>["users"]["getUser"]>>
 
 type CoursePricingTemplate = {
   serviceId: string
@@ -27,6 +40,15 @@ const normalizePhoneDigits = (value: string) => {
   return digits.length >= 6 ? digits : ""
 }
 
+const splitName = (value: string) => {
+  const parts = value.trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return { firstName: "", lastName: "" }
+  return {
+    firstName: parts[0] || "",
+    lastName: parts.slice(1).join(" "),
+  }
+}
+
 const toRecord = (value: unknown) =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
@@ -43,14 +65,13 @@ const pickPercentDiscount = (coupon: string) => {
 }
 
 const buildPricingTemplate = (input: {
-  courseSlug: string
+  course: CourseData
   lastPurchaseMetadata: Record<string, unknown> | null
   lastPurchaseAddonsCsv: string | null
   lastPurchaseParticipants: number | null
   lastPurchaseCoupon: string | null
 }): CoursePricingTemplate | null => {
-  const course = courseRepository.getCourseBySlug(input.courseSlug)
-  if (!course) return null
+  const course = input.course
 
   const metadata = input.lastPurchaseMetadata
   const serviceIdCandidate = normalizeString(metadata?.serviceId)
@@ -114,11 +135,18 @@ const pickPreferredPackage = (input: {
     remainingCredits: number | null
     expiresAt: Date | null
     status: string
+    packagePlan?: { courseSlugs: string[] } | null
   }>
 }) => {
   const ordered = [...input.packages].sort((a, b) => {
-    const aPriority = a.courseSlug && a.courseSlug === input.courseSlug ? 0 : 1
-    const bPriority = b.courseSlug && b.courseSlug === input.courseSlug ? 0 : 1
+    const aMatchesCourse =
+      (a.courseSlug && a.courseSlug === input.courseSlug) ||
+      (a.packagePlan?.courseSlugs?.includes(input.courseSlug) ?? false)
+    const bMatchesCourse =
+      (b.courseSlug && b.courseSlug === input.courseSlug) ||
+      (b.packagePlan?.courseSlugs?.includes(input.courseSlug) ?? false)
+    const aPriority = aMatchesCourse ? 0 : 1
+    const bPriority = bMatchesCourse ? 0 : 1
     if (aPriority !== bPriority) return aPriority - bPriority
     const aExpires = a.expiresAt ? a.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
     const bExpires = b.expiresAt ? b.expiresAt.getTime() : Number.MAX_SAFE_INTEGER
@@ -129,6 +157,7 @@ const pickPreferredPackage = (input: {
 
 export async function POST(req: Request) {
   try {
+    const startedAt = Date.now()
     const rateLimit = consumeRateLimit({
       key: buildRateLimitKey("checkin:qr:bootstrap:post", getClientIp(req)),
       limit: 30,
@@ -141,11 +170,6 @@ export async function POST(req: Request) {
       )
     }
 
-    const authResult = await auth()
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     let body: unknown
     try {
       body = await req.json()
@@ -154,14 +178,39 @@ export async function POST(req: Request) {
     }
 
     const payload = toRecord(body)
+    const authResult = await auth()
+    const kioskSessionToken = normalizeString(payload?.kioskSessionToken)
+    const flowContext = normalizeString(payload?.flowContext)
+    const kioskCustomerAuth =
+      flowContext === "kiosk_terminal"
+        ? await resolveKioskCustomerClerkAuth(authResult.userId)
+        : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
+    const shouldPreferKioskSession = flowContext === "kiosk_terminal" && Boolean(kioskSessionToken)
+    const customerClerkUserId = shouldPreferKioskSession ? null : kioskCustomerAuth.userId
+    const shouldResolveKioskSession = shouldPreferKioskSession || (!customerClerkUserId && Boolean(kioskSessionToken))
+    const kioskSessionResult = shouldResolveKioskSession
+      ? await resolveTerminalKioskSession(kioskSessionToken)
+      : null
+
+    if (!customerClerkUserId && !kioskSessionResult?.ok) {
+      return NextResponse.json(
+        {
+          error:
+            kioskCustomerAuth.blocked && flowContext === "kiosk_terminal"
+              ? "Kiosk customer identification is required before continuing."
+              : kioskSessionResult?.error || "Unauthorized",
+        },
+        { status: kioskSessionResult?.status || 401 }
+      )
+    }
+
     const context = parseQrCheckInContext(
       {
         courseSlug: payload?.courseSlug,
         date: payload?.date,
         time: payload?.time,
         durationMinutes: payload?.durationMinutes,
-      },
-      { requireKnownCourse: true }
+      }
     )
     if ("status" in context) {
       return NextResponse.json({ error: context.error }, { status: context.status })
@@ -169,39 +218,202 @@ export async function POST(req: Request) {
 
     const now = new Date()
     const isWindowOpen = isQrCheckInWindowOpen(context, now)
-    const course = courseRepository.getCourseBySlug(context.courseSlug)
+    const course = await getCatalogCourseBySlug(context.courseSlug)
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
-    const client = await clerkClient()
-    const clerkUser = await client.users.getUser(authResult.userId)
-    const email = clerkUser.primaryEmailAddress?.emailAddress || ""
-    const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-    const phone = normalizePhoneDigits(phoneRaw)
-    const firstName = clerkUser.firstName?.trim() || ""
-    const lastName = clerkUser.lastName?.trim() || ""
-    const name = [firstName, lastName].filter(Boolean).join(" ").trim()
+    const kioskUser = kioskSessionResult?.ok ? kioskSessionResult.session.user : null
 
-    const dbUser = await upsertUserByIdentifiers({
-      clerkId: authResult.userId,
-      email,
-      phone,
-      name,
-    })
+    let clerkUser: ClerkUser | null = null
+    let hasAvatar = false
+    let email = kioskUser?.email || ""
+    const kioskPhoneRaw = kioskUser?.phone || ""
+    let phone = kioskUser ? normalizePhoneDigits(kioskUser.phone || "") : ""
+    let firstName = ""
+    let lastName = ""
+    let name = kioskUser?.name || ""
+
+    if (customerClerkUserId || kioskUser?.clerkId) {
+      clerkUser = customerClerkUserId ? kioskCustomerAuth.clerkUser : null
+      if (!clerkUser) {
+        const client = await clerkClient()
+        clerkUser = await client.users.getUser((customerClerkUserId || kioskUser?.clerkId) as string)
+      }
+      let avatarState = resolveAvatarState(clerkUser)
+      if (avatarState.needsRefresh && clerkUser?.id) {
+        const client = await clerkClient()
+        clerkUser = await client.users.getUser(clerkUser.id)
+        avatarState = resolveAvatarState(clerkUser)
+      }
+      hasAvatar = Boolean(avatarState.hasAvatar)
+      email = clerkUser.primaryEmailAddress?.emailAddress || email
+      const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+      phone = normalizePhoneDigits(phoneRaw) || phone
+      firstName = clerkUser.firstName?.trim() || firstName
+      lastName = clerkUser.lastName?.trim() || lastName
+      name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
+    } else if (email || kioskPhoneRaw) {
+      clerkUser = await findClerkUserByIdentifiers({
+        email,
+        phone: kioskPhoneRaw,
+      })
+      if (clerkUser) {
+        let avatarState = resolveAvatarState(clerkUser)
+        if (avatarState.needsRefresh && clerkUser.id) {
+          const client = await clerkClient()
+          clerkUser = await client.users.getUser(clerkUser.id)
+          avatarState = resolveAvatarState(clerkUser)
+        }
+        hasAvatar = Boolean(avatarState.hasAvatar)
+        email = clerkUser.primaryEmailAddress?.emailAddress || email
+        const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+        phone = normalizePhoneDigits(phoneRaw) || phone
+        firstName = clerkUser.firstName?.trim() || firstName
+        lastName = clerkUser.lastName?.trim() || lastName
+        name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
+      }
+    }
+
+    const dbUser = kioskSessionResult?.ok
+      ? {
+          id: kioskUser!.id,
+          name: kioskUser!.name,
+          email: kioskUser!.email,
+          phone: kioskUser!.phone,
+        }
+      : customerClerkUserId
+      ? await (async () => {
+          return upsertUserByIdentifiers({
+            clerkId: customerClerkUserId,
+            email,
+            phone,
+            name,
+            nameIsCanonical: true,
+          })
+        })()
+      : null
     if (!dbUser) {
       return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
     }
 
-    const [activePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
+    if (!firstName && !lastName) {
+      const nameParts = splitName(dbUser.name || name)
+      firstName = nameParts.firstName
+      lastName = nameParts.lastName
+    }
+
+    const isTerminalFlow = flowContext === "kiosk_terminal"
+
+    // ─── Consecutive offer detection ─────────────────────────
+    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    let consecutiveOffer: {
+      linkedCourseSlug: string
+      linkedCourseTitle: string
+      dropInConsecutiveCents: number | null
+      packageHolderConsecutiveCents: number | null
+      regularDropInCents: number
+      discountPercent: number
+      hasAttendedFirstClass: boolean
+    } | null = null
+
+    if (linkedFromCourseSlug && dbUser) {
+      const links = await prisma.courseLink.findMany({
+        where: {
+          OR: [
+            { courseSlugA: linkedFromCourseSlug.toLowerCase() },
+            { courseSlugB: linkedFromCourseSlug.toLowerCase() },
+          ],
+          active: true,
+        },
+      })
+
+      if (links.length > 0) {
+        const todayJsWeekday = (() => {
+          const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+          const weekday = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            weekday: "short",
+          }).format(now)
+          return weekdayLabels.findIndex((label) => label === weekday)
+        })()
+        const aTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
+        const aMinutes = aTimeMatch
+          ? Number(aTimeMatch[1]) * 60 + Number(aTimeMatch[2])
+          : null
+
+        const candidates = await Promise.all(links.map(async (link) => {
+          const linkedCourseSlug = link.courseSlugA === linkedFromCourseSlug.toLowerCase()
+            ? link.courseSlugB
+            : link.courseSlugA
+          const linkedCourse = await getCatalogCourseBySlug(linkedCourseSlug)
+          const hasAlreadyLinkedCourse = await hasPurchaseForCourseToday(dbUser.id, linkedCourseSlug, now)
+          return { link, linkedCourseSlug, linkedCourse, hasAlreadyLinkedCourse }
+        }))
+
+        // Validate that course B is actually scheduled today and starts after A's
+        // selected time. This prevents surfacing a consecutive offer for a class
+        // that isn't scheduled today (e.g. Rueda on Mondays — only on Fridays).
+        //
+        // Only enforce the check when course B has day-specific schedule rules.
+        // If no day-specific rules are present we cannot reliably determine
+        // today's availability here, so we fall back to the prior behavior and
+        // let downstream validation (attendance / check-in window) catch it.
+        const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, now)
+        const nextCandidate = candidates
+          .filter((candidate) => candidate.linkedCourse && !candidate.hasAlreadyLinkedCourse)
+          .map((candidate) => {
+            const linkedScheduleRules = candidate.linkedCourse?.scheduleRules
+            const parsedRules = parseScheduleRules(linkedScheduleRules)
+            let linkedStartMinutes: number | null = null
+            let isLinkedScheduledLaterToday = true
+            if (parsedRules?.rules?.length) {
+              const linkedTimesToday = getTimesForWeekday(linkedScheduleRules, todayJsWeekday) ?? []
+              const laterTimes = linkedTimesToday
+                .map((time) => {
+                  const match = /^(\d{2}):(\d{2})$/.exec(time)
+                  if (!match) return null
+                  const minutes = Number(match[1]) * 60 + Number(match[2])
+                  return aMinutes === null || minutes > aMinutes ? minutes : null
+                })
+                .filter((minutes): minutes is number => minutes !== null)
+                .sort((left, right) => left - right)
+              linkedStartMinutes = laterTimes[0] ?? null
+              isLinkedScheduledLaterToday = laterTimes.length > 0
+            }
+            return { ...candidate, linkedStartMinutes, isLinkedScheduledLaterToday }
+          })
+          .filter((candidate) => candidate.isLinkedScheduledLaterToday)
+          .sort((left, right) => (left.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER) - (right.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER))[0]
+
+        if (nextCandidate?.linkedCourse && hasAttendedA) {
+          const regularDropIn = nextCandidate.linkedCourse.enrollment.services.find((s) => s.id === "dropin")?.price ?? 0
+          const discountPercent = computeDiscountPercent(
+            regularDropIn * 100,
+            nextCandidate.link.dropInConsecutiveCents
+          )
+
+          consecutiveOffer = {
+            linkedCourseSlug: nextCandidate.linkedCourseSlug,
+            linkedCourseTitle: nextCandidate.linkedCourse.title,
+            dropInConsecutiveCents: nextCandidate.link.dropInConsecutiveCents,
+            packageHolderConsecutiveCents: nextCandidate.link.packageHolderConsecutiveCents,
+            regularDropInCents: regularDropIn * 100,
+            discountPercent,
+            hasAttendedFirstClass: hasAttendedA,
+          }
+        }
+      }
+    }
+
+    const [allActivePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
       prisma.packagePurchase.findMany({
         where: {
           userId: dbUser.id,
           status: "active",
           AND: [
-            { OR: [{ courseSlug: null }, { courseSlug: context.courseSlug }] },
             { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-            { OR: [{ isUnlimited: true }, { remainingCredits: { gt: 0 } }] },
+            { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
           ],
         },
         select: {
@@ -213,6 +425,7 @@ export async function POST(req: Request) {
           remainingCredits: true,
           expiresAt: true,
           status: true,
+          packagePlan: { select: { courseSlugs: true } },
         },
         orderBy: [{ expiresAt: "asc" }, { purchasedAt: "desc" }],
         take: 10,
@@ -221,20 +434,36 @@ export async function POST(req: Request) {
         where: {
           userId: dbUser.id,
           courseSlug: context.courseSlug,
-          status: { in: ["paid", "succeeded"] },
+          status: { in: DUPLICATE_BLOCKING_PURCHASE_STATUSES },
         },
         orderBy: { createdAt: "desc" },
         take: 8,
       }),
-      prisma.purchase.findFirst({
-        where: {
-          userId: dbUser.id,
-          status: { in: ["paid", "succeeded"] },
-        },
-        select: { id: true },
-      }),
+      isTerminalFlow
+        ? Promise.resolve(null)
+        : prisma.purchase.findFirst({
+            where: {
+              userId: dbUser.id,
+              status: { in: SUCCESSFUL_PURCHASE_STATUSES },
+            },
+            select: { id: true },
+          }),
     ])
     const lastPurchase = recentPurchases[0] || null
+
+    // Check if user already has a successful purchase for this exact session (date + time)
+    const hasExistingPurchaseForSession = recentPurchases.some((purchase) => {
+      const metadata = toRecord(purchase.metadata)
+      const purchaseDate = normalizeString(metadata?.date)
+      const purchaseTime = normalizeString(metadata?.time)
+      return purchaseDate === context.date && purchaseTime === context.time
+    })
+
+    const activePackages = allActivePackages.filter((item) =>
+      item.courseSlug === null ||
+      item.courseSlug === context.courseSlug ||
+      (item.packagePlan?.courseSlugs?.includes(context.courseSlug) ?? false)
+    )
 
     const preferredPackage = pickPreferredPackage({
       courseSlug: context.courseSlug,
@@ -244,7 +473,7 @@ export async function POST(req: Request) {
     const purchaseMetadata = toRecord(lastPurchase?.metadata)
     const quickTemplate = lastPurchase
       ? buildPricingTemplate({
-          courseSlug: context.courseSlug,
+          course,
           lastPurchaseMetadata: purchaseMetadata,
           lastPurchaseAddonsCsv: lastPurchase.addonsCsv,
           lastPurchaseParticipants: lastPurchase.participants,
@@ -274,6 +503,50 @@ export async function POST(req: Request) {
       }
     })
 
+    if (flowContext === "kiosk_terminal" && kioskSessionResult?.ok && isPreparedCheckoutContextEnabled()) {
+      await createPreparedCheckoutContext({
+        terminalId: kioskSessionResult.terminalAuth.terminal.id,
+        kioskSessionId: kioskSessionResult.session.id,
+        validation: {
+          courseSlug: context.courseSlug,
+          date: context.date,
+          time: context.time,
+          durationMinutes: context.durationMinutes,
+        },
+        preparedAccount: {
+          userId: dbUser.id,
+          clerkUser: null,
+          resolvedUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+          identity: {
+            resolvedEmail: email || dbUser.email || "",
+            phoneRaw: kioskPhoneRaw || clerkUser?.primaryPhoneNumber?.phoneNumber || dbUser.phone || "",
+            phoneNormalized: phone || "",
+          },
+          account: {
+            clerkUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+            created: false,
+            requiresSignIn: false,
+            hasAvatar,
+          },
+        },
+        verification: snapshotPreparedCheckoutVerification({
+          hasVerifiedPhone:
+            clerkUser?.phoneNumbers?.some((entry) => entry.id === clerkUser.primaryPhoneNumberId && entry.verification?.status === "verified") ||
+            clerkUser?.phoneNumbers?.some((entry) => entry.verification?.status === "verified") ||
+            false,
+        }),
+      })
+    }
+
+    const terminalPayload = isTerminalFlow
+
+    console.info("[staff-terminal-checkout-latency] bootstrap", {
+      flowContext,
+      source: terminalPayload ? "prepared_context_created" : "standard_bootstrap",
+      durationMs: Date.now() - startedAt,
+      hasQuickCheckout: Boolean(quickTemplate),
+    })
+
     return NextResponse.json({
       context: {
         courseSlug: context.courseSlug,
@@ -291,11 +564,13 @@ export async function POST(req: Request) {
       },
       customer: {
         userId: dbUser.id,
+        clerkUserId: customerClerkUserId || kioskUser?.clerkId || "",
         firstName,
         lastName,
         name: dbUser.name || name,
-        email: dbUser.email || email,
-        phone: dbUser.phone || phone,
+        email: email || dbUser.email || "",
+        phone: phone || dbUser.phone || "",
+        hasAvatar,
       },
       package: preferredPackage
         ? {
@@ -303,7 +578,7 @@ export async function POST(req: Request) {
             expiresAt: preferredPackage.expiresAt ? preferredPackage.expiresAt.toISOString() : null,
           }
         : null,
-      packages: packagesList,
+      ...(terminalPayload ? {} : { packages: packagesList }),
       quickCheckout: quickTemplate
         ? {
             ...quickTemplate,
@@ -312,9 +587,16 @@ export async function POST(req: Request) {
             sourcePurchaseAt: lastPurchase?.createdAt?.toISOString() || null,
           }
         : null,
-      purchaseHistory,
-      hasPreviousPurchase: Boolean(lastPurchase),
-      hasAnyCompletedPurchase: Boolean(anyCompletedPurchase),
+      ...(terminalPayload
+        ? { hasExistingPurchaseForSession }
+        : {
+            purchaseHistory,
+            hasPreviousPurchase: Boolean(lastPurchase),
+            hasAnyCompletedPurchase: Boolean(anyCompletedPurchase),
+            hasExistingPurchaseForSession,
+          }),
+      hasAnyActivePackage: allActivePackages.length > 0,
+      consecutiveOffer,
     })
   } catch (error) {
     console.error("QR check-in bootstrap failed", error)

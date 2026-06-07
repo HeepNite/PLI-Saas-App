@@ -1,0 +1,134 @@
+# Tasks — refactor-checkin-qr-client-600-lines
+
+## Review Workload Forecast
+
+| Field | Value |
+|---|---|
+| Estimated total changed lines | 2,000–2,500 |
+| 400-line budget risk | High |
+| Chained PRs recommended | Yes |
+| Delivery strategy | ask-always |
+| Current decision | use chained PRs; ask before each high-risk slice |
+
+## Target
+
+- [ ] Final `components/front/checkin/CheckInQrClient.tsx` line count <=600.
+- [ ] No behavior change outside scoped refactor slices.
+- [ ] Regression checklist validated before final archive.
+
+## Phase 0 — Baseline and Safety
+
+- [ ] 0.1 Record current `CheckInQrClient.tsx` LOC and complexity metrics.
+- [ ] 0.2 Run baseline focused tests:
+  - `tests/checkin/existing-customer-flow.test.ts`
+  - `tests/checkin/kiosk-reset.test.ts`
+  - `tests/checkin/useKioskFlowCompletion.test.tsx`
+  - `tests/checkin/kiosk-qr-payment.test.ts`
+  - `tests/checkin/kiosk-qr-poller.test.ts`
+- [ ] 0.3 Create regression checklist for kiosk happy paths.
+
+## Phase 1 — API Adapter Extraction
+
+- [x] 1.1 Create `lib/checkin/checkin-qr-api.ts`.
+- [x] 1.2 Move bootstrap/package/dropin/checkout/session-status/terminal-offer fetch shapes into the adapter.
+- [x] 1.3 Add `tests/checkin/checkin-qr-api.test.ts` with mocked fetch payload assertions.
+- [x] 1.4 Replace callsites in `CheckInQrClient.tsx` without changing behavior.
+- [x] 1.5 Validate typecheck, lint, focused tests.
+- Suggested commit: `refactor(checkin): extract qr api adapter`
+- Rollback boundary: adapter + callsite replacement only.
+
+## Phase 2 — Consecutive QR Poller Hook
+
+- [x] 2.1 Create `components/front/checkin/hooks/useKioskQrCheckoutPoller.ts`.
+- [x] 2.2 Move consecutive QR polling effect into the hook.
+- [x] 2.3 Reuse `lib/checkin/kiosk-qr-payment.ts` phase decisions.
+- [x] 2.4 Add focused hook tests.
+- [x] 2.5 Validate consecutive QR and checkout adapter suites.
+- Suggested commit: `refactor(checkin): extract consecutive qr poller hook`
+
+## Phase 3 — Bootstrap and Package Check-in Hook
+
+- [x] 3a.1 Extract package check-in lifecycle into `components/front/checkin/hooks/useCheckInPackageFlow.ts`.
+- [x] 3a.2 Preserve package success timeout, cleanup, and station-completion behavior for #35.
+- [x] 3a.3 Keep `processingPackageCheckIn` in `CheckInQrClient.tsx` temporarily because display derivation still reads it before bootstrap is untangled.
+- [x] 3b.1 Extract bootstrap context payload derivation into `lib/checkin/checkin-bootstrap-context.ts`.
+- [x] 3b.2 Cover normal active context and late-payment override context with focused tests.
+- [x] 3c.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts` for bootstrap/loading ownership.
+- [x] 3c.2 Move `loadBootstrap` into `useCheckInBootstrap` while preserving kiosk session, PIN rotation, and consecutive-offer side effects.
+- [x] 3c.3 Keep package check-in ownership in `useCheckInPackageFlow`; full Phase 3 cleanup remains open for temporary seam removal.
+- [x] 3d.1 Remove obsolete `loadBootstrapRef` seam after bootstrap loader extraction.
+- [x] 3d.2 Keep `setBootstrapRef`, `handleStationCompletionRef`, and `checkConsecutiveOfferAfterCheckInRef` documented as remaining hook-order seams.
+
+- [x] 3.1 Create `components/front/checkin/hooks/useCheckInBootstrap.ts`.
+- [ ] 3.2 Move remaining `processingPackageCheckIn` ownership after display state no longer depends on it.
+- [ ] 3.3 Remove remaining temporary refs after Phase 4 owns consecutive flow and kiosk PIN reset seams are untangled.
+- [x] 3.4 Keep package success timeout and cleanup inside this hook.
+- [x] 3.5 Add hook tests for package/no-package, usable/unusable package, success timer, and #35 regression path.
+- [x] 3.6 Validate API and existing customer flow tests.
+- Suggested commit: `refactor(checkin): extract bootstrap package hook`
+
+## Phase 4 — Consecutive Offer Flow Hook
+
+- [ ] 4.1 Decide whether to split this phase into multiple PRs if forecast exceeds 400 changed lines.
+- [x] 4a.1 Extract post-check-in consecutive offer lookup into `useConsecutiveOfferLookup`.
+- [x] 4a.2 Preserve kiosk/auth gating, override payloads, usable package checks, and silent false fallbacks.
+- [x] 4a.3 Add focused lookup tests.
+- [x] 4b.1 Extract base consecutive offer state and early terminal offer fetch into `useConsecutiveOfferState`.
+- [x] 4b.2 Preserve refresh behavior for station completion and consecutive payment exits.
+- [x] 4b.3 Add focused state/fetch tests.
+- [x] 4c.1 Extract consecutive accept/decline actions into `useConsecutiveOfferActions`.
+- [x] 4c.2 Preserve package-holder paid add-on routing through payment selection.
+- [x] 4c.3 Keep cash/card handlers in `CheckInQrClient.tsx` for a later slice.
+- [x] 4d.1 Move consecutive cash/card actions into `useConsecutiveOfferActions`.
+- [x] 4d.2 Preserve cash package add-on and card QR checkout payloads.
+- [x] 4d.3 Preserve QR cancel/complete behavior.
+- [ ] 4.2 Create `components/front/checkin/hooks/useConsecutiveOfferFlow.ts`.
+- [ ] 4.3 Move consecutive state atoms and handlers.
+- [ ] 4.4 Move early offer fetch and post-check-in offer lookup.
+- [ ] 4.5 Keep paid package-holder add-on behavior routed through cash/card selection.
+- [ ] 4.6 Add hook tests for accept/decline/cash/card matrix.
+- [ ] 4.7 Validate #33, #34, #35 regression surfaces.
+- Suggested commit: `refactor(checkin): extract consecutive offer flow`
+
+## Phase 5 — Entry Mode Router Hook
+
+- [x] 5a.1 Extract entry-mode routing handlers into `useEntryModeRouter`.
+- [x] 5a.2 Preserve existing/new/late-payment/phone sign-in/post-purchase/bootstrap action behavior.
+- [x] 5a.3 Keep state ownership in `CheckInQrClient.tsx` for this slice to avoid a `useCheckInDisplayData` dependency cycle.
+- [ ] 5.1 Create `components/front/checkin/hooks/useEntryModeRouter.ts`.
+- [ ] 5.2 Move mode/open booking/late payment/sign-in state and handlers.
+- [ ] 5.3 Move auto-promote effect using `shouldAutoPromoteExistingMode`.
+- [ ] 5.4 Add tests for #32, personal QR/web active session, explicit `entryMode=existing`, switch-account and late-payment branches.
+- Suggested commit: `refactor(checkin): extract entry mode router`
+
+## Phase 6 — Completion and Inactivity Cleanup
+
+- [ ] 6.1 Slim `useKioskFlowCompletion` from setter-bag to reset callbacks.
+- [ ] 6.2 Create `components/front/checkin/hooks/useKioskInactivityGuard.ts`.
+- [x] 6.3 Move inactivity controller effect into `useCheckInTerminalEffects` as part of the terminal lifecycle extraction.
+- [x] 6.4 Validate sensitive-state reset behavior through adversarial review of `useCheckInTerminalEffects`.
+- Suggested commit: `refactor(checkin): simplify kiosk completion wiring`
+
+## Phase 7 — Presenter Split
+
+- [x] 7.1 Create `components/front/checkin/CheckInQrShell.tsx`.
+- [x] 7.2 Create `components/front/checkin/CheckInQrOverlays.tsx`.
+- [x] 7.3 Keep enroll modal wiring inside `CheckInQrOverlays.tsx`; no separate `CheckInEnrollModals.tsx` needed for this slice.
+- [x] 7.4 Move JSX/presentation decisions into presenters while keeping orchestration in hooks.
+- [x] 7.5 Add controller/support hooks for extracted orchestration:
+  - `components/front/checkin/hooks/useCheckInQrController.ts`
+  - `components/front/checkin/hooks/useCheckInBookingModalFlow.ts`
+  - `components/front/checkin/hooks/useCheckInTerminalEffects.ts`
+  - `components/front/checkin/hooks/useCheckInQrShellProps.ts`
+  - `components/front/checkin/hooks/useConsecutiveOfferUiHandlers.ts`
+- [x] 7.6 Confirm final `CheckInQrClient.tsx` <=600 LOC; current wrapper is ~10 LOC.
+- Suggested commit: `refactor(checkin): split qr client presenters`
+
+## Final Verification
+
+- [ ] Run targeted check-in/kiosk unit suites.
+- [ ] Run relevant API check-in suites.
+- [ ] Run `npx tsc --noEmit`.
+- [ ] Run scoped lint for touched files.
+- [ ] Run preview/manual kiosk happy-path checklist.
+- [ ] Archive or update this spec with final LOC and validation evidence.

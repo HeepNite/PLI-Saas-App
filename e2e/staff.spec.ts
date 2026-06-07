@@ -2,25 +2,41 @@ import { expect, test } from "@playwright/test"
 
 const STAFF_CHECKIN_URL = "/staff/checkin"
 
-const enterPin = async (page: import("@playwright/test").Page, pin: string) => {
+const enterPin = async (
+  page: import("@playwright/test").Page,
+  submit: import("@playwright/test").Locator,
+  pin: string
+) => {
   await page.waitForTimeout(150)
-  for (const digit of pin.split("")) {
-    const digitButton = page.getByRole("button", { name: digit, exact: true }).first()
-    await digitButton.scrollIntoViewIfNeeded()
-    await digitButton.evaluate((el) => {
-      ;(el as HTMLButtonElement).click()
-    })
+  await page.locator("body").click({ position: { x: 10, y: 10 } })
+  const clear = page.getByRole("button", { name: "Clear", exact: true })
+  const typeByKeyboard = async () => {
+    await clear.click({ force: true })
+    await page.keyboard.type(pin, { delay: 30 })
   }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await typeByKeyboard()
+    if (!(await submit.isEnabled())) {
+      await clear.click({ force: true })
+      for (const digit of pin.split("")) {
+        const digitButton = page.getByRole("button", { name: digit, exact: true }).first()
+        await digitButton.click({ force: true })
+      }
+    }
+    if (await submit.isEnabled()) return
+    await page.waitForTimeout(120)
+  }
+  throw new Error("Unable to enter PIN in keypad.")
 }
 
 test("staff checkin terminal renders keypad and submit state", async ({ page }) => {
-  await page.goto(STAFF_CHECKIN_URL, { waitUntil: "domcontentloaded" })
+  await page.goto(STAFF_CHECKIN_URL, { waitUntil: "commit" })
 
-  await expect(page.getByRole("heading", { name: "Ingreso por PIN", exact: true })).toBeVisible()
-  const submit = page.getByRole("button", { name: "Marcar entrada", exact: true })
+  await expect(page.getByRole("heading", { name: "PIN check-in", exact: true })).toBeVisible()
+  const submit = page.getByRole("button", { name: "Check in", exact: true })
   await expect(submit).toBeDisabled()
 
-  await enterPin(page, "1234")
+  await enterPin(page, submit, "1234")
   await expect(submit).toBeEnabled({ timeout: 10_000 })
 })
 
@@ -33,13 +49,13 @@ test("staff checkin shows error for invalid pin response", async ({ page }) => {
     })
   })
 
-  await page.goto(STAFF_CHECKIN_URL, { waitUntil: "domcontentloaded" })
-  await enterPin(page, "1234")
-  const submit = page.getByRole("button", { name: "Marcar entrada", exact: true })
+  await page.goto(STAFF_CHECKIN_URL, { waitUntil: "commit" })
+  const submit = page.getByRole("button", { name: "Check in", exact: true })
+  await enterPin(page, submit, "1234")
   await expect(submit).toBeEnabled({ timeout: 10_000 })
   await submit.click()
 
-  await expect(page.getByText(/Invalid PIN|PIN inválido/i)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/Invalid PIN/i)).toBeVisible({ timeout: 15_000 })
   await expect(page).toHaveURL(/\/staff\/checkin/)
 })
 
@@ -62,9 +78,9 @@ test("staff checkin redirects when pin is accepted", async ({ page }) => {
     })
   })
 
-  await page.goto(STAFF_CHECKIN_URL, { waitUntil: "domcontentloaded" })
-  await enterPin(page, "1234")
-  const submit = page.getByRole("button", { name: "Marcar entrada", exact: true })
+  await page.goto(STAFF_CHECKIN_URL, { waitUntil: "commit" })
+  const submit = page.getByRole("button", { name: "Check in", exact: true })
+  await enterPin(page, submit, "1234")
   await expect(submit).toBeEnabled({ timeout: 10_000 })
   await submit.click()
 

@@ -4,6 +4,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
@@ -50,6 +51,13 @@ const pickMetadata = (metadata?: Stripe.Metadata) => ({
   email: normalize(metadata?.email),
   phone: normalize(metadata?.phone),
   phoneRaw: normalize(metadata?.phoneRaw),
+  date: normalize(metadata?.date),
+  time: normalize(metadata?.time),
+  // Consecutive class fields
+  consecutivePriceCents: normalize(metadata?.consecutivePriceCents),
+  consecutiveLinkedCourseSlug: normalize(metadata?.consecutiveLinkedCourseSlug),
+  consecutiveCourseTitle: normalize(metadata?.consecutiveCourseTitle),
+  consecutiveLinkedCourseTime: normalize(metadata?.consecutiveLinkedCourseTime),
 })
 
 type FinalizeBody = {
@@ -112,29 +120,152 @@ export async function POST(req: Request) {
     normalizePhone(meta.phoneRaw) ||
     normalizePhone(clerkUser.primaryPhoneNumber?.phoneNumber) ||
     undefined
-  const name = meta.name || [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() || undefined
+  const canonicalClerkName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() || undefined
+  const purchaseName = meta.name || canonicalClerkName
   const stripeCustomerId = typeof intent.customer === "string" ? intent.customer : undefined
 
   const user = await upsertUserByIdentifiers({
     clerkId: authResult.userId,
     email,
     phone,
-    name,
+    name: canonicalClerkName,
     stripeCustomerId,
+    nameIsCanonical: true,
   })
 
   if (!user) {
     return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
   }
 
+  const purchaseStatus = normalizePersistedPurchaseStatus(intent.status)
+
+  // ─── Dual Purchase creation for consecutive class ────────────
+  const consecutivePriceCents = meta.consecutivePriceCents
+    ? Number.parseInt(meta.consecutivePriceCents, 10)
+    : null
+  const hasConsecutive =
+    Number.isFinite(consecutivePriceCents) &&
+    consecutivePriceCents != null &&
+    consecutivePriceCents > 0 &&
+    meta.consecutiveLinkedCourseSlug
+
+  if (hasConsecutive) {
+    const primaryAmount = (intent.amount ?? 0) - consecutivePriceCents!
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Purchase 1: original class (linked to PaymentIntent)
+      const purchase1 = await tx.purchase.upsert({
+        where: { stripePaymentIntentId: intent.id },
+        update: {
+          status: purchaseStatus,
+          amount: primaryAmount,
+          currency: intent.currency || "usd",
+          email,
+          name: purchaseName,
+          phone,
+          participants: parseIntSafe(meta.participants),
+          coupon: meta.coupon,
+          packageId: meta.packageId,
+          serviceId: meta.serviceId,
+          addonsCsv: meta.addons,
+          courseSlug: meta.courseSlug || "unknown",
+          courseTitle: meta.courseTitle,
+          metadata: intent.metadata ?? undefined,
+        },
+        create: {
+          userId: user.id,
+          stripePaymentIntentId: intent.id,
+          status: purchaseStatus,
+          amount: primaryAmount,
+          currency: intent.currency || "usd",
+          email,
+          name: purchaseName,
+          phone,
+          participants: parseIntSafe(meta.participants),
+          coupon: meta.coupon,
+          packageId: meta.packageId,
+          serviceId: meta.serviceId,
+          addonsCsv: meta.addons,
+          courseSlug: meta.courseSlug || "unknown",
+          courseTitle: meta.courseTitle,
+          metadata: {
+            ...(intent.metadata ?? {}),
+            hasConsecutiveLinkedPurchase: true,
+            consecutiveLinkedSlug: meta.consecutiveLinkedCourseSlug,
+          },
+        },
+      })
+
+      // Purchase 2: consecutive class (NOT linked to PaymentIntent — single PI covers both)
+      const purchase2 = await tx.purchase.create({
+        data: {
+          userId: user.id,
+          courseSlug: meta.consecutiveLinkedCourseSlug!,
+          courseTitle: meta.consecutiveCourseTitle || null,
+          amount: consecutivePriceCents!,
+          currency: intent.currency || "usd",
+          status: purchaseStatus,
+          email,
+          name: purchaseName,
+          phone,
+          participants: 1,
+          coupon: null,
+          packageId: null,
+          serviceId: meta.serviceId || null,
+          addonsCsv: null,
+          metadata: {
+            ...(intent.metadata ?? {}),
+            consecutiveLinkedFrom: meta.courseSlug,
+            consecutiveDiscount: true,
+            parentPurchaseId: purchase1.id,
+            // Override course-specific metadata for the consecutive class
+            courseSlug: meta.consecutiveLinkedCourseSlug,
+            courseTitle: meta.consecutiveCourseTitle || "",
+            time: meta.consecutiveLinkedCourseTime ?? meta.time,
+          },
+        },
+      })
+
+      return { purchase1, purchase2 }
+    })
+
+    let packagePurchaseId: string | null = null
+    if (intent.status === "succeeded") {
+      const syncedPackage = await syncPackagePurchaseFromPaidPurchase({
+        userId: user.id,
+        purchaseId: result.purchase1.id,
+        purchasedAt: result.purchase1.createdAt,
+        metadata: {
+          courseSlug: meta.courseSlug,
+          packageId: meta.packageId,
+          packageLabel: meta.packageLabel,
+          packageTotalCredits: meta.packageTotalCredits,
+          packageIsUnlimited: meta.packageIsUnlimited,
+          packageCadence: meta.packageCadence,
+          packageMakeUps: meta.packageMakeUps,
+          packageValidDays: meta.packageValidDays,
+        },
+      })
+      packagePurchaseId = syncedPackage?.id || null
+    }
+
+    return NextResponse.json({
+      ok: true,
+      purchaseId: result.purchase1.id,
+      consecutivePurchaseId: result.purchase2.id,
+      packagePurchaseId,
+    })
+  }
+
+  // ─── Single Purchase (backward compatible) ──────────────────
   const purchase = await prisma.purchase.upsert({
     where: { stripePaymentIntentId: intent.id },
     update: {
-      status: intent.status,
+      status: purchaseStatus,
       amount: intent.amount ?? 0,
       currency: intent.currency || "usd",
       email,
-      name,
+      name: purchaseName,
       phone,
       participants: parseIntSafe(meta.participants),
       coupon: meta.coupon,
@@ -148,11 +279,11 @@ export async function POST(req: Request) {
     create: {
       userId: user.id,
       stripePaymentIntentId: intent.id,
-      status: intent.status,
+      status: purchaseStatus,
       amount: intent.amount ?? 0,
       currency: intent.currency || "usd",
       email,
-      name,
+      name: purchaseName,
       phone,
       participants: parseIntSafe(meta.participants),
       coupon: meta.coupon,

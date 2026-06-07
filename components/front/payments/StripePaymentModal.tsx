@@ -23,7 +23,7 @@ export function StripePaymentModal({ clientSecret, onClose, onSuccess, email, na
           type="button"
           onClick={onClose}
           className="absolute right-3 top-3 h-8 w-8 rounded-full bg-black/70 text-white hover:bg-black"
-          aria-label="Cerrar"
+          aria-label="Close"
         >
           ✕
         </button>
@@ -74,7 +74,7 @@ function PaymentForm({
       },
     })
     if (result.error) {
-      setError(result.error.message || "No se pudo procesar el pago.")
+      setError(result.error.message || "Unable to process payment.")
       setProcessing(false)
       return
     }
@@ -85,7 +85,7 @@ function PaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 overflow-y-auto pr-1">
-      <h3 className="text-lg font-semibold">Pago seguro</h3>
+      <h3 className="text-lg font-semibold">Secure payment</h3>
       <p className="text-sm text-neutral-600">Usa Apple Pay, Google Pay o tarjeta.</p>
       <div className="rounded-md border border-black/10 p-3 bg-white min-h-[220px]">
         <PaymentElement
@@ -120,14 +120,14 @@ function PaymentForm({
           onClick={onClose}
           className="rounded-md border border-black/20 bg-white px-4 py-2 text-sm text-neutral-900 hover:bg-neutral-50"
         >
-          Volver
+          Back
         </button>
         <button
           type="submit"
           disabled={processing || !stripe || !elements}
           className="rounded-md bg-[#635bff] px-4 py-2 text-sm text-white disabled:opacity-50"
         >
-          {processing ? "Procesando..." : "Pagar ahora"}
+          {processing ? "Processing..." : "Pay now"}
         </button>
       </div>
     </form>

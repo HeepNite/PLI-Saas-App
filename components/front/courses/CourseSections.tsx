@@ -4,16 +4,16 @@ import type { CourseSectionsData } from "./types"
 
 const faqs = [
   {
-    q: "¿Necesito pareja?",
-    a: "No. Rotamos y organizamos la clase para que todos practiquen cómodos.",
+    q: "Do I need a partner?",
+    a: "No. We rotate and organize the class so everyone can practice comfortably.",
   },
   {
-    q: "¿Qué debo traer?",
-    a: "Ropa cómoda, agua y buena energía. Calzado con suela suave ayuda a girar.",
+    q: "What should I bring?",
+    a: "Comfortable clothing, water, and good energy. Soft-soled shoes help with turns.",
   },
   {
-    q: "¿Puedo empezar de cero?",
-    a: "Sí. La clase está pensada para principiantes y vamos paso a paso.",
+    q: "Can I start from scratch?",
+    a: "Yes. The class is designed for beginners and we go step by step.",
   },
 ]
 
@@ -26,39 +26,39 @@ const reviewAvatars = [
 const reviews = [
   {
     name: "Camila R.",
-    role: "Alumno",
+    role: "Student",
     quote:
-      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. En pocas clases mejoré la técnica y la seguridad.",
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. In just a few classes I improved my technique and confidence.",
   },
   {
     name: "Lucas M.",
-    role: "Alumno",
+    role: "Student",
     quote:
-      "Ritmo, musicalidad y estructura clara. Me gustó el feedback constante y cómo se adapta al nivel.",
+      "Rhythm, musicality, and clear structure. I liked the constant feedback and how it adapts to each level.",
   },
   {
-    name: "Sofía G.",
-    role: "Alumno",
+    name: "Sofia G.",
+    role: "Student",
     quote:
-      "Excelente energía en clase. El instructor explica paso a paso y se nota el progreso muy rápido.",
+      "Great class energy. The instructor explains step by step and progress is noticeable very quickly.",
   },
   {
     name: "Nico P.",
-    role: "Alumno",
+    role: "Student",
     quote:
-      "Contenido práctico y directo. Salís de cada clase con algo concreto para aplicar.",
+      "Practical, straightforward content. You leave each class with something concrete to apply.",
   },
 ]
 
 const formatPrice = (value?: number) => (typeof value === "number" ? `$${value}` : "—")
 const dayMap: Record<string, string> = {
-  Mon: "Lunes",
-  Tue: "Martes",
-  Wed: "Miércoles",
-  Thu: "Jueves",
-  Fri: "Viernes",
-  Sat: "Sábado",
-  Sun: "Domingo",
+  Mon: "Monday",
+  Tue: "Tuesday",
+  Wed: "Wednesday",
+  Thu: "Thursday",
+  Fri: "Friday",
+  Sat: "Saturday",
+  Sun: "Sunday",
 }
 
 const formatDays = (raw: string) => {
@@ -104,6 +104,40 @@ const formatScheduleTime = (raw: string) => {
   if (!matches?.length) return cleaned
   if (matches.length === 2 && !/[/•]/.test(cleaned)) return formatTimeRange(cleaned)
   return cleaned.replace(/\d{1,2}:\d{2}/g, (m) => to12h(m))
+}
+
+const toEmbedVideoUrl = (input: string) => {
+  const value = input.trim()
+  if (!value) return ""
+  if (value.includes("youtube.com/watch?v=")) {
+    const id = value.split("watch?v=")[1]?.split("&")[0]
+    return id ? `https://www.youtube.com/embed/${id}` : value
+  }
+  if (value.includes("youtu.be/")) {
+    const id = value.split("youtu.be/")[1]?.split("?")[0]
+    return id ? `https://www.youtube.com/embed/${id}` : value
+  }
+  if (value.includes("vimeo.com/")) {
+    const id = value.split("vimeo.com/")[1]?.split("?")[0]
+    return id ? `https://player.vimeo.com/video/${id}` : value
+  }
+  return value
+}
+
+const isEmbedVideoUrl = (value: string) =>
+  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
+
+const toAutoplayEmbedUrl = (value: string) => {
+  const base = value.trim()
+  if (!base) return ""
+  const hasQuery = base.includes("?")
+  if (base.includes("youtube.com/embed/")) {
+    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=1&rel=0&playsinline=1`
+  }
+  if (base.includes("player.vimeo.com/video/")) {
+    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1`
+  }
+  return base
 }
 
 const extractScheduleSlots = (raw: string) => {
@@ -187,14 +221,17 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
   const benefits = course.benefits ?? []
   const syllabus = course.syllabus ?? []
   const heroImage = course.heroMedia?.image
-  const heroVideo = course.heroMedia?.video
+  const heroVideoRaw = course.heroMedia?.video?.trim() || ""
+  const heroEmbedVideo = toEmbedVideoUrl(heroVideoRaw)
+  const isHeroEmbedVideo = isEmbedVideoUrl(heroEmbedVideo)
+  const heroVideo = isHeroEmbedVideo ? toAutoplayEmbedUrl(heroEmbedVideo) : heroVideoRaw
   const ageNotes = extractAgeNotes(course.schedule.time || "")
   const scheduleSlots = extractScheduleSlots(course.schedule.time || "")
 
   const stats = [
-    { label: "Nivel", value: course.level },
-    { label: "Duración", value: course.duration },
-    { label: "Frecuencia", value: course.schedule.frequency || formatDays(course.schedule.day) },
+    { label: "Level", value: course.level },
+    { label: "Duration", value: course.duration },
+    { label: "Frequency", value: course.schedule.frequency || formatDays(course.schedule.day) },
   ]
 
   const highlights = (benefits.length ? benefits : syllabus).slice(0, 3)
@@ -220,13 +257,13 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
               onClick={focusBooking}
               className="text-xs uppercase tracking-[0.35em] text-white hover:text-white"
             >
-              Reserva tu clase →
+              Book your class →
             </button>
           </div>
 
           <div className="mt-4 grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
             <div>
-              <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--brand)]">Experiencia del curso</p>
+              <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--brand)]">Course experience</p>
               <h2 className="mt-3 text-2xl sm:text-3xl font-semibold leading-tight">{course.title}</h2>
               <p className="mt-3 text-sm sm:text-base text-white/70">{course.description}</p>
 
@@ -244,7 +281,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-[#2b0c0c] via-[#0f0f0f] to-[#070707] p-5 backdrop-blur">
-              <div className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Horarios</div>
+              <div className="text-xs uppercase tracking-[0.3em] text-[color:var(--brand)]">Schedules</div>
               <div className="relative mt-4 overflow-hidden rounded-3xl border border-white/10 bg-black/40">
                 <div
                   className="absolute top-0 h-full"
@@ -257,16 +294,16 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                 <div className="relative z-10 p-4 md:max-w-[42%] lg:max-w-[69%]">
                   <div className="rounded-2xl border border-white/10 bg-black/50 px-4 py-4 space-y-4">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/50">Días</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/50">Days</p>
                       <p className="mt-1 text-base font-semibold text-white">{formatDays(course.schedule.day)}</p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/50">Horario completo</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/50">Schedule completo</p>
                       {ageNotes.length > 0 && scheduleSlots.length > 1 ? (
                         <div className="mt-2 space-y-2 text-left">
                           {scheduleSlots.slice(0, 2).map((slot, idx) => (
                             <p key={`${slot}-${idx}`} className="text-sm font-semibold text-white">
-                              <span className="text-[color:var(--brand)]">Grupo {idx === 0 ? "A" : "B"}</span> · {slot}
+                              <span className="text-[color:var(--brand)]">Group {idx === 0 ? "A" : "B"}</span> · {slot}
                             </p>
                           ))}
                         </div>
@@ -275,7 +312,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                       )}
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/50">Dirección</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/50">Address</p>
                       <a
                         href={bookingMapLink}
                         target="_blank"
@@ -287,11 +324,11 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                     </div>
                     {ageNotes.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-sm font-semibold text-[color:var(--brand)]">Grupos por edad</p>
+                        <p className="text-sm font-semibold text-[color:var(--brand)]">Age groups</p>
                         <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white/90">
                           {ageNotes.slice(0, 2).map((note, idx) => (
                             <p key={`${note}-${idx}`} className={idx === 0 ? "pb-2" : ""}>
-                              <span className="mr-2 text-[color:var(--brand)]">Grupo {idx === 0 ? "A" : "B"}:</span>
+                              <span className="mr-2 text-[color:var(--brand)]">Group {idx === 0 ? "A" : "B"}:</span>
                               {note}
                             </p>
                           ))}
@@ -299,8 +336,8 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                       </div>
                     )}
                     <p className="text-sm font-semibold leading-snug text-[color:var(--brand)]">
-                      Nota: el ingreso al salón es a la hora indicada.
-                      <span className="block">No antes, porque hay otras clases en curso.</span>
+                      Note: entry to the room is at the scheduled time.
+                      <span className="block">Not earlier, because there are other classes in progress.</span>
                     </p>
                   </div>
                 </div>
@@ -311,16 +348,26 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
           <div className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-black/60">
             <div className="aspect-video w-full">
               {heroVideo ? (
-                <video
-                  src={heroVideo}
-                  poster={heroImage}
-                  className="h-full w-full object-cover"
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  preload="metadata"
-                />
+                isHeroEmbedVideo ? (
+                  <iframe
+                    src={heroVideo}
+                    title={`${course.title} preview`}
+                    className="h-full w-full"
+                    allow="autoplay; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video
+                    src={heroVideo}
+                    poster={heroImage}
+                    className="h-full w-full object-cover"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    preload="metadata"
+                  />
+                )
               ) : heroImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={heroImage} alt="" className="h-full w-full object-cover" />
@@ -334,8 +381,8 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
         {/* What you get */}
         <section data-reveal className="reveal">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Qué vas a lograr</p>
-            <h3 className="mt-3 text-2xl font-semibold">Resultados reales desde la primera semana</h3>
+            <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">What you will achieve</p>
+            <h3 className="mt-3 text-2xl font-semibold">Real results from the first week</h3>
             <p className="mt-3 text-sm text-white/70">
               Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et
               dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip
@@ -355,8 +402,8 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
         <section id="services" data-reveal className="reveal">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Servicios</p>
-              <h3 className="mt-3 text-2xl font-semibold">Cómo funciona tu reserva</h3>
+              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Services</p>
+              <h3 className="mt-3 text-2xl font-semibold">How booking works</h3>
             </div>
           </div>
 
@@ -364,7 +411,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
               <p className="text-xs uppercase tracking-[0.3em] text-white/50">1. Servicio</p>
               <p className="mt-2 text-sm text-white/70">
-                Elegí la modalidad que mejor se adapte a tu semana.
+                Choose the format that best fits your week.
               </p>
               <div className="mt-4 space-y-2">
                 {services.map((service) => (
@@ -377,9 +424,9 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-white/50">2. Paquetes</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-white/50">2. Packages</p>
               <p className="mt-2 text-sm text-white/70">
-                Si querés continuidad, elegí un pack con precio preferencial.
+                If you want continuity, choose a pack with a preferred price.
               </p>
               <div className="mt-4 space-y-2">
                 {packages.length ? (
@@ -390,7 +437,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-white/50">No hay packs disponibles para este curso.</p>
+                  <p className="text-xs text-white/50">No packs available for this course.</p>
                 )}
               </div>
             </div>
@@ -398,7 +445,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
               <p className="text-xs uppercase tracking-[0.3em] text-white/50">3. Extras</p>
               <p className="mt-2 text-sm text-white/70">
-                Sumá extras opcionales para potenciar tu experiencia.
+                Add optional extras to enhance your experience.
               </p>
               <div className="mt-4 space-y-2">
                 {addons.length ? (
@@ -409,7 +456,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-white/50">No hay extras para este curso.</p>
+                  <p className="text-xs text-white/50">No extras for this course.</p>
                 )}
               </div>
             </div>
@@ -420,8 +467,8 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
         <section data-reveal className="reveal">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Momentos clave</p>
-              <h3 className="mt-3 text-2xl font-semibold">Lo que vas a vivir en clase</h3>
+              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Key moments</p>
+              <h3 className="mt-3 text-2xl font-semibold">What you will experience in class</h3>
             </div>
           </div>
 
@@ -437,7 +484,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                   />
                 </div>
                 <p className="mt-4 text-sm font-semibold">{item}</p>
-                <p className="mt-1 text-xs text-[color:var(--brand)]">Precisión · Ritmo · Flujo</p>
+                <p className="mt-1 text-xs text-[color:var(--brand)]">Precision · Rhythm · Flow</p>
               </div>
             ))}
           </div>
@@ -447,22 +494,22 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
         <section data-reveal className="reveal">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Reseñas</p>
-              <h3 className="mt-3 text-2xl font-semibold">Comentarios reales</h3>
+              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Reviews</p>
+              <h3 className="mt-3 text-2xl font-semibold">Real feedback</h3>
             </div>
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 className="rounded-full border border-white/20 px-4 py-2 text-xs"
               >
-                Dejar comentario
+                Leave feedback
               </button>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => scrollCarousel(-1)}
                   className="h-9 w-9 rounded-full border border-white/20 text-white/80"
-                  aria-label="Anterior"
+                  aria-label="Previous"
                 >
                   ←
                 </button>
@@ -470,7 +517,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                   type="button"
                   onClick={() => scrollCarousel(1)}
                   className="h-9 w-9 rounded-full border border-white/20 text-white/80"
-                  aria-label="Siguiente"
+                  aria-label="Next"
                 >
                   →
                 </button>
@@ -506,8 +553,8 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
         <section data-reveal className="reveal">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Desarrollo de la clase</p>
-              <h3 className="mt-3 text-2xl font-semibold">Cómo se desarrolla y qué practicás</h3>
+              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Class flow</p>
+              <h3 className="mt-3 text-2xl font-semibold">How it unfolds and what you practice</h3>
             </div>
             <span className="text-xs text-white/50">{course.schedule.time}</span>
           </div>
@@ -521,13 +568,13 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                   </span>
                   <div>
                     <p className="text-sm font-semibold">{step}</p>
-                    <p className="text-xs text-[color:var(--brand)]">Práctica guiada con correcciones y repetición.</p>
+                    <p className="text-xs text-[color:var(--brand)]">Guided practice with corrections and repetition.</p>
                   </div>
                 </div>
               ))}
             </div>
             <div className="flex-1 rounded-3xl border border-white/10 bg-white/5 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-white/50">Vas a practicar</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-white/50">You will practice</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {focusAreas.map((area, idx) => (
                   <span key={`${area}-${idx}`} className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs">
@@ -547,10 +594,10 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
         <section data-reveal className="reveal">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Precios</p>
-              <h3 className="mt-3 text-2xl font-semibold">Elige tu pack</h3>
+              <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Pricing</p>
+              <h3 className="mt-3 text-2xl font-semibold">Choose your pack</h3>
             </div>
-            <span className="text-xs text-white/50">Alumno nuevo disponible</span>
+            <span className="text-xs text-white/50">New student option available</span>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -563,7 +610,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                   href="#enroll-cta"
                   className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-xs text-white/80"
                 >
-                  Reservar este pack
+                  Book this pack
                 </a>
               </div>
             ))}
@@ -575,7 +622,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">FAQ</p>
-              <h3 className="mt-3 text-2xl font-semibold">Respuestas rápidas</h3>
+              <h3 className="mt-3 text-2xl font-semibold">Quick answers</h3>
             </div>
             <span className="text-xs text-white/50">{bookingAddress}</span>
           </div>
@@ -593,10 +640,10 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
         {/* Contact / CTA */}
         <section data-reveal className="reveal">
           <div className="rounded-[28px] border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-transparent p-8">
-            <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Contacto</p>
-            <h3 className="mt-3 text-2xl font-semibold">¿Listo para reservar tu lugar?</h3>
+            <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--brand)]">Contact</p>
+            <h3 className="mt-3 text-2xl font-semibold">Ready to book your spot?</h3>
             <p className="mt-3 text-sm text-white/70">
-              Asegura tu clase y tu horario preferido. Confirmamos todo luego del checkout.
+              Secure your class and preferred time slot. We will confirm everything after checkout.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <div id="booking-dock" className="relative w-full">
@@ -605,7 +652,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
                   onClick={openBooking}
                   className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[var(--brand,#b61616)] bg-white/10 px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_35px_-18px_rgba(182,22,22,0.65)] backdrop-blur-md transition hover:translate-y-[-1px] hover:border-[var(--brand,#e31b1b)]"
                 >
-                  Reservar tu clase
+                  Book your class
                 </button>
               </div>
             </div>

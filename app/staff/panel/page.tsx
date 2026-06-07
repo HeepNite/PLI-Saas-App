@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
-import { auth, clerkClient } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
-import { extractStaffRoleFromClaims, extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
+import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
+import { getDefaultStaffPortalSection } from "@/lib/security/staff-access"
 
 export const metadata: Metadata = {
   title: "Staff panel — PLI",
@@ -9,50 +9,22 @@ export const metadata: Metadata = {
 }
 
 export default async function StaffPanelPage() {
-  const authResult = await auth()
-  if (!authResult.userId) {
-    redirect("/staff/sign-in")
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok || !authResult.userId) {
+    redirect("/staff/log-in?error=session_expired")
   }
 
-  let role = extractStaffRoleFromClaims(authResult.sessionClaims)
-  if (!role) {
-    const client = await clerkClient()
-    const user = await client.users.getUser(authResult.userId)
-    role = extractStaffRoleFromUserMetadata(user)
-  }
+  const role = authResult.role
+  const category = authResult.category
 
   if (!role) {
-    redirect("/staff/sign-in")
+    redirect("/staff/log-in?error=staff_invite_required")
   }
 
-  if (role === "owner" || role === "admin") {
-    redirect("/staff/portal")
+  const defaultSection = getDefaultStaffPortalSection(role, category)
+  if (!defaultSection) {
+    redirect("/staff/checkin")
   }
 
-  return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:py-10">
-      <section className="rounded-2xl border border-black/10 bg-white/80 p-5 shadow-[0_10px_32px_-14px_rgba(0,0,0,0.4)] backdrop-blur dark:border-white/10 dark:bg-white/5">
-        <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Staff panel</p>
-        <h1 className="mt-2 text-2xl font-semibold text-black dark:text-white">Panel de control</h1>
-        <p className="mt-2 text-sm text-black/65 dark:text-white/65">
-          Ingreso registrado correctamente. Este panel queda habilitado según tu rol.
-        </p>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <a
-            href="/staff/checkin"
-            className="rounded-xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm font-medium text-black transition hover:border-[var(--brand,#b61616)] dark:border-white/10 dark:bg-white/[0.03] dark:text-white"
-          >
-            Abrir terminal de check-in
-          </a>
-          <a
-            href="/staff/sign-in"
-            className="rounded-xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm font-medium text-black transition hover:border-[var(--brand,#b61616)] dark:border-white/10 dark:bg-white/[0.03] dark:text-white"
-          >
-            Cambiar usuario
-          </a>
-        </div>
-      </section>
-    </main>
-  )
+  redirect(`/staff/portal?nav=${encodeURIComponent(defaultSection)}`)
 }

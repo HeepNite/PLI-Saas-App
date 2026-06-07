@@ -3,6 +3,24 @@ import { clerkClient } from "@clerk/nextjs/server"
 
 export type ClerkUser = Awaited<ReturnType<ClerkClient["users"]["getUser"]>>
 
+/**
+ * Keeps avatar gating correct before optimizing away full Clerk refreshes.
+ */
+export function resolveAvatarState(user: ClerkUser | null | undefined): {
+  hasAvatar: boolean | null
+  needsRefresh: boolean
+} {
+  if (!user) {
+    return { hasAvatar: null, needsRefresh: false }
+  }
+
+  if (typeof user.hasImage === "boolean") {
+    return { hasAvatar: user.hasImage, needsRefresh: false }
+  }
+
+  return { hasAvatar: null, needsRefresh: true }
+}
+
 export type EnsureClerkUserInput = {
   clerkId?: string
   email?: string

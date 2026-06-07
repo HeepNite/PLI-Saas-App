@@ -4,6 +4,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { createTeacherClockEntryWithSlugs } from "@/lib/clock/teacher-clock"
 
 export const runtime = "nodejs"
 
@@ -59,6 +60,22 @@ export async function POST(req: Request) {
   const payload = body as Record<string, unknown>
   const pin = typeof payload.pin === "string" ? payload.pin.trim() : ""
   const requestedUserId = typeof payload.userId === "string" ? payload.userId.trim() : ""
+  const preferredUserId = typeof payload.preferUserId === "string" ? payload.preferUserId.trim() : ""
+  const skipSession = payload.skipSession === true
+
+  // Check-in endpoint is check-in only. Reject if caller did not explicitly
+  // signal check-in intent via skipSession=true. Use /api/staff/login/pin for
+  // authentication/session creation.
+  if (!skipSession) {
+    return NextResponse.json(
+      {
+        error:
+          "This endpoint is check-in only. Set skipSession=true to record attendance, or use /api/staff/login/pin for sign-in.",
+      },
+      { status: 400 }
+    )
+  }
+
   if (!/^\d{4}$/.test(pin)) {
     return NextResponse.json({ error: "PIN must be exactly 4 digits." }, { status: 400 })
   }
@@ -93,6 +110,26 @@ export async function POST(req: Request) {
     matchedUser = selectedUser
     matchedRole = role
   } else {
+    if (preferredUserId) {
+      try {
+        const preferredUser = await client.users.getUser(preferredUserId)
+        const preferredRole = extractStaffRoleFromUserMetadata(preferredUser)
+        const privateMetadata = asObject(preferredUser.privateMetadata)
+        const pinHash = typeof privateMetadata.staffPinHash === "string" ? privateMetadata.staffPinHash : ""
+        if (preferredRole && pinHash && isValidPinHash(pin, pinHash)) {
+          matchedUser = preferredUser
+          matchedRole = preferredRole
+        }
+      } catch {
+        // ignore and fall back to global scan
+      }
+    }
+
+    const pinMatches: Array<{
+      user: Awaited<ReturnType<typeof client.users.getUser>>
+      role: string
+    }> = []
+
     for (let offset = 0; offset < STAFF_SCAN_MAX_USERS; offset += STAFF_SCAN_PAGE_SIZE) {
       const page = await client.users.getUserList({
         limit: STAFF_SCAN_PAGE_SIZE,
@@ -108,13 +145,26 @@ export async function POST(req: Request) {
         if (!pinHash) continue
 
         if (!isValidPinHash(pin, pinHash)) continue
-        matchedUser = user
-        matchedRole = role
-        break
+        if (!pinMatches.some((entry) => entry.user.id === user.id)) {
+          pinMatches.push({ user, role })
+        }
       }
 
-      if (matchedUser) break
       if (page.data.length < STAFF_SCAN_PAGE_SIZE) break
+    }
+
+    if (!matchedUser) {
+      if (pinMatches.length === 1) {
+        matchedUser = pinMatches[0]!.user
+        matchedRole = pinMatches[0]!.role
+      } else if (pinMatches.length > 1) {
+        return NextResponse.json(
+          {
+            error: "This PIN is assigned to multiple staff users. Set unique PINs before using PIN sign-in.",
+          },
+          { status: 409 }
+        )
+      }
     }
   }
 
@@ -139,28 +189,32 @@ export async function POST(req: Request) {
     },
   })
 
-  const signInToken = await client.signInTokens.createSignInToken({
-    userId: matchedUser.id,
-    expiresInSeconds: 60,
-  })
-
-  const requestUrl = new URL(req.url)
-  const redirectTo = `${requestUrl.origin}/staff/resolve`
-  const signInUrl = new URL(signInToken.url)
-  signInUrl.searchParams.set("redirect_url", redirectTo)
-  const ticketFromUrl = signInUrl.searchParams.get("token")
-  const ticket = typeof (signInToken as { token?: unknown }).token === "string"
-    ? ((signInToken as { token: string }).token || "").trim()
-    : (ticketFromUrl || "").trim()
+  const category = extractStaffCategoryFromUserMetadata(matchedUser)
+  if (category === "teacher") {
+    const publicMetadata = asObject(matchedUser.publicMetadata)
+    const teaching = asObject(publicMetadata.staffTeaching)
+    const courseSlugs = Array.isArray(teaching.courseSlugs)
+      ? teaching.courseSlugs.filter((s): s is string => typeof s === "string")
+      : []
+    
+    createTeacherClockEntryWithSlugs(matchedUser.id, new Date(now), courseSlugs)
+      .catch((err) => console.error("Failed to create teacher clock entry", err))
+  }
 
   const name = `${matchedUser.firstName || ""} ${matchedUser.lastName || ""}`.trim() || matchedUser.primaryEmailAddress?.emailAddress || matchedUser.id
-  const category = extractStaffCategoryFromUserMetadata(matchedUser)
 
+  console.info("staff/checkin/pin matched user", {
+    userId: matchedUser.id,
+    role: matchedRole,
+    category,
+    requestedUserId: requestedUserId || null,
+    preferredUserId: preferredUserId || null,
+  })
+
+  // Check-in only: return attendance confirmation, never session tokens
   return NextResponse.json({
     ok: true,
     checkedInAt: now,
-    signInUrl: signInUrl.toString(),
-    ticket,
     staff: {
       id: matchedUser.id,
       name,

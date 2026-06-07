@@ -37,7 +37,7 @@ const HeaderActions = ({ className = "" }: { className?: string }) => {
               </>
             )}
           </span>
-          <span className="hidden md:block text-sm font-medium">Mi perfil</span>
+          <span className="hidden md:block text-sm font-medium">My profile</span>
         </Link>
       </SignedIn>
       <SignedOut>

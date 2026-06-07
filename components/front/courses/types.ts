@@ -30,7 +30,7 @@ export type CourseSectionsData = Pick<
   | "enrollment"
 >
 
-export type CourseEnrollmentData = Pick<CourseData, "slug" | "title" | "enrollment" | "location" | "instructors">
+export type CourseEnrollmentData = Pick<CourseData, "slug" | "title" | "enrollment" | "location" | "instructors" | "schedule">
 
 export type EnrollmentContact = {
   firstName: string

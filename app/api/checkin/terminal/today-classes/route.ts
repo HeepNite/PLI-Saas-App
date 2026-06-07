@@ -1,0 +1,108 @@
+import { NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+import { demoCourses, type CourseData } from "@/constants/courses"
+import { getStartOfDayNY } from "@/lib/class-schedule"
+import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
+
+export const runtime = "nodejs"
+
+const CHECKIN_TIME_ZONE = "America/New_York"
+const WEEKDAY_LABELS_MON = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const
+const WEEKDAY_LABELS_JS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+
+const toMonBasedWeekday = (date: Date) => (date.getDay() + 6) % 7
+const getJsWeekdayInTimeZone = (date: Date, timeZone: string) => {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date)
+  return WEEKDAY_LABELS_JS.findIndex((label) => label === weekday)
+}
+
+type TodayClassItem = {
+  slug: string
+  title: string
+  category: string | null
+  level: string | null
+  durationMinutes: number | null
+  availableTimes: string[]
+  dayLabel: string
+  dropInPriceCents: number | null
+  firstClassPriceCents: number | null
+  coverImageUrl: string | null
+}
+
+/**
+ * GET /api/checkin/terminal/today-classes
+ *
+ * Returns all active CourseCatalog entries that have classes scheduled for today
+ * (based on weekday matching from the course's availableWeekdays).
+ *
+ * Used by the terminal to display a multi-class picker before check-in.
+ */
+export async function GET() {
+  try {
+    const now = new Date()
+    const todayKey = new Intl.DateTimeFormat("en-CA", {
+      timeZone: CHECKIN_TIME_ZONE,
+    }).format(now)
+
+    const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE)
+    const todayWeekday = todayJsWeekday >= 0 ? (todayJsWeekday + 6) % 7 : toMonBasedWeekday(now)
+
+    const activeCourses = await prisma.courseCatalog.findMany({
+      where: { active: true },
+      orderBy: [{ createdAt: "asc" }],
+    })
+
+    const todayClasses: TodayClassItem[] = []
+
+    for (const course of activeCourses) {
+      // Resolve times: try scheduleRules (day-specific) first, fall back to flat availableTimes.
+      // scheduleRules.rules[].weekday uses JS getDay() convention (0=Sun, 1=Mon, ... 6=Sat).
+      const parsedRules = parseScheduleRules(course.scheduleRules)
+      const hasDaySpecificRules = Boolean(parsedRules?.rules?.length)
+      if (!hasDaySpecificRules) {
+        const weekdays = course.availableWeekdays || []
+        // CourseCatalog stores weekdays as 0=Sun...6=Sat (JS getDay())
+        if (!weekdays.includes(todayJsWeekday)) {
+          continue
+        }
+      }
+
+      const ruleTimes = getTimesForWeekday(course.scheduleRules, todayJsWeekday)
+      const times = (hasDaySpecificRules ? (ruleTimes ?? []) : (course.availableTimes ?? []))
+        .filter((t) => /^\d{2}:\d{2}$/.test(t))
+        .sort()
+
+      if (times.length === 0) {
+        continue
+      }
+
+      const dayLabel = WEEKDAY_LABELS_MON[todayWeekday] || "Today"
+
+      todayClasses.push({
+        slug: course.slug,
+        title: course.title,
+        category: course.category,
+        level: course.level,
+        durationMinutes: course.durationMinutes,
+        availableTimes: times,
+        dayLabel,
+        dropInPriceCents: course.dropInPriceCents,
+        firstClassPriceCents: course.firstClassPriceCents,
+        coverImageUrl: course.coverImageUrl,
+      })
+    }
+
+    return NextResponse.json({
+      date: todayKey,
+      weekday: todayWeekday,
+      dayLabel: WEEKDAY_LABELS_MON[todayWeekday] || "Today",
+      classes: todayClasses,
+    })
+  } catch (error) {
+    console.error("Failed to fetch today's classes:", error)
+    return NextResponse.json(
+      { error: "Unable to fetch today's classes" },
+      { status: 500 }
+    )
+  }
+}

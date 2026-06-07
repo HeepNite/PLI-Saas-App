@@ -71,7 +71,7 @@ describe("profile requests route", () => {
         id: "ar_1",
         type: "CLASS_CHANGE",
         status: "PENDING",
-        message: "Quiero mover la clase al jueves.",
+        message: "I want to move the class to Thursday.",
         createdAt: new Date("2026-02-10T00:00:00.000Z"),
         resolvedAt: null,
       },
@@ -99,7 +99,7 @@ describe("profile requests route", () => {
       id: "ar_1",
       type: "CLASS_CHANGE",
       status: "PENDING",
-      message: "Mover al martes 8PM",
+      message: "Move to Tuesday 8PM",
       createdAt: new Date("2026-02-10T00:00:00.000Z"),
     })
 
@@ -107,7 +107,7 @@ describe("profile requests route", () => {
     const req = new Request("http://localhost/api/profile/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "CLASS_CHANGE", message: "Mover al martes 8PM" }),
+      body: JSON.stringify({ type: "CLASS_CHANGE", message: "Move to Tuesday 8PM" }),
     })
     const res = await POST(req)
     expect(res.status).toBe(200)
@@ -143,7 +143,7 @@ describe("profile requests route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "CANCEL",
-        message: "Cancelar",
+        message: "Cancel",
         meta: { effectiveDate: "2026-03-01", attendanceId: "att_1", refundRequested: true },
       }),
     })
@@ -172,7 +172,7 @@ describe("profile requests route", () => {
       id: "ar_suspend",
       type: "SUSPEND",
       status: "PENDING",
-      message: "Viaje",
+      message: "Travel",
       meta: { startDate: "2026-03-01", endDate: "2026-03-20", packagePurchaseId: "pkg_1" },
       createdAt: new Date("2026-02-10T00:00:00.000Z"),
     })
@@ -183,7 +183,7 @@ describe("profile requests route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "SUSPEND",
-        message: "Viaje",
+        message: "Travel",
         meta: { startDate: "2026-03-01", endDate: "2026-03-20", packagePurchaseId: "pkg_1" },
       }),
     })

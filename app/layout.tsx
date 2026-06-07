@@ -21,6 +21,12 @@ import SmoothScroll from "@/components/front/ui/SmoothScroll";
 export const metadata: Metadata = {
     title: "Palladium Latin Institute",
     description: "Artistic Teaching Platform",
+    metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+    icons: {
+        icon: "/favicon.ico",
+        shortcut: "/favicon.ico",
+        apple: "/favicon.ico",
+    },
 };
 
 export default async function RootLayout({children,}: Readonly<{ children: React.ReactNode; }>) {

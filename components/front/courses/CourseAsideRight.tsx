@@ -164,7 +164,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
                 onClick={() => setMobileOpen(true)}
                 className="px-4 py-2 text-sm font-semibold text-white"
               >
-                Reservar tu clase
+                Book your class
               </button>
             </GlassyCard>
           </div>

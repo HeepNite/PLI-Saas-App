@@ -13,6 +13,7 @@ import {
   parseIsoDate,
 } from "@/lib/class-schedule"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { getCatalogFrontData } from "@/lib/catalog-courses"
 
 export const runtime = "nodejs"
 const NY_TIMEZONE = "America/New_York"
@@ -45,7 +46,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Missing or invalid course/date" }, { status: 400 })
     }
 
-    const times = getAvailableTimesForCourseDate(courseSlug, date)
+    const catalogData = await getCatalogFrontData()
+    const times = getAvailableTimesForCourseDate(courseSlug, date, catalogData.courses)
     if (!times.length) {
       return NextResponse.json({ slots: [] })
     }

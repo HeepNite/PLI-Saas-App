@@ -3,8 +3,9 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { demoCourses } from "@/constants/courses"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
+import { getCatalogFrontData } from "@/lib/catalog-courses"
+import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 export const runtime = "nodejs"
 
@@ -50,7 +51,7 @@ export async function GET(req: Request) {
     const paidPurchases = await prisma.purchase.findMany({
       where: {
         userId: dbUser.id,
-        status: { in: ["paid", "succeeded"] },
+        status: { in: SUCCESSFUL_PURCHASE_STATUSES },
       },
       include: {
         packagePurchases: {
@@ -124,14 +125,19 @@ export async function GET(req: Request) {
       }),
     ])
 
+    const catalogData = await getCatalogFrontData()
+    const courseTitleBySlug = new Map(
+      catalogData.courses.map((course) => [course.slug, course.title])
+    )
+
     const bookingItems = bookings.map((attendance) => {
-      const course = demoCourses.find((item) => item.slug === attendance.session.courseSlug)
+      const catalogTitle = courseTitleBySlug.get(attendance.session.courseSlug)
       return {
         id: attendance.id,
         status: attendance.status,
         startsAt: attendance.session.startsAt.toISOString(),
         courseSlug: attendance.session.courseSlug,
-        courseTitle: attendance.session.title || course?.title || attendance.session.courseSlug,
+        courseTitle: attendance.session.title || catalogTitle || attendance.session.courseSlug,
         sessionId: attendance.sessionId,
         packagePurchaseId: attendance.packageUsage?.packagePurchaseId || null,
         packageLabel: attendance.packageUsage?.packagePurchase?.packageLabel || null,
@@ -142,7 +148,7 @@ export async function GET(req: Request) {
       id: pkg.id,
       packageId: pkg.packageId,
       label: pkg.packageLabel || pkg.packagePlan?.label || pkg.packageId,
-      courseSlug: pkg.courseSlug || pkg.packagePlan?.courseSlug || null,
+      courseSlug: pkg.courseSlug || (pkg.packagePlan?.courseSlugs as string[] | undefined)?.[0] || null,
       remainingCredits: pkg.isUnlimited ? null : pkg.remainingCredits,
       totalCredits: pkg.isUnlimited ? null : pkg.totalCredits,
       isUnlimited: pkg.isUnlimited,

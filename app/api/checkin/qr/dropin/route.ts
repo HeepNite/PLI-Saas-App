@@ -3,10 +3,13 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
-import { courseRepository } from "@/lib/courses-repository"
-import { awardPointsFromRule } from "@/lib/points/service"
-import { ATTENDANCE_STREAK_MILESTONE, POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
+import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
+import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
+import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
+import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { findConsecutiveLinkBetween } from "@/lib/course-links"
+import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 
 export const runtime = "nodejs"
 
@@ -23,6 +26,30 @@ const normalizePhoneDigits = (value: string) => {
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
   return value.trim()
+}
+
+const isPaidPurchaseStatus = (status: string) => ["paid", "succeeded", "completed"].includes(status.toLowerCase())
+
+const isCashPurchaseMetadata = (value: unknown) => {
+  const metadata = toRecord(value)
+  if (!metadata) return false
+  const paymentChannel = normalizeString(metadata.paymentChannel).toLowerCase()
+  const paymentMethod = normalizeString(metadata.paymentMethod).toLowerCase()
+  const source = normalizeString(metadata.source).toLowerCase()
+  return (
+    paymentChannel === "cash" ||
+    paymentMethod === "onsite" ||
+    paymentMethod === "cash" ||
+    source === "cash_checkout"
+  )
+}
+
+const isHostedKioskCardPurchase = (value: unknown) => {
+  const metadata = toRecord(value)
+  if (!metadata) return false
+  const flowContext = normalizeString(metadata.flowContext).toLowerCase()
+  const paymentSurface = normalizeString(metadata.paymentSurface).toLowerCase()
+  return flowContext === "kiosk_terminal" && paymentSurface === "hosted_checkout"
 }
 
 const toRecord = (value: unknown) =>
@@ -43,9 +70,6 @@ export async function POST(req: Request) {
     }
 
     const authResult = await auth()
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
 
     let body: unknown
     try {
@@ -56,21 +80,21 @@ export async function POST(req: Request) {
 
     const payload = toRecord(body)
     const paymentIntentId = normalizeString(payload?.paymentIntentId)
+    const purchaseId = normalizeString(payload?.purchaseId)
     const context = parseQrCheckInContext(
       {
         courseSlug: payload?.courseSlug,
         date: payload?.date,
         time: payload?.time,
         durationMinutes: payload?.durationMinutes,
-      },
-      { requireKnownCourse: true }
+      }
     )
     if ("status" in context) {
       return NextResponse.json({ error: context.error }, { status: context.status })
     }
 
     const now = new Date()
-    if (!isQrCheckInWindowOpen(context, now)) {
+    if (!isQrCheckInWindowAllowed(context, now)) {
       return NextResponse.json(
         {
           error: "Check-in is closed for this class.",
@@ -81,51 +105,159 @@ export async function POST(req: Request) {
       )
     }
 
-    const course = courseRepository.getCourseBySlug(context.courseSlug)
+    const course = await getCatalogCourseBySlug(context.courseSlug)
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })
     }
 
-    const client = await clerkClient()
-    const clerkUser = await client.users.getUser(authResult.userId)
-    const email = clerkUser.primaryEmailAddress?.emailAddress || ""
-    const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-    const phone = normalizePhoneDigits(phoneRaw)
-    const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+    // ─── Consecutive discount validation ─────────────────────
+    const consecutiveDiscountApplied = payload?.consecutiveDiscountApplied === true
+    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const consecutivePriceCents = payload?.consecutivePriceCents != null
+      ? Number(payload.consecutivePriceCents)
+      : null
 
-    const dbUser = await upsertUserByIdentifiers({
-      clerkId: authResult.userId,
-      email,
-      phone,
-      name,
-    })
-    if (!dbUser) {
-      return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+    if (consecutiveDiscountApplied) {
+      if (!linkedFromCourseSlug) {
+        return NextResponse.json(
+          { error: "linkedFromCourseSlug is required when consecutiveDiscountApplied is true" },
+          { status: 400 }
+        )
+      }
+
+      const link = await findConsecutiveLinkBetween(linkedFromCourseSlug, context.courseSlug)
+      if (!link) {
+        return NextResponse.json(
+          { error: "No active consecutive link found for this course pair" },
+          { status: 400 }
+        )
+      }
+
+      if (consecutivePriceCents !== null && consecutivePriceCents !== link.dropInConsecutiveCents) {
+        return NextResponse.json(
+          { error: "Price mismatch: consecutive price does not match configured price" },
+          { status: 400 }
+        )
+      }
     }
 
-    const recentPurchases = await prisma.purchase.findMany({
-      where: {
-        userId: dbUser.id,
-        courseSlug: context.courseSlug,
-        status: { in: ["paid", "succeeded"] },
-        ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
-        createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
-      },
-      orderBy: { createdAt: "desc" },
-      take: paymentIntentId ? 1 : 30,
-    })
+    let dbUser: { id: string } | null = null
+    let durableKioskPurchase:
+      | {
+          id: string
+          userId: string
+          status: string
+          stripePaymentIntentId: string | null
+          metadata: unknown
+        }
+      | null = null
 
-    const paidDropInPurchase =
+    if (purchaseId && !paymentIntentId) {
+      const terminalAuth = await authorizeStaffTerminalSession()
+      if (terminalAuth.ok) {
+        const purchase = await prisma.purchase.findUnique({
+          where: { id: purchaseId },
+          select: {
+            id: true,
+            userId: true,
+            status: true,
+            courseSlug: true,
+            stripePaymentIntentId: true,
+            metadata: true,
+          },
+        })
+
+        const metadata = toRecord(purchase?.metadata)
+        const purchaseCourseSlug = normalizeString(metadata?.courseSlug) || normalizeString(purchase?.courseSlug)
+        const purchaseDate = normalizeString(metadata?.date)
+        const purchaseTime = normalizeString(metadata?.time)
+
+        if (
+          purchase &&
+          purchase.userId &&
+          isPaidPurchaseStatus(purchase.status) &&
+          !isCashPurchaseMetadata(purchase.metadata) &&
+          isHostedKioskCardPurchase(purchase.metadata) &&
+          purchaseCourseSlug === context.courseSlug &&
+          purchaseDate === context.date &&
+          purchaseTime === context.time
+        ) {
+          dbUser = { id: purchase.userId }
+          durableKioskPurchase = purchase
+        } else if (!authResult.userId) {
+          return NextResponse.json(
+            { error: "No successful kiosk card payment was found for this class slot." },
+            { status: 409 }
+          )
+        }
+      }
+    }
+
+    if (!dbUser) {
+      if (!authResult.userId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+
+      const client = await clerkClient()
+      const clerkUser = await client.users.getUser(authResult.userId)
+      const email = clerkUser.primaryEmailAddress?.emailAddress || ""
+      const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+      const phone = normalizePhoneDigits(phoneRaw)
+      const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+
+      dbUser = await upsertUserByIdentifiers({
+        clerkId: authResult.userId,
+        email,
+        phone,
+        name,
+        nameIsCanonical: true,
+      })
+      if (!dbUser) {
+        return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+      }
+    }
+
+    // ─── Verify attendance for Class A when using consecutive discount ──
+    if (consecutiveDiscountApplied && linkedFromCourseSlug) {
+      const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, context.startsAt)
+      if (!hasAttendedA) {
+        return NextResponse.json(
+          { error: "You must attend the first class before purchasing the consecutive class at a discount" },
+          { status: 403 }
+        )
+      }
+    }
+
+    const recentPurchases = durableKioskPurchase
+      ? [durableKioskPurchase]
+      : await prisma.purchase.findMany({
+          where: {
+            userId: dbUser.id,
+            courseSlug: context.courseSlug,
+            ...(purchaseId ? { id: purchaseId } : {}),
+            ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
+            createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+          },
+          orderBy: { createdAt: "desc" },
+          take: paymentIntentId ? 1 : 30,
+        })
+
+    const dropInPurchase =
       recentPurchases.find((purchase) => {
         const metadata = toRecord(purchase.metadata)
         const metaDate = normalizeString(metadata?.date)
         const metaTime = normalizeString(metadata?.time)
         const metaPackageId = normalizeString(metadata?.packageId)
         if (metaPackageId) return false
-        return metaDate === context.date && metaTime === context.time
+        if (!(metaDate === context.date && metaTime === context.time)) return false
+        if (paymentIntentId && purchase.stripePaymentIntentId !== paymentIntentId) return false
+        if (purchaseId && purchase.id !== purchaseId) return false
+
+        if (isPaidPurchaseStatus(purchase.status)) return true
+        return isCashPurchaseMetadata(purchase.metadata)
       }) || null
 
-    if (!paidDropInPurchase) {
+    if (!dropInPurchase) {
       return NextResponse.json(
         { error: "No successful drop-in payment was found for this class slot." },
         { status: 409 }
@@ -175,7 +307,7 @@ export async function POST(req: Request) {
               metadata: {
                 ...previousMetadata,
                 source: "qr_dropin_checkin",
-                purchaseId: paidDropInPurchase.id,
+                purchaseId: dropInPurchase.id,
                 qrDate: context.date,
                 qrTime: context.time,
               },
@@ -189,7 +321,7 @@ export async function POST(req: Request) {
               checkedInAt: now,
               metadata: {
                 source: "qr_dropin_checkin",
-                purchaseId: paidDropInPurchase.id,
+                purchaseId: dropInPurchase.id,
                 qrDate: context.date,
                 qrTime: context.time,
               },
@@ -204,10 +336,11 @@ export async function POST(req: Request) {
         },
       })
 
+      const attendanceMilestoneEvery = await getAttendanceMilestoneClasses(tx)
       let pointsAwarded = 0
       let attendanceMilestone = 0
-      if (checkedInCount > 0 && checkedInCount % ATTENDANCE_STREAK_MILESTONE === 0) {
-        attendanceMilestone = Math.floor(checkedInCount / ATTENDANCE_STREAK_MILESTONE)
+      if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {
+        attendanceMilestone = Math.floor(checkedInCount / attendanceMilestoneEvery)
         const pointsResult = await awardPointsFromRule({
           db: tx,
           userId: dbUser.id,
@@ -216,9 +349,9 @@ export async function POST(req: Request) {
           fallbackType: "CONSECUTIVE_ATTENDANCE",
           meta: {
             source: "qr_dropin_checkin",
-            purchaseId: paidDropInPurchase.id,
+            purchaseId: dropInPurchase.id,
             courseSlug: context.courseSlug,
-            milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+            milestoneEvery: attendanceMilestoneEvery,
             milestone: attendanceMilestone,
             attendanceCount: checkedInCount,
           },
@@ -231,6 +364,7 @@ export async function POST(req: Request) {
       return {
         attendance,
         checkedInCount,
+        attendanceMilestoneEvery,
         pointsAwarded,
         attendanceMilestone,
       }
@@ -246,14 +380,16 @@ export async function POST(req: Request) {
         startsAt: context.startsAt.toISOString(),
       },
       payment: {
-        purchaseId: paidDropInPurchase.id,
-        paymentIntentId: paidDropInPurchase.stripePaymentIntentId,
+        purchaseId: dropInPurchase.id,
+        paymentIntentId: dropInPurchase.stripePaymentIntentId,
+        paymentStatus: dropInPurchase.status,
+        paymentMode: isCashPurchaseMetadata(dropInPurchase.metadata) ? "cash" : "card",
       },
       points: {
         awarded: result.pointsAwarded,
         milestone: result.attendanceMilestone > 0 ? result.attendanceMilestone : null,
         attendanceCount: result.checkedInCount,
-        milestoneEvery: ATTENDANCE_STREAK_MILESTONE,
+        milestoneEvery: result.attendanceMilestoneEvery,
       },
     })
   } catch (error) {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest"
+import { File as NodeFile } from "node:buffer"
 
 const mockAuth = vi.fn()
 const mockClerkClient = vi.fn()
@@ -13,11 +14,9 @@ describe("profile avatar route", () => {
     updateUserProfileImage: vi.fn(),
   }
 
-  beforeAll(async () => {
+  beforeAll(() => {
     if (!globalThis.File) {
-      const { File } = await import("undici")
-      // @ts-expect-error - runtime polyfill for tests
-      globalThis.File = File
+      globalThis.File = NodeFile as typeof globalThis.File
     }
   })
 

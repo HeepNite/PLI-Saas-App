@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import {
-  ensureGuestClerkUser,
+  clearPreparedCheckoutAfterSuccess,
+  enrollStudentPinForCheckout,
   enforceNewStudentRules,
-  resolveAuthUser,
-  resolveContactIdentity,
+  resolveCheckoutPreparation,
   type ApiError,
 } from "@/lib/checkout"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
+import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
+import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 const secret = process.env.STRIPE_SECRET_KEY
@@ -23,10 +25,7 @@ const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
 
 export async function POST(req: Request) {
-  if (!stripe) {
-    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
-  }
-
+  const startedAt = Date.now()
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey("checkout:intent", getClientIp(req)),
     limit: 30,
@@ -52,44 +51,95 @@ export async function POST(req: Request) {
     lastName,
     name,
     phone = "",
+    prepareOnly = false,
+    kioskSessionToken,
+    studentPin,
+    studentPinConfirm,
   } = body || {}
+  const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
-  const validation = validateCheckoutPayload(body)
+  const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
-
-  const { userId, clerkUser } = await resolveAuthUser(req, { firstName, lastName, name, phone })
-  const identity = resolveContactIdentity({ clerkUser, email, phone })
-  if (isApiError(identity)) {
-    return toErrorResponse(identity)
-  }
-
-  const guestResult = await ensureGuestClerkUser({
-    userId: userId || undefined,
-    resolvedEmail: identity.resolvedEmail,
-    phoneRaw: identity.phoneRaw,
-    firstName,
-    lastName,
-    name,
-    phone,
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
   })
-  if (isApiError(guestResult)) {
-    return toErrorResponse(guestResult)
+
+  const preparation = await resolveCheckoutPreparation(
+    req,
+    {
+      email,
+      firstName,
+      lastName,
+      name,
+      phone,
+    },
+    {
+      photoContext,
+      allowExistingAccountLookup: prepareOnly || photoContext === "kiosk_terminal",
+      kioskSessionToken,
+      serviceId: validation.serviceId,
+      // NOTE: deferUserCreation is intentionally FALSE for kiosk new-student prepareOnly.
+      // EmbeddedSignIn uses signIn.create({ strategy: "phone_code" }) which requires an
+      // existing Clerk user. Without creating the Clerk user here, SMS verification cannot
+      // work for truly new students. The staff-session isolation guard in lib/checkout.ts
+      // ensures the new user uses the STUDENT's identity, not the staff's.
+      deferUserCreation: false,
+      validation,
+    }
+  )
+  if (isApiError(preparation)) {
+    return toErrorResponse(preparation)
   }
 
-  const ensuredClerkUser = guestResult.ensuredClerkUser
-  const resolvedUserId = userId || ensuredClerkUser?.id
+  const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
+  const { clerkUser, resolvedUserId, identity, account } = preparedAccount
+
+  if (prepareOnly) {
+    console.info("[staff-terminal-checkout-latency] checkout-intent", {
+      segment: "prepare_only",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
+    })
+    return NextResponse.json({
+      ok: true,
+      prepareOnly: true,
+      account,
+    })
+  }
+
+  if (!stripe) {
+    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
+  }
+
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
-    clerkUserForVerification: clerkUser || ensuredClerkUser,
-    resolvedUserId,
+    clerkUserForVerification: clerkUser,
+    hasVerifiedPhone: verification.hasVerifiedPhone,
+    resolvedUserId: resolvedUserId || undefined,
     resolvedEmail: identity.resolvedEmail,
     phoneNormalized: identity.phoneNormalized,
   })
   if (newStudentError) {
     return toErrorResponse(newStudentError)
+  }
+
+  const studentPinEnrollment = await enrollStudentPinForCheckout({
+    serviceId: validation.serviceId,
+    prepareOnly,
+    resolvedClerkUserId: resolvedUserId,
+    resolvedEmail: identity.resolvedEmail,
+    phoneNormalized: identity.phoneNormalized,
+    name: name || [firstName, lastName].filter(Boolean).join(" ") || undefined,
+    studentPin,
+    studentPinConfirm,
+  })
+  if (isApiError(studentPinEnrollment)) {
+    return toErrorResponse(studentPinEnrollment)
   }
 
   try {
@@ -101,8 +151,8 @@ export async function POST(req: Request) {
       metadata: {
         courseSlug: validation.courseSlug,
         courseTitle: validation.courseTitle,
-        date: validation.date,
-        time: validation.time,
+        date: effectiveSession.date,
+        time: effectiveSession.time,
         packageId: validation.packageId,
         packageLabel: validation.pkg?.label || "",
         packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),
@@ -119,10 +169,30 @@ export async function POST(req: Request) {
         email: identity.resolvedEmail,
         phone: identity.phoneNormalized,
         phoneRaw: phone || "",
+        // Consecutive class fields (present when user accepted the consecutive offer)
+        consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
+        consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
+        consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
       },
     })
 
-    return NextResponse.json({ clientSecret: intent.client_secret })
+    await clearPreparedCheckoutAfterSuccess({
+      terminalAuth,
+      kioskSessionToken,
+      validation,
+    })
+
+    console.info("[staff-terminal-checkout-latency] checkout-intent", {
+      segment: "card_next_step",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
+    })
+
+    return NextResponse.json({
+      clientSecret: intent.client_secret,
+      account,
+    })
   } catch (err) {
     console.error("Stripe intent error", err)
     return NextResponse.json({ error: "Unable to create payment intent" }, { status: 500 })
