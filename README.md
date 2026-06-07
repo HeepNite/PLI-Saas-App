@@ -24,7 +24,7 @@ App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, the
 - Usuarios: creación/sync con Clerk en `app/api/checkout/*` y `app/api/users/sync`.
 - Seguridad “new student”: teléfono obligatorio + SMS verificado, 1 participante, bloqueo si hay compras previas por email/teléfono/Clerk.
 - Compras: webhook de Stripe en `app/api/stripe/webhook/route.ts` guarda en Postgres (`prisma/schema.prisma`).
-- Verificación SMS: pantalla `/verify-phone` con retorno a la acción previa usando `?return=/ruta` (ver detalles en `docs/README.md`).
+- Verificación SMS: pantalla `/verify-phone` con retorno a la acción previa usando `?return=/ruta` (ver detalles en `docs/system/README.md`).
 - Reports IA (preparado para integración): `POST /api/staff/reports/suggestions` con proveedor `mock` o `custom-http` por env.
 
 ## Variables opcionales (IA reports)
@@ -40,11 +40,11 @@ App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, the
 - CTA/chat: `components/front/ui/ChatLauncher.tsx`, `components/front/AssistantWidget*.tsx`.
 
 ## Documentación
-- Guía base de arquitectura y edición: `docs/README.md`
-- Matriz de tests: `docs/TESTS.md`
-- Flujo QR check-in: `docs/CHECKIN_QR.md`
-- Módulo Staff portal: `docs/STAFF_PORTAL.md`
-- Smoke checklist para demo en Vercel: `docs/SMOKE_DEMO_VERCEL.md`
+- Guía base de arquitectura y edición: `docs/system/README.md`
+- Matriz de tests: `docs/system/TESTS.md`
+- Flujo QR check-in: `docs/system/CHECKIN_QR.md`
+- Módulo Staff portal: `docs/system/STAFF_PORTAL.md`
+- Smoke checklist para demo en Vercel: `docs/system/SMOKE_DEMO_VERCEL.md`
 
 ## Ejemplos rápidos
 - Nuevo curso (detalle): agrega a `demoCourses` en `constants/courses.ts`; el route `/cursos/[slug]` se genera solo por `courseRepository`.
@@ -52,4 +52,4 @@ App Next 15 (Turbopack) con React 19 y TypeScript. Autenticación con Clerk, the
 - Nuevo testimonio: añade a `homeReviewSlides` en `constants/home-content.ts`.
 - Nuevo idioma: agrega la entrada en `lib/i18n-dict.ts`, incluye el código en `Locale` y listo; el cookie/query `lang` lo activará.
 
-Para más pasos detallados (cambiar textos de la barra de aviso, editar hero, integrar inscripciones), ver `docs/README.md`.
+Para más pasos detallados (cambiar textos de la barra de aviso, editar hero, integrar inscripciones), ver `docs/system/README.md`.
