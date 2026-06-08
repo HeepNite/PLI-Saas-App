@@ -274,6 +274,7 @@ describe("kiosk QR payment helpers", () => {
       hasBootstrap: false,
       hasPackage: false,
       processingPackageCheckIn: false,
+      hasPackageCheckInResult: false,
       hasExistingRegularBookingOverride: false,
       hasVisibleError: false,
       hasPackageOffer: false,
@@ -414,6 +415,20 @@ describe("kiosk QR payment helpers", () => {
       ).toBe(true)
     })
 
+    it("keeps the overlay during the package auto-check-in render gap", () => {
+      expect(
+        shouldShowKioskResolvingOverlay({
+          ...base,
+          loadingBootstrap: false,
+          hasBootstrap: true,
+          hasPackage: true,
+          processingPackageCheckIn: false,
+          hasPackageCheckInResult: false,
+          hasExistingRegularBookingOverride: false,
+        })
+      ).toBe(true)
+    })
+
     it("hides the overlay once package check-in completes", () => {
       expect(
         shouldShowKioskResolvingOverlay({
@@ -422,6 +437,7 @@ describe("kiosk QR payment helpers", () => {
           hasBootstrap: true,
           hasPackage: true,
           processingPackageCheckIn: false,
+          hasPackageCheckInResult: true,
           hasExistingRegularBookingOverride: false,
         })
       ).toBe(false)

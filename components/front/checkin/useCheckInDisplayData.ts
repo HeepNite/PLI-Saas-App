@@ -41,6 +41,7 @@ type UseCheckInDisplayDataArgs = {
   existingRegularBookingOverride: { courseSlug: string; date: string; time: string } | null
   openNewBooking: boolean
   processingPackageCheckIn: boolean
+  hasPackageCheckInResult: boolean
   packageOfferContext: PackageOfferContext
 }
 
@@ -69,6 +70,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     existingRegularBookingOverride,
     openNewBooking,
     processingPackageCheckIn,
+    hasPackageCheckInResult,
     packageOfferContext,
   } = args
 
@@ -297,10 +299,27 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     shellVariant,
   })
   const effectiveClerkSession = hasActiveClerkSession && !isKioskTerminalFlow
-  const showSignedInBootstrapPanel = mode === "existing" && (effectiveClerkSession || hasKioskPinSession)
+  const canShowSignedInBootstrapPanel = mode === "existing" && (effectiveClerkSession || hasKioskPinSession)
   const showKioskPinPanel =
     mode === "existing" && isKioskTerminalFlow && (!hasKioskPinSession || kioskPinRotationRequired)
-  const hideEntrySelection = showSignedInBootstrapPanel || showKioskPinPanel
+  const showKioskResolvingOverlay = shouldShowKioskResolvingOverlay({
+    isKioskTerminalFlow,
+    mode,
+    hasActiveCustomerSession: Boolean(hasActiveClerkSession || hasKioskPinSession),
+    hasPendingPinRotation: kioskPinRotationRequired,
+    loadingBootstrap,
+    hasBootstrap: Boolean(bootstrap),
+    hasPackage: Boolean(bootstrap?.package),
+    processingPackageCheckIn,
+    hasPackageCheckInResult,
+    hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
+    hasVisibleError: Boolean(visibleError),
+    hasPackageOffer: showPackageOfferScreen,
+    paymentsStepReady: paymentsModalReady,
+    hasExistingPurchaseForSession: Boolean(bootstrap?.hasExistingPurchaseForSession),
+  })
+  const showSignedInBootstrapPanel = canShowSignedInBootstrapPanel && !showKioskResolvingOverlay
+  const hideEntrySelection = showSignedInBootstrapPanel || showKioskPinPanel || showKioskResolvingOverlay
   const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const showLatePaymentOffer = Boolean(
     shellVariant === "terminal" &&
@@ -311,21 +330,6 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   )
   const legacyContextMissing = !qrCourseSlug || !qrDate || !qrTime
   const showContextWarning = shellVariant === "qr" && !contextIsValid && legacyContextMissing
-  const showKioskResolvingOverlay = shouldShowKioskResolvingOverlay({
-    isKioskTerminalFlow,
-    mode,
-    hasActiveCustomerSession: Boolean(hasActiveClerkSession || hasKioskPinSession),
-    hasPendingPinRotation: kioskPinRotationRequired,
-    loadingBootstrap,
-    hasBootstrap: Boolean(bootstrap),
-    hasPackage: Boolean(bootstrap?.package),
-    processingPackageCheckIn,
-    hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
-    hasVisibleError: Boolean(visibleError),
-    hasPackageOffer: showPackageOfferScreen,
-    paymentsStepReady: paymentsModalReady,
-    hasExistingPurchaseForSession: Boolean(bootstrap?.hasExistingPurchaseForSession),
-  })
 
   // ─── Breadcrumbs ────────────────────────────────────────────
   const breadcrumbItems = React.useMemo(() => {

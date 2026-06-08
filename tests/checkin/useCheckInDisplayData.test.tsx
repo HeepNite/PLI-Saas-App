@@ -3,7 +3,7 @@
 import React, { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it } from "vitest"
-import type { PackageOfferContext } from "@/components/front/checkin/checkin.types"
+import type { BootstrapResponse, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
 import { demoCourses } from "@/constants/courses"
 
@@ -21,6 +21,9 @@ const renderDisplay = async ({
   hasActiveClerkSession = false,
   hasKioskPinSession = false,
   kioskPinRotationRequired = false,
+  bootstrap = null,
+  processingPackageCheckIn = false,
+  hasPackageCheckInResult = false,
   packageOfferContext = null,
 }: {
   shellVariant: "qr" | "terminal"
@@ -30,6 +33,9 @@ const renderDisplay = async ({
   hasActiveClerkSession?: boolean
   hasKioskPinSession?: boolean
   kioskPinRotationRequired?: boolean
+  bootstrap?: BootstrapResponse | null
+  processingPackageCheckIn?: boolean
+  hasPackageCheckInResult?: boolean
   packageOfferContext?: PackageOfferContext
 }) => {
   let snapshot: DisplaySnapshot | null = null
@@ -56,12 +62,13 @@ const renderDisplay = async ({
       hasKioskPinSession,
       kioskPinRotationRequired,
       loadingBootstrap: false,
-      bootstrap: null,
+      bootstrap,
       visibleError: null,
       paymentsModalReady: false,
       existingRegularBookingOverride: null,
       openNewBooking: false,
-      processingPackageCheckIn: false,
+      processingPackageCheckIn,
+      hasPackageCheckInResult,
       packageOfferContext,
     })
 
@@ -83,6 +90,50 @@ const renderDisplay = async ({
     container,
   }
 }
+
+const createBootstrap = (overrides: Partial<BootstrapResponse> = {}): BootstrapResponse => ({
+  context: {
+    courseSlug: "salsa-nocturno",
+    courseTitle: "Salsa Nocturno",
+    date: "2026-04-02",
+    time: "20:10",
+    durationMinutes: 60,
+    startsAt: "2026-04-02T20:10:00.000Z",
+    endsAt: "2026-04-02T21:10:00.000Z",
+    checkInWindow: {
+      isOpen: true,
+      opensAt: "2026-04-02T19:55:00.000Z",
+      closesAt: "2026-04-02T20:25:00.000Z",
+    },
+  },
+  customer: {
+    userId: "user-1",
+    clerkUserId: "clerk-1",
+    firstName: "Mora",
+    lastName: "Diaz",
+    name: "Mora Diaz",
+    email: "mora@example.com",
+    phone: "+1 929 387 6584",
+    hasAvatar: false,
+  },
+  package: null,
+  packages: [],
+  quickCheckout: null,
+  purchaseHistory: [],
+  hasPreviousPurchase: false,
+  hasAnyCompletedPurchase: false,
+  ...overrides,
+})
+
+const createActivePackage = (): NonNullable<BootstrapResponse["package"]> => ({
+  id: "user-package-1",
+  packageId: "pkg-1",
+  packageLabel: "5 Classes",
+  isUnlimited: false,
+  remainingCredits: 3,
+  expiresAt: null,
+  status: "active",
+})
 
 describe("useCheckInDisplayData", () => {
   let root: Root | null = null
@@ -247,6 +298,40 @@ describe("useCheckInDisplayData", () => {
     expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(true)
     expect(rendered.getSnapshot().hideEntrySelection).toBe(true)
     expect(rendered.getSnapshot().breadcrumbItems).toEqual(["Terminal", "Existing customer", "Current course"])
+  })
+
+  it("covers the package auto-check-in gap instead of showing the signed-in bootstrap panel", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasKioskPinSession: true,
+      kioskPinRotationRequired: false,
+      bootstrap: createBootstrap({ package: createActivePackage() }),
+      hasPackageCheckInResult: false,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showKioskPinPanel).toBe(false)
+    expect(rendered.getSnapshot().showKioskResolvingOverlay).toBe(true)
+    expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(false)
+    expect(rendered.getSnapshot().hideEntrySelection).toBe(true)
+  })
+
+  it("shows the signed-in bootstrap panel again after package check-in produces a result", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasKioskPinSession: true,
+      kioskPinRotationRequired: false,
+      bootstrap: createBootstrap({ package: createActivePackage() }),
+      hasPackageCheckInResult: true,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showKioskResolvingOverlay).toBe(false)
+    expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(true)
   })
 
   it("keeps the kiosk PIN modal open when the identified PIN still requires rotation", async () => {

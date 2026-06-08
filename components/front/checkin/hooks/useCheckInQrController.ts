@@ -269,6 +269,39 @@ export function useCheckInQrController({
   })
   setBootstrapRef.current = setBootstrap
 
+  const checkConsecutiveOfferAfterCheckInFromRef = React.useCallback(
+    () => checkConsecutiveOfferAfterCheckInRef.current(),
+    []
+  )
+  const handleStationCompletionFromRef = React.useCallback(() => handleStationCompletionRef.current(), [])
+
+  const effectiveCheckInWindowOpen = Boolean(bootstrap?.context.checkInWindow.isOpen)
+  const {
+    packageCheckInResult,
+    setPackageCheckInResult,
+    performPackageCheckInApi,
+    handlePackageCheckIn,
+    handlePackageSuccessDone,
+  } = useCheckInPackageFlow({
+    bootstrap,
+    getToken,
+    hasActiveClerkSession,
+    kioskPinSessionToken,
+    effectiveCheckInWindowOpen,
+    photoFlowContext,
+    isKioskTerminalFlow,
+    setProcessingPackageCheckIn,
+    awaitingConsecutivePaymentSelection,
+    setError,
+    setSuccess,
+    loadBootstrap,
+    checkConsecutiveOfferAfterCheckIn: checkConsecutiveOfferAfterCheckInFromRef,
+    handleStationCompletion: handleStationCompletionFromRef,
+    setAwaitingConsecutivePaymentSelection,
+    setShowConsecutiveOverlay,
+    setShowConsecutivePaymentSelection,
+  })
+
   // ─── Derived display data (extracted hook) ──────────────────
   const display = useCheckInDisplayData({
     sourceCourses,
@@ -294,6 +327,7 @@ export function useCheckInQrController({
     existingRegularBookingOverride,
     openNewBooking,
     processingPackageCheckIn,
+    hasPackageCheckInResult: Boolean(packageCheckInResult),
     packageOfferContext,
   })
 
@@ -321,7 +355,6 @@ export function useCheckInQrController({
     mainSpacingClass,
     checkInDisplayDate,
     checkInDisplayTime,
-    effectiveCheckInWindowOpen,
     breadcrumbItems,
     quickCheckoutDetails,
     checkInDisplayCourse,
@@ -353,37 +386,6 @@ export function useCheckInQrController({
         (bootstrap.package.remainingCredits ?? 0) > 0)
   )
   const currentCheckInCourseSlug = bootstrap?.context.courseSlug ?? activeCourseSlug
-  const checkConsecutiveOfferAfterCheckInFromRef = React.useCallback(
-    () => checkConsecutiveOfferAfterCheckInRef.current(),
-    []
-  )
-  const handleStationCompletionFromRef = React.useCallback(() => handleStationCompletionRef.current(), [])
-
-  const {
-    packageCheckInResult,
-    setPackageCheckInResult,
-    performPackageCheckInApi,
-    handlePackageCheckIn,
-    handlePackageSuccessDone,
-  } = useCheckInPackageFlow({
-    bootstrap,
-    getToken,
-    hasActiveClerkSession,
-    kioskPinSessionToken,
-    effectiveCheckInWindowOpen,
-    photoFlowContext,
-    isKioskTerminalFlow,
-    setProcessingPackageCheckIn,
-    awaitingConsecutivePaymentSelection,
-    setError,
-    setSuccess,
-    loadBootstrap,
-    checkConsecutiveOfferAfterCheckIn: checkConsecutiveOfferAfterCheckInFromRef,
-    handleStationCompletion: handleStationCompletionFromRef,
-    setAwaitingConsecutivePaymentSelection,
-    setShowConsecutiveOverlay,
-    setShowConsecutivePaymentSelection,
-  })
 
   const { handleStationCompletion, dismissExistingCustomer: handleExistingCustomerDismiss } = useKioskFlowCompletion({
     isKioskTerminalFlow,

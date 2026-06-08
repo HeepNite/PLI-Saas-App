@@ -176,6 +176,7 @@ type KioskResolvingOverlayInput = {
   hasBootstrap: boolean
   hasPackage: boolean
   processingPackageCheckIn: boolean
+  hasPackageCheckInResult: boolean
   hasExistingRegularBookingOverride: boolean
   hasVisibleError: boolean
   hasPackageOffer: boolean
@@ -211,8 +212,9 @@ export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInpu
   if (input.loadingBootstrap) return true
   if (input.hasVisibleError) return false
   if (!input.hasBootstrap) return false
-  // Package flow: keep overlay while auto-deduct is in progress, hide once done.
-  if (input.hasPackage) return input.processingPackageCheckIn
+  // Package flow: cover both the API call and the one-render-cycle gap between
+  // bootstrap arrival and the auto-trigger effect starting package check-in.
+  if (input.hasPackage) return !input.hasPackageCheckInResult
   // Keep the overlay until the EnrollModal is actually open (override set).
   if (!input.hasExistingRegularBookingOverride) return true
   // EnrollModal is open but hasn't reached target step yet — keep covering the
