@@ -85,8 +85,8 @@ describe("useCheckInPackageFlow", () => {
     return { params, getResult: () => result! }
   }
 
-  it("checks in kiosk package users without blocking on consecutive offer lookup", async () => {
-    const params = defaultParams({ checkConsecutiveOfferAfterCheckIn: vi.fn(() => new Promise<boolean>(() => {})) })
+  it("checks in kiosk package users and immediately looks up consecutive offers", async () => {
+    const params = defaultParams()
     const { getResult } = await mount(params)
 
     await act(async () => getResult().handlePackageCheckIn())
