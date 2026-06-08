@@ -119,9 +119,9 @@ export function useCheckInPackageFlow({
 
     if (isKioskTerminalFlow) {
       clearPackageCheckInTimeout()
+      await checkConsecutiveOfferAfterCheckIn()
       setPackageCheckInResult(result)
       setProcessingPackageCheckIn(false)
-      void checkConsecutiveOfferAfterCheckIn()
       return
     }
 

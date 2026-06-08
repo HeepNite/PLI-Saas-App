@@ -551,7 +551,6 @@ export const loadStaffPaymentsPurchases = async (
   todayWindow: StaffPaymentsTodayWindow,
 ) => {
   const purchases = await prisma.purchase.findMany(buildStaffPaymentsFindManyArgs(paymentsRequest, {
-    todayNY: todayWindow.todayNY,
     startOfTodayNY: todayWindow.startOfTodayNY,
     endOfTodayNY: todayWindow.endOfTodayNY,
   }))
