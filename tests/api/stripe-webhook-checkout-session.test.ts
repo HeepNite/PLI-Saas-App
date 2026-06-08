@@ -21,7 +21,7 @@ const mockPrisma = {
     create: (...args: unknown[]) => mockPurchaseCreate(...args),
     update: (...args: unknown[]) => mockPurchaseUpdate(...args),
   },
-  $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => callback(mockPrisma as any)),
+  $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => callback(mockPrisma)),
 }
 
 vi.mock("next/headers", () => ({
@@ -168,6 +168,16 @@ describe("stripe webhook checkout session persistence", () => {
     expect(upsertPayload?.create?.status).not.toBe("pending")
     expect(upsertPayload?.update?.status).toBe("paid")
     expect(upsertPayload?.update?.status).not.toBe("pending")
+    expect(upsertPayload?.create?.metadata).toMatchObject({
+      paymentChannel: "card",
+      settlementStatus: "paid",
+      settledAt: expect.any(String),
+    })
+    expect(upsertPayload?.update?.metadata).toMatchObject({
+      paymentChannel: "card",
+      settlementStatus: "paid",
+      settledAt: expect.any(String),
+    })
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(1)
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(1)
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(
@@ -451,9 +461,19 @@ describe("stripe webhook checkout session persistence", () => {
       create: {
         stripePaymentIntentId: "pi_456",
         status: "paid",
+        metadata: expect.objectContaining({
+          paymentChannel: "card",
+          settlementStatus: "paid",
+          settledAt: expect.any(String),
+        }),
       },
       update: {
         status: "paid",
+        metadata: expect.objectContaining({
+          paymentChannel: "card",
+          settlementStatus: "paid",
+          settledAt: expect.any(String),
+        }),
       },
     })
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(1)

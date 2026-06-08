@@ -122,6 +122,17 @@ const buildConsecutiveSplit = (input: {
   }
 }
 
+const mergeCardSettlementMetadata = (metadata: Record<string, unknown>, status: string) => {
+  if (status !== "paid") return metadata
+
+  return {
+    ...metadata,
+    paymentChannel: "card",
+    settlementStatus: "paid",
+    settledAt: normalize(metadata.settledAt as string | undefined) || new Date().toISOString(),
+  }
+}
+
 type ClerkUser = Awaited<ReturnType<ClerkClient["users"]["getUser"]>>
 
 const getDisplayName = (user: ClerkUser) => {
@@ -224,8 +235,9 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   })
   const incomingMeta = session.metadata as Record<string, unknown> | null | undefined
   const baseMeta = mergeMetadataPreservingFailure(existingPurchase?.metadata, incomingMeta)
-  const mergedMetadata = (
-    status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta
+  const mergedMetadata = mergeCardSettlementMetadata(
+    status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta,
+    status,
   ) as Prisma.InputJsonValue
 
   const purchase = await prisma.purchase.upsert({
@@ -430,8 +442,9 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   })
   const incomingMeta = intent.metadata as Record<string, unknown> | null | undefined
   const baseMeta = mergeMetadataPreservingFailure(existingPurchase?.metadata, incomingMeta)
-  const mergedMetadata = (
-    status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta
+  const mergedMetadata = mergeCardSettlementMetadata(
+    status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta,
+    status,
   ) as Prisma.InputJsonValue
 
   const purchase = await prisma.purchase.upsert({
