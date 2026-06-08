@@ -8,6 +8,7 @@ type HistoryRequest = Extract<StaffPaymentsRequest, { mode: "history" }>
 type UserHistoryRequest = Extract<StaffPaymentsRequest, { mode: "userHistory" }>
 
 const todayWindow = {
+  todayNY: "2026-02-10",
   startOfTodayNY: new Date("2026-02-10T05:00:00.000Z"),
   endOfTodayNY: new Date("2026-02-11T04:59:59.999Z"),
 }
@@ -57,7 +58,12 @@ describe("buildStaffPaymentsFindManyArgs", () => {
     expect(buildStaffPaymentsFindManyArgs(todayRequest(), todayWindow)).toEqual({
       where: {
         AND: [
-          { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
+          {
+            OR: [
+              { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
+              { metadata: { path: ["date"], equals: todayWindow.todayNY } },
+            ],
+          },
         ],
       },
       orderBy: { createdAt: "desc" },
@@ -65,7 +71,7 @@ describe("buildStaffPaymentsFindManyArgs", () => {
     })
   })
 
-  it("adds text search conditions to today mode without changing date scoping", () => {
+  it("adds text search conditions to today mode without changing class-date scoping", () => {
     const args = buildStaffPaymentsFindManyArgs(todayRequest({ query: "ana" }), todayWindow)
 
     expect(args.where).toMatchObject({
@@ -90,7 +96,26 @@ describe("buildStaffPaymentsFindManyArgs", () => {
             { courseSlug: { contains: "ana", mode: "insensitive" } },
           ],
         },
-        { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
+        {
+          OR: [
+            { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
+            { metadata: { path: ["date"], equals: todayWindow.todayNY } },
+          ],
+        },
+      ],
+    })
+  })
+
+  it("includes purchases bought before today when their class date is today", () => {
+    const args = buildStaffPaymentsFindManyArgs(todayRequest(), todayWindow)
+
+    expect(args.where).toMatchObject({
+      AND: [
+        {
+          OR: expect.arrayContaining([
+            { metadata: { path: ["date"], equals: "2026-02-10" } },
+          ]),
+        },
       ],
     })
   })

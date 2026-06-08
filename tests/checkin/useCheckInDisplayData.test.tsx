@@ -318,7 +318,7 @@ describe("useCheckInDisplayData", () => {
     expect(rendered.getSnapshot().hideEntrySelection).toBe(true)
   })
 
-  it("shows the signed-in bootstrap panel again after package check-in produces a result", async () => {
+  it("keeps the signed-in bootstrap panel hidden for kiosk package users after package check-in produces a result", async () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
@@ -331,7 +331,7 @@ describe("useCheckInDisplayData", () => {
     container = rendered.container
 
     expect(rendered.getSnapshot().showKioskResolvingOverlay).toBe(false)
-    expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(true)
+    expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(false)
   })
 
   it("keeps the kiosk PIN modal open when the identified PIN still requires rotation", async () => {
