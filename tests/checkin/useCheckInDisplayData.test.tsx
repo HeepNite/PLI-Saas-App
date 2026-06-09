@@ -284,7 +284,7 @@ describe("useCheckInDisplayData", () => {
     expect(rendered.getSnapshot().showContextWarning).toBe(true)
   })
 
-  it("bypasses the kiosk PIN modal after a permanent PIN identifies an active kiosk session", async () => {
+  it("bypasses the kiosk PIN modal without showing the signed-in bootstrap panel after PIN identification", async () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
@@ -295,7 +295,7 @@ describe("useCheckInDisplayData", () => {
     container = rendered.container
 
     expect(rendered.getSnapshot().showKioskPinPanel).toBe(false)
-    expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(true)
+    expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(false)
     expect(rendered.getSnapshot().hideEntrySelection).toBe(true)
     expect(rendered.getSnapshot().breadcrumbItems).toEqual(["Terminal", "Existing customer", "Current course"])
   })
