@@ -264,6 +264,7 @@ export default function EnrollModal({
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
   const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
+  const forceKioskDarkModal = isKioskTerminalFlow && !isInline
   const isStationCompletion = isCheckInFlow && completionMode === "station"
   const isPersonalCompletion = isCheckInFlow && completionMode === "personal"
   const photoPolicy = React.useMemo(() => getPhotoPolicy(photoFlowContext), [photoFlowContext])
@@ -2227,7 +2228,10 @@ export default function EnrollModal({
       <GlassyCard
         data-lenis-prevent
         className={[
-          "relative w-full bg-white/70 dark:bg-white/10 p-0",
+          "relative w-full p-0",
+          forceKioskDarkModal
+            ? "border-white/12 bg-neutral-900/82 text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)] backdrop-blur-xl"
+            : "bg-white/70 dark:bg-white/10",
           isInline
             ? "rounded-3xl overflow-hidden"
             : [
@@ -2249,7 +2253,10 @@ export default function EnrollModal({
           </button>
         )}
 
-        <div className={isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12"}>
+        <div className={[
+          isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12",
+          forceKioskDarkModal ? "dark" : "",
+        ].join(" ")}>
           {/* Sidebar: stepper (form) OR calendar panel (success) */}
           {!hideCalendarSidebar && (
             <aside
