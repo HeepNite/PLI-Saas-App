@@ -300,6 +300,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   })
   const effectiveClerkSession = hasActiveClerkSession && !isKioskTerminalFlow
   const canShowSignedInBootstrapPanel = mode === "existing" && (effectiveClerkSession || hasKioskPinSession)
+  const isKioskPackageBootstrap = isKioskTerminalFlow && Boolean(bootstrap?.package)
   const showKioskPinPanel =
     mode === "existing" && isKioskTerminalFlow && (!hasKioskPinSession || kioskPinRotationRequired)
   const showKioskResolvingOverlay = shouldShowKioskResolvingOverlay({
@@ -318,7 +319,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     paymentsStepReady: paymentsModalReady,
     hasExistingPurchaseForSession: Boolean(bootstrap?.hasExistingPurchaseForSession),
   })
-  const showSignedInBootstrapPanel = canShowSignedInBootstrapPanel && !showKioskResolvingOverlay
+  const showSignedInBootstrapPanel = canShowSignedInBootstrapPanel && !showKioskResolvingOverlay && !isKioskPackageBootstrap
   const hideEntrySelection = showSignedInBootstrapPanel || showKioskPinPanel || showKioskResolvingOverlay
   const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const showLatePaymentOffer = Boolean(

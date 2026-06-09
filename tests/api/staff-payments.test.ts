@@ -315,6 +315,34 @@ describe("staff payments route", () => {
     expect(data.summary).toMatchObject({ totalItems: 1, totalCollected: 2500, paidStripe: 1 })
   })
 
+  it("includes purchases created before today when their class date is today", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "paid_yesterday_for_today",
+        userId: "user_madelyn",
+        amount: 1500,
+        metadata: { date: "2026-03-20", time: "21:10", paymentChannel: "card", settlementStatus: "paid" },
+        createdAt: "2026-03-19T21:05:06.588Z",
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual([
+      expect.objectContaining({
+        id: "paid_yesterday_for_today",
+        amount: 1500,
+        classPaid: true,
+        paymentChannel: "card",
+        settlementStatus: "paid",
+      }),
+    ])
+    expect(data.summary).toMatchObject({ totalItems: 1, totalCollected: 1500, paidStripe: 1, pendingStripe: 0 })
+  })
+
   it("splits aggregate consecutive purchases even when marker metadata is missing", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({
@@ -579,12 +607,17 @@ describe("staff payments route", () => {
                 { courseSlug: { contains: "elvira", mode: "insensitive" } },
               ],
             },
-            expect.objectContaining({
-              createdAt: expect.objectContaining({
-                gte: expect.any(Date),
-                lte: expect.any(Date),
-              }),
-            }),
+            {
+              OR: [
+                {
+                  createdAt: expect.objectContaining({
+                    gte: expect.any(Date),
+                    lte: expect.any(Date),
+                  }),
+                },
+                { metadata: { path: ["date"], equals: expect.any(String) } },
+              ],
+            },
           ],
         },
       })
