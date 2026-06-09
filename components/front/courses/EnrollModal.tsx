@@ -2230,7 +2230,7 @@ export default function EnrollModal({
         className={[
           "relative w-full p-0",
           forceKioskDarkModal
-            ? "border-white/12 bg-neutral-900/82 text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)] backdrop-blur-xl"
+            ? "kiosk-terminal-enroll-modal border-white/12 bg-neutral-900/82 text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)] backdrop-blur-xl"
             : "bg-white/70 dark:bg-white/10",
           isInline
             ? "rounded-3xl overflow-hidden"
@@ -2507,6 +2507,7 @@ export default function EnrollModal({
 
           {/* Main content */}
           <section
+            data-kiosk-terminal-panel={forceKioskDarkModal ? "main" : undefined}
             className={
               isInline
                 ? "relative p-4 sm:p-6"
