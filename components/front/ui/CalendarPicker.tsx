@@ -239,10 +239,13 @@ export default function CalendarPicker({
             )}
           </div>
         )}
-        <span className={`shrink-0 px-1 font-medium text-black/80 dark:text-white/80 ${compact ? "text-sm" : "text-sm md:text-base"}`}>{tz}</span>
       </div>
 
-      <div className="mt-3 border-t border-black/10 dark:border-white/10" />
+      <div className="mt-2 text-right">
+        <span className={`px-1 text-black/50 dark:text-white/45 ${compact ? "text-[11px]" : "text-xs"}`}>{tz}</span>
+      </div>
+
+      <div className="mt-1 border-t border-black/10 dark:border-white/10" />
       <div
         className={`mt-2 grid w-full max-w-none flex-1 grid-cols-7 content-center text-center ${
           compact ? "gap-1.5 text-sm" : "gap-1 sm:gap-2 lg:gap-3 text-xs sm:text-sm lg:text-base"

@@ -79,9 +79,8 @@ export function AnalyticsCard({
         </div>
 
         <div className="mt-5 grid grid-cols-1 lg:grid-cols-[0.65fr_2.75fr_0.85fr] gap-4 items-stretch">
-          <div className="space-y-3 h-full flex flex-col">
+          <div className="grid grid-cols-2 gap-3 lg:flex lg:flex-col lg:space-y-3 lg:gap-0 lg:h-full">
             <div className="relative min-h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-[#0b0b0f]/80 px-5 py-4 flex-1 flex flex-col justify-between text-center">
-              <div className="pointer-events-none absolute -left-10 -top-10 h-24 w-24 rounded-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.35),transparent_70%)] blur-2xl" />
               <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Total classes</p>
               <p className="mt-2 text-[52px] font-semibold leading-none tracking-tight text-white">{activityStats.classesTaken}</p>
               <p className="mt-2 text-[11px] text-white/50">+12% vs previous month</p>
@@ -234,9 +233,8 @@ export function AnalyticsCard({
             </div>
           </div>
 
-          <div className="space-y-3 h-full flex flex-col">
+          <div className="flex flex-row gap-3 lg:flex-col lg:space-y-3 lg:gap-0 lg:h-full">
             <div className="relative min-h-[148px] overflow-hidden rounded-2xl border border-white/10 bg-white/5 px-4 py-4 flex-1 flex flex-col">
-              <div className="pointer-events-none absolute -right-10 -bottom-10 h-24 w-24 rounded-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.4),transparent_70%)] blur-2xl" />
               <div className="flex items-center gap-2 text-[11px] text-white/60">
                 <span className="h-2 w-2 rounded-full bg-[var(--brand,#b61616)]" />
                 Distribution
@@ -256,7 +254,7 @@ export function AnalyticsCard({
                 </div>
               </div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 order-first lg:order-none lg:flex-none">
               <div className="space-y-2 text-[11px] text-white/70">
                 {pieSegments.map((seg) => (
                   <div key={seg.label} className="flex items-center justify-between gap-2">

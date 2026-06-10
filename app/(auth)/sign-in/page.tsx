@@ -33,7 +33,7 @@ export default function SignInPage() {
                     "border border-white/15 bg-white/[0.03] hover:bg-white/[0.08] text-white rounded-md h-12 [&_svg]:text-white [&_svg]:fill-white",
                 },
               }}
-              fallbackRedirectUrl="/panel"
+              fallbackRedirectUrl="/client-profile"
             />
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React from "react"
 import { X } from "lucide-react"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
+import { formatDateTimeInTimeZone } from "../profile-formatters"
 import type { AssignablePackage, BookingItem, SlotAvailability } from "../profile-types"
 
 type RescheduleModalProps = {
@@ -17,7 +18,6 @@ type RescheduleModalProps = {
   hydrateRescheduleFromBooking: (booking: BookingItem | null) => void
   rescheduleCourseOptions: Array<{ slug: string; title: string }>
   rescheduleScopedBookings: BookingItem[]
-  formatDateTimeInTimeZone: (value: string | Date, options?: Intl.DateTimeFormatOptions) => string
   rescheduleDate: string
   setRescheduleDate: (value: string) => void
   setRescheduleTime: (value: string) => void
@@ -55,7 +55,6 @@ export function RescheduleModal({
   hydrateRescheduleFromBooking,
   rescheduleCourseOptions,
   rescheduleScopedBookings,
-  formatDateTimeInTimeZone,
   rescheduleDate,
   setRescheduleDate,
   setRescheduleTime,

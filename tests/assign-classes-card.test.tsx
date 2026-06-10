@@ -58,6 +58,23 @@ describe("AssignClassesCard", () => {
         addAssignSlot={vi.fn()}
         removeAssignSlot={vi.fn()}
         submitAssignClasses={vi.fn()}
+        agendaState={{
+          mobileAgendaOpenDay: null,
+          setMobileAgendaOpenDay: vi.fn(),
+          agendaMonth: 0,
+          setAgendaMonth: vi.fn(),
+          agendaYear: 2026,
+          setAgendaYear: vi.fn(),
+          calendarDays: [],
+          agendaMonthLabel: "January",
+          agendaYears: [2025, 2026, 2027],
+          bookingEventsByDay: new Map(),
+          pendingBookingEventsByDay: new Map(),
+          nextBookedClass: { scheduleLabel: "No upcoming class", courseTitle: "" },
+        }}
+        pendingBookings={[]}
+        visibleBookings={[]}
+        classRequestsByAttendance={new Map()}
       />
     )
 

@@ -1,5 +1,6 @@
 import React from "react"
 import { X } from "lucide-react"
+import { formatDateTimeInTimeZone } from "../profile-formatters"
 import type { ActionRequestType, AssignablePackage, BookingItem } from "../profile-types"
 
 type ActionRequestModalProps = {
@@ -17,7 +18,6 @@ type ActionRequestModalProps = {
   setRequestCancelDecision: (value: "REASSIGN" | "REFUND" | null) => void
   setRequestSubmitError: (value: string | null) => void
   visibleBookings: BookingItem[]
-  formatDateTimeInTimeZone: (value: string | Date, options?: Intl.DateTimeFormatOptions) => string
   requestCancelBooking: BookingItem | null
   requestCancelDecision: "REASSIGN" | "REFUND" | null
   requestMessage: string
@@ -42,7 +42,6 @@ export function ActionRequestModal({
   setRequestCancelDecision,
   setRequestSubmitError,
   visibleBookings,
-  formatDateTimeInTimeZone,
   requestCancelBooking,
   requestCancelDecision,
   requestMessage,

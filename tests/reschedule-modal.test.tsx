@@ -22,7 +22,6 @@ describe("RescheduleModal", () => {
         hydrateRescheduleFromBooking={vi.fn()}
         rescheduleCourseOptions={[{ slug: "salsa-1", title: "Salsa 1" }]}
         rescheduleScopedBookings={[booking]}
-        formatDateTimeInTimeZone={(value) => String(value)}
         rescheduleDate=""
         setRescheduleDate={vi.fn()}
         setRescheduleTime={vi.fn()}
@@ -66,7 +65,6 @@ describe("RescheduleModal", () => {
         hydrateRescheduleFromBooking={vi.fn()}
         rescheduleCourseOptions={[{ slug: "salsa-1", title: "Salsa 1" }]}
         rescheduleScopedBookings={[booking]}
-        formatDateTimeInTimeZone={(value) => String(value)}
         rescheduleDate="2026-10-12"
         setRescheduleDate={vi.fn()}
         setRescheduleTime={vi.fn()}
@@ -112,7 +110,6 @@ describe("RescheduleModal", () => {
       hydrateRescheduleFromBooking: vi.fn(),
       rescheduleCourseOptions: [{ slug: "salsa-1", title: "Salsa 1" }],
       rescheduleScopedBookings: [booking],
-      formatDateTimeInTimeZone: (value) => String(value),
       rescheduleDate: "2026-10-12",
       setRescheduleDate: vi.fn(),
       setRescheduleTime: vi.fn(),

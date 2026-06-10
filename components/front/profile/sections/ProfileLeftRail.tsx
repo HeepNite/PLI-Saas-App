@@ -45,8 +45,8 @@ export function ProfileLeftRail({
     <aside className="lg:self-start">
       <div ref={leftRailRef} className="profile-left-rail space-y-4">
         <GlassyCard className="p-4 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/10">
+          <div className="flex items-start gap-3">
+            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-white/10">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -78,14 +78,22 @@ export function ProfileLeftRail({
                 }}
               />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Student</p>
               <h2 className="text-lg font-semibold">{profileUser.name || mockProfile.name}</h2>
               <p className="text-xs text-zinc-600 dark:text-white/60">{mockProfile.level}</p>
             </div>
+            {/* Mobile: email + phone as second column next to name */}
+            <div className="hidden shrink-0 self-center text-right text-xs text-zinc-500 dark:text-white/55 max-[1023px]:block">
+              <p className="truncate">{profileUser.email || mockProfile.email}</p>
+              <p className="mt-0.5 truncate">{profileUser.phone || mockProfile.phone}</p>
+            </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+
+
+          {/* Desktop: status badges row + contact info (hidden on mobile) */}
+          <div className="mt-4 hidden grid-cols-2 gap-2 text-xs lg:grid">
             <div className="rounded-md border border-white/10 px-3 py-2">
               <p className="text-[color:var(--brand)]">Status</p>
               <p className="font-semibold">{statusLabel[profileUser.status]}</p>
@@ -96,21 +104,51 @@ export function ProfileLeftRail({
             </div>
           </div>
 
-          <div className="mt-4 space-y-2 text-sm text-zinc-700 dark:text-white/70">
+          <div className="mt-4 hidden space-y-2 text-sm text-zinc-700 dark:text-white/70 lg:block">
             <p>{profileUser.email || mockProfile.email}</p>
             <p>{profileUser.phone || mockProfile.phone}</p>
           </div>
           {avatarError && <p className="mt-2 text-xs text-red-400">{avatarError}</p>}
           {avatarUploading && <p className="mt-2 text-xs text-zinc-600 dark:text-white/60">Updating avatar...</p>}
 
-          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+          {/* Mobile: Activity + completion ring centered */}
+          <div className="mt-4 flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm lg:hidden">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Activity</p>
+              <p className="mt-3"><span className="text-white/50">Status:</span> <strong>{statusLabel[profileUser.status]}</strong> <span className="text-[var(--brand,#b61616)]">·</span> <span className="text-white/50">Phone:</span> <strong>{profileUser.phoneVerified ? "Verified" : "Unverified"}</strong></p>
+              <p className="mt-1.5"><span className="text-white/50">Classes:</span> <strong>{activityStats.classesTaken}</strong> <span className="text-[var(--brand,#b61616)]">·</span> <span className="text-white/50">Streak:</span> <strong>{activityStats.streakWeeks} weeks</strong></p>
+              <p className="mt-1.5"><span className="text-white/50">Last class:</span> <strong>{activityStats.lastClassLabel || "—"}</strong></p>
+              <button
+                type="button"
+                onClick={() => setShowProfileForm(true)}
+                className="mt-3 rounded-md border border-black/10 bg-black/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:border-black/20 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:border-white/30"
+              >
+                Edit profile
+              </button>
+            </div>
+            <div className="flex w-[35%] shrink-0 items-center justify-center">
+              <div
+                className="relative aspect-square w-full max-w-[7rem] rounded-full p-[3px]"
+                style={{ background: `conic-gradient(${ringColor} ${completionPercent}%, rgba(255,255,255,0.12) 0)` }}
+              >
+                <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-black/70 text-white">
+                  <span className="text-lg font-semibold">{completionPercent}%</span>
+                  <span className="text-[10px] uppercase tracking-wider text-white/50">complete</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop: Activity block */}
+          <div className="mt-4 hidden rounded-xl border border-white/10 bg-white/5 p-3 text-sm lg:block">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Activity</p>
             <p className="mt-2">Classes taken: <strong>{activityStats.classesTaken}</strong></p>
             <p>Streak: <strong>{activityStats.streakWeeks} weeks</strong></p>
             <p>Last class: <strong>{activityStats.lastClassLabel || "—"}</strong></p>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          {/* Desktop: Edit profile + completion ring */}
+          <div className="mt-4 hidden flex-wrap items-center gap-2 lg:flex">
             <button
               type="button"
               onClick={() => setShowProfileForm(true)}

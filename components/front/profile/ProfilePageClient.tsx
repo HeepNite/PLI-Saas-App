@@ -16,12 +16,10 @@ import type {
 } from "./profile-types"
 import {
   NY_TIMEZONE,
-  CHECK_IN_OPEN_WINDOW_MS,
 } from "./profile-constants"
 import {
   isPendingRequestStatus,
   formatDateKeyInTimeZone,
-  formatDateTimeInTimeZone,
 } from "./profile-formatters"
 import { mockProfile } from "./mock-profile"
 import { usePointsHistory } from "./hooks/usePointsHistory"
@@ -46,8 +44,8 @@ import { GearCard } from "./sections/GearCard"
 import { ProfileLeftRail } from "./sections/ProfileLeftRail"
 import { ProfileFormCard } from "./sections/ProfileFormCard"
 import { StudentPinCard } from "./sections/StudentPinCard"
+import { MobileActionCards } from "./sections/MobileActionCards"
 import { AnalyticsCard } from "./sections/AnalyticsCard"
-import { AgendaCard } from "./sections/AgendaCard"
 import { AssignClassesCard } from "./sections/AssignClassesCard"
 import { ProfileRightRail } from "./sections/ProfileRightRail"
 import { RescheduleModal } from "./modals/RescheduleModal"
@@ -55,6 +53,19 @@ import { ActionRequestModal } from "./modals/ActionRequestModal"
 import { CoursePickerModal } from "./modals/CoursePickerModal"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
+
+const MEDAL_ITEMS = [
+  { label: "5 classes", icon: Trophy },
+  { label: "10 classes", icon: Medal },
+  { label: "1 active month", icon: Flame },
+  { label: "Consistencia", icon: Star },
+]
+
+const RESCHEDULE_STEP_ITEMS: Array<{ id: 1 | 2 | 3; label: string }> = [
+  { id: 1, label: "Reassignment" },
+  { id: 2, label: "Confirmation" },
+  { id: 3, label: "Assign pending" },
+]
 
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
@@ -132,12 +143,9 @@ export default function ProfilePageClient() {
     assignablePackages,
     bookingsLoading,
     bookingsError,
-    checkInSubmittingId,
-    checkInError,
     checkInSuccess,
     setCheckInSuccess,
     loadBookings,
-    submitBookingCheckIn,
   } = useProfileBookings({
     canLoadProtectedData,
     clearAvailabilityCache,
@@ -203,33 +211,7 @@ export default function ProfilePageClient() {
     () => visibleBookings.find((item) => item.id === selectedBookingId) || visibleBookings[0] || null,
     [visibleBookings, selectedBookingId]
   )
-  const nextCheckInBooking = React.useMemo(() => {
-    const now = Date.now()
-    return (
-      visibleBookings.find((booking) => {
-        const startsAtMs = new Date(booking.startsAt).getTime()
-        if (Number.isNaN(startsAtMs)) return false
-        return startsAtMs <= now + CHECK_IN_OPEN_WINDOW_MS
-      }) || null
-    )
-  }, [visibleBookings])
-  const pendingCheckInBooking = React.useMemo(() => {
-    if (nextCheckInBooking) return null
-    return visibleBookings[0] || null
-  }, [nextCheckInBooking, visibleBookings])
-  const checkInOpensAtLabel = React.useMemo(() => {
-    if (!pendingCheckInBooking) return ""
-    const startsAtMs = new Date(pendingCheckInBooking.startsAt).getTime()
-    if (Number.isNaN(startsAtMs)) return ""
-    return formatDateTimeInTimeZone(new Date(startsAtMs - CHECK_IN_OPEN_WINDOW_MS), {
-      weekday: "short",
-      day: "2-digit",
-      month: "short",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-  }, [pendingCheckInBooking])
-  const suspendablePackages = React.useMemo(() => assignablePackages, [assignablePackages])
+
   const {
     changeModalOpen,
     rescheduleStep,
@@ -293,7 +275,7 @@ export default function ProfilePageClient() {
     closeRequestModal,
     submitActionRequest,
   } = useActionRequestModal({
-    suspendablePackages,
+    suspendablePackages: assignablePackages,
     visibleBookings,
     selectedBooking,
     loadActionRequests,
@@ -387,20 +369,8 @@ export default function ProfilePageClient() {
     return () => window.clearTimeout(id)
   }, [checkInSuccess, setCheckInSuccess])
 
-  const medalItems = [
-    { label: "5 classes", icon: Trophy },
-    { label: "10 classes", icon: Medal },
-    { label: "1 active month", icon: Flame },
-    { label: "Consistencia", icon: Star },
-  ]
-
   const latestPointEntries = pointsEntries.slice(0, 6)
   const latestActionRequests = actionRequests.slice(0, 5)
-  const rescheduleStepItems = [
-    { id: 1 as const, label: "Reassignment" },
-    { id: 2 as const, label: "Confirmation" },
-    { id: 3 as const, label: "Assign pending" },
-  ]
   const handleProfileFieldChange = React.useCallback((field: keyof typeof profileForm, value: string) => {
     setProfileForm((s) => ({ ...s, [field]: value }))
   }, [setProfileForm])
@@ -470,6 +440,21 @@ export default function ProfilePageClient() {
               }}
             />
 
+            <MobileActionCards
+              onOpenCoursePicker={() => setCoursePickerOpen(true)}
+              onOpenChangeClassModal={openChangeClassModal}
+              onOpenRequestModal={openRequestModal}
+              selectedBooking={selectedBooking}
+              bookingsLoading={bookingsLoading}
+              bookingsError={bookingsError}
+              requestSubmitError={requestSubmitError}
+              requestSubmitSuccess={requestSubmitSuccess}
+              requestModalType={requestModalType}
+              actionRequestsError={actionRequestsError}
+              actionRequestsLoading={actionRequestsLoading}
+              latestActionRequests={latestActionRequests}
+            />
+
             <StudentMomentsCard moments={mockProfile.moments} />
 
             <AnalyticsCard
@@ -507,25 +492,7 @@ export default function ProfilePageClient() {
               latestPointEntries={latestPointEntries}
             />
 
-            <MedalsCard medalItems={medalItems} />
-
-            <AgendaCard
-              mobileAgendaOpenDay={mobileAgendaOpenDay}
-              setMobileAgendaOpenDay={setMobileAgendaOpenDay}
-              agendaMonth={agendaMonth}
-              setAgendaMonth={setAgendaMonth}
-              agendaYear={agendaYear}
-              setAgendaYear={setAgendaYear}
-              calendarDays={calendarDays}
-              agendaMonthLabel={agendaMonthLabel}
-              agendaYears={agendaYears}
-              bookingEventsByDay={bookingEventsByDay}
-              pendingBookingEventsByDay={pendingBookingEventsByDay}
-              nextBookedClass={nextBookedClass}
-              pendingBookings={pendingBookings}
-              visibleBookings={visibleBookings}
-              classRequestsByAttendance={classRequestsByAttendance}
-            />
+            <MedalsCard medalItems={MEDAL_ITEMS} />
 
             <AssignClassesCard
               assignPackageId={assignPackageId}
@@ -552,6 +519,23 @@ export default function ProfilePageClient() {
               addAssignSlot={addAssignSlot}
               removeAssignSlot={removeAssignSlot}
               submitAssignClasses={submitAssignClasses}
+              agendaState={{
+                mobileAgendaOpenDay,
+                setMobileAgendaOpenDay,
+                agendaMonth,
+                setAgendaMonth,
+                agendaYear,
+                setAgendaYear,
+                calendarDays,
+                agendaMonthLabel,
+                agendaYears,
+                bookingEventsByDay,
+                pendingBookingEventsByDay,
+                nextBookedClass,
+              }}
+              pendingBookings={pendingBookings}
+              visibleBookings={visibleBookings}
+              classRequestsByAttendance={classRequestsByAttendance}
             />
 
             <GearCard
@@ -569,13 +553,6 @@ export default function ProfilePageClient() {
             selectedBooking={selectedBooking}
             bookingsError={bookingsError}
             onOpenChangeClassModal={openChangeClassModal}
-            nextCheckInBooking={nextCheckInBooking}
-            pendingCheckInBooking={pendingCheckInBooking}
-            checkInOpensAtLabel={checkInOpensAtLabel}
-            onSubmitBookingCheckIn={(bookingId) => void submitBookingCheckIn(bookingId)}
-            checkInSubmittingId={checkInSubmittingId}
-            checkInError={checkInError}
-            checkInSuccess={checkInSuccess}
             onOpenRequestModal={openRequestModal}
             requestSubmitError={requestSubmitError}
             requestSubmitSuccess={requestSubmitSuccess}
@@ -596,9 +573,8 @@ export default function ProfilePageClient() {
           todayNyDateKey={todayNyDateKey}
           pendingAssignablePackages={pendingAssignablePackages}
           selectedBookingCourseAvailableWeekdays={selectedBookingCourse?.schedule.availableWeekdays}
-          formatDateTimeInTimeZone={formatDateTimeInTimeZone}
           nyTimezone={NY_TIMEZONE}
-          rescheduleStepItems={rescheduleStepItems}
+          rescheduleStepItems={RESCHEDULE_STEP_ITEMS}
           rescheduleStep={rescheduleStep}
           setRescheduleStep={setRescheduleStep}
           rescheduleCourseSlug={rescheduleCourseSlug}
@@ -632,7 +608,7 @@ export default function ProfilePageClient() {
         closeRequestModal={closeRequestModal}
         requestSuspendPackageId={requestSuspendPackageId}
         setRequestSuspendPackageId={setRequestSuspendPackageId}
-        suspendablePackages={suspendablePackages}
+        suspendablePackages={assignablePackages}
         requestSuspendStart={requestSuspendStart}
         setRequestSuspendStart={setRequestSuspendStart}
         requestSuspendEnd={requestSuspendEnd}
@@ -642,7 +618,6 @@ export default function ProfilePageClient() {
         setRequestCancelDecision={setRequestCancelDecision}
         setRequestSubmitError={setRequestSubmitError}
         visibleBookings={visibleBookings}
-        formatDateTimeInTimeZone={formatDateTimeInTimeZone}
         requestCancelBooking={requestCancelBooking}
         requestCancelDecision={requestCancelDecision}
         requestMessage={requestMessage}
