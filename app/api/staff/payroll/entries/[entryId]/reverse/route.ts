@@ -57,7 +57,7 @@ export async function POST(req: Request, context: { params: Promise<{ entryId: s
     return jsonError("Entry must be paid to reverse", 422)
   }
 
-  const [updatedEntry] = await prisma.$transaction([
+  const [, , updatedEntry] = await prisma.$transaction([
     prisma.staffPayrollEntry.update({
       where: { id: entryId },
       data: {

@@ -215,7 +215,7 @@ export async function POST(req: Request) {
       
       // Check if paydayWeekday reached for current week
       // We'll consider the periodEnd date to determine if we should process this pay period
-      const nextPayday = calculateNextPayday(periodStartDate, paymentModel.paydayWeekday)
+      const nextPayday = calculateNextPayday(periodEndDate, paymentModel.paydayWeekday)
       
       // For simplicity, we'll process if the periodEnd is on or after the calculated payday
       // In a real implementation, you might want to check if today is the payday
