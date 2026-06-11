@@ -4,6 +4,7 @@ import {
   isCompletedPaymentStatus,
   normalizePaymentChannel,
   normalizePurchaseCategory,
+  normalizePurchaseSource,
   resolveCanonicalName,
 } from "@/app/api/staff/payments/shared"
 import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failure"
@@ -222,6 +223,7 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     packageId: packageId || null,
     serviceId: serviceId || null,
     paymentChannel,
+    purchaseSource: normalizePurchaseSource(item.metadata),
     purchaseCategory,
     amount: purchase.amount,
     currency: purchase.currency,

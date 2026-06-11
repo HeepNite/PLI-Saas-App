@@ -65,6 +65,14 @@ export type ScheduleEvent = {
   userPhone: string
 }
 
+export type WebCashArrival = {
+  attendanceId: string
+  userName: string
+  courseTitle: string
+  cashAmountCents: number
+  checkedInAt: string
+}
+
 export type PaymentRow = {
   id: string
   userId: string
@@ -77,6 +85,7 @@ export type PaymentRow = {
   packageId: string | null
   serviceId: string | null
   paymentChannel: "cash" | "card" | "unknown" | "package_credit"
+  purchaseSource?: "web" | "kiosk" | "front_desk" | "unknown"
   purchaseCategory: "package" | "dropin" | "other"
   amount: number
   currency: string

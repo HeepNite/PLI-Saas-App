@@ -55,6 +55,21 @@ export const normalizePaymentChannel = (input: {
   return "unknown"
 }
 
+export type PurchaseSource = "web" | "kiosk" | "front_desk" | "unknown"
+
+export const normalizePurchaseSource = (metadata: unknown): PurchaseSource => {
+  const meta = asObject(metadata)
+  const explicit = asText(meta.purchaseSource).toLowerCase()
+  if (explicit === "web") return "web"
+  if (explicit === "kiosk") return "kiosk"
+  if (explicit === "front_desk") return "front_desk"
+
+  const source = asText(meta.source).toLowerCase()
+  if (source.includes("kiosk") || source.includes("terminal")) return "kiosk"
+  if (source.includes("stripe_webhook") || source === "cash_checkout") return "web"
+  return "unknown"
+}
+
 export const normalizePurchaseCategory = (input: { packageId: string | null | undefined; serviceId: string | null | undefined }): PurchaseCategory => {
   if (asText(input.packageId)) return "package"
   if (asText(input.serviceId)) return "dropin"

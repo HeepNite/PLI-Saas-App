@@ -346,6 +346,50 @@ export function useStaffStudentsBoardAdmin({
     return `${formatShortDate(historyFrom)} → ${formatShortDate(historyTo)}`
   }, [historyFrom, historyTo])
 
+  // ─── Web-cash arrival polling ─────────────────────────────
+  const [webCashArrivals, setWebCashArrivals] = React.useState<Array<{
+    attendanceId: string
+    userName: string
+    courseTitle: string
+    cashAmountCents: number
+    checkedInAt: string
+  }>>([])
+  const webCashLastPolledRef = React.useRef<string>(new Date().toISOString())
+  const webCashSeenIdsRef = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    if (isHistoryMode) return
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/staff/checkin/web-cash-arrivals?since=${encodeURIComponent(webCashLastPolledRef.current)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!Array.isArray(data) || data.length === 0) return
+
+        const newArrivals = data.filter(
+          (item: { attendanceId: string }) => !webCashSeenIdsRef.current.has(item.attendanceId)
+        )
+        if (newArrivals.length === 0) return
+
+        for (const arrival of newArrivals) {
+          webCashSeenIdsRef.current.add(arrival.attendanceId)
+        }
+        setWebCashArrivals((prev) => [...newArrivals, ...prev].slice(0, 10))
+        webCashLastPolledRef.current = new Date().toISOString()
+      } catch {
+        // Silently ignore polling errors
+      }
+    }
+
+    void poll()
+    const interval = window.setInterval(poll, 10_000)
+    return () => window.clearInterval(interval)
+  }, [isHistoryMode])
+
+  const dismissWebCashArrival = React.useCallback((attendanceId: string) => {
+    setWebCashArrivals((prev) => prev.filter((item) => item.attendanceId !== attendanceId))
+  }, [])
+
   return {
     currentPage,
     setCurrentPage,
@@ -370,5 +414,7 @@ export function useStaffStudentsBoardAdmin({
     todayDateIso,
     historyReadableRange,
     shouldPreservePaymentBoard,
+    webCashArrivals,
+    dismissWebCashArrival,
   }
 }
