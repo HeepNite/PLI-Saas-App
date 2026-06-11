@@ -152,6 +152,35 @@ describe("enroll selectors", () => {
     expect(selectActiveStepKey(stepKeys, 2)).toBe("packages")
   })
 
+  it("can skip the contact info step for trusted profile booking flows", () => {
+    const stepKeys = resolveFlowStepKeys({
+      isCheckInFlow: false,
+      isCheckInNewFlow: false,
+      isKioskTerminalFlow: false,
+      requiresPhotoStep: false,
+      skipInfoStep: true,
+    })
+
+    expect(stepKeys).toEqual(["party", "datetime", "payments", "review"])
+    expect(selectActiveStepKey(stepKeys, 1)).toBe("datetime")
+    expect(selectActiveStepKey(stepKeys, 2)).toBe("payments")
+  })
+
+  it("keeps the consecutive promotion between date/time and payment for trusted profile booking flows", () => {
+    const stepKeys = resolveFlowStepKeys({
+      isCheckInFlow: false,
+      isCheckInNewFlow: false,
+      isKioskTerminalFlow: false,
+      requiresPhotoStep: false,
+      skipInfoStep: true,
+      hasConsecutiveOffer: true,
+    })
+
+    expect(stepKeys).toEqual(["party", "datetime", "consecutive", "payments", "review"])
+    expect(selectActiveStepKey(stepKeys, 2)).toBe("consecutive")
+    expect(selectActiveStepKey(stepKeys, 3)).toBe("payments")
+  })
+
   it("blocks continue on payments until valid payment method is selected", () => {
     const state = createInitialEnrollFlowState({ contact: baseContact, maxStep: 4 })
 

@@ -10,9 +10,11 @@ type ResolveEnrollStepKeysInput = {
   isCheckInNewFlow: boolean
   isKioskTerminalFlow: boolean
   requiresPhotoStep: boolean
+  /** Trusted account flows (for example client profile booking) can skip contact collection. */
+  skipInfoStep?: boolean
   /** Whether the course has packages available (shows packages step in kiosk) */
   hasPackages?: boolean
-  /** Whether a consecutive class offer is available (shows consecutive step in kiosk) */
+  /** Whether a consecutive class offer is available (shows consecutive step before payment) */
   hasConsecutiveOffer?: boolean
 }
 
@@ -52,8 +54,9 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
   return [
     "party",
     "datetime",
-    "info",
+    ...(input.skipInfoStep ? [] : (["info"] as const)),
     ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+    ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
     "payments",
     ...(input.isCheckInFlow ? [] : (["review"] as const)),
   ]
@@ -72,11 +75,13 @@ export const getCheckInSignInModalVariant = (isCheckInFlow: boolean) =>
 
 export const resolvePostPhotoStepIndex = (input: {
   packagesStepIndex: number
+  consecutiveStepIndex?: number
   paymentsStepIndex: number
   currentStep: number
   stepsLength: number
 }) => {
   if (input.packagesStepIndex >= 0) return input.packagesStepIndex
+  if ((input.consecutiveStepIndex ?? -1) >= 0) return input.consecutiveStepIndex ?? -1
   if (input.paymentsStepIndex >= 0) return input.paymentsStepIndex
 
   const maxStep = Math.max(0, input.stepsLength - 1)

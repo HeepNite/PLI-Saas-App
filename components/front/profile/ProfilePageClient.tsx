@@ -643,6 +643,7 @@ export default function ProfilePageClient() {
           initialStep={1}
           onCloseAction={() => setEnrollOpen(false)}
           prefillContact={bookingPrefillContact}
+          skipContactStep
           useDraft={false}
         />
       )}

@@ -72,6 +72,31 @@ describe("enroll flow helpers", () => {
     ).toEqual(["party", "datetime", "info", "photo", "payments", "review"])
   })
 
+  it("adds the consecutive offer step before payments in standard booking flows", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: false,
+        requiresPhotoStep: false,
+        hasConsecutiveOffer: true,
+      })
+    ).toEqual(["party", "datetime", "info", "consecutive", "payments", "review"])
+  })
+
+  it("places the consecutive offer between date/time and payment when contact is skipped", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: false,
+        requiresPhotoStep: false,
+        skipInfoStep: true,
+        hasConsecutiveOffer: true,
+      })
+    ).toEqual(["party", "datetime", "consecutive", "payments", "review"])
+  })
+
   it("uses the compact sign-in modal variant for check-in flows", () => {
     expect(getCheckInSignInModalVariant(true)).toBe("compact")
     expect(getCheckInSignInModalVariant(false)).toBe("sheet")
@@ -140,6 +165,18 @@ describe("enroll flow helpers", () => {
         packagesStepIndex: -1,
         paymentsStepIndex: 2,
         stepsLength: 3,
+      })
+    ).toBe(2)
+  })
+
+  it("routes photo skip to the consecutive offer before payments when no packages are available", () => {
+    expect(
+      resolvePostPhotoStepIndex({
+        currentStep: 1,
+        packagesStepIndex: -1,
+        consecutiveStepIndex: 2,
+        paymentsStepIndex: 3,
+        stepsLength: 4,
       })
     ).toBe(2)
   })

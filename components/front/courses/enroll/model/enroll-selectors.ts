@@ -7,6 +7,7 @@ export const resolveFlowStepKeys = (input: {
   isCheckInNewFlow: boolean
   isKioskTerminalFlow: boolean
   requiresPhotoStep: boolean
+  skipInfoStep?: boolean
   hasPackages?: boolean
   hasConsecutiveOffer?: boolean
 }) => resolveEnrollStepKeys(input)

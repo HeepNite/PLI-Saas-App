@@ -72,6 +72,11 @@ import {
 import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
 import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
 import type { EnrollFlowState } from "@/components/front/courses/enroll/model/enroll-flow.types"
+import { buildEnrollCalendarLinks } from "@/components/front/courses/enroll/model/enroll-calendar"
+import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/model/checkout-payload"
+import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/enroll-pricing"
+import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
+import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
@@ -205,6 +210,7 @@ export default function EnrollModal({
   kioskSessionToken,
   useDraft = true,
   preventOutsideClose = false,
+  skipContactStep = false,
   consecutiveOffer,
   isPackageHolder = false,
 }: {
@@ -237,6 +243,8 @@ export default function EnrollModal({
   kioskSessionToken?: string
   useDraft?: boolean
   preventOutsideClose?: boolean
+  /** Trusted account flows can skip the contact / "Your Information" step. */
+  skipContactStep?: boolean
   /** Consecutive class offer data — when present, inserts a "consecutive" step between packages and payments */
   consecutiveOffer?: ConsecutiveOfferData
   /** Whether the student has an active package (affects consecutive pricing) */
@@ -271,10 +279,12 @@ export default function EnrollModal({
   const allowPanelAccess = !isCheckInFlow
   const availableServices = React.useMemo(
     () =>
-      isCheckInExistingFlow
-        ? course.enrollment.services.filter((item) => item.id !== "new-student")
-        : course.enrollment.services,
-    [course.enrollment.services, isCheckInExistingFlow]
+      resolveAvailableEnrollServices({
+        services: course.enrollment.services,
+        isCheckInExistingFlow,
+        skipContactStep,
+      }),
+    [course.enrollment.services, isCheckInExistingFlow, skipContactStep]
   )
   const hasNewStudentService = React.useMemo(
     () => course.enrollment.services.some((item) => item.id === "new-student"),
@@ -393,11 +403,12 @@ export default function EnrollModal({
         isCheckInNewFlow,
         isKioskTerminalFlow,
         requiresPhotoStep,
+        skipInfoStep: skipContactStep,
         hasPackages: course.enrollment.packages.length > 0,
         hasConsecutiveOffer: Boolean(consecutiveOffer),
       })
     },
-    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, course.enrollment.packages.length, consecutiveOffer]
+    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, skipContactStep, course.enrollment.packages.length, consecutiveOffer]
   )
   const steps = React.useMemo(
     () =>
@@ -946,22 +957,24 @@ export default function EnrollModal({
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
-  const findOpt = (arr: EnrollmentOption[], id: string) => arr.find((o) => o.id === id)
-  const serviceOpt = findOpt(availableServices, service)
-  const pkgOpt = findOpt(course.enrollment.packages, pkg)
-  const addonsOpts = (course.enrollment.addons || []).filter((a) => addons.includes(a.id))
-  const serviceBase = serviceOpt?.price || 0
-  const packagePrice = pkgOpt?.price || 0
-  const addonsTotal = addonsOpts.reduce((s, a) => s + (a.price || 0), 0)
-  const serviceCharge = pkgOpt ? 0 : serviceBase
-  const perPerson = serviceCharge + packagePrice + addonsTotal
-  const subtotal = perPerson * Math.max(1, participants)
-  const discount = appliedCoupon
-    ? appliedCoupon.type === "percent"
-      ? (subtotal * appliedCoupon.value) / 100
-      : appliedCoupon.value
-    : 0
-  const total = Math.max(0, subtotal - discount + (consecutiveAccepted ? consecutiveAddedCents / 100 : 0))
+  const pricing = calculateEnrollPricing({
+    services: availableServices,
+    packages: course.enrollment.packages,
+    addons: course.enrollment.addons,
+    serviceId: service,
+    packageId: pkg,
+    addonIds: addons,
+    participants,
+    appliedCoupon,
+    consecutiveAccepted,
+    consecutiveAddedCents,
+  })
+  const serviceOpt = pricing.serviceOpt
+  const pkgOpt = pricing.packageOpt
+  const addonsOpts = pricing.addonOptions
+  const subtotal = pricing.subtotal
+  const discount = pricing.discount
+  const total = pricing.total
   // Hide sidebar: on success for check-in flows, or during payments step for kiosk terminal
   const hideCalendarSidebar = Boolean(
     (success && isCheckInFlow) ||
@@ -1084,142 +1097,74 @@ export default function EnrollModal({
   ])
 
   // Calendar helpers (Google URL + ICS data URI)
-  const eventDates = React.useMemo(() => {
-    if (!date || !time) return null as null | { start: Date; end: Date }
-    const start = new Date(`${date}T${time}:00`)
-    const end = new Date(start.getTime() + 60 * 60 * 1000) // 60 min default
-    return { start, end }
-  }, [date, time])
-
-  const toUTCStamp = (d: Date) =>
-    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}T${String(
-      d.getUTCHours()
-    ).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}${String(d.getUTCSeconds()).padStart(2, "0")}Z`
-
-  const googleCalHref = React.useMemo(() => {
-    if (!eventDates) return "#"
-    const { start, end } = eventDates
-    const text = `${course.title} — ${course.enrollment.services.find((s) => s.id === service)?.label || t("classWord")}`
-    const details = t("googleCal_details", { participants, total: total.toFixed(2) })
-    const location = course.location?.address || "Palladium Latin Institute"
-    const dates = `${toUTCStamp(start)}/${toUTCStamp(end)}`
-    const url = new URL("https://calendar.google.com/calendar/r/eventedit")
-    url.searchParams.set("text", text)
-    url.searchParams.set("details", details)
-    url.searchParams.set("location", location)
-    url.searchParams.set("dates", dates)
-    return url.toString()
-  }, [eventDates, course, service, participants, total, t])
-
-  const icsDataUri = React.useMemo(() => {
-    if (!eventDates) return "#"
-    const { start, end } = eventDates
-    const summary = `${course.title} — ${course.enrollment.services.find((s) => s.id === service)?.label || t("classWord")}`
-    const description = t("ics_description", { participants, total: total.toFixed(2) })
-    const location = course.location?.address || "Palladium Latin Institute"
-    const lines = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//PLI//Booking Demo//EN",
-      "BEGIN:VEVENT",
-      `UID:${Date.now()}@pli.local`,
-      `DTSTAMP:${toUTCStamp(new Date())}`,
-      `DTSTART:${toUTCStamp(start)}`,
-      `DTEND:${toUTCStamp(end)}`,
-      `SUMMARY:${summary}`,
-      `DESCRIPTION:${description}`,
-      `LOCATION:${location}`,
-      "END:VEVENT",
-      "END:VCALENDAR",
-    ]
-    const content = lines.join("\n")
-    return `data:text/calendar;charset=utf-8,${encodeURIComponent(content)}`
-  }, [eventDates, course, service, participants, total, t])
+  const calendarLinks = React.useMemo(
+    () =>
+      buildEnrollCalendarLinks({
+        course,
+        serviceLabel: course.enrollment.services.find((s) => s.id === service)?.label || "",
+        participants,
+        total,
+        date,
+        time,
+        classWord: t("classWord"),
+        googleDetails: t("googleCal_details", { participants, total: total.toFixed(2) }),
+        icsDescription: t("ics_description", { participants, total: total.toFixed(2) }),
+      }),
+    [course, date, participants, service, t, time, total]
+  )
+  const eventDates = calendarLinks.eventDates
+  const googleCalHref = calendarLinks.googleCalHref
+  const icsDataUri = calendarLinks.icsDataUri
 
   const toggleAddon = (id: string) => {
     setAddons((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  const emailIsValid = React.useCallback((value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()), [])
-
   const validateBeforeSubmit = () => {
-    if (!service || !availableServices.some((s) => s.id === service)) {
-      return { step: 0, message: "Select a valid service." }
-    }
-    if (pkg && !course.enrollment.packages.some((p) => p.id === pkg)) {
-      return { step: 0, message: "The selected package is invalid." }
-    }
-    if (participants < 1 || participants > 10) {
-      return { step: 0, message: "The number of participants is invalid." }
-    }
-    if (!date || !time) {
-      return { step: 1, message: "Select date and time." }
-    }
-    if (!contact.firstName.trim() || !contact.lastName.trim()) {
-      return { step: 2, message: "Complete your first and last name." }
-    }
-    if (!emailIsValid(contact.email)) {
-      return { step: 2, message: "Enter a valid email." }
-    }
-    if (!isCompleteUSPhone(contact.phone)) {
-      return { step: 2, message: "Enter a valid US phone number." }
-    }
-    if (service === "new-student") {
-      if (!/^\d{4}$/.test(studentPin)) {
-        return { step: 2, message: "Create a 4-digit PIN to continue." }
-      }
-      if (studentPin !== studentPinConfirm) {
-        return { step: 2, message: "PIN confirmation does not match." }
-      }
-    }
-    if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {
-      return { step: paymentsStepIndex >= 0 ? paymentsStepIndex : 3, message: "Select a payment method." }
-    }
-    const addonsValid = addons.every((id) => course.enrollment.addons?.some((a) => a.id === id))
-    if (!addonsValid) {
-      return { step: 0, message: "Invalid extras." }
-    }
-    if (!Number.isFinite(total) || total <= 0) {
-      return { step: 0, message: "Calculated amount is invalid." }
-    }
-    return null
+    return validateEnrollBeforeSubmit({
+      services: availableServices,
+      packages: course.enrollment.packages,
+      addons: course.enrollment.addons,
+      serviceId: service,
+      packageId: pkg,
+      addonIds: addons,
+      participants,
+      date,
+      time,
+      contact,
+      skipContactValidation: skipContactStep,
+      studentPin,
+      studentPinConfirm,
+      paymentMethod,
+      paymentsStepIndex,
+      total,
+    })
   }
 
   const buildCheckoutPayload = React.useCallback(
-    (extra: Record<string, unknown> = {}) => ({
-      courseSlug: course.slug,
-      courseTitle: course.title,
-      amount: Math.round(total * 100),
-      currency: "usd",
-      date,
-      time,
-      firstName: contact.firstName,
-      lastName: contact.lastName,
-      name: `${contact.firstName} ${contact.lastName}`.trim(),
-      email: contact.email,
-      participants,
-      addons,
-      coupon: appliedCoupon?.code || undefined,
-      packageId: pkg,
-      serviceId: service,
-      phone: contact.phone,
-      photoContext: photoFlowContext,
-      flowContext: photoFlowContext,
-      ...createKioskSessionCheckoutPayloadFields(kioskSessionToken),
-      kioskCurrentCourseDate: checkInContextDate || undefined,
-      kioskCurrentCourseTime: checkInContextTime || undefined,
-      studentPin: service === "new-student" ? studentPin : undefined,
-      studentPinConfirm: service === "new-student" ? studentPinConfirm : undefined,
-      ...(consecutiveAccepted && consecutiveOffer
-        ? {
-            consecutivePriceCents: consecutiveAddedCents,
-            consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
-            consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
-            consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime,
-          }
-        : {}),
-      ...extra,
-    }),
+    (extra: Record<string, unknown> = {}) =>
+      buildEnrollCheckoutPayload({
+        course,
+        total,
+        date,
+        time,
+        contact,
+        participants,
+        addonIds: addons,
+        appliedCoupon,
+        packageId: pkg,
+        serviceId: service,
+        photoFlowContext,
+        kioskSessionFields: createKioskSessionCheckoutPayloadFields(kioskSessionToken),
+        checkInContextDate,
+        checkInContextTime,
+        studentPin,
+        studentPinConfirm,
+        consecutiveAccepted,
+        consecutiveAddedCents,
+        consecutiveOffer,
+        extra,
+      }),
     [
       addons,
       appliedCoupon?.code,
@@ -2472,26 +2417,8 @@ export default function EnrollModal({
                     </div>
                   </>
                 ) : (
-                  /* Business info for payments step (especially kiosk) */
+                  /* Payment helper for payments step */
                   <div className="mt-4 space-y-4">
-                    {/* Business Contact */}
-                    <div className="rounded-md border border-white/10 p-3 text-xs">
-                      <div className="font-semibold mb-2">Contact Us</div>
-                      <div className="space-y-2">
-                        {renderSummaryItem("Location", "16 Water St, Jersey City, NJ")}
-                        {renderSummaryItem("Phone", "(201) 555-0123")}
-                        {renderSummaryItem("Email", "info@plidancing.com")}
-                      </div>
-                    </div>
-                    {/* Hours */}
-                    <div className="rounded-md border border-white/10 p-3 text-xs">
-                      <div className="font-semibold mb-2">Studio Hours</div>
-                      <div className="space-y-1 text-white/70">
-                        <div className="flex justify-between"><span>Mon - Fri</span><span>6:00 AM - 10:00 PM</span></div>
-                        <div className="flex justify-between"><span>Saturday</span><span>8:00 AM - 8:00 PM</span></div>
-                        <div className="flex justify-between"><span>Sunday</span><span>9:00 AM - 6:00 PM</span></div>
-                      </div>
-                    </div>
                     {/* Add to Calendar hint */}
                     <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-center">
                       <p className="text-white/60">After completing your booking, you&apos;ll be able to add it to your calendar</p>
@@ -2900,12 +2827,20 @@ export default function EnrollModal({
                           isCheckInNewFlow,
                           isKioskTerminalFlow,
                           requiresPhotoStep: false,
+                          skipInfoStep: skipContactStep,
                           hasPackages: (course?.enrollment?.packages?.length ?? 0) > 0,
                           hasConsecutiveOffer: Boolean(consecutiveOffer),
                         })
                         const packagesIdx = postSkipKeys.indexOf("packages")
+                        const consecutiveIdx = postSkipKeys.indexOf("consecutive")
                         const paymentsIdx = postSkipKeys.indexOf("payments")
-                        const targetStep = packagesIdx >= 0 ? packagesIdx : paymentsIdx >= 0 ? paymentsIdx : postSkipKeys.length - 1
+                        const targetStep = packagesIdx >= 0
+                          ? packagesIdx
+                          : consecutiveIdx >= 0
+                            ? consecutiveIdx
+                            : paymentsIdx >= 0
+                              ? paymentsIdx
+                              : postSkipKeys.length - 1
 
                         setPhotoSaved(true)
                         setStep(targetStep)
@@ -3135,6 +3070,10 @@ export default function EnrollModal({
                             <div className="min-w-0">
                               <div className="text-sm font-semibold leading-snug text-white">
                                 {course.title}{time ? ` · ${to12h(time)}` : ""} — {course.enrollment.services.find((s)=>s.id===service)?.label}
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
+                                {date && <span>Date: {date}{time ? ` · ${to12h(time)}` : ""}</span>}
+                                {course.location?.address && <span>Address: {course.location.address}</span>}
                               </div>
                               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
                                 <span>{participants} {participants===1?t("onePerson"):t("manyPeople")}</span>
