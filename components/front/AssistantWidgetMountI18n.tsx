@@ -3,9 +3,15 @@
 import React from "react"
 import AssistantWidgetMount from "@/components/front/AssistantWidgetMount"
 import { useI18n } from "@/lib/i18n"
+import { usePathname } from "next/navigation"
 
 export default function AssistantWidgetMountI18n() {
   const { t } = useI18n()
+  const pathname = usePathname()
+  const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
+
+  if (isAuthRoute) return null
+
   return (
     <AssistantWidgetMount
       position="left"
