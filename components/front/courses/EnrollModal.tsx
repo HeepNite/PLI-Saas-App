@@ -875,7 +875,8 @@ export default function EnrollModal({
             phone: normalizeEnrollPhonePrefill(prefillContactRef.current?.phone ?? userContact.phone),
             note: prefillContactRef.current?.note ?? "",
           }
-    const checkInAutofill = isCheckInFlow
+    const shouldAutofillDateTime = isCheckInFlow || Boolean(checkInContextDate || checkInContextTime)
+    const checkInAutofill = shouldAutofillDateTime
       ? computeCheckInAutofill(course.slug, sourceCourses, {
           date: checkInContextDate,
           time: checkInContextTime,

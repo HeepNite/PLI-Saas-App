@@ -4,6 +4,7 @@ import React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useClientPhoneCheckIn } from "./hooks/useClientPhoneCheckIn"
+import { buildQrBookingUrl, buildQrSignInUrl } from "@/lib/checkin/qr-booking-links"
 
 export default function ClientPhoneCheckIn() {
   const searchParams = useSearchParams()
@@ -20,6 +21,8 @@ export default function ClientPhoneCheckIn() {
     time,
     durationMinutes,
   })
+  const bookingUrl = buildQrBookingUrl({ courseSlug, date, time, durationMinutes })
+  const signInUrl = buildQrSignInUrl(`/checkin?${searchParams.toString()}`)
 
   if (!courseSlug || !date || !time) {
     return (
@@ -27,7 +30,7 @@ export default function ClientPhoneCheckIn() {
         <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-gradient-to-br from-[#151118] via-[#0d0b12] to-[#09090d] p-6 text-center shadow-lg">
           <p className="text-lg font-semibold text-white">Invalid QR Code</p>
           <p className="mt-2 text-sm text-white/60">This QR code is missing class information.</p>
-          <Link href="/courses" className="mt-4 inline-block rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white">
+          <Link href="/courses-library" className="mt-4 inline-block rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white">
             Browse Classes
           </Link>
         </div>
@@ -54,7 +57,7 @@ export default function ClientPhoneCheckIn() {
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15 text-2xl">❌</span>
           <p className="mt-3 text-lg font-semibold text-white">Check-in Failed</p>
           <p className="mt-2 text-sm text-white/60">{error}</p>
-          <Link href="/courses" className="mt-4 inline-block rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80">
+          <Link href={bookingUrl} className="mt-4 inline-block rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80">
             Browse Classes
           </Link>
         </div>
@@ -101,9 +104,14 @@ export default function ClientPhoneCheckIn() {
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15 text-2xl">❌</span>
           <p className="mt-3 text-lg font-semibold text-white">No Booking Found</p>
           <p className="mt-2 text-sm text-white/60">{result.message || "No booking found for this class."}</p>
-          <Link href="/courses" className="mt-4 inline-block rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white">
-            Book Now
-          </Link>
+          <div className="mt-4 flex flex-col gap-2">
+            <Link href={bookingUrl} className="inline-block rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white">
+              Continue Booking
+            </Link>
+            <Link href={signInUrl} className="inline-block rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80">
+              Sign In Instead
+            </Link>
+          </div>
         </div>
       </div>
     )

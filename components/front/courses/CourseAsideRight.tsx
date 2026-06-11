@@ -15,12 +15,25 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const parsedStep = stepParam ? Number(stepParam) : undefined
   const initialStep = typeof parsedStep === "number" && Number.isFinite(parsedStep) ? parsedStep : undefined
   const shouldRestoreDraft = enrollParam === "1" || typeof initialStep === "number"
+  const isQrBooking = searchParams.get("qrBooking") === "1"
+  const readQrBookingContext = React.useCallback(() => {
+    if (!isQrBooking) return undefined
+
+    const duration = searchParams.get("durationMinutes")
+    return {
+      date: searchParams.get("date") || undefined,
+      time: searchParams.get("time") || undefined,
+      durationMinutes: duration ? Number(duration) : undefined,
+    }
+  }, [isQrBooking, searchParams])
+  const [qrBookingContext, setQrBookingContext] = React.useState(readQrBookingContext)
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const [dockBooking, setDockBooking] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const bookingButtonRef = React.useRef<HTMLDivElement | null>(null)
   const [dockTarget, setDockTarget] = React.useState<HTMLElement | null>(null)
   const consumedQueryRef = React.useRef(false)
+  const shouldUseDraft = shouldRestoreDraft && !qrBookingContext
   const bookingShift = "0px"
   const sideButtonSize = 44
   const sideGapPadding = 64
@@ -36,14 +49,28 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       params.delete("step")
       changed = true
     }
+    for (const key of ["qrBooking", "date", "time", "durationMinutes"]) {
+      if (params.has(key)) {
+        params.delete(key)
+        changed = true
+      }
+    }
     if (!changed) return
     const next = params.toString()
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
   }, [pathname, router, searchParams])
 
   React.useEffect(() => {
+    const nextContext = readQrBookingContext()
+    if (nextContext) setQrBookingContext(nextContext)
+  }, [readQrBookingContext])
+
+  React.useEffect(() => {
     if (!shouldRestoreDraft || consumedQueryRef.current) return
     consumedQueryRef.current = true
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      setMobileOpen(true)
+    }
     clearBookingQuery()
   }, [shouldRestoreDraft, clearBookingQuery])
 
@@ -134,7 +161,8 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
           open
           onCloseAction={clearBookingQuery}
           initialStep={initialStep}
-          useDraft={shouldRestoreDraft}
+          useDraft={shouldUseDraft}
+          checkInContext={qrBookingContext}
           mode="inline"
         />
       </div>
@@ -147,7 +175,8 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
           clearBookingQuery()
         }}
         initialStep={initialStep}
-        useDraft={shouldRestoreDraft}
+        useDraft={shouldUseDraft}
+        checkInContext={qrBookingContext}
         mode="modal"
       />
 
