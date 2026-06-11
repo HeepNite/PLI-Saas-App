@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { SignIn } from "@clerk/nextjs"
+import Image from "next/image"
 import { clerkDarkAuthAppearance } from "@/lib/clerk-auth-appearance"
 
 export const metadata: Metadata = {
@@ -15,7 +16,15 @@ export default function SignInPage() {
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_55%_at_50%_0%,rgba(182,22,22,0.2),transparent_70%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04)_0%,rgba(255,255,255,0)_40%)]" />
-      <div className="relative z-10 flex w-full max-w-full items-center justify-center">
+      <div className="relative z-10 flex w-full max-w-full flex-col items-center justify-center gap-6">
+        <Image
+          src="/logo/logo-white.png"
+          alt="Palladium Latin Institute"
+          width={168}
+          height={72}
+          priority
+          className="h-auto w-36 sm:w-40"
+        />
         <SignIn
           routing="hash"
           appearance={{
