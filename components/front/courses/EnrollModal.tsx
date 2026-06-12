@@ -17,7 +17,7 @@ import {
   CheckCircle2,
 } from "lucide-react"
 import { useI18n } from "@/lib/i18n"
-import type { CourseEnrollmentData, Coupon, EnrollmentContact, PaymentMethod } from "./types"
+import type { Coupon, EnrollmentContact, PaymentMethod } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
 import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
 import { useAuth, useUser } from "@clerk/nextjs"
@@ -37,7 +37,6 @@ import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
 import {
   getPhotoPolicy,
   isPhotoRequiredForAccount,
-  type PhotoFlowContext,
 } from "@/lib/checkin/photo-context-policy"
 import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
@@ -90,16 +89,19 @@ import {
   requestPinAvailabilityApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
 import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
+import { resolveStepValid } from "@/components/front/courses/enroll/model/enroll-step-valid"
+import type {
+  EnrollModalProps,
+  FlowPopupState,
+  NewStudentVerifyResponse,
+  PreparedAccountState,
+} from "@/components/front/courses/enroll/types/enroll-modal-props"
 
 // EnrollModal: popup demo to select service, package, add-ons, date, time, and basic contact data.
 // - This is a client-only component. It does not call a backend; it shows a local success state.
 //   Replace the `handleSubmit` implementation with a real API
 //   call when you are ready.
 // - All inputs are controlled in the local state for simplicity.
-
-type EnrollFlowVariant = "default" | "checkin-new" | "checkin-existing"
-type EnrollCompletionMode = "default" | "personal" | "station"
-type CompactBookingSource = "qr-mobile"
 
 const CHECKIN_TIME_ZONE = "America/New_York"
 const CHECKIN_LATE_GRACE_MINUTES = 20
@@ -151,40 +153,6 @@ export const computeCheckInAutofill = computeCheckInAutofillModel
 const sortTime24 = (values: string[]) =>
   [...new Set(values.filter((value) => TIME_24_REGEX.test(value)))].sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0))
 
-type EnrollCheckInContext = {
-  date?: string
-  time?: string
-  durationMinutes?: number
-}
-
-type EnrollPrefillSelection = {
-  service?: string
-  packageId?: string
-  addons?: string[]
-  participants?: number
-  paymentMethod?: PaymentMethod
-}
-
-type PreparedAccountState = {
-  clerkUserId: string | null
-  created: boolean
-  requiresSignIn: boolean
-  hasAvatar: boolean
-}
-
-type NewStudentVerifyResponse = {
-  outcome?: "eligible" | "requires_sms_verification" | "fallback_regular"
-  reason?: string
-  message?: string
-  eligibleForNewStudent?: boolean
-  requiresSmsVerification?: boolean
-  shouldFallbackToRegular?: boolean
-}
-
-type FlowPopupState = {
-  title: string
-  message: string
-}
 const normalizeEnrollPhonePrefill = (value?: string) => {
   if (typeof value !== "string" || value.trim().length === 0) return "+1 "
   return formatUSPhone(value)
@@ -215,44 +183,7 @@ export default function EnrollModal({
   skipContactStep = false,
   consecutiveOffer,
   isPackageHolder = false,
-}: {
-  course: CourseEnrollmentData
-  open: boolean
-  onCloseAction: () => void
-  onCompletedAction?: () => void | Promise<void>
-  /**
-   * Called once when the modal reaches the payments step for the first time
-   * after opening. Used by the kiosk terminal flow to know when to hide the
-   * full-screen resolving overlay.
-   */
-  onPaymentsStepReadyAction?: () => void
-  /**
-   * Called when the inactivity timeout fires instead of onCompletedAction.
-   * Use to reset to a different state (e.g. idle chooser) on timeout.
-   */
-  onTimeoutAction?: () => void
-  onExistingUserDetected?: () => void
-  onKioskSessionCreated?: (sessionId: string) => void
-  initialStep?: number
-  mode?: "modal" | "inline"
-  prefillContact?: Partial<EnrollmentContact>
-  prefillHasAvatar?: boolean
-  prefillSelection?: EnrollPrefillSelection
-  flowVariant?: EnrollFlowVariant
-  compactBookingSource?: CompactBookingSource
-  completionMode?: EnrollCompletionMode
-  photoFlowContext?: PhotoFlowContext
-  checkInContext?: EnrollCheckInContext
-  kioskSessionToken?: string
-  useDraft?: boolean
-  preventOutsideClose?: boolean
-  /** Trusted account flows can skip the contact / "Your Information" step. */
-  skipContactStep?: boolean
-  /** Consecutive class offer data — when present, inserts a "consecutive" step between packages and payments */
-  consecutiveOffer?: ConsecutiveOfferData
-  /** Whether the student has an active package (affects consecutive pricing) */
-  isPackageHolder?: boolean
-}) {
+}: EnrollModalProps) {
   const { courses: catalogCourses } = useCatalogCourses()
   const sourceCourses = React.useMemo(
     () => (catalogCourses.length ? catalogCourses : demoCourses),
@@ -1406,6 +1337,11 @@ export default function EnrollModal({
           return
         }
         // If somehow already verified, continue to account prep below
+      } else if (service === "new-student" && isQrMobileCompactFlow && isCompleteUSPhone(contact.phone)) {
+        // QR mobile new-student flow: always use new-student price ($15).
+        // Skip requestNewStudentOutcome verification — the QR flow guarantees
+        // new-student pricing for phone-verified users. Proceed directly to
+        // account preparation → photo → payments.
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
         // Non-kiosk new-student flow: keep existing behavior
         const verifyResult = await requestNewStudentOutcome()
@@ -1478,6 +1414,7 @@ export default function EnrollModal({
     contact.phone,
     isCheckInFlow,
     isKioskTerminalFlow,
+    isQrMobileCompactFlow,
     isSignedIn,
     onExistingUserDetected,
     packagesStepIndex,
@@ -1894,7 +1831,7 @@ export default function EnrollModal({
     }
 
     if (resumeAfterSignInStep !== null) {
-      if (service === "new-student" && regularServiceId && regularServiceId !== service) {
+      if (service === "new-student" && regularServiceId && regularServiceId !== service && !isQrMobileCompactFlow) {
         setService(regularServiceId)
       }
       const safeStep = Math.max(0, Math.min(steps.length - 1, resumeAfterSignInStep))
@@ -1909,6 +1846,7 @@ export default function EnrollModal({
     }
   }, [
     existingAccountDetected,
+    isQrMobileCompactFlow,
     isSignedIn,
     regularServiceId,
     requiresSignIn,
@@ -2139,36 +2077,23 @@ export default function EnrollModal({
     setSuccessMessage,
   ])
 
-  const stepValid = (s: number) => {
-    const stepKey = steps[s]?.key
-    switch (stepKey) {
-      case "party":
-        // Paquete ahora es opcional según pedido; solo servicio y participantes
-        return participants >= 1 && availableServices.some((opt) => opt.id === service)
-      case "datetime":
-        return Boolean(date) && Boolean(time) && !consecutiveOfferLoading
-      case "info":
-        const baseValid = contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
-        if (!baseValid) return false
-        if (service === "new-student") {
-          return /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm
-        }
-        return true
-      case "photo":
-        return !requiresPhotoStep || photoSaved
-      case "packages":
-        // Packages step is always valid - package selection is optional
-        return true
-      case "consecutive":
-        return consecutiveChoiceMade
-      case "payments":
-        return paymentMethod !== "" && !consecutiveOfferLoading
-      case "review":
-        return true
-      default:
-        return false
-    }
-  }
+  const stepValid = (s: number) =>
+    resolveStepValid(s, {
+      steps,
+      participants,
+      availableServices,
+      service,
+      date,
+      time,
+      consecutiveOfferLoading,
+      contact,
+      studentPin,
+      studentPinConfirm,
+      requiresPhotoStep,
+      photoSaved,
+      consecutiveChoiceMade,
+      paymentMethod,
+    })
 
   const canContinue = stepValid(step)
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
@@ -2197,12 +2122,13 @@ export default function EnrollModal({
     setResumeContactFlowAfterSignIn(false)
     setSignInPurpose("existing")
 
-    if (signInPurpose === "sms_verification") {
+    if (signInPurpose === "sms_verification" && !isQrMobileCompactFlow) {
       showRegularFallbackPopup(
         `Phone verification was not completed. We switched this booking to the regular $${regularServicePrice.toFixed(0)} price.`
       )
     }
   }, [
+    isQrMobileCompactFlow,
     regularServicePrice,
     setExistingAccountDetected,
     setRequiresSignIn,

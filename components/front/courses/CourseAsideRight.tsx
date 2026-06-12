@@ -192,6 +192,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
           flowVariant={qrCompactFlowVariant}
           completionMode={shouldUseQrCompactBooking ? "personal" : undefined}
           skipContactStep={shouldSkipQrContactStep}
+          photoFlowContext={shouldUseQrCompactBooking ? "qr_phone" : undefined}
           mode="inline"
         />
       </div>
@@ -210,6 +211,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
         flowVariant={qrCompactFlowVariant}
         completionMode={shouldUseQrCompactBooking ? "personal" : undefined}
         skipContactStep={shouldSkipQrContactStep}
+        photoFlowContext={shouldUseQrCompactBooking ? "qr_phone" : undefined}
         mode="modal"
       />
 
