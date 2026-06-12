@@ -6,6 +6,7 @@ export const resolveFlowStepKeys = (input: {
   isCheckInFlow: boolean
   isCheckInNewFlow: boolean
   isKioskTerminalFlow: boolean
+  isQrMobileCompactFlow?: boolean
   requiresPhotoStep: boolean
   skipInfoStep?: boolean
   hasPackages?: boolean

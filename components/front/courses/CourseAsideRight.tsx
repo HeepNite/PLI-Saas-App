@@ -1,5 +1,6 @@
 "use client"
 import React from "react"
+import { useUser } from "@clerk/nextjs"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import EnrollModal from "./EnrollModal"
 import type { CourseEnrollmentData } from "./types"
@@ -8,6 +9,7 @@ import GlassyCard from "./GlassyCard"
 // Right sticky aside: inline booking form.
 export default function CourseAsideRight({ course }: { course: CourseEnrollmentData }) {
   const router = useRouter()
+  const { isLoaded, isSignedIn } = useUser()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const enrollParam = searchParams.get("enroll")
@@ -34,6 +36,14 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const [dockTarget, setDockTarget] = React.useState<HTMLElement | null>(null)
   const consumedQueryRef = React.useRef(false)
   const shouldUseDraft = shouldRestoreDraft && !qrBookingContext
+  const shouldUseQrCompactBooking = Boolean(qrBookingContext)
+  const qrAuthReady = !shouldUseQrCompactBooking || isLoaded
+  const shouldSkipQrContactStep = shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn)
+  const qrCompactFlowVariant = shouldUseQrCompactBooking
+    ? shouldSkipQrContactStep
+      ? "checkin-existing"
+      : "checkin-new"
+    : undefined
   const bookingShift = "0px"
   const sideButtonSize = 44
   const sideGapPadding = 64
@@ -59,6 +69,11 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
     const next = params.toString()
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
   }, [pathname, router, searchParams])
+
+  const closeBooking = React.useCallback(() => {
+    setQrBookingContext(undefined)
+    clearBookingQuery()
+  }, [clearBookingQuery])
 
   React.useEffect(() => {
     const nextContext = readQrBookingContext()
@@ -158,25 +173,33 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       <div className="hidden lg:block">
         <EnrollModal
           course={course}
-          open
-          onCloseAction={clearBookingQuery}
+          open={qrAuthReady}
+          onCloseAction={closeBooking}
           initialStep={initialStep}
           useDraft={shouldUseDraft}
           checkInContext={qrBookingContext}
+          compactBookingSource={shouldUseQrCompactBooking ? "qr-mobile" : undefined}
+          flowVariant={qrCompactFlowVariant}
+          completionMode={shouldUseQrCompactBooking ? "personal" : undefined}
+          skipContactStep={shouldSkipQrContactStep}
           mode="inline"
         />
       </div>
 
       <EnrollModal
         course={course}
-        open={mobileOpen}
+        open={mobileOpen && qrAuthReady}
         onCloseAction={() => {
           setMobileOpen(false)
-          clearBookingQuery()
+          closeBooking()
         }}
         initialStep={initialStep}
         useDraft={shouldUseDraft}
         checkInContext={qrBookingContext}
+        compactBookingSource={shouldUseQrCompactBooking ? "qr-mobile" : undefined}
+        flowVariant={qrCompactFlowVariant}
+        completionMode={shouldUseQrCompactBooking ? "personal" : undefined}
+        skipContactStep={shouldSkipQrContactStep}
         mode="modal"
       />
 

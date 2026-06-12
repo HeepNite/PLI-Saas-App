@@ -9,6 +9,7 @@ type ResolveEnrollStepKeysInput = {
   isCheckInFlow: boolean
   isCheckInNewFlow: boolean
   isKioskTerminalFlow: boolean
+  isQrMobileCompactFlow?: boolean
   requiresPhotoStep: boolean
   /** Trusted account flows (for example client profile booking) can skip contact collection. */
   skipInfoStep?: boolean
@@ -46,6 +47,15 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
       "info",
       ...(input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasPackages ? (["packages"] as const) : []),
+      ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
+      "payments",
+    ]
+  }
+
+  if (input.isQrMobileCompactFlow) {
+    return [
+      ...(input.skipInfoStep ? [] : (["info"] as const)),
+      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
       "payments",
     ]

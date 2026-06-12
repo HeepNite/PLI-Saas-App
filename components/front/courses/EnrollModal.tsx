@@ -99,6 +99,7 @@ import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/k
 
 type EnrollFlowVariant = "default" | "checkin-new" | "checkin-existing"
 type EnrollCompletionMode = "default" | "personal" | "station"
+type CompactBookingSource = "qr-mobile"
 
 const CHECKIN_TIME_ZONE = "America/New_York"
 const CHECKIN_LATE_GRACE_MINUTES = 20
@@ -204,6 +205,7 @@ export default function EnrollModal({
   prefillHasAvatar,
   prefillSelection,
   flowVariant = "default",
+  compactBookingSource,
   completionMode = "default",
   photoFlowContext = "external_web",
   checkInContext,
@@ -237,6 +239,7 @@ export default function EnrollModal({
   prefillHasAvatar?: boolean
   prefillSelection?: EnrollPrefillSelection
   flowVariant?: EnrollFlowVariant
+  compactBookingSource?: CompactBookingSource
   completionMode?: EnrollCompletionMode
   photoFlowContext?: PhotoFlowContext
   checkInContext?: EnrollCheckInContext
@@ -271,10 +274,12 @@ export default function EnrollModal({
   const isCheckInNewFlow = flowVariant === "checkin-new"
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
+  const isQrMobileCompactFlow = compactBookingSource === "qr-mobile"
+  const usesCompactCheckInExperience = isCheckInFlow || isQrMobileCompactFlow
   const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
   const forceKioskDarkModal = isKioskTerminalFlow && !isInline
   const isStationCompletion = isCheckInFlow && completionMode === "station"
-  const isPersonalCompletion = isCheckInFlow && completionMode === "personal"
+  const isPersonalCompletion = usesCompactCheckInExperience && completionMode === "personal"
   const photoPolicy = React.useMemo(() => getPhotoPolicy(photoFlowContext), [photoFlowContext])
   const allowPanelAccess = !isCheckInFlow
   const availableServices = React.useMemo(
@@ -359,6 +364,8 @@ export default function EnrollModal({
   const [consecutiveAccepted, setConsecutiveAccepted] = React.useState(false)
   const [consecutiveAddedCents, setConsecutiveAddedCents] = React.useState(0)
   const [consecutiveChoiceMade, setConsecutiveChoiceMade] = React.useState(false)
+  const [fetchedConsecutiveOffer, setFetchedConsecutiveOffer] = React.useState<ConsecutiveOfferData | null>(null)
+  const [consecutiveOfferLoading, setConsecutiveOfferLoading] = React.useState(false)
 
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
@@ -385,6 +392,7 @@ export default function EnrollModal({
   const isNewStudent = service === "new-student"
   // A user who selects a package during the same flow counts as a package holder for consecutive pricing.
   const effectiveIsPackageHolder = isPackageHolder || Boolean(pkg)
+  const effectiveConsecutiveOffer = consecutiveOffer ?? fetchedConsecutiveOffer
   const accountHasAvatar = Boolean(prefillHasAvatar || preparedAccount?.hasAvatar || photoSaved)
   const requiresPhotoStep = React.useMemo(
     () =>
@@ -400,15 +408,16 @@ export default function EnrollModal({
     () => {
       return resolveFlowStepKeys({
         isCheckInFlow,
+        isQrMobileCompactFlow,
         isCheckInNewFlow,
         isKioskTerminalFlow,
         requiresPhotoStep,
         skipInfoStep: skipContactStep,
         hasPackages: course.enrollment.packages.length > 0,
-        hasConsecutiveOffer: Boolean(consecutiveOffer),
+        hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
       })
     },
-    [isCheckInFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, skipContactStep, course.enrollment.packages.length, consecutiveOffer]
+    [isCheckInFlow, isQrMobileCompactFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, skipContactStep, course.enrollment.packages.length, effectiveConsecutiveOffer]
   )
   const steps = React.useMemo(
     () =>
@@ -625,6 +634,52 @@ export default function EnrollModal({
     return () => window.clearTimeout(id)
   }, [])
 
+  React.useEffect(() => {
+    if (consecutiveOffer) {
+      setFetchedConsecutiveOffer(null)
+      setConsecutiveOfferLoading(false)
+      return
+    }
+    if (!isQrMobileCompactFlow && !isCheckInFlow) {
+      setFetchedConsecutiveOffer(null)
+      setConsecutiveOfferLoading(false)
+      return
+    }
+    if (!date || !time) {
+      setFetchedConsecutiveOffer(null)
+      setConsecutiveOfferLoading(false)
+      setConsecutiveAccepted(false)
+      setConsecutiveAddedCents(0)
+      setConsecutiveChoiceMade(false)
+      return
+    }
+
+    setConsecutiveOfferLoading(true)
+    const controller = new AbortController()
+    const params = new URLSearchParams({ courseSlug: course.slug, date, time })
+    void fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((offer: ConsecutiveOfferData | null) => {
+        setFetchedConsecutiveOffer(offer)
+        setConsecutiveOfferLoading(false)
+        setConsecutiveAccepted(false)
+        setConsecutiveAddedCents(0)
+        setConsecutiveChoiceMade(false)
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return
+        setFetchedConsecutiveOffer(null)
+        setConsecutiveOfferLoading(false)
+        setConsecutiveAccepted(false)
+        setConsecutiveAddedCents(0)
+        setConsecutiveChoiceMade(false)
+      })
+
+    return () => controller.abort()
+  }, [consecutiveOffer, course.slug, date, isCheckInFlow, isQrMobileCompactFlow, time])
+
   const resetForm = React.useCallback(() => {
     if (kioskPaymentTransitionTimeoutRef.current !== null) {
       window.clearTimeout(kioskPaymentTransitionTimeoutRef.current)
@@ -664,6 +719,8 @@ export default function EnrollModal({
     setConsecutiveAccepted(false)
     setConsecutiveAddedCents(0)
     setConsecutiveChoiceMade(false)
+    setFetchedConsecutiveOffer(null)
+    setConsecutiveOfferLoading(false)
     kioskPaymentTransitionStartedAtRef.current = null
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false
@@ -1163,7 +1220,7 @@ export default function EnrollModal({
         studentPinConfirm,
         consecutiveAccepted,
         consecutiveAddedCents,
-        consecutiveOffer,
+        consecutiveOffer: effectiveConsecutiveOffer ?? undefined,
         extra,
       }),
     [
@@ -1175,7 +1232,7 @@ export default function EnrollModal({
       contact.phone,
       consecutiveAccepted,
       consecutiveAddedCents,
-      consecutiveOffer,
+      effectiveConsecutiveOffer,
       course.slug,
       course.title,
       date,
@@ -2083,7 +2140,7 @@ export default function EnrollModal({
         // Paquete ahora es opcional según pedido; solo servicio y participantes
         return participants >= 1 && availableServices.some((opt) => opt.id === service)
       case "datetime":
-        return Boolean(date) && Boolean(time)
+        return Boolean(date) && Boolean(time) && !consecutiveOfferLoading
       case "info":
         const baseValid = contact.firstName.trim().length > 1 && contact.email.trim().length > 5 && isCompleteUSPhone(contact.phone)
         if (!baseValid) return false
@@ -2099,7 +2156,7 @@ export default function EnrollModal({
       case "consecutive":
         return consecutiveChoiceMade
       case "payments":
-        return paymentMethod !== ""
+        return paymentMethod !== "" && !consecutiveOfferLoading
       case "review":
         return true
       default:
@@ -2825,12 +2882,13 @@ export default function EnrollModal({
                         // photoSaved=true removes the photo step (avoids stale-closure index shift)
                         const postSkipKeys = resolveEnrollStepKeys({
                           isCheckInFlow,
+                          isQrMobileCompactFlow,
                           isCheckInNewFlow,
                           isKioskTerminalFlow,
                           requiresPhotoStep: false,
                           skipInfoStep: skipContactStep,
                           hasPackages: (course?.enrollment?.packages?.length ?? 0) > 0,
-                          hasConsecutiveOffer: Boolean(consecutiveOffer),
+                          hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
                         })
                         const packagesIdx = postSkipKeys.indexOf("packages")
                         const consecutiveIdx = postSkipKeys.indexOf("consecutive")
@@ -2925,14 +2983,14 @@ export default function EnrollModal({
                   </div>
                 )}
 
-                {/* Consecutive class offer step (kiosk only, between packages and payments) */}
-                {activeStepKey === "consecutive" && consecutiveOffer && (
+                {/* Consecutive class offer step before payments */}
+                {activeStepKey === "consecutive" && effectiveConsecutiveOffer && (
                   <div className="space-y-4">
                     {(() => {
                       const consecutivePriceCents = effectiveIsPackageHolder
-                        ? (consecutiveOffer.packageHolderConsecutiveCents ?? 0)
-                        : (consecutiveOffer.dropInConsecutiveCents ?? 0)
-                      const regularPriceCents = consecutiveOffer.regularDropInCents ?? 0
+                        ? (effectiveConsecutiveOffer.packageHolderConsecutiveCents ?? 0)
+                        : (effectiveConsecutiveOffer.dropInConsecutiveCents ?? 0)
+                      const regularPriceCents = effectiveConsecutiveOffer.regularDropInCents ?? 0
                       const selectPromo = () => {
                         setConsecutiveAccepted(true)
                         setConsecutiveChoiceMade(true)
@@ -2961,9 +3019,9 @@ export default function EnrollModal({
                                   <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">
                                     Promo
                                   </span>
-                                  <h3 className="mt-3 text-lg font-semibold text-white">{consecutiveOffer.linkedCourseTitle}</h3>
-                                  {consecutiveOffer.linkedCourseTime && (
-                                    <p className="mt-1 text-sm text-white/55">{to12h(consecutiveOffer.linkedCourseTime)}</p>
+                                  <h3 className="mt-3 text-lg font-semibold text-white">{effectiveConsecutiveOffer.linkedCourseTitle}</h3>
+                                  {effectiveConsecutiveOffer.linkedCourseTime && (
+                                    <p className="mt-1 text-sm text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
                                   )}
                                 </div>
                                 <div className="shrink-0 text-right">
@@ -3085,11 +3143,11 @@ export default function EnrollModal({
                             </div>
                             <span className="shrink-0 text-sm font-semibold text-white">${subtotal.toFixed(2)}</span>
                           </div>
-                          {consecutiveAccepted && consecutiveOffer && (
+                          {consecutiveAccepted && effectiveConsecutiveOffer && (
                             <div className="mt-2 flex items-start justify-between gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
                               <div className="min-w-0">
                                 <div className="text-sm font-semibold leading-snug text-white">
-                                  + {consecutiveOffer.linkedCourseTitle}{consecutiveOffer.linkedCourseTime ? ` · ${to12h(consecutiveOffer.linkedCourseTime)}` : ""}
+                                  + {effectiveConsecutiveOffer.linkedCourseTitle}{effectiveConsecutiveOffer.linkedCourseTime ? ` · ${to12h(effectiveConsecutiveOffer.linkedCourseTime)}` : ""}
                                 </div>
                                 <div className="mt-0.5 text-[11px] text-emerald-300/70">
                                   Second class promotion
@@ -3237,17 +3295,21 @@ export default function EnrollModal({
                           ? t("verifyingAccount")
                           : checkingPinAvailability
                             ? "Checking PIN..."
-                            : t("continue")}
+                            : consecutiveOfferLoading && (activeStepKey === "datetime" || activeStepKey === "payments")
+                              ? "Checking promotions..."
+                              : t("continue")}
                       </button>
                     ) : (
                         <button
                           type="button"
                           onClick={() => void handleSubmit()}
-                          disabled={processing || identityCheckBusy || kioskQrCheckoutLocked}
+                          disabled={!canContinue || processing || identityCheckBusy || kioskQrCheckoutLocked}
                           className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                         >
                           {processing
                             ? "Processing..."
+                            : consecutiveOfferLoading && activeStepKey === "payments"
+                              ? "Checking promotions..."
                             : isKioskTerminalFlow && paymentMethod === "stripe"
                               ? kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
                                 ? "Create new QR"

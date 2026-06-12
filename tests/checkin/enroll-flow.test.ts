@@ -97,6 +97,72 @@ describe("enroll flow helpers", () => {
     ).toEqual(["party", "datetime", "consecutive", "payments", "review"])
   })
 
+  it("uses only payment for trusted QR mobile booking without a promotion", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: false,
+        skipInfoStep: true,
+      })
+    ).toEqual(["payments"])
+  })
+
+  it("uses promotion then payment for trusted QR mobile booking with a promotion", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: false,
+        skipInfoStep: true,
+        hasConsecutiveOffer: true,
+      })
+    ).toEqual(["consecutive", "payments"])
+  })
+
+  it("keeps QR mobile compact when wired through a check-in flow variant", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: false,
+        skipInfoStep: true,
+        hasConsecutiveOffer: true,
+      })
+    ).toEqual(["consecutive", "payments"])
+  })
+
+  it("collects contact before payment for signed-out QR mobile booking", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: false,
+      })
+    ).toEqual(["info", "payments"])
+  })
+
+  it("supports photo and promotion before payment for signed-out QR mobile booking", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: true,
+        hasConsecutiveOffer: true,
+      })
+    ).toEqual(["info", "photo", "consecutive", "payments"])
+  })
+
   it("uses the compact sign-in modal variant for check-in flows", () => {
     expect(getCheckInSignInModalVariant(true)).toBe("compact")
     expect(getCheckInSignInModalVariant(false)).toBe("sheet")
