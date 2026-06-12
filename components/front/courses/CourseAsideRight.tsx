@@ -29,7 +29,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
     }
   }, [isQrBooking, searchParams])
   const [qrBookingContext, setQrBookingContext] = React.useState(readQrBookingContext)
-  const [mobileOpen, setMobileOpen] = React.useState(false)
+  const [mobileOpen, setMobileOpen] = React.useState(isQrBooking)
   const [dockBooking, setDockBooking] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const bookingButtonRef = React.useRef<HTMLDivElement | null>(null)
@@ -170,6 +170,16 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
 
   return (
     <div ref={containerRef} className="space-y-4">
+      {/* Full-screen loader while Clerk loads during QR mobile flow */}
+      {shouldUseQrCompactBooking && !qrAuthReady && (
+        <div className="lg:hidden fixed inset-0 z-[13000] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <p className="text-sm text-white/70">Loading your booking…</p>
+          </div>
+        </div>
+      )}
+
       <div className="hidden lg:block">
         <EnrollModal
           course={course}
