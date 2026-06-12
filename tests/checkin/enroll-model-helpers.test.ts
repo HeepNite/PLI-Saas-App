@@ -105,11 +105,33 @@ describe("enroll model helpers", () => {
         contact,
         studentPin: "1234",
         studentPinConfirm: "4321",
+        contactStepIndex: 0,
         paymentMethod: "stripe",
         paymentsStepIndex: 4,
         total: 10,
       })
-    ).toEqual({ step: 2, message: "PIN confirmation does not match." })
+    ).toEqual({ step: 0, message: "PIN confirmation does not match." })
+
+    expect(
+      validateEnrollBeforeSubmit({
+        services: course.enrollment.services,
+        packages: course.enrollment.packages,
+        addons: course.enrollment.addons,
+        serviceId: "new-student",
+        packageId: "",
+        addonIds: [],
+        participants: 1,
+        date: "2026-06-12",
+        time: "20:00",
+        contact: { ...contact, phone: "+1 123" },
+        studentPin: "1234",
+        studentPinConfirm: "1234",
+        contactStepIndex: 0,
+        paymentMethod: "stripe",
+        paymentsStepIndex: 1,
+        total: 10,
+      })
+    ).toEqual({ step: 0, message: "Enter a valid US phone number." })
 
     expect(
       validateEnrollBeforeSubmit({

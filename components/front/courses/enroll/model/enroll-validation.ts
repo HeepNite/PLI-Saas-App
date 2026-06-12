@@ -22,6 +22,7 @@ type EnrollValidationInput = {
   studentPin: string
   studentPinConfirm: string
   paymentMethod: PaymentMethod
+  contactStepIndex?: number
   paymentsStepIndex: number
   total: number
 }
@@ -43,9 +44,12 @@ export const validateEnrollBeforeSubmit = ({
   studentPin,
   studentPinConfirm,
   paymentMethod,
+  contactStepIndex = 2,
   paymentsStepIndex,
   total,
 }: EnrollValidationInput): EnrollValidationIssue | null => {
+  const contactStep = contactStepIndex >= 0 ? contactStepIndex : 0
+
   if (!serviceId || !services.some((service) => service.id === serviceId)) {
     return { step: 0, message: "Select a valid service." }
   }
@@ -60,21 +64,21 @@ export const validateEnrollBeforeSubmit = ({
   }
   if (!skipContactValidation) {
     if (!contact.firstName.trim() || !contact.lastName.trim()) {
-      return { step: 2, message: "Complete your first and last name." }
+      return { step: contactStep, message: "Complete your first and last name." }
     }
     if (!emailIsValid(contact.email)) {
-      return { step: 2, message: "Enter a valid email." }
+      return { step: contactStep, message: "Enter a valid email." }
     }
     if (!isCompleteUSPhone(contact.phone)) {
-      return { step: 2, message: "Enter a valid US phone number." }
+      return { step: contactStep, message: "Enter a valid US phone number." }
     }
   }
   if (serviceId === "new-student") {
     if (!/^\d{4}$/.test(studentPin)) {
-      return { step: 2, message: "Create a 4-digit PIN to continue." }
+      return { step: contactStep, message: "Create a 4-digit PIN to continue." }
     }
     if (studentPin !== studentPinConfirm) {
-      return { step: 2, message: "PIN confirmation does not match." }
+      return { step: contactStep, message: "PIN confirmation does not match." }
     }
   }
   if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {

@@ -463,6 +463,10 @@ export default function EnrollModal({
     () => steps.findIndex((item) => item.key === "payments"),
     [steps]
   )
+  const infoStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "info"),
+    [steps]
+  )
   const photoStepIndex = React.useMemo(
     () => steps.findIndex((item) => item.key === "photo"),
     [steps]
@@ -1193,6 +1197,7 @@ export default function EnrollModal({
       skipContactValidation: skipContactStep,
       studentPin,
       studentPinConfirm,
+      contactStepIndex: infoStepIndex,
       paymentMethod,
       paymentsStepIndex,
       total,
@@ -1240,6 +1245,7 @@ export default function EnrollModal({
       photoFlowContext,
       checkInContextDate,
       checkInContextTime,
+      infoStepIndex,
       pkg,
       kioskSessionToken,
       service,
