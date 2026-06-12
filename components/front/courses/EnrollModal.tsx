@@ -868,11 +868,12 @@ export default function EnrollModal({
             note: prefillContactRef.current?.note ?? "",
           }
     const shouldAutofillDateTime = isCheckInFlow || Boolean(checkInContextDate || checkInContextTime)
+    const todayOnlyAutofill = isKioskTerminalFlow || isQrMobileCompactFlow
     const checkInAutofill = shouldAutofillDateTime
       ? computeCheckInAutofill(course.slug, sourceCourses, {
           date: checkInContextDate,
           time: checkInContextTime,
-        })
+        }, undefined, todayOnlyAutofill)
       : { date: "", time: "", notice: null as string | null }
     const nextService =
       prefillSelectionRef.current?.service &&
@@ -1065,7 +1066,8 @@ export default function EnrollModal({
         date: checkInContextDate,
         time: checkInContextTime,
       },
-      checkInNow
+      checkInNow,
+      isKioskTerminalFlow || isQrMobileCompactFlow,
     )
     if (recommended.date && recommended.date !== date) {
       setDate(recommended.date)
