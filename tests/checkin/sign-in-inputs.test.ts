@@ -7,11 +7,12 @@ import {
 } from "@/lib/checkin/sign-in-inputs"
 
 describe("sign-in input attributes", () => {
-  it("uses numeric keypad attributes for phone input", () => {
-    expect(PHONE_INPUT_ATTRIBUTES.type).toBe("text")
-    expect(PHONE_INPUT_ATTRIBUTES.inputMode).toBe("numeric")
+  it("uses phone keypad attributes without rejecting formatted phone values", () => {
+    expect(PHONE_INPUT_ATTRIBUTES.type).toBe("tel")
+    expect(PHONE_INPUT_ATTRIBUTES.inputMode).toBe("tel")
     expect(PHONE_INPUT_ATTRIBUTES.autoComplete).toBe("tel-national")
     expect(PHONE_INPUT_ATTRIBUTES.enterKeyHint).toBe("next")
+    expect(PHONE_INPUT_ATTRIBUTES.pattern).toBeUndefined()
   })
 
   it("uses numeric keypad attributes for sms code input", () => {
