@@ -163,6 +163,46 @@ describe("enroll flow helpers", () => {
     ).toEqual(["info", "photo", "consecutive", "payments"])
   })
 
+  it("includes packages step in QR mobile compact flow when packages are available", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: false,
+        hasPackages: true,
+      })
+    ).toEqual(["info", "packages", "payments"])
+  })
+
+  it("includes packages step with photo and promotion in QR mobile compact flow", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: true,
+        hasPackages: true,
+        hasConsecutiveOffer: true,
+      })
+    ).toEqual(["info", "photo", "packages", "consecutive", "payments"])
+  })
+
+  it("skips packages step in QR mobile compact flow when no packages available", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: false,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: false,
+        hasPackages: false,
+      })
+    ).toEqual(["info", "payments"])
+  })
+
   it("uses the compact sign-in modal variant for check-in flows", () => {
     expect(getCheckInSignInModalVariant(true)).toBe("compact")
     expect(getCheckInSignInModalVariant(false)).toBe("sheet")

@@ -2158,7 +2158,7 @@ export default function EnrollModal({
         <button
           aria-label={t("aria_close")}
           onClick={preventOutsideClose ? undefined : handleClose}
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          className={`absolute inset-0 ${isQrMobileCompactFlow ? "bg-black" : "bg-black/60"} backdrop-blur-sm`}
         />
       )}
 
@@ -2357,7 +2357,7 @@ export default function EnrollModal({
                 )}
 
                 {/* Summary - show booking summary or business info based on step */}
-                {activeStepKey !== "payments" ? (
+                {activeStepKey !== "payments" && !(isQrMobileCompactFlow && activeStepKey === "consecutive") ? (
                   <>
                     <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
                       <div className="font-semibold mb-2">{t("summary")}</div>
@@ -2411,10 +2411,12 @@ export default function EnrollModal({
                 ) : (
                   /* Payment helper for payments step */
                   <div className="mt-4 space-y-4">
-                    {/* Add to Calendar hint */}
-                    <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-center">
-                      <p className="text-white/60">After completing your booking, you&apos;ll be able to add it to your calendar</p>
-                    </div>
+                    {/* Add to Calendar hint — hidden for QR mobile compact flows */}
+                    {!isQrMobileCompactFlow && (
+                      <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-center">
+                        <p className="text-white/60">After completing your booking, you&apos;ll be able to add it to your calendar</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3092,22 +3094,22 @@ export default function EnrollModal({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-3 pt-1">
-                          <label className="text-sm font-medium" htmlFor="coupon">{t("payments_coupon")}</label>
+                        <div className="flex flex-wrap items-center gap-3 pt-1">
+                          <label className="text-sm font-medium shrink-0" htmlFor="coupon">{t("payments_coupon")}</label>
                           <input
                             id="coupon"
                             value={couponInput}
                             onChange={(e)=>setCouponInput(e.target.value)}
                             placeholder={t("payments_coupon_placeholder")}
                             disabled={kioskQrCheckoutLocked}
-                            className="flex-1 rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
+                            className="min-w-0 flex-1 rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
                           />
                           {appliedCoupon ? (
                             <button
                               type="button"
                               disabled={kioskQrCheckoutLocked}
                               onClick={()=>{ setAppliedCoupon(null); setCouponInput("") }}
-                              className="rounded-md border border-black/10 dark:border-white/10 px-3 py-2 text-sm"
+                              className="shrink-0 rounded-md border border-black/10 dark:border-white/10 px-3 py-2 text-sm"
                             >
                               {t("payments_remove")}
                             </button>
@@ -3122,7 +3124,7 @@ export default function EnrollModal({
                                 else if (!code) return
                                 else alert(t("payments_invalidCoupon"))
                               }}
-                              className="rounded-md bg-[var(--brand,#111)] text-white px-3 py-2 text-sm"
+                              className="shrink-0 rounded-md bg-[var(--brand,#111)] text-white px-3 py-2 text-sm"
                             >
                               {t("payments_add")}
                             </button>
@@ -3212,23 +3214,26 @@ export default function EnrollModal({
                           resetKioskQrCheckout()
                           return
                         }
-                        setStep((s) => Math.max(0, s - 1))
+                        if (step === 0) {
+                          handleClose()
+                          return
+                        }
+                        setStep((s) => s - 1)
                       }}
-                      disabled={step === 0 && !kioskQrCheckoutLocked}
-                      className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10 disabled:opacity-50"}
+                      className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10"}
                     >
-                      {kioskQrCheckoutLocked ? "Cancel QR" : t("back")}
+                      {kioskQrCheckoutLocked ? "Cancel QR" : step === 0 ? t("cancel") : t("back")}
                     </button>
                     {step < steps.length - 1 ? (
                       <button
                         type="submit"
-                        disabled={!canContinue || identityCheckBusy || checkingPinAvailability}
+                        disabled={!canContinue || identityCheckBusy}
                         className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
-                        {identityCheckBusy
-                          ? t("verifyingAccount")
-                          : checkingPinAvailability
-                            ? "Checking PIN..."
+                        {checkingPinAvailability
+                          ? "Checking PIN..."
+                          : identityCheckBusy
+                            ? t("verifyingAccount")
                             : consecutiveOfferLoading && (activeStepKey === "datetime" || activeStepKey === "payments")
                               ? "Checking promotions..."
                               : t("continue")}

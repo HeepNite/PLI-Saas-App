@@ -44,6 +44,8 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       ? "checkin-existing"
       : "checkin-new"
     : undefined
+  // Suppress background content while QR modal initializes to prevent flash
+  const shouldSuppressBackground = shouldUseQrCompactBooking && qrAuthReady && mobileOpen
   const bookingShift = "0px"
   const sideButtonSize = 44
   const sideGapPadding = 64
@@ -215,7 +217,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
         mode="modal"
       />
 
-      {!mobileOpen && !dockBooking && (
+      {!mobileOpen && !dockBooking && !shouldSuppressBackground && (
         <div
           ref={bookingButtonRef}
           className="lg:hidden fixed left-1/2 z-[12000] -translate-x-1/2"

@@ -5,7 +5,7 @@ import type { EnrollmentContact } from "@/components/front/courses/types"
 import type { I18nKey } from "@/lib/i18n-dict"
 import { PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
 
-import { formatUSPhone, isCompleteUSPhone } from "../../utils/phone"
+import { formatUSPhone, formatUSPhoneOnChange, isCompleteUSPhone } from "../../utils/phone"
 
 type ActiveNumericField = "phone" | "pin" | "pin-confirm" | null
 
@@ -141,7 +141,7 @@ export default function EnrollInfoStep({
               value={contact.phone}
               onChange={(e) => {
                 setPhoneTouched(true)
-                setContact((c) => ({ ...c, phone: formatUSPhone(e.target.value) }))
+                setContact((c) => ({ ...c, phone: formatUSPhoneOnChange(e.target.value, c.phone) }))
               }}
               onBlur={() => setPhoneTouched(true)}
               onFocus={() => {
@@ -168,7 +168,8 @@ export default function EnrollInfoStep({
           <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
         )}
       </fieldset>
-      {!isKioskTerminalFlow && (
+      {/* Notes field hidden — kept in data structure but not shown in UI */}
+      {false && !isKioskTerminalFlow && (
         <fieldset className="space-y-2 sm:col-span-2">
           <label className="text-sm font-medium">{t("label_notes")}</label>
           <textarea

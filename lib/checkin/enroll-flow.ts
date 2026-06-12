@@ -56,6 +56,7 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
     return [
       ...(input.skipInfoStep ? [] : (["info"] as const)),
       ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+      ...(input.hasPackages ? (["packages"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
       "payments",
     ]
