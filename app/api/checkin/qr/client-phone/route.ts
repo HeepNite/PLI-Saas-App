@@ -170,32 +170,62 @@ export async function POST(req: Request) {
         })
       }
 
-      // Upsert Attendance
-      const attendance = existingAttendance
-        ? await prisma.attendance.update({
-            where: { id: existingAttendance.id },
-            data: {
-              status: "checked_in",
-              checkedInAt: now,
-              metadata: {
-                ...(toRecord(existingAttendance.metadata) || {}),
-                checkinSource: "qr_client_phone",
-                purchaseId: matchingPurchase.id,
+      // Upsert Attendance + consume package credit if linked
+      const linkedPackage = await prisma.packagePurchase.findFirst({
+        where: { purchaseId: matchingPurchase.id, status: "active" },
+      })
+
+      const { attendance, refreshedPackage } = await prisma.$transaction(async (tx) => {
+        const att = existingAttendance
+          ? await tx.attendance.update({
+              where: { id: existingAttendance.id },
+              data: {
+                status: "checked_in",
+                checkedInAt: now,
+                metadata: {
+                  ...(toRecord(existingAttendance.metadata) || {}),
+                  checkinSource: "qr_client_phone",
+                  purchaseId: matchingPurchase.id,
+                },
               },
-            },
+            })
+          : await tx.attendance.create({
+              data: {
+                userId: dbUser.id,
+                sessionId: session.id,
+                status: "checked_in",
+                checkedInAt: now,
+                metadata: {
+                  checkinSource: "qr_client_phone",
+                  purchaseId: matchingPurchase.id,
+                },
+              },
+            })
+
+        let pkg = null
+        if (linkedPackage && !linkedPackage.isUnlimited && (linkedPackage.remainingCredits ?? 0) > 0) {
+          await tx.packagePurchase.update({
+            where: { id: linkedPackage.id },
+            data: { remainingCredits: { decrement: 1 } },
           })
-        : await prisma.attendance.create({
+          await tx.packageUsageLedger.create({
             data: {
+              packagePurchaseId: linkedPackage.id,
               userId: dbUser.id,
-              sessionId: session.id,
-              status: "checked_in",
-              checkedInAt: now,
-              metadata: {
-                checkinSource: "qr_client_phone",
-                purchaseId: matchingPurchase.id,
-              },
+              attendanceId: att.id,
+              delta: -1,
+              reason: "qr_client_phone_checkin",
+              meta: { courseSlug: context.courseSlug, date: context.date, time: context.time },
             },
           })
+          pkg = await tx.packagePurchase.findUnique({
+            where: { id: linkedPackage.id },
+            select: { id: true, packageId: true, packageLabel: true, isUnlimited: true, remainingCredits: true, status: true },
+          })
+        }
+
+        return { attendance: att, refreshedPackage: pkg }
+      })
 
       const points = await awardCheckInPoints(dbUser.id, context.courseSlug)
 
@@ -209,6 +239,7 @@ export async function POST(req: Request) {
           courseTitle: session.title || context.courseSlug,
           startsAt: session.startsAt.toISOString(),
         },
+        package: refreshedPackage || undefined,
         cashPending: isCashPending || undefined,
         cashAmount: isCashPending ? matchingPurchase.amount / 100 : undefined,
         points,
