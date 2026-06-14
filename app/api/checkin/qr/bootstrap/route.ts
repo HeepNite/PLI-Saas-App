@@ -451,12 +451,16 @@ export async function POST(req: Request) {
     ])
     const lastPurchase = recentPurchases[0] || null
 
-    // Check if user already has a successful purchase for this exact session (date + time)
+    // Check if user already has a successful kiosk/terminal purchase for this
+    // exact session (date + time). Web purchases do NOT count — those students
+    // still need to check in when they arrive at the studio.
     const hasExistingPurchaseForSession = recentPurchases.some((purchase) => {
       const metadata = toRecord(purchase.metadata)
       const purchaseDate = normalizeString(metadata?.date)
       const purchaseTime = normalizeString(metadata?.time)
-      return purchaseDate === context.date && purchaseTime === context.time
+      const purchaseSource = normalizeString(metadata?.purchaseSource)
+      if (purchaseDate !== context.date || purchaseTime !== context.time) return false
+      return purchaseSource !== "web"
     })
 
     const activePackages = allActivePackages.filter((item) =>
