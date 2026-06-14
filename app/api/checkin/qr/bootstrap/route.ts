@@ -451,17 +451,30 @@ export async function POST(req: Request) {
     ])
     const lastPurchase = recentPurchases[0] || null
 
-    // Check if user already has a successful kiosk/terminal purchase for this
-    // exact session (date + time). Web purchases do NOT count — those students
-    // still need to check in when they arrive at the studio.
-    const hasExistingPurchaseForSession = recentPurchases.some((purchase) => {
-      const metadata = toRecord(purchase.metadata)
-      const purchaseDate = normalizeString(metadata?.date)
-      const purchaseTime = normalizeString(metadata?.time)
-      const purchaseSource = normalizeString(metadata?.purchaseSource)
-      if (purchaseDate !== context.date || purchaseTime !== context.time) return false
-      return purchaseSource !== "web"
+    // Check if user already has an attendance record for this exact session.
+    // A purchase alone does NOT mean "already checked in" — only an attendance
+    // does. Web and QR purchases require explicit check-in at the studio;
+    // kiosk purchases create attendance at purchase time.
+    const existingSessionForCheckIn = await prisma.classSession.findUnique({
+      where: {
+        courseSlug_startsAt: {
+          courseSlug: context.courseSlug,
+          startsAt: context.startsAt,
+        },
+      },
+      select: { id: true },
     })
+    const hasExistingPurchaseForSession = existingSessionForCheckIn
+      ? Boolean(await prisma.attendance.findUnique({
+          where: {
+            userId_sessionId: {
+              userId: dbUser.id,
+              sessionId: existingSessionForCheckIn.id,
+            },
+          },
+          select: { id: true },
+        }))
+      : false
 
     const activePackages = allActivePackages.filter((item) =>
       item.courseSlug === null ||
