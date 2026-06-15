@@ -498,6 +498,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     paymentsMonthlyCheckedInStudents,
     nowTs,
     currentRole,
+    currentCategory,
     usersWithAuditEntries,
     checkUserHasAuditEntries,
     pruneSelectedPaymentIds,
@@ -508,6 +509,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
 
   const staffUsersAdminViewProps = useStaffUsersAdminComposition({
     currentRole,
+    currentCategory,
     currentUserId,
     error,
     setError,

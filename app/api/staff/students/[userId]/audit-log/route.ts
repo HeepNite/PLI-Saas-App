@@ -53,7 +53,7 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
 
   // Validate entity filter if provided
   if (entity) {
-    const validEntities = ["attendance", "payment", "package", "stats"]
+    const validEntities = ["attendance", "payment", "package", "stats", "profile"]
     if (!validEntities.includes(entity)) {
       return NextResponse.json({ error: `Invalid entity filter. Must be one of: ${validEntities.join(", ")}` }, { status: 400 })
     }

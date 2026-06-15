@@ -90,6 +90,7 @@ const createOptions = (overrides: Partial<HookOptions> = {}): HookOptions => ({
   paymentsMonthlyCheckedInStudents: 0,
   nowTs: Date.parse("2026-03-25T12:00:00.000Z"),
   currentRole: "admin",
+  currentCategory: null,
   usersWithAuditEntries: new Set(),
   checkUserHasAuditEntries: vi.fn().mockResolvedValue(undefined),
   pruneSelectedPaymentIds: vi.fn(),

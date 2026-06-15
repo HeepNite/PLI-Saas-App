@@ -9,7 +9,7 @@ export type PrismaTransaction = Omit<PrismaClient, "$connect" | "$disconnect" | 
  * Every manual data override by staff MUST produce an audit record with:
  * - targetUserId: the student whose data was modified
  * - staffClerkId: the Clerk user ID of the staff member making the change
- * - entity: which domain was affected (attendance, payment, package, stats)
+ * - entity: which domain was affected (attendance, payment, package, stats, profile)
  * - field: the specific field that changed
  * - reason: human-readable explanation (required for audit compliance)
  */
@@ -17,7 +17,7 @@ export type WriteStudentDataAuditParams = {
   targetUserId: string
   staffClerkId: string
   staffName?: string | null
-  entity: "attendance" | "payment" | "package" | "stats"
+  entity: "attendance" | "payment" | "package" | "stats" | "profile"
   entityId?: string | null
   field: string
   valueBefore?: Prisma.InputJsonValue | null

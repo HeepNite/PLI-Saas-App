@@ -12,6 +12,7 @@ import {
 } from "@/lib/security/staff-category"
 import {
   canAccessStaffPortalSection,
+  canOperateStudentEdits,
   hasExplicitStaffPermission,
   type StaffPermission,
   type StaffPortalSection,
@@ -205,6 +206,23 @@ export const authorizeStaffPermissionRequest = async (permission: StaffPermissio
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) return authResult
   if (!authResult.role || !hasExplicitStaffPermission(authResult.role, authResult.category, permission)) {
+    return { ok: false, status: 403, error: "Insufficient role" }
+  }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
+}
+
+/**
+ * Authorize requests that require student operational permission:
+ * owner, admin, or staff with front_desk category (including guest front_desk).
+ *
+ * Intentionally narrower than full users-section access. Use this for the
+ * student profile GET/PATCH and the override modal flows instead of granting
+ * broad staff-management rights to front-desk callers.
+ */
+export const authorizeStudentOperationalRequest = async (): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!authResult.role || !canOperateStudentEdits(authResult.role, authResult.category)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
   return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }

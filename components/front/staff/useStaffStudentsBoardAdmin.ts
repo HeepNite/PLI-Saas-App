@@ -11,6 +11,8 @@ import {
 import { useStudentGlobalSearch } from "@/components/front/staff/useStudentGlobalSearch"
 import { parseIsoDate } from "@/lib/class-schedule"
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory } from "@/lib/security/staff-category"
+import { canOperateStudentEdits } from "@/lib/security/staff-access"
 
 import {
   isCompletedClassEvidence,
@@ -60,6 +62,7 @@ type UseStaffStudentsBoardAdminOptions = {
   paymentsMonthlyCheckedInStudents: number
   nowTs: number
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   usersWithAuditEntries: Set<string>
   checkUserHasAuditEntries: (userId: string) => Promise<void>
   pruneSelectedPaymentIds: (visibleIds: string[]) => void
@@ -85,6 +88,7 @@ export function useStaffStudentsBoardAdmin({
   paymentsMonthlyCheckedInStudents,
   nowTs,
   currentRole,
+  currentCategory,
   usersWithAuditEntries,
   checkUserHasAuditEntries,
   pruneSelectedPaymentIds,
@@ -252,9 +256,11 @@ export function useStaffStudentsBoardAdmin({
     setCurrentPage(1)
   }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, searchResultCards, studentSearchQuery])
 
-  // Check which displayed students have audit entries in the current month
+  // Check which displayed students have audit entries in the current month.
+  // Runs for all callers that can view the Change history button (owner, admin,
+  // front_desk) so the audit badge appears correctly for each allowed role.
   React.useEffect(() => {
-    if (currentRole !== "owner" && currentRole !== "admin") return
+    if (!canOperateStudentEdits(currentRole, currentCategory)) return
 
     const userIds = displayedStudentCards
       .map((card) => ("source" in card && card.source === "profile" ? card.userId : card.latestPayment?.userId))
@@ -265,7 +271,7 @@ export function useStaffStudentsBoardAdmin({
     uniqueIds.forEach((userId) => {
       void checkUserHasAuditEntries(userId)
     })
-  }, [displayedStudentCards, currentRole, checkUserHasAuditEntries, usersWithAuditEntries])
+  }, [displayedStudentCards, currentRole, currentCategory, checkUserHasAuditEntries, usersWithAuditEntries])
 
   React.useEffect(() => {
     setCurrentPage((prev) => Math.min(prev, totalPages))

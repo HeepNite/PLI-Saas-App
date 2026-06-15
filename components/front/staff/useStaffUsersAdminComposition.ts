@@ -1,6 +1,7 @@
 import React from "react"
 
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory } from "@/lib/security/staff-category"
 import type { StepEnabledContext, SchoolWizardState } from "@/components/front/staff/school"
 import type { AssignmentCourseOption, CourseLinkRow } from "./staffAdminTypes"
 import { getInitials } from "./staffPaymentCardPresentation"
@@ -31,6 +32,7 @@ import type { useStaffTeacherAdmin } from "./useStaffTeacherAdmin"
 
 type StaffUsersAdminCompositionInput = {
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   currentUserId: string
   error: string | null
   setError: React.Dispatch<React.SetStateAction<string | null>>
@@ -116,6 +118,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
   const studentsBoardPanelProps = buildStaffStudentsBoardPanelProps({
     isStudentsView: portalShellAdmin.isStudentsView,
     currentRole: input.currentRole,
+    currentCategory: input.currentCategory,
     studentSearchQuery: input.studentSearchQuery,
     setStudentSearchQuery: input.setStudentSearchQuery,
     portalShellAdmin,

@@ -8,6 +8,7 @@ import type { useStaffPortalShellAdmin } from "./useStaffPortalShellAdmin"
 import type { useStaffStudentAuditAdmin } from "./useStaffStudentAuditAdmin"
 import type { useStaffStudentsBoardAdmin } from "./useStaffStudentsBoardAdmin"
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory } from "@/lib/security/staff-category"
 import { resolveHistoryRangeState } from "./staffAdminFormatters"
 
 type StaffStudentsBoardPanelProps = React.ComponentProps<typeof StaffStudentsBoardPanel>
@@ -15,6 +16,7 @@ type StaffStudentsBoardPanelProps = React.ComponentProps<typeof StaffStudentsBoa
 type BuildStaffStudentsBoardPanelPropsInput = {
   isStudentsView: boolean
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   studentSearchQuery: string
   setStudentSearchQuery: React.Dispatch<React.SetStateAction<string>>
   portalShellAdmin: ReturnType<typeof useStaffPortalShellAdmin>
@@ -29,6 +31,7 @@ type BuildStaffStudentsBoardPanelPropsInput = {
 export function buildStaffStudentsBoardPanelProps({
   isStudentsView,
   currentRole,
+  currentCategory,
   studentSearchQuery,
   setStudentSearchQuery,
   portalShellAdmin,
@@ -217,6 +220,7 @@ export function buildStaffStudentsBoardPanelProps({
       openStudentPinModalForProfile,
       openOverrideModal,
       currentRole,
+      currentCategory,
       formatMoney,
     },
     pagination: {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   canAccessStaffPortalSection,
+  canOperateStudentEdits,
   hasExplicitStaffPermission,
   resolveStaffPortalSections,
 } from "@/lib/security/staff-access"
@@ -34,5 +35,35 @@ describe("staff access helpers", () => {
 
   it("delegates guest managers to the manager fallback sections", () => {
     expect(resolveStaffPortalSections("staff", "guest", "manager")).toEqual(["profile"])
+  })
+
+  describe("canOperateStudentEdits", () => {
+    it("allows owner and admin unconditionally", () => {
+      expect(canOperateStudentEdits("owner", null)).toBe(true)
+      expect(canOperateStudentEdits("owner", "partner")).toBe(true)
+      expect(canOperateStudentEdits("admin", "manager")).toBe(true)
+      expect(canOperateStudentEdits("admin", null)).toBe(true)
+    })
+
+    it("allows staff with front_desk category", () => {
+      expect(canOperateStudentEdits("staff", "front_desk")).toBe(true)
+    })
+
+    it("allows guest staff with front_desk sub-category", () => {
+      expect(canOperateStudentEdits("staff", "guest", "front_desk")).toBe(true)
+    })
+
+    it("denies staff with non-front-desk categories", () => {
+      expect(canOperateStudentEdits("staff", "teacher")).toBe(false)
+      expect(canOperateStudentEdits("staff", "guest")).toBe(false)
+      expect(canOperateStudentEdits("staff", "guest", "teacher")).toBe(false)
+      expect(canOperateStudentEdits("staff", "guest", "manager")).toBe(false)
+      expect(canOperateStudentEdits("staff", null)).toBe(false)
+    })
+
+    it("denies null or undefined role", () => {
+      expect(canOperateStudentEdits(null, "front_desk")).toBe(false)
+      expect(canOperateStudentEdits(undefined, "front_desk")).toBe(false)
+    })
   })
 })

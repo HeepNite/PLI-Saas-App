@@ -8,6 +8,7 @@ import StaffStudentsBoardPanel, {
   type StaffStudentsBoardPanelProps,
   type TerminalPinAlert,
 } from "@/components/front/staff/StaffStudentsBoardPanel"
+import type { StudentProfileCard } from "@/components/front/staff/historyCardAggregates"
 
 const testGlobal = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -148,6 +149,7 @@ const createProps = (
     openStudentPinModalForProfile: vi.fn(),
     openOverrideModal: vi.fn(),
     currentRole: "staff",
+    currentCategory: null,
     formatMoney: (cents) => `$${(cents / 100).toFixed(2)}`,
   },
   pagination: {
@@ -324,6 +326,100 @@ describe("StaffStudentsBoardPanel", () => {
     )
     expect(node.textContent).not.toContain("Page 1 / 1")
     expect(node.textContent).not.toContain("Previous")
+  })
+
+  describe("Edit info button visibility", () => {
+    const minimalProfileCard: StudentProfileCard = {
+      source: "profile",
+      key: "student-1",
+      userId: "user-1",
+      displayName: "Test Student",
+      email: "student@example.com",
+      phone: null,
+      avatarUrl: null,
+      registeredAt: "2024-01-01T00:00:00.000Z",
+      checkInStatus: "none",
+      latestClassAttended: null,
+      latestCheckInAt: null,
+      lastPayment: null,
+      lastCourse: null,
+      paymentStatus: null,
+      activePackage: null,
+      remainingCredits: null,
+      outstandingBalance: null,
+      pinStatus: "none",
+      cashSettlement: null,
+      pendingSettlement: null,
+      pointsBalance: 0,
+    }
+
+    it("shows Edit info for staff with front_desk category", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "staff",
+            currentCategory: "front_desk",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeDefined()
+    })
+
+    it("hides Edit info for staff without front_desk category", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "staff",
+            currentCategory: "teacher",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeUndefined()
+    })
+
+    it("shows Edit info for owner", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "owner",
+            currentCategory: "partner",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeDefined()
+    })
+
+    it("shows Edit info for admin", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "admin",
+            currentCategory: "manager",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeDefined()
+    })
   })
 
   it("passes refresh trigger through StaffPaymentsBoardControls payment category change", async () => {

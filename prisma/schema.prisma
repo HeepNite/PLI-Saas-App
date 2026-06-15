@@ -779,7 +779,7 @@ model StudentDataAudit {
   targetUserId   String
   staffClerkId   String
   staffName      String?
-  entity         String // attendance | payment | package | stats
+  entity         String // attendance | payment | package | stats | profile
   entityId       String?
   field          String
   valueBefore    Json?

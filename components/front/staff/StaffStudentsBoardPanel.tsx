@@ -35,6 +35,8 @@ import {
 import StaffPaymentsBoardControls from "./StaffPaymentsBoardControls"
 import type { PaymentRow } from "./staffAdminTypes"
 import type { StaffRole } from "@/lib/security/staff-role"
+import { canOperateStudentEdits } from "@/lib/security/staff-access"
+import type { StaffCategory } from "@/lib/security/staff-category"
 
 // ---------------------------------------------------------------------------
 // Local helpers (panel-private, moved from StaffUsersAdminClient so callers
@@ -161,6 +163,7 @@ export type StudentsBoardCardsProps = {
   openStudentPinModalForProfile: (student: StudentProfileCard) => void
   openOverrideModal: (studentId: string, studentName: string) => void
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   formatMoney: (cents: number, currency?: string) => string
 }
 
@@ -572,7 +575,9 @@ function ProfileStudentCard({
   openStudentPinModalForProfile,
   openOverrideModal,
   currentRole,
+  currentCategory,
 }: ProfileStudentCardProps) {
+  const canEditStudentInfo = canOperateStudentEdits(currentRole, currentCategory)
   // Mirror legacy logic: identity, badges, detail rows and settlement control.
   const identity = splitCustomerName(student.displayName, student.email)
   const initials = getInitials(identity.firstName, identity.lastName, student.email)
@@ -716,7 +721,7 @@ function ProfileStudentCard({
             {student.provisionalPinExpiresAt ? "Reissue PIN" : "Provisional PIN"}
           </button>
         ) : null}
-        {(currentRole === "owner" || currentRole === "admin") && student.userId ? (
+        {canEditStudentInfo && student.userId ? (
           <button
             type="button"
             onClick={() => openOverrideModal(student.userId, student.displayName)}
@@ -727,7 +732,7 @@ function ProfileStudentCard({
         ) : null}
       </div>
 
-      {(currentRole === "owner" || currentRole === "admin") &&
+      {canEditStudentInfo &&
         student.userId &&
         usersWithAuditEntries.has(student.userId) && (
           <div className="mt-3">
@@ -787,8 +792,10 @@ function PaymentStudentCard({
   openStudentPinModal,
   openOverrideModal,
   currentRole,
+  currentCategory,
   formatMoney,
 }: PaymentStudentCardProps) {
+  const canEditStudentInfo = canOperateStudentEdits(currentRole, currentCategory)
   const payment = student.latestPayment
   const identity = splitCustomerName(payment.customerName, payment.customerEmail)
   const initials = getInitials(identity.firstName, identity.lastName, payment.customerEmail)
@@ -1182,7 +1189,7 @@ function PaymentStudentCard({
             {payment.studentPin.provisionalActive ? "Reissue PIN" : "Provisional PIN"}
           </button>
         ) : null}
-        {(currentRole === "owner" || currentRole === "admin") && payment.userId ? (
+        {canEditStudentInfo && payment.userId ? (
           <button
             type="button"
             onClick={() => openOverrideModal(payment.userId, identity.fullName)}
@@ -1193,7 +1200,7 @@ function PaymentStudentCard({
         ) : null}
       </div>
 
-      {(currentRole === "owner" || currentRole === "admin") &&
+      {canEditStudentInfo &&
         payment.userId &&
         usersWithAuditEntries.has(payment.userId) && (
           <div className="mt-3">
