@@ -77,6 +77,7 @@ import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
+import { nextKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 import {
@@ -269,6 +270,7 @@ export default function EnrollModal({
   const [pinAvailabilityError, setPinAvailabilityError] = React.useState<string | null>(null)
   const [checkingPinAvailability, setCheckingPinAvailability] = React.useState(false)
   const [activeNumericField, setActiveNumericField] = React.useState<"phone" | "pin" | "pin-confirm" | null>(null)
+  const [kioskInfoPhase, setKioskInfoPhase] = React.useState<KioskInfoPhase>("name-email")
   // Paso 2: datos de contacto (modular, sin teléfono)
   const contact = flowState.contact
   // Flujo multi‑paso + éxito
@@ -636,6 +638,8 @@ export default function EnrollModal({
     setResumeContactFlowAfterSignIn(false)
     setIdentityCheckBusy(false)
     setPhoneTouched(false)
+    setActiveNumericField(null)
+    setKioskInfoPhase("name-email")
     setStripeClientSecret("")
     setShowStripeModal(false)
     setKioskQrCheckout(createEmptyKioskQrCheckoutState())
@@ -1780,6 +1784,15 @@ export default function EnrollModal({
   }
 
   const handleFormStepSubmit = async () => {
+    if (isKioskTerminalFlow && activeStepKey === "info") {
+      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service)
+      if (nextPhase !== "done") {
+        setKioskInfoPhase(nextPhase)
+        setActiveNumericField(nextPhase === "phone" ? "phone" : "pin")
+        return
+      }
+    }
+
     if (step < steps.length - 1) {
       if (isCheckInContactGateStep({ isCheckInFlow, activeStepKey })) {
         await advanceFromContactStep()
@@ -2098,6 +2111,13 @@ export default function EnrollModal({
     })
 
   const canContinue = stepValid(step)
+  const canContinueCurrentStep = isKioskTerminalFlow && activeStepKey === "info"
+    ? kioskInfoPhase === "name-email"
+      ? contact.firstName.trim().length > 1 && contact.email.trim().length > 5
+      : kioskInfoPhase === "phone"
+        ? isCompleteUSPhone(contact.phone)
+        : canContinue
+    : canContinue
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
   const signInModalTitle =
     signInPurpose === "sms_verification"
@@ -2776,6 +2796,7 @@ export default function EnrollModal({
                     handleNumpadDigit={handleNumpadDigit}
                     isCheckInFlow={isCheckInFlow}
                     isKioskTerminalFlow={isKioskTerminalFlow}
+                    kioskInfoPhase={kioskInfoPhase}
                     phoneTouched={phoneTouched}
                     pinAvailabilityError={pinAvailabilityError}
                     service={service}
@@ -2787,6 +2808,7 @@ export default function EnrollModal({
                     setPinAvailabilityError={setPinAvailabilityError}
                     setRequiresSignIn={setRequiresSignIn}
                     setResumeAfterSignInStep={setResumeAfterSignInStep}
+                    setKioskInfoPhase={setKioskInfoPhase}
                     setStudentPin={setStudentPin}
                     setStudentPinConfirm={setStudentPinConfirm}
                     shouldMaskKioskInfoContent={shouldMaskKioskInfoContent}
@@ -3207,27 +3229,46 @@ export default function EnrollModal({
                     {allowPanelAccess && (
                       <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (kioskQrCheckoutLocked) {
-                          resetKioskQrCheckout()
-                          return
-                        }
-                        if (step === 0) {
-                          handleClose()
-                          return
-                        }
-                        setStep((s) => s - 1)
-                      }}
-                      className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10"}
-                    >
-                      {kioskQrCheckoutLocked ? "Cancel QR" : step === 0 ? t("cancel") : t("back")}
-                    </button>
+                    {!(isKioskTerminalFlow && step === 0 && kioskInfoPhase === "name-email") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (kioskQrCheckoutLocked) {
+                            resetKioskQrCheckout()
+                            return
+                          }
+                          if (isKioskTerminalFlow && step === 0 && kioskInfoPhase !== "name-email") {
+                            if (kioskInfoPhase === "pin") {
+                              setKioskInfoPhase("phone")
+                              setActiveNumericField("phone")
+                              return
+                            }
+
+                            setKioskInfoPhase("name-email")
+                            setActiveNumericField(null)
+                            return
+                          }
+                          if (step === 0) {
+                            handleClose()
+                            return
+                          }
+                          setStep((s) => s - 1)
+                        }}
+                        className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10"}
+                      >
+                        {kioskQrCheckoutLocked
+                          ? "Cancel QR"
+                          : isKioskTerminalFlow && step === 0 && kioskInfoPhase !== "name-email"
+                            ? "Back"
+                            : step === 0
+                              ? t("cancel")
+                              : t("back")}
+                      </button>
+                    )}
                     {step < steps.length - 1 ? (
                       <button
                         type="submit"
-                        disabled={!canContinue || identityCheckBusy}
+                        disabled={!canContinueCurrentStep || identityCheckBusy}
                         className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
                         {checkingPinAvailability
@@ -3242,7 +3283,7 @@ export default function EnrollModal({
                         <button
                           type="button"
                           onClick={() => void handleSubmit()}
-                          disabled={!canContinue || processing || identityCheckBusy || kioskQrCheckoutLocked}
+                          disabled={!canContinueCurrentStep || processing || identityCheckBusy || kioskQrCheckoutLocked}
                           className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                         >
                           {processing
@@ -3353,18 +3394,16 @@ export default function EnrollModal({
               resetVerification()
             }}
           />
-          <div className="relative z-10 w-full max-w-md max-h-[85vh] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
-            <div className="mb-4 flex items-start justify-end gap-3">
-              <button
-                type="button"
-                className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04] transition"
-                onClick={() => {
-                  resetVerification()
-                }}
-              >
-                {t("cancel")}
-              </button>
-            </div>
+          <div className="relative z-10 w-full max-w-[20rem] max-h-[85vh] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+            <button
+              type="button"
+              className="absolute right-5 top-5 z-10 shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 transition hover:bg-white/[0.04]"
+              onClick={() => {
+                resetVerification()
+              }}
+            >
+              {t("cancel")}
+            </button>
             {/* Code input + numpad */}
             <EmbeddedSignIn
               redirectUrl={signInReturnTo}

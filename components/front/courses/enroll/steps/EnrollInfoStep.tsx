@@ -1,10 +1,12 @@
 import * as React from "react"
+import { AnimatePresence, motion, type Variants } from "framer-motion"
 
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import type { EnrollmentContact } from "@/components/front/courses/types"
 import type { I18nKey } from "@/lib/i18n-dict"
 import { PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
 
+import type { KioskInfoPhase } from "../model/kiosk-info-phase"
 import { formatUSPhone, formatUSPhoneOnChange, isCompleteUSPhone } from "../../utils/phone"
 
 type ActiveNumericField = "phone" | "pin" | "pin-confirm" | null
@@ -18,6 +20,7 @@ type EnrollInfoStepProps = {
   handleNumpadDigit: (digit: string) => void
   isCheckInFlow: boolean
   isKioskTerminalFlow: boolean
+  kioskInfoPhase: KioskInfoPhase
   phoneTouched: boolean
   pinAvailabilityError: string | null
   service: string
@@ -29,6 +32,7 @@ type EnrollInfoStepProps = {
   setPinAvailabilityError: React.Dispatch<React.SetStateAction<string | null>>
   setRequiresSignIn: React.Dispatch<React.SetStateAction<boolean>>
   setResumeAfterSignInStep: React.Dispatch<React.SetStateAction<number | null>>
+  setKioskInfoPhase: React.Dispatch<React.SetStateAction<KioskInfoPhase>>
   setStudentPin: React.Dispatch<React.SetStateAction<string>>
   setStudentPinConfirm: React.Dispatch<React.SetStateAction<string>>
   shouldMaskKioskInfoContent: boolean
@@ -39,6 +43,18 @@ type EnrollInfoStepProps = {
 
 const securePinStyle = { WebkitTextSecurity: "disc" } as React.CSSProperties
 
+const phaseVariants: Variants = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: "easeOut" } },
+  exit: { opacity: 0, y: -8, scale: 0.97, transition: { duration: 0.18, ease: "easeIn" } },
+}
+
+const pillVariants: Variants = {
+  initial: { opacity: 0, x: -12 },
+  animate: { opacity: 1, x: 0, transition: { duration: 0.2 } },
+  exit: { opacity: 0, x: -8, transition: { duration: 0.15 } },
+}
+
 export default function EnrollInfoStep({
   activeNumericField,
   checkPinAvailability,
@@ -48,6 +64,7 @@ export default function EnrollInfoStep({
   handleNumpadDigit,
   isCheckInFlow,
   isKioskTerminalFlow,
+  kioskInfoPhase,
   phoneTouched,
   pinAvailabilityError,
   service,
@@ -59,6 +76,7 @@ export default function EnrollInfoStep({
   setPinAvailabilityError,
   setRequiresSignIn,
   setResumeAfterSignInStep,
+  setKioskInfoPhase,
   setStudentPin,
   setStudentPinConfirm,
   shouldMaskKioskInfoContent,
@@ -66,6 +84,13 @@ export default function EnrollInfoStep({
   studentPinConfirm,
   t,
 }: EnrollInfoStepProps) {
+  const phoneComplete = isCompleteUSPhone(contact.phone)
+
+  const editNameEmail = React.useCallback(() => {
+    setKioskInfoPhase("name-email")
+    setActiveNumericField(null)
+  }, [setActiveNumericField, setKioskInfoPhase])
+
   if (shouldMaskKioskInfoContent) {
     return (
       <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-8 text-center">
@@ -78,8 +103,8 @@ export default function EnrollInfoStep({
     )
   }
 
-  return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+  const nameEmailFields = (
+    <>
       <fieldset className="space-y-2">
         <label className="text-sm font-medium">{t("label_firstName")}</label>
         <input
@@ -129,45 +154,204 @@ export default function EnrollInfoStep({
           </p>
         )}
       </fieldset>
-      <fieldset className="space-y-2 sm:col-span-2">
-        <label className="text-sm font-medium">Phone</label>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 bg-white/70 px-2 text-[11px] font-semibold text-blue-900 dark:border-white/10 dark:bg-white/10 dark:text-blue-200">
-            US
-          </span>
-          <div className="relative w-full">
-            <input
-              type={PHONE_INPUT_ATTRIBUTES.type}
-              value={contact.phone}
-              onChange={(e) => {
-                setPhoneTouched(true)
-                setContact((c) => ({ ...c, phone: formatUSPhoneOnChange(e.target.value, c.phone) }))
-              }}
-              onBlur={() => setPhoneTouched(true)}
-              onFocus={() => {
-                if (isKioskTerminalFlow) setActiveNumericField("phone")
-              }}
-              readOnly={isKioskTerminalFlow}
-              onClick={() => {
-                if (isKioskTerminalFlow) setActiveNumericField("phone")
-              }}
-              placeholder="(929) 387-6584"
-              inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
-              autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
-              enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
-              pattern={PHONE_INPUT_ATTRIBUTES.pattern}
-              aria-invalid={phoneTouched && !isCompleteUSPhone(contact.phone)}
-              className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 dark:border-white/10 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "phone" ? " border-white/30" : ""}`}
-            />
-            {isKioskTerminalFlow && activeNumericField === "phone" && (
-              <span className="pointer-events-none absolute right-3 top-1/2 h-5 w-0.5 -translate-y-1/2 animate-pulse bg-white/70" />
-            )}
-          </div>
+    </>
+  )
+
+  const phoneKeypad = isKioskTerminalFlow ? (
+    <KioskNumericKeypad
+      onDigit={handleNumpadDigit}
+      onBackspace={handleNumpadBackspace}
+      onClear={handleNumpadClear}
+      size="modal"
+      className="w-full p-2 sm:p-2"
+    />
+  ) : null
+
+  const phoneField = (
+    <fieldset className={isKioskTerminalFlow ? "space-y-3 rounded-md border border-white/10 bg-white/[0.05] p-3 sm:col-span-2" : "space-y-2 sm:col-span-2"}>
+      <label className="text-sm font-medium">Phone</label>
+      <div className="flex items-center gap-2">
+        <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 bg-white/70 px-2 text-[11px] font-semibold text-blue-900 dark:border-white/10 dark:bg-white/10 dark:text-blue-200">
+          US
+        </span>
+        <div className="relative min-w-0 flex-1">
+          <input
+            type={PHONE_INPUT_ATTRIBUTES.type}
+            value={contact.phone}
+            onChange={(e) => {
+              setPhoneTouched(true)
+              setContact((c) => ({ ...c, phone: formatUSPhoneOnChange(e.target.value, c.phone) }))
+            }}
+            onBlur={() => setPhoneTouched(true)}
+            onFocus={() => {
+              if (isKioskTerminalFlow) setActiveNumericField("phone")
+            }}
+            readOnly={isKioskTerminalFlow}
+            onClick={() => {
+              if (isKioskTerminalFlow) setActiveNumericField("phone")
+            }}
+            placeholder="(929) 387-6584"
+            inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
+            autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
+            enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
+            pattern={PHONE_INPUT_ATTRIBUTES.pattern}
+            aria-invalid={phoneTouched && !phoneComplete}
+            className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 dark:border-white/10 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "phone" ? " border-white/30" : ""}`}
+          />
+          {isKioskTerminalFlow && activeNumericField === "phone" && (
+            <span className="pointer-events-none absolute right-3 top-1/2 h-5 w-0.5 -translate-y-1/2 animate-pulse bg-white/70" />
+          )}
         </div>
-        {phoneTouched && !isCompleteUSPhone(contact.phone) && (
-          <p className="text-xs text-red-600">{t("phone_format_hint")}</p>
-        )}
-      </fieldset>
+      </div>
+      {phoneTouched && !phoneComplete && <p className="text-xs text-red-600">{t("phone_format_hint")}</p>}
+      {phoneKeypad}
+    </fieldset>
+  )
+
+  const pinKeypad = isKioskTerminalFlow ? (
+    <KioskNumericKeypad
+      onDigit={handleNumpadDigit}
+      onBackspace={handleNumpadBackspace}
+      onClear={handleNumpadClear}
+      size="modal"
+      className="w-full p-2 sm:p-2"
+    />
+  ) : null
+
+  const pinFields = service === "new-student" && (
+    <div className="space-y-3 rounded-md border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/10 sm:col-span-2">
+      <div>
+        <div className="text-sm font-semibold">Create student PIN</div>
+        <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
+          This 4-digit PIN is required for future kiosk check-ins and account recovery.
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="relative">
+          <input
+            type="tel"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={4}
+            autoComplete="off"
+            name="kiosk-pin"
+            value={isKioskTerminalFlow ? "•".repeat(studentPin.length) : studentPin}
+            onChange={(e) => {
+              setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+              setPinAvailabilityError(null)
+            }}
+            readOnly={isKioskTerminalFlow}
+            onClick={() => {
+              if (isKioskTerminalFlow) setActiveNumericField("pin")
+            }}
+            onFocus={() => {
+              if (isKioskTerminalFlow) setActiveNumericField("pin")
+            }}
+            style={!isKioskTerminalFlow ? securePinStyle : undefined}
+            className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "pin" ? " border-white/30" : ""}`}
+            placeholder="4-digit PIN"
+          />
+          {isKioskTerminalFlow && activeNumericField === "pin" && (
+            <span className="pointer-events-none absolute right-3 top-1/2 h-5 w-0.5 -translate-y-1/2 animate-pulse bg-white/70" />
+          )}
+        </div>
+        <div className="relative">
+          <input
+            type="tel"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={4}
+            autoComplete="off"
+            name="kiosk-pin-confirm"
+            value={isKioskTerminalFlow ? "•".repeat(studentPinConfirm.length) : studentPinConfirm}
+            onChange={(e) => {
+              setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))
+              setPinAvailabilityError(null)
+            }}
+            readOnly={isKioskTerminalFlow}
+            onClick={() => {
+              if (isKioskTerminalFlow) setActiveNumericField("pin-confirm")
+            }}
+            onFocus={() => {
+              if (isKioskTerminalFlow) setActiveNumericField("pin-confirm")
+            }}
+            onBlur={() => {
+              if (service === "new-student" && /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm) {
+                void checkPinAvailability(studentPin)
+              }
+            }}
+            style={!isKioskTerminalFlow ? securePinStyle : undefined}
+            className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "pin-confirm" ? " border-white/30" : ""}`}
+            placeholder="Confirm PIN"
+          />
+          {isKioskTerminalFlow && activeNumericField === "pin-confirm" && (
+            <span className="pointer-events-none absolute right-3 top-1/2 h-5 w-0.5 -translate-y-1/2 animate-pulse bg-white/70" />
+          )}
+        </div>
+      </div>
+      {pinAvailabilityError && <p className="text-xs text-red-600">{pinAvailabilityError}</p>}
+      <p className="text-xs text-neutral-500 dark:text-white/50">
+        Remember your PIN — you&apos;ll use it for a faster check-in next time.
+      </p>
+      {pinKeypad}
+    </div>
+  )
+
+  if (isKioskTerminalFlow) {
+    return (
+      <div className="space-y-4">
+        <AnimatePresence>
+          {kioskInfoPhase !== "name-email" && (
+            <motion.div
+              key="name-email-summary"
+              variants={pillVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex items-center justify-between gap-3 rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white/80"
+            >
+              <span className="truncate">
+                {contact.firstName} {contact.lastName} · {contact.email}
+              </span>
+              <button type="button" onClick={editNameEmail} className="shrink-0 font-semibold text-[var(--brand,#ff7a7a)] underline-offset-4 hover:underline">
+                Edit
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence mode="wait">
+          {kioskInfoPhase === "name-email" && (
+            <motion.div key="name-email" variants={phaseVariants} initial="initial" animate="animate" exit="exit" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {nameEmailFields}
+            </motion.div>
+          )}
+
+          {kioskInfoPhase === "phone" && (
+            <motion.div key="phone" variants={phaseVariants} initial="initial" animate="animate" exit="exit" className="grid grid-cols-1 gap-4">
+              {phoneField}
+              {service !== "new-student" && phoneComplete && (
+                <p className="rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-center text-sm text-white/70">
+                  Phone complete. Tap Continue below to finish.
+                </p>
+              )}
+            </motion.div>
+          )}
+
+          {kioskInfoPhase === "pin" && (
+            <motion.div key="pin" variants={phaseVariants} initial="initial" animate="animate" exit="exit" className="grid grid-cols-1 gap-4">
+              {pinFields}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {nameEmailFields}
+      {phoneField}
       {/* Notes field hidden — kept in data structure but not shown in UI */}
       {false && !isKioskTerminalFlow && (
         <fieldset className="space-y-2 sm:col-span-2">
@@ -182,83 +366,7 @@ export default function EnrollInfoStep({
         </fieldset>
       )}
 
-      {service === "new-student" && (
-        <div className="space-y-3 rounded-md border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/10 sm:col-span-2">
-          <div>
-            <div className="text-sm font-semibold">Create student PIN</div>
-            <div className="mt-1 text-xs text-neutral-500 dark:text-white/60">
-              This 4-digit PIN is required for future kiosk check-ins and account recovery.
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="relative">
-              <input
-                type="tel"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={4}
-                autoComplete="off"
-                name="kiosk-pin"
-                value={isKioskTerminalFlow ? "•".repeat(studentPin.length) : studentPin}
-                onChange={(e) => {
-                  setStudentPin(e.target.value.replace(/\D/g, "").slice(0, 4))
-                  setPinAvailabilityError(null)
-                }}
-                readOnly={isKioskTerminalFlow}
-                onClick={() => {
-                  if (isKioskTerminalFlow) setActiveNumericField("pin")
-                }}
-                onFocus={() => {
-                  if (isKioskTerminalFlow) setActiveNumericField("pin")
-                }}
-                style={!isKioskTerminalFlow ? securePinStyle : undefined}
-                className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "pin" ? " border-white/30" : ""}`}
-                placeholder="4-digit PIN"
-              />
-              {isKioskTerminalFlow && activeNumericField === "pin" && (
-                <span className="pointer-events-none absolute right-3 top-1/2 h-5 w-0.5 -translate-y-1/2 animate-pulse bg-white/70" />
-              )}
-            </div>
-            <div className="relative">
-              <input
-                type="tel"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={4}
-                autoComplete="off"
-                name="kiosk-pin-confirm"
-                value={isKioskTerminalFlow ? "•".repeat(studentPinConfirm.length) : studentPinConfirm}
-                onChange={(e) => {
-                  setStudentPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4))
-                  setPinAvailabilityError(null)
-                }}
-                readOnly={isKioskTerminalFlow}
-                onClick={() => {
-                  if (isKioskTerminalFlow) setActiveNumericField("pin-confirm")
-                }}
-                onFocus={() => {
-                  if (isKioskTerminalFlow) setActiveNumericField("pin-confirm")
-                }}
-                onBlur={() => {
-                  if (service === "new-student" && /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm) {
-                    void checkPinAvailability(studentPin)
-                  }
-                }}
-                style={!isKioskTerminalFlow ? securePinStyle : undefined}
-                className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "pin-confirm" ? " border-white/30" : ""}`}
-                placeholder="Confirm PIN"
-              />
-              {isKioskTerminalFlow && activeNumericField === "pin-confirm" && (
-                <span className="pointer-events-none absolute right-3 top-1/2 h-5 w-0.5 -translate-y-1/2 animate-pulse bg-white/70" />
-              )}
-            </div>
-          </div>
-          {pinAvailabilityError && <p className="text-xs text-red-600">{pinAvailabilityError}</p>}
-          <p className="text-xs text-neutral-500 dark:text-white/50">
-            Remember your PIN — you&apos;ll use it for a faster check-in next time.
-          </p>
-        </div>
-      )}
+      {pinFields}
 
       {isKioskTerminalFlow && (
         <div
