@@ -7,8 +7,10 @@ import type { useStaffPinAdmin } from "./useStaffPinAdmin"
 import type { useStaffPortalShellAdmin } from "./useStaffPortalShellAdmin"
 import type { useStaffStudentAuditAdmin } from "./useStaffStudentAuditAdmin"
 import type { useStaffStudentsBoardAdmin } from "./useStaffStudentsBoardAdmin"
+import type { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
 import type { StaffRole } from "@/lib/security/staff-role"
 import type { StaffCategory } from "@/lib/security/staff-category"
+import { canOperateStudentEdits } from "@/lib/security/staff-access"
 import { resolveHistoryRangeState } from "./staffAdminFormatters"
 
 type StaffStudentsBoardPanelProps = React.ComponentProps<typeof StaffStudentsBoardPanel>
@@ -25,6 +27,7 @@ type BuildStaffStudentsBoardPanelPropsInput = {
   pinAdmin: ReturnType<typeof useStaffPinAdmin>
   studentsBoardAdmin: ReturnType<typeof useStaffStudentsBoardAdmin>
   studentAuditAdmin: ReturnType<typeof useStaffStudentAuditAdmin>
+  createStudentAdmin?: ReturnType<typeof useStaffCreateStudentAdmin>
   formatMoney: (amount: number, currency?: string) => string
 }
 
@@ -40,6 +43,7 @@ export function buildStaffStudentsBoardPanelProps({
   pinAdmin,
   studentsBoardAdmin,
   studentAuditAdmin,
+  createStudentAdmin,
   formatMoney,
 }: BuildStaffStudentsBoardPanelPropsInput): StaffStudentsBoardPanelProps {
   const {
@@ -228,5 +232,8 @@ export function buildStaffStudentsBoardPanelProps({
       totalPages,
       setCurrentPage,
     },
+    createStudent: createStudentAdmin && canOperateStudentEdits(currentRole, currentCategory)
+      ? createStudentAdmin
+      : null,
   }
 }

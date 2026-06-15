@@ -37,6 +37,8 @@ import type { PaymentRow } from "./staffAdminTypes"
 import type { StaffRole } from "@/lib/security/staff-role"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
 import type { StaffCategory } from "@/lib/security/staff-category"
+import CreateStudentModal from "./CreateStudentModal"
+import type { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
 
 // ---------------------------------------------------------------------------
 // Local helpers (panel-private, moved from StaffUsersAdminClient so callers
@@ -178,6 +180,8 @@ const resolveMasonryColumnCount = () => {
   return 1
 }
 
+export type StudentsBoardCreateStudentProps = ReturnType<typeof useStaffCreateStudentAdmin> | null
+
 export type StaffStudentsBoardPanelProps = {
   isStudentsView: boolean
   loadingStatus: StudentsBoardLoadingProps
@@ -186,6 +190,7 @@ export type StaffStudentsBoardPanelProps = {
   controls: StaffPaymentsBoardControlsProps
   cards: StudentsBoardCardsProps
   pagination: StudentsBoardPaginationProps
+  createStudent?: StudentsBoardCreateStudentProps
 }
 
 const ClerkSyncContext = React.createContext<StudentsBoardClerkSyncProps | null>(null)
@@ -373,6 +378,7 @@ export default function StaffStudentsBoardPanel({
   controls,
   cards,
   pagination,
+  createStudent,
 }: StaffStudentsBoardPanelProps) {
   if (!isStudentsView) return null
 
@@ -394,17 +400,44 @@ export default function StaffStudentsBoardPanel({
             Grid view by student with class payment status, check-in and active package.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => onRefreshPaymentsBoard()}
-          disabled={paymentsLoading}
-          className="mt-2 inline-flex shrink-0 items-center gap-1 h-9 whitespace-nowrap rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70 dark:hover:border-[var(--brand,#b61616)]/60 dark:hover:text-[var(--brand,#b61616)]"
-          aria-label="Refresh payments board"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${paymentsLoading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="mt-2 flex shrink-0 items-center gap-2">
+          {createStudent && (
+            <button
+              type="button"
+              onClick={createStudent.openModal}
+              className="inline-flex items-center gap-1 h-9 whitespace-nowrap rounded-full border border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 px-3 text-xs font-medium text-[var(--brand,#b61616)] transition hover:bg-[var(--brand,#b61616)]/20 dark:border-[var(--brand,#b61616)]/40 dark:text-[var(--brand,#b61616)]"
+              aria-label="Create new student"
+            >
+              + New student
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onRefreshPaymentsBoard()}
+            disabled={paymentsLoading}
+            className="inline-flex items-center gap-1 h-9 whitespace-nowrap rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70 dark:hover:border-[var(--brand,#b61616)]/60 dark:hover:text-[var(--brand,#b61616)]"
+            aria-label="Refresh payments board"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${paymentsLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </header>
+
+      {createStudent && (
+        <CreateStudentModal
+          isOpen={createStudent.isOpen}
+          form={createStudent.form}
+          submitting={createStudent.submitting}
+          error={createStudent.error}
+          result={createStudent.result}
+          hasAmount={createStudent.hasAmount}
+          canSubmit={createStudent.canSubmit}
+          onClose={createStudent.closeModal}
+          onUpdateField={createStudent.updateField}
+          onSubmit={createStudent.submit}
+        />
+      )}
 
       <ClerkSyncBanner {...clerkSync} />
       <TerminalPinAlertsStrip {...terminalAlerts} />

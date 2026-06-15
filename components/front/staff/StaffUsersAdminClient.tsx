@@ -40,6 +40,7 @@ import { useStaffSelfProfileAdmin } from "./useStaffSelfProfileAdmin"
 import { useStaffProfileModalAdmin } from "./useStaffProfileModalAdmin"
 import { useStaffStudentsBoardAdmin } from "./useStaffStudentsBoardAdmin"
 import { useStaffStudentAuditAdmin } from "./useStaffStudentAuditAdmin"
+import { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
 import { useStaffPortalShellAdmin } from "./useStaffPortalShellAdmin"
 import { useStaffPortalDataLifecycle } from "./useStaffPortalDataLifecycle"
 import { useStaffUsersAdminComposition } from "./useStaffUsersAdminComposition"
@@ -507,6 +508,11 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     handleStaffAuthFailure,
   })
 
+  const createStudentAdmin = useStaffCreateStudentAdmin({
+    onSuccess: refreshPaymentsBoard,
+    handleStaffAuthFailure,
+  })
+
   const staffUsersAdminViewProps = useStaffUsersAdminComposition({
     currentRole,
     currentCategory,
@@ -544,6 +550,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     profileScheduleAdmin,
     payrollAdmin,
     studentsBoardAdmin,
+    createStudentAdmin,
     saveCourseLink,
     deleteCourseLink,
     toggleCourseLinkActive,

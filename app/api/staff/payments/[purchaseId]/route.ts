@@ -109,8 +109,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
       const classTime = asText(metadata.time)
       const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
 
-      if (courseSlug) {
+      if (courseSlug && !courseSlug.startsWith("_")) {
         // Use date/time if available, otherwise fall back to purchase creation time
+        // Skip sentinel slugs like _staff_registration (registration deposits, not class enrollments)
         const startsAt = (classDate && classTime)
           ? buildSessionStartsAt(classDate, classTime)
           : purchase.createdAt

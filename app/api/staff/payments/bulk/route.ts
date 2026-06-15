@@ -86,7 +86,8 @@ const resolveAttendanceIdForCashSettlement = async (input: {
   const classTime = asText(input.metadata.time)
   const courseSlug = input.purchase.courseSlug || asText(input.metadata.courseSlug)
 
-  if (!classDate || !classTime || !courseSlug) return ""
+  // Skip sentinel slugs like _staff_registration (registration deposits, not class enrollments)
+  if (!classDate || !classTime || !courseSlug || courseSlug.startsWith("_")) return ""
 
   const startsAt = buildSessionStartsAt(classDate, classTime)
   if (!startsAt) return ""

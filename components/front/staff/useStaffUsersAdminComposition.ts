@@ -28,6 +28,7 @@ import type { useStaffSchoolCatalogAdmin } from "./useStaffSchoolCatalogAdmin"
 import type { useStaffSelfProfileAdmin } from "./useStaffSelfProfileAdmin"
 import type { useStaffStudentAuditAdmin } from "./useStaffStudentAuditAdmin"
 import type { useStaffStudentsBoardAdmin } from "./useStaffStudentsBoardAdmin"
+import type { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
 import type { useStaffTeacherAdmin } from "./useStaffTeacherAdmin"
 
 type StaffUsersAdminCompositionInput = {
@@ -71,6 +72,7 @@ type StaffUsersAdminCompositionInput = {
   profileScheduleAdmin: ReturnType<typeof useStaffProfileScheduleAdmin>
   payrollAdmin: ReturnType<typeof useStaffPayrollAdmin>
   studentsBoardAdmin: ReturnType<typeof useStaffStudentsBoardAdmin>
+  createStudentAdmin?: ReturnType<typeof useStaffCreateStudentAdmin>
   saveCourseLink: (event: React.FormEvent) => void
   deleteCourseLink: (linkId: string) => void
   toggleCourseLinkActive: (link: CourseLinkRow) => void
@@ -127,6 +129,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
     pinAdmin,
     studentsBoardAdmin,
     studentAuditAdmin,
+    createStudentAdmin: input.createStudentAdmin,
     formatMoney: input.formatters.formatMoney,
   })
 
