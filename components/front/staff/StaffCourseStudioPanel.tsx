@@ -77,20 +77,14 @@ export default function StaffCourseStudioPanel({
             />
 
             <div style={{ display: wizard.step >= 3 && wizard.step <= 5 ? undefined : "none" }} className="space-y-2">
-              {links.courseEditingSlug ? (
-                <>
-                  <p style={{ display: wizard.step === 3 ? undefined : "none" }} className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
-                    {isSpecialEventCourse ? "Special events (calendar builder)" : "Schedules (guided builder)"}
-                  </p>
-                  <div className="space-y-5">
-                    <StaffCourseScheduleStep visible={wizard.step === 3} isSpecialEventCourse={isSpecialEventCourse} {...schedule} />
-                    <StaffCourseLinksStep visible={wizard.step === 4} {...links} />
-                    <StaffCoursePreviewStep visible={wizard.step === 5} {...preview} />
-                  </div>
-                </>
-              ) : (
-                <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
-              )}
+              <p style={{ display: wizard.step === 3 ? undefined : "none" }} className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
+                {isSpecialEventCourse ? "Special events (calendar builder)" : "Schedules (guided builder)"}
+              </p>
+              <div className="space-y-5">
+                <StaffCourseScheduleStep visible={wizard.step === 3} isSpecialEventCourse={isSpecialEventCourse} {...schedule} />
+                <StaffCourseLinksStep visible={wizard.step === 4} {...links} />
+                <StaffCoursePreviewStep visible={wizard.step === 5} {...preview} />
+              </div>
             </div>
           </div>
 

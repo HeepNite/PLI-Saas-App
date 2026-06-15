@@ -49,10 +49,14 @@ describe("StaffCoursePublishStep", () => {
     expect(node.textContent).toBe("")
   })
 
-  it("asks to create the course before publishing", async () => {
+  it("allows saving the draft course from publish before it is persisted", async () => {
     const node = await renderStep(createProps({ courseEditingSlug: null }))
+    const copyButton = Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Copy link")
+    const saveButton = Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Save course")
 
-    expect(node.textContent).toContain("Create the course first to configure this step.")
+    expect(node.textContent).toContain("Publish on social")
+    expect(copyButton?.disabled).toBe(true)
+    expect(saveButton?.disabled).toBe(false)
   })
 
   it("renders social actions and wires copy/share/reset callbacks", async () => {

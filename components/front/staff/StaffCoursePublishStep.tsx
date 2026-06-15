@@ -32,11 +32,9 @@ export default function StaffCoursePublishStep({
   onResetCourseBuilder,
 }: StaffCoursePublishStepProps) {
   if (!visible) return null
-  if (!courseEditingSlug) {
-    return <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
-  }
 
   const disabled = schoolBusy !== null || courseMediaUploading !== null
+  const canShareCourse = Boolean(courseEditingSlug && previewPublicHref)
 
   return (
     <>
@@ -45,9 +43,9 @@ export default function StaffCoursePublishStep({
           <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Publish on social</p>
           <p className="mt-1 text-xs text-black/60 dark:text-white/60">Share this course directly from the dashboard.</p>
           <div className="mt-3 grid grid-cols-3 gap-2">
-            <SocialButton disabled={!previewPublicHref} onClick={onCopyCourseLink}>Copy link</SocialButton>
+            <SocialButton disabled={!canShareCourse} onClick={onCopyCourseLink}>Copy link</SocialButton>
             {SHARE_ACTIONS.map((action) => (
-              <SocialButton key={action.platform} disabled={!previewPublicHref} onClick={() => onShareCourse(action.platform)}>
+              <SocialButton key={action.platform} disabled={!canShareCourse} onClick={() => onShareCourse(action.platform)}>
                 {action.label}
               </SocialButton>
             ))}

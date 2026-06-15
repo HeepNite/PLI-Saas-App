@@ -71,10 +71,11 @@ describe("StaffCourseMediaStep", () => {
     expect(node.textContent).toBe("")
   })
 
-  it("asks to create the course before editing media", async () => {
+  it("allows editing media before the course is persisted", async () => {
     const node = await renderStep(createProps({ courseEditingSlug: null }))
 
-    expect(node.textContent).toContain("Create the course first to configure this step.")
+    expect(node.textContent).toContain("Media assets")
+    expect(node.querySelector<HTMLInputElement>('input[name="coursePreviewVideoUrl"]')?.value).toBe("https://example.com/video.mp4")
   })
 
   it("renders media urls and local file labels", async () => {

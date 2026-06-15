@@ -66,10 +66,11 @@ describe("StaffCoursePricingStep", () => {
     expect(node.textContent).toBe("")
   })
 
-  it("asks to create the course before editing prices", async () => {
+  it("allows editing prices before the course is persisted", async () => {
     const node = await renderStep(createProps({ courseEditingSlug: null }))
 
-    expect(node.textContent).toContain("Create the course first to configure this step.")
+    expect(node.textContent).toContain("Prices and special discounts")
+    expect(node.querySelector<HTMLInputElement>('input[name="courseDropInPrice"]')?.value).toBe("20")
   })
 
   it("renders price fields and disables discount price when no discount is selected", async () => {

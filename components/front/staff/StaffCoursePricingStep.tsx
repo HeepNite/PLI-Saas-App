@@ -13,11 +13,8 @@ type StaffCoursePricingStepProps = {
   setCourseForm: React.Dispatch<React.SetStateAction<CourseFormState>>
 }
 
-export default function StaffCoursePricingStep({ visible, courseEditingSlug, courseForm, setCourseForm }: StaffCoursePricingStepProps) {
+export default function StaffCoursePricingStep({ visible, courseForm, setCourseForm }: StaffCoursePricingStepProps) {
   if (!visible) return null
-  if (!courseEditingSlug) {
-    return <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
-  }
 
   const updateCourseField = <Field extends keyof CourseFormState>(field: Field, value: CourseFormState[Field]) => {
     setCourseForm((previous) => ({ ...previous, [field]: value }))
