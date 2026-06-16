@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { createPortal } from "react-dom"
 import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle } from "lucide-react"
 import type { CreateStudentFormState, CreateStudentResult } from "./useStaffCreateStudentAdmin"
 
@@ -31,7 +32,7 @@ export default function CreateStudentModal({
 }: CreateStudentModalProps) {
   if (!isOpen) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl">
@@ -64,7 +65,8 @@ export default function CreateStudentModal({
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
