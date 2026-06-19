@@ -194,7 +194,7 @@ export async function POST(req: Request) {
           addonsCsv: validation.addons.join(",") || null,
           metadata: {
             source: "cash_checkout",
-            purchaseSource: "web",
+            purchaseSource: photoContext === "kiosk_terminal" ? "kiosk" : "web",
             paymentMethod: "onsite",
             paymentChannel: "cash",
             settlementStatus: "pending",
@@ -247,7 +247,7 @@ export async function POST(req: Request) {
           addonsCsv: null,
           metadata: {
             source: "cash_checkout",
-            purchaseSource: "web",
+            purchaseSource: photoContext === "kiosk_terminal" ? "kiosk" : "web",
             paymentMethod: "onsite",
             paymentChannel: "cash",
             settlementStatus: "pending",
@@ -326,7 +326,7 @@ export async function POST(req: Request) {
       addonsCsv: validation.addons.join(",") || null,
       metadata: {
         source: "cash_checkout",
-        purchaseSource: "web",
+        purchaseSource: photoContext === "kiosk_terminal" ? "kiosk" : "web",
         paymentMethod: "onsite",
         paymentChannel: "cash",
         settlementStatus: "pending",
