@@ -525,17 +525,39 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
       />
     )
 
-  const masonryColumns = React.useMemo(
-    () =>
-      displayedStudentCards.reduce<Array<AnyStudentCardForPanel[]>>(
+  const getCardPurchaseSource = (card: AnyStudentCardForPanel): string | undefined =>
+    card.source === "payment" ? card.latestPayment.purchaseSource : undefined
+
+  const { webCards, kioskCards } = React.useMemo(() => {
+    const web: AnyStudentCardForPanel[] = []
+    const kiosk: AnyStudentCardForPanel[] = []
+    for (const card of displayedStudentCards) {
+      const source = getCardPurchaseSource(card)
+      if (source === "kiosk") {
+        kiosk.push(card)
+      } else {
+        web.push(card)
+      }
+    }
+    return { webCards: web, kioskCards: kiosk }
+  }, [displayedStudentCards])
+
+  const buildMasonryColumns = React.useCallback(
+    (cards: AnyStudentCardForPanel[]) =>
+      cards.reduce<Array<AnyStudentCardForPanel[]>>(
         (columns, student, index) => {
           columns[index % columns.length].push(student)
           return columns
         },
         Array.from({ length: masonryColumnCount }, () => []),
       ),
-    [displayedStudentCards, masonryColumnCount],
+    [masonryColumnCount],
   )
+
+  const webMasonryColumns = React.useMemo(() => buildMasonryColumns(webCards), [buildMasonryColumns, webCards])
+  const kioskMasonryColumns = React.useMemo(() => buildMasonryColumns(kioskCards), [buildMasonryColumns, kioskCards])
+
+  const hasBothSections = webCards.length > 0 && kioskCards.length > 0
 
   return (
     <>
@@ -573,12 +595,40 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
                 : "No student payments found."}
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {masonryColumns.map((column, columnIndex) => (
-              <div key={`student-card-column-${columnIndex}`} className="flex flex-col gap-5">
-                {column.map(renderStudentCard)}
-              </div>
-            ))}
+          <div className="space-y-6">
+            {webCards.length > 0 && (
+              <section>
+                {hasBothSections && (
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-400/80">
+                    Web / Front desk
+                  </p>
+                )}
+                <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {webMasonryColumns.map((column, columnIndex) => (
+                    <div key={`web-card-column-${columnIndex}`} className="flex flex-col gap-5">
+                      {column.map(renderStudentCard)}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {kioskCards.length > 0 && (
+              <section>
+                {hasBothSections && (
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-400/80">
+                    Kiosk / Terminal
+                  </p>
+                )}
+                <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {kioskMasonryColumns.map((column, columnIndex) => (
+                    <div key={`kiosk-card-column-${columnIndex}`} className="flex flex-col gap-5">
+                      {column.map(renderStudentCard)}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         )}
       </div>
