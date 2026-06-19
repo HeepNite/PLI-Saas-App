@@ -1,6 +1,6 @@
 import { toEsDateTime } from "@/lib/checkin/checkin-helpers"
 import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrShell"
-import type { EntryMode, BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
+import type { EntryMode, BootstrapResponse, ConsecutiveOffer, TerminalPastClass } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
@@ -59,6 +59,9 @@ export type UseCheckInQrShellPropsInput = {
   checkInDisplayDate: string
   checkInDisplayTime: string
   checkInQrImage: string
+  terminalPastClasses?: TerminalPastClass[]
+  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
+  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
 
   // Context / QR prompt
   showContextWarning: boolean
@@ -77,8 +80,8 @@ export type UseCheckInQrShellPropsInput = {
   hideEntrySelection: boolean
   mode: EntryMode
   isKioskTerminalFlow: boolean
-  onExistingClick: () => void
-  onNewClick: () => void
+  onExistingClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+  onNewClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
 
   // Kiosk PIN
   showKioskPinPanel: boolean

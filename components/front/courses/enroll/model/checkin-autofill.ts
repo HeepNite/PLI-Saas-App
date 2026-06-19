@@ -141,7 +141,13 @@ export const computeCheckInAutofill = (
   const contextTime = normalizeTime24(context?.time)
 
   if (contextDate && contextTime) {
-    return { date: contextDate, time: contextTime, notice: null as string | null }
+    // When todayOnly is active, reject pre-filled context dates that are not today.
+    // This prevents the terminal from accepting a stale future date from the
+    // recommendation pipeline (Bug 2 fix).
+    const shouldBypassContext = todayOnly && nowDateIso && contextDate !== nowDateIso
+    if (!shouldBypassContext) {
+      return { date: contextDate, time: contextTime, notice: null as string | null }
+    }
   }
 
   const todaySlots = nowDateIso ? sortTime24(getAvailableTimesForCourseDate(courseSlug, nowDateIso, courses)) : []

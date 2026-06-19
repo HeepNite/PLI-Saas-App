@@ -26,6 +26,12 @@ type UseCheckInDisplayDataArgs = {
   searchParams: URLSearchParams
   forcedDeviceMode?: "station" | "personal"
   forcedCourseSlug: string
+  forcedClassContext?: {
+    courseSlug: string
+    date: string
+    time: string
+  }
+  terminalTodayOnly?: boolean
   selectedCourseSlug?: string
   nowTick: Date
   origin: string
@@ -55,6 +61,8 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     searchParams,
     forcedDeviceMode,
     forcedCourseSlug,
+    forcedClassContext,
+    terminalTodayOnly,
     selectedCourseSlug,
     nowTick,
     origin,
@@ -83,6 +91,13 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   // Terminal multi-class picker takes precedence over forcedCourseSlug
   const effectivePreferredSlug = selectedCourseSlug?.trim().toLowerCase() || forcedCourseSlug.trim().toLowerCase()
   const baseCourseSlug = qrCourseSlug || effectivePreferredSlug
+  const normalizedForcedContext = forcedClassContext?.courseSlug && forcedClassContext.date && forcedClassContext.time
+    ? {
+        courseSlug: forcedClassContext.courseSlug.trim().toLowerCase(),
+        date: forcedClassContext.date,
+        time: forcedClassContext.time,
+      }
+    : null
   const hasExplicitContext = Boolean(qrCourseSlug && qrDate && qrTime)
 
   // ─── Recommendations ────────────────────────────────────────
@@ -103,12 +118,14 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
 
   const fixedContextRecommendation = React.useMemo(
     () =>
-      hasExplicitContext
+      normalizedForcedContext
+        ? normalizedForcedContext
+        : hasExplicitContext
         ? { courseSlug: qrCourseSlug, date: qrDate, time: qrTime }
         : shellVariant === "terminal"
-          ? pickTerminalContextRecommendation(sourceCourses, nowTick, effectivePreferredSlug)
+           ? pickTerminalContextRecommendation(sourceCourses, nowTick, effectivePreferredSlug, { todayOnly: terminalTodayOnly !== false })
         : null,
-    [hasExplicitContext, nowTick, effectivePreferredSlug, qrCourseSlug, qrDate, qrTime, shellVariant, sourceCourses]
+    [hasExplicitContext, normalizedForcedContext, nowTick, effectivePreferredSlug, qrCourseSlug, qrDate, qrTime, shellVariant, sourceCourses]
   )
 
   const activeCourseSlug = fixedContextRecommendation?.courseSlug || baseCourseSlug

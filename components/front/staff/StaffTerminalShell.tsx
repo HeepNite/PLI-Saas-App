@@ -3,6 +3,13 @@
 import React, { useEffect, useState, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
+import { getEtHourMinute } from "@/lib/checkin/et-time"
+import { areAllClassesEnded } from "@/components/front/staff/CompletedClassesSelector"
+
+type CompletedClassSelection = {
+  courseSlug: string
+  time: string
+}
 
 type TerminalSummary = {
   id: string
@@ -57,7 +64,8 @@ function computeCurrentSlug(now: Date, classes: TodayClassItem[]): string | null
     return timeA.localeCompare(timeB)
   })
 
-  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const { hour, minute } = getEtHourMinute(now)
+  const nowMinutes = hour * 60 + minute
 
   for (const cls of sorted) {
     const startTime = cls.availableTimes?.[0]
@@ -95,7 +103,8 @@ function useTestMode(classes: TodayClassItem[], enabled: boolean) {
       return timeA.localeCompare(timeB)
     })
 
-    // Start 5 minutes before the first class's rotation time
+    // Test preview must be fast: start shortly before the first rotation and
+    // accelerate studio time so staff can reach the after-hours UI quickly.
     const firstClass = sorted[0]
     const firstStart = firstClass.availableTimes?.[0]
     if (!firstStart) {
@@ -106,7 +115,7 @@ function useTestMode(classes: TodayClassItem[], enabled: boolean) {
     const [h, m] = firstStart.split(":").map(Number)
     const duration = firstClass.durationMinutes ?? 55
     const rotationMinutes = h * 60 + m + duration - 15
-    const startSimMinutes = rotationMinutes - 5 // 5 min before first rotation
+    const startSimMinutes = rotationMinutes - 10
 
     // Create a simulated date using the rotation times
     const simDate = new Date()
@@ -114,15 +123,17 @@ function useTestMode(classes: TodayClassItem[], enabled: boolean) {
 
     setSimulatedNow(simDate)
 
-    // Advance 5 minutes every 10 seconds
+    // Advance 10 studio minutes every 5 seconds.
+    // This keeps /staff/terminal?testRotation=true usable for manual review:
+    // current class → rotation → completed classes should happen well under 3 minutes.
     const interval = setInterval(() => {
       setSimulatedNow((prev) => {
         if (!prev) return prev
         const next = new Date(prev)
-        next.setMinutes(next.getMinutes() + 5)
+        next.setMinutes(next.getMinutes() + 10)
         return next
       })
-    }, 10_000)
+    }, 5_000)
 
     return () => clearInterval(interval)
   }, [enabled, classes])
@@ -143,6 +154,7 @@ export default function StaffTerminalShell({
 
   const [todayClasses, setTodayClasses] = useState<TodayClassItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [origin, setOrigin] = useState("")
 
   const fetchDateKeyRef = React.useRef<string | null>(null)
 
@@ -154,6 +166,7 @@ export default function StaffTerminalShell({
       const classes: TodayClassItem[] = Array.isArray(envelope.classes) ? envelope.classes : []
       fetchDateKeyRef.current = typeof envelope.date === "string" ? envelope.date : null
       setTodayClasses(classes)
+      setSelectedCompletedClass(null)
     } catch {
       setTodayClasses([])
     } finally {
@@ -165,6 +178,12 @@ export default function StaffTerminalShell({
   useEffect(() => {
     void fetchTodayClasses()
   }, [fetchTodayClasses])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin)
+    }
+  }, [])
 
   // Re-fetch when the day changes (single timeout to next midnight ET) + on wake from sleep
   useEffect(() => {
@@ -231,6 +250,34 @@ export default function StaffTerminalShell({
     }
   }, [])
 
+  const [selectedCompletedClass, setSelectedCompletedClass] = React.useState<CompletedClassSelection | null>(null)
+  const allClassesEnded = useMemo(
+    () => areAllClassesEnded(todayClasses, effectiveNow),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [todayClasses, effectiveNow, tick]
+  )
+
+  const terminalPastClasses = useMemo(
+    () => todayClasses.flatMap((cls) => {
+      const date = fetchDateKeyRef.current ?? getStudioDateKey(effectiveNow)
+      const times = cls.availableTimes.length ? cls.availableTimes : []
+      return times.map((time) => ({
+        courseSlug: cls.slug,
+        title: cls.title,
+        date,
+        time,
+        durationMinutes: cls.durationMinutes,
+        level: cls.level,
+        category: cls.category,
+        imageUrl: cls.coverImageUrl,
+        qrImageUrl: buildCheckInQrImageUrl({ origin, courseSlug: cls.slug, date, time, durationMinutes: cls.durationMinutes ?? 60 }),
+      }))
+    }),
+    [effectiveNow, origin, todayClasses]
+  )
+
+  const activeCompletedClass = selectedCompletedClass ?? terminalPastClasses[0] ?? null
+
   // Loading state
   if (loading) {
     return (
@@ -240,13 +287,44 @@ export default function StaffTerminalShell({
     )
   }
 
-  // No classes today — fallback to default course
+  // After-hours: keep the SAME terminal layout. The left column becomes a
+  // Past Courses list; center/right stay as Continue Here + QR.
+  if (allClassesEnded && activeCompletedClass) {
+    const selectedDate = fetchDateKeyRef.current ?? getStudioDateKey(effectiveNow)
+    return (
+      <div className="relative h-screen">
+        <CheckInQrClient
+          key={`completed-${activeCompletedClass.courseSlug}-${activeCompletedClass.time}`}
+          forcedDeviceMode="station"
+          forcedCourseSlug={activeCompletedClass.courseSlug}
+          forcedClassContext={{
+            courseSlug: activeCompletedClass.courseSlug,
+            date: selectedDate,
+            time: activeCompletedClass.time,
+          }}
+          shellVariant="terminal"
+          terminalName={terminal.name}
+          terminalLocation={terminal.location || ""}
+          qrPathOverride="/checkin"
+          selectedCourseSlug={activeCompletedClass.courseSlug}
+          terminalPastClasses={terminalPastClasses}
+          selectedTerminalPastClass={activeCompletedClass}
+          onTerminalPastClassSelect={setSelectedCompletedClass}
+          simulatedNowTick={simulatedNow ?? undefined}
+          onFlowActiveChange={handleFlowActiveChange}
+        />
+      </div>
+    )
+  }
+
+  // No classes today — fallback to default course, allow future lookahead
   if (todayClasses.length === 0) {
     return (
       <CheckInQrClient
         key="default"
         forcedDeviceMode="station"
         forcedCourseSlug={terminal.defaultCourseSlug || ""}
+        terminalTodayOnly={false}
         shellVariant="terminal"
         terminalName={terminal.name}
         terminalLocation={terminal.location || ""}
@@ -313,6 +391,30 @@ export default function StaffTerminalShell({
       onFlowActiveChange={handleFlowActiveChange}
     />
   )
+}
+
+function buildCheckInQrImageUrl({
+  origin,
+  courseSlug,
+  date,
+  time,
+  durationMinutes,
+}: {
+  origin: string
+  courseSlug: string
+  date: string
+  time: string
+  durationMinutes: number
+}) {
+  if (!origin || !courseSlug || !date || !time) return ""
+  const params = new URLSearchParams()
+  params.set("courseSlug", courseSlug)
+  params.set("date", date)
+  params.set("time", time)
+  params.set("durationMinutes", String(durationMinutes))
+  params.set("fromQr", "1")
+  const link = `${origin}/checkin?${params.toString()}`
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&format=png&data=${encodeURIComponent(link)}`
 }
 
 function pad(n: number) {

@@ -6,8 +6,14 @@ type CheckInActiveContextInput = {
   shellVariant: "qr" | "terminal"
   searchParams: URLSearchParams
   forcedCourseSlug: string
+  forcedClassContext?: {
+    courseSlug: string
+    date: string
+    time: string
+  }
   selectedCourseSlug?: string
   nowTick: Date
+  terminalTodayOnly?: boolean
 }
 
 type CheckInBootstrapContextInput = {
@@ -27,19 +33,30 @@ export const resolveCheckInActiveContext = ({
   shellVariant,
   searchParams,
   forcedCourseSlug,
+  forcedClassContext,
   selectedCourseSlug,
   nowTick,
+  terminalTodayOnly,
 }: CheckInActiveContextInput) => {
   const qrCourseSlug = (searchParams.get("courseSlug") || "").trim().toLowerCase()
   const qrDate = (searchParams.get("date") || "").trim()
   const qrTime = (searchParams.get("time") || "").trim()
   const effectivePreferredSlug = selectedCourseSlug?.trim().toLowerCase() || forcedCourseSlug.trim().toLowerCase()
   const baseCourseSlug = qrCourseSlug || effectivePreferredSlug
+  const normalizedForcedContext = forcedClassContext?.courseSlug && forcedClassContext.date && forcedClassContext.time
+    ? {
+        courseSlug: forcedClassContext.courseSlug.trim().toLowerCase(),
+        date: forcedClassContext.date,
+        time: forcedClassContext.time,
+      }
+    : null
   const hasExplicitContext = Boolean(qrCourseSlug && qrDate && qrTime)
-  const fixedContextRecommendation = hasExplicitContext
+  const fixedContextRecommendation = normalizedForcedContext
+    ? normalizedForcedContext
+    : hasExplicitContext
     ? { courseSlug: qrCourseSlug, date: qrDate, time: qrTime }
     : shellVariant === "terminal"
-      ? pickTerminalContextRecommendation(sourceCourses, nowTick, effectivePreferredSlug)
+      ? pickTerminalContextRecommendation(sourceCourses, nowTick, effectivePreferredSlug, { todayOnly: terminalTodayOnly !== false })
       : null
 
   const activeCourseSlug = fixedContextRecommendation?.courseSlug || baseCourseSlug

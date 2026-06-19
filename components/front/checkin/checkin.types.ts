@@ -103,14 +103,36 @@ export type BootstrapResponse = {
 export type CheckInQrClientProps = {
   forcedDeviceMode?: "station" | "personal"
   forcedCourseSlug?: string
+  forcedClassContext?: {
+    courseSlug: string
+    date: string
+    time: string
+  }
   selectedCourseSlug?: string
   hideQrPanel?: boolean
   shellVariant?: "qr" | "terminal"
   terminalName?: string
   terminalLocation?: string
   qrPathOverride?: string
+  terminalPastClasses?: TerminalPastClass[]
+  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
+  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
+  /** When false, allows terminal recommendation to look ahead to future days. Default: true for terminal. */
+  terminalTodayOnly?: boolean
   /** Optional simulated time override for test mode (e.g. kiosk rotation testing) */
   simulatedNowTick?: Date
   /** Callback to notify parent when sensitive flow state changes (for rotation guard) */
   onFlowActiveChange?: (active: boolean) => void
+}
+
+export type TerminalPastClass = {
+  courseSlug: string
+  title: string
+  date: string
+  time: string
+  durationMinutes: number | null
+  level: string | null
+  category: string | null
+  imageUrl: string | null
+  qrImageUrl: string
 }

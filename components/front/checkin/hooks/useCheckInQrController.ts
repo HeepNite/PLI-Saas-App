@@ -48,12 +48,17 @@ import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrSh
 export function useCheckInQrController({
   forcedDeviceMode,
   forcedCourseSlug = "",
+  forcedClassContext,
+  terminalTodayOnly,
   selectedCourseSlug,
   hideQrPanel = false,
   shellVariant = "qr",
   terminalName,
   terminalLocation,
   qrPathOverride,
+  terminalPastClasses,
+  selectedTerminalPastClass,
+  onTerminalPastClassSelect,
   simulatedNowTick,
   onFlowActiveChange,
 }: CheckInQrClientProps & { selectedCourseSlug?: string }): CheckInQrShellProps {
@@ -128,10 +133,12 @@ export function useCheckInQrController({
       shellVariant,
       searchParams,
       forcedCourseSlug,
+      forcedClassContext,
       selectedCourseSlug,
       nowTick,
+      terminalTodayOnly,
     }),
-    [forcedCourseSlug, nowTick, searchParams, selectedCourseSlug, shellVariant, sourceCourses]
+    [forcedClassContext, forcedCourseSlug, nowTick, searchParams, selectedCourseSlug, shellVariant, sourceCourses, terminalTodayOnly]
   )
   const contextPayload = React.useMemo(
     () => resolveCheckInBootstrapContextPayload({
@@ -312,6 +319,8 @@ export function useCheckInQrController({
     searchParams,
     forcedDeviceMode,
     forcedCourseSlug,
+    forcedClassContext,
+    terminalTodayOnly,
     selectedCourseSlug,
     nowTick,
     origin,
@@ -676,6 +685,9 @@ export function useCheckInQrController({
     checkInDisplayDate,
     checkInDisplayTime,
     checkInQrImage,
+    terminalPastClasses,
+    selectedTerminalPastClass,
+    onTerminalPastClassSelect,
     showContextWarning,
     showLatePaymentOffer,
     latePaymentCourse,

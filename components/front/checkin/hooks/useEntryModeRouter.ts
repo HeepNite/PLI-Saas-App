@@ -90,14 +90,18 @@ export function useEntryModeRouter({
   setShowPhoneSignIn,
   setSuccess,
 }: UseEntryModeRouterOptions) {
-  const handleExistingClick = React.useCallback(() => {
+  const handleExistingClick = React.useCallback((contextOverride?: CheckInContextOverride) => {
     void reloadCatalogCourses()
     setMode("existing")
     setError(null)
     setSuccess(null)
     setBootstrap(null)
     resetKioskPinFlow()
-    if (!selectedCourse || !contextIsValid) {
+    if (contextOverride) {
+      setLatePaymentEntryOverride(contextOverride)
+    }
+    const canUseContext = contextOverride || (selectedCourse && contextIsValid)
+    if (!canUseContext) {
       setError(QR_MISSING_CONTEXT_ERROR)
       return
     }
@@ -107,18 +111,21 @@ export function useEntryModeRouter({
       return
     }
     void loadBootstrap()
-  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse, setBootstrap, setError, setMode, setShowPhoneSignIn, setSuccess])
+  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse, setBootstrap, setError, setLatePaymentEntryOverride, setMode, setShowPhoneSignIn, setSuccess])
 
-  const handleNewClick = React.useCallback(() => {
+  const handleNewClick = React.useCallback((contextOverride?: CheckInContextOverride) => {
     void reloadCatalogCourses()
     setMode("new")
     setError(null)
     setSuccess(null)
-    if (!selectedCourse || !contextIsValid) {
+    const bookingContext = contextOverride ?? (selectedCourse && contextIsValid
+      ? { courseSlug: selectedCourse.slug, date: activeDate, time: activeTime }
+      : null)
+    if (!bookingContext) {
       setError(QR_MISSING_CONTEXT_ERROR)
       return
     }
-    setNewBookingOverride({ courseSlug: selectedCourse.slug, date: activeDate, time: activeTime })
+    setNewBookingOverride(bookingContext)
     if (consecutiveOfferSettled) {
       setOpenNewBooking(true)
     } else {

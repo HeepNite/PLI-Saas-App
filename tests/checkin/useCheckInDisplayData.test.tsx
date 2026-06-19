@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it } from "vitest"
 import type { BootstrapResponse, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
-import { demoCourses } from "@/constants/courses"
+import { demoCourses, type CourseData } from "@/constants/courses"
 
 type DisplaySnapshot = ReturnType<typeof useCheckInDisplayData>
 
@@ -25,6 +25,8 @@ const renderDisplay = async ({
   processingPackageCheckIn = false,
   hasPackageCheckInResult = false,
   packageOfferContext = null,
+  sourceCourses = demoCourses,
+  nowTick = new Date("2026-04-02T18:00:00.000Z"),
 }: {
   shellVariant: "qr" | "terminal"
   search?: string
@@ -37,6 +39,8 @@ const renderDisplay = async ({
   processingPackageCheckIn?: boolean
   hasPackageCheckInResult?: boolean
   packageOfferContext?: PackageOfferContext
+  sourceCourses?: CourseData[]
+  nowTick?: Date
 }) => {
   let snapshot: DisplaySnapshot | null = null
 
@@ -47,14 +51,14 @@ const renderDisplay = async ({
 
   function Harness() {
     snapshot = useCheckInDisplayData({
-      sourceCourses: demoCourses,
+      sourceCourses,
       shellVariant,
       hideQrPanel: false,
       pathname: "/checkin",
       searchParams,
       forcedDeviceMode: undefined,
       forcedCourseSlug,
-      nowTick: new Date("2026-04-02T18:00:00.000Z"),
+      nowTick,
       origin: "https://pli.test",
       isCompactViewport: false,
       mode,
@@ -133,6 +137,28 @@ const createActivePackage = (): NonNullable<BootstrapResponse["package"]> => ({
   remainingCredits: 3,
   expiresAt: null,
   status: "active",
+})
+
+const createScheduledCourse = (overrides: Partial<CourseData>): CourseData => ({
+  slug: "salsa-nocturno",
+  title: "Salsa Nocturno",
+  description: "Test course",
+  level: "Beginner",
+  duration: "60 min",
+  schedule: {
+    day: "Thursday",
+    time: "8:10 PM",
+    starts: "2026-04-02",
+    availableWeekdays: [3],
+    availableTimes: ["20:10"],
+  },
+  location: { address: "Studio" },
+  instructors: [{ name: "PLI Team" }],
+  enrollment: {
+    services: [{ id: "drop-in", label: "Drop-in", price: 25 }],
+    packages: [],
+  },
+  ...overrides,
 })
 
 describe("useCheckInDisplayData", () => {
@@ -246,33 +272,54 @@ describe("useCheckInDisplayData", () => {
   })
 
   it("hides the QR missing-data warning on terminal shells without QR params", async () => {
-    const rendered = await renderDisplay({ shellVariant: "terminal" })
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      forcedCourseSlug: "salsa-nocturno",
+      sourceCourses: [createScheduledCourse({})],
+    })
     root = rendered.root
     container = rendered.container
 
-    expect(rendered.getSnapshot().activeCourseSlug).toBe("salsa-nocturno")
-    expect(rendered.getSnapshot().activeDate).toBe("2026-04-02")
-    expect(rendered.getSnapshot().activeTime).toBe("20:10")
-    expect(rendered.getSnapshot().contextIsValid).toBe(true)
-    expect(rendered.getSnapshot().showContextWarning).toBe(false)
-    expect(rendered.getSnapshot().checkInQrLink).toContain("courseSlug=salsa-nocturno")
-    expect(rendered.getSnapshot().checkInQrLink).toContain("date=2026-04-02")
-    expect(rendered.getSnapshot().checkInQrLink).toContain("time=20%3A10")
+    const snap = rendered.getSnapshot()
+    expect(snap.activeCourseSlug).toBe("salsa-nocturno")
+    expect(snap.activeDate).toBe("2026-04-02")
+    expect(snap.activeTime).toBe("20:10")
+    expect(snap.contextIsValid).toBe(true)
+    expect(snap.showContextWarning).toBe(false)
+    expect(snap.checkInQrLink).toContain("courseSlug=salsa-nocturno")
+    expect(snap.checkInQrLink).toContain("date=2026-04-02")
+    expect(snap.checkInQrLink).toContain("time=20%3A10")
   })
 
-  it("resolves terminal context from the configured course schedule without QR params", async () => {
-    const rendered = await renderDisplay({ shellVariant: "terminal", forcedCourseSlug: "zumba-matutino" })
+  it("does not jump to a future class when the terminal course has no slot today", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      forcedCourseSlug: "zumba-matutino",
+      sourceCourses: [
+        createScheduledCourse({
+          slug: "zumba-matutino",
+          title: "Zumba Matutino",
+          schedule: {
+            day: "Monday",
+            time: "10:00 AM",
+            starts: "2026-04-06",
+            availableWeekdays: [0],
+            availableTimes: ["10:00"],
+          },
+        }),
+      ],
+    })
     root = rendered.root
     container = rendered.container
 
-    expect(rendered.getSnapshot().activeCourseSlug).toBe("zumba-matutino")
-    expect(rendered.getSnapshot().activeDate).toBe("2026-04-06")
-    expect(rendered.getSnapshot().activeTime).toBe("10:00")
-    expect(rendered.getSnapshot().contextIsValid).toBe(true)
-    expect(rendered.getSnapshot().showCourseCardPanel).toBe(true)
-    expect(rendered.getSnapshot().checkInQrLink).toContain("courseSlug=zumba-matutino")
-    expect(rendered.getSnapshot().checkInQrLink).toContain("date=2026-04-06")
-    expect(rendered.getSnapshot().checkInQrLink).toContain("time=10%3A00")
+    const snap = rendered.getSnapshot()
+    expect(snap.activeCourseSlug).toBe("zumba-matutino")
+    expect(snap.activeDate).toBe("")
+    expect(snap.activeTime).toBe("")
+    expect(snap.contextIsValid).toBe(false)
+    expect(snap.showCourseCardPanel).toBe(true)
+    expect(snap.showQrPanel).toBe(false)
+    expect(snap.checkInQrLink).toBe("")
   })
 
   it("keeps the QR missing-data warning on QR shells without QR params", async () => {
