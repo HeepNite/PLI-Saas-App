@@ -76,7 +76,8 @@ All booking paths (public, profile, check-in new/existing, kiosk terminal, QR/ca
 2. **Slice extraction** — each slice becomes one PR ≤ 400 lines:
    - Slice 1a: pure `resolveStepValid` extraction plus focused unit tests.
    - Slice 1b: type-only modal props extraction.
-   - Slice 2: initialization and consecutive-offer hooks.
+   - Slice 2a: consecutive-offer hook.
+   - Slice 2b: initialization hook; decide separately whether `resetForm` stays inline or becomes Slice 2c.
    - Slice 3: kiosk inactivity and QR-poller hooks.
    - Slice 4a: sidebar and overlay sub-components.
    - Slice 4b: step-router sub-component.
@@ -91,8 +92,8 @@ All booking paths (public, profile, check-in new/existing, kiosk terminal, QR/ca
 
 - **Review budget**: 400 changed lines per PR (project standard).
 - **This change exceeds budget**: ~3,100 lines of extraction expected across all slices.
-- **Recommended**: 7 chained PRs, each ≤ 400 lines; PR1a targets `codex/develop`, follow-ups target the previous slice branch, and the completed chain integrates back to `codex/develop`.
-- **Chain order**: PR1a → PR1b → PR2 → PR3 → PR4a → PR4b → PR5 (each targets previous PR branch until final merge to `codex/develop`).
+- **Recommended**: 8+ chained PRs, each ≤ 400 lines; PR1a targets `codex/develop`, follow-ups target the previous slice branch, and the completed chain integrates back to `codex/develop`.
+- **Chain order**: PR1a → PR1b → PR2a → PR2b → PR3 → PR4a → PR4b → PR5 (with optional PR2c for `resetForm` if Slice 2b would exceed budget).
 - **Decision gate before apply**: `sdd-tasks` must confirm exact slice boundaries before any code moves.
 
 ## Risks
