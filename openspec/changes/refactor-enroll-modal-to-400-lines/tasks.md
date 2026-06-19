@@ -49,11 +49,11 @@ Chain strategy: feature-branch-chain
 > 150-line estimate once tests and type-only props were counted. Split into
 > two review units while preserving the project-wide ≤400 changed-line budget.
 
-- [ ] 1a.1 Create `components/front/courses/enroll/model/enroll-step-valid.ts` — extract `StepValidContext` type and pure `resolveStepValid(stepIndex: number, ctx: StepValidContext): boolean` function from the inline closure at `EnrollModal.tsx` line ~2125.
-- [ ] 1a.2 Modify `EnrollModal.tsx` — replace only the inline `stepValid` closure with an import from `enroll-step-valid.ts`; keep type declarations inline until Slice 1b.
-- [ ] 1a.3 Write unit tests for `resolveStepValid` in `tests/checkin/enroll-step-valid.test.ts` — cover all 8+ `stepKey` branches with boundary values; zero React dependency.
-- [ ] 1b.1 Create `components/front/courses/enroll/types/enroll-modal-props.ts` — extract `EnrollFlowVariant`, `EnrollCompletionMode`, `EnrollCheckInContext`, `EnrollPrefillSelection`, `PreparedAccountState`, `NewStudentVerifyResponse`, `FlowPopupState`, and the full `EnrollModalProps` type from `EnrollModal.tsx`.
-- [ ] 1b.2 Modify `EnrollModal.tsx` — replace inlined type declarations with imports from `enroll-modal-props.ts`; delete duplicate inline type definitions.
+- [x] 1a.1 Create `components/front/courses/enroll/model/enroll-step-valid.ts` — extract `StepValidContext` type and pure `resolveStepValid(stepIndex: number, ctx: StepValidContext): boolean` function from the inline closure at `EnrollModal.tsx` line ~2125.
+- [x] 1a.2 Modify `EnrollModal.tsx` — replace only the inline `stepValid` closure with an import from `enroll-step-valid.ts`; keep type declarations inline until Slice 1b.
+- [x] 1a.3 Write unit tests for `resolveStepValid` in `tests/checkin/enroll-step-valid.test.ts` — cover all 8+ `stepKey` branches with boundary values; zero React dependency.
+- [x] 1b.1 Create `components/front/courses/enroll/types/enroll-modal-props.ts` — extract `EnrollFlowVariant`, `EnrollCompletionMode`, `EnrollCheckInContext`, `EnrollPrefillSelection`, `PreparedAccountState`, `NewStudentVerifyResponse`, `FlowPopupState`, and the full `EnrollModalProps` type from `EnrollModal.tsx`.
+- [x] 1b.2 Modify `EnrollModal.tsx` — replace inlined type declarations with imports from `enroll-modal-props.ts`; delete duplicate inline type definitions.
 
 ### Acceptance Criteria — Slice 1a
 
