@@ -25,6 +25,25 @@ type TodayClassItem = {
   coverImageUrl: string | null
 }
 
+const STUDIO_TZ = "America/New_York"
+
+function getStudioDateKey(date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: STUDIO_TZ }).format(date)
+}
+
+function getMsUntilNextStudioDay(now = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: STUDIO_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now)
+  const valueFor = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+  const elapsedSeconds = (valueFor("hour") * 60 * 60) + (valueFor("minute") * 60) + valueFor("second")
+  return Math.max(((24 * 60 * 60) - elapsedSeconds) * 1000, 1_000)
+}
+
 // ─── Auto-rotation algorithm ──────────────────────────────────
 
 function computeCurrentSlug(now: Date, classes: TodayClassItem[]): string | null {
@@ -125,30 +144,49 @@ export default function StaffTerminalShell({
   const [todayClasses, setTodayClasses] = useState<TodayClassItem[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    async function fetchTodayClasses() {
-      try {
-        const res = await fetch("/api/checkin/terminal/today-classes")
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const envelope = await res.json()
-        const classes: TodayClassItem[] = Array.isArray(envelope.classes) ? envelope.classes : []
-        if (!cancelled) {
-          setTodayClasses(classes)
-        }
-      } catch {
-        if (!cancelled) {
-          setTodayClasses([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    fetchTodayClasses()
-    return () => {
-      cancelled = true
+  const fetchDateKeyRef = React.useRef<string | null>(null)
+
+  const fetchTodayClasses = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/checkin/terminal/today-classes")
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const envelope = await res.json()
+      const classes: TodayClassItem[] = Array.isArray(envelope.classes) ? envelope.classes : []
+      fetchDateKeyRef.current = typeof envelope.date === "string" ? envelope.date : null
+      setTodayClasses(classes)
+    } catch {
+      setTodayClasses([])
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  // Initial fetch on mount
+  useEffect(() => {
+    void fetchTodayClasses()
+  }, [fetchTodayClasses])
+
+  // Re-fetch when the day changes (single timeout to next midnight ET) + on wake from sleep
+  useEffect(() => {
+    let midnightTimer = setTimeout(function scheduleMidnight() {
+      void fetchTodayClasses()
+      midnightTimer = setTimeout(scheduleMidnight, getMsUntilNextStudioDay())
+    }, getMsUntilNextStudioDay())
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      const currentDateKey = getStudioDateKey()
+      if (fetchDateKeyRef.current && currentDateKey !== fetchDateKeyRef.current) {
+        void fetchTodayClasses()
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+
+    return () => {
+      clearTimeout(midnightTimer)
+      document.removeEventListener("visibilitychange", handleVisibility)
+    }
+  }, [fetchTodayClasses])
 
   // Test mode: simulated time advances 5 min every 10 seconds
   const simulatedNow = useTestMode(todayClasses, testModeEnabled)
