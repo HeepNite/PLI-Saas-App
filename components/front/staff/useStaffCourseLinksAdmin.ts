@@ -4,6 +4,13 @@ import { centsToUsdInput } from "./staffAdminFormatters"
 import type { CourseLinkFormState, CourseLinkRow } from "./staffAdminTypes"
 
 type CourseLinksMap = Record<string, { asA: CourseLinkRow[]; asB: CourseLinkRow[] }>
+type ParsedConsecutivePrice = { ok: true; cents: number | null } | { ok: false }
+type CourseLinkPriceValidation =
+  | { ok: true; dropIn: ParsedConsecutivePrice & { ok: true }; packageHolder: ParsedConsecutivePrice & { ok: true } }
+  | { ok: false; error: string }
+
+const DROP_IN_PRICE_ERROR = "Drop-in consecutive price must be a valid non-negative number."
+const PACKAGE_HOLDER_PRICE_ERROR = "Package-holder consecutive price must be a valid non-negative number."
 
 const createEmptyCourseLinkForm = (): CourseLinkFormState => ({
   courseSlugB: "",
@@ -11,6 +18,30 @@ const createEmptyCourseLinkForm = (): CourseLinkFormState => ({
   packageHolderConsecutiveCents: "",
   active: true,
 })
+
+const parseConsecutivePrice = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return { ok: true as const, cents: null }
+  const parsed = Number(trimmed.replace(",", "."))
+  if (!Number.isFinite(parsed) || parsed < 0) return { ok: false as const }
+  return { ok: true as const, cents: Math.round(parsed * 100) }
+}
+
+const validateCourseLinkPrices = (form: CourseLinkFormState): CourseLinkPriceValidation => {
+  const dropIn = parseConsecutivePrice(form.dropInConsecutiveCents)
+  if (!dropIn.ok) return { ok: false, error: DROP_IN_PRICE_ERROR }
+
+  const packageHolder = parseConsecutivePrice(form.packageHolderConsecutiveCents)
+  if (!packageHolder.ok) return { ok: false, error: PACKAGE_HOLDER_PRICE_ERROR }
+
+  return { ok: true, dropIn, packageHolder }
+}
+
+const validateCourseLinkSelection = (form: CourseLinkFormState, courseSlugA: string | null) => {
+  if (!form.courseSlugB) return "Select a consecutive course."
+  if (courseSlugA && form.courseSlugB === courseSlugA) return "A course cannot be linked to itself."
+  return null
+}
 
 export function useStaffCourseLinksAdmin() {
   const [courseLinksAsA, setCourseLinksAsA] = React.useState<CourseLinkRow[]>([])
@@ -55,10 +86,13 @@ export function useStaffCourseLinksAdmin() {
     const seen = new Set<string>()
     for (const entry of Object.values(allCourseLinksMap)) {
       for (const link of [...entry.asA, ...entry.asB]) {
-        if (!seen.has(link.id)) { seen.add(link.id); all.push(link) }
+        if (seen.has(link.id)) continue
+        seen.add(link.id)
+        all.push(link)
       }
     }
-    return { total: all.length, active: all.filter((l) => l.active).length, inactive: all.filter((l) => !l.active).length }
+    const active = all.filter((link) => link.active).length
+    return { total: all.length, active, inactive: all.length - active }
   }, [allCourseLinksMap])
 
   const saveCourseLink = React.useCallback(async (event: React.FormEvent, courseEditingSlug: string | null) => {
@@ -67,46 +101,33 @@ export function useStaffCourseLinksAdmin() {
     setCourseLinkSuccess(null)
 
     if (!courseEditingSlug) {
-      setCourseLinkError("Save the course first before adding consecutive class links.")
-      return
-    }
-
-    // Client-side validation: prevent self-linking
-    if (courseLinkForm.courseSlugB === courseEditingSlug) {
-      setCourseLinkError("A course cannot be linked to itself.")
-      return
-    }
-
-    if (!courseLinkForm.courseSlugB) {
-      setCourseLinkError("Select a consecutive course.")
-      return
-    }
-
-    // Validate prices are non-negative numbers (or empty)
-    const dropInCents = courseLinkForm.dropInConsecutiveCents.trim()
-    const packageCents = courseLinkForm.packageHolderConsecutiveCents.trim()
-
-    if (dropInCents) {
-      const parsed = Number(dropInCents.replace(",", "."))
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        setCourseLinkError("Drop-in consecutive price must be a valid non-negative number.")
+      const selectionError = validateCourseLinkSelection(courseLinkForm, null)
+      if (selectionError) {
+        setCourseLinkError(selectionError)
         return
       }
-    }
-
-    if (packageCents) {
-      const parsed = Number(packageCents.replace(",", "."))
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        setCourseLinkError("Package-holder consecutive price must be a valid non-negative number.")
+      const priceValidation = validateCourseLinkPrices(courseLinkForm)
+      if (!priceValidation.ok) {
+        setCourseLinkError(priceValidation.error)
         return
       }
+      setCourseLinkSuccess("Consecutive link will be saved with the course.")
+      return
+    }
+
+    const selectionError = validateCourseLinkSelection(courseLinkForm, courseEditingSlug)
+    if (selectionError) {
+      setCourseLinkError(selectionError)
+      return
+    }
+    const priceValidation = validateCourseLinkPrices(courseLinkForm)
+    if (!priceValidation.ok) {
+      setCourseLinkError(priceValidation.error)
+      return
     }
 
     setCourseLinkSaving(true)
     try {
-      const dropInValue = dropInCents ? Math.round(Number(dropInCents.replace(",", ".")) * 100) : null
-      const packageValue = packageCents ? Math.round(Number(packageCents.replace(",", ".")) * 100) : null
-
       const isUpdate = courseLinkEditingId !== null
 
       const res = await fetch("/api/staff/school/course-links", {
@@ -116,8 +137,8 @@ export function useStaffCourseLinksAdmin() {
           ...(isUpdate ? { id: courseLinkEditingId } : {}),
           courseSlugA: courseEditingSlug,
           courseSlugB: courseLinkForm.courseSlugB,
-          dropInConsecutiveCents: dropInValue ?? (isUpdate ? undefined : 0),
-          packageHolderConsecutiveCents: packageValue ?? (isUpdate ? undefined : 0),
+          dropInConsecutiveCents: priceValidation.dropIn.cents ?? (isUpdate ? undefined : 0),
+          packageHolderConsecutiveCents: priceValidation.packageHolder.cents ?? (isUpdate ? undefined : 0),
           active: courseLinkForm.active,
         }),
       })
@@ -135,6 +156,55 @@ export function useStaffCourseLinksAdmin() {
       setCourseLinkSaving(false)
     }
   }, [courseLinkForm, courseLinkEditingId, loadCourseLinks, resetCourseLinkForm])
+
+  const saveDraftCourseLinkForCourse = React.useCallback(async (courseSlugA: string) => {
+    setCourseLinkError(null)
+    setCourseLinkSuccess(null)
+
+    if (courseLinkEditingId || !courseLinkForm.courseSlugB) {
+      return { ok: true, skipped: true }
+    }
+
+    const selectionError = validateCourseLinkSelection(courseLinkForm, courseSlugA)
+    if (selectionError) {
+      setCourseLinkError(selectionError)
+      return { ok: false, skipped: false, error: selectionError }
+    }
+    const priceValidation = validateCourseLinkPrices(courseLinkForm)
+    if (!priceValidation.ok) {
+      setCourseLinkError(priceValidation.error)
+      return { ok: false, skipped: false, error: priceValidation.error }
+    }
+
+    setCourseLinkSaving(true)
+    try {
+      const res = await fetch("/api/staff/school/course-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlugA,
+          courseSlugB: courseLinkForm.courseSlugB,
+          dropInConsecutiveCents: priceValidation.dropIn.cents ?? 0,
+          packageHolderConsecutiveCents: priceValidation.packageHolder.cents ?? 0,
+          active: courseLinkForm.active,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const error = typeof data?.error === "string" ? data.error : "Unable to save course link."
+        setCourseLinkError(error)
+        return { ok: false, skipped: false, error }
+      }
+      setCourseLinkSuccess(typeof data?.message === "string" ? data.message : "Course link saved.")
+      return { ok: true, skipped: false }
+    } catch {
+      const error = "Network error while saving course link."
+      setCourseLinkError(error)
+      return { ok: false, skipped: false, error }
+    } finally {
+      setCourseLinkSaving(false)
+    }
+  }, [courseLinkEditingId, courseLinkForm])
 
   const editCourseLink = React.useCallback((link: CourseLinkRow) => {
     setCourseLinkForm({
@@ -220,6 +290,7 @@ export function useStaffCourseLinksAdmin() {
     loadCourseLinks,
     clearCourseLinks,
     saveCourseLink,
+    saveDraftCourseLinkForCourse,
     editCourseLink,
     deleteCourseLink,
     toggleCourseLinkActive,

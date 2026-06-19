@@ -48,6 +48,7 @@ const createInput = (overrides: Partial<Parameters<typeof useStaffCoursesAdmin>[
   loadCourseLinks: vi.fn().mockResolvedValue(undefined),
   clearCourseLinks: vi.fn(),
   resetCourseLinkForm: vi.fn(),
+  saveDraftCourseLinkForCourse: vi.fn().mockResolvedValue({ ok: true, skipped: true }),
   handleStaffAuthFailure: vi.fn().mockReturnValue(false),
   setSchoolError: vi.fn(),
   setSchoolSuccess: vi.fn(),
@@ -185,6 +186,56 @@ describe("useStaffCoursesAdmin", () => {
     expect(input.setSchoolSuccess).toHaveBeenCalledWith("Course saved.")
     expect(input.setSchoolBusy).toHaveBeenNthCalledWith(1, "course")
     expect(input.setSchoolBusy).toHaveBeenLastCalledWith(null)
+  })
+
+  it("saves a draft consecutive link after creating the course", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ message: "Course saved.", item: { slug: "salsa-foundations" } }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const input = await renderHook({
+      ...createInput(),
+      saveDraftCourseLinkForCourse: vi.fn().mockResolvedValue({ ok: true, skipped: false }),
+    })
+
+    await act(async () => {
+      captured!.setCourseForm((prev) => ({ ...prev, slug: "salsa-foundations", title: "Salsa Foundations" }))
+    })
+    await act(async () => {
+      await captured!.saveCourseCatalog({ preventDefault: vi.fn() } as unknown as React.FormEvent)
+    })
+
+    expect(input.saveDraftCourseLinkForCourse).toHaveBeenCalledWith("salsa-foundations")
+    expect(input.setSchoolSuccess).toHaveBeenCalledWith("Course saved. Consecutive link saved.")
+    expect(input.fetchSchoolData).toHaveBeenCalledWith({ showLoader: false })
+  })
+
+  it("keeps the saved course loaded when draft consecutive link persistence fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ message: "Course saved.", item: { slug: "salsa-foundations" } }),
+      })
+    )
+    const input = await renderHook({
+      ...createInput(),
+      saveDraftCourseLinkForCourse: vi.fn().mockResolvedValue({ ok: false, skipped: false, error: "Duplicate course link." }),
+    })
+
+    await act(async () => {
+      captured!.setCourseForm((prev) => ({ ...prev, slug: "salsa-foundations", title: "Salsa Foundations" }))
+    })
+    await act(async () => {
+      await captured!.saveCourseCatalog({ preventDefault: vi.fn() } as unknown as React.FormEvent)
+    })
+
+    expect(captured!.courseEditingSlug).toBe("salsa-foundations")
+    expect(input.loadCourseLinks).toHaveBeenCalledWith("salsa-foundations")
+    expect(input.setSchoolSuccess).toHaveBeenCalledWith("Course saved.")
+    expect(input.setSchoolError).toHaveBeenCalledWith("Duplicate course link.")
+    expect(input.clearCourseLinks).not.toHaveBeenCalled()
   })
 
   it("keeps the course draft open and reports the API message when save is unauthorized", async () => {

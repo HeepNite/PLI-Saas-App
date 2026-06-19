@@ -253,6 +253,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     loadCourseLinks,
     clearCourseLinks,
     saveCourseLink: saveCourseLinkForSlug,
+    saveDraftCourseLinkForCourse,
     deleteCourseLink: deleteCourseLinkForSlug,
     toggleCourseLinkActive: toggleCourseLinkActiveForSlug,
   } = courseLinksAdmin
@@ -383,6 +384,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     loadCourseLinks,
     clearCourseLinks,
     resetCourseLinkForm,
+    saveDraftCourseLinkForCourse,
     handleStaffAuthFailure,
     setSchoolError,
     setSchoolSuccess,

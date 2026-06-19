@@ -110,10 +110,13 @@ describe("StaffCourseLinksStep", () => {
     expect(node.textContent).toBe("")
   })
 
-  it("asks to create the course before managing links", async () => {
+  it("allows preparing a draft link before the course is created", async () => {
     const node = await renderStep(createProps({ courseEditingSlug: null }))
+    const options = Array.from(node.querySelectorAll("option")).map((option) => option.textContent)
 
-    expect(node.textContent).toContain("Create the course first to manage consecutive class links.")
+    expect(node.textContent).toContain("The link will be saved automatically when this course is created.")
+    expect(node.textContent).toContain("Save draft link")
+    expect(options).toContain("Bachata Next — Tue · 10:30")
   })
 
   it("renders link form, feedback, active course options, and existing link lists", async () => {

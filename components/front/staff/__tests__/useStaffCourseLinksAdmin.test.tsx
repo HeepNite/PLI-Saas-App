@@ -71,7 +71,7 @@ describe("useStaffCourseLinksAdmin", () => {
     await act(async () => {
       await state.saveCourseLink(submitEvent, null)
     })
-    expect(latestState!.courseLinkError).toBe("Save the course first before adding consecutive class links.")
+    expect(latestState!.courseLinkError).toBe("Select a consecutive course.")
 
     await act(async () => {
       latestState!.setCourseLinkForm((prev) => ({ ...prev, courseSlugB: "bachata" }))
@@ -81,6 +81,64 @@ describe("useStaffCourseLinksAdmin", () => {
     })
     expect(latestState!.courseLinkError).toBe("A course cannot be linked to itself.")
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("marks a selected draft link to be saved with the course", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    const state = await renderHookHarness()
+
+    await act(async () => {
+      state.setCourseLinkForm((prev) => ({ ...prev, courseSlugB: "salsa" }))
+    })
+    await act(async () => {
+      await latestState!.saveCourseLink(submitEvent, null)
+    })
+
+    expect(latestState!.courseLinkSuccess).toBe("Consecutive link will be saved with the course.")
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("validates draft link prices before marking the link for course save", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    const state = await renderHookHarness()
+
+    await act(async () => {
+      state.setCourseLinkForm((prev) => ({ ...prev, courseSlugB: "salsa", dropInConsecutiveCents: "-1" }))
+    })
+    await act(async () => {
+      await latestState!.saveCourseLink(submitEvent, null)
+    })
+
+    expect(latestState!.courseLinkError).toBe("Drop-in consecutive price must be a valid non-negative number.")
+    expect(latestState!.courseLinkSuccess).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("persists a selected draft link for a newly saved course", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ message: "Course link saved." }) as unknown as Response)
+    const state = await renderHookHarness()
+
+    await act(async () => {
+      state.setCourseLinkForm((prev) => ({ ...prev, courseSlugB: "salsa", dropInConsecutiveCents: "12.50" }))
+    })
+    let result: Awaited<ReturnType<HookState["saveDraftCourseLinkForCourse"]>> | null = null
+    await act(async () => {
+      result = await latestState!.saveDraftCourseLinkForCourse("bachata")
+    })
+
+    expect(result).toEqual({ ok: true, skipped: false })
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/staff/school/course-links",
+      expect.objectContaining({ method: "POST" })
+    )
+    const payload = JSON.parse(fetchMock.mock.calls[0][1]?.body as string)
+    expect(payload).toMatchObject({
+      courseSlugA: "bachata",
+      courseSlugB: "salsa",
+      dropInConsecutiveCents: 1250,
+      packageHolderConsecutiveCents: 0,
+      active: true,
+    })
   })
 
   it("saves a new course link and refreshes links", async () => {
