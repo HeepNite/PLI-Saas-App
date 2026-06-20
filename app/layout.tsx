@@ -27,6 +27,7 @@ export const metadata: Metadata = {
         shortcut: "/favicon.ico",
         apple: "/favicon.ico",
     },
+    manifest: "/manifest.json",
 };
 
 export default async function RootLayout({children,}: Readonly<{ children: React.ReactNode; }>) {

@@ -1,0 +1,20 @@
+{
+  "name": "Palladium Latin Institute",
+  "short_name": "PLI Kiosk",
+  "start_url": "/staff/terminal",
+  "display": "standalone",
+  "background_color": "#13141d",
+  "theme_color": "#13141d",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/logo/logo-white.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
