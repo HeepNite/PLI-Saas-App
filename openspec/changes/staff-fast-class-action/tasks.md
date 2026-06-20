@@ -26,14 +26,14 @@ Chain strategy: feature-branch-chain
 ## Phase 1: Foundation / RED Tests
 
 - [x] 1.1 Add failing tests for terminal current-class resolver in `tests/checkin/terminal-current-class.test.ts`.
-- [ ] 1.2 Add failing API tests for Fast Pay, Fast Sign-in, promo accept, idempotency, and unauthorized calls.
-- [ ] 1.3 Add failing UI tests for `Fast Pay` / `Fast Sign-in` labels and `Prov PIN` label.
+- [x] 1.2 Add failing API tests for Fast Pay, Fast Sign-in, promo accept, idempotency, and unauthorized calls.
+- [x] 1.3 Add failing UI tests for `Fast Pay` / `Fast Sign-in` labels and `Prov PIN` label.
 
 ## Phase 2: Current-Class Helper
 
 - [x] 2.1 Create `lib/checkin/terminal-current-class.ts` with today-class loading and current-class selection.
 - [x] 2.2 Update `app/api/checkin/terminal/today-classes/route.ts` to reuse the shared helper.
-- [ ] 2.3 Align `StaffTerminalShell.tsx` current-class behavior with the shared resolver.
+- [x] 2.3 Align `StaffTerminalShell.tsx` current-class behavior with the shared resolver.
 
 ## Phase 3: Staff Fast Action API
 
@@ -44,13 +44,13 @@ Chain strategy: feature-branch-chain
 
 ## Phase 4: Staff Card UI
 
-- [ ] 4.1 Add the adaptive action button to both student-card render paths in `StaffStudentsBoardPanel.tsx`.
-- [ ] 4.2 Add promo confirmation modal with `Staying for the next class?` copy.
-- [ ] 4.3 Rename visible `Provisional PIN` button labels to `Prov PIN`.
-- [ ] 4.4 Refresh the staff board after successful actions so balances/classes/packages update.
+- [x] 4.1 Add the adaptive action button to both student-card render paths in `StaffStudentsBoardPanel.tsx`.
+- [x] 4.2 Add promo confirmation modal with `Staying for the next class?` copy.
+- [x] 4.3 Rename visible `Provisional PIN` button labels to `Prov PIN`.
+- [x] 4.4 Refresh the staff board after successful actions so balances/classes/packages update.
 
 ## Phase 5: Verification / Cleanup
 
-- [ ] 5.1 Run focused API/helper/UI Vitest suites.
+- [x] 5.1 Run focused API/helper/UI Vitest suites.
 - [x] 5.2 Run changed-file ESLint, `npx tsc --noEmit`, and `git diff --check`.
-- [ ] 5.3 Review diff size and split commits by work unit before push.
+- [x] 5.3 Review diff size and split commits by work unit before push.

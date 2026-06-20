@@ -4,6 +4,7 @@ const mockAuthorizeStudentOperationalRequest = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockEnsureAttendancePackagePurchase = vi.fn()
 const mockConsumeRateLimit = vi.fn(() => ({ ok: true }))
+const mockFindConsecutiveLinkBetween = vi.fn()
 
 const mockTx = {
   classSession: { upsert: vi.fn() },
@@ -35,6 +36,10 @@ vi.mock("@/lib/packages", () => ({
 
 vi.mock("@/lib/purchase-attendance", () => ({
   ensureAttendancePackagePurchase: (...args: unknown[]) => mockEnsureAttendancePackagePurchase(...args),
+}))
+
+vi.mock("@/lib/course-links", () => ({
+  findConsecutiveLinkBetween: (...args: unknown[]) => mockFindConsecutiveLinkBetween(...args),
 }))
 
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }))
@@ -83,6 +88,7 @@ describe("POST /api/staff/students/fast-class-action", () => {
     mockTx.purchase.create.mockReset().mockResolvedValue({ id: "purchase_1", amount: 2000 })
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockEnsureAttendancePackagePurchase.mockReset()
+    mockFindConsecutiveLinkBetween.mockReset()
   })
 
   it("rejects unauthorized staff before mutating", async () => {
@@ -140,5 +146,69 @@ describe("POST /api/staff/students/fast-class-action", () => {
       source: "staff_fast_sign_in",
     }))
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("does not duplicate attendance or charge when Fast Pay is repeated", async () => {
+    mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
+    mockTx.attendance.update.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
+    mockTx.purchase.findFirst.mockResolvedValue({ id: "purchase_existing", amount: 2000 })
+
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "fast_pay",
+      attendanceId: "attendance_existing",
+      purchaseId: "purchase_existing",
+    })
+    expect(mockTx.attendance.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("creates promo attendance and pending cash purchase when staff accepts the offer", async () => {
+    mockFindConsecutiveLinkBetween.mockResolvedValue({
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "bachata-beginner",
+      active: true,
+    })
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({
+      ...course,
+      slug: "bachata-beginner",
+      title: "Bachata Beginner",
+      availableTimes: ["20:00"],
+      dropInPriceCents: 1000,
+    })
+    mockTx.purchase.create.mockResolvedValue({ id: "promo_purchase_1", amount: 1000 })
+
+    const res = await postFastAction({
+      userId: "user_1",
+      acceptConsecutive: true,
+      promo: {
+        linkedCourseSlug: "bachata-beginner",
+        linkedFromCourseSlug: "salsa-beginner",
+        priceCents: 1000,
+      },
+    })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "promo_cash",
+      attendanceId: "attendance_1",
+      purchaseId: "promo_purchase_1",
+      outstandingBalanceAddedCents: 1000,
+    })
+    expect(mockFindConsecutiveLinkBetween).toHaveBeenCalledWith("salsa-beginner", "bachata-beginner")
+    expect(mockTx.attendance.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "checked_in_no_package",
+        metadata: expect.objectContaining({ source: "staff_fast_action_promo" }),
+      }),
+    }))
+    expect(mockTx.purchase.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        amount: 1000,
+        metadata: expect.objectContaining({ source: "staff_fast_action_promo" }),
+      }),
+    }))
   })
 })
