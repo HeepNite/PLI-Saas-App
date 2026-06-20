@@ -303,7 +303,7 @@ export async function POST(req: Request) {
           packageId: usablePackage.packageId,
           packagePurchaseId: usablePackage.id,
           source: "qr_client_phone_checkin",
-          purchaseSource: "web",
+          purchaseSource: "kiosk",
           date: context.date,
           time: context.time,
         })
