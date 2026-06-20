@@ -26,8 +26,8 @@ Chain strategy: feature-branch-chain
 ## Phase 1: Foundation / RED Tests
 
 - [x] 1.1 Add failing tests for terminal current-class resolver in `tests/checkin/terminal-current-class.test.ts`.
-- [x] 1.2 Add failing API tests for Fast Pay, Fast Sign-in, promo accept, idempotency, and unauthorized calls.
-- [x] 1.3 Add failing UI tests for `Fast Pay` / `Fast Sign-in` labels and `Prov PIN` label.
+- [x] 1.2 Add failing API tests for Fast Pay, Fast Sign, promo accept, idempotency, and unauthorized calls.
+- [x] 1.3 Add failing UI tests for `Fast Pay` / `Fast Sign` labels and `Prov PIN` label.
 
 ## Phase 2: Current-Class Helper
 
@@ -39,13 +39,13 @@ Chain strategy: feature-branch-chain
 
 - [x] 3.1 Create `app/api/staff/students/fast-class-action/route.ts` with `authorizeStudentOperationalRequest()` and rate limiting.
 - [x] 3.2 Implement Fast Pay transaction: session, attendance, pending cash purchase, duplicate guard.
-- [x] 3.3 Implement Fast Sign-in transaction: session, attendance, package reservation, package-credit purchase, duplicate guard.
+- [x] 3.3 Implement Fast Sign transaction: session, attendance, package reservation, package-credit purchase, duplicate guard.
 - [x] 3.4 Implement promo offer lookup and promo acceptance transaction.
 
 ## Phase 4: Staff Card UI
 
 - [x] 4.1 Add the adaptive action button to both student-card render paths in `StaffStudentsBoardPanel.tsx`.
-- [x] 4.2 Add promo confirmation modal with `Staying for the next class?` copy.
+- [x] 4.2 Add promo confirmation popup with `Staying for the next class?` copy.
 - [x] 4.3 Rename visible `Provisional PIN` button labels to `Prov PIN`.
 - [x] 4.4 Refresh the staff board after successful actions so balances/classes/packages update.
 

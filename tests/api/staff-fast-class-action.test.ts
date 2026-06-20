@@ -117,12 +117,12 @@ describe("POST /api/staff/students/fast-class-action", () => {
       data: expect.objectContaining({
         amount: 2000,
         status: "pending",
-        metadata: expect.objectContaining({ paymentChannel: "cash", settlementStatus: "pending" }),
+        metadata: expect.objectContaining({ paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "kiosk" }),
       }),
     }))
   })
 
-  it("consumes package credit for Fast Sign-in", async () => {
+  it("consumes package credit for Fast Sign", async () => {
     mockPrisma.packagePurchase.findMany.mockResolvedValue([{ id: "package_purchase_1", packageId: "pkg_10", packageLabel: "10 Classes", isUnlimited: false, remainingCredits: 4, status: "active" }])
     mockTx.attendance.create.mockResolvedValue({ id: "attendance_1", status: "checked_in" })
     mockReservePackageCreditForAttendanceTx.mockResolvedValue({ packagePurchase: { id: "package_purchase_1", packageId: "pkg_10" } })
@@ -144,6 +144,7 @@ describe("POST /api/staff/students/fast-class-action", () => {
       attendanceId: "attendance_1",
       packagePurchaseId: "package_purchase_1",
       source: "staff_fast_sign_in",
+      purchaseSource: "kiosk",
     }))
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
   })
@@ -207,7 +208,7 @@ describe("POST /api/staff/students/fast-class-action", () => {
     expect(mockTx.purchase.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         amount: 1000,
-        metadata: expect.objectContaining({ source: "staff_fast_action_promo" }),
+        metadata: expect.objectContaining({ source: "staff_fast_action_promo", purchaseSource: "kiosk" }),
       }),
     }))
   })

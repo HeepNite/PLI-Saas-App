@@ -2,7 +2,7 @@
 
 ## Technical Approach
 
-Add a staff-only fast action slice that reuses existing check-in concepts but avoids QR/customer endpoints. First extract terminal current-class resolution into reusable server-safe helpers. Then implement a new staff endpoint that resolves the current class, recomputes package eligibility, writes attendance/package/cash purchase changes transactionally, and returns an optional consecutive promo offer. The staff card UI adds one adaptive button and a promo confirmation modal.
+Add a staff-only fast action slice that reuses existing check-in concepts but avoids QR/customer endpoints. First extract terminal current-class resolution into reusable server-safe helpers. Then implement a new staff endpoint that resolves the current class, recomputes package eligibility, writes attendance/package/cash purchase changes transactionally as kiosk-source rows, and returns an optional consecutive promo offer. The staff card UI adds one adaptive button and a promo confirmation popup.
 
 ## Architecture Decisions
 
@@ -12,7 +12,7 @@ Add a staff-only fast action slice that reuses existing check-in concepts but av
 | Current class | Extract reusable terminal schedule/current-class helper | Let frontend send class; duplicate logic in route | User explicitly wants terminal source of truth and no manual picker. |
 | Mode | Server decides `fast_pay` vs `fast_sign_in` | Trust UI `activePackage` | UI can be stale; package credit must be authoritative at write time. |
 | Balance model | Pending cash `Purchase` rows | New outstanding-balance table/field | Existing staff loaders already derive balance from open purchases. No migration needed. |
-| Promo class | Second request with `acceptConsecutive: true` | Create promo purchase automatically | Staff must confirm the student is staying. Separate request keeps first action safe. |
+| Promo class | Popup + second request with `acceptConsecutive: true` | Create promo purchase automatically | Staff must confirm the student is staying. Separate request keeps first action safe. |
 
 ## Data Flow
 
@@ -72,7 +72,7 @@ type FastClassActionResponse = {
 | Layer | What to Test | Approach |
 |-------|-------------|----------|
 | Unit | Terminal current-class resolver | Fixed ET dates/times and multiple classes. |
-| API | Fast Pay / Fast Sign-in / promo / auth / idempotency | Vitest route tests with Prisma mocks. |
+| API | Fast Pay / Fast Sign / promo / auth / idempotency | Vitest route tests with Prisma mocks. |
 | UI | Adaptive button and `Prov PIN` labels; promo modal accept/decline | Component tests for staff panel. |
 
 ## Migration / Rollout

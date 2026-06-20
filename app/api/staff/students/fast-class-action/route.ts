@@ -134,7 +134,7 @@ const createPromoCash = async (input: { userId: string; linkedCourseSlug: string
         currency: "usd",
         status: "pending",
         participants: 1,
-        metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "front_desk", source: "staff_fast_action_promo", date: linkedClass.date, time: linkedClass.time, attendanceId: attendance.id, linkedFromCourseSlug: input.linkedFromCourseSlug },
+        metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "kiosk", source: "staff_fast_action_promo", date: linkedClass.date, time: linkedClass.time, attendanceId: attendance.id, linkedFromCourseSlug: input.linkedFromCourseSlug },
       },
     })
     return { attendance, purchase }
@@ -191,7 +191,7 @@ export async function POST(req: Request) {
     if (selectedPackage) {
       const reserveResult = await reservePackageCreditForAttendanceTx(tx, { packagePurchaseId: selectedPackage.id, userId: user.id, attendanceId: attendance.id, courseSlug: currentClass.slug, at: now, reason: "STAFF_FAST_SIGN_IN" })
       const packagePurchase = reserveResult.packagePurchase || selectedPackage
-      await ensureAttendancePackagePurchase(tx, { attendanceId: attendance.id, userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, email: user.email || null, name: user.name || null, phone: user.phone || null, packageId: packagePurchase.packageId, packagePurchaseId: packagePurchase.id, source: "staff_fast_sign_in", purchaseSource: "front_desk", date: currentClass.date, time: currentClass.time })
+      await ensureAttendancePackagePurchase(tx, { attendanceId: attendance.id, userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, email: user.email || null, name: user.name || null, phone: user.phone || null, packageId: packagePurchase.packageId, packagePurchaseId: packagePurchase.id, source: "staff_fast_sign_in", purchaseSource: "kiosk", date: currentClass.date, time: currentClass.time })
       return { attendance, packagePurchase }
     }
 
@@ -199,7 +199,7 @@ export async function POST(req: Request) {
       where: { userId: user.id, courseSlug: currentClass.slug, status: "pending", AND: [{ metadata: { path: ["attendanceId"], equals: attendance.id } }, { metadata: { path: ["paymentChannel"], equals: "cash" } }] },
     })
     const purchase = existingPurchase || await tx.purchase.create({
-      data: { userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, amount: currentClass.dropInPriceCents || DEFAULT_DROP_IN_CENTS, currency: "usd", status: "pending", email: user.email || null, name: user.name || null, phone: user.phone || null, participants: 1, metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "front_desk", source: "staff_fast_pay", date: currentClass.date, time: currentClass.time, attendanceId: attendance.id } },
+      data: { userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, amount: currentClass.dropInPriceCents || DEFAULT_DROP_IN_CENTS, currency: "usd", status: "pending", email: user.email || null, name: user.name || null, phone: user.phone || null, participants: 1, metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "kiosk", source: "staff_fast_pay", date: currentClass.date, time: currentClass.time, attendanceId: attendance.id } },
     })
     return { attendance, purchase }
   })

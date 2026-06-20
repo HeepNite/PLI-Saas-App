@@ -642,11 +642,9 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
           <div className="space-y-6">
             {webCards.length > 0 && (
               <section>
-                {hasBothSections && (
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-400/80">
-                    Web
-                  </p>
-                )}
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-400/80">
+                  Web
+                </p>
                 <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
                   {webMasonryColumns.map((column, columnIndex) => (
                     <div key={`web-card-column-${columnIndex}`} className="flex flex-col gap-5">
@@ -659,11 +657,9 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
 
             {kioskCards.length > 0 && (
               <section>
-                {hasBothSections && (
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-400/80">
-                    Kiosk / Terminal / Front desk
-                  </p>
-                )}
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-400/80">
+                  Kiosk / Terminal / Front desk
+                </p>
                 <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
                   {kioskMasonryColumns.map((column, columnIndex) => (
                     <div key={`kiosk-card-column-${columnIndex}`} className="flex flex-col gap-5">

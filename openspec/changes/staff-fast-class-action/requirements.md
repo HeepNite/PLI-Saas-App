@@ -15,7 +15,7 @@ The system MUST show one adaptive action on each eligible staff student card.
 
 - GIVEN a registered student has an active package with usable credit
 - WHEN staff views the student card
-- THEN the action label MUST be `Fast Sign-in`.
+- THEN the action label MUST be `Fast Sign`.
 
 ## Requirement: Terminal Current Class Source
 
@@ -51,14 +51,14 @@ The system MUST let staff create a cash outstanding balance and attendance for a
 - WHEN staff clicks `Fast Pay` again
 - THEN the system MUST NOT duplicate attendance or charge.
 
-## Requirement: Fast Sign-in Package Usage
+## Requirement: Fast Sign Package Usage
 
 The system MUST let staff consume package credit and register attendance for a package student in one action.
 
-### Scenario: Fast Sign-in succeeds
+### Scenario: Fast Sign succeeds
 
 - GIVEN a registered student has a usable package credit
-- WHEN staff clicks `Fast Sign-in`
+- WHEN staff clicks `Fast Sign`
 - THEN the system MUST create or reuse today's class session
 - AND MUST register attendance
 - AND MUST decrement or reserve one package credit
@@ -72,7 +72,7 @@ The system MUST let staff consume package credit and register attendance for a p
 
 ## Requirement: Promotional Second Class Prompt
 
-The system MUST prompt staff when a linked later class promotion is available today.
+The system MUST show a popup prompt to staff when a linked later class promotion is available today.
 
 ### Scenario: Staff accepts promotion
 
@@ -80,6 +80,12 @@ The system MUST prompt staff when a linked later class promotion is available to
 - WHEN the fast action succeeds and staff accepts the prompt
 - THEN the system MUST create the second class attendance
 - AND MUST create a pending cash purchase for the promo amount.
+
+### Scenario: Staff views fast-action result on the board
+
+- GIVEN staff completed a fast action for a student
+- WHEN the staff board refreshes
+- THEN the resulting row MUST appear under `Kiosk / Terminal`, not `Web / Front desk`.
 
 ### Scenario: Staff declines promotion
 

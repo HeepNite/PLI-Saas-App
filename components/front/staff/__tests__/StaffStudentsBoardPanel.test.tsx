@@ -421,7 +421,7 @@ describe("StaffStudentsBoardPanel", () => {
     expect(node.textContent).not.toContain("Provisional PIN")
   })
 
-  it("shows Fast Sign-in for profile cards with usable package credit", async () => {
+  it("shows Fast Sign for profile cards with usable package credit", async () => {
     const node = await renderPanel(
       createProps({
         cards: {
@@ -442,12 +442,13 @@ describe("StaffStudentsBoardPanel", () => {
       }),
     )
 
-    expect(node.textContent).toContain("Fast Sign-in")
+    expect(node.textContent).toContain("Fast Sign")
     expect(node.textContent).not.toContain("Fast Pay")
   })
 
   it("shows the adaptive fast action on payment-backed cards", async () => {
     const payment = createPaymentRow({
+      purchaseSource: "kiosk",
       activePackage: {
         id: "pkg-1",
         label: "Unlimited",
@@ -487,8 +488,9 @@ describe("StaffStudentsBoardPanel", () => {
       }),
     )
 
-    expect(node.textContent).toContain("Fast Sign-in")
+    expect(node.textContent).toContain("Fast Sign")
     expect(node.textContent).toContain("Prov PIN")
+    expect(node.textContent).toContain("Kiosk / Terminal")
   })
 
   it("posts the fast action, prompts for promo, and refreshes after accept", async () => {
@@ -539,6 +541,7 @@ describe("StaffStudentsBoardPanel", () => {
     expect(onRefreshPaymentsBoard).toHaveBeenCalledTimes(1)
     expect(node.textContent).toContain("Staying for the next class?")
     expect(node.textContent).toContain("BJJ Advanced")
+    expect(node.querySelector('[role="dialog"]')).not.toBeNull()
 
     const acceptButton = Array.from(node.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Yes, add promo",

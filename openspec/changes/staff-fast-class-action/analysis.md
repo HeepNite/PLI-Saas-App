@@ -42,8 +42,9 @@
 ## Test Targets
 
 - API: Fast Pay creates attendance + one pending cash purchase and is idempotent.
-- API: Fast Sign-in consumes package credit + creates package-credit purchase and is idempotent.
+- API: Fast Sign consumes package credit + creates package-credit purchase and is idempotent.
 - API: Promo acceptance creates second attendance + pending cash promo balance.
 - API: Unauthorized callers cannot mutate attendance, package, or purchases.
 - Unit: current-class resolver matches terminal rotation rules for ET now.
-- UI: button label switches between `Fast Pay` and `Fast Sign-in`; PIN label is `Prov PIN`.
+- UI: button label switches between `Fast Pay` and `Fast Sign`; PIN label is `Prov PIN`; promo prompt is a popup.
+- Board grouping: fast-action purchases are kiosk-source rows so refreshed cards appear under `Kiosk / Terminal`.

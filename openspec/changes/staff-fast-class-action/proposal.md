@@ -7,10 +7,10 @@ Add one adaptive action to staff student cards so staff can quickly check in reg
 ## Scope
 
 ### In Scope
-- Add one student-card button that shows `Fast Pay` when the student has no usable package and `Fast Sign-in` when the student has a usable package.
+- Add one student-card button that shows `Fast Pay` when the student has no usable package and `Fast Sign` when the student has a usable package.
 - Use the terminal current-class source of truth based on today's ET date/time; no manual class picker in v1.
 - `Fast Pay` registers attendance and creates a pending cash outstanding balance for the current drop-in amount (`$20` default).
-- `Fast Sign-in` registers attendance and consumes one package credit.
+- `Fast Sign` registers attendance and consumes one package credit.
 - If a linked later class promotion exists today, show a confirmation popup and add the promo cash outstanding balance when accepted.
 - Rename visible `Provisional PIN` button text to `Prov PIN`.
 
@@ -63,7 +63,7 @@ Remove the new button and endpoint. Existing QR, package, and cash checkout flow
 ## Success Criteria
 
 - [ ] Staff can perform Fast Pay for a no-package student and see a `$20` outstanding balance.
-- [ ] Staff can perform Fast Sign-in for a package student and see package credit usage reflected.
+- [ ] Staff can perform Fast Sign for a package student and see package credit usage reflected.
 - [ ] Promo popup can add the linked second-class cash balance.
 - [ ] The action uses the same current class as the terminal.
 - [ ] `Provisional PIN` visible label becomes `Prov PIN`.
