@@ -111,9 +111,9 @@ git revert <PR1a-merge-commit>
 > consecutive-offer extraction would likely exceed 400 changed lines with tests,
 > and the original signatures missed real dependencies.
 
-- [ ] 2a.1 Create `components/front/courses/enroll/hooks/useConsecutiveOffer.ts` — extract consecutive-offer fetch/reset effect with abort controller and explicit `enabled` / reset callbacks.
-- [ ] 2a.2 Modify `EnrollModal.tsx` — replace only the consecutive-offer effect with `useConsecutiveOffer(...)`; preserve current gates and reset behavior.
-- [ ] 2a.3 Write `tests/checkin/use-consecutive-offer.test.tsx` — cover disabled/no date/no time, prop-provided offer, success fetch, reset behavior, and abort cleanup.
+- [x] 2a.1 Create `components/front/courses/enroll/hooks/useConsecutiveOffer.ts` — extract consecutive-offer fetch/reset effect with abort controller and explicit `enabled` / reset callbacks.
+- [x] 2a.2 Modify `EnrollModal.tsx` — replace only the consecutive-offer effect with `useConsecutiveOffer(...)`; preserve current gates and reset behavior.
+- [x] 2a.3 Write `tests/checkin/use-consecutive-offer.test.tsx` — cover disabled/no date/no time, prop-provided offer, success fetch, reset behavior, and abort cleanup.
 - [ ] 2b.1 Create `components/front/courses/enroll/hooks/useEnrollInit.ts` — extract open-triggered initialization/ref-sync logic using the updated signature in `design.md`.
 - [ ] 2b.2 Modify `EnrollModal.tsx` — replace only the extracted initialization/ref-sync effects with `useEnrollInit(...)`; keep `resetForm` inline unless the diff stays clean and under budget.
 - [ ] 2b.3 Write `tests/checkin/use-enroll-init.test.tsx` — cover default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
