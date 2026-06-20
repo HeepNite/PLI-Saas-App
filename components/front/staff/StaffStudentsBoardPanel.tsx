@@ -509,7 +509,7 @@ const hasUsablePackageCredit = (activePackage: { remainingCredits: number | null
 }
 
 const resolveFastClassActionLabel = (activePackage: { remainingCredits: number | null; isUnlimited: boolean } | null | undefined) =>
-  hasUsablePackageCredit(activePackage) ? "Fast Sign-in" : "Fast Pay"
+  hasUsablePackageCredit(activePackage) ? "Fast Sign" : "Fast Pay"
 
 async function postFastClassAction(userId: string, promoOffer?: FastClassActionPromoOffer) {
   const response = await fetch("/api/staff/students/fast-class-action", {
@@ -644,7 +644,7 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
               <section>
                 {hasBothSections && (
                   <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-400/80">
-                    Web / Front desk
+                    Web
                   </p>
                 )}
                 <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
@@ -661,7 +661,7 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
               <section>
                 {hasBothSections && (
                   <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-400/80">
-                    Kiosk / Terminal
+                    Kiosk / Terminal / Front desk
                   </p>
                 )}
                 <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
@@ -748,26 +748,33 @@ function FastClassActionControls({
       </button>
       {error ? <p className="col-span-full text-[11px] text-red-300">{error}</p> : null}
       {promoOffer ? (
-        <div className="col-span-full rounded-xl border border-amber-300/30 bg-amber-400/10 p-3 text-xs text-amber-50">
-          <p className="font-semibold">Staying for the next class?</p>
-          <p className="mt-1 text-amber-50/80">{promoOffer.linkedCourseTitle}</p>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={acceptPromo}
-              disabled={busy}
-              className="rounded-md bg-amber-300 px-2.5 py-1 text-[11px] font-semibold text-black disabled:opacity-50"
-            >
-              Yes, add promo
-            </button>
-            <button
-              type="button"
-              onClick={() => setPromoOffer(null)}
-              disabled={busy}
-              className="rounded-md border border-white/20 px-2.5 py-1 text-[11px] font-semibold text-white/80 disabled:opacity-50"
-            >
-              No
-            </button>
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`fast-promo-title-${userId}`}
+            className="w-full max-w-sm rounded-2xl border border-amber-300/30 bg-[#131622] p-5 text-amber-50 shadow-[0_24px_80px_-24px_rgba(0,0,0,0.9)]"
+          >
+            <p id={`fast-promo-title-${userId}`} className="text-base font-semibold">Staying for the next class?</p>
+            <p className="mt-2 text-sm text-amber-50/80">{promoOffer.linkedCourseTitle}</p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={acceptPromo}
+                disabled={busy}
+                className="rounded-md bg-amber-300 px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50"
+              >
+                Yes, add promo
+              </button>
+              <button
+                type="button"
+                onClick={() => setPromoOffer(null)}
+                disabled={busy}
+                className="rounded-md border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/80 disabled:opacity-50"
+              >
+                No
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
