@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseQrCheckInContext } from "@/lib/checkin/qr"
+import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
@@ -289,6 +290,22 @@ export async function POST(req: Request) {
             reason: "qr_client_phone_checkin",
             meta: { courseSlug: context.courseSlug, date: context.date, time: context.time },
           },
+        })
+
+        await ensureAttendancePackagePurchase(tx, {
+          attendanceId: attendance.id,
+          userId: dbUser.id,
+          courseSlug: context.courseSlug,
+          courseTitle: session.title || context.courseSlug,
+          email: email || null,
+          name: name || null,
+          phone: phone || null,
+          packageId: usablePackage.packageId,
+          packagePurchaseId: usablePackage.id,
+          source: "qr_client_phone_checkin",
+          purchaseSource: "web",
+          date: context.date,
+          time: context.time,
         })
 
         return attendance
