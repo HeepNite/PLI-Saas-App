@@ -1618,7 +1618,7 @@ describe("resolveProfileCardDetails", () => {
       lastCourseLabel: "Bachata Intermediate",
       outstandingBalanceLabel: "$41.00",
       latestLocationLabel: "Palermo",
-      pinStatusLabel: "Provisional PIN",
+      pinStatusLabel: "Prov PIN",
     })
   })
 

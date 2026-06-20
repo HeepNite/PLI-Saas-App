@@ -54,35 +54,28 @@ function getMsUntilNextStudioDay(now = new Date()): number {
 // ─── Auto-rotation algorithm ──────────────────────────────────
 
 function computeCurrentSlug(now: Date, classes: TodayClassItem[]): string | null {
-  if (classes.length === 0) return null
-  if (classes.length === 1) return classes[0].slug
-
-  // Sort by first available time
-  const sorted = [...classes].sort((a, b) => {
-    const timeA = a.availableTimes?.[0] ?? "99:99"
-    const timeB = b.availableTimes?.[0] ?? "99:99"
-    return timeA.localeCompare(timeB)
-  })
+  const slots = classes
+    .flatMap((item) => item.availableTimes.map((time) => ({ item, time })))
+    .sort((a, b) => a.time.localeCompare(b.time))
+  if (slots.length === 0) return null
 
   const { hour, minute } = getEtHourMinute(now)
   const nowMinutes = hour * 60 + minute
 
-  for (const cls of sorted) {
-    const startTime = cls.availableTimes?.[0]
-    if (!startTime) continue
-    const [h, m] = startTime.split(":").map(Number)
+  for (const { item, time } of slots) {
+    const [h, m] = time.split(":").map(Number)
     const startMinutes = h * 60 + m
-    const duration = cls.durationMinutes ?? 55
+    const duration = item.durationMinutes ?? 55
     const endMinutes = startMinutes + duration
     const rotationMinutes = endMinutes - 15 // rotate 15 min before end
 
     if (nowMinutes < rotationMinutes) {
-      return cls.slug
+      return item.slug
     }
   }
 
   // All classes past rotation time → show the last one
-  return sorted[sorted.length - 1].slug
+  return slots[slots.length - 1].item.slug
 }
 
 // ─── Test mode hook ───────────────────────────────────────────
@@ -207,10 +200,6 @@ export default function StaffTerminalShell({
     }
   }, [fetchTodayClasses])
 
-  // Test mode: simulated time advances 5 min every 10 seconds
-  const simulatedNow = useTestMode(todayClasses, testModeEnabled)
-  const effectiveNow = simulatedNow ?? new Date()
-
   // Auto-rotation: re-evaluate every 30 seconds
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -218,6 +207,13 @@ export default function StaffTerminalShell({
     const interval = setInterval(() => setTick((t) => t + 1), 30_000)
     return () => clearInterval(interval)
   }, [testModeEnabled])
+
+  // Test mode: simulated time advances 5 min every 10 seconds
+  const simulatedNow = useTestMode(todayClasses, testModeEnabled)
+  const effectiveNow = useMemo(() => {
+    void tick
+    return simulatedNow ?? new Date()
+  }, [simulatedNow, tick])
 
   // ─── Deferred slug computation (rotation guard) ─────────────
   // Compute the target slug every tick, but only apply it when no
