@@ -166,6 +166,32 @@ describe("POST /api/staff/students/fast-class-action", () => {
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
   })
 
+  it("reuses existing attendance when Fast Sign is repeated for the same class", async () => {
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([{ id: "package_purchase_1", packageId: "pkg_10", packageLabel: "10 Classes", isUnlimited: false, remainingCredits: 4, status: "active" }])
+    mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing", status: "checked_in" })
+    mockTx.attendance.update.mockResolvedValue({ id: "attendance_existing", status: "checked_in" })
+    mockReservePackageCreditForAttendanceTx.mockResolvedValue({
+      packagePurchase: { id: "package_purchase_1", packageId: "pkg_10" },
+      usage: { id: "usage_existing", attendanceId: "attendance_existing", delta: -1 },
+      consumed: true,
+    })
+
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "fast_sign_in",
+      attendanceId: "attendance_existing",
+      packagePurchaseId: "package_purchase_1",
+    })
+    expect(mockTx.attendance.create).not.toHaveBeenCalled()
+    expect(mockReservePackageCreditForAttendanceTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      attendanceId: "attendance_existing",
+      packagePurchaseId: "package_purchase_1",
+    }))
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
   it("creates promo attendance and pending cash purchase when staff accepts the offer", async () => {
     mockFindConsecutiveLinkBetween.mockResolvedValue({
       courseSlugA: "salsa-beginner",
@@ -211,5 +237,141 @@ describe("POST /api/staff/students/fast-class-action", () => {
         metadata: expect.objectContaining({ source: "staff_fast_action_promo", purchaseSource: "kiosk" }),
       }),
     }))
+  })
+
+  it("offers only a linked promotional class later today", async () => {
+    mockPrisma.courseLink.findMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-beginner",
+        courseSlugB: "earlier-linked",
+        dropInConsecutiveCents: 1500,
+        packageHolderConsecutiveCents: 1000,
+        active: true,
+      },
+      {
+        courseSlugA: "salsa-beginner",
+        courseSlugB: "later-linked",
+        dropInConsecutiveCents: 1500,
+        packageHolderConsecutiveCents: 1000,
+        active: true,
+      },
+    ])
+    mockPrisma.courseCatalog.findUnique.mockImplementation(async ({ where }: { where: { slug: string } }) => {
+      if (where.slug === "earlier-linked") return { ...course, slug: "earlier-linked", title: "Earlier Linked", availableTimes: ["18:00"] }
+      if (where.slug === "later-linked") return { ...course, slug: "later-linked", title: "Later Linked", availableTimes: ["20:00"] }
+      return null
+    })
+
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "fast_pay",
+      promoOffer: {
+        linkedCourseSlug: "later-linked",
+        linkedCourseTitle: "Later Linked",
+        priceCents: 1500,
+      },
+    })
+  })
+
+  it("previews a later promo without mutating attendance or purchases", async () => {
+    mockPrisma.courseLink.findMany.mockResolvedValue([{
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "later-linked",
+      dropInConsecutiveCents: 1500,
+      packageHolderConsecutiveCents: 1000,
+      active: true,
+    }])
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({
+      ...course,
+      slug: "later-linked",
+      title: "Later Linked",
+      availableTimes: ["20:00"],
+    })
+
+    const res = await postFastAction({ userId: "user_1", previewOnly: true })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "fast_pay",
+      previewOnly: true,
+      promoOffer: { linkedCourseSlug: "later-linked" },
+    })
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+    expect(mockTx.attendance.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("processes first class and accepted promo in one request", async () => {
+    mockPrisma.courseLink.findMany.mockResolvedValue([{
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "later-linked",
+      dropInConsecutiveCents: 1500,
+      packageHolderConsecutiveCents: 1000,
+      active: true,
+    }])
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({
+      ...course,
+      slug: "later-linked",
+      title: "Later Linked",
+      availableTimes: ["20:00"],
+    })
+    mockFindConsecutiveLinkBetween.mockResolvedValue({
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "later-linked",
+      active: true,
+    })
+
+    const res = await postFastAction({ userId: "user_1", includeConsecutive: true })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "fast_pay",
+      purchaseId: "purchase_1",
+      promoResult: {
+        mode: "promo_cash",
+        purchaseId: "purchase_1",
+        outstandingBalanceAddedCents: 1500,
+      },
+    })
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2)
+    expect(mockTx.purchase.create).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not duplicate promo attendance or charge when accepted promo is repeated", async () => {
+    mockFindConsecutiveLinkBetween.mockResolvedValue({
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "bachata-beginner",
+      active: true,
+    })
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({
+      ...course,
+      slug: "bachata-beginner",
+      title: "Bachata Beginner",
+      availableTimes: ["20:00"],
+    })
+    mockTx.attendance.findUnique.mockResolvedValue({ id: "promo_attendance_existing", status: "checked_in_no_package" })
+    mockTx.purchase.findFirst.mockResolvedValue({ id: "promo_purchase_existing", amount: 1000 })
+
+    const res = await postFastAction({
+      userId: "user_1",
+      acceptConsecutive: true,
+      promo: {
+        linkedCourseSlug: "bachata-beginner",
+        linkedFromCourseSlug: "salsa-beginner",
+        priceCents: 1000,
+      },
+    })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "promo_cash",
+      attendanceId: "promo_attendance_existing",
+      purchaseId: "promo_purchase_existing",
+      outstandingBalanceAddedCents: 1000,
+    })
+    expect(mockTx.attendance.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
   })
 })

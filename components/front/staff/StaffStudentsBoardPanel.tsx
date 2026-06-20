@@ -53,6 +53,11 @@ type FastClassActionResponse = {
   error?: string
 }
 
+type FastClassActionOptions = {
+  previewOnly?: boolean
+  includeConsecutive?: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Local helpers (panel-private, moved from StaffUsersAdminClient so callers
 // no longer need to thread date formatters through props).
@@ -511,15 +516,11 @@ const hasUsablePackageCredit = (activePackage: { remainingCredits: number | null
 const resolveFastClassActionLabel = (activePackage: { remainingCredits: number | null; isUnlimited: boolean } | null | undefined) =>
   hasUsablePackageCredit(activePackage) ? "Fast Sign" : "Fast Pay"
 
-async function postFastClassAction(userId: string, promoOffer?: FastClassActionPromoOffer) {
+async function postFastClassAction(userId: string, options: FastClassActionOptions = {}) {
   const response = await fetch("/api/staff/students/fast-class-action", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(
-      promoOffer
-        ? { userId, acceptConsecutive: true, promo: promoOffer }
-        : { userId },
-    ),
+    body: JSON.stringify({ userId, ...options }),
   })
   const payload = await response.json().catch(() => ({})) as FastClassActionResponse
   if (!response.ok) {
@@ -600,8 +601,6 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
 
   const webMasonryColumns = React.useMemo(() => buildMasonryColumns(webCards), [buildMasonryColumns, webCards])
   const kioskMasonryColumns = React.useMemo(() => buildMasonryColumns(kioskCards), [buildMasonryColumns, kioskCards])
-
-  const hasBothSections = webCards.length > 0 && kioskCards.length > 0
 
   return (
     <>
@@ -706,6 +705,11 @@ function FastClassActionControls({
     setBusy(true)
     setError(null)
     try {
+      const preview = await postFastClassAction(userId, { previewOnly: true })
+      if (preview.promoOffer) {
+        setPromoOffer(preview.promoOffer)
+        return
+      }
       const result = await postFastClassAction(userId)
       await onRefreshPaymentsBoard()
       setPromoOffer(result.promoOffer || null)
@@ -721,11 +725,26 @@ function FastClassActionControls({
     setBusy(true)
     setError(null)
     try {
-      await postFastClassAction(userId, promoOffer)
+      await postFastClassAction(userId, { includeConsecutive: true })
       setPromoOffer(null)
       await onRefreshPaymentsBoard()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Promo check-in failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const declinePromo = async () => {
+    if (!userId) return
+    setBusy(true)
+    setError(null)
+    try {
+      await postFastClassAction(userId)
+      setPromoOffer(null)
+      await onRefreshPaymentsBoard()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fast class action failed")
     } finally {
       setBusy(false)
     }
@@ -749,26 +768,26 @@ function FastClassActionControls({
             role="dialog"
             aria-modal="true"
             aria-labelledby={`fast-promo-title-${userId}`}
-            className="w-full max-w-sm rounded-2xl border border-amber-300/30 bg-[#131622] p-5 text-amber-50 shadow-[0_24px_80px_-24px_rgba(0,0,0,0.9)]"
+            className="w-full max-w-sm rounded-2xl border border-[var(--brand,#b61616)]/45 bg-[#131622] p-5 text-white shadow-[0_24px_80px_-24px_rgba(182,22,22,0.85)]"
           >
             <p id={`fast-promo-title-${userId}`} className="text-base font-semibold">Staying for the next class?</p>
-            <p className="mt-2 text-sm text-amber-50/80">{promoOffer.linkedCourseTitle}</p>
+            <p className="mt-2 text-sm text-white/80">{promoOffer.linkedCourseTitle}</p>
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
                 onClick={acceptPromo}
                 disabled={busy}
-                className="rounded-md bg-amber-300 px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50"
+                className="rounded-md bg-[var(--brand,#b61616)] px-3 py-1.5 text-xs font-semibold text-white shadow-[0_10px_24px_-14px_rgba(182,22,22,0.95)] transition hover:bg-[var(--brand,#b61616)]/90 disabled:opacity-50"
               >
                 Yes, add promo
               </button>
               <button
                 type="button"
-                onClick={() => setPromoOffer(null)}
+                onClick={declinePromo}
                 disabled={busy}
                 className="rounded-md border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/80 disabled:opacity-50"
               >
-                No
+                No, only first class
               </button>
             </div>
           </div>

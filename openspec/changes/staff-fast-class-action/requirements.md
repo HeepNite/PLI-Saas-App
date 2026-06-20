@@ -77,8 +77,11 @@ The system MUST show a popup prompt to staff when a linked later class promotion
 ### Scenario: Staff accepts promotion
 
 - GIVEN the current class has a later linked promotional class today
-- WHEN the fast action succeeds and staff accepts the prompt
-- THEN the system MUST create the second class attendance
+- WHEN staff clicks the fast action
+- THEN the system MUST show the promotion popup before creating the first-class purchase
+- AND WHEN staff accepts the prompt
+- THEN the system MUST create the first class attendance and purchase
+- AND MUST create the second class attendance
 - AND MUST create a pending cash purchase for the promo amount.
 
 ### Scenario: Staff views fast-action result on the board

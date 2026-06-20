@@ -12,8 +12,8 @@
 | Fast Pay persistence | In one transaction, create/reuse session, create/update attendance as `checked_in_no_package`, and create one pending kiosk-source cash `Purchase` if no matching open cash purchase already exists for the same user/class slot. |
 | Fast Sign persistence | In one transaction, create/reuse session, create/update attendance as `checked_in`, reserve one package credit, and ensure the zero-dollar kiosk-source package-credit purchase record. |
 | Repeat clicks | Return existing attendance/purchase/package usage when the same user/class slot was already processed; do not duplicate charge or credit usage. |
-| Promo offer | After the first class action succeeds, the server may return a promo offer when a linked later class exists today. The UI shows a popup asking `Staying for the next class?`. |
-| Promo acceptance | A second request with `acceptConsecutive: true` creates/reuses the linked class session, marks second-class attendance as `checked_in_no_package`, and creates one pending cash purchase for `dropInConsecutiveCents` or `packageHolderConsecutiveCents` based on the first action mode. |
+| Promo offer | Before mutating attendance or purchases, the UI asks the endpoint for a `previewOnly` response. If a linked later class exists today, the UI shows a popup asking `Staying for the next class?`. |
+| Promo acceptance | A single mutation request with `includeConsecutive: true` creates/reuses the first class session and linked class session, marks attendance, and creates pending cash purchases for the first class and promo amount. |
 | Promo package behavior | Package holders do NOT spend a second package credit for the promo class in v1; promo is always cash outstanding balance. |
 | Outstanding balance | Do not add a new model/field. Pending cash `Purchase` rows are the source of truth and existing staff loaders will calculate balance. |
 | UI labels | Use `Fast Pay`, `Fast Sign`, `Prov PIN`, and `Staying for the next class?`. |

@@ -245,4 +245,43 @@ describe("staff payments route - attendance only", () => {
       checkInStatus: "checked_in",
     })
   })
+
+  it("excludes orphan staff fast-action attendance when the purchase was deleted", async () => {
+    const today = new Date("2026-03-20T18:00:00.000Z")
+
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "attendance_fast_action",
+        userId: "user_fast_action",
+        status: "checked_in_no_package",
+        checkedInAt: today,
+        checkedOutAt: null,
+        session: {
+          courseSlug: "salsa-beginners",
+          startsAt: today,
+          title: "Salsa Beginners",
+        },
+        user: {
+          id: "user_fast_action",
+          name: "Fast Action Student",
+          email: "fast@example.com",
+          phone: "+1 555 2222",
+          clerkId: "clerk_fast",
+        },
+        metadata: {
+          source: "staff_fast_action",
+          date: "2026-03-20",
+          time: "18:00",
+        },
+        packageUsage: null,
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(0)
+  })
 })

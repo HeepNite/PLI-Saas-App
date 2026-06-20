@@ -493,7 +493,7 @@ describe("StaffStudentsBoardPanel", () => {
     expect(node.textContent).toContain("Kiosk / Terminal")
   })
 
-  it("posts the fast action, prompts for promo, and refreshes after accept", async () => {
+  it("previews promo before processing and processes both classes after accept", async () => {
     const onRefreshPaymentsBoard = vi.fn()
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -536,9 +536,9 @@ describe("StaffStudentsBoardPanel", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/staff/students/fast-class-action",
-      expect.objectContaining({ body: JSON.stringify({ userId: "user-1" }) }),
+      expect.objectContaining({ body: JSON.stringify({ userId: "user-1", previewOnly: true }) }),
     )
-    expect(onRefreshPaymentsBoard).toHaveBeenCalledTimes(1)
+    expect(onRefreshPaymentsBoard).not.toHaveBeenCalled()
     expect(node.textContent).toContain("Staying for the next class?")
     expect(node.textContent).toContain("BJJ Advanced")
     expect(node.querySelector('[role="dialog"]')).not.toBeNull()
@@ -557,17 +557,11 @@ describe("StaffStudentsBoardPanel", () => {
       expect.objectContaining({
         body: JSON.stringify({
           userId: "user-1",
-          acceptConsecutive: true,
-          promo: {
-            linkedCourseSlug: "bjj-advanced",
-            linkedCourseTitle: "BJJ Advanced",
-            linkedFromCourseSlug: "bjj-fundamentals",
-            priceCents: 1000,
-          },
+          includeConsecutive: true,
         }),
       }),
     )
-    expect(onRefreshPaymentsBoard).toHaveBeenCalledTimes(2)
+    expect(onRefreshPaymentsBoard).toHaveBeenCalledTimes(1)
   })
 
   describe("Edit info button visibility", () => {

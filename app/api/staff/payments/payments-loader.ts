@@ -350,6 +350,11 @@ type TodayAttendanceOrchestrationResult = {
   attendedRowsTodayByUser: Map<string, number>
 }
 
+const isStandaloneStaffFastActionAttendance = (metadata: Record<string, unknown>) => {
+  const source = asText(metadata.source)
+  return source === "staff_fast_action" || source === "staff_fast_action_promo"
+}
+
 const emptyTodayAttendanceOrchestration = (): TodayAttendanceOrchestrationResult => ({
   standaloneItems: [],
   todayAttendanceByPurchaseId: new Map(),
@@ -493,7 +498,7 @@ const loadTodayStaffPaymentsAttendances = async (input: {
       )
     })()
 
-    if (!isAlreadyCoveredByPurchase) {
+    if (!isAlreadyCoveredByPurchase && !isStandaloneStaffFastActionAttendance(attendanceMetadata)) {
       const packageId = att.packageUsage?.packagePurchase?.packageId || ""
       standaloneItems.push({
         purchase: {

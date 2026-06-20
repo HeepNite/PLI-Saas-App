@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { buildTodayTerminalClasses, resolveCurrentTerminalClass } from "@/lib/checkin/terminal-current-class"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
@@ -10,9 +11,25 @@ import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-
 export const runtime = "nodejs"
 
 const DEFAULT_DROP_IN_CENTS = 2000
+const SERIALIZABLE_RETRY_ATTEMPTS = 3
 
 const toRecord = (value: unknown) => value && typeof value === "object" ? value as Record<string, unknown> : {}
 const normalizeString = (value: unknown) => typeof value === "string" ? value.trim() : ""
+const isSerializableConflict = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
+
+const runSerializableTransaction = async <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) => {
+  for (let attempt = 1; attempt <= SERIALIZABLE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.$transaction(callback, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      })
+    } catch (error) {
+      if (!isSerializableConflict(error) || attempt === SERIALIZABLE_RETRY_ATTEMPTS) throw error
+    }
+  }
+  throw new Error("Unable to complete transaction")
+}
 
 const parseBody = async (req: Request) => {
   try {
@@ -67,6 +84,7 @@ const resolveCurrentClass = async (now: Date) => {
 const buildPromoOffer = async (input: {
   mode: "fast_pay" | "fast_sign_in"
   currentCourseSlug: string
+  currentClassTime: string
   now: Date
 }) => {
   const links = await prisma.courseLink.findMany({
@@ -80,7 +98,7 @@ const buildPromoOffer = async (input: {
     const linkedCourse = await prisma.courseCatalog.findUnique({ where: { slug: linkedCourseSlug } })
     if (!linkedCourse) continue
     const today = buildTodayTerminalClasses([linkedCourse], input.now)[0]
-    const linkedTime = today?.availableTimes[0]
+    const linkedTime = today?.availableTimes.find((time) => time > input.currentClassTime)
     if (!today || !linkedTime) continue
     const priceCents = input.mode === "fast_sign_in" ? link.packageHolderConsecutiveCents : link.dropInConsecutiveCents
     if (!priceCents || priceCents <= 0) continue
@@ -101,7 +119,7 @@ const createPromoCash = async (input: { userId: string; linkedCourseSlug: string
   const linkedClass = resolveCurrentTerminalClass([{ ...linkedToday, availableTimes: [time] }], input.now)
   if (!linkedClass) return { error: "Unable to resolve linked class", status: 409 as const }
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await runSerializableTransaction(async (tx) => {
     const session = await tx.classSession.upsert({
       where: { courseSlug_startsAt: { courseSlug: linkedClass.slug, startsAt: linkedClass.startsAt } },
       update: { title: linkedClass.title, durationMinutes: linkedClass.durationMinutes ?? 60 },
@@ -177,7 +195,12 @@ export async function POST(req: Request) {
 
   const selectedPackage = await findUsablePackage(user.id, currentClass.slug, now)
   const mode = selectedPackage ? "fast_sign_in" as const : "fast_pay" as const
-  const result = await prisma.$transaction(async (tx) => {
+  const promoOffer = await buildPromoOffer({ mode, currentCourseSlug: currentClass.slug, currentClassTime: currentClass.time, now })
+  if (body.previewOnly === true) {
+    return NextResponse.json({ mode, promoOffer, previewOnly: true })
+  }
+
+  const result = await runSerializableTransaction(async (tx) => {
     const session = await tx.classSession.upsert({
       where: { courseSlug_startsAt: { courseSlug: currentClass.slug, startsAt: currentClass.startsAt } },
       update: { title: currentClass.title, durationMinutes: currentClass.durationMinutes ?? 60 },
@@ -203,7 +226,16 @@ export async function POST(req: Request) {
     })
     return { attendance, purchase }
   })
-  const promoOffer = await buildPromoOffer({ mode, currentCourseSlug: currentClass.slug, now })
+  const promoResult = body.includeConsecutive === true && promoOffer
+    ? await createPromoCash({
+        userId: user.id,
+        linkedCourseSlug: promoOffer.linkedCourseSlug,
+        linkedFromCourseSlug: promoOffer.linkedFromCourseSlug,
+        priceCents: promoOffer.priceCents,
+        now,
+      })
+    : null
+  if (promoResult && "error" in promoResult) return NextResponse.json({ error: promoResult.error }, { status: promoResult.status })
   const purchase = "purchase" in result ? result.purchase : null
   const packagePurchase = "packagePurchase" in result ? result.packagePurchase : null
   return NextResponse.json({
@@ -212,6 +244,7 @@ export async function POST(req: Request) {
     purchaseId: purchase?.id,
     packagePurchaseId: packagePurchase?.id,
     outstandingBalanceAddedCents: purchase?.amount,
-    promoOffer,
+    promoOffer: body.includeConsecutive === true ? null : promoOffer,
+    promoResult,
   })
 }
