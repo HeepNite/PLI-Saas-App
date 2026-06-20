@@ -166,6 +166,27 @@ describe("POST /api/staff/students/fast-class-action", () => {
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
   })
 
+  it("does not create a new balance when Fast Pay is repeated after the class was paid", async () => {
+    mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
+    mockTx.attendance.update.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
+    mockTx.purchase.findFirst.mockResolvedValue({ id: "purchase_paid", amount: 2000, status: "paid" })
+
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      mode: "fast_pay",
+      attendanceId: "attendance_existing",
+      purchaseId: "purchase_paid",
+    })
+    expect(body.outstandingBalanceAddedCents).toBeUndefined()
+    expect(mockTx.purchase.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.not.objectContaining({ status: "pending" }),
+    }))
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
   it("reuses existing attendance when Fast Sign is repeated for the same class", async () => {
     mockPrisma.packagePurchase.findMany.mockResolvedValue([{ id: "package_purchase_1", packageId: "pkg_10", packageLabel: "10 Classes", isUnlimited: false, remainingCredits: 4, status: "active" }])
     mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing", status: "checked_in" })
@@ -322,6 +343,9 @@ describe("POST /api/staff/students/fast-class-action", () => {
       courseSlugB: "later-linked",
       active: true,
     })
+    mockTx.purchase.create
+      .mockResolvedValueOnce({ id: "purchase_1", amount: 2000, status: "pending" })
+      .mockResolvedValueOnce({ id: "promo_purchase_1", amount: 1500, status: "pending" })
 
     const res = await postFastAction({ userId: "user_1", includeConsecutive: true })
 
@@ -331,7 +355,7 @@ describe("POST /api/staff/students/fast-class-action", () => {
       purchaseId: "purchase_1",
       promoResult: {
         mode: "promo_cash",
-        purchaseId: "purchase_1",
+        purchaseId: "promo_purchase_1",
         outstandingBalanceAddedCents: 1500,
       },
     })
@@ -372,6 +396,42 @@ describe("POST /api/staff/students/fast-class-action", () => {
       outstandingBalanceAddedCents: 1000,
     })
     expect(mockTx.attendance.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("does not create a new promo balance when accepted promo was already paid", async () => {
+    mockFindConsecutiveLinkBetween.mockResolvedValue({
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "bachata-beginner",
+      active: true,
+    })
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({
+      ...course,
+      slug: "bachata-beginner",
+      title: "Bachata Beginner",
+      availableTimes: ["20:00"],
+    })
+    mockTx.attendance.findUnique.mockResolvedValue({ id: "promo_attendance_existing", status: "checked_in_no_package" })
+    mockTx.purchase.findFirst.mockResolvedValue({ id: "promo_purchase_paid", amount: 1000, status: "paid" })
+
+    const res = await postFastAction({
+      userId: "user_1",
+      acceptConsecutive: true,
+      promo: {
+        linkedCourseSlug: "bachata-beginner",
+        linkedFromCourseSlug: "salsa-beginner",
+        priceCents: 1000,
+      },
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      mode: "promo_cash",
+      attendanceId: "promo_attendance_existing",
+      purchaseId: "promo_purchase_paid",
+    })
+    expect(body.outstandingBalanceAddedCents).toBeUndefined()
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
   })
 })

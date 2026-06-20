@@ -15,6 +15,7 @@ const SERIALIZABLE_RETRY_ATTEMPTS = 3
 
 const toRecord = (value: unknown) => value && typeof value === "object" ? value as Record<string, unknown> : {}
 const normalizeString = (value: unknown) => typeof value === "string" ? value.trim() : ""
+const isOpenCashPurchase = (purchase: { status: string; amount: number }) => purchase.status !== "paid" ? purchase.amount : undefined
 const isSerializableConflict = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
 
@@ -139,9 +140,9 @@ const createPromoCash = async (input: { userId: string; linkedCourseSlug: string
       where: {
         userId: input.userId,
         courseSlug: linkedClass.slug,
-        status: "pending",
         AND: [{ metadata: { path: ["attendanceId"], equals: attendance.id } }, { metadata: { path: ["paymentChannel"], equals: "cash" } }],
       },
+      orderBy: { createdAt: "asc" },
     })
     const purchase = existingPurchase || await tx.purchase.create({
       data: {
@@ -157,7 +158,7 @@ const createPromoCash = async (input: { userId: string; linkedCourseSlug: string
     })
     return { attendance, purchase }
   })
-  return { mode: "promo_cash" as const, attendanceId: result.attendance.id, purchaseId: result.purchase.id, outstandingBalanceAddedCents: input.priceCents }
+  return { mode: "promo_cash" as const, attendanceId: result.attendance.id, purchaseId: result.purchase.id, outstandingBalanceAddedCents: isOpenCashPurchase(result.purchase) }
 }
 
 export async function POST(req: Request) {
@@ -219,7 +220,8 @@ export async function POST(req: Request) {
     }
 
     const existingPurchase = await tx.purchase.findFirst({
-      where: { userId: user.id, courseSlug: currentClass.slug, status: "pending", AND: [{ metadata: { path: ["attendanceId"], equals: attendance.id } }, { metadata: { path: ["paymentChannel"], equals: "cash" } }] },
+      where: { userId: user.id, courseSlug: currentClass.slug, AND: [{ metadata: { path: ["attendanceId"], equals: attendance.id } }, { metadata: { path: ["paymentChannel"], equals: "cash" } }] },
+      orderBy: { createdAt: "asc" },
     })
     const purchase = existingPurchase || await tx.purchase.create({
       data: { userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, amount: currentClass.dropInPriceCents || DEFAULT_DROP_IN_CENTS, currency: "usd", status: "pending", email: user.email || null, name: user.name || null, phone: user.phone || null, participants: 1, metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "kiosk", source: "staff_fast_pay", date: currentClass.date, time: currentClass.time, attendanceId: attendance.id } },
@@ -243,7 +245,7 @@ export async function POST(req: Request) {
     attendanceId: result.attendance.id,
     purchaseId: purchase?.id,
     packagePurchaseId: packagePurchase?.id,
-    outstandingBalanceAddedCents: purchase?.amount,
+    outstandingBalanceAddedCents: purchase ? isOpenCashPurchase(purchase) : undefined,
     promoOffer: body.includeConsecutive === true ? null : promoOffer,
     promoResult,
   })
