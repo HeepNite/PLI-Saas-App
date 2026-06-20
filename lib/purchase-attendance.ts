@@ -13,6 +13,7 @@ type EnsureAttendancePackagePurchaseInput = {
   packageId: string
   packagePurchaseId: string
   source: string
+  purchaseSource?: string
   date: string
   time: string
 }
@@ -59,6 +60,7 @@ export const ensureAttendancePackagePurchase = async (
         date: input.date,
         time: input.time,
         source: input.source,
+        ...(input.purchaseSource ? { purchaseSource: input.purchaseSource } : {}),
         attendanceId: input.attendanceId,
         packagePurchaseId: input.packagePurchaseId,
       },

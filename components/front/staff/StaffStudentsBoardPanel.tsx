@@ -1016,26 +1016,6 @@ function PaymentStudentCard({
 
       <PaymentClerkBanner payment={payment} />
 
-      {payment.purchaseSource && payment.purchaseSource !== "unknown" && (
-        <div className="mt-2 flex items-center gap-1.5">
-          <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
-              payment.purchaseSource === "web"
-                ? "border border-blue-400/30 bg-blue-500/12 text-blue-300"
-                : payment.purchaseSource === "kiosk"
-                  ? "border border-purple-400/30 bg-purple-500/12 text-purple-300"
-                  : "border border-white/15 bg-white/8 text-white/60"
-            }`}
-          >
-            {payment.purchaseSource === "web" ? "Web" : payment.purchaseSource === "kiosk" ? "Kiosk" : "Front desk"}
-          </span>
-          {payment.purchaseSource === "web" && payment.paymentChannel === "cash" && payment.settlementStatus === "pending" && (
-            <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
-              Cash due
-            </span>
-          )}
-        </div>
-      )}
 
       <div className="mt-4 w-full grid grid-cols-2 gap-1.5">
         <button

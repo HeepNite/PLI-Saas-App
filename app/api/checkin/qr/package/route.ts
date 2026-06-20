@@ -357,6 +357,7 @@ export async function POST(req: Request) {
               date: context.date,
               time: context.time,
               source: "qr_package_consecutive_addon",
+              purchaseSource: flowContext === "kiosk_terminal" ? "kiosk" : "web",
               attendanceId: attendance.id,
               linkedFromCourseSlug,
               consecutivePriceCents: recordedConsecutivePriceCents,
@@ -524,6 +525,7 @@ export async function POST(req: Request) {
         packageId: reserveResult.packagePurchase?.packageId || selectedPackage.packageId,
         packagePurchaseId: reserveResult.packagePurchase?.id || selectedPackage.id,
         source: "qr_package_checkin",
+        purchaseSource: flowContext === "kiosk_terminal" ? "kiosk" : "web",
         date: context.date,
         time: context.time,
       })

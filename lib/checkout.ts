@@ -325,6 +325,14 @@ export const prepareCheckoutAccount = async (
           phone: input.phone,
         })
         created = Boolean(resolvedClerkUser)
+        if (resolvedClerkUser) {
+          await upsertUserByIdentifiers({
+            clerkId: resolvedClerkUser.id,
+            email: identity.resolvedEmail,
+            name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
+            phone: input.phone,
+          })
+        }
       } catch (err) {
         console.warn("Clerk user creation failed", err)
         return { status: 502, error: "Unable to create user" } satisfies ApiError
@@ -374,6 +382,12 @@ export const prepareCheckoutAccount = async (
       })
       if (studentClerkUser) {
         resolvedClerkUser = studentClerkUser
+        await upsertUserByIdentifiers({
+          clerkId: studentClerkUser.id,
+          email: identity.resolvedEmail,
+          name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
+          phone: input.phone,
+        })
       } else {
         // Student's Clerk user not found — create it.
         try {
@@ -385,6 +399,14 @@ export const prepareCheckoutAccount = async (
             phone: input.phone,
           })
           created = Boolean(resolvedClerkUser)
+          if (resolvedClerkUser) {
+            await upsertUserByIdentifiers({
+              clerkId: resolvedClerkUser.id,
+              email: identity.resolvedEmail,
+              name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
+              phone: input.phone,
+            })
+          }
         } catch (err) {
           console.warn("Clerk user creation failed for kiosk new-student", err)
           return { status: 502, error: "Unable to create user" } satisfies ApiError

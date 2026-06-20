@@ -3,7 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
+import { parseQrCheckInContext } from "@/lib/checkin/qr"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
@@ -75,14 +75,6 @@ export async function POST(req: Request) {
     }
 
     const now = new Date()
-    if (!isQrCheckInWindowOpen(context, now)) {
-      return NextResponse.json({
-        status: "window_closed",
-        message: now < context.opensAt
-          ? "Check-in opens 2 hours before your class."
-          : "Check-in has closed for this class.",
-      })
-    }
 
     // ─── Resolve user ────────────────────────────────────────
     const client = await clerkClient()
