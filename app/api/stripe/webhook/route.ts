@@ -240,6 +240,11 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
     status,
   ) as Prisma.InputJsonValue
 
+  if (mergedMetadata && typeof mergedMetadata === "object" && !Array.isArray(mergedMetadata)) {
+    ;(mergedMetadata as Record<string, unknown>).purchaseSource =
+      (mergedMetadata as Record<string, unknown>)?.flowContext === "kiosk_terminal" ? "kiosk" : "web"
+  }
+
   const purchase = await prisma.purchase.upsert({
     where: { stripeCheckoutSessionId: session.id },
     update: {
@@ -446,6 +451,11 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
     status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta,
     status,
   ) as Prisma.InputJsonValue
+
+  if (mergedMetadata && typeof mergedMetadata === "object" && !Array.isArray(mergedMetadata)) {
+    ;(mergedMetadata as Record<string, unknown>).purchaseSource =
+      (mergedMetadata as Record<string, unknown>)?.flowContext === "kiosk_terminal" ? "kiosk" : "web"
+  }
 
   const purchase = await prisma.purchase.upsert({
     where: { stripePaymentIntentId: intent.id },
