@@ -37,7 +37,6 @@ export default async function RootLayout({children,}: Readonly<{ children: React
         <html lang="en" suppressHydrationWarning>
 
         <body className="scroll-smooth">
-        <script dangerouslySetInnerHTML={{ __html: `if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}` }} />
         <ClerkProvider>
           <I18nProvider initialLocale={initialLocale}>
             <ThemeProvider
