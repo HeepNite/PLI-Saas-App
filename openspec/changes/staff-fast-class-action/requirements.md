@@ -51,6 +51,20 @@ The system MUST let staff create a cash outstanding balance and attendance for a
 - WHEN staff clicks `Fast Pay` again
 - THEN the system MUST NOT duplicate attendance or charge.
 
+### Scenario: Student has pending payment for current class
+
+- GIVEN the student already has a pending purchase for the current class
+- WHEN staff clicks `Fast Pay` or `Fast Sign`
+- THEN the system MUST block the action before creating attendance, purchases, or package usage
+- AND staff MUST see `You still have a pending payment. Please resolve it first.`
+
+### Scenario: Student already completed purchase for current class
+
+- GIVEN the student already has a paid purchase or package-credit purchase for the current class
+- WHEN staff clicks `Fast Pay` or `Fast Sign`
+- THEN the system MUST block the action before creating attendance, purchases, or package usage
+- AND staff MUST see `This student already has a completed purchase for this class.`
+
 ## Requirement: Fast Sign Package Usage
 
 The system MUST let staff consume package credit and register attendance for a package student in one action.

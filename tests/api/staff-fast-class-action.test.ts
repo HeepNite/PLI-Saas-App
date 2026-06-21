@@ -13,8 +13,11 @@ const mockTx = {
 }
 
 const mockPrisma = {
+  classSession: { findUnique: vi.fn() },
+  attendance: { findUnique: vi.fn() },
   courseCatalog: { findMany: vi.fn(), findUnique: vi.fn() },
   packagePurchase: { findMany: vi.fn() },
+  purchase: { findFirst: vi.fn() },
   user: { findUnique: vi.fn() },
   courseLink: { findMany: vi.fn() },
   $transaction: vi.fn(async (callback: (tx: typeof mockTx) => unknown) => callback(mockTx)),
@@ -76,7 +79,10 @@ describe("POST /api/staff/students/fast-class-action", () => {
     mockConsumeRateLimit.mockReset().mockReturnValue({ ok: true })
     mockPrisma.courseCatalog.findMany.mockReset().mockResolvedValue([course])
     mockPrisma.courseCatalog.findUnique.mockReset()
+    mockPrisma.classSession.findUnique.mockReset().mockResolvedValue(null)
+    mockPrisma.attendance.findUnique.mockReset().mockResolvedValue(null)
     mockPrisma.packagePurchase.findMany.mockReset().mockResolvedValue([])
+    mockPrisma.purchase.findFirst.mockReset().mockResolvedValue(null)
     mockPrisma.user.findUnique.mockReset().mockResolvedValue({ id: "user_1", email: "student@example.com", name: "Student", phone: "15551234567" })
     mockPrisma.courseLink.findMany.mockReset().mockResolvedValue([])
     mockPrisma.$transaction.mockReset().mockImplementation(async (callback: (tx: typeof mockTx) => unknown) => callback(mockTx))
@@ -120,6 +126,41 @@ describe("POST /api/staff/students/fast-class-action", () => {
         metadata: expect.objectContaining({ paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "kiosk" }),
       }),
     }))
+  })
+
+  it("blocks Fast Pay when the student still has a pending purchase for the current class", async () => {
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_existing" })
+    mockPrisma.attendance.findUnique.mockResolvedValue({ id: "attendance_existing" })
+    mockPrisma.purchase.findFirst.mockResolvedValue({ status: "pending" })
+
+    const res = await postFastAction({ userId: "user_1", previewOnly: true })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      code: "pending_payment",
+      error: "You still have a pending payment. Please resolve it first.",
+      mode: "fast_pay",
+    })
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("blocks Fast Sign when the student already has a completed purchase for the current class", async () => {
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([{ id: "package_purchase_1", packageId: "pkg_10", packageLabel: "10 Classes", isUnlimited: false, remainingCredits: 4, status: "active" }])
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_existing" })
+    mockPrisma.attendance.findUnique.mockResolvedValue({ id: "attendance_existing" })
+    mockPrisma.purchase.findFirst.mockResolvedValue({ status: "paid" })
+
+    const res = await postFastAction({ userId: "user_1", previewOnly: true })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      code: "completed_purchase",
+      error: "This student already has a completed purchase for this class.",
+      mode: "fast_sign_in",
+    })
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+    expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
   })
 
   it("consumes package credit for Fast Sign", async () => {

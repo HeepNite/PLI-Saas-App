@@ -564,6 +564,43 @@ describe("StaffStudentsBoardPanel", () => {
     expect(onRefreshPaymentsBoard).toHaveBeenCalledTimes(1)
   })
 
+  it("shows a blocking popup when fast action returns a pending payment error", async () => {
+    const onRefreshPaymentsBoard = vi.fn()
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: "pending_payment",
+        error: "You still have a pending payment. Please resolve it first.",
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const node = await renderPanel(
+      createProps({
+        loadingStatus: { paymentsLoading: false, onRefreshPaymentsBoard },
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [createProfileCard()],
+          filteredStudentCardsCount: 1,
+        },
+      }),
+    )
+
+    const fastPayButton = Array.from(node.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Fast Pay",
+    )
+    expect(fastPayButton).toBeDefined()
+
+    await act(async () => {
+      fastPayButton!.click()
+    })
+
+    expect(node.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(node.textContent).toContain("Action blocked")
+    expect(node.textContent).toContain("You still have a pending payment. Please resolve it first.")
+    expect(onRefreshPaymentsBoard).not.toHaveBeenCalled()
+  })
+
   describe("Edit info button visibility", () => {
     const minimalProfileCard: StudentProfileCard = {
       source: "profile",

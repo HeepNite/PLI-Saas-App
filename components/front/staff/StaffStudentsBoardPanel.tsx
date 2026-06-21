@@ -50,6 +50,7 @@ type FastClassActionPromoOffer = {
 type FastClassActionResponse = {
   mode: "fast_pay" | "fast_sign_in" | "promo_cash"
   promoOffer?: FastClassActionPromoOffer | null
+  code?: "pending_payment" | "completed_purchase" | string
   error?: string
 }
 
@@ -761,7 +762,28 @@ function FastClassActionControls({
       >
         {busy ? "Working…" : label}
       </button>
-      {error ? <p className="col-span-full text-[11px] text-red-300">{error}</p> : null}
+      {error ? (
+        <div className="fixed inset-0 z-[310] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`fast-action-error-title-${userId}`}
+            className="w-full max-w-sm rounded-2xl border border-[var(--brand,#b61616)]/45 bg-[#131622] p-5 text-white shadow-[0_24px_80px_-24px_rgba(182,22,22,0.85)]"
+          >
+            <p id={`fast-action-error-title-${userId}`} className="text-base font-semibold">Action blocked</p>
+            <p className="mt-2 text-sm text-white/80">{error}</p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="rounded-full bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_32px_-18px_rgba(182,22,22,0.9)]"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {promoOffer ? (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div

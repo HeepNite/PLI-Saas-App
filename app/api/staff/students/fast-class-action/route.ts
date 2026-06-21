@@ -16,6 +16,8 @@ const SERIALIZABLE_RETRY_ATTEMPTS = 3
 const toRecord = (value: unknown) => value && typeof value === "object" ? value as Record<string, unknown> : {}
 const normalizeString = (value: unknown) => typeof value === "string" ? value.trim() : ""
 const isOpenCashPurchase = (purchase: { status: string; amount: number }) => purchase.status !== "paid" ? purchase.amount : undefined
+const PENDING_PAYMENT_MESSAGE = "You still have a pending payment. Please resolve it first."
+const COMPLETED_PURCHASE_MESSAGE = "This student already has a completed purchase for this class."
 const isSerializableConflict = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
 
@@ -80,6 +82,41 @@ const resolveCurrentClass = async (now: Date) => {
     orderBy: [{ createdAt: "asc" }],
   })
   return resolveCurrentTerminalClass(buildTodayTerminalClasses(activeCourses, now), now)
+}
+
+const resolveExistingClassPurchaseBlock = async (userId: string, currentClass: NonNullable<Awaited<ReturnType<typeof resolveCurrentClass>>>) => {
+  const session = await prisma.classSession.findUnique({
+    where: { courseSlug_startsAt: { courseSlug: currentClass.slug, startsAt: currentClass.startsAt } },
+    select: { id: true },
+  })
+  if (!session) return null
+
+  const attendance = await prisma.attendance.findUnique({
+    where: { userId_sessionId: { userId, sessionId: session.id } },
+    select: { id: true },
+  })
+  if (!attendance) return null
+
+  const purchase = await prisma.purchase.findFirst({
+    where: {
+      userId,
+      courseSlug: currentClass.slug,
+      AND: [
+        { metadata: { path: ["attendanceId"], equals: attendance.id } },
+        {
+          OR: [
+            { metadata: { path: ["paymentChannel"], equals: "cash" } },
+            { metadata: { path: ["paymentChannel"], equals: "package_credit" } },
+          ],
+        },
+      ],
+    },
+    orderBy: { createdAt: "asc" },
+    select: { status: true },
+  })
+  if (!purchase) return null
+  if (purchase.status === "paid") return { code: "completed_purchase", message: COMPLETED_PURCHASE_MESSAGE }
+  return { code: "pending_payment", message: PENDING_PAYMENT_MESSAGE }
 }
 
 const buildPromoOffer = async (input: {
@@ -196,6 +233,10 @@ export async function POST(req: Request) {
 
   const selectedPackage = await findUsablePackage(user.id, currentClass.slug, now)
   const mode = selectedPackage ? "fast_sign_in" as const : "fast_pay" as const
+  const existingPurchaseBlock = await resolveExistingClassPurchaseBlock(user.id, currentClass)
+  if (existingPurchaseBlock) {
+    return NextResponse.json({ error: existingPurchaseBlock.message, code: existingPurchaseBlock.code, mode }, { status: 409 })
+  }
   const promoOffer = await buildPromoOffer({ mode, currentCourseSlug: currentClass.slug, currentClassTime: currentClass.time, now })
   if (body.previewOnly === true) {
     return NextResponse.json({ mode, promoOffer, previewOnly: true })
