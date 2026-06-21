@@ -78,7 +78,6 @@ import { resolveAvailableEnrollServices } from "@/components/front/courses/enrol
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
 import { nextKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
-import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 import {
   requestCheckoutCashApi,
@@ -91,6 +90,7 @@ import {
 } from "@/components/front/courses/enroll/effects/checkout-api"
 import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
 import { resolveStepValid } from "@/components/front/courses/enroll/model/enroll-step-valid"
+import { useConsecutiveOffer } from "@/components/front/courses/enroll/hooks/useConsecutiveOffer"
 import type {
   EnrollModalProps,
   FlowPopupState,
@@ -297,8 +297,6 @@ export default function EnrollModal({
   const [consecutiveAccepted, setConsecutiveAccepted] = React.useState(false)
   const [consecutiveAddedCents, setConsecutiveAddedCents] = React.useState(0)
   const [consecutiveChoiceMade, setConsecutiveChoiceMade] = React.useState(false)
-  const [fetchedConsecutiveOffer, setFetchedConsecutiveOffer] = React.useState<ConsecutiveOfferData | null>(null)
-  const [consecutiveOfferLoading, setConsecutiveOfferLoading] = React.useState(false)
 
   const [newStudentFallbackPhoneKey, setNewStudentFallbackPhoneKey] = React.useState<string | null>(null)
   const [flowPopup, setFlowPopup] = React.useState<FlowPopupState | null>(null)
@@ -325,6 +323,19 @@ export default function EnrollModal({
   const isNewStudent = service === "new-student"
   // A user who selects a package during the same flow counts as a package holder for consecutive pricing.
   const effectiveIsPackageHolder = isPackageHolder || Boolean(pkg)
+  const resetConsecutiveChoice = React.useCallback(() => setConsecutiveChoiceMade(false), [])
+  const resetConsecutiveAccepted = React.useCallback(() => setConsecutiveAccepted(false), [])
+  const resetConsecutiveAddedCents = React.useCallback(() => setConsecutiveAddedCents(0), [])
+  const { fetchedOffer: fetchedConsecutiveOffer, offerLoading: consecutiveOfferLoading } = useConsecutiveOffer({
+    courseSlug: course.slug,
+    date,
+    time,
+    consecutiveOffer,
+    enabled: isQrMobileCompactFlow || isCheckInFlow,
+    resetChoice: resetConsecutiveChoice,
+    resetAccepted: resetConsecutiveAccepted,
+    resetAddedCents: resetConsecutiveAddedCents,
+  })
   const effectiveConsecutiveOffer = consecutiveOffer ?? fetchedConsecutiveOffer
   const accountHasAvatar = Boolean(prefillHasAvatar || preparedAccount?.hasAvatar || photoSaved)
   const requiresPhotoStep = React.useMemo(
@@ -571,52 +582,6 @@ export default function EnrollModal({
     return () => window.clearTimeout(id)
   }, [])
 
-  React.useEffect(() => {
-    if (consecutiveOffer) {
-      setFetchedConsecutiveOffer(null)
-      setConsecutiveOfferLoading(false)
-      return
-    }
-    if (!isQrMobileCompactFlow && !isCheckInFlow) {
-      setFetchedConsecutiveOffer(null)
-      setConsecutiveOfferLoading(false)
-      return
-    }
-    if (!date || !time) {
-      setFetchedConsecutiveOffer(null)
-      setConsecutiveOfferLoading(false)
-      setConsecutiveAccepted(false)
-      setConsecutiveAddedCents(0)
-      setConsecutiveChoiceMade(false)
-      return
-    }
-
-    setConsecutiveOfferLoading(true)
-    const controller = new AbortController()
-    const params = new URLSearchParams({ courseSlug: course.slug, date, time })
-    void fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
-      signal: controller.signal,
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((offer: ConsecutiveOfferData | null) => {
-        setFetchedConsecutiveOffer(offer)
-        setConsecutiveOfferLoading(false)
-        setConsecutiveAccepted(false)
-        setConsecutiveAddedCents(0)
-        setConsecutiveChoiceMade(false)
-      })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return
-        setFetchedConsecutiveOffer(null)
-        setConsecutiveOfferLoading(false)
-        setConsecutiveAccepted(false)
-        setConsecutiveAddedCents(0)
-        setConsecutiveChoiceMade(false)
-      })
-
-    return () => controller.abort()
-  }, [consecutiveOffer, course.slug, date, isCheckInFlow, isQrMobileCompactFlow, time])
-
   const resetForm = React.useCallback(() => {
     if (kioskPaymentTransitionTimeoutRef.current !== null) {
       window.clearTimeout(kioskPaymentTransitionTimeoutRef.current)
@@ -658,8 +623,6 @@ export default function EnrollModal({
     setConsecutiveAccepted(false)
     setConsecutiveAddedCents(0)
     setConsecutiveChoiceMade(false)
-    setFetchedConsecutiveOffer(null)
-    setConsecutiveOfferLoading(false)
     kioskPaymentTransitionStartedAtRef.current = null
     kioskFastPathAdvanceTriggeredRef.current = false
     kioskFastPathSubmitTriggeredRef.current = false

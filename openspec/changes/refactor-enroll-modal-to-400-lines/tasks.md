@@ -33,8 +33,9 @@ Chain strategy: feature-branch-chain
 |------|------|-----------|-------------|-------------|
 | Slice 1a | Pure `stepValid` extraction + tests | PR 1a | `codex/develop` | ~180 raw / ≤400 budget |
 | Slice 1b | Type-only props extraction | PR 1b | PR 1a branch | ~180 raw / ≤400 budget |
-| Slice 2 | Init + consecutive offer hooks | PR 2 | PR 1b branch | ≤400 including tests; split into 2a/2b if exceeded |
-| Slice 3 | Kiosk inactivity + QR poller hooks | PR 3 | PR 2 branch | ≤400 including tests; split into 3a/3b if exceeded |
+| Slice 2a | Consecutive offer hook | PR 2a | PR 1b branch | ≤400 including tests |
+| Slice 2b | Open initialization hook | PR 2b | PR 2a branch | ≤400 including tests; split resetForm to 2c if exceeded |
+| Slice 3 | Kiosk inactivity + QR poller hooks | PR 3 | PR 2b branch | ≤400 including tests; split into 3a/3b if exceeded |
 | Slice 4a | Sidebar + overlays sub-components | PR 4a | PR 3 branch | ≤400 including tests |
 | Slice 4b | StepRouter sub-component | PR 4b | PR 4a branch | ≤400 including tests |
 | Slice 5 | Orchestrator trim to ≤ 400 lines | PR 5 | PR 4b branch | ≤400 including verification updates |
@@ -102,42 +103,68 @@ git revert <PR1a-merge-commit>
 
 ---
 
-## Phase 2 — Slice 2: Init + Consecutive Offer Hooks
+## Phase 2 — Slices 2a/2b: Consecutive Offer + Init Hooks
 
 > **Dependency**: Slices 1a and 1b merged.
-> **Target PR**: PR 2 → PR 1b branch (rebased on `codex/develop` after PR 1b merges).
+> **Target PRs**: PR 2a → PR 1b branch, then PR 2b → PR 2a branch.
+> **Split decision**: Read-only exploration showed the combined init +
+> consecutive-offer extraction would likely exceed 400 changed lines with tests,
+> and the original signatures missed real dependencies.
 
-- [ ] 2.1 Create `components/front/courses/enroll/hooks/useEnrollInit.ts` — extract the `open`-triggered initialization effect and `resetForm` callback from `EnrollModal.tsx` using the exact signature specified in `design.md` (~180 lines).
-- [ ] 2.2 Create `components/front/courses/enroll/hooks/useConsecutiveOffer.ts` — extract consecutive-offer fetch effect with abort controller using the exact signature specified in `design.md` (~80 lines).
-- [ ] 2.3 Modify `EnrollModal.tsx` — replace extracted initialization effects and consecutive-offer effect with `useEnrollInit(...)` and `useConsecutiveOffer(...)` calls; preserve exact dependency arrays (~90 lines net change).
-- [ ] 2.4 Write `useConsecutiveOffer.test.ts` — `renderHook` + `msw`; assert fetch fires on date/time change, aborts on cleanup, resets when `consecutiveOffer` prop provided.
-- [ ] 2.5 Write `useEnrollInit.test.ts` — mock sessionStorage + dispatch; assert correct initial field values dispatched on `open` flip for kiosk, check-in, and default paths.
+- [x] 2a.1 Create `components/front/courses/enroll/hooks/useConsecutiveOffer.ts` — extract consecutive-offer fetch/reset effect with abort controller and explicit `enabled` / reset callbacks.
+- [x] 2a.2 Modify `EnrollModal.tsx` — replace only the consecutive-offer effect with `useConsecutiveOffer(...)`; preserve current gates and reset behavior.
+- [x] 2a.3 Write `tests/checkin/use-consecutive-offer.test.tsx` — cover disabled/no date/no time, prop-provided offer, success fetch, reset behavior, and abort cleanup.
+- [ ] 2b.1 Create `components/front/courses/enroll/hooks/useEnrollInit.ts` — extract open-triggered initialization/ref-sync logic using the updated signature in `design.md`.
+- [ ] 2b.2 Modify `EnrollModal.tsx` — replace only the extracted initialization/ref-sync effects with `useEnrollInit(...)`; keep `resetForm` inline unless the diff stays clean and under budget.
+- [ ] 2b.3 Write `tests/checkin/use-enroll-init.test.tsx` — cover default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
+- [ ] 2c.1 Optional: extract `resetForm` only if Slice 2b leaves a small, coherent, under-budget follow-up; otherwise defer to a later tracked change.
 
-### Acceptance Criteria — Slice 2
+### Acceptance Criteria — Slice 2a
 
-- `useEnrollInit` and `useConsecutiveOffer` are in `enroll/hooks/`; each is independently importable.
-- `EnrollModal.tsx` has no remaining inline initialization effects covered by these hooks.
-- Dependency arrays in extracted hooks are identical to what was inlined.
-- `react-hooks/exhaustive-deps` lint rule stays clean on both new hooks.
+- `useConsecutiveOffer` is in `enroll/hooks/` and independently importable.
+- `EnrollModal.tsx` has no remaining inline consecutive-offer fetch effect.
+- Existing consecutive offer gates and reset behavior are preserved.
 - `ConsecutiveOfferData` import remains from `checkin/ConsecutiveClassOffer.tsx` (NOT moved — deferred per design decision).
-- All 10+ booking paths manually smoke-tested after PR 2 merges.
-- `tsc --noEmit`, `vitest run`, `eslint` — zero new errors/violations.
-- Diff ≤ 400 changed lines including tests; split into 2a/2b if exceeded.
+- `tsc --noEmit`, focused vitest, and focused eslint — zero new errors.
+- Diff ≤ 400 changed lines including tests.
 
-### Verification Commands — Slice 2
+### Acceptance Criteria — Slice 2b
+
+- `useEnrollInit` is in `enroll/hooks/` and independently importable.
+- `EnrollModal.tsx` has no remaining inline initialization/ref-sync effects covered by the hook.
+- Dependency arrays in the extracted hook are equivalent to what was inlined.
+- `isQrMobileCompactFlow` / today-only autofill behavior is preserved.
+- `resetForm` is either intentionally left inline or extracted as a separately reviewed Slice 2c.
+- `react-hooks/exhaustive-deps` stays clean on the new hook.
+- All 10+ booking paths manually smoke-tested after PR 2b merges.
+- `tsc --noEmit`, focused vitest, and focused eslint — zero new errors.
+- Diff ≤ 400 changed lines including tests.
+
+### Verification Commands — Slice 2a
 
 ```bash
 npx tsc --noEmit
-npx vitest run
-npx eslint components/front/courses/enroll/hooks/useEnrollInit.ts components/front/courses/enroll/hooks/useConsecutiveOffer.ts
+npx vitest run tests/checkin/use-consecutive-offer.test.tsx
+npx eslint components/front/courses/enroll/hooks/useConsecutiveOffer.ts tests/checkin/use-consecutive-offer.test.tsx components/front/courses/EnrollModal.tsx
 wc -l components/front/courses/EnrollModal.tsx
 git diff --stat <pr1b-branch>
 ```
 
-### Rollback — Slice 2
+### Verification Commands — Slice 2b
 
 ```bash
-git revert <PR2-merge-commit>
+npx tsc --noEmit
+npx vitest run tests/checkin/use-enroll-init.test.tsx
+npx eslint components/front/courses/enroll/hooks/useEnrollInit.ts tests/checkin/use-enroll-init.test.tsx components/front/courses/EnrollModal.tsx
+wc -l components/front/courses/EnrollModal.tsx
+git diff --stat <pr2a-branch>
+```
+
+### Rollback — Slices 2a/2b
+
+```bash
+git revert <PR2b-merge-commit>
+git revert <PR2a-merge-commit>
 # PR1a + PR1b state remains valid. EnrollModal re-inlines init and consecutive effects.
 ```
 
@@ -145,8 +172,8 @@ git revert <PR2-merge-commit>
 
 ## Phase 3 — Slice 3: Kiosk Hooks (Inactivity + QR Poller)
 
-> **Dependency**: Slice 2 merged.
-> **Target PR**: PR 3 → PR 2 branch.
+> **Dependency**: Slices 2a and 2b merged.
+> **Target PR**: PR 3 → PR 2b branch.
 
 - [ ] 3.1 Create `components/front/courses/enroll/hooks/useKioskInactivity.ts` — extract station-completion timeout and kiosk inactivity controller wiring using the exact signature from `design.md` (~110 lines).
 - [ ] 3.2 Create `components/front/courses/enroll/hooks/useKioskQrPoller.ts` — extract `createKioskQrPoller` lifecycle (start/stop/outcome dispatch) using the exact signature from `design.md` (~90 lines).

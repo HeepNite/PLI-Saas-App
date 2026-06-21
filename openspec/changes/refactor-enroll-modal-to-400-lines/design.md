@@ -208,19 +208,67 @@ runtime behavior.
 
 ---
 
-### Slice 2 — Effect Hooks: Init + Consecutive Offer (≤400 changed lines including tests)
+### Slice 2a — Effect Hook: Consecutive Offer (≤400 changed lines including tests)
 
-**Goal**: Extract the 2 heaviest initialization effects out of EnrollModal.
+**Goal**: Extract the consecutive-offer fetch/reset effect first because it is
+the smallest Slice 2 concern and has isolated tests.
 
 | File | Action | Est. Lines |
 |------|--------|-----------|
-| `enroll/hooks/useEnrollInit.ts` | Create | ~180 |
 | `enroll/hooks/useConsecutiveOffer.ts` | Create | ~80 |
-| `EnrollModal.tsx` | Replace inline effects with hook calls | ~90 |
+| `EnrollModal.tsx` | Replace consecutive-offer effect with hook call | ~40 |
+| `tests/checkin/use-consecutive-offer.test.tsx` | Create focused hook tests | ~120 |
 
-> **Budget gate**: These estimates are production-code oriented. The final PR
-> diff must include tests and remain ≤400 changed lines against PR1b branch;
-> split into 2a/2b if the test-inclusive diff exceeds budget.
+> **Budget gate**: The final PR diff must include tests and remain ≤400 changed
+> lines against PR1b branch.
+
+**`useConsecutiveOffer` signature**:
+```ts
+useConsecutiveOffer(input: {
+  courseSlug: string
+  date: string
+  time: string
+  consecutiveOffer: ConsecutiveOfferData | undefined
+  enabled: boolean
+  resetChoice: () => void
+  resetAccepted: () => void
+  resetAddedCents: () => void
+}): {
+  fetchedOffer: ConsecutiveOfferData | null
+  offerLoading: boolean
+}
+```
+
+**Behavior to preserve**:
+- Do not fetch when `consecutiveOffer` prop is provided.
+- Do not fetch when the flow is not enabled for the current booking path.
+- Reset fetched offer/loading/choice/accepted/added-cents when date or time is missing.
+- Abort the in-flight request on cleanup.
+
+**Test strategy**:
+- Reuse existing hook test style with `createRoot` + `act`.
+- Assert disabled/no-date/no-time paths do not fetch and reset state.
+- Assert successful fetch updates offer/loading and resets prior acceptance.
+- Assert cleanup aborts the request.
+
+**Rollback**: Revert PR2a; PR1a + PR1b state remains valid.
+
+---
+
+### Slice 2b — Effect Hook: Open Initialization (≤400 changed lines including tests)
+
+**Goal**: Extract the open-triggered initialization/ref-sync logic after the
+consecutive-offer behavior is isolated.
+
+| File | Action | Est. Lines |
+|------|--------|-----------|
+| `enroll/hooks/useEnrollInit.ts` | Create | ~180+ |
+| `EnrollModal.tsx` | Replace open initialization/ref-sync effects with hook call | ~90 |
+| `tests/checkin/use-enroll-init.test.tsx` | Create focused hook tests | ~140+ |
+
+> **Budget gate**: The final PR diff must include tests and remain ≤400 changed
+> lines against PR2a branch. If `resetForm` extraction pushes this over budget,
+> leave `resetForm` inline for Slice 2b and schedule Slice 2c.
 
 **`useEnrollInit` signature**:
 ```ts
@@ -232,6 +280,7 @@ useEnrollInit(input: {
   isCheckInNewFlow: boolean
   isCheckInExistingFlow: boolean
   isCheckInFlow: boolean
+  isQrMobileCompactFlow: boolean
   checkInContextDate: string
   checkInContextTime: string
   effectiveInitialStep: number
@@ -254,27 +303,17 @@ useEnrollInit(input: {
 }): void
 ```
 
-**`useConsecutiveOffer` signature**:
-```ts
-useConsecutiveOffer(input: {
-  courseSlug: string
-  date: string
-  time: string
-  consecutiveOffer: ConsecutiveOfferData | undefined
-}): {
-  fetchedOffer: ConsecutiveOfferData | null
-  offerLoading: boolean
-}
-```
-
 **Test strategy**:
-- `useConsecutiveOffer`: `renderHook` + `msw` handler; assert fetch fires on
-  date/time change, aborts on cleanup, resets state when `consecutiveOffer` prop
-  is provided.
-- `useEnrollInit`: mock sessionStorage + dispatch; assert initial field values
-  dispatched on `open` flip.
+- Mock sessionStorage + dispatch; assert initial field values dispatched on `open` flip.
+- Cover default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
 
-**Rollback**: Revert PR2; PR1 state still valid.
+**Reset-form decision**:
+- `resetForm` is currently broad and touches kiosk, stripe, PIN, photo,
+  consecutive, popup, refs, and reducer setters.
+- Do not force it into Slice 2b if the signature or diff becomes noisy.
+- If needed, create Slice 2c for reset cleanup after `useEnrollInit` lands.
+
+**Rollback**: Revert PR2b; PR2a remains valid.
 
 ---
 
