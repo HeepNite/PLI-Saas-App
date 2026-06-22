@@ -4,7 +4,7 @@ import type { ConsecutiveOfferData } from "@/components/front/checkin/Consecutiv
 
 export type EnrollFlowVariant = "default" | "checkin-new" | "checkin-existing"
 export type EnrollCompletionMode = "default" | "personal" | "station"
-export type CompactBookingSource = "qr-mobile"
+export type CompactBookingSource = "qr-mobile" | "profile-booking"
 
 export type EnrollCheckInContext = {
   date?: string

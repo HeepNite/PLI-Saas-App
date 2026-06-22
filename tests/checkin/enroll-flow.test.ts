@@ -5,6 +5,7 @@ import {
   resolveEnrollInitialStep,
   resolvePostPhotoStepIndex,
   resolveEnrollStepKeys,
+  shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
 
@@ -122,6 +123,16 @@ describe("enroll flow helpers", () => {
         hasConsecutiveOffer: true,
       })
     ).toEqual(["consecutive", "payments"])
+  })
+
+  it("fetches consecutive offers for profile booking", () => {
+    expect(
+      shouldFetchConsecutiveOffer({
+        isQrMobileCompactFlow: false,
+        isCheckInFlow: false,
+        isProfileBookingFlow: true,
+      })
+    ).toBe(true)
   })
 
   it("keeps QR mobile compact when wired through a check-in flow variant", () => {

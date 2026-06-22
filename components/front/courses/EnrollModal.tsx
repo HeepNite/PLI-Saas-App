@@ -49,6 +49,7 @@ import {
   resolveEnrollInitialStep,
   resolveEnrollStepKeys,
   notifyPaymentsStepReadyForOpenSession,
+  shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
 } from "@/lib/checkin/enroll-flow"
 import {
@@ -207,6 +208,7 @@ export default function EnrollModal({
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
   const isQrMobileCompactFlow = compactBookingSource === "qr-mobile"
+  const isProfileBookingFlow = compactBookingSource === "profile-booking"
   const usesCompactCheckInExperience = isCheckInFlow || isQrMobileCompactFlow
   const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
   const forceKioskDarkModal = isKioskTerminalFlow && !isInline
@@ -331,7 +333,7 @@ export default function EnrollModal({
     date,
     time,
     consecutiveOffer,
-    enabled: isQrMobileCompactFlow || isCheckInFlow,
+    enabled: shouldFetchConsecutiveOffer({ isQrMobileCompactFlow, isCheckInFlow, isProfileBookingFlow }),
     resetChoice: resetConsecutiveChoice,
     resetAccepted: resetConsecutiveAccepted,
     resetAddedCents: resetConsecutiveAddedCents,
@@ -359,9 +361,10 @@ export default function EnrollModal({
         skipInfoStep: skipContactStep,
         hasPackages: course.enrollment.packages.length > 0,
         hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
+        isProfileBookingFlow,
       })
     },
-    [isCheckInFlow, isQrMobileCompactFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, skipContactStep, course.enrollment.packages.length, effectiveConsecutiveOffer]
+    [isCheckInFlow, isQrMobileCompactFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, skipContactStep, course.enrollment.packages.length, effectiveConsecutiveOffer, isProfileBookingFlow]
   )
   const steps = React.useMemo(
     () =>

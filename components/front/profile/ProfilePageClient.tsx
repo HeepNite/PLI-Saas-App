@@ -10,6 +10,7 @@ import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import { useStudentPinStatus } from "@/components/front/hooks/useStudentPinStatus"
 import {
   buildBookingPrefillContact,
+  hasUsableProfilePackage,
 } from "./profile-utils"
 import type {
   ActionRequestItem,
@@ -78,6 +79,7 @@ export default function ProfilePageClient() {
   const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
   const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
   const [enrollOpen, setEnrollOpen] = React.useState(false)
+  const [selectedDateTime, setSelectedDateTime] = React.useState<{ date: string; time: string } | null>(null)
   const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
 
   // --- Extracted hooks (Slice 2) ---
@@ -162,6 +164,10 @@ export default function ProfilePageClient() {
   const bookingPrefillContact = React.useMemo(
     () => buildBookingPrefillContact(profileForm, profileUser, user),
     [profileForm, profileUser, user]
+  )
+  const profileHasUsablePackage = React.useMemo(
+    () => hasUsableProfilePackage(packagesData),
+    [packagesData]
   )
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
   const orderedCourses = React.useMemo(() => {
@@ -632,19 +638,32 @@ export default function ProfilePageClient() {
         setCoursePickerOpen={setCoursePickerOpen}
         orderedCourses={orderedCourses}
         preferredSet={preferredSet}
-        setSelectedCourse={setSelectedCourse}
-        setEnrollOpen={setEnrollOpen}
+        onClassSelected={(course, date, time) => {
+          setSelectedCourse(course)
+          setSelectedDateTime({ date, time })
+          setCoursePickerOpen(false)
+          setEnrollOpen(true)
+        }}
       />
 
       {selectedCourse && (
         <EnrollModal
           course={selectedCourse}
           open={enrollOpen}
-          initialStep={1}
-          onCloseAction={() => setEnrollOpen(false)}
+          onCloseAction={() => {
+            setEnrollOpen(false)
+            setSelectedDateTime(null)
+          }}
           prefillContact={bookingPrefillContact}
+          isPackageHolder={profileHasUsablePackage}
           skipContactStep
           useDraft={false}
+          {...(selectedDateTime
+            ? {
+                checkInContext: { date: selectedDateTime.date, time: selectedDateTime.time },
+                compactBookingSource: "profile-booking" as const,
+              }
+            : { initialStep: 1 })}
         />
       )}
     </main>

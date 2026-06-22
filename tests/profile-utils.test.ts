@@ -5,6 +5,7 @@ import {
   getProfileCompletionPercent,
   buildBookingPrefillContact,
   getPackageAssignmentSummary,
+  hasUsableProfilePackage,
 } from "@/components/front/profile/profile-utils"
 
 describe("profile utils", () => {
@@ -83,6 +84,20 @@ describe("profile utils", () => {
       email: "ana@pli.com",
       phone: "+1 2222222222",
     })
+  })
+
+  it("detects active usable profile packages for promo pricing", () => {
+    expect(hasUsableProfilePackage([
+      { status: "active", isUnlimited: false, remainingCredits: 0 },
+      { status: "active", isUnlimited: false, remainingCredits: 2 },
+    ])).toBe(true)
+    expect(hasUsableProfilePackage([
+      { status: "active", isUnlimited: true, remainingCredits: null },
+    ])).toBe(true)
+    expect(hasUsableProfilePackage([
+      { status: "exhausted", isUnlimited: true, remainingCredits: null },
+      { status: "active", isUnlimited: false, remainingCredits: 0 },
+    ])).toBe(false)
   })
 
   it("builds package assignment summary for limited plans", () => {

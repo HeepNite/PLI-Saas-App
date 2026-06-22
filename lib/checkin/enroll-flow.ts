@@ -17,6 +17,8 @@ type ResolveEnrollStepKeysInput = {
   hasPackages?: boolean
   /** Whether a consecutive class offer is available (shows consecutive step before payment) */
   hasConsecutiveOffer?: boolean
+  /** Profile booking flow: date/time pre-selected, skip party+datetime+info+photo */
+  isProfileBookingFlow?: boolean
 }
 
 type ShouldIncludePhotoStepInput = {
@@ -62,6 +64,15 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
     ]
   }
 
+  if (input.isProfileBookingFlow) {
+    return [
+      ...(input.hasPackages ? (["packages"] as const) : []),
+      ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
+      "payments",
+      "review",
+    ] as EnrollStepKey[]
+  }
+
   return [
     "party",
     "datetime",
@@ -80,6 +91,12 @@ export const isCheckInContactGateStep = (input: {
 
 export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) =>
   input.isCheckInFlow && input.photoPolicyRequired && !(input.hasAvatar || input.photoSaved)
+
+export const shouldFetchConsecutiveOffer = (input: {
+  isQrMobileCompactFlow: boolean
+  isCheckInFlow: boolean
+  isProfileBookingFlow: boolean
+}) => input.isQrMobileCompactFlow || input.isCheckInFlow || input.isProfileBookingFlow
 
 export const getCheckInSignInModalVariant = (isCheckInFlow: boolean) =>
   isCheckInFlow ? "compact" : "sheet"

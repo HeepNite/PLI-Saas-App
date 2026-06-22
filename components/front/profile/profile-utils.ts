@@ -55,6 +55,12 @@ export type PackageAssignmentSummaryInput = {
   assignedBookingsCount: number
 }
 
+export type UsableProfilePackageInput = {
+  status?: string | null
+  isUnlimited: boolean
+  remainingCredits: number | null
+}
+
 export type PackageAssignmentSummary = {
   assigned: number
   remaining: number | null
@@ -110,6 +116,13 @@ export const buildBookingPrefillContact = (
   email: profileUser.email || clerkUser?.primaryEmailAddress?.emailAddress || "",
   phone: profileUser.phone || clerkUser?.primaryPhoneNumber?.phoneNumber || "+1 ",
 })
+
+export const hasUsableProfilePackage = (packages: UsableProfilePackageInput[]) =>
+  packages.some((pkg) => {
+    if (pkg.status && pkg.status !== "active") return false
+    if (pkg.isUnlimited) return true
+    return typeof pkg.remainingCredits === "number" && pkg.remainingCredits > 0
+  })
 
 export const getPackageAssignmentSummary = (input: PackageAssignmentSummaryInput): PackageAssignmentSummary => {
   const queued = Math.max(0, input.queuedCount)

@@ -11,6 +11,7 @@ export const resolveFlowStepKeys = (input: {
   skipInfoStep?: boolean
   hasPackages?: boolean
   hasConsecutiveOffer?: boolean
+  isProfileBookingFlow?: boolean
 }) => resolveEnrollStepKeys(input)
 
 export const selectActiveStepKey = (stepKeys: EnrollStepKey[], step: number): EnrollStepKey | "" => stepKeys[step] || ""
