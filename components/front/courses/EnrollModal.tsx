@@ -2350,7 +2350,7 @@ export default function EnrollModal({
                 )}
 
                 {/* Summary - show booking summary or business info based on step */}
-                {activeStepKey !== "payments" && !(isQrMobileCompactFlow && activeStepKey === "consecutive") ? (
+                {activeStepKey !== "payments" && !isQrMobileCompactFlow ? (
                   <>
                     <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
                       <div className="font-semibold mb-2">{t("summary")}</div>

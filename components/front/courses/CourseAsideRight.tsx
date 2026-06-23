@@ -39,11 +39,15 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const shouldUseQrCompactBooking = Boolean(qrBookingContext)
   const qrAuthReady = !shouldUseQrCompactBooking || isLoaded
   const shouldSkipQrContactStep = shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn)
-  const qrCompactFlowVariant = shouldUseQrCompactBooking
-    ? shouldSkipQrContactStep
-      ? "checkin-existing"
-      : "checkin-new"
-    : undefined
+  // Capture flow variant once so SMS verification (which signs the user in) doesn't
+  // flip "checkin-new" → "checkin-existing" mid-flow and change the $15 pricing.
+  const [qrCompactFlowVariant] = React.useState(() =>
+    shouldUseQrCompactBooking
+      ? shouldSkipQrContactStep
+        ? "checkin-existing"
+        : "checkin-new"
+      : undefined
+  )
   // Suppress background content while QR modal initializes to prevent flash
   const shouldSuppressBackground = shouldUseQrCompactBooking && qrAuthReady && mobileOpen
   const bookingShift = "0px"
