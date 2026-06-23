@@ -1288,8 +1288,11 @@ export default function EnrollModal({
         if (!pinAvailable) return
       }
 
-      if (service === "new-student" && isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
-        // Kiosk new-student flow: use the verification state machine
+      if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
+        // Kiosk & QR mobile new-student flow: use the verification state machine.
+        // This avoids the requiresSignIn sign-in modal which fails for newly created
+        // Clerk accounts due to propagation delay. Instead, EmbeddedSignIn renders
+        // via JSX conditional with activateSessionOnSuccess={false}.
         const result = await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({
           isKioskTerminalFlow,
@@ -1297,7 +1300,7 @@ export default function EnrollModal({
           verifyResult: result,
           onExistingUserDetected,
         })) {
-          // Parent (CheckInQrClient) handles transition to PIN flow
+          // Parent handles transition to PIN flow
           return
         }
         if (result === "sms_pending") {
@@ -1311,8 +1314,7 @@ export default function EnrollModal({
         }
         // If somehow already verified, continue to account prep below
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
-        // Verify phone against purchase history — applies to both web and QR mobile flows.
-        // If the phone has completed purchases, force regular pricing.
+        // Web new-student flow: use requestNewStudentOutcome + sign-in modal
         const verifyResult = await requestNewStudentOutcome()
         if (!verifyResult) return
 
@@ -1322,29 +1324,23 @@ export default function EnrollModal({
         }
 
         if (verifyResult.requiresSmsVerification || verifyResult.outcome === "requires_sms_verification") {
-          if (isQrMobileCompactFlow) {
-            // QR mobile: skip Clerk sign-in SMS gate (causes "Couldn't find your account"
-            // for newly created accounts due to Clerk propagation delay).
-            // Server-side purchase check above already prevents pricing abuse.
-          } else {
-            const account = await requestAccountPreparation()
-            if (!account) return
+          const account = await requestAccountPreparation()
+          if (!account) return
 
-            if (!isSignedIn || account.requiresSignIn) {
-              setSignInPurpose("sms_verification")
-              setRequiresSignIn(true)
-              setExistingAccountDetected(false)
-              setResumeAfterSignInStep(null)
-              setPendingAutoPay(false)
-              setResumeContactFlowAfterSignIn(true)
-              return
-            }
+          if (!isSignedIn || account.requiresSignIn) {
+            setSignInPurpose("sms_verification")
+            setRequiresSignIn(true)
+            setExistingAccountDetected(false)
+            setResumeAfterSignInStep(null)
+            setPendingAutoPay(false)
+            setResumeContactFlowAfterSignIn(true)
+            return
+          }
 
-            const verifiedAgain = await requestNewStudentOutcome()
-            if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
-              showRegularFallbackPopup(verifiedAgain?.message)
-              return
-            }
+          const verifiedAgain = await requestNewStudentOutcome()
+          if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
+            showRegularFallbackPopup(verifiedAgain?.message)
+            return
           }
         }
       }
@@ -1861,9 +1857,9 @@ export default function EnrollModal({
     setStep((prev) => Math.max(0, Math.min(prev, steps.length - 1)))
   }, [open, steps.length, setStep])
 
-  // Kiosk new-student: after SMS verification succeeds, continue to account prep
+  // Kiosk & QR mobile new-student: after SMS verification succeeds, continue to account prep
   React.useEffect(() => {
-    if (verificationState !== "verified" || !isKioskTerminalFlow) return
+    if (verificationState !== "verified" || !(isKioskTerminalFlow || isQrMobileCompactFlow)) return
     let cancelled = false
     void (async () => {
       const account = preparedAccount || (await requestAccountPreparation())
@@ -1879,7 +1875,7 @@ export default function EnrollModal({
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
+  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
 
   const activeStepKey = steps[step]?.key || ""
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
@@ -3362,7 +3358,7 @@ export default function EnrollModal({
           </div>
         </div>
       )}
-      {(verificationState === "sms_pending" || verificationState === "sms_verifying") && isKioskTerminalFlow && (
+      {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
           <button
             type="button"
