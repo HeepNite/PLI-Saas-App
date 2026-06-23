@@ -217,6 +217,7 @@ export type CardCheckInStatus = "checked_in" | "checked_in_no_package" | "checke
 
 export type ActivePackage = {
   label: string
+  totalCredits: number | null
   remainingCredits: number | null
   isUnlimited: boolean
   expiresAt: string | null

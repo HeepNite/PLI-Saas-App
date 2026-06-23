@@ -430,6 +430,7 @@ describe("StaffStudentsBoardPanel", () => {
             createProfileCard({
               activePackage: {
                 label: "10 classes",
+                totalCredits: 10,
                 remainingCredits: 3,
                 isUnlimited: false,
                 expiresAt: null,

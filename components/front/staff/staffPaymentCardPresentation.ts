@@ -166,7 +166,9 @@ export const resolveProfileCardDetails = (student: StudentProfileCard) => {
   const packageValue = student.activePackage
     ? student.activePackage.isUnlimited
       ? "Unlimited"
-      : `${Math.max(0, student.remainingCredits || 0)} credits`
+      : student.activePackage.totalCredits
+        ? `${Math.max(0, student.remainingCredits || 0)} of ${student.activePackage.totalCredits} remaining`
+        : `${Math.max(0, student.remainingCredits || 0)} credits`
     : "No package credits"
   const paymentStatusLabel = profileBalanceStatusLabel(student.outstandingBalance)
   const paymentStatusTone = profileBalanceStatusTone(student.outstandingBalance)

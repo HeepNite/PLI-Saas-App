@@ -39,6 +39,7 @@ type EnrollInfoStepProps = {
   studentPin: string
   studentPinConfirm: string
   t: (key: I18nKey) => string
+  usesPhasedInfoForm?: boolean
 }
 
 const securePinStyle = { WebkitTextSecurity: "disc" } as React.CSSProperties
@@ -83,6 +84,7 @@ export default function EnrollInfoStep({
   studentPin,
   studentPinConfirm,
   t,
+  usesPhasedInfoForm = false,
 }: EnrollInfoStepProps) {
   const phoneComplete = isCompleteUSPhone(contact.phone)
 
@@ -297,7 +299,7 @@ export default function EnrollInfoStep({
     </div>
   )
 
-  if (isKioskTerminalFlow) {
+  if (isKioskTerminalFlow || usesPhasedInfoForm) {
     return (
       <div className="space-y-4">
         <AnimatePresence>
@@ -352,19 +354,6 @@ export default function EnrollInfoStep({
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {nameEmailFields}
       {phoneField}
-      {/* Notes field hidden — kept in data structure but not shown in UI */}
-      {false && !isKioskTerminalFlow && (
-        <fieldset className="space-y-2 sm:col-span-2">
-          <label className="text-sm font-medium">{t("label_notes")}</label>
-          <textarea
-            value={contact.note}
-            onChange={(e) => setContact((c) => ({ ...c, note: e.target.value }))}
-            rows={3}
-            placeholder={t("placeholder_notes")}
-            className="w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 dark:border-white/10 dark:bg-white/10"
-          />
-        </fieldset>
-      )}
 
       {pinFields}
 

@@ -1593,6 +1593,7 @@ describe("resolveProfileCardDetails", () => {
         paymentStatus: "failed",
         activePackage: {
           label: "12 Classes",
+          totalCredits: 12,
           remainingCredits: 5,
           isUnlimited: false,
           expiresAt: null,
@@ -1611,7 +1612,7 @@ describe("resolveProfileCardDetails", () => {
       })
     ).toMatchObject({
       packageLabel: "12 Classes",
-      packageValue: "5 credits",
+      packageValue: "5 of 12 remaining",
       paymentStatusLabel: "Payment due",
       checkInStatusLabel: "Check-in",
       lastPaymentLabel: "$25.00 · Friday, 20 Mar 2026",

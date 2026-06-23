@@ -45,6 +45,14 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       : "checkin-new"
     : undefined
   // Suppress background content while QR modal initializes to prevent flash
+  const [qrModalReady, setQrModalReady] = React.useState(false)
+  React.useEffect(() => {
+    if (!shouldUseQrCompactBooking || qrModalReady) return
+    if (!qrAuthReady || !mobileOpen) return
+    // Small delay so the modal has time to mount over the page
+    const timer = setTimeout(() => setQrModalReady(true), 350)
+    return () => clearTimeout(timer)
+  }, [shouldUseQrCompactBooking, qrAuthReady, mobileOpen, qrModalReady])
   const shouldSuppressBackground = shouldUseQrCompactBooking && qrAuthReady && mobileOpen
   const bookingShift = "0px"
   const sideButtonSize = 44
@@ -172,9 +180,9 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
 
   return (
     <div ref={containerRef} className="space-y-4">
-      {/* Full-screen loader while Clerk loads during QR mobile flow */}
-      {shouldUseQrCompactBooking && !qrAuthReady && (
-        <div className="lg:hidden fixed inset-0 z-[13000] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      {/* Full-screen loader while Clerk loads or modal initializes during QR mobile flow */}
+      {shouldUseQrCompactBooking && !qrModalReady && (
+        <div className="lg:hidden fixed inset-0 z-[13000] flex items-center justify-center bg-black backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
             <p className="text-sm text-white/70">Loading your booking…</p>

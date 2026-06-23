@@ -185,9 +185,11 @@ const loadActivePackages = async (userIds: string[]) => {
       OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
     },
     select: {
+      id: true,
       userId: true,
       packageId: true,
       packageLabel: true,
+      totalCredits: true,
       remainingCredits: true,
       isUnlimited: true,
       expiresAt: true,
@@ -294,6 +296,7 @@ const buildSelectedActivePackageByUser = (packages: Awaited<ReturnType<typeof lo
       userId,
       {
         label: pkg.packageLabel || pkg.packageId,
+        totalCredits: pkg.isUnlimited ? null : pkg.totalCredits ?? null,
         remainingCredits: pkg.isUnlimited ? null : pkg.remainingCredits ?? null,
         isUnlimited: pkg.isUnlimited,
         expiresAt: toIso(pkg.expiresAt),

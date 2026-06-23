@@ -58,23 +58,22 @@ export default function CheckInPageRouter() {
     return (
       <div className="flex min-h-[60vh] items-center justify-center px-4">
         <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-gradient-to-br from-[#151118] via-[#0d0b12] to-[#09090d] p-6 text-center shadow-lg">
-          <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-2xl">🔐</span>
-          <p className="mt-3 text-lg font-semibold text-white">No Active Account Found</p>
-          <p className="mt-2 text-sm text-white/60">
-            We could not find an active account for this device. Would you like to sign in, or continue with booking?
+          <p className="text-lg font-semibold text-white">Welcome!</p>
+          <p className="mt-2 text-sm text-white/50">
+            How would you like to continue?
           </p>
-          <div className="mt-4 flex flex-col gap-2">
-            <a
-              href={buildQrSignInUrl(redirectUrl)}
-              className="inline-block rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white"
-            >
-              Sign In
-            </a>
+          <div className="mt-5 flex flex-col gap-3">
             <a
               href={bookingUrl}
-              className="inline-block rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
+              className="inline-block rounded-md bg-[var(--brand,#b61616)] px-4 py-2.5 text-sm font-semibold text-white"
             >
-              Continue Booking
+              I&apos;m new
+            </a>
+            <a
+              href={buildQrSignInUrl(redirectUrl)}
+              className="inline-block rounded-md border border-white/15 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold text-white/80"
+            >
+              I have an account
             </a>
           </div>
         </div>

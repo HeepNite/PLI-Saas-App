@@ -6,6 +6,7 @@ const mockWriteAudit = vi.fn()
 const mockPrisma = {
   user: {
     findUnique: vi.fn(),
+    update: vi.fn(),
   },
   classSession: {
     findUnique: vi.fn(),
@@ -15,6 +16,10 @@ const mockPrisma = {
     findUnique: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    delete: vi.fn(),
+  },
+  purchase: {
+    findMany: vi.fn(),
     delete: vi.fn(),
   },
   packagePurchase: {
@@ -74,7 +79,13 @@ describe("PATCH /api/staff/students/[userId]/attendance", () => {
     mockPrisma.packageUsageLedger.findFirst.mockReset()
     mockPrisma.packageUsageLedger.create.mockReset()
     mockPrisma.packageUsageLedger.delete.mockReset()
+    mockPrisma.purchase.findMany.mockReset()
+    mockPrisma.purchase.delete.mockReset()
+    mockPrisma.user.update.mockReset()
     mockPrisma.$transaction.mockReset()
+
+    mockPrisma.purchase.findMany.mockResolvedValue([])
+    mockPrisma.user.update.mockResolvedValue({})
 
     mockPrisma.user.findUnique.mockResolvedValue({ id: USER_ID, name: "Test Student" })
     mockPrisma.classSession.findUnique.mockResolvedValue({ id: SESSION_ID })

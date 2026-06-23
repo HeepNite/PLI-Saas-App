@@ -211,6 +211,7 @@ export default function EnrollModal({
   const isProfileBookingFlow = compactBookingSource === "profile-booking"
   const usesCompactCheckInExperience = isCheckInFlow || isQrMobileCompactFlow
   const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
+  const usesPhasedInfoForm = isKioskTerminalFlow || (isQrMobileCompactFlow && isCheckInNewFlow)
   const forceKioskDarkModal = isKioskTerminalFlow && !isInline
   const isStationCompletion = isCheckInFlow && completionMode === "station"
   const isPersonalCompletion = usesCompactCheckInExperience && completionMode === "personal"
@@ -1351,7 +1352,16 @@ export default function EnrollModal({
       const account = preparedAccount || (await requestAccountPreparation())
       if (!account) return
 
-      if (photoPolicy.uploadMode === "customer_self" && account.requiresSignIn && !isSignedIn) {
+      // For QR mobile new-student flow, skip sign-in gate for photo upload.
+      // The Clerk account was just created — forcing immediate sign-in causes
+      // "Couldn't find your account" errors due to Clerk propagation delay.
+      // The photo step will handle upload using the prepared account's clerkUserId.
+      if (
+        photoPolicy.uploadMode === "customer_self" &&
+        account.requiresSignIn &&
+        !isSignedIn &&
+        !(isQrMobileCompactFlow && isCheckInNewFlow)
+      ) {
         setSignInPurpose("account_preparation")
         setRequiresSignIn(true)
         setExistingAccountDetected(false)
@@ -1750,11 +1760,11 @@ export default function EnrollModal({
   }
 
   const handleFormStepSubmit = async () => {
-    if (isKioskTerminalFlow && activeStepKey === "info") {
+    if (usesPhasedInfoForm && activeStepKey === "info") {
       const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service)
       if (nextPhase !== "done") {
         setKioskInfoPhase(nextPhase)
-        setActiveNumericField(nextPhase === "phone" ? "phone" : "pin")
+        if (isKioskTerminalFlow) setActiveNumericField(nextPhase === "phone" ? "phone" : "pin")
         return
       }
     }
@@ -2077,7 +2087,7 @@ export default function EnrollModal({
     })
 
   const canContinue = stepValid(step)
-  const canContinueCurrentStep = isKioskTerminalFlow && activeStepKey === "info"
+  const canContinueCurrentStep = usesPhasedInfoForm && activeStepKey === "info"
     ? kioskInfoPhase === "name-email"
       ? contact.firstName.trim().length > 1 && contact.email.trim().length > 5
       : kioskInfoPhase === "phone"
@@ -2781,6 +2791,7 @@ export default function EnrollModal({
                     studentPin={studentPin}
                     studentPinConfirm={studentPinConfirm}
                     t={t}
+                    usesPhasedInfoForm={usesPhasedInfoForm}
                   />
                 )}
 
@@ -3195,7 +3206,7 @@ export default function EnrollModal({
                     {allowPanelAccess && (
                       <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
                     )}
-                    {!(isKioskTerminalFlow && step === 0 && kioskInfoPhase === "name-email") && (
+                    {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === "name-email") && (
                       <button
                         type="button"
                         onClick={() => {
@@ -3203,10 +3214,10 @@ export default function EnrollModal({
                             resetKioskQrCheckout()
                             return
                           }
-                          if (isKioskTerminalFlow && step === 0 && kioskInfoPhase !== "name-email") {
+                          if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email") {
                             if (kioskInfoPhase === "pin") {
                               setKioskInfoPhase("phone")
-                              setActiveNumericField("phone")
+                              if (isKioskTerminalFlow) setActiveNumericField("phone")
                               return
                             }
 
@@ -3224,7 +3235,7 @@ export default function EnrollModal({
                       >
                         {kioskQrCheckoutLocked
                           ? "Cancel QR"
-                          : isKioskTerminalFlow && step === 0 && kioskInfoPhase !== "name-email"
+                          : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email"
                             ? "Back"
                             : step === 0
                               ? t("cancel")
@@ -3409,20 +3420,20 @@ export default function EnrollModal({
               signInModalVariant === "compact" ? "max-w-sm" : "sm:max-w-md"
             }`}
           >
-            <div className="flex items-start justify-between gap-4">
-              <div className="pr-10">
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-4">
                 <h3 className="text-lg font-semibold text-white">{signInModalTitle}</h3>
-                <p className="text-sm text-white/68">{signInModalSubtitle}</p>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
+                  onClick={handleSignInDismiss}
+                >
+                  {t("cancel")}
+                </button>
               </div>
-              <button
-                type="button"
-                className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
-                onClick={handleSignInDismiss}
-              >
-                {t("cancel")}
-              </button>
+              <p className="text-sm leading-relaxed text-white/68">{signInModalSubtitle}</p>
             </div>
-            <div className="mt-4">
+            <div className="mt-5">
               <EmbeddedSignIn
                 redirectUrl={signInReturnTo}
                 phoneNumber={toE164Phone(contact.phone)}
