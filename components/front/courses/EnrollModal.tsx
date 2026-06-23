@@ -1310,11 +1310,6 @@ export default function EnrollModal({
           return
         }
         // If somehow already verified, continue to account prep below
-      } else if (service === "new-student" && isQrMobileCompactFlow && isCompleteUSPhone(contact.phone)) {
-        // QR mobile new-student flow: always use new-student price ($15).
-        // Skip requestNewStudentOutcome verification — the QR flow guarantees
-        // new-student pricing for phone-verified users. Proceed directly to
-        // account preparation → photo → payments.
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
         // Non-kiosk new-student flow: keep existing behavior
         const verifyResult = await requestNewStudentOutcome()
@@ -2120,13 +2115,12 @@ export default function EnrollModal({
     setResumeContactFlowAfterSignIn(false)
     setSignInPurpose("existing")
 
-    if (signInPurpose === "sms_verification" && !isQrMobileCompactFlow) {
+    if (signInPurpose === "sms_verification") {
       showRegularFallbackPopup(
         `Phone verification was not completed. We switched this booking to the regular $${regularServicePrice.toFixed(0)} price.`
       )
     }
   }, [
-    isQrMobileCompactFlow,
     regularServicePrice,
     setExistingAccountDetected,
     setRequiresSignIn,

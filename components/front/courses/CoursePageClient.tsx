@@ -1,5 +1,6 @@
 "use client"
 import React from "react"
+import { useSearchParams } from "next/navigation"
 import type { CourseData } from "@/constants/courses"
 import CourseAsideLeft from "./CourseAsideLeft"
 import CourseAsideRight from "./CourseAsideRight"
@@ -17,6 +18,8 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
   const leftStickyRef = React.useRef<HTMLDivElement>(null)
   const rightStickyRef = React.useRef<HTMLDivElement>(null)
   const [showSkeleton, setShowSkeleton] = React.useState(true)
+  const searchParams = useSearchParams()
+  const isQrBookingFlow = searchParams.get("qrBooking") === "1"
 
   React.useEffect(() => {
     if (typeof document === "undefined") return
@@ -201,6 +204,43 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
       </div>
     </div>
   )
+
+  // QR booking flow on mobile: hide the entire course page and show only the booking overlay
+  if (isQrBookingFlow) {
+    return (
+      <div className="min-h-screen bg-background overflow-visible">
+        {/* Mobile: full-screen black background with only the booking modal */}
+        <div className="lg:hidden fixed inset-0 z-[100] bg-black">
+          <CourseAsideRight course={course} />
+        </div>
+        {/* Desktop: render normally */}
+        <div className="hidden lg:block mx-auto w-full max-w-[1800px] px-0 sm:px-1 lg:px-2 xl:px-3 py-8">
+          <div
+            ref={gridRef}
+            className="grid grid-cols-1 gap-6 overflow-visible relative lg:items-start lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(360px,430px)]"
+          >
+            <aside className="lg:self-start lg:h-fit">
+              <div ref={leftStickyRef} className="lg:sticky" style={{ top: stickyTop }}>
+                <div className="space-y-4">
+                  <CourseAsideLeft course={course} />
+                </div>
+              </div>
+            </aside>
+            <section>
+              <div className="pr-1">
+                <CourseSections course={course} />
+              </div>
+            </section>
+            <aside className="lg:self-start lg:h-fit" id="enroll-cta">
+              <div ref={rightStickyRef} className="lg:sticky" style={{ top: stickyTop }}>
+                <CourseAsideRight course={course} />
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background overflow-visible">
