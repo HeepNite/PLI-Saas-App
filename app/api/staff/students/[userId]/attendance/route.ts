@@ -4,19 +4,13 @@ import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { asObject, asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 type AttendanceAction = "add" | "remove" | "update"
 
 const MAX_SESSION_IDS = 20
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
-
-const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "")
 
 // ─── Internal helpers (extracted to avoid duplication in multi-session loop) ───
 
@@ -137,26 +131,52 @@ async function applyRemove(
 
   const valueBefore = { status: attendance.status, sessionId }
 
-  await tx.attendance.delete({
-    where: { userId_sessionId: { userId, sessionId } },
-  })
-
-  // Restore package credit if it was consumed
+  // Collect related records BEFORE deleting attendance (cascade sets attendanceId to null)
   const usageEntry = await tx.packageUsageLedger.findFirst({
     where: { attendanceId: attendance.id },
     include: { packagePurchase: true },
   })
 
+  const linkedPurchases = await tx.purchase.findMany({
+    where: {
+      userId,
+      metadata: { path: ["attendanceId"], equals: attendance.id },
+    },
+  })
+
+  // Now delete the attendance
+  await tx.attendance.delete({
+    where: { userId_sessionId: { userId, sessionId } },
+  })
+
+  // Restore package credit if it was consumed
   if (usageEntry) {
     await tx.packagePurchase.update({
       where: { id: usageEntry.packagePurchaseId },
-      data: { remainingCredits: { increment: 1 } },
+      data: {
+        remainingCredits: { increment: 1 },
+        ...(usageEntry.packagePurchase.status === "exhausted" ? { status: "active" } : {}),
+      },
     })
 
     await tx.packageUsageLedger.delete({
       where: { id: usageEntry.id },
     })
   }
+
+  // Remove the $0 package_credit purchase linked to this attendance
+  for (const purchase of linkedPurchases) {
+    await tx.purchase.delete({ where: { id: purchase.id } })
+  }
+
+  // Clear stat overrides so they recompute from actual data
+  await tx.user.update({
+    where: { id: userId },
+    data: {
+      completedClassesOverride: null,
+      packageClassesUsedOverride: null,
+    },
+  })
 
   await writeStudentDataAudit(
     {

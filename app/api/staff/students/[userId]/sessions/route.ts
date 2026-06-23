@@ -114,7 +114,7 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   // Fetch sessions
   const sessions = await prisma.classSession.findMany({
     where: sessionWhere,
-    orderBy: [{ startsAt: "asc" }],
+    orderBy: [{ startsAt: "desc" }],
     take: 200, // reasonable cap for UI
   })
 
@@ -123,7 +123,7 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   if (sessions.length === 0 && relevantCourseSlugs.length > 0) {
     const fallbackSessions = await prisma.classSession.findMany({
       where: { startsAt: { gte: from, lte: to } },
-      orderBy: [{ startsAt: "asc" }],
+      orderBy: [{ startsAt: "desc" }],
       take: 200,
     })
     sessions.push(...fallbackSessions)
