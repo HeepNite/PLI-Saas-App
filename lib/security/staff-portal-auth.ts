@@ -5,6 +5,7 @@ import {
   STAFF_ROLES,
   type StaffRole,
 } from "@/lib/security/staff-role"
+import { asObject } from "@/lib/shared"
 import {
   extractStaffCategoryFromUserMetadata,
   parseStaffCategory,
@@ -46,11 +47,6 @@ export type StaffPortalBaseAuthResult =
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 const STAFF_ROLE_SET = new Set<StaffRole>(STAFF_ROLES)
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
 
 const parseSessionIssuedAtMs = (claims: unknown): number | null => {
   if (!claims || typeof claims !== "object") return null

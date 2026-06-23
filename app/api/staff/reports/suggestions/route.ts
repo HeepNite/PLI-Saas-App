@@ -6,13 +6,9 @@ import {
   type ReportsSuggestionPayload,
   type ReportsSuggestionsRequest,
 } from "@/lib/staff/reports-suggestions-provider"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
 
 const parseObjectiveFilter = (value: unknown): ReportsSuggestionsRequest["objectiveFilter"] => {
   if (typeof value !== "string") return "all"

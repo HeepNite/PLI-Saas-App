@@ -13,6 +13,7 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
+import { normalizePhoneDigits } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -20,11 +21,6 @@ const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"] as con
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
-
-const normalizePhoneDigits = (value: string) => {
-  const digits = value.replace(/\D/g, "")
-  return digits.length >= 6 ? digits : ""
-}
 
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""

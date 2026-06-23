@@ -2,6 +2,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { timingSafeEqual } from "crypto"
 import { hasStaffRoleInUserMetadata, STAFF_ROLES, type StaffRole } from "@/lib/security/staff-role"
 import { prisma } from "@/lib/prisma"
+import { asObject } from "@/lib/shared"
 
 const timingSafeTokenEqual = (left: string, right: string) => {
   const leftBuffer = Buffer.from(left, "utf8")
@@ -15,11 +16,6 @@ const hasValidServiceToken = (req: Request) => {
   if (!expected) return false
   const incoming = req.headers.get("x-staff-token")
   return incoming ? timingSafeTokenEqual(incoming, expected) : false
-}
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
 }
 
 const parseSessionIssuedAtMs = (claims: unknown): number | null => {

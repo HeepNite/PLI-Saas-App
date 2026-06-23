@@ -1,4 +1,5 @@
 import { buildSessionStartsAt, getCourseBySlug } from "@/lib/class-schedule"
+import { SLUG_REGEX } from "@/lib/shared"
 
 export const QR_CHECKIN_OPEN_BEFORE_MS = 2 * 60 * 60 * 1000
 export const QR_CHECKIN_CLOSE_AFTER_END_MS = 2 * 60 * 60 * 1000
@@ -6,7 +7,6 @@ export const QR_CHECKIN_CLOSE_AFTER_END_MS = 2 * 60 * 60 * 1000
 const DEFAULT_DURATION_MINUTES = 60
 const MIN_DURATION_MINUTES = 15
 const MAX_DURATION_MINUTES = 240
-const COURSE_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const isDevCheckInBypassEnabled = () => process.env.NODE_ENV !== "production"
 
 export type QrCheckInContext = {
@@ -46,7 +46,7 @@ export const parseQrCheckInContext = (
   options?: { requireKnownCourse?: boolean }
 ): QrCheckInContext | ValidationError => {
   const courseSlug = normalizeString(input.courseSlug).toLowerCase()
-  if (!courseSlug || !COURSE_SLUG_REGEX.test(courseSlug)) {
+  if (!courseSlug || !SLUG_REGEX.test(courseSlug)) {
     return { status: 400, error: "Invalid courseSlug" }
   }
 

@@ -2,14 +2,10 @@ import { createHash, timingSafeEqual } from "crypto"
 import { clerkClient } from "@clerk/nextjs/server"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
+import { asObject } from "@/lib/shared"
 
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
 
 export const isValidPinHash = (pin: string, pinHash: string): boolean => {
   const parts = pinHash.split(":")

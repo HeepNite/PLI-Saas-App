@@ -18,6 +18,7 @@ import {
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { normalizePhone } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -39,11 +40,6 @@ const parseIntSafe = (value: string | undefined) => {
   if (!value) return undefined
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) ? parsed : undefined
-}
-
-const normalizePhone = (value?: string | null) => {
-  const digits = value?.replace(/\D/g, "")
-  return digits && digits.length >= 6 ? digits : undefined
 }
 
 const packagePurchaseEventKey = (packagePurchaseId: string) => `package-purchase:${packagePurchaseId}`

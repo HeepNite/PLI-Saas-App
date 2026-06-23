@@ -3,15 +3,9 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { parseStaffRequestStatus } from "@/lib/security/staff-request"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
 
 export async function PATCH(req: Request, context: { params: Promise<{ requestId: string }> }) {
   const rateLimit = consumeRateLimit({

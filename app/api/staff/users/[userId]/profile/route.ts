@@ -33,6 +33,7 @@ import {
   extractStaffRoleSnapshot,
   syncStaffAccountFromClerkUser,
 } from "@/lib/security/staff-account-sync"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -56,13 +57,6 @@ type StaffProfilePayload = {
   clearPin: boolean
   paymentPreference: StaffPaymentPreference | null
   paymentInfo: StaffPaymentInfo | null
-}
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 const safeText = (value: unknown, max = 120) => {

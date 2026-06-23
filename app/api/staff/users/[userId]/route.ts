@@ -22,17 +22,11 @@ import {
   extractStaffRoleSnapshot,
   syncStaffAccountFromClerkUser,
 } from "@/lib/security/staff-account-sync"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 type StaffAction = "set_role" | "set_category" | "lock" | "unlock" | "ban" | "unban" | "remove_staff" | "force_logout"
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
 
 const parseRole = (value: unknown): StaffRole | null => {
   if (typeof value !== "string") return null

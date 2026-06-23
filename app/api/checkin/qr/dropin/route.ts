@@ -10,6 +10,7 @@ import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
+import { asObject, normalizePhoneDigits } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -17,11 +18,6 @@ const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"] as con
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
-
-const normalizePhoneDigits = (value: string) => {
-  const digits = value.replace(/\D/g, "")
-  return digits.length >= 6 ? digits : ""
-}
 
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
@@ -31,8 +27,7 @@ const normalizeString = (value: unknown) => {
 const isPaidPurchaseStatus = (status: string) => ["paid", "succeeded", "completed"].includes(status.toLowerCase())
 
 const isCashPurchaseMetadata = (value: unknown) => {
-  const metadata = toRecord(value)
-  if (!metadata) return false
+  const metadata = asObject(value)
   const paymentChannel = normalizeString(metadata.paymentChannel).toLowerCase()
   const paymentMethod = normalizeString(metadata.paymentMethod).toLowerCase()
   const source = normalizeString(metadata.source).toLowerCase()
@@ -45,15 +40,11 @@ const isCashPurchaseMetadata = (value: unknown) => {
 }
 
 const isHostedKioskCardPurchase = (value: unknown) => {
-  const metadata = toRecord(value)
-  if (!metadata) return false
+  const metadata = asObject(value)
   const flowContext = normalizeString(metadata.flowContext).toLowerCase()
   const paymentSurface = normalizeString(metadata.paymentSurface).toLowerCase()
   return flowContext === "kiosk_terminal" && paymentSurface === "hosted_checkout"
 }
-
-const toRecord = (value: unknown) =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 export async function POST(req: Request) {
   try {
@@ -78,7 +69,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const payload = toRecord(body)
+    const payload = asObject(body)
     const paymentIntentId = normalizeString(payload?.paymentIntentId)
     const purchaseId = normalizeString(payload?.purchaseId)
     const context = parseQrCheckInContext(
@@ -167,7 +158,7 @@ export async function POST(req: Request) {
           },
         })
 
-        const metadata = toRecord(purchase?.metadata)
+        const metadata = asObject(purchase?.metadata)
         const purchaseCourseSlug = normalizeString(metadata?.courseSlug) || normalizeString(purchase?.courseSlug)
         const purchaseDate = normalizeString(metadata?.date)
         const purchaseTime = normalizeString(metadata?.time)
@@ -244,7 +235,7 @@ export async function POST(req: Request) {
 
     const dropInPurchase =
       recentPurchases.find((purchase) => {
-        const metadata = toRecord(purchase.metadata)
+        const metadata = asObject(purchase.metadata)
         const metaDate = normalizeString(metadata?.date)
         const metaTime = normalizeString(metadata?.time)
         const metaPackageId = normalizeString(metadata?.packageId)

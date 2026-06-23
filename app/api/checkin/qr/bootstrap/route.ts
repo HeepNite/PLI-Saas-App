@@ -14,6 +14,7 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { computeDiscountPercent } from "@/lib/course-links"
 import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
+import { normalizePhoneDigits } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -33,11 +34,6 @@ type CoursePricingTemplate = {
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
   return value.trim()
-}
-
-const normalizePhoneDigits = (value: string) => {
-  const digits = value.replace(/\D/g, "")
-  return digits.length >= 6 ? digits : ""
 }
 
 const splitName = (value: string) => {

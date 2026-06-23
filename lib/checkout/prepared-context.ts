@@ -3,6 +3,7 @@ import "server-only"
 import type { PreparedCheckoutAccount } from "@/lib/checkout"
 import type { CheckoutValidation } from "@/lib/checkout/validation"
 import { prisma } from "@/lib/prisma"
+import { asRecord } from "@/lib/shared"
 
 export const PREPARED_CHECKOUT_CONTEXT_TTL_MS = 60_000
 
@@ -47,8 +48,6 @@ type PreparedCheckoutVerificationSnapshot = {
 const preparedCheckoutContextTable = (prisma as typeof prisma & {
   preparedCheckoutContext: PreparedCheckoutContextTable
 }).preparedCheckoutContext
-
-const asRecord = (value: unknown) => (value && typeof value === "object" ? (value as Record<string, unknown>) : null)
 
 const asString = (value: unknown) => (typeof value === "string" ? value : "")
 

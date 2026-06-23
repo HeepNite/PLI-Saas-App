@@ -32,8 +32,8 @@ type CheckOutBody = {
 
 type ValidationError = { status: number; error: string }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+import { EMAIL_REGEX, SLUG_REGEX } from "@/lib/shared"
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const sanitizeString = (value: unknown, max = 180) => {

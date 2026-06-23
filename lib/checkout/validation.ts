@@ -1,5 +1,6 @@
 import type { CourseData, EnrollmentOption } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
+import { isEmail, normalizePhone } from "@/lib/shared"
 
 export type ApiError = { status: number; error: string; code?: string }
 
@@ -108,12 +109,7 @@ const normalizeTime24 = (value: unknown): string | null => {
   return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null
 }
 
-export const isEmail = (val: string | undefined): val is string => Boolean(val && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val))
-
-export const normalizePhone = (val?: string | null) => {
-  const digits = val?.replace(/\D/g, "")
-  return digits && digits.length >= 6 ? digits : undefined
-}
+export { isEmail, normalizePhone }
 
 export const validateCheckoutPayload = async (body: CheckoutBody): Promise<CheckoutValidation | ApiError> => {
   const {

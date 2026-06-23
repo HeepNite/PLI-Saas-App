@@ -2,16 +2,9 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { Prisma } from "@prisma/client"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { asObject } from "@/lib/shared"
 
 export type JsonRecord = Record<string, unknown>
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-
-  return {}
-}
 
 export const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key)
 

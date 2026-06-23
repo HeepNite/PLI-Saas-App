@@ -1,19 +1,12 @@
 import type { CardCheckInStatus } from "@/components/front/staff/historyCardAggregates"
+import { asObject, asText } from "@/lib/shared"
+export { asObject, asText } from "@/lib/shared"
 
 export type SettlementStatus = "pending" | "paid"
 export type PaymentChannel = "cash" | "card" | "package_credit" | "unknown"
 export type PurchaseCategory = "package" | "dropin" | "other"
 
 export const COMPLETED_PAYMENT_STATUSES = new Set(["succeeded", "paid", "completed"])
-
-export const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "")
-
-export const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
 
 export const normalizeSettlementStatus = (value: unknown): SettlementStatus => {
   if (typeof value !== "string") return "pending"

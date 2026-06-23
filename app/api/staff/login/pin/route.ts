@@ -2,13 +2,9 @@ import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { resolveStaffUserByPin } from "@/lib/security/staff-pin-auth"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
 
 const asOptionalString = (value: unknown): string | null => {
   if (typeof value !== "string") return null

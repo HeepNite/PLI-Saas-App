@@ -8,6 +8,7 @@ import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -23,9 +24,6 @@ const normalizeString = (value: unknown) => {
 
 const toRecord = (value: unknown) =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null
-
-const asText = (value: unknown): string =>
-  typeof value === "string" ? value.trim() : ""
 
 /**
  * POST /api/checkin/qr/client-phone

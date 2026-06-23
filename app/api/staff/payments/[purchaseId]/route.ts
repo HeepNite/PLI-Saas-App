@@ -5,19 +5,14 @@ import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase 
 import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { asObject as asObjectShared, asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 type SettlementAction = "mark_paid" | "mark_pending"
 
-const asObject = (value: Prisma.JsonValue | null): Prisma.JsonObject => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Prisma.JsonObject
-  }
-  return {}
-}
-
-const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "")
+const asObject = (value: Prisma.JsonValue | null): Prisma.JsonObject =>
+  asObjectShared(value) as Prisma.JsonObject
 
 const isCashPurchase = (input: {
   metadata: Prisma.JsonValue | null
