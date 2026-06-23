@@ -92,6 +92,7 @@ import {
 import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
 import { resolveStepValid } from "@/components/front/courses/enroll/model/enroll-step-valid"
 import { useConsecutiveOffer } from "@/components/front/courses/enroll/hooks/useConsecutiveOffer"
+import { useEnrollInit } from "@/components/front/courses/enroll/hooks/useEnrollInit"
 import type {
   EnrollModalProps,
   FlowPopupState,
@@ -311,18 +312,8 @@ export default function EnrollModal({
   const stationCompletionTimeoutRef = React.useRef<number | null>(null)
   const kioskPaymentTransitionTimeoutRef = React.useRef<number | null>(null)
   const kioskPaymentTransitionStartedAtRef = React.useRef<number | null>(null)
-  const openInitializationRef = React.useRef(false)
-  const prefillContactRef = React.useRef(prefillContact)
-  const prefillSelectionRef = React.useRef(prefillSelection)
   const kioskFastPathAdvanceTriggeredRef = React.useRef(false)
   const kioskFastPathSubmitTriggeredRef = React.useRef(false)
-  const userContactRef = React.useRef<Partial<EnrollmentContact>>({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "+1 ",
-    note: "",
-  })
   const isNewStudent = service === "new-student"
   // A user who selects a package during the same flow counts as a package holder for consecutive pricing.
   const effectiveIsPackageHolder = isPackageHolder || Boolean(pkg)
@@ -443,30 +434,9 @@ export default function EnrollModal({
     () => getKioskPaymentTransitionMessage(contact.firstName),
     [contact.firstName]
   )
-  React.useEffect(() => {
-    prefillContactRef.current = prefillContact
-  }, [prefillContact])
-
-  React.useEffect(() => {
-    prefillSelectionRef.current = prefillSelection
-  }, [prefillSelection])
-
-  React.useEffect(() => {
-    if (!isCheckInFlow || !open) return
-    setCheckInNow(new Date())
-    const intervalId = window.setInterval(() => setCheckInNow(new Date()), 30_000)
-    return () => window.clearInterval(intervalId)
-  }, [isCheckInFlow, open])
-
-  React.useEffect(() => {
-    if (open) return
-    openInitializationRef.current = false
-    setKioskStepHydrating(false)
-  }, [open])
-
-  React.useEffect(() => {
+  const currentUserContact = React.useMemo<Partial<EnrollmentContact>>(() => {
     const userPhone = user?.primaryPhoneNumber?.phoneNumber || user?.phoneNumbers?.[0]?.phoneNumber
-    userContactRef.current = {
+    return {
       firstName: user?.firstName ?? "",
       lastName: user?.lastName ?? "",
       email: user?.primaryEmailAddress?.emailAddress ?? "",
@@ -480,6 +450,20 @@ export default function EnrollModal({
     user?.primaryEmailAddress?.emailAddress,
     user?.primaryPhoneNumber?.phoneNumber,
   ])
+  const { openInitializationRef, prefillContactRef, prefillSelectionRef, userContactRef } = useEnrollInit({
+    open,
+    prefillContact,
+    prefillSelection,
+    userContact: currentUserContact,
+    setKioskStepHydrating,
+  })
+  React.useEffect(() => {
+    if (!isCheckInFlow || !open) return
+    setCheckInNow(new Date())
+    const intervalId = window.setInterval(() => setCheckInNow(new Date()), 30_000)
+    return () => window.clearInterval(intervalId)
+  }, [isCheckInFlow, open])
+
   const signInReturnTo = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
@@ -902,9 +886,14 @@ export default function EnrollModal({
     isCheckInFlow,
     isCheckInExistingFlow,
     isKioskTerminalFlow,
+    isQrMobileCompactFlow,
     checkInContextDate,
     checkInContextTime,
     effectiveInitialStep,
+    openInitializationRef,
+    prefillContactRef,
+    prefillSelectionRef,
+    userContactRef,
     setAddons,
     setContact,
     setExistingAccountDetected,

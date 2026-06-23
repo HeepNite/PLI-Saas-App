@@ -43,7 +43,7 @@ components/front/courses/
 │   │   ├── checkout-api.ts                 ← EXISTING — untouched
 │   │   └── kiosk-qr-poller.ts             ← EXISTING — untouched
 │   ├── hooks/
-│   │   ├── useEnrollInit.ts                ← NEW (Slice 2) — open/reset/prefill init effect
+│   │   ├── useEnrollInit.ts                ← NEW (Slice 2b/2c) — init refs first, open init later
 │   │   ├── useConsecutiveOffer.ts          ← NEW (Slice 2) — consecutive offer fetch effect
 │   │   ├── useKioskInactivity.ts           ← NEW (Slice 3) — inactivity + station completion timers
 │   │   └── useKioskQrPoller.ts             ← NEW (Slice 3) — QR poll effect wiring
@@ -69,7 +69,7 @@ components/front/courses/
 | `EnrollModal.tsx` (orchestrator) | `useReducer` call, `useState` for ephemeral UI flags (stripe, pin, photo, kiosk transition), render root, callback composition, prop forwarding | Step content, sidebar content, overlay content |
 | `enroll-step-valid.ts` | Pure `stepValid(stepKey, context)` function and `StepValidContext` type | UI state, side effects |
 | `enroll-modal-props.ts` | `EnrollFlowVariant`, `EnrollCompletionMode`, `EnrollCheckInContext`, `EnrollPrefillSelection`, `PreparedAccountState`, `NewStudentVerifyResponse`, `FlowPopupState`, and the full `EnrollModalProps` type | Runtime logic |
-| `useEnrollInit` | `open`-triggered initialization effect + `resetForm` callback | Reducer dispatch beyond init fields |
+| `useEnrollInit` | Slice 2b owns init ref scaffolding/ref sync/close reset; Slice 2c moves the open-triggered initialization body | `resetForm` callback unless a later slice explicitly budgets it |
 | `useConsecutiveOffer` | Fetch consecutive offer by `(courseSlug, date, time)`, manage abort controller | Consecutive state decisions (accept/decline handled by orchestrator) |
 | `useKioskInactivity` | Station completion timeout, kiosk inactivity controller wiring | Kiosk QR payment logic |
 | `useKioskQrPoller` | `createKioskQrPoller` lifecycle: start/stop/outcome dispatch | QR UI rendering |
@@ -129,8 +129,9 @@ Slice 1 (prerequisite)
          │
          ▼
 Slice 2 (effect hooks)
-  useEnrollInit             ← depends on: flowState shape, dispatchFlow, model/*
   useConsecutiveOffer       ← depends on: ConsecutiveOfferData type, fetch
+  useEnrollInit 2b          ← depends on: refs, prefill/user contact, close reset
+  useEnrollInit 2c          ← depends on: flowState shape, dispatchFlow, model/*
          │
          ▼
 Slice 3 (kiosk hooks)
@@ -255,65 +256,61 @@ useConsecutiveOffer(input: {
 
 ---
 
-### Slice 2b — Effect Hook: Open Initialization (≤400 changed lines including tests)
+### Slice 2b — Effect Hook: Init Ref Scaffolding (≤400 changed lines including tests)
 
-**Goal**: Extract the open-triggered initialization/ref-sync logic after the
-consecutive-offer behavior is isolated.
+**Goal**: Land the smallest safe `useEnrollInit` seam after the full open-init
+extraction exceeded the 400-line review budget. Slice 2b only moves ref
+scaffolding, prefill/user ref synchronization, and close-reset behavior. The
+main open-triggered initialization body remains inline until Slice 2c.
 
 | File | Action | Est. Lines |
 |------|--------|-----------|
-| `enroll/hooks/useEnrollInit.ts` | Create | ~180+ |
-| `EnrollModal.tsx` | Replace open initialization/ref-sync effects with hook call | ~90 |
-| `tests/checkin/use-enroll-init.test.tsx` | Create focused hook tests | ~140+ |
+| `enroll/hooks/useEnrollInit.ts` | Create reduced ref-scaffolding hook | ~60 |
+| `EnrollModal.tsx` | Replace ref scaffolding/ref-sync/close-reset effects with hook call | ~50 |
+| `tests/checkin/use-enroll-init.test.tsx` | Create focused hook tests | ~90 |
 
 > **Budget gate**: The final PR diff must include tests and remain ≤400 changed
-> lines against PR2a branch. If `resetForm` extraction pushes this over budget,
-> leave `resetForm` inline for Slice 2b and schedule Slice 2c.
+> lines against PR2a branch. Do not move the main open-triggered initialization
+> body in Slice 2b.
 
-**`useEnrollInit` signature**:
+**`useEnrollInit` Slice 2b signature**:
 ```ts
 useEnrollInit(input: {
   open: boolean
-  draftKey: string
-  useDraft: boolean
-  isKioskTerminalFlow: boolean
-  isCheckInNewFlow: boolean
-  isCheckInExistingFlow: boolean
-  isCheckInFlow: boolean
-  isQrMobileCompactFlow: boolean
-  checkInContextDate: string
-  checkInContextTime: string
-  effectiveInitialStep: number
-  initialServiceId: string
-  availableServices: EnrollmentOption[]
-  course: CourseEnrollmentData
-  sourceCourses: CourseEnrollmentData[]
-  prefillContactRef: React.RefObject<Partial<EnrollmentContact>>
-  prefillSelectionRef: React.RefObject<EnrollPrefillSelection | undefined>
-  userContactRef: React.RefObject<Partial<EnrollmentContact>>
-  dispatchFlow: React.Dispatch<EnrollFlowAction>
-  setDate: Dispatch<SetStateAction<string>>
-  setTime: Dispatch<SetStateAction<string>>
-  setCouponInput: Dispatch<SetStateAction<string>>
-  setAppliedCoupon: Dispatch<SetStateAction<Coupon>>
-  setCheckInScheduleNotice: Dispatch<SetStateAction<string | null>>
+  prefillContact?: Partial<EnrollmentContact>
+  prefillSelection?: EnrollPrefillSelection
+  userContact: Partial<EnrollmentContact>
   setKioskStepHydrating: Dispatch<SetStateAction<boolean>>
-  kioskFastPathAdvanceTriggeredRef: React.RefObject<boolean>
-  kioskFastPathSubmitTriggeredRef: React.RefObject<boolean>
-}): void
+}): {
+  openInitializationRef: MutableRefObject<boolean>
+  prefillContactRef: MutableRefObject<Partial<EnrollmentContact> | undefined>
+  prefillSelectionRef: MutableRefObject<EnrollPrefillSelection | undefined>
+  userContactRef: MutableRefObject<Partial<EnrollmentContact>>
+}
 ```
 
+**Behavior to preserve in Slice 2b**:
+- Keep `prefillContactRef`, `prefillSelectionRef`, and `userContactRef` updated
+  with the latest inputs.
+- Reset `openInitializationRef.current` and kiosk step hydration when `open`
+  closes.
+- Leave all open-triggered initialization decisions inline and unchanged.
+
 **Test strategy**:
-- Mock sessionStorage + dispatch; assert initial field values dispatched on `open` flip.
-- Cover default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
+- Reuse existing hook test style with `createRoot` + `act`.
+- Assert latest prefill/user data is reflected in refs after rerender.
+- Assert close resets initialization and kiosk hydration.
 
-**Reset-form decision**:
-- `resetForm` is currently broad and touches kiosk, stripe, PIN, photo,
-  consecutive, popup, refs, and reducer setters.
-- Do not force it into Slice 2b if the signature or diff becomes noisy.
-- If needed, create Slice 2c for reset cleanup after `useEnrollInit` lands.
+**Slice 2c follow-up**:
+- Move the open-triggered initialization effect body into `useEnrollInit`,
+  preserving default booking, check-in new flow, kiosk hydrating, and QR mobile
+  compact today-only autofill.
+- Expand `use-enroll-init` tests to cover those path-specific initialization
+  branches.
+- Keep `resetForm` inline unless a separate budgeted slice explicitly extracts it.
 
-**Rollback**: Revert PR2b; PR2a remains valid.
+**Rollback**: Revert PR2b; PR2a remains valid and EnrollModal re-inlines the
+ref scaffolding/ref-sync/close-reset effects.
 
 ---
 
@@ -328,7 +325,7 @@ useEnrollInit(input: {
 | `EnrollModal.tsx` | Replace inline effects with hook calls | ~80 |
 
 > **Budget gate**: The final PR diff must include tests and remain ≤400
-> changed lines against PR2 branch; split into 3a/3b if the test-inclusive
+> changed lines against PR2c branch; split into 3a/3b if the test-inclusive
 > diff exceeds budget.
 
 **`useKioskInactivity` signature**:
@@ -361,7 +358,7 @@ useKioskQrPoller(input: {
 - `useKioskQrPoller`: mock `createKioskQrPoller`; assert poller started when
   `kioskQrCheckoutPending = true` and stopped on cleanup.
 
-**Rollback**: Revert PR3; PR1a + PR1b + PR2 state still valid.
+**Rollback**: Revert PR3; PR2c state remains valid.
 
 ---
 
@@ -466,7 +463,7 @@ component. EnrollModal imports it directly (line 81). Extracting
 `useConsecutiveOffer` will carry this cross-boundary import forward.
 
 **Decision**: Do not move the type during this refactor. Schedule a follow-up
-task after all 7 PRs land to promote `ConsecutiveOfferData` to a shared
+task after all 9 PRs land to promote `ConsecutiveOfferData` to a shared
 location (e.g., `lib/checkin/consecutive-offer.types.ts`) and update all
 consumers. That task is independent and non-blocking.
 
@@ -502,4 +499,4 @@ Each chained PR is independently revertable:
 ## Open Questions
 
 - [ ] `ConsecutiveOfferData` type relocation: confirm timeline and target path
-  after all 7 PRs land — assign as a separate tracked task.
+  after all 9 PRs land — assign as a separate tracked task.
