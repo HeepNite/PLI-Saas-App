@@ -206,11 +206,11 @@ export default function CoursePageClient({ course, isQrBooking }: { course: Cour
     </div>
   )
 
-  // Remove the server-rendered QR loader once client takes over
+  // Remove the vanilla-JS boot loader (injected by root layout script, not React-managed)
   React.useEffect(() => {
     if (!isQrBookingFlow) return
-    const serverLoader = document.getElementById("qr-booking-loader")
-    if (serverLoader) serverLoader.remove()
+    const bootLoader = document.getElementById("qr-boot-loader")
+    if (bootLoader) bootLoader.remove()
   }, [isQrBookingFlow])
 
   // QR booking flow on mobile: hide the entire course page and show only the booking overlay

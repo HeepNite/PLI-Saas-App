@@ -42,17 +42,5 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
       </main>
     )
   }
-  return (
-    <>
-      {isQrBooking && (
-        <div className="lg:hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black" id="qr-booking-loader">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            <p className="text-sm text-white/70">Loading your booking…</p>
-          </div>
-        </div>
-      )}
-      <CoursePageClient course={course} isQrBooking={isQrBooking} />
-    </>
-  )
+  return <CoursePageClient course={course} isQrBooking={isQrBooking} />
 }

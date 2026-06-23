@@ -34,7 +34,13 @@ export default async function RootLayout({children,}: Readonly<{ children: React
     const initialLocale = lang === "es" ? "es" : "en";
     return (
         <html lang="en" suppressHydrationWarning>
-
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(){if(/[?&]qrBooking=1/.test(location.search)&&window.innerWidth<1024){var d=document.createElement("div");d.id="qr-boot-loader";d.style.cssText="position:fixed;inset:0;z-index:99999;background:#000;display:flex;align-items:center;justify-content:center";d.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px"><div style="width:32px;height:32px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:qrspin 1s linear infinite"></div><p style="font-size:14px;color:rgba(255,255,255,.7)">Loading your booking\\u2026</p></div><style>@keyframes qrspin{to{transform:rotate(360deg)}}</style>';document.documentElement.appendChild(d)}})()`,
+            }}
+          />
+        </head>
         <body className="scroll-smooth">
         <ClerkProvider>
           <I18nProvider initialLocale={initialLocale}>
