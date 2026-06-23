@@ -4,9 +4,10 @@ import {
   buildProfileFormState,
   getProfileCompletionPercent,
   buildBookingPrefillContact,
+  buildProfileConsecutiveCheckoutPayload,
   getPackageAssignmentSummary,
   hasUsableProfilePackage,
-  shouldOpenProfileBookingModalBeforeFastCredit,
+  shouldUseProfileFastCredit,
 } from "@/components/front/profile/profile-utils"
 
 describe("profile utils", () => {
@@ -101,22 +102,59 @@ describe("profile utils", () => {
     ])).toBe(false)
   })
 
-  it("opens the booking modal before fast credit when a promo may be shown", () => {
-    expect(shouldOpenProfileBookingModalBeforeFastCredit({
-      hasUsablePackage: true,
-      hasConsecutiveOffer: true,
-      offerLookupFailed: false,
-    })).toBe(true)
-    expect(shouldOpenProfileBookingModalBeforeFastCredit({
-      hasUsablePackage: true,
-      hasConsecutiveOffer: false,
-      offerLookupFailed: true,
-    })).toBe(true)
-    expect(shouldOpenProfileBookingModalBeforeFastCredit({
-      hasUsablePackage: true,
-      hasConsecutiveOffer: false,
-      offerLookupFailed: false,
-    })).toBe(false)
+  it("keeps profile package bookings on the fast credit path", () => {
+    expect(shouldUseProfileFastCredit({ hasUsablePackage: true })).toBe(true)
+    expect(shouldUseProfileFastCredit({ hasUsablePackage: false })).toBe(false)
+  })
+
+  it("builds a package-holder consecutive add-on checkout payload", () => {
+    expect(buildProfileConsecutiveCheckoutPayload({
+      offer: {
+        linkedCourseSlug: "bachata-2",
+        linkedCourseTitle: "Bachata 2",
+        linkedCourseTime: "21:00",
+        packageHolderConsecutiveCents: 1000,
+      },
+      sourceCourseSlug: "bachata-1",
+      sourceDate: "2026-06-23",
+      sourceTime: "20:00",
+      linkedCourse: {
+        slug: "bachata-2",
+        title: "Bachata 2",
+        enrollment: { services: [{ id: "new-student" }, { id: "drop-in" }] },
+      },
+      contact: {
+        firstName: "Ana",
+        lastName: "Gomez",
+        email: "ana@pli.com",
+        phone: "+1 2222222222",
+      },
+    })).toMatchObject({
+      courseSlug: "bachata-2",
+      courseTitle: "Bachata 2",
+      amount: 1000,
+      date: "2026-06-23",
+      time: "21:00",
+      serviceId: "drop-in",
+      consecutiveAddOnOnly: true,
+      linkedFromCourseSlug: "bachata-1",
+      consecutivePriceCents: 1000,
+    })
+  })
+
+  it("does not build a consecutive checkout payload without price or service", () => {
+    expect(buildProfileConsecutiveCheckoutPayload({
+      offer: {
+        linkedCourseSlug: "bachata-2",
+        linkedCourseTitle: "Bachata 2",
+        packageHolderConsecutiveCents: null,
+      },
+      sourceCourseSlug: "bachata-1",
+      sourceDate: "2026-06-23",
+      sourceTime: "20:00",
+      linkedCourse: { slug: "bachata-2", title: "Bachata 2", enrollment: { services: [{ id: "drop-in" }] } },
+      contact: { firstName: "Ana", lastName: "Gomez", email: "ana@pli.com", phone: "+1 2222222222" },
+    })).toBeNull()
   })
 
   it("builds package assignment summary for limited plans", () => {

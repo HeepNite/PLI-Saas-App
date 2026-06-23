@@ -9,10 +9,17 @@ import { useUser } from "@clerk/nextjs"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import { useStudentPinStatus } from "@/components/front/hooks/useStudentPinStatus"
 import {
+  buildProfileConsecutiveCheckoutPayload,
   buildBookingPrefillContact,
   hasUsableProfilePackage,
-  shouldOpenProfileBookingModalBeforeFastCredit,
+  shouldUseProfileFastCredit,
 } from "./profile-utils"
+import {
+  ConsecutiveClassOffer,
+  ConsecutiveOfferError,
+  ConsecutiveOfferSuccess,
+  type ConsecutiveOfferData,
+} from "@/components/front/checkin/ConsecutiveClassOffer"
 import type {
   ActionRequestItem,
 } from "./profile-types"
@@ -81,6 +88,11 @@ export default function ProfilePageClient() {
   const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
   const [enrollOpen, setEnrollOpen] = React.useState(false)
   const [selectedDateTime, setSelectedDateTime] = React.useState<{ date: string; time: string } | null>(null)
+  const [profileConsecutiveOffer, setProfileConsecutiveOffer] = React.useState<ConsecutiveOfferData | null>(null)
+  const [profileConsecutiveSource, setProfileConsecutiveSource] = React.useState<{ courseSlug: string; date: string; time: string } | null>(null)
+  const [profileConsecutiveProcessing, setProfileConsecutiveProcessing] = React.useState(false)
+  const [profileConsecutiveError, setProfileConsecutiveError] = React.useState<string | null>(null)
+  const [profileConsecutiveSuccess, setProfileConsecutiveSuccess] = React.useState<{ courseTitle: string } | null>(null)
   const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
 
   // --- Extracted hooks (Slice 2) ---
@@ -201,6 +213,58 @@ export default function ProfilePageClient() {
     setCoursePickerOpen(false)
     setEnrollOpen(true)
   }, [])
+  const fetchProfileConsecutiveOffer = React.useCallback(async (course: CourseData, date: string, time: string) => {
+    const params = new URLSearchParams({ courseSlug: course.slug, date, time })
+    const offerRes = await fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`)
+    if (!offerRes.ok) throw new Error("Unable to load consecutive offer")
+    return (await offerRes.json().catch(() => null)) as ConsecutiveOfferData | null
+  }, [])
+  const showProfileConsecutiveOffer = React.useCallback((offer: ConsecutiveOfferData, source: { courseSlug: string; date: string; time: string }) => {
+    setProfileConsecutiveOffer(offer)
+    setProfileConsecutiveSource(source)
+    setProfileConsecutiveError(null)
+    setProfileConsecutiveSuccess(null)
+  }, [])
+  const clearProfileConsecutiveOffer = React.useCallback(() => {
+    setProfileConsecutiveOffer(null)
+    setProfileConsecutiveSource(null)
+    setProfileConsecutiveError(null)
+  }, [])
+  const handleProfileConsecutiveAccept = React.useCallback(async () => {
+    if (!profileConsecutiveOffer || !profileConsecutiveSource) return
+    const linkedCourse = sourceCourses.find((course) => course.slug === profileConsecutiveOffer.linkedCourseSlug) || null
+    const payload = buildProfileConsecutiveCheckoutPayload({
+      offer: profileConsecutiveOffer,
+      sourceCourseSlug: profileConsecutiveSource.courseSlug,
+      sourceDate: profileConsecutiveSource.date,
+      sourceTime: profileConsecutiveSource.time,
+      linkedCourse,
+      contact: bookingPrefillContact,
+    })
+    if (!payload) {
+      setProfileConsecutiveError("Unable to start checkout for this promotion.")
+      return
+    }
+    setProfileConsecutiveProcessing(true)
+    setProfileConsecutiveError(null)
+    try {
+      const res = await fetch("/api/checkout/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || typeof data?.url !== "string") {
+        setProfileConsecutiveError(typeof data?.error === "string" ? data.error : "Unable to start checkout for this promotion.")
+        return
+      }
+      window.location.href = data.url
+    } catch {
+      setProfileConsecutiveError("Unable to start checkout for this promotion.")
+    } finally {
+      setProfileConsecutiveProcessing(false)
+    }
+  }, [bookingPrefillContact, profileConsecutiveOffer, profileConsecutiveSource, sourceCourses])
   const {
     mobileAgendaOpenDay,
     setMobileAgendaOpenDay,
@@ -654,25 +718,13 @@ export default function ProfilePageClient() {
         orderedCourses={orderedCourses}
         preferredSet={preferredSet}
         onClassSelected={async (course, date, time) => {
-          if (profileHasUsablePackage) {
-            let hasConsecutiveOffer = false
+          if (shouldUseProfileFastCredit({ hasUsablePackage: profileHasUsablePackage })) {
+            let consecutiveOffer: ConsecutiveOfferData | null = null
             let offerLookupFailed = false
             try {
-              const params = new URLSearchParams({ courseSlug: course.slug, date, time })
-              const offerRes = await fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`)
-              hasConsecutiveOffer = offerRes.ok && Boolean(await offerRes.json().catch(() => null))
-              offerLookupFailed = !offerRes.ok
+              consecutiveOffer = await fetchProfileConsecutiveOffer(course, date, time)
             } catch {
               offerLookupFailed = true
-            }
-
-            if (shouldOpenProfileBookingModalBeforeFastCredit({
-              hasUsablePackage: true,
-              hasConsecutiveOffer,
-              offerLookupFailed,
-            })) {
-              openProfileBookingModal(course, date, time)
-              return
             }
 
             try {
@@ -685,7 +737,12 @@ export default function ProfilePageClient() {
               if (data?.ok) {
                 setCoursePickerOpen(false)
                 await loadBookings()
-                setCheckInSuccess("Class booked! A package credit has been applied.")
+                setCheckInSuccess(offerLookupFailed
+                  ? "Class booked! A package credit has been applied. We couldn't load the promotion; please ask staff if you are staying for the next class."
+                  : "Class booked! A package credit has been applied.")
+                if (consecutiveOffer) {
+                  showProfileConsecutiveOffer(consecutiveOffer, { courseSlug: course.slug, date, time })
+                }
                 return
               }
               // data.reason === "no_package" or "no_credits" — fall through to payment
@@ -696,6 +753,32 @@ export default function ProfilePageClient() {
           openProfileBookingModal(course, date, time)
         }}
       />
+
+      {profileConsecutiveOffer && !profileConsecutiveError && !profileConsecutiveSuccess && (
+        <ConsecutiveClassOffer
+          offer={profileConsecutiveOffer}
+          isPackageHolder
+          onAccept={handleProfileConsecutiveAccept}
+          onDecline={clearProfileConsecutiveOffer}
+          isProcessing={profileConsecutiveProcessing}
+          processingAction={profileConsecutiveProcessing ? "accept" : null}
+        />
+      )}
+
+      {profileConsecutiveError && profileConsecutiveOffer && (
+        <ConsecutiveOfferError
+          error={profileConsecutiveError}
+          onRetry={handleProfileConsecutiveAccept}
+          onDismiss={clearProfileConsecutiveOffer}
+        />
+      )}
+
+      {profileConsecutiveSuccess && (
+        <ConsecutiveOfferSuccess
+          courseTitle={profileConsecutiveSuccess.courseTitle}
+          onDone={() => setProfileConsecutiveSuccess(null)}
+        />
+      )}
 
       {selectedCourse && (
         <EnrollModal

@@ -61,6 +61,28 @@ export type UsableProfilePackageInput = {
   remainingCredits: number | null
 }
 
+export type ProfileConsecutiveOfferInput = {
+  linkedCourseSlug: string
+  linkedCourseTitle: string
+  linkedCourseTime?: string
+  packageHolderConsecutiveCents: number | null
+}
+
+export type ProfileConsecutiveCourseInput = {
+  slug: string
+  title: string
+  enrollment: {
+    services: Array<{ id: string }>
+  }
+}
+
+export type ProfileConsecutiveContactInput = {
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+}
+
 export type PackageAssignmentSummary = {
   assigned: number
   remaining: number | null
@@ -124,11 +146,43 @@ export const hasUsableProfilePackage = (packages: UsableProfilePackageInput[]) =
     return typeof pkg.remainingCredits === "number" && pkg.remainingCredits > 0
   })
 
-export const shouldOpenProfileBookingModalBeforeFastCredit = (input: {
-  hasUsablePackage: boolean
-  hasConsecutiveOffer: boolean
-  offerLookupFailed: boolean
-}) => !input.hasUsablePackage || input.hasConsecutiveOffer || input.offerLookupFailed
+export const shouldUseProfileFastCredit = (input: { hasUsablePackage: boolean }) => input.hasUsablePackage
+
+export const buildProfileConsecutiveCheckoutPayload = (input: {
+  offer: ProfileConsecutiveOfferInput
+  sourceCourseSlug: string
+  sourceDate: string
+  sourceTime: string
+  linkedCourse?: ProfileConsecutiveCourseInput | null
+  contact: ProfileConsecutiveContactInput
+}) => {
+  const priceCents = input.offer.packageHolderConsecutiveCents
+  const serviceId = input.linkedCourse?.enrollment.services.find((service) => service.id !== "new-student")?.id || input.linkedCourse?.enrollment.services[0]?.id || ""
+
+  if (priceCents == null || priceCents <= 0 || !serviceId) return null
+
+  return {
+    courseSlug: input.offer.linkedCourseSlug,
+    courseTitle: input.offer.linkedCourseTitle || input.linkedCourse?.title || "Consecutive class",
+    amount: priceCents,
+    currency: "usd",
+    date: input.sourceDate,
+    time: input.offer.linkedCourseTime ?? input.sourceTime,
+    serviceId,
+    firstName: input.contact.firstName,
+    lastName: input.contact.lastName,
+    name: `${input.contact.firstName} ${input.contact.lastName}`.trim(),
+    email: input.contact.email,
+    phone: input.contact.phone,
+    participants: 1,
+    photoContext: "external_web",
+    consecutiveAddOnOnly: true,
+    linkedFromCourseSlug: input.sourceCourseSlug,
+    consecutivePriceCents: priceCents,
+    consecutiveCourseTitle: input.offer.linkedCourseTitle,
+    consecutiveLinkedCourseTime: input.offer.linkedCourseTime ?? input.sourceTime,
+  }
+}
 
 export const getPackageAssignmentSummary = (input: PackageAssignmentSummaryInput): PackageAssignmentSummary => {
   const queued = Math.max(0, input.queuedCount)
