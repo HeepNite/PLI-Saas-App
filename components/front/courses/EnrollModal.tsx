@@ -1311,7 +1311,8 @@ export default function EnrollModal({
         }
         // If somehow already verified, continue to account prep below
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
-        // Non-kiosk new-student flow: keep existing behavior
+        // Verify phone against purchase history — applies to both web and QR mobile flows.
+        // If the phone has completed purchases, force regular pricing.
         const verifyResult = await requestNewStudentOutcome()
         if (!verifyResult) return
 
@@ -1321,23 +1322,29 @@ export default function EnrollModal({
         }
 
         if (verifyResult.requiresSmsVerification || verifyResult.outcome === "requires_sms_verification") {
-          const account = await requestAccountPreparation()
-          if (!account) return
+          if (isQrMobileCompactFlow) {
+            // QR mobile: skip Clerk sign-in SMS gate (causes "Couldn't find your account"
+            // for newly created accounts due to Clerk propagation delay).
+            // Server-side purchase check above already prevents pricing abuse.
+          } else {
+            const account = await requestAccountPreparation()
+            if (!account) return
 
-          if (!isSignedIn || account.requiresSignIn) {
-            setSignInPurpose("sms_verification")
-            setRequiresSignIn(true)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setResumeContactFlowAfterSignIn(true)
-            return
-          }
+            if (!isSignedIn || account.requiresSignIn) {
+              setSignInPurpose("sms_verification")
+              setRequiresSignIn(true)
+              setExistingAccountDetected(false)
+              setResumeAfterSignInStep(null)
+              setPendingAutoPay(false)
+              setResumeContactFlowAfterSignIn(true)
+              return
+            }
 
-          const verifiedAgain = await requestNewStudentOutcome()
-          if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
-            showRegularFallbackPopup(verifiedAgain?.message)
-            return
+            const verifiedAgain = await requestNewStudentOutcome()
+            if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
+              showRegularFallbackPopup(verifiedAgain?.message)
+              return
+            }
           }
         }
       }
@@ -1355,7 +1362,7 @@ export default function EnrollModal({
         photoPolicy.uploadMode === "customer_self" &&
         account.requiresSignIn &&
         !isSignedIn &&
-        !(isQrMobileCompactFlow && isCheckInNewFlow)
+        !isQrMobileCompactFlow
       ) {
         setSignInPurpose("account_preparation")
         setRequiresSignIn(true)
