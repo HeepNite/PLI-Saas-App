@@ -382,6 +382,8 @@ export function useStaffStudentsBoardAdmin({
         }
         setWebCashArrivals((prev) => [...newArrivals, ...prev].slice(0, 10))
         webCashLastPolledRef.current = new Date().toISOString()
+        // Refresh the board so new arrivals appear as cards
+        void refreshPaymentsBoard()
       } catch {
         // Silently ignore polling errors
       }
@@ -390,11 +392,41 @@ export function useStaffStudentsBoardAdmin({
     void poll()
     const interval = window.setInterval(poll, 10_000)
     return () => window.clearInterval(interval)
-  }, [isHistoryMode])
+  }, [isHistoryMode, refreshPaymentsBoard])
 
   const dismissWebCashArrival = React.useCallback((attendanceId: string) => {
     setWebCashArrivals((prev) => prev.filter((item) => item.attendanceId !== attendanceId))
   }, [])
+
+  // ─── Smart board refresh via lightweight pulse endpoint ────────────────
+  const pulseRef = React.useRef<{ purchaseCount: number; attendanceCount: number; latestPurchaseAt: string | null } | null>(null)
+
+  React.useEffect(() => {
+    if (isHistoryMode) return
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/staff/payments/pulse")
+        if (!res.ok) return
+        const data = await res.json()
+        const prev = pulseRef.current
+        if (prev && (
+          data.purchaseCount !== prev.purchaseCount ||
+          data.attendanceCount !== prev.attendanceCount ||
+          data.latestPurchaseAt !== prev.latestPurchaseAt
+        )) {
+          void refreshPaymentsBoard()
+        }
+        pulseRef.current = data
+      } catch {
+        // Silently ignore pulse errors
+      }
+    }
+
+    // Initial pulse (no refresh, just cache baseline)
+    void poll()
+    const interval = window.setInterval(poll, 15_000)
+    return () => window.clearInterval(interval)
+  }, [isHistoryMode, refreshPaymentsBoard])
 
   return {
     currentPage,
