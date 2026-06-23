@@ -210,9 +210,18 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
   if (isQrBookingFlow) {
     return (
       <div className="min-h-screen bg-background overflow-visible">
-        {/* Mobile: full-screen black background with only the booking modal */}
+        {/* Mobile: full-screen black background with loader + booking modal */}
         <div className="lg:hidden fixed inset-0 z-[9999] bg-black">
-          <CourseAsideRight course={course} />
+          {/* Loader shown immediately while CourseAsideRight mounts and opens the modal */}
+          <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <p className="text-sm text-white/70">Loading your booking…</p>
+            </div>
+          </div>
+          <div className="relative z-10">
+            <CourseAsideRight course={course} />
+          </div>
         </div>
         {/* Desktop: render normally */}
         <div className="hidden lg:block mx-auto w-full max-w-[1800px] px-0 sm:px-1 lg:px-2 xl:px-3 py-8">
