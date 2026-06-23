@@ -2904,7 +2904,7 @@ export default function EnrollModal({
                               <p className="text-sm font-semibold uppercase tracking-[-0.01em] text-white">Drop-in</p>
                               <p className="mt-0.5 text-[11px] text-white/50">{course.title} / {to12h(time)}</p>
                             </div>
-                            <p className="shrink-0 text-right text-lg font-semibold text-white">${isCheckInNewFlow ? "15" : "20"}</p>
+                            <p className="shrink-0 text-right text-lg font-semibold text-white">${(isCheckInNewFlow || isQrMobileCompactFlow) ? "15" : "20"}</p>
                           </div>
                           <p className="w-full text-xs leading-snug text-white/68">
                             {isCheckInNewFlow ? "First-time student single class." : "Single class without a package."}
