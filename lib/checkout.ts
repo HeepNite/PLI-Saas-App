@@ -368,12 +368,13 @@ export const prepareCheckoutAccount = async (
     }
 
     // Full checkout path (deferUserCreation=false): same staff-session guard.
-    // For kiosk new-student, staff identity must not leak into the resolved
-    // account. Force resolvedClerkUser to null so the lookup branch below
-    // finds the student's Clerk user (created during prepareOnly).
-    const isKioskNewStudentFullCheckout = options.photoContext === "kiosk_terminal" &&
+    // For kiosk/QR-phone new-student, staff identity must not leak into the
+    // resolved account. Force resolvedClerkUser to null so the lookup branch
+    // below finds the student's Clerk user (created during SMS verification).
+    const isNewStudentWithPreCreatedAccount =
+      (options.photoContext === "kiosk_terminal" || options.photoContext === "qr_phone") &&
       isNewStudentKioskFlow
-    if (isKioskNewStudentFullCheckout) {
+    if (isNewStudentWithPreCreatedAccount) {
       // Lookup the student's Clerk user directly (skip ensureGuestClerkUser —
       // it returns 409 for existing accounts, which blocks this flow).
       const studentClerkUser = await findClerkUserByIdentifiers({
@@ -456,7 +457,7 @@ export const prepareCheckoutAccount = async (
     account: {
       clerkUserId: resolvedUserId,
       created,
-      requiresSignIn: Boolean(!userId && options.photoContext === "qr_phone"),
+      requiresSignIn: Boolean(!userId && options.photoContext === "qr_phone" && !isNewStudentKioskFlow),
       hasAvatar,
     },
   }
