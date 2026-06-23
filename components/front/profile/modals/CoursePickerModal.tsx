@@ -21,7 +21,7 @@ type CoursePickerModalProps = {
   setCoursePickerOpen: (open: boolean) => void
   orderedCourses: CourseData[]
   preferredSet: Set<string>
-  onClassSelected: (course: CourseData, date: string, time: string) => void
+  onClassSelected: (course: CourseData, date: string, time: string) => Promise<void> | void
 }
 
 const TZ = "America/New_York"
@@ -56,6 +56,9 @@ export function CoursePickerModal({
   preferredSet,
   onClassSelected,
 }: CoursePickerModalProps) {
+  const [busy, setBusy] = React.useState(false)
+  const [selectedKey, setSelectedKey] = React.useState<string | null>(null)
+
   const upcomingClasses = React.useMemo<UpcomingClass[]>(() => {
     const now = new Date()
     const todayIso = getDateKeyInTimeZone(now, TZ)
@@ -137,11 +140,19 @@ export function CoursePickerModal({
                       <button
                         key={`${cls.course.slug}-${cls.date}-${cls.time}`}
                         type="button"
-                        onClick={() => {
-                          setCoursePickerOpen(false)
-                          onClassSelected(cls.course, cls.date, cls.time)
+                        disabled={busy}
+                        onClick={async () => {
+                          const key = `${cls.course.slug}-${cls.date}-${cls.time}`
+                          setBusy(true)
+                          setSelectedKey(key)
+                          try {
+                            await onClassSelected(cls.course, cls.date, cls.time)
+                          } finally {
+                            setBusy(false)
+                            setSelectedKey(null)
+                          }
                         }}
-                        className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition hover:border-[var(--brand,#b61616)]/60 hover:bg-white/10"
+                        className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition hover:border-[var(--brand,#b61616)]/60 hover:bg-white/10 disabled:opacity-50"
                       >
                         {/* Thumbnail */}
                         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10">
@@ -154,8 +165,8 @@ export function CoursePickerModal({
                         </div>
 
                         {/* Time block */}
-                        <div className="shrink-0 text-center w-16">
-                          <p className="text-base font-bold text-white leading-tight">{cls.timeLabel}</p>
+                        <div className="shrink-0 text-center">
+                          <p className="whitespace-nowrap text-base font-bold text-white leading-tight">{cls.timeLabel}</p>
                         </div>
 
                         {/* Course info */}
@@ -164,12 +175,14 @@ export function CoursePickerModal({
                           <p className="mt-0.5 text-xs text-white/50">{cls.course.level}</p>
                         </div>
 
-                        {/* Preferred badge */}
-                        {preferredSet.has(cls.course.slug) && (
+                        {/* Loading / Preferred badge */}
+                        {busy && selectedKey === `${cls.course.slug}-${cls.date}-${cls.time}` ? (
+                          <span className="shrink-0 h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        ) : preferredSet.has(cls.course.slug) ? (
                           <span className="shrink-0 rounded-full border border-[var(--brand,#b61616)]/60 bg-[rgba(182,22,22,0.15)] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--brand,#b61616)]">
                             Preferred
                           </span>
-                        )}
+                        ) : null}
                       </button>
                     ))}
                   </div>

@@ -6,6 +6,7 @@ import {
   buildBookingPrefillContact,
   getPackageAssignmentSummary,
   hasUsableProfilePackage,
+  shouldOpenProfileBookingModalBeforeFastCredit,
 } from "@/components/front/profile/profile-utils"
 
 describe("profile utils", () => {
@@ -98,6 +99,24 @@ describe("profile utils", () => {
       { status: "exhausted", isUnlimited: true, remainingCredits: null },
       { status: "active", isUnlimited: false, remainingCredits: 0 },
     ])).toBe(false)
+  })
+
+  it("opens the booking modal before fast credit when a promo may be shown", () => {
+    expect(shouldOpenProfileBookingModalBeforeFastCredit({
+      hasUsablePackage: true,
+      hasConsecutiveOffer: true,
+      offerLookupFailed: false,
+    })).toBe(true)
+    expect(shouldOpenProfileBookingModalBeforeFastCredit({
+      hasUsablePackage: true,
+      hasConsecutiveOffer: false,
+      offerLookupFailed: true,
+    })).toBe(true)
+    expect(shouldOpenProfileBookingModalBeforeFastCredit({
+      hasUsablePackage: true,
+      hasConsecutiveOffer: false,
+      offerLookupFailed: false,
+    })).toBe(false)
   })
 
   it("builds package assignment summary for limited plans", () => {

@@ -11,6 +11,7 @@ import { useStudentPinStatus } from "@/components/front/hooks/useStudentPinStatu
 import {
   buildBookingPrefillContact,
   hasUsableProfilePackage,
+  shouldOpenProfileBookingModalBeforeFastCredit,
 } from "./profile-utils"
 import type {
   ActionRequestItem,
@@ -194,6 +195,12 @@ export default function ProfilePageClient() {
     () => bookings.filter((item) => !classRequestsByAttendance.has(item.id)),
     [bookings, classRequestsByAttendance]
   )
+  const openProfileBookingModal = React.useCallback((course: CourseData, date: string, time: string) => {
+    setSelectedCourse(course)
+    setSelectedDateTime({ date, time })
+    setCoursePickerOpen(false)
+    setEnrollOpen(true)
+  }, [])
   const {
     mobileAgendaOpenDay,
     setMobileAgendaOpenDay,
@@ -383,6 +390,14 @@ export default function ProfilePageClient() {
 
   return (
     <main className="min-h-[70vh] bg-background">
+      {/* Package credit success toast */}
+      {checkInSuccess && (
+        <div className="fixed top-6 left-1/2 z-[200] -translate-x-1/2 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/90 px-5 py-3 text-sm font-medium text-emerald-200 shadow-lg backdrop-blur-sm">
+            {checkInSuccess}
+          </div>
+        </div>
+      )}
       <div className="w-full px-[10px] lg:px-[15px] py-8">
         <div ref={gridRef} className="relative grid grid-cols-1 gap-6 lg:items-start lg:grid-cols-[minmax(250px,290px)_minmax(0,1fr)_15rem]">
           {/* Left */}
@@ -638,11 +653,47 @@ export default function ProfilePageClient() {
         setCoursePickerOpen={setCoursePickerOpen}
         orderedCourses={orderedCourses}
         preferredSet={preferredSet}
-        onClassSelected={(course, date, time) => {
-          setSelectedCourse(course)
-          setSelectedDateTime({ date, time })
-          setCoursePickerOpen(false)
-          setEnrollOpen(true)
+        onClassSelected={async (course, date, time) => {
+          if (profileHasUsablePackage) {
+            let hasConsecutiveOffer = false
+            let offerLookupFailed = false
+            try {
+              const params = new URLSearchParams({ courseSlug: course.slug, date, time })
+              const offerRes = await fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`)
+              hasConsecutiveOffer = offerRes.ok && Boolean(await offerRes.json().catch(() => null))
+              offerLookupFailed = !offerRes.ok
+            } catch {
+              offerLookupFailed = true
+            }
+
+            if (shouldOpenProfileBookingModalBeforeFastCredit({
+              hasUsablePackage: true,
+              hasConsecutiveOffer,
+              offerLookupFailed,
+            })) {
+              openProfileBookingModal(course, date, time)
+              return
+            }
+
+            try {
+              const res = await fetch("/api/profile/bookings/use-credit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ courseSlug: course.slug, date, time }),
+              })
+              const data = await res.json().catch(() => null)
+              if (data?.ok) {
+                setCoursePickerOpen(false)
+                await loadBookings()
+                setCheckInSuccess("Class booked! A package credit has been applied.")
+                return
+              }
+              // data.reason === "no_package" or "no_credits" — fall through to payment
+            } catch {
+              // Network error — fall through to payment
+            }
+          }
+          openProfileBookingModal(course, date, time)
         }}
       />
 

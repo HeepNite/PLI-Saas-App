@@ -124,6 +124,12 @@ export const hasUsableProfilePackage = (packages: UsableProfilePackageInput[]) =
     return typeof pkg.remainingCredits === "number" && pkg.remainingCredits > 0
   })
 
+export const shouldOpenProfileBookingModalBeforeFastCredit = (input: {
+  hasUsablePackage: boolean
+  hasConsecutiveOffer: boolean
+  offerLookupFailed: boolean
+}) => !input.hasUsablePackage || input.hasConsecutiveOffer || input.offerLookupFailed
+
 export const getPackageAssignmentSummary = (input: PackageAssignmentSummaryInput): PackageAssignmentSummary => {
   const queued = Math.max(0, input.queuedCount)
   if (input.isUnlimited) {
