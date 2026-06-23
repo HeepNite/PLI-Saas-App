@@ -11,7 +11,7 @@ import CourseSections from "./CourseSections"
 // - The center column is the only scrollable area to keep the page short.
 // - On mobile/tablet, the layout stacks and page scrolls normally for better UX.
 // Tweak the `stickyTop` and `containerPadding` if your header/notification bar heights change.
-export default function CoursePageClient({ course }: { course: CourseData }) {
+export default function CoursePageClient({ course, isQrBooking }: { course: CourseData; isQrBooking?: boolean }) {
   // Offset for sticky to account for Header + NotificationBar approx height
   const stickyTop = 96 // px (~ top-24)
   const gridRef = React.useRef<HTMLDivElement>(null)
@@ -19,8 +19,8 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
   const rightStickyRef = React.useRef<HTMLDivElement>(null)
   const [showSkeleton, setShowSkeleton] = React.useState(true)
   const searchParams = useSearchParams()
-  // Capture QR booking state once — persists even after CourseAsideRight clears the URL params
-  const [isQrBookingFlow] = React.useState(() => searchParams.get("qrBooking") === "1")
+  // Use server-provided prop or capture from URL once (persists after CourseAsideRight clears params)
+  const [isQrBookingFlow] = React.useState(() => isQrBooking || searchParams.get("qrBooking") === "1")
 
   React.useEffect(() => {
     if (typeof document === "undefined") return
@@ -205,6 +205,13 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
       </div>
     </div>
   )
+
+  // Remove the server-rendered QR loader once client takes over
+  React.useEffect(() => {
+    if (!isQrBookingFlow) return
+    const serverLoader = document.getElementById("qr-booking-loader")
+    if (serverLoader) serverLoader.remove()
+  }, [isQrBookingFlow])
 
   // QR booking flow on mobile: hide the entire course page and show only the booking overlay
   if (isQrBookingFlow) {

@@ -27,8 +27,10 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   }
 }
 
-export default async function CoursePage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function CoursePage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { slug } = await params
+  const resolvedSearchParams = await searchParams
+  const isQrBooking = resolvedSearchParams.qrBooking === "1"
   const course = await getCatalogCourseBySlug(slug)
   if (!course) {
     return (
@@ -40,5 +42,17 @@ export default async function CoursePage({ params }: { params: Promise<{ slug: s
       </main>
     )
   }
-  return <CoursePageClient course={course} />
+  return (
+    <>
+      {isQrBooking && (
+        <div className="lg:hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black" id="qr-booking-loader">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <p className="text-sm text-white/70">Loading your booking…</p>
+          </div>
+        </div>
+      )}
+      <CoursePageClient course={course} isQrBooking={isQrBooking} />
+    </>
+  )
 }
