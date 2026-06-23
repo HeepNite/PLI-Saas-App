@@ -19,7 +19,8 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
   const rightStickyRef = React.useRef<HTMLDivElement>(null)
   const [showSkeleton, setShowSkeleton] = React.useState(true)
   const searchParams = useSearchParams()
-  const isQrBookingFlow = searchParams.get("qrBooking") === "1"
+  // Capture QR booking state once — persists even after CourseAsideRight clears the URL params
+  const [isQrBookingFlow] = React.useState(() => searchParams.get("qrBooking") === "1")
 
   React.useEffect(() => {
     if (typeof document === "undefined") return
@@ -210,7 +211,7 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
     return (
       <div className="min-h-screen bg-background overflow-visible">
         {/* Mobile: full-screen black background with only the booking modal */}
-        <div className="lg:hidden fixed inset-0 z-[100] bg-black">
+        <div className="lg:hidden fixed inset-0 z-[9999] bg-black">
           <CourseAsideRight course={course} />
         </div>
         {/* Desktop: render normally */}
