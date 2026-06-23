@@ -3,7 +3,6 @@ import {
   shouldSurfaceClosedWindowPackageError,
   shouldAutoOpenExistingPurchase,
   shouldAutoTriggerPackageCheckIn,
-  shouldShowConsecutiveOfferGate,
   shouldPreserveOfferOnBootstrapClear,
   shouldAutoPromoteExistingMode,
 } from "@/lib/checkin/existing-customer-flow"
@@ -294,24 +293,6 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
         consecutiveOfferSettled,
       })
     ) {
-      // Gate returned false — distinguish: settled offer (show overlay) vs wait/other reasons
-      // Only show overlay for PACKAGE HOLDERS — non-package users go through EnrollModal which has consecutive step
-      if (shouldShowConsecutiveOfferGate({
-        hasConsecutiveOffer: Boolean(consecutiveOffer),
-        consecutiveOfferSettled,
-        hasPackageCheckInResult: Boolean(packageCheckInResult),
-        mode,
-        hasBootstrap: Boolean(bootstrap),
-        hasPackage: hasUsablePackageForCurrentClass,
-        showConsecutivePaymentSelection,
-        awaitingConsecutivePaymentSelection,
-        isConsecutiveQrCheckoutIdle: consecutiveQrCheckout.phase === "idle",
-        hasConsecutiveSuccess: Boolean(consecutiveSuccess),
-        hasConsecutiveError: Boolean(consecutiveError),
-      })) {
-        setShowConsecutivePaymentSelection(false)
-        setShowConsecutiveOverlay(true)
-      }
       return
     }
     void handlePackageCheckIn()

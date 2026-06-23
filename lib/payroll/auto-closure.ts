@@ -145,6 +145,7 @@ export async function closeOpenClockEntriesForPayroll(
       staffAccountId: true,
       clockInAt: true,
       expectedClockOutAt: true,
+      metadata: true,
     },
   })
 
@@ -169,14 +170,9 @@ export async function closeOpenClockEntriesForPayroll(
     )
 
     // Preserve any existing metadata, add closure audit fields
-    const existingMeta = await prisma.staffClockEntry.findUnique({
-      where: { id: entry.id },
-      select: { metadata: true },
-    })
-
     const existingMetadata =
-      existingMeta?.metadata && typeof existingMeta.metadata === "object"
-        ? (existingMeta.metadata as Record<string, unknown>)
+      entry.metadata && typeof entry.metadata === "object"
+        ? (entry.metadata as Record<string, unknown>)
         : {}
 
     const updatedMetadata = {
