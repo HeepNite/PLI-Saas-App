@@ -38,6 +38,9 @@ const CODE_LENGTH = 6
 const CODE_RESEND_COOLDOWN_MS = 30_000
 const PHONE_CODE_RATE_LIMIT_RE = /too many verification code requests|wait at least\s+\d+\s+seconds?/i
 const ALREADY_SIGNED_IN_RE = /already signed in|active session/i
+const NOT_FOUND_RE = /couldn't find your account|couldn't find an account|no account found/i
+const SIGN_IN_RETRY_DELAY_MS = 2000
+const SIGN_IN_MAX_RETRIES = 2
 
 const getPhoneCodeFactor = (factors: unknown): PhoneCodeFactor | null => {
   if (!Array.isArray(factors)) return null
@@ -207,10 +210,30 @@ export default function EmbeddedSignIn({
         return
       }
 
-      const created = await signIn.create({
-        strategy: "phone_code",
-        identifier: normalizedPhone,
-      })
+      // Retry loop: newly created Clerk accounts may take a moment to propagate.
+      let created = null as Awaited<ReturnType<typeof signIn.create>> | null
+      for (let attempt = 0; attempt <= SIGN_IN_MAX_RETRIES; attempt++) {
+        try {
+          created = await signIn.create({
+            strategy: "phone_code",
+            identifier: normalizedPhone,
+          })
+          break
+        } catch (retryErr) {
+          const retryMsg = getClerkErrorMessage(retryErr)
+          if (retryMsg && NOT_FOUND_RE.test(retryMsg) && attempt < SIGN_IN_MAX_RETRIES) {
+            setNotice("Setting up your account…")
+            await new Promise((r) => setTimeout(r, SIGN_IN_RETRY_DELAY_MS))
+            continue
+          }
+          throw retryErr
+        }
+      }
+
+      if (!created) {
+        setError("We couldn't find your account. Please try again.")
+        return
+      }
 
       const factor = getPhoneCodeFactor(created.supportedFirstFactors)
       const emailFactor = getEmailCodeFactor(created.supportedFirstFactors)
