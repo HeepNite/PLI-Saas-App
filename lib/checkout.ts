@@ -377,18 +377,29 @@ export const prepareCheckoutAccount = async (
     if (isNewStudentWithPreCreatedAccount) {
       // Lookup the student's Clerk user directly (skip ensureGuestClerkUser —
       // it returns 409 for existing accounts, which blocks this flow).
-      const studentClerkUser = await findClerkUserByIdentifiers({
-        email: identity.resolvedEmail,
-        phone: identity.phoneRaw || input.phone,
-      })
+      let studentClerkUser: typeof resolvedClerkUser = null
+      try {
+        studentClerkUser = await findClerkUserByIdentifiers({
+          email: identity.resolvedEmail,
+          phone: identity.phoneRaw || input.phone,
+        })
+      } catch (err) {
+        console.error("[checkout] findClerkUserByIdentifiers failed for kiosk new-student", err)
+        return { status: 502, error: "Unable to look up student account" } satisfies ApiError
+      }
       if (studentClerkUser) {
         resolvedClerkUser = studentClerkUser
-        await upsertUserByIdentifiers({
-          clerkId: studentClerkUser.id,
-          email: identity.resolvedEmail,
-          name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
-          phone: input.phone,
-        })
+        try {
+          await upsertUserByIdentifiers({
+            clerkId: studentClerkUser.id,
+            email: identity.resolvedEmail,
+            name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
+            phone: input.phone,
+          })
+        } catch (err) {
+          console.error("[checkout] upsertUserByIdentifiers failed for kiosk new-student", err)
+          return { status: 502, error: "Unable to prepare student account" } satisfies ApiError
+        }
       } else {
         // Student's Clerk user not found — create it.
         try {
