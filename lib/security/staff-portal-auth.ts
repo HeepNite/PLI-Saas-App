@@ -48,6 +48,21 @@ const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 const STAFF_ROLE_SET = new Set<StaffRole>(STAFF_ROLES)
 
+// ── Short-lived getUser cache to prevent parallel Clerk API calls ────
+const CLERK_USER_CACHE_TTL_MS = 5_000
+const clerkUserCache = new Map<string, { user: Awaited<ReturnType<Awaited<ReturnType<typeof clerkClient>>["users"]["getUser"]>>; expiresAt: number }>()
+
+const getCachedClerkUser = async (userId: string) => {
+  const now = Date.now()
+  const cached = clerkUserCache.get(userId)
+  if (cached && cached.expiresAt > now) return cached.user
+
+  const client = await clerkClient()
+  const user = await client.users.getUser(userId)
+  clerkUserCache.set(userId, { user, expiresAt: now + CLERK_USER_CACHE_TTL_MS })
+  return user
+}
+
 const parseSessionIssuedAtMs = (claims: unknown): number | null => {
   if (!claims || typeof claims !== "object") return null
   const maybe = (claims as Record<string, unknown>).iat
@@ -100,10 +115,9 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
     return { ok: false, status: 401, error: "Unauthorized" }
   }
 
-  const client = await clerkClient()
   let user
   try {
-    user = await client.users.getUser(authResult.userId)
+    user = await getCachedClerkUser(authResult.userId)
   } catch (error) {
     if (isClerkRateLimitError(error)) {
       const retryAfterSec = extractRetryAfterSec(error)
