@@ -11,6 +11,7 @@ import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/valid
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
     },
     {
       photoContext,
-      allowExistingAccountLookup: prepareOnly || photoContext === "kiosk_terminal",
+      allowExistingAccountLookup: prepareOnly || photoContext === FLOW_CONTEXT.KIOSK_TERMINAL,
       kioskSessionToken,
       serviceId: validation.serviceId,
       // NOTE: deferUserCreation is intentionally FALSE for kiosk new-student prepareOnly.
@@ -173,6 +174,7 @@ export async function POST(req: Request) {
         consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
         consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
         consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
+        flowContext: photoContext || "",
       },
     })
 
