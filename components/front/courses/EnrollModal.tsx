@@ -51,6 +51,7 @@ import {
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
+  shouldRedirectPersonalCompletion,
 } from "@/lib/checkin/enroll-flow"
 import {
   createEmptyKioskQrCheckoutState,
@@ -688,6 +689,11 @@ export default function EnrollModal({
       }
     }
   }, [isStationCompletion, onCompletedAction, success])
+
+  React.useEffect(() => {
+    if (!shouldRedirectPersonalCompletion({ success, isPersonalCompletion })) return
+    router.replace("/client-profile")
+  }, [isPersonalCompletion, router, success])
 
   React.useEffect(() => {
     if (

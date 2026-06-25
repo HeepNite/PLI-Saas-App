@@ -149,6 +149,11 @@ export const resolveStationTimeoutAction = (
   onCompletedAction?: () => void | Promise<void>
 ) => onTimeoutAction ?? onCompletedAction
 
+export const shouldRedirectPersonalCompletion = (input: {
+  success: boolean
+  isPersonalCompletion: boolean
+}) => input.success && input.isPersonalCompletion
+
 export const shouldHandleExistingUserDetected = (input: {
   isKioskTerminalFlow: boolean
   service: string

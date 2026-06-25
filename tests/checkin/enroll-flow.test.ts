@@ -7,6 +7,7 @@ import {
   resolveEnrollStepKeys,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
+  shouldRedirectPersonalCompletion,
 } from "@/lib/checkin/enroll-flow"
 
 describe("enroll flow helpers", () => {
@@ -226,6 +227,12 @@ describe("enroll flow helpers", () => {
 
   it("does not run the contact gate outside check-in flows", () => {
     expect(isCheckInContactGateStep({ isCheckInFlow: false, activeStepKey: "info" })).toBe(false)
+  })
+
+  it("redirects completed QR mobile personal bookings to the profile", () => {
+    expect(shouldRedirectPersonalCompletion({ success: true, isPersonalCompletion: true })).toBe(true)
+    expect(shouldRedirectPersonalCompletion({ success: false, isPersonalCompletion: true })).toBe(false)
+    expect(shouldRedirectPersonalCompletion({ success: true, isPersonalCompletion: false })).toBe(false)
   })
 
   it("includes packages step in kiosk flow when hasPackages is true", () => {
