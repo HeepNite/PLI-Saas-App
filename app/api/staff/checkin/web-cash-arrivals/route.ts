@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
+import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 
 export const runtime = "nodejs"
-
-const ALLOWED_ROLES = new Set(["owner", "admin", "front_desk"])
 
 /**
  * GET /api/staff/checkin/web-cash-arrivals?since=<ISO>
@@ -16,28 +12,12 @@ const ALLOWED_ROLES = new Set(["owner", "admin", "front_desk"])
  */
 export async function GET(req: NextRequest) {
   try {
-    const rateLimit = consumeRateLimit({
-      key: buildRateLimitKey("staff:checkin:web-cash-arrivals:get", getClientIp(req)),
-      limit: 60,
-      windowMs: 60_000,
-    })
-    if (!rateLimit.ok) {
+    const authResult = await authorizeStaffPortalSectionRequest("students")
+    if (!authResult.ok) {
       return NextResponse.json(
-        { error: "Too many requests." },
-        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+        { error: authResult.error },
+        { status: authResult.status, ...(authResult.retryAfterSec ? { headers: { "Retry-After": String(authResult.retryAfterSec) } } : {}) }
       )
-    }
-
-    const authResult = await auth()
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const client = await clerkClient()
-    const clerkUser = await client.users.getUser(authResult.userId)
-    const role = extractStaffRoleFromUserMetadata(clerkUser)
-    if (!role || !ALLOWED_ROLES.has(role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const sinceParam = req.nextUrl.searchParams.get("since")
