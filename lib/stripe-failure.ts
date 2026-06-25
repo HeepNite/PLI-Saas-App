@@ -1,5 +1,6 @@
 import type Stripe from "stripe"
 import type { JsonValue } from "@prisma/client/runtime/library"
+import { asObject } from "@/lib/shared"
 
 /**
  * Allowlisted failure info persisted in Purchase.metadata.stripeFailure.
@@ -71,7 +72,7 @@ export function mergeFailureIntoMetadata(
   existing: JsonValue | null | undefined,
   failure: StripeFailureInfo
 ): Record<string, unknown> {
-  const base = toPlainObject(existing)
+  const base = asObject(existing)
   return { ...base, stripeFailure: failure }
 }
 
@@ -84,7 +85,7 @@ type JsonObject = Record<string, unknown>
 export function clearFailureFromMetadata(
   existing: unknown
 ): JsonObject {
-  const obj = toPlainObjectFromUnknown(existing)
+  const obj = asObject(existing)
   if (!obj || !("stripeFailure" in obj)) {
     return obj && Object.keys(obj).length > 0 ? obj : {}
   }
@@ -102,16 +103,9 @@ export function mergeMetadataPreservingFailure(
   existing: unknown,
   incoming: JsonObject | null | undefined
 ): JsonObject {
-  const base = toPlainObjectFromUnknown(existing)
+  const base = asObject(existing)
   const stripeFailure = base.stripeFailure
   return { ...base, ...(incoming ?? {}), ...(stripeFailure ? { stripeFailure } : {}) }
-}
-
-function toPlainObjectFromUnknown(value: unknown): JsonObject {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as JsonObject
-  }
-  return {}
 }
 
 /**
@@ -155,7 +149,7 @@ export function isStripeFailureInfo(value: unknown): value is StripeFailureInfo 
   return true
 }
 
-// ─── Private helpers ───────────────────────────────────────────────
+// ─── Private helpers ─────────────────────────────────────────────────────────
 
 function extractErrorFields(error: Record<string, unknown> | null | undefined) {
   if (!error) return undefined
@@ -183,11 +177,4 @@ function extractCardFromError(error: Record<string, unknown> | null | undefined)
   if (typeof card.last4 === "string") result.last4 = card.last4
 
   return Object.keys(result).length > 0 ? result : undefined
-}
-
-function toPlainObject(value: JsonValue | null | undefined): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }

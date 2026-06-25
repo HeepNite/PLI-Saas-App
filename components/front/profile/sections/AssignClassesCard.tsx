@@ -2,8 +2,13 @@ import React from "react"
 import GlassyCard from "@/components/front/courses/GlassyCard"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import { formatDateTimeInTimeZone } from "../profile-formatters"
-import type { AssignablePackage } from "../profile-types"
+import type { ActionRequestItem, AssignablePackage, BookingItem } from "../profile-types"
 import type { AssignClassesFlowState } from "../hooks/useAssignClassesFlow"
+import type { AgendaCalendarState } from "../hooks/useAgendaCalendar"
+import {
+  getPendingProcessLabel,
+  getProcessTypeTone,
+} from "../profile-formatters"
 
 type AssignClassesCardProps = {
   assignPackageId: string
@@ -30,6 +35,12 @@ type AssignClassesCardProps = {
   addAssignSlot: AssignClassesFlowState["addAssignSlot"]
   removeAssignSlot: AssignClassesFlowState["removeAssignSlot"]
   submitAssignClasses: AssignClassesFlowState["submitAssignClasses"]
+
+  // NEW (Change 1 — Calendar Unification)
+  agendaState: AgendaCalendarState
+  pendingBookings: BookingItem[]
+  visibleBookings: BookingItem[]
+  classRequestsByAttendance: Map<string, ActionRequestItem>
 }
 
 export function AssignClassesCard({
@@ -57,9 +68,15 @@ export function AssignClassesCard({
   addAssignSlot,
   removeAssignSlot,
   submitAssignClasses,
+  agendaState,
+  pendingBookings,
+  visibleBookings,
+  classRequestsByAttendance,
 }: AssignClassesCardProps) {
+  const { nextBookedClass } = agendaState
+
   return (
-    <GlassyCard id="assign-classes-section" className="order-4 p-4">
+    <GlassyCard id="assign-classes-section" className="order-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Assign classes</p>
@@ -75,6 +92,48 @@ export function AssignClassesCard({
           </span>
         )}
       </div>
+
+      {/* Scheduled classes — next class summary + pending processes */}
+      <div className="mt-4 rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm">
+        <p className="text-xs uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Scheduled classes</p>
+        <p className="mt-2">
+          Next class: <strong>{nextBookedClass.scheduleLabel}</strong>
+          {nextBookedClass.courseTitle && (
+            <span className="ml-2 text-zinc-600 dark:text-white/65">· {nextBookedClass.courseTitle}</span>
+          )}
+        </p>
+      </div>
+      {pendingBookings.length > 0 && (
+        <div className="mt-3 rounded-lg border border-black/10 bg-black/[0.03] px-3 py-3 text-sm dark:border-white/10 dark:bg-white/5">
+          <p className="font-semibold text-zinc-800 dark:text-white">Processes for assigned classes</p>
+          <div className="mt-2 space-y-2 text-xs">
+            {pendingBookings.slice(0, 3).map((booking) => {
+              const request = classRequestsByAttendance.get(booking.id)
+              const tone = getProcessTypeTone(request?.type)
+              return (
+                <div
+                  key={`pending-booking-inline-${booking.id}`}
+                  className="rounded-md border px-2 py-1.5"
+                  style={{ borderColor: tone.border, background: tone.bg }}
+                >
+                  <p style={{ color: tone.text }}>
+                    <span className="font-semibold">{getPendingProcessLabel(request)}</span> · {booking.courseTitle} ·{" "}
+                    {formatDateTimeInTimeZone(booking.startsAt)}
+                  </p>
+                </div>
+              )
+            })}
+            {pendingBookings.length > 3 && (
+              <p className="text-zinc-700 dark:text-white/65">+{pendingBookings.length - 3} more in progress.</p>
+            )}
+          </div>
+        </div>
+      )}
+      {visibleBookings.length === 0 && (
+        <div className="mt-3 rounded-lg border border-[var(--brand,#b61616)]/40 bg-[rgba(182,22,22,0.1)] px-3 py-3 text-sm">
+          You do not have scheduled classes. Would you like to book now?
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">

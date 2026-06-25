@@ -84,7 +84,8 @@ export async function ensureClerkUser(input: EnsureClerkUserInput) {
   }
 
   const email = normalize(input.email)?.toLowerCase()
-  if (!email) {
+  const phone = toE164(input.phone)
+  if (!email && !phone) {
     return null
   }
 
@@ -93,12 +94,15 @@ export async function ensureClerkUser(input: EnsureClerkUserInput) {
   const { firstName: splitFirst, lastName: splitLast } = splitName(input.name)
   const firstName = providedFirst || splitFirst
   const lastName = providedLast || splitLast
-  const phone = toE164(input.phone)
-
-  const existing = await client.users.getUserList({
-    emailAddress: [email],
-    limit: 1,
-  })
+  const existing = email
+    ? await client.users.getUserList({
+        emailAddress: [email],
+        limit: 1,
+      })
+    : await client.users.getUserList({
+        phoneNumber: [phone as string],
+        limit: 1,
+      })
 
   if (existing.data.length > 0) {
     const existingUser = existing.data[0]
@@ -108,7 +112,7 @@ export async function ensureClerkUser(input: EnsureClerkUserInput) {
 
   try {
     return await client.users.createUser({
-      emailAddress: [email],
+      emailAddress: email ? [email] : undefined,
       firstName,
       lastName,
       phoneNumber: phone ? [phone] : undefined,
@@ -116,10 +120,15 @@ export async function ensureClerkUser(input: EnsureClerkUserInput) {
     })
   } catch (err) {
     // If a concurrent request created the user, try to fetch again.
-    const fallback = await client.users.getUserList({
-      emailAddress: [email],
-      limit: 1,
-    })
+    const fallback = email
+      ? await client.users.getUserList({
+          emailAddress: [email],
+          limit: 1,
+        })
+      : await client.users.getUserList({
+          phoneNumber: [phone as string],
+          limit: 1,
+        })
     if (fallback.data.length > 0) {
       return fallback.data[0]
     }

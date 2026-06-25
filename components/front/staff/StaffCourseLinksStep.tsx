@@ -69,24 +69,26 @@ export default function StaffCourseLinksStep({
   return (
     <div className="mb-4 rounded-md border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.02]">
       <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#b61616)]">Consecutive Classes</p>
-      {courseEditingSlug ? (
-        <>
-          <p className="mt-1 text-xs text-black/65 dark:text-white/65">
-            Link <strong>{currentCourseTitle}</strong> to a consecutive class with special pricing.
-          </p>
+      <p className="mt-1 text-xs text-black/65 dark:text-white/65">
+        {courseEditingSlug ? (
+          <>Link <strong>{currentCourseTitle}</strong> to a consecutive class with special pricing.</>
+        ) : (
+          "Choose a consecutive class now. The link will be saved automatically when this course is created."
+        )}
+      </p>
 
-          {courseLinkError && (
-            <div className="mt-2 rounded-md border border-red-500/30 bg-red-50 px-3 py-1.5 dark:border-red-400/30 dark:bg-red-900/20">
-              <p className="text-xs text-red-800 dark:text-red-200">{courseLinkError}</p>
-            </div>
-          )}
-          {courseLinkSuccess && (
-            <div className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-50 px-3 py-1.5 dark:border-emerald-400/30 dark:bg-emerald-900/20">
-              <p className="text-xs text-emerald-800 dark:text-emerald-200">{courseLinkSuccess}</p>
-            </div>
-          )}
+      {courseLinkError && (
+        <div className="mt-2 rounded-md border border-red-500/30 bg-red-50 px-3 py-1.5 dark:border-red-400/30 dark:bg-red-900/20">
+          <p className="text-xs text-red-800 dark:text-red-200">{courseLinkError}</p>
+        </div>
+      )}
+      {courseLinkSuccess && (
+        <div className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-50 px-3 py-1.5 dark:border-emerald-400/30 dark:bg-emerald-900/20">
+          <p className="text-xs text-emerald-800 dark:text-emerald-200">{courseLinkSuccess}</p>
+        </div>
+      )}
 
-          <div className="mt-3 space-y-2">
+      <div className="mt-3 space-y-2">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-black/70 dark:text-white/70">Consecutive course</label>
@@ -154,7 +156,7 @@ export default function StaffCourseLinksStep({
                 disabled={courseLinkSaving}
                 className="inline-flex items-center rounded-md bg-[var(--brand,#b61616)] px-3 py-1.5 text-xs font-semibold text-white transition disabled:opacity-60"
               >
-                {courseLinkSaving ? "Saving..." : courseLinkEditingId ? "Update link" : "Add link"}
+                {courseLinkSaving ? "Saving..." : courseLinkEditingId ? "Update link" : courseEditingSlug ? "Add link" : "Save draft link"}
               </button>
               {courseLinkEditingId && (
                 <button
@@ -168,7 +170,7 @@ export default function StaffCourseLinksStep({
             </div>
           </div>
 
-          <CourseLinkList
+      {courseEditingSlug && <CourseLinkList
             title={`Courses after this one (${courseLinksAsA.length})`}
             links={courseLinksAsA}
             schoolCourses={schoolCourses}
@@ -178,9 +180,9 @@ export default function StaffCourseLinksStep({
             courseLinkSaving={courseLinkSaving}
             actions={actions}
             priceFormatters={priceFormatters}
-          />
+      />}
 
-          <CourseLinkList
+      {courseEditingSlug && <CourseLinkList
             title={`Courses before this one (${courseLinksAsB.length})`}
             links={courseLinksAsB}
             schoolCourses={schoolCourses}
@@ -190,14 +192,10 @@ export default function StaffCourseLinksStep({
             courseLinkSaving={courseLinkSaving}
             actions={actions}
             priceFormatters={priceFormatters}
-          />
+      />}
 
-          {courseLinksAsA.length === 0 && courseLinksAsB.length === 0 && (
-            <p className="mt-2 text-[11px] text-black/50 dark:text-white/50">No consecutive class links yet.</p>
-          )}
-        </>
-      ) : (
-        <p className="mt-1 text-xs text-black/50 dark:text-white/50">Create the course first to manage consecutive class links.</p>
+      {courseEditingSlug && courseLinksAsA.length === 0 && courseLinksAsB.length === 0 && (
+        <p className="mt-2 text-[11px] text-black/50 dark:text-white/50">No consecutive class links yet.</p>
       )}
     </div>
   )

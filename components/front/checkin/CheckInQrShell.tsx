@@ -7,7 +7,7 @@ import { KioskPinModal } from "@/components/front/checkin/KioskPinModal"
 import { SignedInBootstrapPanel } from "@/components/front/checkin/SignedInBootstrapPanel"
 import { InlineFeedback } from "@/components/front/checkin/InlineFeedback"
 import { CheckInQrOverlays } from "@/components/front/checkin/CheckInQrOverlays"
-import type { EntryMode } from "@/components/front/checkin/checkin.types"
+import type { EntryMode, TerminalPastClass } from "@/components/front/checkin/checkin.types"
 import type { ComponentProps } from "react"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
@@ -67,6 +67,9 @@ export type CheckInQrShellProps = {
   checkInDisplayDate: string
   checkInDisplayTime: string
   checkInQrImage: string
+  terminalPastClasses?: TerminalPastClass[]
+  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
+  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
 
   // Context / QR prompt
   showContextWarning: boolean
@@ -85,14 +88,17 @@ export type CheckInQrShellProps = {
   hideEntrySelection: boolean
   mode: EntryMode
   isKioskTerminalFlow: boolean
-  onExistingClick: () => void
-  onNewClick: () => void
+  onExistingClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+  onNewClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
 
   // Kiosk PIN modal
   showKioskPinPanel: boolean
   returnedFromNewStudentFlow: boolean
   kioskPinPanelCopy: { title: string; description: string }
   hasKioskPinSession: boolean
+  kioskPhone: string
+  kioskPhoneLoading: boolean
+  onKioskPhoneIdentify: () => void
   kioskPin: string
   entryRevealedIndex: number | null
   entryActiveSlot: number
@@ -224,6 +230,9 @@ export function CheckInQrShell({
   checkInDisplayDate,
   checkInDisplayTime,
   checkInQrImage,
+  terminalPastClasses,
+  selectedTerminalPastClass,
+  onTerminalPastClassSelect,
 
   // Context warning
   showContextWarning,
@@ -250,6 +259,9 @@ export function CheckInQrShell({
   returnedFromNewStudentFlow,
   kioskPinPanelCopy,
   hasKioskPinSession,
+  kioskPhone,
+  kioskPhoneLoading,
+  onKioskPhoneIdentify,
   kioskPin,
   entryRevealedIndex,
   entryActiveSlot,
@@ -391,11 +403,16 @@ export function CheckInQrShell({
                 displayDate={checkInDisplayDate}
                 displayTime={checkInDisplayTime}
                 qrImage={checkInQrImage}
+                terminalPastClasses={terminalPastClasses}
+                selectedTerminalPastClass={selectedTerminalPastClass}
+                onTerminalPastClassSelect={onTerminalPastClassSelect}
+                onExistingClick={onExistingClick}
+                onNewClick={onNewClick}
                 compact={isTerminal}
                 actionSlot={hasEmbeddedEntrySelection ? entrySelectionButtons : undefined}
               />
             )}
-            {showCourseCardPanel && !showQrPanel && (
+            {showCourseCardPanel && !showQrPanel && !isTerminal && (
               <CourseCardPanel
                 cardImage={checkInCardImage}
                 courseTitle={checkInDisplayCourse?.title || "Current course"}
@@ -416,7 +433,7 @@ export function CheckInQrShell({
 
             {showContextWarning && <ContextWarning />}
 
-            {showLatePaymentOffer && (
+            {showLatePaymentOffer && !terminalPastClasses?.length && (
               <LatePaymentPanel
                 courseTitle={latePaymentCourse?.title || "Previous class"}
                 date={latePaymentRecommendation?.date || ""}
@@ -433,10 +450,13 @@ export function CheckInQrShell({
 
             {showKioskPinPanel && (
               <KioskPinModal
-                title={returnedFromNewStudentFlow ? "Welcome back!" : kioskPinPanelCopy.title}
-                description={returnedFromNewStudentFlow ? "You\u0027re already a registered customer. Enter your PIN to continue with regular pricing." : kioskPinPanelCopy.description}
+                title={returnedFromNewStudentFlow ? "Welcome back!" : "Enter your phone number"}
+                description={returnedFromNewStudentFlow ? "You\u0027re already a registered customer. Enter your phone number to continue with regular pricing." : kioskPinPanelCopy.description}
                 onClose={onExistingCustomerDismiss}
                 hasSession={hasKioskPinSession}
+                phone={kioskPhone}
+                onPhoneIdentify={onKioskPhoneIdentify}
+                isPhoneIdentifying={kioskPhoneLoading}
                 entryPin={kioskPin}
                 entryRevealedIndex={entryRevealedIndex}
                 entryActiveSlot={entryActiveSlot}

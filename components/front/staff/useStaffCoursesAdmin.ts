@@ -163,6 +163,7 @@ export type StaffCoursesAdminInput = {
   loadCourseLinks: (courseSlug: string) => Promise<void>
   clearCourseLinks: () => void
   resetCourseLinkForm: () => void
+  saveDraftCourseLinkForCourse: (courseSlug: string) => Promise<{ ok: boolean; skipped: boolean; error?: string }>
   handleStaffAuthFailure: (status: number) => boolean
   setSchoolError: (value: string | null) => void
   setSchoolSuccess: (value: string | null) => void
@@ -179,6 +180,7 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
     loadCourseLinks,
     clearCourseLinks,
     resetCourseLinkForm,
+    saveDraftCourseLinkForCourse,
     handleStaffAuthFailure,
     setSchoolError,
     setSchoolSuccess,
@@ -382,8 +384,18 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
         setSchoolError(typeof data?.error === "string" ? data.error : "Unable to save course.")
         return
       }
-      setSchoolSuccess(typeof data?.message === "string" ? data.message : "Course saved.")
+      const savedSlug = typeof data?.item?.slug === "string" ? data.item.slug : courseForm.slug.trim()
+      const draftLinkResult = savedSlug ? await saveDraftCourseLinkForCourse(savedSlug) : { ok: true, skipped: true }
+      const savedMessage = typeof data?.message === "string" ? data.message : "Course saved."
       await fetchSchoolData({ showLoader: false })
+      if (!draftLinkResult.ok) {
+        setSchoolSuccess(savedMessage)
+        setSchoolError(draftLinkResult.error || "Course saved, but the consecutive link could not be saved.")
+        setCourseEditingSlug(savedSlug || null)
+        if (savedSlug) await loadCourseLinks(savedSlug)
+        return
+      }
+      setSchoolSuccess(draftLinkResult.skipped ? savedMessage : `${savedMessage} Consecutive link saved.`)
       resetCourseBuilder()
     } catch {
       setSchoolError("Network error while saving course.")
@@ -401,7 +413,9 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
     courseWeekdays,
     fetchSchoolData,
     isSpecialEventCourse,
+    loadCourseLinks,
     resetCourseBuilder,
+    saveDraftCourseLinkForCourse,
     setSchoolBusy,
     setSchoolError,
     setSchoolSuccess,

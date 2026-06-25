@@ -1,11 +1,22 @@
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 
+/** Format a raw 10-digit string as (XXX) XXX-XXXX */
+function formatPhoneDisplay(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 10)
+  if (digits.length <= 3) return digits.length ? `(${digits}` : ""
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
 export function KioskPinModal({
   title,
   description,
   onClose,
   hasSession,
+  phone,
+  onPhoneIdentify,
+  isPhoneIdentifying,
   entryPin,
   entryRevealedIndex,
   entryActiveSlot,
@@ -38,6 +49,10 @@ export function KioskPinModal({
   description: string
   onClose: () => void
   hasSession: boolean
+  /** Raw digits for phone identification (primary flow) */
+  phone: string
+  onPhoneIdentify: () => void
+  isPhoneIdentifying: boolean
   entryPin: string
   entryRevealedIndex: number | null
   entryActiveSlot: number
@@ -107,15 +122,10 @@ export function KioskPinModal({
               {!hasSession ? (
                 <>
                   <div className="mt-5">
-                    <PinSlots
-                      value={entryPin}
-                      revealedIndex={entryRevealedIndex}
-                      isActive={isEntryActive}
-                      activeIndex={entryActiveSlot}
-                    />
+                    <PhoneDisplay value={phone} />
                   </div>
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-white/48">
-                    The highlighted slot shows where the next digit will land.
+                    Enter your 10-digit US phone number.
                   </p>
                   {typeof attemptsRemaining === "number" && attemptsRemaining >= 0 && (
                     <p className="mt-4 text-xs text-white/58">
@@ -129,11 +139,11 @@ export function KioskPinModal({
                   )}
                   <button
                     type="button"
-                    onClick={onIdentify}
-                    disabled={!canIdentify}
+                    onClick={onPhoneIdentify}
+                    disabled={isPhoneIdentifying || phone.replace(/\D/g, "").length < 10}
                     className="mt-5 w-full rounded-xl bg-[var(--brand,#b61616)] px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong,#991010)] disabled:opacity-50"
                   >
-                    {isIdentifying ? "Checking PIN..." : "Continue"}
+                    {isPhoneIdentifying ? "Verifying..." : "Continue"}
                   </button>
                   {visibleError ? <p className="mt-3 text-sm text-red-200">{visibleError}</p> : null}
                   {success ? <p className="mt-3 text-sm text-emerald-200">{success}</p> : null}
@@ -196,6 +206,26 @@ export function KioskPinModal({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function PhoneDisplay({ value }: { value: string }) {
+  const formatted = formatPhoneDisplay(value)
+  const isEmpty = value.replace(/\D/g, "").length === 0
+  return (
+    <div className="flex h-[4.5rem] items-center rounded-[1.25rem] border border-white/12 bg-[linear-gradient(180deg,rgba(15,18,28,0.96),rgba(10,12,20,0.98))] px-5 shadow-[0_24px_44px_-30px_rgba(0,0,0,0.85)] ring-1 ring-white/5">
+      <span
+        className={`flex-1 text-[1.75rem] font-semibold tracking-[0.06em] transition ${
+          isEmpty ? "text-white/28" : "text-white"
+        }`}
+        aria-live="polite"
+      >
+        {isEmpty ? "(___) ___-____" : formatted}
+      </span>
+      {!isEmpty && (
+        <span className="ml-2 h-7 w-px animate-pulse rounded-full bg-white/80" aria-hidden="true" />
+      )}
     </div>
   )
 }

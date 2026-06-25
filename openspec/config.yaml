@@ -1,0 +1,42 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Next.js 15 (App Router), React 19, TypeScript, Prisma ORM, PostgreSQL, Tailwind CSS v4, Stripe, Clerk auth.
+  Architecture: Server Components + API Routes; server-rendered pages with embedded auth flows.
+  Testing: Vitest (unit/integration), Playwright (E2E), v8 coverage.
+  Style: ESLint (Next.js config), tsc --noEmit type-checking, no explicit formatter.
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - List affected Prisma models and migrations explicitly
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Document security boundaries (auth, role checks, rate limits)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - Note Clerk session handling and Prisma transaction boundaries
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Mark Prisma migrations as blocking tasks
+  apply:
+    - Follow existing code patterns (React Server Components, API route handlers)
+    - Reuse existing utilities (hashPin, audit logging, Clerk wrappers)
+    - Never weaken existing auth or validation boundaries
+    tdd: true
+    test_command: "npm test"
+  verify:
+    test_command: "npm test"
+    build_command: "npm run build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Preserve migration rollback instructions
+
+persistence:
+  mode: openspec
+  target_branch: codex/develop
+  branch_discipline: never main

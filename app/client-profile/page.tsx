@@ -1,5 +1,3 @@
-import Header from "@/components/front/Header"
-import FooterQuote from "@/components/front/FooterQuote"
 import ProfilePageClient from "@/components/front/profile/ProfilePageClient"
 import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
@@ -25,11 +23,5 @@ export default async function ClientProfilePage({ searchParams }: ClientProfileP
     redirect("/sign-in?redirect_url=%2Fclient-profile")
   }
 
-  return (
-    <>
-      <Header />
-      <ProfilePageClient />
-      <FooterQuote />
-    </>
-  )
+  return <ProfilePageClient />
 }

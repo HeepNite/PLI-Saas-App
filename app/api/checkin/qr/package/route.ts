@@ -13,18 +13,14 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
+import { normalizePhoneDigits } from "@/lib/shared"
+import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
+import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
-const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"] as const
-
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
-
-const normalizePhoneDigits = (value: string) => {
-  const digits = value.replace(/\D/g, "")
-  return digits.length >= 6 ? digits : ""
-}
 
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
@@ -93,10 +89,10 @@ export async function POST(req: Request) {
     const kioskSessionToken = typeof payload?.kioskSessionToken === "string" ? payload.kioskSessionToken.trim() : ""
     const flowContext = typeof payload?.flowContext === "string" ? payload.flowContext.trim() : ""
     const kioskCustomerAuth =
-      flowContext === "kiosk_terminal"
+      flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
         ? await resolveKioskCustomerClerkAuth(authResult.userId)
         : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
-    const shouldPreferKioskSession = flowContext === "kiosk_terminal" && Boolean(kioskSessionToken)
+    const shouldPreferKioskSession = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && Boolean(kioskSessionToken)
     const customerClerkUserId = shouldPreferKioskSession ? null : kioskCustomerAuth.userId
     const shouldResolveKioskSession = shouldPreferKioskSession || (!customerClerkUserId && Boolean(kioskSessionToken))
     const kioskSessionResult = shouldResolveKioskSession
@@ -107,7 +103,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            kioskCustomerAuth.blocked && flowContext === "kiosk_terminal"
+            kioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
               ? "Kiosk customer identification is required before continuing."
               : kioskSessionResult?.error || "Unauthorized",
         },
@@ -357,6 +353,7 @@ export async function POST(req: Request) {
               date: context.date,
               time: context.time,
               source: "qr_package_consecutive_addon",
+              purchaseSource: resolveKioskPurchaseSource(flowContext),
               attendanceId: attendance.id,
               linkedFromCourseSlug,
               consecutivePriceCents: recordedConsecutivePriceCents,
@@ -524,6 +521,7 @@ export async function POST(req: Request) {
         packageId: reserveResult.packagePurchase?.packageId || selectedPackage.packageId,
         packagePurchaseId: reserveResult.packagePurchase?.id || selectedPackage.id,
         source: "qr_package_checkin",
+        purchaseSource: resolveKioskPurchaseSource(flowContext),
         date: context.date,
         time: context.time,
       })

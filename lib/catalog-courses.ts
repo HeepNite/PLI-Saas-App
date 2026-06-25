@@ -51,13 +51,14 @@ const toLevel = (value: string | null | undefined, fallback: CourseData["level"]
 const centsToUsd = (value: number | null | undefined) =>
   typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) / 100 : null
 
+const DEFAULT_NEW_STUDENT_PRICE = 15
+
 const buildDefaultServices = (dropIn: number | null, firstClass: number | null): EnrollmentOption[] => {
   const items: EnrollmentOption[] = []
   const dropInPrice = dropIn ?? 20
   items.push({ id: "dropin", label: "Single class", price: dropInPrice })
-  if (typeof firstClass === "number" && firstClass > 0) {
-    items.push({ id: "new-student", label: "New students", price: firstClass })
-  }
+  const newStudentPrice = typeof firstClass === "number" && firstClass > 0 ? firstClass : DEFAULT_NEW_STUDENT_PRICE
+  items.push({ id: "new-student", label: "New students", price: newStudentPrice })
   return items
 }
 
@@ -88,8 +89,9 @@ const applyCourseServicePricing = (
   if (!hasDropIn) {
     mapped.unshift({ id: "dropin", label: "Single class", price: dropIn ?? 20 })
   }
-  if (!hasNewStudent && typeof firstClass === "number" && firstClass > 0) {
-    mapped.push({ id: "new-student", label: "New students", price: firstClass })
+  if (!hasNewStudent) {
+    const newStudentPrice = typeof firstClass === "number" && firstClass > 0 ? firstClass : DEFAULT_NEW_STUDENT_PRICE
+    mapped.push({ id: "new-student", label: "New students", price: newStudentPrice })
   }
 
   return mapped

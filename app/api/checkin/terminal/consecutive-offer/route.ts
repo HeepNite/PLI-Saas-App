@@ -45,6 +45,7 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
 export async function GET(req: NextRequest) {
   const courseSlug = req.nextUrl.searchParams.get("courseSlug")
   const selectedTime = req.nextUrl.searchParams.get("time")
+  const selectedDate = req.nextUrl.searchParams.get("date")
   if (!courseSlug) {
     return NextResponse.json(null)
   }
@@ -91,8 +92,10 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // Check if course B has class today
-    const now = new Date()
+    // Check if course B has class on the selected date, falling back to today
+    // for legacy terminal callers that do not pass a date.
+    const parsedSelectedDate = selectedDate ? new Date(`${selectedDate}T12:00:00`) : null
+    const now = parsedSelectedDate && !Number.isNaN(parsedSelectedDate.getTime()) ? parsedSelectedDate : new Date()
     const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE) // 0=Sun, 1=Mon, ... in NY time
 
     const courseATimesForToday = courseA

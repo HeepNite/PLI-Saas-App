@@ -32,7 +32,9 @@ const mockPrisma = {
   },
   purchase: {
     findUnique: vi.fn(),
+    findMany: vi.fn(),
     update: vi.fn(),
+    delete: vi.fn(),
   },
   studentDataAudit: {
     count: vi.fn(),
@@ -96,6 +98,10 @@ describe("Integration: Full override flow", () => {
       const ids = where?.id?.in ?? [SESSION_ID]
       return ids.map((id: string) => ({ id, title: `Session ${id}`, courseSlug: "test-course" }))
     })
+
+    // Default: no linked purchases
+    mockPrisma.purchase.findMany.mockResolvedValue([])
+    mockPrisma.user.update.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -172,6 +178,7 @@ describe("Integration: Full override flow", () => {
       id: "ledger_1",
       packagePurchaseId: PACKAGE_ID,
       attendanceId: ATTENDANCE_ID,
+      packagePurchase: { id: PACKAGE_ID, status: "active" },
     })
     mockPrisma.packagePurchase.update.mockResolvedValue({ id: PACKAGE_ID, remainingCredits: 6 })
 

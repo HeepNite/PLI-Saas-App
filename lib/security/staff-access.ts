@@ -14,7 +14,7 @@ export const STAFF_PORTAL_SECTIONS = [
 ] as const
 
 export type StaffPortalSection = (typeof STAFF_PORTAL_SECTIONS)[number]
-export type StaffPermission = "studentPinOps"
+export type StaffPermission = "studentPinOps" | "studentOps"
 
 const UNIQUE_ORDER: StaffPortalSection[] = [...STAFF_PORTAL_SECTIONS]
 
@@ -78,9 +78,32 @@ export const hasExplicitStaffPermission = (
   permission: StaffPermission,
   subCategory?: StaffSubCategory | null
 ) => {
-  if (permission !== "studentPinOps") return false
+  if (permission === "studentPinOps") {
+    if (role === "owner") return true
+    if (role === "staff" && category === "front_desk") return true
+    if (role === "staff" && category === "guest" && subCategory === "front_desk") return true
+    return role === "admin" && category === "manager"
+  }
+  if (permission === "studentOps") {
+    return canOperateStudentEdits(role, category, subCategory)
+  }
+  return false
+}
+
+/**
+ * Returns true when the caller is allowed to perform operational student edits
+ * (e.g. opening the student Edit info modal or submitting student profile
+ * corrections). This is intentionally narrower than full users-section access:
+ * owner, admin, and front-desk staff can operate; other staff categories cannot.
+ */
+export const canOperateStudentEdits = (
+  role: StaffRole | null | undefined,
+  category: StaffCategory | null | undefined,
+  subCategory?: StaffSubCategory | null
+): boolean => {
   if (role === "owner") return true
+  if (role === "admin") return true
   if (role === "staff" && category === "front_desk") return true
   if (role === "staff" && category === "guest" && subCategory === "front_desk") return true
-  return role === "admin" && category === "manager"
+  return false
 }

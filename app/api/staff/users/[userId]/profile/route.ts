@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
-import { createHash, randomBytes } from "crypto"
+import { createHash, randomBytes, timingSafeEqual } from "crypto"
 import { Prisma } from "@prisma/client"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { canAccessStaffPortalSection } from "@/lib/security/staff-access"
+import { canAccessStaffPortalSection, canOperateStudentEdits } from "@/lib/security/staff-access"
+import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import {
   applyStaffRoleToMetadata,
   extractStaffRoleFromUserMetadata,
@@ -32,6 +33,7 @@ import {
   extractStaffRoleSnapshot,
   syncStaffAccountFromClerkUser,
 } from "@/lib/security/staff-account-sync"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -57,13 +59,6 @@ type StaffProfilePayload = {
   paymentInfo: StaffPaymentInfo | null
 }
 
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
-
 const safeText = (value: unknown, max = 120) => {
   if (typeof value !== "string") return ""
   return value.trim().slice(0, max)
@@ -76,6 +71,19 @@ const safeOptionalText = (value: unknown, max = 120) => {
 }
 
 const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key)
+
+const toAuditJsonValue = (value: unknown): Prisma.InputJsonValue | null => {
+  if (value === null || value === undefined) return null
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string | number | boolean | null =>
+        item === null || typeof item === "string" || typeof item === "number" || typeof item === "boolean"
+      )
+      .slice(0, 50)
+  }
+  return null
+}
 
 const asNumber = (value: unknown): number | null => {
   if (typeof value !== "number") return null
@@ -220,7 +228,10 @@ const isValidPinHash = (pin: string, pinHash: string) => {
   const nextHash = createHash("sha256")
     .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
     .digest("hex")
-  return nextHash === expectedHash
+  const expectedBuffer = Buffer.from(expectedHash, "hex")
+  const nextBuffer = Buffer.from(nextHash, "hex")
+  if (expectedBuffer.length !== nextBuffer.length) return false
+  return timingSafeEqual(nextBuffer, expectedBuffer)
 }
 
 const STAFF_SCAN_PAGE_SIZE = 100
@@ -237,6 +248,20 @@ const normalizeCategoryForRole = (role: StaffRole, category: StaffCategory): Sta
   if (role === "owner") return "partner"
   if (role === "admin") return "manager"
   return category
+}
+
+const resolveProfileAuditValue = (input: {
+  field: string
+  firstName?: string | null
+  lastName?: string | null
+  publicMetadata: Record<string, unknown>
+  profile: Record<string, unknown>
+}) => {
+  if (input.field === "firstName") return toAuditJsonValue(input.firstName ?? null)
+  if (input.field === "lastName") return toAuditJsonValue(input.lastName ?? null)
+  if (input.field === "location") return toAuditJsonValue(input.publicMetadata.staffLocation)
+  if (input.field === "gallery") return toAuditJsonValue(safeGallery(input.profile.gallery))
+  return toAuditJsonValue(input.profile[input.field])
 }
 
 const toResponsePayload = (user: {
@@ -348,7 +373,8 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   }
   const isSelfRequest = authResult.userId === userId
   const canManageProfiles = canAccessStaffPortalSection(authResult.role, authResult.category, "users")
-  if (!isSelfRequest && !canManageProfiles) {
+  const canDoStudentOps = canOperateStudentEdits(authResult.role, authResult.category)
+  if (!isSelfRequest && !canManageProfiles && !canDoStudentOps) {
     return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
   }
 
@@ -368,6 +394,14 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   const targetRole = extractStaffRoleFromUserMetadata(user)
   if (!isSelfRequest && authResult.role !== "owner" && targetRole === "owner") {
     return NextResponse.json({ error: "Admins cannot access Owner profile." }, { status: 403 })
+  }
+  // Front-desk operators may only access student (non-staff) profiles.
+  // They must not read or edit owner/admin/staff management accounts.
+  if (!isSelfRequest && !canManageProfiles && canDoStudentOps) {
+    const isStaffTarget = targetRole === "owner" || targetRole === "admin" || targetRole === "staff"
+    if (isStaffTarget) {
+      return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
+    }
   }
   const canEditRole =
     !isSelfRequest && (authResult.role === "owner" || (authResult.role === "admin" && authResult.category === "manager"))
@@ -451,7 +485,8 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
   }
   const isSelfRequest = authResult.userId === userId
   const canManageProfiles = canAccessStaffPortalSection(authResult.role, authResult.category, "users")
-  if (!isSelfRequest && !canManageProfiles) {
+  const canDoStudentOpsPatch = canOperateStudentEdits(authResult.role, authResult.category)
+  if (!isSelfRequest && !canManageProfiles && !canDoStudentOpsPatch) {
     return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
   }
 
@@ -481,12 +516,34 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     return NextResponse.json({ error: "Invalid payment information." }, { status: 400 })
   }
 
+  // Front-desk operators must not submit staff-management-only fields.
+  // Reject early before touching Clerk so we never partially apply restricted changes.
+  const isFrontDeskOperator = !canManageProfiles && canDoStudentOpsPatch && !isSelfRequest
+  if (isFrontDeskOperator) {
+    const RESTRICTED_FIELDS = ["role", "category", "subCategory", "pin", "clearPin", "paymentPreference", "paymentInfo"] as const
+    for (const field of RESTRICTED_FIELDS) {
+      if (hasOwn(payload as object, field)) {
+        return NextResponse.json(
+          { error: `Field "${field}" cannot be updated by front-desk operators.` },
+          { status: 403 }
+        )
+      }
+    }
+  }
+
   const client = await clerkClient()
   const current = await client.users.getUser(userId)
   const previousState = extractStaffRoleSnapshot(current)
   const currentRole = extractStaffRoleFromUserMetadata(current)
   if (!isSelfRequest && authResult.role !== "owner" && currentRole === "owner") {
     return NextResponse.json({ error: "Admins cannot update Owner profile." }, { status: 403 })
+  }
+  // Front-desk operators may only edit student (non-staff) profiles.
+  if (isFrontDeskOperator) {
+    const isStaffTarget = currentRole === "owner" || currentRole === "admin" || currentRole === "staff"
+    if (isStaffTarget) {
+      return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
+    }
   }
   const publicMetadata = asObject(current.publicMetadata)
   const privateMetadata = asObject(current.privateMetadata)
@@ -585,6 +642,46 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     source: "staff_profile_patch",
     allowWithoutRole: true,
   })
+
+  // Write StudentDataAudit for operational profile field changes.
+  // This covers cases where a staff member (including front desk) edits a
+  // student's name, address, or other operational profile fields. Role/category
+  // changes are already tracked by createStaffRoleAudit below.
+  if (!isSelfRequest && authResult.userId) {
+    const AUDITABLE_PROFILE_FIELDS = [
+      "firstName", "lastName", "birthDate", "addressLine1", "addressLine2",
+      "city", "state", "postalCode", "country", "personalNote", "location", "gallery",
+    ] as const
+    const changedFields = AUDITABLE_PROFILE_FIELDS.filter((field) => hasOwn(payload as object, field))
+    if (changedFields.length > 0) {
+      const clientIp = getClientIp(req)
+      for (const field of changedFields) {
+        await writeStudentDataAudit({
+          targetUserId: userId,
+          staffClerkId: authResult.userId,
+          staffName: authResult.staffName ?? null,
+          entity: "profile",
+          field: `profile.${field}`,
+          valueBefore: resolveProfileAuditValue({
+            field,
+            firstName: current.firstName,
+            lastName: current.lastName,
+            publicMetadata,
+            profile: currentProfile,
+          }),
+          valueAfter: resolveProfileAuditValue({
+            field,
+            firstName: firstName || current.firstName || null,
+            lastName: lastName || current.lastName || null,
+            publicMetadata: nextPublicMetadata,
+            profile: nextProfile,
+          }),
+          reason: "Staff profile operational field update",
+          ipAddress: clientIp,
+        })
+      }
+    }
+  }
   let paymentPreference: StaffPaymentPreference | null = null
   let paymentInfo: StaffPaymentInfo | null = null
   if (hasPaymentPreference || hasPaymentInfo) {

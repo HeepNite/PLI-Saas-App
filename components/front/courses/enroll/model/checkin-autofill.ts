@@ -94,8 +94,8 @@ const isEligibleForTodayCheckIn = (slot: string, nowMinutes: number | null) => {
   return nowMinutes <= slotMinutes + CHECKIN_LATE_GRACE_MINUTES
 }
 
-const findNextCourseSlot = (courseSlug: string, baseDateIso: string, nowMinutes: number | null, courses: CourseData[]) => {
-  for (let offset = 0; offset <= 14; offset += 1) {
+const findNextCourseSlot = (courseSlug: string, baseDateIso: string, nowMinutes: number | null, courses: CourseData[], maxDays = 14) => {
+  for (let offset = 0; offset <= maxDays; offset += 1) {
     const dateIso = shiftIsoDate(baseDateIso, offset)
     const daySlots = sortTime24(getAvailableTimesForCourseDate(courseSlug, dateIso, courses))
     if (!daySlots.length) continue
@@ -129,7 +129,10 @@ export const computeCheckInAutofill = (
   courseSlug: string,
   courses: CourseData[],
   context?: EnrollCheckInContext,
-  referenceDate = new Date()
+  referenceDate = new Date(),
+  /** When true, restrict autofill to today only — never resolve a future date.
+   *  Use for kiosk terminal and QR flows where purchases must be for the current day. */
+  todayOnly = false,
 ) => {
   const nowDateIso = getDateKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE)
   const nowTimeKey = getTimeKeyInTimeZone(referenceDate, CHECKIN_TIME_ZONE)
@@ -138,7 +141,13 @@ export const computeCheckInAutofill = (
   const contextTime = normalizeTime24(context?.time)
 
   if (contextDate && contextTime) {
-    return { date: contextDate, time: contextTime, notice: null as string | null }
+    // When todayOnly is active, reject pre-filled context dates that are not today.
+    // This prevents the terminal from accepting a stale future date from the
+    // recommendation pipeline (Bug 2 fix).
+    const shouldBypassContext = todayOnly && nowDateIso && contextDate !== nowDateIso
+    if (!shouldBypassContext) {
+      return { date: contextDate, time: contextTime, notice: null as string | null }
+    }
   }
 
   const todaySlots = nowDateIso ? sortTime24(getAvailableTimesForCourseDate(courseSlug, nowDateIso, courses)) : []
@@ -148,7 +157,8 @@ export const computeCheckInAutofill = (
     Boolean(contextDate && contextTime && contextSlots.includes(contextTime)) &&
     Boolean(!nowDateIso || contextDate > nowDateIso || (contextDate === nowDateIso && isEligibleForTodayCheckIn(contextTime, nowMinutes)))
 
-  const nextSlotFromNow = nowDateIso ? findNextCourseSlot(courseSlug, nowDateIso, nowMinutes, courses) : null
+  const maxDays = todayOnly ? 0 : 14
+  const nextSlotFromNow = nowDateIso ? findNextCourseSlot(courseSlug, nowDateIso, nowMinutes, courses, maxDays) : null
 
   let targetDate = ""
   let targetTime = ""

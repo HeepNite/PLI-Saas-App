@@ -35,31 +35,32 @@ import {
 import StaffPaymentsBoardControls from "./StaffPaymentsBoardControls"
 import type { PaymentRow } from "./staffAdminTypes"
 import type { StaffRole } from "@/lib/security/staff-role"
+import { canOperateStudentEdits } from "@/lib/security/staff-access"
+import type { StaffCategory } from "@/lib/security/staff-category"
+import CreateStudentModal from "./CreateStudentModal"
+import type { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
+import {
+  formatTerminalAlertDateTime,
+  formatTerminalAlertRelative,
+} from "./staffAdminFormatters"
 
-// ---------------------------------------------------------------------------
-// Local helpers (panel-private, moved from StaffUsersAdminClient so callers
-// no longer need to thread date formatters through props).
-// ---------------------------------------------------------------------------
-
-const formatTerminalAlertDateTime = (value: string | null) => {
-  if (!value) return "—"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/New_York",
-  }).format(parsed)
+type FastClassActionPromoOffer = {
+  linkedCourseSlug: string
+  linkedCourseTitle: string
+  linkedFromCourseSlug: string
+  priceCents: number
 }
 
-const formatTerminalAlertRelative = (value: string | null, nowTs: number) => {
-  if (!value) return null
-  const parsed = Date.parse(value)
-  if (!Number.isFinite(parsed)) return null
-  const diffMs = parsed - nowTs
-  if (diffMs <= 0) return "ending now"
-  const diffMinutes = Math.max(1, Math.ceil(diffMs / 60_000))
-  return diffMinutes === 1 ? "ends in 1 min" : `ends in ${diffMinutes} min`
+type FastClassActionResponse = {
+  mode: "fast_pay" | "fast_sign_in" | "promo_cash"
+  promoOffer?: FastClassActionPromoOffer | null
+  code?: "pending_payment" | "completed_purchase" | string
+  error?: string
+}
+
+type FastClassActionOptions = {
+  previewOnly?: boolean
+  includeConsecutive?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +162,7 @@ export type StudentsBoardCardsProps = {
   openStudentPinModalForProfile: (student: StudentProfileCard) => void
   openOverrideModal: (studentId: string, studentName: string) => void
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   formatMoney: (cents: number, currency?: string) => string
 }
 
@@ -175,6 +177,8 @@ const resolveMasonryColumnCount = () => {
   return 1
 }
 
+export type StudentsBoardCreateStudentProps = ReturnType<typeof useStaffCreateStudentAdmin> | null
+
 export type StaffStudentsBoardPanelProps = {
   isStudentsView: boolean
   loadingStatus: StudentsBoardLoadingProps
@@ -183,6 +187,7 @@ export type StaffStudentsBoardPanelProps = {
   controls: StaffPaymentsBoardControlsProps
   cards: StudentsBoardCardsProps
   pagination: StudentsBoardPaginationProps
+  createStudent?: StudentsBoardCreateStudentProps
 }
 
 const ClerkSyncContext = React.createContext<StudentsBoardClerkSyncProps | null>(null)
@@ -370,6 +375,7 @@ export default function StaffStudentsBoardPanel({
   controls,
   cards,
   pagination,
+  createStudent,
 }: StaffStudentsBoardPanelProps) {
   if (!isStudentsView) return null
 
@@ -391,17 +397,44 @@ export default function StaffStudentsBoardPanel({
             Grid view by student with class payment status, check-in and active package.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => onRefreshPaymentsBoard()}
-          disabled={paymentsLoading}
-          className="mt-2 inline-flex shrink-0 items-center gap-1 h-9 whitespace-nowrap rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70 dark:hover:border-[var(--brand,#b61616)]/60 dark:hover:text-[var(--brand,#b61616)]"
-          aria-label="Refresh payments board"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${paymentsLoading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="mt-2 flex shrink-0 items-center gap-2">
+          {createStudent && (
+            <button
+              type="button"
+              onClick={createStudent.openModal}
+              className="inline-flex items-center gap-1 h-9 whitespace-nowrap rounded-full border border-[var(--brand,#b61616)]/40 bg-[var(--brand,#b61616)]/10 px-3 text-xs font-medium text-[var(--brand,#b61616)] transition hover:bg-[var(--brand,#b61616)]/20 dark:border-[var(--brand,#b61616)]/40 dark:text-[var(--brand,#b61616)]"
+              aria-label="Create new student"
+            >
+              + New student
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onRefreshPaymentsBoard()}
+            disabled={paymentsLoading}
+            className="inline-flex items-center gap-1 h-9 whitespace-nowrap rounded-full border border-black/20 px-3 text-xs font-medium text-black/70 transition hover:border-[var(--brand,#b61616)]/60 hover:text-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/20 dark:text-white/70 dark:hover:border-[var(--brand,#b61616)]/60 dark:hover:text-[var(--brand,#b61616)]"
+            aria-label="Refresh payments board"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${paymentsLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </header>
+
+      {createStudent && (
+        <CreateStudentModal
+          isOpen={createStudent.isOpen}
+          form={createStudent.form}
+          submitting={createStudent.submitting}
+          error={createStudent.error}
+          result={createStudent.result}
+          hasAmount={createStudent.hasAmount}
+          canSubmit={createStudent.canSubmit}
+          onClose={createStudent.closeModal}
+          onUpdateField={createStudent.updateField}
+          onSubmit={createStudent.submit}
+        />
+      )}
 
       <ClerkSyncBanner {...clerkSync} />
       <TerminalPinAlertsStrip {...terminalAlerts} />
@@ -409,7 +442,11 @@ export default function StaffStudentsBoardPanel({
       <StaffPaymentsBoardControls {...controls} />
 
       <ClerkSyncContext.Provider value={clerkSync}>
-        <StudentCardsGrid {...cards} paymentsLoading={paymentsLoading} />
+        <StudentCardsGrid
+          {...cards}
+          paymentsLoading={paymentsLoading}
+          onRefreshPaymentsBoard={onRefreshPaymentsBoard}
+        />
       </ClerkSyncContext.Provider>
 
       {totalPages > 1 ? (
@@ -446,6 +483,29 @@ export default function StaffStudentsBoardPanel({
 
 type StudentCardsGridProps = StudentsBoardCardsProps & {
   paymentsLoading: boolean
+  onRefreshPaymentsBoard: () => void
+}
+
+const hasUsablePackageCredit = (activePackage: { remainingCredits: number | null; isUnlimited: boolean } | null | undefined) => {
+  if (!activePackage) return false
+  if (activePackage.isUnlimited) return true
+  return typeof activePackage.remainingCredits === "number" && activePackage.remainingCredits > 0
+}
+
+const resolveFastClassActionLabel = (activePackage: { remainingCredits: number | null; isUnlimited: boolean } | null | undefined) =>
+  hasUsablePackageCredit(activePackage) ? "Fast Sign" : "Fast Pay"
+
+async function postFastClassAction(userId: string, options: FastClassActionOptions = {}) {
+  const response = await fetch("/api/staff/students/fast-class-action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, ...options }),
+  })
+  const payload = await response.json().catch(() => ({})) as FastClassActionResponse
+  if (!response.ok) {
+    throw new Error(payload.error || "Fast class action failed")
+  }
+  return payload
 }
 
 function StudentCardsGrid(props: StudentCardsGridProps) {
@@ -489,17 +549,37 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
       />
     )
 
-  const masonryColumns = React.useMemo(
-    () =>
-      displayedStudentCards.reduce<Array<AnyStudentCardForPanel[]>>(
+  const getCardPurchaseSource = (card: AnyStudentCardForPanel): string | undefined =>
+    card.source === "payment" ? card.latestPayment.purchaseSource : undefined
+
+  const { webCards, kioskCards } = React.useMemo(() => {
+    const web: AnyStudentCardForPanel[] = []
+    const kiosk: AnyStudentCardForPanel[] = []
+    for (const card of displayedStudentCards) {
+      const source = getCardPurchaseSource(card)
+      if (source === "kiosk") {
+        kiosk.push(card)
+      } else {
+        web.push(card)
+      }
+    }
+    return { webCards: web, kioskCards: kiosk }
+  }, [displayedStudentCards])
+
+  const buildMasonryColumns = React.useCallback(
+    (cards: AnyStudentCardForPanel[]) =>
+      cards.reduce<Array<AnyStudentCardForPanel[]>>(
         (columns, student, index) => {
           columns[index % columns.length].push(student)
           return columns
         },
         Array.from({ length: masonryColumnCount }, () => []),
       ),
-    [displayedStudentCards, masonryColumnCount],
+    [masonryColumnCount],
   )
+
+  const webMasonryColumns = React.useMemo(() => buildMasonryColumns(webCards), [buildMasonryColumns, webCards])
+  const kioskMasonryColumns = React.useMemo(() => buildMasonryColumns(kioskCards), [buildMasonryColumns, kioskCards])
 
   return (
     <>
@@ -537,12 +617,36 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
                 : "No student payments found."}
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {masonryColumns.map((column, columnIndex) => (
-              <div key={`student-card-column-${columnIndex}`} className="flex flex-col gap-5">
-                {column.map(renderStudentCard)}
-              </div>
-            ))}
+          <div className="space-y-6">
+            {webCards.length > 0 && (
+              <section>
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-400/80">
+                  Web
+                </p>
+                <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {webMasonryColumns.map((column, columnIndex) => (
+                    <div key={`web-card-column-${columnIndex}`} className="flex flex-col gap-5">
+                      {column.map(renderStudentCard)}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {kioskCards.length > 0 && (
+              <section>
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-400/80">
+                  Kiosk / Terminal / Front desk
+                </p>
+                <div className="grid max-h-none grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {kioskMasonryColumns.map((column, columnIndex) => (
+                    <div key={`kiosk-card-column-${columnIndex}`} className="flex flex-col gap-5">
+                      {column.map(renderStudentCard)}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         )}
       </div>
@@ -554,7 +658,146 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
 // ProfileStudentCard — render profile-source student cards (no payment yet).
 // ---------------------------------------------------------------------------
 
-type ProfileStudentCardProps = StudentsBoardCardsProps & {
+type FastClassActionControlsProps = {
+  activePackage: { remainingCredits: number | null; isUnlimited: boolean } | null | undefined
+  disabled?: boolean
+  studentName: string
+  userId: string | null
+  onRefreshPaymentsBoard: () => void
+}
+
+function FastClassActionControls({
+  activePackage,
+  disabled = false,
+  studentName,
+  userId,
+  onRefreshPaymentsBoard,
+}: FastClassActionControlsProps) {
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [promoOffer, setPromoOffer] = React.useState<FastClassActionPromoOffer | null>(null)
+  const label = resolveFastClassActionLabel(activePackage)
+  const isDisabled = disabled || busy || !userId
+
+  const runFastAction = async () => {
+    if (!userId) return
+    setBusy(true)
+    setError(null)
+    try {
+      const preview = await postFastClassAction(userId, { previewOnly: true })
+      if (preview.promoOffer) {
+        setPromoOffer(preview.promoOffer)
+        return
+      }
+      const result = await postFastClassAction(userId)
+      await onRefreshPaymentsBoard()
+      setPromoOffer(result.promoOffer || null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fast class action failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const acceptPromo = async () => {
+    if (!userId || !promoOffer) return
+    setBusy(true)
+    setError(null)
+    try {
+      await postFastClassAction(userId, { includeConsecutive: true })
+      setPromoOffer(null)
+      await onRefreshPaymentsBoard()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Promo check-in failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const declinePromo = async () => {
+    if (!userId) return
+    setBusy(true)
+    setError(null)
+    try {
+      await postFastClassAction(userId)
+      setPromoOffer(null)
+      await onRefreshPaymentsBoard()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fast class action failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={runFastAction}
+        disabled={isDisabled}
+        className="rounded-md border border-emerald-300/35 bg-emerald-400/12 px-2 py-1 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label={`${label} for ${studentName}`}
+      >
+        {busy ? "Working…" : label}
+      </button>
+      {error ? (
+        <div className="fixed inset-0 z-[310] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`fast-action-error-title-${userId}`}
+            className="w-full max-w-sm rounded-2xl border border-[var(--brand,#b61616)]/45 bg-[#131622] p-5 text-white shadow-[0_24px_80px_-24px_rgba(182,22,22,0.85)]"
+          >
+            <p id={`fast-action-error-title-${userId}`} className="text-base font-semibold">Action blocked</p>
+            <p className="mt-2 text-sm text-white/80">{error}</p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="rounded-full bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_32px_-18px_rgba(182,22,22,0.9)]"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {promoOffer ? (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`fast-promo-title-${userId}`}
+            className="w-full max-w-sm rounded-2xl border border-[var(--brand,#b61616)]/45 bg-[#131622] p-5 text-white shadow-[0_24px_80px_-24px_rgba(182,22,22,0.85)]"
+          >
+            <p id={`fast-promo-title-${userId}`} className="text-base font-semibold">Staying for the next class?</p>
+            <p className="mt-2 text-sm text-white/80">{promoOffer.linkedCourseTitle}</p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={acceptPromo}
+                disabled={busy}
+                className="rounded-md bg-[var(--brand,#b61616)] px-3 py-1.5 text-xs font-semibold text-white shadow-[0_10px_24px_-14px_rgba(182,22,22,0.95)] transition hover:bg-[var(--brand,#b61616)]/90 disabled:opacity-50"
+              >
+                Yes, add promo
+              </button>
+              <button
+                type="button"
+                onClick={declinePromo}
+                disabled={busy}
+                className="rounded-md border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/80 disabled:opacity-50"
+              >
+                No, only first class
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+type ProfileStudentCardProps = StudentCardsGridProps & {
   student: StudentProfileCard
 }
 
@@ -572,7 +815,11 @@ function ProfileStudentCard({
   openStudentPinModalForProfile,
   openOverrideModal,
   currentRole,
+  currentCategory,
+  paymentsLoading,
+  onRefreshPaymentsBoard,
 }: ProfileStudentCardProps) {
+  const canEditStudentInfo = canOperateStudentEdits(currentRole, currentCategory)
   // Mirror legacy logic: identity, badges, detail rows and settlement control.
   const identity = splitCustomerName(student.displayName, student.email)
   const initials = getInitials(identity.firstName, identity.lastName, student.email)
@@ -693,9 +940,14 @@ function ProfileStudentCard({
         })}
       </div>
 
-      <div
-        className={`mt-4 grid gap-2.5 ${canOperateStudentPins && student.userId ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2"}`}
-      >
+      <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <FastClassActionControls
+          activePackage={student.activePackage}
+          disabled={paymentsLoading}
+          studentName={student.displayName}
+          userId={student.userId}
+          onRefreshPaymentsBoard={onRefreshPaymentsBoard}
+        />
         <button
           type="button"
           onClick={() => {
@@ -713,10 +965,10 @@ function ProfileStudentCard({
             onClick={() => openStudentPinModalForProfile(student)}
             className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
           >
-            {student.provisionalPinExpiresAt ? "Reissue PIN" : "Provisional PIN"}
+            {student.provisionalPinExpiresAt ? "Reissue PIN" : "Prov PIN"}
           </button>
         ) : null}
-        {(currentRole === "owner" || currentRole === "admin") && student.userId ? (
+        {canEditStudentInfo && student.userId ? (
           <button
             type="button"
             onClick={() => openOverrideModal(student.userId, student.displayName)}
@@ -727,7 +979,7 @@ function ProfileStudentCard({
         ) : null}
       </div>
 
-      {(currentRole === "owner" || currentRole === "admin") &&
+      {canEditStudentInfo &&
         student.userId &&
         usersWithAuditEntries.has(student.userId) && (
           <div className="mt-3">
@@ -762,7 +1014,7 @@ function ProfileClerkBanner({ student }: ProfileClerkBannerProps) {
 // PaymentStudentCard — render payment-backed student cards.
 // ---------------------------------------------------------------------------
 
-type PaymentStudentCardProps = StudentsBoardCardsProps & {
+type PaymentStudentCardProps = StudentCardsGridProps & {
   student: PaymentBackedStudentCard
 }
 
@@ -787,8 +1039,12 @@ function PaymentStudentCard({
   openStudentPinModal,
   openOverrideModal,
   currentRole,
+  currentCategory,
   formatMoney,
+  paymentsLoading,
+  onRefreshPaymentsBoard,
 }: PaymentStudentCardProps) {
+  const canEditStudentInfo = canOperateStudentEdits(currentRole, currentCategory)
   const payment = student.latestPayment
   const identity = splitCustomerName(payment.customerName, payment.customerEmail)
   const initials = getInitials(identity.firstName, identity.lastName, payment.customerEmail)
@@ -824,7 +1080,7 @@ function PaymentStudentCard({
   const isSelected = studentSelectableIds.some((id) => selectedPaymentIds.includes(id))
   const studentPinLabel = payment.studentPin.enabled
     ? payment.studentPin.provisionalActive
-      ? "Provisional PIN"
+      ? "Prov PIN"
       : "Enrolled PIN"
     : null
   const studentPinTone = resolveStudentPinTone(payment.studentPin)
@@ -925,6 +1181,7 @@ function PaymentStudentCard({
       </header>
 
       <PaymentClerkBanner payment={payment} />
+
 
       <div className="mt-4 w-full grid grid-cols-2 gap-1.5">
         <button
@@ -1137,9 +1394,14 @@ function PaymentStudentCard({
         </p>
       </div>
 
-      <div
-        className={`mt-4 grid gap-2.5 ${canOperateStudentPins && payment.userId ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2"}`}
-      >
+      <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <FastClassActionControls
+          activePackage={payment.activePackage}
+          disabled={paymentsLoading}
+          studentName={identity.fullName}
+          userId={payment.userId}
+          onRefreshPaymentsBoard={onRefreshPaymentsBoard}
+        />
         <button
           type="button"
           onClick={() => {
@@ -1158,10 +1420,10 @@ function PaymentStudentCard({
             onClick={() => openStudentPinModal(payment)}
             className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
           >
-            {payment.studentPin.provisionalActive ? "Reissue PIN" : "Provisional PIN"}
+            {payment.studentPin.provisionalActive ? "Reissue PIN" : "Prov PIN"}
           </button>
         ) : null}
-        {(currentRole === "owner" || currentRole === "admin") && payment.userId ? (
+        {canEditStudentInfo && payment.userId ? (
           <button
             type="button"
             onClick={() => openOverrideModal(payment.userId, identity.fullName)}
@@ -1172,7 +1434,7 @@ function PaymentStudentCard({
         ) : null}
       </div>
 
-      {(currentRole === "owner" || currentRole === "admin") &&
+      {canEditStudentInfo &&
         payment.userId &&
         usersWithAuditEntries.has(payment.userId) && (
           <div className="mt-3">

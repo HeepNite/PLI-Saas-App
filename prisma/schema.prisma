@@ -26,7 +26,7 @@ model User {
   clerkId                     String?                      @unique
   email                       String                       @unique
   name                        String?
-  phone                       String?
+  phone                       String?                      @unique
   stripeCustomerId            String?                      @unique
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
@@ -779,7 +779,7 @@ model StudentDataAudit {
   targetUserId   String
   staffClerkId   String
   staffName      String?
-  entity         String // attendance | payment | package | stats
+  entity         String // attendance | payment | package | stats | profile
   entityId       String?
   field          String
   valueBefore    Json?

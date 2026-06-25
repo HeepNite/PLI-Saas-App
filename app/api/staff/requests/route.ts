@@ -10,17 +10,11 @@ import {
   STAFF_REQUEST_TYPES,
   type StaffRequestStatus,
 } from "@/lib/security/staff-request"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 const STAFF_REQUEST_STATUS_DEFAULT: StaffRequestStatus = "PENDING"
-
-const asObject = (value: unknown): Prisma.JsonObject => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Prisma.JsonObject
-  }
-  return {}
-}
 
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({

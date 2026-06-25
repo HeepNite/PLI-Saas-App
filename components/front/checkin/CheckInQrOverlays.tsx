@@ -179,7 +179,9 @@ export function CheckInQrOverlays({
       )}
 
       {showKioskResolvingOverlay && !packageCheckInResult && !showDuplicatePurchasePopup && !bootstrap?.hasExistingPurchaseForSession && (
-        <KioskResolvingOverlay message={processingPackageCheckIn ? "Checking you in…" : undefined} />
+        <KioskResolvingOverlay
+          message={bootstrap?.package ? "Checking you in with your package…" : processingPackageCheckIn ? "Checking you in…" : undefined}
+        />
       )}
 
       {showConsecutiveOverlay && activeCourseHasUsablePackage && consecutiveOffer && !consecutiveSuccess && !consecutiveError && consecutiveQrCheckout.phase === "idle" && (

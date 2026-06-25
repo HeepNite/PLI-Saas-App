@@ -6,9 +6,12 @@ export const resolveFlowStepKeys = (input: {
   isCheckInFlow: boolean
   isCheckInNewFlow: boolean
   isKioskTerminalFlow: boolean
+  isQrMobileCompactFlow?: boolean
   requiresPhotoStep: boolean
+  skipInfoStep?: boolean
   hasPackages?: boolean
   hasConsecutiveOffer?: boolean
+  isProfileBookingFlow?: boolean
 }) => resolveEnrollStepKeys(input)
 
 export const selectActiveStepKey = (stepKeys: EnrollStepKey[], step: number): EnrollStepKey | "" => stepKeys[step] || ""

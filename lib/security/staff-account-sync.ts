@@ -4,6 +4,7 @@ import {
   extractStaffRoleFromUserMetadata,
   type StaffRole,
 } from "@/lib/security/staff-role"
+import { asObject } from "@/lib/shared"
 import {
   extractStaffCategoryFromUserMetadata,
   extractStaffSubCategoryFromUserMetadata,
@@ -71,13 +72,6 @@ const getStaffMirrorModels = () => {
   }
 
   return hasModels ? prismaUnsafe : null
-}
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 const toDate = (value: number | null | undefined): Date | null => {

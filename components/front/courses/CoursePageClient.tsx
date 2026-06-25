@@ -1,5 +1,6 @@
 "use client"
 import React from "react"
+import { useSearchParams } from "next/navigation"
 import type { CourseData } from "@/constants/courses"
 import CourseAsideLeft from "./CourseAsideLeft"
 import CourseAsideRight from "./CourseAsideRight"
@@ -10,13 +11,16 @@ import CourseSections from "./CourseSections"
 // - The center column is the only scrollable area to keep the page short.
 // - On mobile/tablet, the layout stacks and page scrolls normally for better UX.
 // Tweak the `stickyTop` and `containerPadding` if your header/notification bar heights change.
-export default function CoursePageClient({ course }: { course: CourseData }) {
+export default function CoursePageClient({ course, isQrBooking }: { course: CourseData; isQrBooking?: boolean }) {
   // Offset for sticky to account for Header + NotificationBar approx height
   const stickyTop = 96 // px (~ top-24)
   const gridRef = React.useRef<HTMLDivElement>(null)
   const leftStickyRef = React.useRef<HTMLDivElement>(null)
   const rightStickyRef = React.useRef<HTMLDivElement>(null)
   const [showSkeleton, setShowSkeleton] = React.useState(true)
+  const searchParams = useSearchParams()
+  // Use server-provided prop or capture from URL once (persists after CourseAsideRight clears params)
+  const [isQrBookingFlow] = React.useState(() => isQrBooking || searchParams.get("qrBooking") === "1")
 
   React.useEffect(() => {
     if (typeof document === "undefined") return
@@ -201,6 +205,59 @@ export default function CoursePageClient({ course }: { course: CourseData }) {
       </div>
     </div>
   )
+
+  // Remove the vanilla-JS boot loader (injected by root layout script, not React-managed)
+  React.useEffect(() => {
+    if (!isQrBookingFlow) return
+    const bootLoader = document.getElementById("qr-boot-loader")
+    if (bootLoader) bootLoader.remove()
+  }, [isQrBookingFlow])
+
+  // QR booking flow on mobile: hide the entire course page and show only the booking overlay
+  if (isQrBookingFlow) {
+    return (
+      <div className="min-h-screen bg-background overflow-visible">
+        {/* Mobile: full-screen black background with loader + booking modal */}
+        <div className="lg:hidden fixed inset-0 z-[9999] bg-black">
+          {/* Loader shown immediately while CourseAsideRight mounts and opens the modal */}
+          <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <p className="text-sm text-white/70">Loading your booking…</p>
+            </div>
+          </div>
+          <div className="relative z-10">
+            <CourseAsideRight course={course} />
+          </div>
+        </div>
+        {/* Desktop: render normally */}
+        <div className="hidden lg:block mx-auto w-full max-w-[1800px] px-0 sm:px-1 lg:px-2 xl:px-3 py-8">
+          <div
+            ref={gridRef}
+            className="grid grid-cols-1 gap-6 overflow-visible relative lg:items-start lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(360px,430px)]"
+          >
+            <aside className="lg:self-start lg:h-fit">
+              <div ref={leftStickyRef} className="lg:sticky" style={{ top: stickyTop }}>
+                <div className="space-y-4">
+                  <CourseAsideLeft course={course} />
+                </div>
+              </div>
+            </aside>
+            <section>
+              <div className="pr-1">
+                <CourseSections course={course} />
+              </div>
+            </section>
+            <aside className="lg:self-start lg:h-fit" id="enroll-cta">
+              <div ref={rightStickyRef} className="lg:sticky" style={{ top: stickyTop }}>
+                <CourseAsideRight course={course} />
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background overflow-visible">

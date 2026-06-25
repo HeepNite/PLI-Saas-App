@@ -38,6 +38,9 @@ const CODE_LENGTH = 6
 const CODE_RESEND_COOLDOWN_MS = 30_000
 const PHONE_CODE_RATE_LIMIT_RE = /too many verification code requests|wait at least\s+\d+\s+seconds?/i
 const ALREADY_SIGNED_IN_RE = /already signed in|active session/i
+const NOT_FOUND_RE = /couldn't find your account|couldn't find an account|no account found/i
+const SIGN_IN_RETRY_DELAY_MS = 2000
+const SIGN_IN_MAX_RETRIES = 2
 
 const getPhoneCodeFactor = (factors: unknown): PhoneCodeFactor | null => {
   if (!Array.isArray(factors)) return null
@@ -207,10 +210,30 @@ export default function EmbeddedSignIn({
         return
       }
 
-      const created = await signIn.create({
-        strategy: "phone_code",
-        identifier: normalizedPhone,
-      })
+      // Retry loop: newly created Clerk accounts may take a moment to propagate.
+      let created = null as Awaited<ReturnType<typeof signIn.create>> | null
+      for (let attempt = 0; attempt <= SIGN_IN_MAX_RETRIES; attempt++) {
+        try {
+          created = await signIn.create({
+            strategy: "phone_code",
+            identifier: normalizedPhone,
+          })
+          break
+        } catch (retryErr) {
+          const retryMsg = getClerkErrorMessage(retryErr)
+          if (retryMsg && NOT_FOUND_RE.test(retryMsg) && attempt < SIGN_IN_MAX_RETRIES) {
+            setNotice("Setting up your account…")
+            await new Promise((r) => setTimeout(r, SIGN_IN_RETRY_DELAY_MS))
+            continue
+          }
+          throw retryErr
+        }
+      }
+
+      if (!created) {
+        setError("We couldn't find your account. Please try again.")
+        return
+      }
 
       const factor = getPhoneCodeFactor(created.supportedFirstFactors)
       const emailFactor = getEmailCodeFactor(created.supportedFirstFactors)
@@ -405,12 +428,12 @@ export default function EmbeddedSignIn({
   return (
     <div className={bare ? "w-full" : "w-full rounded-2xl border border-white/10 bg-[#171922]/95 p-4 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]"}>
       {step === "phone" ? (
-        <div className="space-y-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Phone access</p>
-            <p className="mt-1 text-sm text-white/82">Enter your number and we will send you an SMS code.</p>
+        <div className="space-y-3">
+          <div className="pr-16">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand,#c71818)]">Phone access</p>
+            <p className="mt-1 text-xs text-white/82">We’ll text you a verification code.</p>
           </div>
-          <label className="block space-y-2">
+          <label className="block space-y-1.5">
             <span className="text-xs font-medium text-white/85">Phone</span>
             <div className="relative">
               <input
@@ -432,7 +455,7 @@ export default function EmbeddedSignIn({
                 enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
                 pattern={PHONE_INPUT_ATTRIBUTES.pattern}
                 placeholder="+1 (929) 387-6584"
-                className={`h-11 w-full rounded-xl border bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition ${
+                className={`h-10 w-full rounded-lg border bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition ${
                   useNumericKeypad && activeField === "phone"
                     ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
                     : "border-white/12 focus:border-[var(--brand,#c71818)]"
@@ -459,6 +482,8 @@ export default function EmbeddedSignIn({
                 setPhone(clearPhoneDigits())
                 setError(null)
               }}
+              size="compact"
+              className="p-3"
             />
           )}
           {error && <p className="text-xs text-red-200">{error}</p>}
@@ -466,7 +491,7 @@ export default function EmbeddedSignIn({
             type="button"
             onClick={() => void sendCode()}
             disabled={busy}
-            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Send code

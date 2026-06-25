@@ -3,6 +3,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -21,13 +22,6 @@ type PerformancePayload = {
 }
 
 const TEACHER_TYPES = ["lead", "assistant", "substitute", "kids_program", "specialist", "open_format"] as const
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
 
 const normalizeWeekdays = (value: unknown): number[] => {
   if (!Array.isArray(value)) return []

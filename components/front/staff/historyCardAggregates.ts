@@ -62,6 +62,9 @@ const toTimestamp = (value: string | null | undefined) => {
 const isAttendedPayment = (payment: HistoryCardPaymentLike) =>
   payment.checkInStatus === "checked_in" || payment.checkInStatus === "checked_in_no_package" || payment.checkInStatus === "checked_out"
 
+const isCollectedPayment = (payment: HistoryCardPaymentLike) =>
+  payment.classPaid && payment.paymentChannel !== "package_credit"
+
 const byLatestPayment = <TPayment extends HistoryCardPaymentLike>(a: TPayment, b: TPayment) => {
   const diff = toTimestamp(b.createdAt) - toTimestamp(a.createdAt)
   if (diff !== 0) return diff
@@ -98,7 +101,7 @@ export const buildHistoryStudentPaidEntries = <TPayment extends HistoryCardPayme
       continue
     }
 
-    if (!payment.classPaid) continue
+    if (!isCollectedPayment(payment)) continue
 
     deduped.set(payment.id, {
       id: payment.id,
@@ -156,8 +159,8 @@ export const buildHistoryStudentCard = <TPayment extends HistoryCardPaymentLike>
     latestPayment,
     latestAttendedPayment,
     totalPayments: allPayments.length,
-    totalCollectedCents: allPayments.filter((payment) => payment.classPaid).reduce((sum, payment) => sum + payment.amount, 0),
-    paidPayments: allPayments.filter((payment) => payment.classPaid).length,
+    totalCollectedCents: allPayments.filter(isCollectedPayment).reduce((sum, payment) => sum + payment.amount, 0),
+    paidPayments: allPayments.filter(isCollectedPayment).length,
     checkedInPayments:
       mode === "history" && typeof payloadCompletedTotal === "number"
         ? payloadCompletedTotal
@@ -214,6 +217,7 @@ export type CardCheckInStatus = "checked_in" | "checked_in_no_package" | "checke
 
 export type ActivePackage = {
   label: string
+  totalCredits: number | null
   remainingCredits: number | null
   isUnlimited: boolean
   expiresAt: string | null

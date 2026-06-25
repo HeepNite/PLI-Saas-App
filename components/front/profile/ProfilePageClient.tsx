@@ -9,19 +9,26 @@ import { useUser } from "@clerk/nextjs"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import { useStudentPinStatus } from "@/components/front/hooks/useStudentPinStatus"
 import {
+  buildProfileConsecutiveCheckoutPayload,
   buildBookingPrefillContact,
+  hasUsableProfilePackage,
+  shouldUseProfileFastCredit,
 } from "./profile-utils"
+import {
+  ConsecutiveClassOffer,
+  ConsecutiveOfferError,
+  ConsecutiveOfferSuccess,
+  type ConsecutiveOfferData,
+} from "@/components/front/checkin/ConsecutiveClassOffer"
 import type {
   ActionRequestItem,
 } from "./profile-types"
 import {
   NY_TIMEZONE,
-  CHECK_IN_OPEN_WINDOW_MS,
 } from "./profile-constants"
 import {
   isPendingRequestStatus,
   formatDateKeyInTimeZone,
-  formatDateTimeInTimeZone,
 } from "./profile-formatters"
 import { mockProfile } from "./mock-profile"
 import { usePointsHistory } from "./hooks/usePointsHistory"
@@ -46,8 +53,8 @@ import { GearCard } from "./sections/GearCard"
 import { ProfileLeftRail } from "./sections/ProfileLeftRail"
 import { ProfileFormCard } from "./sections/ProfileFormCard"
 import { StudentPinCard } from "./sections/StudentPinCard"
+import { MobileActionCards } from "./sections/MobileActionCards"
 import { AnalyticsCard } from "./sections/AnalyticsCard"
-import { AgendaCard } from "./sections/AgendaCard"
 import { AssignClassesCard } from "./sections/AssignClassesCard"
 import { ProfileRightRail } from "./sections/ProfileRightRail"
 import { RescheduleModal } from "./modals/RescheduleModal"
@@ -55,6 +62,19 @@ import { ActionRequestModal } from "./modals/ActionRequestModal"
 import { CoursePickerModal } from "./modals/CoursePickerModal"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
+
+const MEDAL_ITEMS = [
+  { label: "5 classes", icon: Trophy },
+  { label: "10 classes", icon: Medal },
+  { label: "1 active month", icon: Flame },
+  { label: "Consistencia", icon: Star },
+]
+
+const RESCHEDULE_STEP_ITEMS: Array<{ id: 1 | 2 | 3; label: string }> = [
+  { id: 1, label: "Reassignment" },
+  { id: 2, label: "Confirmation" },
+  { id: 3, label: "Assign pending" },
+]
 
 export default function ProfilePageClient() {
   const { isLoaded, isSignedIn, user } = useUser()
@@ -67,6 +87,14 @@ export default function ProfilePageClient() {
   const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
   const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
   const [enrollOpen, setEnrollOpen] = React.useState(false)
+  const [selectedDateTime, setSelectedDateTime] = React.useState<{ date: string; time: string } | null>(null)
+  const [profileConsecutiveOffer, setProfileConsecutiveOffer] = React.useState<ConsecutiveOfferData | null>(null)
+  const [profileConsecutiveSource, setProfileConsecutiveSource] = React.useState<{ courseSlug: string; date: string; time: string } | null>(null)
+  const [profileConsecutiveProcessing, setProfileConsecutiveProcessing] = React.useState(false)
+  const [profileConsecutiveProcessingAction, setProfileConsecutiveProcessingAction] = React.useState<"accept" | "decline" | "cash" | "card" | null>(null)
+  const [profileConsecutivePaymentSelection, setProfileConsecutivePaymentSelection] = React.useState(false)
+  const [profileConsecutiveError, setProfileConsecutiveError] = React.useState<string | null>(null)
+  const [profileConsecutiveSuccess, setProfileConsecutiveSuccess] = React.useState<{ courseTitle: string } | null>(null)
   const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
 
   // --- Extracted hooks (Slice 2) ---
@@ -132,12 +160,9 @@ export default function ProfilePageClient() {
     assignablePackages,
     bookingsLoading,
     bookingsError,
-    checkInSubmittingId,
-    checkInError,
     checkInSuccess,
     setCheckInSuccess,
     loadBookings,
-    submitBookingCheckIn,
   } = useProfileBookings({
     canLoadProtectedData,
     clearAvailabilityCache,
@@ -154,6 +179,10 @@ export default function ProfilePageClient() {
   const bookingPrefillContact = React.useMemo(
     () => buildBookingPrefillContact(profileForm, profileUser, user),
     [profileForm, profileUser, user]
+  )
+  const profileHasUsablePackage = React.useMemo(
+    () => hasUsableProfilePackage(packagesData),
+    [packagesData]
   )
   const preferredSet = React.useMemo(() => new Set(mockProfile.preferredCourses), [])
   const orderedCourses = React.useMemo(() => {
@@ -180,6 +209,155 @@ export default function ProfilePageClient() {
     () => bookings.filter((item) => !classRequestsByAttendance.has(item.id)),
     [bookings, classRequestsByAttendance]
   )
+  const openProfileBookingModal = React.useCallback((course: CourseData, date: string, time: string) => {
+    setSelectedCourse(course)
+    setSelectedDateTime({ date, time })
+    setCoursePickerOpen(false)
+    setEnrollOpen(true)
+  }, [])
+  const fetchProfileConsecutiveOffer = React.useCallback(async (course: CourseData, date: string, time: string) => {
+    const params = new URLSearchParams({ courseSlug: course.slug, date, time })
+    const offerRes = await fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`)
+    if (!offerRes.ok) throw new Error("Unable to load consecutive offer")
+    return (await offerRes.json().catch(() => null)) as ConsecutiveOfferData | null
+  }, [])
+  const showProfileConsecutiveOffer = React.useCallback((offer: ConsecutiveOfferData, source: { courseSlug: string; date: string; time: string }) => {
+    setProfileConsecutiveOffer(offer)
+    setProfileConsecutiveSource(source)
+    setProfileConsecutiveError(null)
+    setProfileConsecutiveSuccess(null)
+    setProfileConsecutivePaymentSelection(false)
+  }, [])
+  const clearProfileConsecutiveOffer = React.useCallback(() => {
+    setProfileConsecutiveOffer(null)
+    setProfileConsecutiveSource(null)
+    setProfileConsecutiveError(null)
+    setProfileConsecutivePaymentSelection(false)
+  }, [])
+  const consumeProfilePackageCredit = React.useCallback(async (source: { courseSlug: string; date: string; time: string }) => {
+    const res = await fetch("/api/profile/bookings/use-credit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(source),
+    })
+    const data = await res.json().catch(() => null)
+    return { res, data }
+  }, [])
+  const completeProfileFastCredit = React.useCallback(async (source: { courseSlug: string; date: string; time: string }, message: string) => {
+    const { data } = await consumeProfilePackageCredit(source)
+    if (data?.ok) {
+      setCoursePickerOpen(false)
+      await loadBookings()
+      setCheckInSuccess(message)
+      return true
+    }
+    return false
+  }, [consumeProfilePackageCredit, loadBookings, setCheckInSuccess])
+  const handleProfileConsecutiveDecline = React.useCallback(async () => {
+    if (!profileConsecutiveSource) return
+    setProfileConsecutiveProcessing(true)
+    setProfileConsecutiveProcessingAction("decline")
+    setProfileConsecutiveError(null)
+    try {
+      const completed = await completeProfileFastCredit(profileConsecutiveSource, "Class booked! A package credit has been applied.")
+      if (completed) clearProfileConsecutiveOffer()
+    } catch {
+      setProfileConsecutiveError("Unable to book this class with your package.")
+    } finally {
+      setProfileConsecutiveProcessing(false)
+      setProfileConsecutiveProcessingAction(null)
+    }
+  }, [clearProfileConsecutiveOffer, completeProfileFastCredit, profileConsecutiveSource])
+  const handleProfileConsecutiveAccept = React.useCallback(() => {
+    setProfileConsecutivePaymentSelection(true)
+  }, [])
+  const handleProfileConsecutivePayCard = React.useCallback(async () => {
+    if (!profileConsecutiveOffer || !profileConsecutiveSource) return
+    const linkedCourse = sourceCourses.find((course) => course.slug === profileConsecutiveOffer.linkedCourseSlug) || null
+    const payload = buildProfileConsecutiveCheckoutPayload({
+      offer: profileConsecutiveOffer,
+      sourceCourseSlug: profileConsecutiveSource.courseSlug,
+      sourceDate: profileConsecutiveSource.date,
+      sourceTime: profileConsecutiveSource.time,
+      linkedCourse,
+      contact: bookingPrefillContact,
+    })
+    if (!payload) {
+      setProfileConsecutiveError("Unable to start checkout for this promotion.")
+      return
+    }
+    setProfileConsecutiveProcessing(true)
+    setProfileConsecutiveProcessingAction("card")
+    setProfileConsecutiveError(null)
+    try {
+      const { data: creditData } = await consumeProfilePackageCredit(profileConsecutiveSource)
+      if (!creditData?.ok) {
+        setProfileConsecutiveError("Unable to book this class with your package.")
+        return
+      }
+      const res = await fetch("/api/checkout/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || typeof data?.url !== "string") {
+        setProfileConsecutiveError(typeof data?.error === "string" ? data.error : "Unable to start checkout for this promotion.")
+        return
+      }
+      window.location.href = data.url
+    } catch {
+      setProfileConsecutiveError("Unable to start checkout for this promotion.")
+    } finally {
+      setProfileConsecutiveProcessing(false)
+      setProfileConsecutiveProcessingAction(null)
+    }
+  }, [bookingPrefillContact, consumeProfilePackageCredit, profileConsecutiveOffer, profileConsecutiveSource, sourceCourses])
+  const handleProfileConsecutivePayCash = React.useCallback(async () => {
+    if (!profileConsecutiveOffer || !profileConsecutiveSource) return
+    setProfileConsecutiveProcessing(true)
+    setProfileConsecutiveProcessingAction("cash")
+    setProfileConsecutiveError(null)
+    try {
+      const { data: creditData } = await consumeProfilePackageCredit(profileConsecutiveSource)
+      if (!creditData?.ok) {
+        setProfileConsecutiveError("Unable to book this class with your package.")
+        return
+      }
+      const res = await fetch("/api/checkin/qr/package", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: profileConsecutiveOffer.linkedCourseSlug,
+          date: profileConsecutiveSource.date,
+          time: profileConsecutiveOffer.linkedCourseTime ?? profileConsecutiveSource.time,
+          durationMinutes: 60,
+          flowContext: "external_web",
+          consecutiveAddOn: true,
+          consecutiveCashPayment: true,
+          linkedFromCourseSlug: profileConsecutiveSource.courseSlug,
+          linkedFromAttendanceId: creditData.attendanceId,
+          consecutivePriceCents: profileConsecutiveOffer.packageHolderConsecutiveCents,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setProfileConsecutiveError(typeof data?.error === "string" ? data.error : "Unable to record cash payment for this promotion.")
+        return
+      }
+      setProfileConsecutiveSuccess({ courseTitle: profileConsecutiveOffer.linkedCourseTitle })
+      setProfileConsecutiveOffer(null)
+      setProfileConsecutiveSource(null)
+      setProfileConsecutivePaymentSelection(false)
+      await loadBookings()
+      setCheckInSuccess("Class booked! A package credit has been applied. Cash promotion recorded.")
+    } catch {
+      setProfileConsecutiveError("Unable to record cash payment for this promotion.")
+    } finally {
+      setProfileConsecutiveProcessing(false)
+      setProfileConsecutiveProcessingAction(null)
+    }
+  }, [consumeProfilePackageCredit, loadBookings, profileConsecutiveOffer, profileConsecutiveSource, setCheckInSuccess])
   const {
     mobileAgendaOpenDay,
     setMobileAgendaOpenDay,
@@ -203,33 +381,7 @@ export default function ProfilePageClient() {
     () => visibleBookings.find((item) => item.id === selectedBookingId) || visibleBookings[0] || null,
     [visibleBookings, selectedBookingId]
   )
-  const nextCheckInBooking = React.useMemo(() => {
-    const now = Date.now()
-    return (
-      visibleBookings.find((booking) => {
-        const startsAtMs = new Date(booking.startsAt).getTime()
-        if (Number.isNaN(startsAtMs)) return false
-        return startsAtMs <= now + CHECK_IN_OPEN_WINDOW_MS
-      }) || null
-    )
-  }, [visibleBookings])
-  const pendingCheckInBooking = React.useMemo(() => {
-    if (nextCheckInBooking) return null
-    return visibleBookings[0] || null
-  }, [nextCheckInBooking, visibleBookings])
-  const checkInOpensAtLabel = React.useMemo(() => {
-    if (!pendingCheckInBooking) return ""
-    const startsAtMs = new Date(pendingCheckInBooking.startsAt).getTime()
-    if (Number.isNaN(startsAtMs)) return ""
-    return formatDateTimeInTimeZone(new Date(startsAtMs - CHECK_IN_OPEN_WINDOW_MS), {
-      weekday: "short",
-      day: "2-digit",
-      month: "short",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-  }, [pendingCheckInBooking])
-  const suspendablePackages = React.useMemo(() => assignablePackages, [assignablePackages])
+
   const {
     changeModalOpen,
     rescheduleStep,
@@ -293,7 +445,7 @@ export default function ProfilePageClient() {
     closeRequestModal,
     submitActionRequest,
   } = useActionRequestModal({
-    suspendablePackages,
+    suspendablePackages: assignablePackages,
     visibleBookings,
     selectedBooking,
     loadActionRequests,
@@ -387,26 +539,22 @@ export default function ProfilePageClient() {
     return () => window.clearTimeout(id)
   }, [checkInSuccess, setCheckInSuccess])
 
-  const medalItems = [
-    { label: "5 classes", icon: Trophy },
-    { label: "10 classes", icon: Medal },
-    { label: "1 active month", icon: Flame },
-    { label: "Consistencia", icon: Star },
-  ]
-
   const latestPointEntries = pointsEntries.slice(0, 6)
   const latestActionRequests = actionRequests.slice(0, 5)
-  const rescheduleStepItems = [
-    { id: 1 as const, label: "Reassignment" },
-    { id: 2 as const, label: "Confirmation" },
-    { id: 3 as const, label: "Assign pending" },
-  ]
   const handleProfileFieldChange = React.useCallback((field: keyof typeof profileForm, value: string) => {
     setProfileForm((s) => ({ ...s, [field]: value }))
   }, [setProfileForm])
 
   return (
     <main className="min-h-[70vh] bg-background">
+      {/* Package credit success toast */}
+      {checkInSuccess && (
+        <div className="fixed top-6 left-1/2 z-[200] -translate-x-1/2 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/90 px-5 py-3 text-sm font-medium text-emerald-200 shadow-lg backdrop-blur-sm">
+            {checkInSuccess}
+          </div>
+        </div>
+      )}
       <div className="w-full px-[10px] lg:px-[15px] py-8">
         <div ref={gridRef} className="relative grid grid-cols-1 gap-6 lg:items-start lg:grid-cols-[minmax(250px,290px)_minmax(0,1fr)_15rem]">
           {/* Left */}
@@ -470,6 +618,21 @@ export default function ProfilePageClient() {
               }}
             />
 
+            <MobileActionCards
+              onOpenCoursePicker={() => setCoursePickerOpen(true)}
+              onOpenChangeClassModal={openChangeClassModal}
+              onOpenRequestModal={openRequestModal}
+              selectedBooking={selectedBooking}
+              bookingsLoading={bookingsLoading}
+              bookingsError={bookingsError}
+              requestSubmitError={requestSubmitError}
+              requestSubmitSuccess={requestSubmitSuccess}
+              requestModalType={requestModalType}
+              actionRequestsError={actionRequestsError}
+              actionRequestsLoading={actionRequestsLoading}
+              latestActionRequests={latestActionRequests}
+            />
+
             <StudentMomentsCard moments={mockProfile.moments} />
 
             <AnalyticsCard
@@ -507,25 +670,7 @@ export default function ProfilePageClient() {
               latestPointEntries={latestPointEntries}
             />
 
-            <MedalsCard medalItems={medalItems} />
-
-            <AgendaCard
-              mobileAgendaOpenDay={mobileAgendaOpenDay}
-              setMobileAgendaOpenDay={setMobileAgendaOpenDay}
-              agendaMonth={agendaMonth}
-              setAgendaMonth={setAgendaMonth}
-              agendaYear={agendaYear}
-              setAgendaYear={setAgendaYear}
-              calendarDays={calendarDays}
-              agendaMonthLabel={agendaMonthLabel}
-              agendaYears={agendaYears}
-              bookingEventsByDay={bookingEventsByDay}
-              pendingBookingEventsByDay={pendingBookingEventsByDay}
-              nextBookedClass={nextBookedClass}
-              pendingBookings={pendingBookings}
-              visibleBookings={visibleBookings}
-              classRequestsByAttendance={classRequestsByAttendance}
-            />
+            <MedalsCard medalItems={MEDAL_ITEMS} />
 
             <AssignClassesCard
               assignPackageId={assignPackageId}
@@ -552,6 +697,23 @@ export default function ProfilePageClient() {
               addAssignSlot={addAssignSlot}
               removeAssignSlot={removeAssignSlot}
               submitAssignClasses={submitAssignClasses}
+              agendaState={{
+                mobileAgendaOpenDay,
+                setMobileAgendaOpenDay,
+                agendaMonth,
+                setAgendaMonth,
+                agendaYear,
+                setAgendaYear,
+                calendarDays,
+                agendaMonthLabel,
+                agendaYears,
+                bookingEventsByDay,
+                pendingBookingEventsByDay,
+                nextBookedClass,
+              }}
+              pendingBookings={pendingBookings}
+              visibleBookings={visibleBookings}
+              classRequestsByAttendance={classRequestsByAttendance}
             />
 
             <GearCard
@@ -569,13 +731,6 @@ export default function ProfilePageClient() {
             selectedBooking={selectedBooking}
             bookingsError={bookingsError}
             onOpenChangeClassModal={openChangeClassModal}
-            nextCheckInBooking={nextCheckInBooking}
-            pendingCheckInBooking={pendingCheckInBooking}
-            checkInOpensAtLabel={checkInOpensAtLabel}
-            onSubmitBookingCheckIn={(bookingId) => void submitBookingCheckIn(bookingId)}
-            checkInSubmittingId={checkInSubmittingId}
-            checkInError={checkInError}
-            checkInSuccess={checkInSuccess}
             onOpenRequestModal={openRequestModal}
             requestSubmitError={requestSubmitError}
             requestSubmitSuccess={requestSubmitSuccess}
@@ -596,9 +751,8 @@ export default function ProfilePageClient() {
           todayNyDateKey={todayNyDateKey}
           pendingAssignablePackages={pendingAssignablePackages}
           selectedBookingCourseAvailableWeekdays={selectedBookingCourse?.schedule.availableWeekdays}
-          formatDateTimeInTimeZone={formatDateTimeInTimeZone}
           nyTimezone={NY_TIMEZONE}
-          rescheduleStepItems={rescheduleStepItems}
+          rescheduleStepItems={RESCHEDULE_STEP_ITEMS}
           rescheduleStep={rescheduleStep}
           setRescheduleStep={setRescheduleStep}
           rescheduleCourseSlug={rescheduleCourseSlug}
@@ -632,7 +786,7 @@ export default function ProfilePageClient() {
         closeRequestModal={closeRequestModal}
         requestSuspendPackageId={requestSuspendPackageId}
         setRequestSuspendPackageId={setRequestSuspendPackageId}
-        suspendablePackages={suspendablePackages}
+        suspendablePackages={assignablePackages}
         requestSuspendStart={requestSuspendStart}
         setRequestSuspendStart={setRequestSuspendStart}
         requestSuspendEnd={requestSuspendEnd}
@@ -642,7 +796,6 @@ export default function ProfilePageClient() {
         setRequestCancelDecision={setRequestCancelDecision}
         setRequestSubmitError={setRequestSubmitError}
         visibleBookings={visibleBookings}
-        formatDateTimeInTimeZone={formatDateTimeInTimeZone}
         requestCancelBooking={requestCancelBooking}
         requestCancelDecision={requestCancelDecision}
         requestMessage={requestMessage}
@@ -657,18 +810,88 @@ export default function ProfilePageClient() {
         setCoursePickerOpen={setCoursePickerOpen}
         orderedCourses={orderedCourses}
         preferredSet={preferredSet}
-        setSelectedCourse={setSelectedCourse}
-        setEnrollOpen={setEnrollOpen}
+        onClassSelected={async (course, date, time) => {
+          if (shouldUseProfileFastCredit({ hasUsablePackage: profileHasUsablePackage })) {
+            let consecutiveOffer: ConsecutiveOfferData | null = null
+            let offerLookupFailed = false
+            try {
+              consecutiveOffer = await fetchProfileConsecutiveOffer(course, date, time)
+            } catch {
+              offerLookupFailed = true
+            }
+
+            if (consecutiveOffer) {
+              setCoursePickerOpen(false)
+              showProfileConsecutiveOffer(consecutiveOffer, { courseSlug: course.slug, date, time })
+              return
+            }
+
+            try {
+              const { data } = await consumeProfilePackageCredit({ courseSlug: course.slug, date, time })
+              if (data?.ok) {
+                setCoursePickerOpen(false)
+                await loadBookings()
+                setCheckInSuccess(offerLookupFailed
+                  ? "Class booked! A package credit has been applied. We couldn't load the promotion; please ask staff if you are staying for the next class."
+                  : "Class booked! A package credit has been applied.")
+                return
+              }
+              // data.reason === "no_package" or "no_credits" — fall through to payment
+            } catch {
+              // Network error — fall through to payment
+            }
+          }
+          openProfileBookingModal(course, date, time)
+        }}
       />
+
+      {profileConsecutiveOffer && !profileConsecutiveError && !profileConsecutiveSuccess && (
+        <ConsecutiveClassOffer
+          offer={profileConsecutiveOffer}
+          isPackageHolder
+          onAccept={handleProfileConsecutiveAccept}
+          onDecline={handleProfileConsecutiveDecline}
+          onPayCash={handleProfileConsecutivePayCash}
+          onPayCard={handleProfileConsecutivePayCard}
+          isProcessing={profileConsecutiveProcessing}
+          processingAction={profileConsecutiveProcessingAction}
+          showPaymentSelection={profileConsecutivePaymentSelection}
+        />
+      )}
+
+      {profileConsecutiveError && profileConsecutiveOffer && (
+        <ConsecutiveOfferError
+          error={profileConsecutiveError}
+          onRetry={handleProfileConsecutiveAccept}
+          onDismiss={clearProfileConsecutiveOffer}
+        />
+      )}
+
+      {profileConsecutiveSuccess && (
+        <ConsecutiveOfferSuccess
+          courseTitle={profileConsecutiveSuccess.courseTitle}
+          onDone={() => setProfileConsecutiveSuccess(null)}
+        />
+      )}
 
       {selectedCourse && (
         <EnrollModal
           course={selectedCourse}
           open={enrollOpen}
-          initialStep={1}
-          onCloseAction={() => setEnrollOpen(false)}
+          onCloseAction={() => {
+            setEnrollOpen(false)
+            setSelectedDateTime(null)
+          }}
           prefillContact={bookingPrefillContact}
+          isPackageHolder={profileHasUsablePackage}
+          skipContactStep
           useDraft={false}
+          {...(selectedDateTime
+            ? {
+                checkInContext: { date: selectedDateTime.date, time: selectedDateTime.time },
+                compactBookingSource: "profile-booking" as const,
+              }
+            : { initialStep: 1 })}
         />
       )}
     </main>

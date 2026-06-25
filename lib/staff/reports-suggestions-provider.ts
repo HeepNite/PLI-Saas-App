@@ -1,3 +1,5 @@
+import { asObject } from "@/lib/shared"
+
 type ReportsObjectiveFilter =
   | "all"
   | "monday_sales"
@@ -41,11 +43,6 @@ const VALID_OBJECTIVES = new Set([
 ] as const)
 
 const VALID_PRIORITIES = new Set(["High", "Medium", "Low"] as const)
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
 
 const asText = (value: unknown, max = 600) => (typeof value === "string" ? value.trim().slice(0, max) : "")
 

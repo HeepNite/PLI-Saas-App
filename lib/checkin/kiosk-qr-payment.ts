@@ -1,4 +1,5 @@
 import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
+import { EMAIL_REGEX } from "@/lib/shared"
 
 export const KIOSK_QR_POLL_INTERVAL_MS = 3_000
 export const KIOSK_PAYMENT_TRANSITION_MIN_MS = 900
@@ -62,8 +63,6 @@ type KioskInfoMaskInput = {
   hydrating: boolean
   transitionPending: boolean
 }
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const normalizeFirstName = (value?: string) => value?.trim().split(/\s+/)[0] || ""
 

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { normalizePhone } from "@/lib/shared"
 
 export type UpsertUserInput = {
   clerkId?: string
@@ -26,11 +27,6 @@ type ExistingUser = {
 const normalize = (value: string | undefined) => {
   const trimmed = value?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : undefined
-}
-
-const normalizePhone = (value: string | undefined) => {
-  const digits = value?.replace(/\D/g, "")
-  return digits && digits.length >= 6 ? digits : undefined
 }
 
 export async function upsertUserByIdentifiers(input: UpsertUserInput) {

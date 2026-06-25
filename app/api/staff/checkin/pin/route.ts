@@ -5,16 +5,12 @@ import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-categ
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { createTeacherClockEntryWithSlugs } from "@/lib/clock/teacher-clock"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
 
 const isValidPinHash = (pin: string, pinHash: string) => {
   const parts = pinHash.split(":")

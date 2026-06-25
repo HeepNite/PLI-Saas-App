@@ -45,6 +45,13 @@ export default function StaffCourseCatalogPanel({
   if (!visible) return null
 
   const filteredCourses = filterCourses(schoolCourses, courseCatalogSearch, courseCatalogFilter)
+  const handleSavedCoursesWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const container = event.currentTarget
+    if (container.scrollHeight <= container.clientHeight) return
+    event.preventDefault()
+    event.stopPropagation()
+    container.scrollTop += event.deltaY
+  }
 
   return (
     <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
@@ -79,7 +86,11 @@ export default function StaffCourseCatalogPanel({
         </div>
       </div>
 
-      <div className="max-h-80 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
+      <div
+        className="max-h-[28rem] overflow-y-auto overscroll-contain pr-1 [&::-webkit-scrollbar]:hidden"
+        style={{ scrollbarWidth: "none" }}
+        onWheel={handleSavedCoursesWheel}
+      >
         {schoolLoading ? (
           <div className="grid grid-cols-3 gap-3">
             <div className="h-24 animate-pulse rounded-md bg-black/10 dark:bg-white/10" />

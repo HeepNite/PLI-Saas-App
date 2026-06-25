@@ -62,7 +62,7 @@ const LAST_CHECK_IN_BADGE_TONE = "border-sky-400/40 bg-sky-400/12 text-sky-200"
 export const PROFILE_CARD_BADGE_CLASS = "w-full flex items-center justify-center rounded-md border px-2 py-1.5 text-xs font-semibold"
 
 const profilePinBadgeLabel = (status: StudentProfileCard["pinStatus"]) => {
-  if (status === "provisional") return "Provisional PIN"
+  if (status === "provisional") return "Prov PIN"
   if (status === "enrolled") return "PIN enrolled"
   return "No PIN"
 }
@@ -166,7 +166,9 @@ export const resolveProfileCardDetails = (student: StudentProfileCard) => {
   const packageValue = student.activePackage
     ? student.activePackage.isUnlimited
       ? "Unlimited"
-      : `${Math.max(0, student.remainingCredits || 0)} credits`
+      : student.activePackage.totalCredits
+        ? `${Math.max(0, student.remainingCredits || 0)} of ${student.activePackage.totalCredits} remaining`
+        : `${Math.max(0, student.remainingCredits || 0)} credits`
     : "No package credits"
   const paymentStatusLabel = profileBalanceStatusLabel(student.outstandingBalance)
   const paymentStatusTone = profileBalanceStatusTone(student.outstandingBalance)

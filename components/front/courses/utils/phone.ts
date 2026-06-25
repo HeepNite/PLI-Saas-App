@@ -43,3 +43,25 @@ export const formatUSPhone = (value: string) => {
 export const hasPhoneDigits = (value: string) => getUsPhoneDigits(value).length > 0
 
 export const isCompleteUSPhone = (value: string) => getUsPhoneDigits(value).length === 10
+
+/**
+ * Format phone number for onChange events, handling backspace gracefully.
+ *
+ * On mobile browsers, backspacing on a format character (e.g. "(" or "-")
+ * removes the character from the input but leaves the digits intact.
+ * Since formatUSPhone strips non-digits and reformats, the format chars
+ * reappear — creating an infinite loop where backspace does nothing.
+ *
+ * This function compares digit counts: if fewer digits than before, it
+ * strips the last digit and reformats, allowing the user to delete normally.
+ */
+export const formatUSPhoneOnChange = (newValue: string, oldValue: string) => {
+  const newDigits = getUsPhoneDigits(newValue)
+  const oldDigits = getUsPhoneDigits(oldValue)
+
+  if (newDigits.length < oldDigits.length) {
+    return formatUSPhone(oldDigits.slice(0, -1))
+  }
+
+  return formatUSPhone(newValue)
+}

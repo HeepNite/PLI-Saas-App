@@ -1,4 +1,7 @@
 import type { CardCheckInStatus } from "@/components/front/staff/historyCardAggregates"
+import { asObject, asText } from "@/lib/shared"
+export { asObject, asText } from "@/lib/shared"
+import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 export type SettlementStatus = "pending" | "paid"
 export type PaymentChannel = "cash" | "card" | "package_credit" | "unknown"
@@ -6,18 +9,9 @@ export type PurchaseCategory = "package" | "dropin" | "other"
 
 export const COMPLETED_PAYMENT_STATUSES = new Set(["succeeded", "paid", "completed"])
 
-export const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "")
-
-export const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
-
 export const normalizeSettlementStatus = (value: unknown): SettlementStatus => {
-  if (typeof value !== "string") return "pending"
-  return value.toLowerCase() === "paid" ? "paid" : "pending"
+  if (typeof value !== "string") return SETTLEMENT_STATUS.PENDING
+  return value.toLowerCase() === "paid" ? SETTLEMENT_STATUS.PAID : SETTLEMENT_STATUS.PENDING
 }
 
 export const isCompletedPaymentStatus = (status: unknown) => COMPLETED_PAYMENT_STATUSES.has(asText(status).toLowerCase())
@@ -32,10 +26,10 @@ export const normalizePaymentChannel = (input: {
   const paymentChannelRaw = asText(metadata.paymentChannel || metadata.payment_channel).toLowerCase()
   const hasStripeEvidence = Boolean(input.stripePaymentIntentId || input.stripeCheckoutSessionId)
 
-  if (paymentChannelRaw === "package_credit") return "package_credit"
-  if (paymentChannelRaw === "cash") return "cash"
-  if (paymentChannelRaw === "card" || paymentChannelRaw === "stripe") return "card"
-  if (hasStripeEvidence) return "card"
+  if (paymentChannelRaw === "package_credit") return PAYMENT_CHANNEL.PACKAGE_CREDIT
+  if (paymentChannelRaw === "cash") return PAYMENT_CHANNEL.CASH
+  if (paymentChannelRaw === "card" || paymentChannelRaw === "stripe") return PAYMENT_CHANNEL.CARD
+  if (hasStripeEvidence) return PAYMENT_CHANNEL.CARD
 
   const methodRaw = asText(metadata.paymentMethod || metadata.payment_method || metadata.paymentMode).toLowerCase()
   const sourceRaw = asText(metadata.source).toLowerCase()
@@ -46,13 +40,28 @@ export const normalizePaymentChannel = (input: {
     sourceRaw === "cash_checkout" ||
     sourceRaw === "on_site_checkout"
   ) {
-    return "cash"
+    return PAYMENT_CHANNEL.CASH
   }
 
   const normalizedStatus = asText(input.status).toLowerCase()
-  if (isCompletedPaymentStatus(normalizedStatus)) return "card"
-  if (normalizedStatus.includes("cash") || normalizedStatus.includes("onsite") || normalizedStatus.includes("on_site")) return "cash"
-  return "unknown"
+  if (isCompletedPaymentStatus(normalizedStatus)) return PAYMENT_CHANNEL.CARD
+  if (normalizedStatus.includes("cash") || normalizedStatus.includes("onsite") || normalizedStatus.includes("on_site")) return PAYMENT_CHANNEL.CASH
+  return PAYMENT_CHANNEL.UNKNOWN
+}
+
+export type PurchaseSource = "web" | "kiosk" | "front_desk" | "unknown"
+
+export const normalizePurchaseSource = (metadata: unknown): PurchaseSource => {
+  const meta = asObject(metadata)
+  const explicit = asText(meta.purchaseSource).toLowerCase()
+  if (explicit === "web") return PURCHASE_SOURCE.WEB
+  if (explicit === "kiosk") return PURCHASE_SOURCE.KIOSK
+  if (explicit === "front_desk") return PURCHASE_SOURCE.FRONT_DESK
+
+  const source = asText(meta.source).toLowerCase()
+  if (source.includes("kiosk") || source.includes("terminal")) return PURCHASE_SOURCE.KIOSK
+  if (source.includes("stripe_webhook") || source === "cash_checkout") return PURCHASE_SOURCE.WEB
+  return PURCHASE_SOURCE.UNKNOWN
 }
 
 export const normalizePurchaseCategory = (input: { packageId: string | null | undefined; serviceId: string | null | undefined }): PurchaseCategory => {

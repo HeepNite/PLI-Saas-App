@@ -25,6 +25,7 @@ import {
 } from "@/lib/security/staff-account-sync"
 import { prisma } from "@/lib/prisma"
 import { buildStaffUsersCacheKeyFromRequestUrl, parseStaffUsersGetFilters } from "./get-filters"
+import { asObject, EMAIL_REGEX } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -120,8 +121,6 @@ type StaffListItem = {
   lastSignInAt: number | null
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 const parseRole = (value: unknown): StaffRole | null => {
   if (typeof value !== "string") return null
   const normalized = value.trim().toLowerCase()
@@ -132,13 +131,6 @@ const normalizeCategoryForRole = (role: StaffRole, category: StaffCategory): Sta
   if (role === "owner") return "partner"
   if (role === "admin") return "manager"
   return category
-}
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 const asNumber = (value: unknown): number | null => {

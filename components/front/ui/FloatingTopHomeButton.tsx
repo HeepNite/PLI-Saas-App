@@ -9,6 +9,7 @@ export default function FloatingTopHomeButton() {
   const pathname = usePathname()
   const isStaffRoute = pathname?.startsWith("/staff")
   const isCheckInRoute = pathname?.startsWith("/checkin")
+  const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
   const [showTop, setShowTop] = React.useState(false)
   const [showButton, setShowButton] = React.useState(pathname !== "/")
   const [isCourseMobile, setIsCourseMobile] = React.useState(false)
@@ -20,7 +21,7 @@ export default function FloatingTopHomeButton() {
       const showAfterHalf = scrollY > scrollRange * 0.5
 
       setShowTop(scrollY > 200)
-      setShowButton((!isStaffRoute && !isCheckInRoute && pathname !== "/") || (!isStaffRoute && !isCheckInRoute && showAfterHalf))
+      setShowButton((!isStaffRoute && !isCheckInRoute && !isAuthRoute && pathname !== "/") || (!isStaffRoute && !isCheckInRoute && !isAuthRoute && showAfterHalf))
       const isCourse = typeof document !== "undefined" && document.body.dataset.coursePage === "true"
       const isProfile = typeof document !== "undefined" && document.body.dataset.profilePage === "true"
       setIsCourseMobile((Boolean(isCourse) || Boolean(isProfile)) && window.innerWidth < 1024)
@@ -29,9 +30,9 @@ export default function FloatingTopHomeButton() {
     window.addEventListener("scroll", onScroll)
     window.addEventListener("resize", onScroll)
     return () => window.removeEventListener("scroll", onScroll)
-  }, [pathname, isCheckInRoute, isStaffRoute])
+  }, [pathname, isAuthRoute, isCheckInRoute, isStaffRoute])
 
-  if (isStaffRoute || isCheckInRoute) return null
+  if (isStaffRoute || isCheckInRoute || isAuthRoute) return null
 
   const isHome = pathname === "/"
   const label = isHome ? "Back to top" : showTop ? "Back to top" : "Home"

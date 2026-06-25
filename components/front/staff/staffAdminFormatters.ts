@@ -119,3 +119,42 @@ export const formatDateTime = (value: string | number | null | undefined) => {
     return "—"
   }
 }
+
+export const formatTerminalAlertDateTime = (value: string | null): string => {
+  if (!value) return ""
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ""
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/New_York",
+  }).format(parsed)
+}
+
+export const formatTerminalAlertRelative = (value: string | null, nowTs: number): string | null => {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) return null
+  const diffMs = parsed - nowTs
+  if (diffMs <= 0) return "ending now"
+  const diffMinutes = Math.max(1, Math.ceil(diffMs / 60_000))
+  return diffMinutes === 1 ? "ends in 1 min" : `ends in ${diffMinutes} min`
+}
+
+export const formatRelativeTime = (iso: string): string => {
+  try {
+    const date = new Date(iso)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    if (diffMins < 1) return "just now"
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    return formatDateTime(iso)
+  } catch {
+    return iso
+  }
+}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
+import CheckInPageRouter from "@/components/front/checkin/CheckInPageRouter"
 
 export const metadata: Metadata = {
   title: "QR Check-in — PLI",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function CheckInPage() {
-  return <CheckInQrClient />
+  return <CheckInPageRouter />
 }

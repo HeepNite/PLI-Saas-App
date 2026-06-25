@@ -23,7 +23,6 @@ describe("ActionRequestModal", () => {
         setRequestCancelDecision={vi.fn()}
         setRequestSubmitError={vi.fn()}
         visibleBookings={[booking]}
-        formatDateTimeInTimeZone={(value) => String(value)}
         requestCancelBooking={null}
         requestCancelDecision={null}
         requestMessage=""
@@ -54,7 +53,6 @@ describe("ActionRequestModal", () => {
         setRequestCancelDecision={vi.fn()}
         setRequestSubmitError={vi.fn()}
         visibleBookings={[booking]}
-        formatDateTimeInTimeZone={(value) => String(value)}
         requestCancelBooking={null}
         requestCancelDecision={null}
         requestMessage=""
@@ -87,7 +85,6 @@ describe("ActionRequestModal", () => {
       setRequestCancelDecision: vi.fn(),
       setRequestSubmitError: vi.fn(),
       visibleBookings: [booking],
-      formatDateTimeInTimeZone: (value) => String(value),
       requestCancelBooking: null,
       requestCancelDecision: null,
       requestMessage: "",

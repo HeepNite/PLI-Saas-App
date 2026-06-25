@@ -5,19 +5,14 @@ import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase 
 import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { asObject as asObjectShared, asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 type SettlementAction = "mark_paid" | "mark_pending"
 
-const asObject = (value: Prisma.JsonValue | null): Prisma.JsonObject => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Prisma.JsonObject
-  }
-  return {}
-}
-
-const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "")
+const asObject = (value: Prisma.JsonValue | null): Prisma.JsonObject =>
+  asObjectShared(value) as Prisma.JsonObject
 
 const isCashPurchase = (input: {
   metadata: Prisma.JsonValue | null
@@ -109,8 +104,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
       const classTime = asText(metadata.time)
       const courseSlug = purchase.courseSlug || asText(metadata.courseSlug)
 
-      if (courseSlug) {
+      if (courseSlug && !courseSlug.startsWith("_")) {
         // Use date/time if available, otherwise fall back to purchase creation time
+        // Skip sentinel slugs like _staff_registration (registration deposits, not class enrollments)
         const startsAt = (classDate && classTime)
           ? buildSessionStartsAt(classDate, classTime)
           : purchase.createdAt

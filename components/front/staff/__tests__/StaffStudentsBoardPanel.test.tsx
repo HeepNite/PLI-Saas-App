@@ -8,6 +8,8 @@ import StaffStudentsBoardPanel, {
   type StaffStudentsBoardPanelProps,
   type TerminalPinAlert,
 } from "@/components/front/staff/StaffStudentsBoardPanel"
+import type { StudentProfileCard } from "@/components/front/staff/historyCardAggregates"
+import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
 
 const testGlobal = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -29,6 +31,80 @@ const sampleAlert: TerminalPinAlert = {
   blockedUntil: null,
   missCount: 4,
 }
+
+const createProfileCard = (overrides: Partial<StudentProfileCard> = {}): StudentProfileCard => ({
+  source: "profile",
+  key: "student-1",
+  userId: "user-1",
+  displayName: "Test Student",
+  email: "student@example.com",
+  phone: null,
+  avatarUrl: null,
+  registeredAt: "2024-01-01T00:00:00.000Z",
+  checkInStatus: "none",
+  latestClassAttended: null,
+  latestCheckInAt: null,
+  lastPayment: null,
+  lastCourse: null,
+  paymentStatus: null,
+  activePackage: null,
+  remainingCredits: null,
+  outstandingBalance: null,
+  pinStatus: "none",
+  cashSettlement: null,
+  pendingSettlement: null,
+  pointsBalance: 0,
+  ...overrides,
+})
+
+const createPaymentRow = (overrides: Partial<PaymentRow> = {}): PaymentRow => ({
+  id: "payment-1",
+  userId: "user-1",
+  courseSlug: "bjj-fundamentals",
+  courseTitle: "BJJ Fundamentals",
+  customerName: "Test Student",
+  customerEmail: "student@example.com",
+  customerPhone: "",
+  customerAvatarUrl: null,
+  packageId: null,
+  serviceId: null,
+  paymentChannel: "cash",
+  purchaseCategory: "dropin",
+  amount: 2000,
+  currency: "usd",
+  paymentStatus: "pending",
+  settlementStatus: "pending",
+  settlementNote: "",
+  settledAt: null,
+  createdAt: "2026-05-26T12:00:00.000Z",
+  updatedAt: "2026-05-26T12:00:00.000Z",
+  classDate: "2026-05-26",
+  classTime: "18:00",
+  classStartsAt: "2026-05-26T22:00:00.000Z",
+  location: null,
+  pointsBalance: 0,
+  pointsHistory: [],
+  classPaid: false,
+  attendanceId: null,
+  checkInStatus: "none",
+  checkInAt: null,
+  checkedOutAt: null,
+  activePackage: null,
+  studentPin: {
+    enabled: true,
+    enrolled: false,
+    locked: false,
+    needsEnrollment: true,
+    permanentStatus: null,
+    provisionalActive: false,
+    provisionalExpiresAt: null,
+  },
+  packageClassNumber: null,
+  completedClassesTotal: 0,
+  packageClassesUsedTotal: 0,
+  outstandingBalance: null,
+  ...overrides,
+})
 
 const createControls = (): StaffStudentsBoardPanelProps["controls"] => ({
   studentsSummary: {
@@ -148,6 +224,7 @@ const createProps = (
     openStudentPinModalForProfile: vi.fn(),
     openOverrideModal: vi.fn(),
     currentRole: "staff",
+    currentCategory: null,
     formatMoney: (cents) => `$${(cents / 100).toFixed(2)}`,
   },
   pagination: {
@@ -176,6 +253,7 @@ describe("StaffStudentsBoardPanel", () => {
     root = null
     container = null
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   async function renderPanel(props: StaffStudentsBoardPanelProps) {
@@ -324,6 +402,298 @@ describe("StaffStudentsBoardPanel", () => {
     )
     expect(node.textContent).not.toContain("Page 1 / 1")
     expect(node.textContent).not.toContain("Previous")
+  })
+
+  it("shows Fast Pay and compact Prov PIN copy for profile cards without package credit", async () => {
+    const node = await renderPanel(
+      createProps({
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [createProfileCard({ pinStatus: "provisional" })],
+          filteredStudentCardsCount: 1,
+          canOperateStudentPins: true,
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("Fast Pay")
+    expect(node.textContent).toContain("Prov PIN")
+    expect(node.textContent).not.toContain("Provisional PIN")
+  })
+
+  it("shows Fast Sign for profile cards with usable package credit", async () => {
+    const node = await renderPanel(
+      createProps({
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [
+            createProfileCard({
+              activePackage: {
+                label: "10 classes",
+                totalCredits: 10,
+                remainingCredits: 3,
+                isUnlimited: false,
+                expiresAt: null,
+              },
+              remainingCredits: 3,
+            }),
+          ],
+          filteredStudentCardsCount: 1,
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("Fast Sign")
+    expect(node.textContent).not.toContain("Fast Pay")
+  })
+
+  it("shows the adaptive fast action on payment-backed cards", async () => {
+    const payment = createPaymentRow({
+      purchaseSource: "kiosk",
+      activePackage: {
+        id: "pkg-1",
+        label: "Unlimited",
+        totalCredits: null,
+        remainingCredits: null,
+        isUnlimited: true,
+        expiresAt: null,
+        status: "active",
+      },
+      studentPin: {
+        ...createPaymentRow().studentPin,
+        provisionalActive: true,
+      },
+    })
+    const node = await renderPanel(
+      createProps({
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [{
+            source: "payment",
+            key: "user-1",
+            allPayments: [payment],
+            latestPayment: payment,
+            latestAttendedPayment: null,
+            totalPayments: 1,
+            totalCollectedCents: 0,
+            paidPayments: 0,
+            checkedInPayments: 0,
+            coursesPurchasedCount: 1,
+            totalPackageClassesConsumed: 0,
+            completedClassesTotal: 0,
+            packageClassesUsedTotal: 0,
+          }],
+          filteredStudentCardsCount: 1,
+          canOperateStudentPins: true,
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("Fast Sign")
+    expect(node.textContent).toContain("Prov PIN")
+    expect(node.textContent).toContain("Kiosk / Terminal")
+  })
+
+  it("previews promo before processing and processes both classes after accept", async () => {
+    const onRefreshPaymentsBoard = vi.fn()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          mode: "fast_pay",
+          promoOffer: {
+            linkedCourseSlug: "bjj-advanced",
+            linkedCourseTitle: "BJJ Advanced",
+            linkedFromCourseSlug: "bjj-fundamentals",
+            priceCents: 1000,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ mode: "promo_cash" }),
+      })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const node = await renderPanel(
+      createProps({
+        loadingStatus: { paymentsLoading: false, onRefreshPaymentsBoard },
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [createProfileCard()],
+          filteredStudentCardsCount: 1,
+        },
+      }),
+    )
+
+    const fastPayButton = Array.from(node.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Fast Pay",
+    )
+    expect(fastPayButton).toBeDefined()
+
+    await act(async () => {
+      fastPayButton!.click()
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/staff/students/fast-class-action",
+      expect.objectContaining({ body: JSON.stringify({ userId: "user-1", previewOnly: true }) }),
+    )
+    expect(onRefreshPaymentsBoard).not.toHaveBeenCalled()
+    expect(node.textContent).toContain("Staying for the next class?")
+    expect(node.textContent).toContain("BJJ Advanced")
+    expect(node.querySelector('[role="dialog"]')).not.toBeNull()
+
+    const acceptButton = Array.from(node.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Yes, add promo",
+    )
+    expect(acceptButton).toBeDefined()
+
+    await act(async () => {
+      acceptButton!.click()
+    })
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/staff/students/fast-class-action",
+      expect.objectContaining({
+        body: JSON.stringify({
+          userId: "user-1",
+          includeConsecutive: true,
+        }),
+      }),
+    )
+    expect(onRefreshPaymentsBoard).toHaveBeenCalledTimes(1)
+  })
+
+  it("shows a blocking popup when fast action returns a pending payment error", async () => {
+    const onRefreshPaymentsBoard = vi.fn()
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: "pending_payment",
+        error: "You still have a pending payment. Please resolve it first.",
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const node = await renderPanel(
+      createProps({
+        loadingStatus: { paymentsLoading: false, onRefreshPaymentsBoard },
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [createProfileCard()],
+          filteredStudentCardsCount: 1,
+        },
+      }),
+    )
+
+    const fastPayButton = Array.from(node.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Fast Pay",
+    )
+    expect(fastPayButton).toBeDefined()
+
+    await act(async () => {
+      fastPayButton!.click()
+    })
+
+    expect(node.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(node.textContent).toContain("Action blocked")
+    expect(node.textContent).toContain("You still have a pending payment. Please resolve it first.")
+    expect(onRefreshPaymentsBoard).not.toHaveBeenCalled()
+  })
+
+  describe("Edit info button visibility", () => {
+    const minimalProfileCard: StudentProfileCard = {
+      source: "profile",
+      key: "student-1",
+      userId: "user-1",
+      displayName: "Test Student",
+      email: "student@example.com",
+      phone: null,
+      avatarUrl: null,
+      registeredAt: "2024-01-01T00:00:00.000Z",
+      checkInStatus: "none",
+      latestClassAttended: null,
+      latestCheckInAt: null,
+      lastPayment: null,
+      lastCourse: null,
+      paymentStatus: null,
+      activePackage: null,
+      remainingCredits: null,
+      outstandingBalance: null,
+      pinStatus: "none",
+      cashSettlement: null,
+      pendingSettlement: null,
+      pointsBalance: 0,
+    }
+
+    it("shows Edit info for staff with front_desk category", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "staff",
+            currentCategory: "front_desk",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeDefined()
+    })
+
+    it("hides Edit info for staff without front_desk category", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "staff",
+            currentCategory: "teacher",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeUndefined()
+    })
+
+    it("shows Edit info for owner", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "owner",
+            currentCategory: "partner",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeDefined()
+    })
+
+    it("shows Edit info for admin", async () => {
+      const node = await renderPanel(
+        createProps({
+          cards: {
+            ...createProps().cards,
+            displayedStudentCards: [minimalProfileCard],
+            filteredStudentCardsCount: 1,
+            currentRole: "admin",
+            currentCategory: "manager",
+          },
+        }),
+      )
+      const buttons = Array.from(node.querySelectorAll("button"))
+      const editInfoButton = buttons.find((btn) => btn.textContent?.trim() === "Edit info")
+      expect(editInfoButton).toBeDefined()
+    })
   })
 
   it("passes refresh trigger through StaffPaymentsBoardControls payment category change", async () => {

@@ -5,7 +5,7 @@ export const PHONE_INPUT_ATTRIBUTES = {
   inputMode: "tel" as const,
   autoComplete: "tel-national" as const,
   enterKeyHint: "next" as const,
-  pattern: "[0-9]*" as const,
+  pattern: undefined,
 }
 
 export const CODE_INPUT_ATTRIBUTES = {

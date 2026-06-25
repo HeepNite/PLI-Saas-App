@@ -132,11 +132,19 @@ export const pickWalkInRecommendation = (
   return null
 }
 
+export type TerminalRecommendationOptions = {
+  /** Cap forward lookahead to today only. Use for terminal/kiosk flows
+   *  where future-date bookings are not permitted. Default: false. */
+  todayOnly?: boolean
+}
+
 export const pickTerminalContextRecommendation = (
   courses: CourseData[],
   referenceDate = new Date(),
-  preferredCourseSlug = ""
+  preferredCourseSlug = "",
+  options?: TerminalRecommendationOptions,
 ): null | { courseSlug: string; date: string; time: string } => {
+  const maxDays = options?.todayOnly ? 0 : 14
   const normalizedPreferredCourseSlug = preferredCourseSlug.trim().toLowerCase()
   const preferredCourse = normalizedPreferredCourseSlug
     ? courses.find((course) => course.slug === normalizedPreferredCourseSlug) || null
@@ -148,18 +156,20 @@ export const pickTerminalContextRecommendation = (
     const courseDurationMinutes = getCourseDurationMinutes(preferredCourse.slug, courses)
 
     if (todayIso) {
-      for (let dayOffset = 0; dayOffset <= 14; dayOffset += 1) {
+      for (let dayOffset = 0; dayOffset <= maxDays; dayOffset += 1) {
         const dateIso = shiftIsoDate(todayIso, dayOffset)
         const slots = sortTimes(getAvailableTimesForCourseDate(preferredCourse.slug, dateIso, courses))
 
         for (const slot of slots) {
           const slotMinutes = toMinutes(slot)
           if (slotMinutes === null) continue
-          // Use the course's actual duration so the slot stays valid until class ends,
-          // preventing a gap between grace expiry and auto-rotation.
-          const lateCutoff = slotMinutes + courseDurationMinutes
-          if (dayOffset === 0 && nowMinutes !== null && nowMinutes > lateCutoff) {
-            continue
+          // When todayOnly, today's slots are always eligible (staff may charge after class ends).
+          // Otherwise, use the course duration so the slot stays valid until class ends.
+          if (!options?.todayOnly) {
+            const lateCutoff = slotMinutes + courseDurationMinutes
+            if (dayOffset === 0 && nowMinutes !== null && nowMinutes > lateCutoff) {
+              continue
+            }
           }
 
           return {
@@ -172,7 +182,7 @@ export const pickTerminalContextRecommendation = (
     }
   }
 
-  return pickWalkInRecommendation(courses, referenceDate)
+  return options?.todayOnly ? null : pickWalkInRecommendation(courses, referenceDate)
 }
 
 export const pickLatePaymentRecommendation = (

@@ -170,26 +170,6 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   return true
 }
 
-export const shouldShowConsecutiveOfferGate = (input: {
-  hasConsecutiveOffer: boolean
-  consecutiveOfferSettled: boolean
-  hasPackageCheckInResult: boolean
-  mode: "idle" | "existing" | "new"
-  hasBootstrap: boolean
-  hasPackage: boolean
-  showConsecutivePaymentSelection: boolean
-  awaitingConsecutivePaymentSelection: boolean
-  isConsecutiveQrCheckoutIdle: boolean
-  hasConsecutiveSuccess: boolean
-  hasConsecutiveError: boolean
-}) => {
-  if (input.showConsecutivePaymentSelection) return false
-  if (input.awaitingConsecutivePaymentSelection) return false
-  if (!input.isConsecutiveQrCheckoutIdle) return false
-  if (input.hasConsecutiveSuccess || input.hasConsecutiveError) return false
-  return false
-}
-
 export const shouldSurfaceClosedWindowPackageError = (input: {
   isKioskTerminalFlow: boolean
   mode: "idle" | "existing" | "new"
@@ -337,8 +317,7 @@ export const resolveConsecutivePaymentSuccessAction = (input: {
  *   consecutive overlay must NEVER appear for someone without a usable
  *   package for the current class, because the package-holder branches
  *   would mis-route them and could trigger a package check-in that has no
- *   credits to consume. See `shouldShowConsecutiveOfferGate` which also
- *   requires `hasPackage`.
+ *   credits to consume.
  *
  * - `complete-station`: no offer or no usable package → existing
  *   registered-customer purchase flow already concluded for class A; just

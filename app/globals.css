@@ -168,6 +168,50 @@
 }
 
 @layer components {
+  .kiosk-terminal-enroll-modal {
+    background: rgba(20, 22, 30, 0.88) !important;
+    color: rgb(255 255 255) !important;
+  }
+
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] {
+    background:
+      radial-gradient(circle at top right, rgba(182, 22, 22, 0.10), transparent 42%),
+      linear-gradient(145deg, rgba(34, 36, 48, 0.86), rgba(19, 21, 30, 0.88)) !important;
+    color: rgb(255 255 255) !important;
+  }
+
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] [class*="bg-white"] {
+    background-color: rgba(255, 255, 255, 0.07) !important;
+  }
+
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] [class*="border-black"] {
+    border-color: rgba(255, 255, 255, 0.14) !important;
+  }
+
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] [class*="text-neutral-500"],
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] [class*="text-neutral-600"],
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] [class*="text-neutral-700"] {
+    color: rgba(255, 255, 255, 0.72) !important;
+  }
+
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] input,
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] select,
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] textarea {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.16) !important;
+    color: rgb(255, 255, 255) !important;
+  }
+
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] input::placeholder,
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] textarea::placeholder {
+    color: rgba(255, 255, 255, 0.55) !important;
+  }
+
+  .kiosk-terminal-enroll-modal [data-kiosk-terminal-panel="main"] option {
+    background-color: rgb(24, 26, 36);
+    color: rgb(255, 255, 255);
+  }
+
   .home-section {
     @apply flex gap-4 justify-between items-start w-full max-lg:flex-col-reverse max-lg:items-center;
   }

@@ -44,6 +44,7 @@ vi.mock("@/lib/prisma", () => ({
 // Mock staff-access for profile route
 vi.mock("@/lib/security/staff-access", () => ({
   canAccessStaffPortalSection: vi.fn().mockReturnValue(true),
+  canOperateStudentEdits: vi.fn().mockReturnValue(false),
 }))
 
 describe("force_logout payroll neutralization (R7/D7)", () => {

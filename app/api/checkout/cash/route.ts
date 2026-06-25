@@ -13,6 +13,7 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
+import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
     },
     {
       photoContext,
-      allowExistingAccountLookup: photoContext === "kiosk_terminal",
+      allowExistingAccountLookup: photoContext === FLOW_CONTEXT.KIOSK_TERMINAL,
       kioskSessionToken,
       serviceId: validation.serviceId,
       validation,
@@ -194,6 +195,7 @@ export async function POST(req: Request) {
           addonsCsv: validation.addons.join(",") || null,
           metadata: {
             source: "cash_checkout",
+            purchaseSource: resolveKioskPurchaseSource(photoContext),
             paymentMethod: "onsite",
             paymentChannel: "cash",
             settlementStatus: "pending",
@@ -246,6 +248,7 @@ export async function POST(req: Request) {
           addonsCsv: null,
           metadata: {
             source: "cash_checkout",
+            purchaseSource: resolveKioskPurchaseSource(photoContext),
             paymentMethod: "onsite",
             paymentChannel: "cash",
             settlementStatus: "pending",
@@ -324,6 +327,7 @@ export async function POST(req: Request) {
       addonsCsv: validation.addons.join(",") || null,
       metadata: {
         source: "cash_checkout",
+        purchaseSource: resolveKioskPurchaseSource(photoContext),
         paymentMethod: "onsite",
         paymentChannel: "cash",
         settlementStatus: "pending",

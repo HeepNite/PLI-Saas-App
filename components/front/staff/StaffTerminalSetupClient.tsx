@@ -4,6 +4,7 @@ import React from "react"
 import { Loader2, RefreshCcw, TabletSmartphone } from "lucide-react"
 import { demoCourses } from "@/constants/courses"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
+import { formatTerminalAlertDateTime } from "@/components/front/staff/staffAdminFormatters"
 
 type TerminalRow = {
   id: string
@@ -50,17 +51,6 @@ const toSlug = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-")
-
-const formatDateTime = (value: string | null) => {
-  if (!value) return "—"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat("es-ES", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/New_York",
-  }).format(parsed)
-}
 
 export default function StaffTerminalSetupClient() {
   const { courses: catalogCourses } = useCatalogCourses()
@@ -370,18 +360,18 @@ export default function StaffTerminalSetupClient() {
                       </div>
                       <div>
                         <dt className="text-white/45">Last seen</dt>
-                        <dd>{formatDateTime(item.lastSeenAt)}</dd>
+                        <dd>{formatTerminalAlertDateTime(item.lastSeenAt)}</dd>
                       </div>
                       <div>
                         <dt className="text-white/45">Last used</dt>
-                        <dd>{formatDateTime(item.lastUsedAt)}</dd>
+                        <dd>{formatTerminalAlertDateTime(item.lastUsedAt)}</dd>
                       </div>
                       {item.pinAlert ? (
                         <div>
                           <dt className="text-white/45">PIN activity</dt>
                           <dd>
                             {item.pinAlert.message}
-                            {item.pinAlert.blockedUntil ? ` Until ${formatDateTime(item.pinAlert.blockedUntil)}.` : ""}
+                            {item.pinAlert.blockedUntil ? ` Until ${formatTerminalAlertDateTime(item.pinAlert.blockedUntil)}.` : ""}
                           </dd>
                         </div>
                       ) : null}

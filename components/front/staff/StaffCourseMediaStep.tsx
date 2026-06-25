@@ -20,7 +20,6 @@ type StaffCourseMediaStepProps = {
 
 export default function StaffCourseMediaStep({
   visible,
-  courseEditingSlug,
   courseForm,
   setCourseForm,
   courseMediaUploading,
@@ -30,9 +29,6 @@ export default function StaffCourseMediaStep({
   onUploadImage,
 }: StaffCourseMediaStepProps) {
   if (!visible) return null
-  if (!courseEditingSlug) {
-    return <p className="mt-4 text-center text-sm text-black/50 dark:text-white/50">Create the course first to configure this step.</p>
-  }
 
   const updateCourseField = <Field extends keyof CourseFormState>(field: Field, value: CourseFormState[Field]) => {
     setCourseForm((previous) => ({ ...previous, [field]: value }))

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest"
-import { buildPackagePurchasePayload } from "@/lib/packages"
+import { describe, expect, it, vi } from "vitest"
+import { buildPackagePurchasePayload, reservePackageCreditForAttendanceTx } from "@/lib/packages"
 
 describe("packages helpers", () => {
   it("returns null when package id is missing", () => {
@@ -40,5 +40,48 @@ describe("packages helpers", () => {
     expect(payload.isUnlimited).toBe(true)
     expect(payload.totalCredits).toBeNull()
     expect(payload.remainingCredits).toBeNull()
+  })
+
+  it("reuses an existing package usage for the same attendance without decrementing again", async () => {
+    const existingUsage = {
+      id: "usage_existing",
+      packagePurchaseId: "package_purchase_1",
+      attendanceId: "attendance_1",
+      delta: -1,
+    }
+    const linkedPackage = {
+      id: "package_purchase_1",
+      userId: "user_1",
+      remainingCredits: 4,
+    }
+    const tx = {
+      packageUsageLedger: {
+        findUnique: vi.fn().mockResolvedValue(existingUsage),
+        create: vi.fn(),
+      },
+      packagePurchase: {
+        findUnique: vi.fn().mockResolvedValue(linkedPackage),
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
+      },
+    }
+
+    const result = await reservePackageCreditForAttendanceTx(tx as never, {
+      packagePurchaseId: "package_purchase_1",
+      userId: "user_1",
+      attendanceId: "attendance_1",
+      courseSlug: "salsa-beginner",
+      at: new Date("2026-06-19T23:30:00.000Z"),
+      reason: "STAFF_FAST_SIGN_IN",
+    })
+
+    expect(result).toMatchObject({
+      packagePurchase: linkedPackage,
+      usage: existingUsage,
+      consumed: true,
+    })
+    expect(tx.packagePurchase.updateMany).not.toHaveBeenCalled()
+    expect(tx.packageUsageLedger.create).not.toHaveBeenCalled()
   })
 })

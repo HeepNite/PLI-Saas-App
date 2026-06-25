@@ -6,6 +6,7 @@ import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { normalizePhone } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -19,11 +20,6 @@ const stripe = stripeSecret
 const normalize = (value: string | null | undefined) => {
   const trimmed = value?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : undefined
-}
-
-const normalizePhone = (value: string | null | undefined) => {
-  const digits = value?.replace(/\D/g, "")
-  return digits && digits.length >= 6 ? digits : undefined
 }
 
 const parseIntSafe = (value: string | undefined) => {

@@ -28,6 +28,7 @@ import {
   isStudentPinLifecycleEnabled,
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
+import { ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
 
 type StaffPaymentsTodayWindow = {
   todayNY: string
@@ -35,7 +36,6 @@ type StaffPaymentsTodayWindow = {
   endOfTodayNY: Date
 }
 
-const ATTENDED_CHECKIN_STATUSES = ["checked_in", "checked_in_no_package", "checked_out"] as const
 const ATTENDED_CHECKIN_STATUS_SET = new Set<string>(ATTENDED_CHECKIN_STATUSES)
 
 const getAttendanceStatusRank = (status: string) => {
@@ -350,6 +350,11 @@ type TodayAttendanceOrchestrationResult = {
   attendedRowsTodayByUser: Map<string, number>
 }
 
+const isStandaloneStaffFastActionAttendance = (metadata: Record<string, unknown>) => {
+  const source = asText(metadata.source)
+  return source === "staff_fast_action" || source === "staff_fast_action_promo"
+}
+
 const emptyTodayAttendanceOrchestration = (): TodayAttendanceOrchestrationResult => ({
   standaloneItems: [],
   todayAttendanceByPurchaseId: new Map(),
@@ -493,7 +498,7 @@ const loadTodayStaffPaymentsAttendances = async (input: {
       )
     })()
 
-    if (!isAlreadyCoveredByPurchase) {
+    if (!isAlreadyCoveredByPurchase && !isStandaloneStaffFastActionAttendance(attendanceMetadata)) {
       const packageId = att.packageUsage?.packagePurchase?.packageId || ""
       standaloneItems.push({
         purchase: {
@@ -551,6 +556,7 @@ export const loadStaffPaymentsPurchases = async (
   todayWindow: StaffPaymentsTodayWindow,
 ) => {
   const purchases = await prisma.purchase.findMany(buildStaffPaymentsFindManyArgs(paymentsRequest, {
+    todayNY: todayWindow.todayNY,
     startOfTodayNY: todayWindow.startOfTodayNY,
     endOfTodayNY: todayWindow.endOfTodayNY,
   }))

@@ -7,6 +7,7 @@ import {
 } from "@/app/api/staff/payments/payments-request"
 
 type TodayWindow = {
+  todayNY: string
   startOfTodayNY: Date
   endOfTodayNY: Date
 }
@@ -69,7 +70,12 @@ const buildStaffPaymentsWhere = (
   return {
     AND: [
       ...(searchWhere ? [searchWhere] : []),
-      { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
+      {
+        OR: [
+          { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
+          { metadata: { path: ["date"], equals: todayWindow.todayNY } },
+        ],
+      },
     ],
   }
 }

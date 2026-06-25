@@ -14,6 +14,8 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { computeDiscountPercent } from "@/lib/course-links"
 import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
+import { normalizePhoneDigits } from "@/lib/shared"
+import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -33,11 +35,6 @@ type CoursePricingTemplate = {
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
   return value.trim()
-}
-
-const normalizePhoneDigits = (value: string) => {
-  const digits = value.replace(/\D/g, "")
-  return digits.length >= 6 ? digits : ""
 }
 
 const splitName = (value: string) => {
@@ -182,10 +179,10 @@ export async function POST(req: Request) {
     const kioskSessionToken = normalizeString(payload?.kioskSessionToken)
     const flowContext = normalizeString(payload?.flowContext)
     const kioskCustomerAuth =
-      flowContext === "kiosk_terminal"
+      flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
         ? await resolveKioskCustomerClerkAuth(authResult.userId)
         : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
-    const shouldPreferKioskSession = flowContext === "kiosk_terminal" && Boolean(kioskSessionToken)
+    const shouldPreferKioskSession = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && Boolean(kioskSessionToken)
     const customerClerkUserId = shouldPreferKioskSession ? null : kioskCustomerAuth.userId
     const shouldResolveKioskSession = shouldPreferKioskSession || (!customerClerkUserId && Boolean(kioskSessionToken))
     const kioskSessionResult = shouldResolveKioskSession
@@ -196,7 +193,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            kioskCustomerAuth.blocked && flowContext === "kiosk_terminal"
+            kioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
               ? "Kiosk customer identification is required before continuing."
               : kioskSessionResult?.error || "Unauthorized",
         },
@@ -303,7 +300,7 @@ export async function POST(req: Request) {
       lastName = nameParts.lastName
     }
 
-    const isTerminalFlow = flowContext === "kiosk_terminal"
+    const isTerminalFlow = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 
     // ─── Consecutive offer detection ─────────────────────────
     const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
@@ -451,13 +448,30 @@ export async function POST(req: Request) {
     ])
     const lastPurchase = recentPurchases[0] || null
 
-    // Check if user already has a successful purchase for this exact session (date + time)
-    const hasExistingPurchaseForSession = recentPurchases.some((purchase) => {
-      const metadata = toRecord(purchase.metadata)
-      const purchaseDate = normalizeString(metadata?.date)
-      const purchaseTime = normalizeString(metadata?.time)
-      return purchaseDate === context.date && purchaseTime === context.time
+    // Check if user already has an attendance record for this exact session.
+    // A purchase alone does NOT mean "already checked in" — only an attendance
+    // does. Web and QR purchases require explicit check-in at the studio;
+    // kiosk purchases create attendance at purchase time.
+    const existingSessionForCheckIn = await prisma.classSession.findUnique({
+      where: {
+        courseSlug_startsAt: {
+          courseSlug: context.courseSlug,
+          startsAt: context.startsAt,
+        },
+      },
+      select: { id: true },
     })
+    const hasExistingPurchaseForSession = existingSessionForCheckIn
+      ? Boolean(await prisma.attendance.findUnique({
+          where: {
+            userId_sessionId: {
+              userId: dbUser.id,
+              sessionId: existingSessionForCheckIn.id,
+            },
+          },
+          select: { id: true },
+        }))
+      : false
 
     const activePackages = allActivePackages.filter((item) =>
       item.courseSlug === null ||
@@ -503,7 +517,7 @@ export async function POST(req: Request) {
       }
     })
 
-    if (flowContext === "kiosk_terminal" && kioskSessionResult?.ok && isPreparedCheckoutContextEnabled()) {
+    if (flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && kioskSessionResult?.ok && isPreparedCheckoutContextEnabled()) {
       await createPreparedCheckoutContext({
         terminalId: kioskSessionResult.terminalAuth.terminal.id,
         kioskSessionId: kioskSessionResult.session.id,

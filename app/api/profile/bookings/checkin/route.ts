@@ -5,10 +5,9 @@ import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
+import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
-
-const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"] as const
 const CHECK_IN_OPEN_WINDOW_MS = 2 * 60 * 60 * 1000
 const CHECK_IN_CLOSE_AFTER_END_MS = 2 * 60 * 60 * 1000
 
@@ -120,7 +119,7 @@ export async function POST(req: Request) {
       )
     }
 
-    if (ATTENDANCE_POINT_STATUSES.includes(attendance.status as (typeof ATTENDANCE_POINT_STATUSES)[number])) {
+    if (ATTENDANCE_POINT_STATUSES.includes(attendance.status)) {
       const checkedInCount = await prisma.attendance.count({
         where: {
           userId: dbUser.id,

@@ -325,6 +325,14 @@ export const prepareCheckoutAccount = async (
           phone: input.phone,
         })
         created = Boolean(resolvedClerkUser)
+        if (resolvedClerkUser) {
+          await upsertUserByIdentifiers({
+            clerkId: resolvedClerkUser.id,
+            email: identity.resolvedEmail,
+            name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
+            phone: input.phone,
+          })
+        }
       } catch (err) {
         console.warn("Clerk user creation failed", err)
         return { status: 502, error: "Unable to create user" } satisfies ApiError
@@ -360,12 +368,13 @@ export const prepareCheckoutAccount = async (
     }
 
     // Full checkout path (deferUserCreation=false): same staff-session guard.
-    // For kiosk new-student, staff identity must not leak into the resolved
-    // account. Force resolvedClerkUser to null so the lookup branch below
-    // finds the student's Clerk user (created during prepareOnly).
-    const isKioskNewStudentFullCheckout = options.photoContext === "kiosk_terminal" &&
+    // For kiosk/QR-phone new-student, staff identity must not leak into the
+    // resolved account. Force resolvedClerkUser to null so the lookup branch
+    // below finds the student's Clerk user (created during SMS verification).
+    const isNewStudentWithPreCreatedAccount =
+      (options.photoContext === "kiosk_terminal" || options.photoContext === "qr_phone") &&
       isNewStudentKioskFlow
-    if (isKioskNewStudentFullCheckout) {
+    if (isNewStudentWithPreCreatedAccount) {
       // Lookup the student's Clerk user directly (skip ensureGuestClerkUser —
       // it returns 409 for existing accounts, which blocks this flow).
       const studentClerkUser = await findClerkUserByIdentifiers({
@@ -374,6 +383,12 @@ export const prepareCheckoutAccount = async (
       })
       if (studentClerkUser) {
         resolvedClerkUser = studentClerkUser
+        await upsertUserByIdentifiers({
+          clerkId: studentClerkUser.id,
+          email: identity.resolvedEmail,
+          name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
+          phone: input.phone,
+        })
       } else {
         // Student's Clerk user not found — create it.
         try {
@@ -385,6 +400,14 @@ export const prepareCheckoutAccount = async (
             phone: input.phone,
           })
           created = Boolean(resolvedClerkUser)
+          if (resolvedClerkUser) {
+            await upsertUserByIdentifiers({
+              clerkId: resolvedClerkUser.id,
+              email: identity.resolvedEmail,
+              name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
+              phone: input.phone,
+            })
+          }
         } catch (err) {
           console.warn("Clerk user creation failed for kiosk new-student", err)
           return { status: 502, error: "Unable to create user" } satisfies ApiError
@@ -434,7 +457,7 @@ export const prepareCheckoutAccount = async (
     account: {
       clerkUserId: resolvedUserId,
       created,
-      requiresSignIn: Boolean(!userId && options.photoContext === "qr_phone"),
+      requiresSignIn: Boolean(!userId && options.photoContext === "qr_phone" && !isNewStudentKioskFlow),
       hasAvatar,
     },
   }

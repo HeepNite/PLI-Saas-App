@@ -1,6 +1,7 @@
 import React from "react"
 
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory } from "@/lib/security/staff-category"
 import type { StepEnabledContext, SchoolWizardState } from "@/components/front/staff/school"
 import type { AssignmentCourseOption, CourseLinkRow } from "./staffAdminTypes"
 import { getInitials } from "./staffPaymentCardPresentation"
@@ -27,10 +28,12 @@ import type { useStaffSchoolCatalogAdmin } from "./useStaffSchoolCatalogAdmin"
 import type { useStaffSelfProfileAdmin } from "./useStaffSelfProfileAdmin"
 import type { useStaffStudentAuditAdmin } from "./useStaffStudentAuditAdmin"
 import type { useStaffStudentsBoardAdmin } from "./useStaffStudentsBoardAdmin"
+import type { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
 import type { useStaffTeacherAdmin } from "./useStaffTeacherAdmin"
 
 type StaffUsersAdminCompositionInput = {
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   currentUserId: string
   error: string | null
   setError: React.Dispatch<React.SetStateAction<string | null>>
@@ -69,6 +72,7 @@ type StaffUsersAdminCompositionInput = {
   profileScheduleAdmin: ReturnType<typeof useStaffProfileScheduleAdmin>
   payrollAdmin: ReturnType<typeof useStaffPayrollAdmin>
   studentsBoardAdmin: ReturnType<typeof useStaffStudentsBoardAdmin>
+  createStudentAdmin?: ReturnType<typeof useStaffCreateStudentAdmin>
   saveCourseLink: (event: React.FormEvent) => void
   deleteCourseLink: (linkId: string) => void
   toggleCourseLinkActive: (link: CourseLinkRow) => void
@@ -116,6 +120,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
   const studentsBoardPanelProps = buildStaffStudentsBoardPanelProps({
     isStudentsView: portalShellAdmin.isStudentsView,
     currentRole: input.currentRole,
+    currentCategory: input.currentCategory,
     studentSearchQuery: input.studentSearchQuery,
     setStudentSearchQuery: input.setStudentSearchQuery,
     portalShellAdmin,
@@ -124,6 +129,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
     pinAdmin,
     studentsBoardAdmin,
     studentAuditAdmin,
+    createStudentAdmin: input.createStudentAdmin,
     formatMoney: input.formatters.formatMoney,
   })
 

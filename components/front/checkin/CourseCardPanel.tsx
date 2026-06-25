@@ -1,6 +1,7 @@
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import { formatTerminalClassDateTime } from "@/lib/checkin/class-date-format"
+import type { TerminalPastClass } from "@/components/front/checkin/checkin.types"
 
 /**
  * Design tokens for kiosk terminal layout
@@ -36,6 +37,11 @@ interface CourseCardPanelProps {
   displayDate: string
   displayTime: string
   qrImage?: string
+  terminalPastClasses?: TerminalPastClass[]
+  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
+  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
+  onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+  onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   compact?: boolean
   actionSlot?: React.ReactNode
 }
@@ -52,15 +58,28 @@ export function CourseCardPanel({
   displayDate,
   displayTime,
   qrImage,
+  terminalPastClasses,
+  selectedTerminalPastClass,
+  onTerminalPastClassSelect,
+  onExistingClick,
+  onNewClick,
   compact = false,
   actionSlot,
 }: CourseCardPanelProps) {
   const hasQr = Boolean(qrImage)
+  const showPastCourses = compact && Boolean(terminalPastClasses?.length)
 
   if (hasQr) {
     if (compact && actionSlot) {
       return (
         <div className="mx-[1.25rem] my-0 mt-3 rounded-2xl border border-white/15 bg-white/[0.02] p-4 lg:p-5">
+          {showPastCourses ? (
+            <PastCoursesList
+              classes={terminalPastClasses || []}
+              onExistingClick={onExistingClick}
+              onNewClick={onNewClick}
+            />
+          ) : (
           <div
             className="grid items-start"
             style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
@@ -87,6 +106,7 @@ export function CourseCardPanel({
               <QrSection qrImage={qrImage} compact={compact} />
             </div>
           </div>
+          )}
         </div>
       )
     }
@@ -148,6 +168,105 @@ export function CourseCardPanel({
       />
     </div>
   )
+}
+
+function PastCoursesList({
+  classes,
+  onExistingClick,
+  onNewClick,
+}: {
+  classes: TerminalPastClass[]
+  onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+  onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+}) {
+  return (
+    <div className="flex h-full min-h-full flex-col">
+      <div className="mb-5 grid items-start" style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}>
+        <p className="text-xs uppercase tracking-[0.2em] text-white/60">Past Courses</p>
+        <p className="text-center text-xs uppercase tracking-[0.2em] text-white/60">Continue here</p>
+        <p className="text-center text-xs uppercase tracking-[0.2em] text-white/60">Scan QR code</p>
+      </div>
+      <div className="flex flex-col gap-4">
+        {classes.map((item) => {
+          const context = { courseSlug: item.courseSlug, date: item.date, time: item.time }
+          return (
+            <div
+              key={`${item.courseSlug}-${item.time}`}
+              className="grid items-stretch rounded-2xl border border-white/15 bg-white/[0.02] p-4"
+              style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
+            >
+              <div className="relative min-h-[148px] pr-5">
+                <span aria-hidden="true" className="absolute inset-y-2 right-0 w-px bg-gradient-to-b from-transparent via-white/12 to-transparent" />
+                <div className="relative h-full overflow-hidden rounded-2xl">
+                <Image
+                  src={item.imageUrl || "/images/hero-menu/live-academy.JPG"}
+                  alt={item.title}
+                  fill
+                  sizes="18vw"
+                  className="object-cover"
+                />
+                <span className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.12)_0%,rgba(0,0,0,0.08)_30%,rgba(0,0,0,0.42)_62%,rgba(0,0,0,0.94)_100%)]" />
+                <span className="absolute left-3 top-3 flex flex-wrap gap-1.5">
+                  <span className="rounded-full border border-sky-300/25 bg-sky-950/70 px-2.5 py-1 text-[9px] uppercase tracking-[0.13em] text-sky-100/90">
+                    {item.durationMinutes ? `${item.durationMinutes} min` : "Class"}
+                  </span>
+                  {item.level && (
+                    <span className="rounded-full border border-emerald-300/25 bg-emerald-950/70 px-2.5 py-1 text-[9px] uppercase tracking-[0.13em] text-emerald-100/90">
+                      {item.level}
+                    </span>
+                  )}
+                </span>
+                <span className="absolute inset-x-0 bottom-0 px-3 pb-3">
+                  <span className="block truncate text-sm font-semibold text-white">{item.title}</span>
+                  <span className="mt-0.5 block text-xs text-white/70">{formatPastCourseTime(item.time)}</span>
+                </span>
+                </div>
+              </div>
+
+              <div className="relative flex h-full flex-col justify-center px-5">
+                <div className="grid gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onExistingClick?.(context)}
+                    className="rounded-2xl border border-white/15 bg-black/20 px-4 py-3 text-left transition hover:border-white/25 hover:bg-white/[0.06]"
+                  >
+                    <span className="block text-sm font-semibold text-white">I am already a customer</span>
+                    <span className="mt-1 block text-xs text-white/60">Enter your PIN for this class.</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNewClick?.(context)}
+                    className="rounded-2xl border border-white/15 bg-black/20 px-4 py-3 text-left transition hover:border-white/25 hover:bg-white/[0.06]"
+                  >
+                    <span className="block text-sm font-semibold text-white">I am new</span>
+                    <span className="mt-1 block text-xs text-white/60">Create account and purchase.</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative flex items-center justify-center pl-5">
+                <span aria-hidden="true" className="absolute inset-y-2 left-0 w-px bg-gradient-to-b from-transparent via-white/12 to-transparent" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.qrImageUrl}
+                  alt={`${item.title} QR code`}
+                  className="h-36 w-36 rounded-2xl border border-white/15 bg-white object-contain lg:h-40 lg:w-40"
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function formatPastCourseTime(time: string) {
+  const [hour, minute] = time.split(":").map(Number)
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return time
+  const suffix = hour >= 12 ? "PM" : "AM"
+  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`
 }
 
 /**

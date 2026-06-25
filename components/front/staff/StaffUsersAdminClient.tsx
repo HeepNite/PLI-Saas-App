@@ -40,6 +40,7 @@ import { useStaffSelfProfileAdmin } from "./useStaffSelfProfileAdmin"
 import { useStaffProfileModalAdmin } from "./useStaffProfileModalAdmin"
 import { useStaffStudentsBoardAdmin } from "./useStaffStudentsBoardAdmin"
 import { useStaffStudentAuditAdmin } from "./useStaffStudentAuditAdmin"
+import { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
 import { useStaffPortalShellAdmin } from "./useStaffPortalShellAdmin"
 import { useStaffPortalDataLifecycle } from "./useStaffPortalDataLifecycle"
 import { useStaffUsersAdminComposition } from "./useStaffUsersAdminComposition"
@@ -252,6 +253,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     loadCourseLinks,
     clearCourseLinks,
     saveCourseLink: saveCourseLinkForSlug,
+    saveDraftCourseLinkForCourse,
     deleteCourseLink: deleteCourseLinkForSlug,
     toggleCourseLinkActive: toggleCourseLinkActiveForSlug,
   } = courseLinksAdmin
@@ -382,6 +384,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     loadCourseLinks,
     clearCourseLinks,
     resetCourseLinkForm,
+    saveDraftCourseLinkForCourse,
     handleStaffAuthFailure,
     setSchoolError,
     setSchoolSuccess,
@@ -498,6 +501,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     paymentsMonthlyCheckedInStudents,
     nowTs,
     currentRole,
+    currentCategory,
     usersWithAuditEntries,
     checkUserHasAuditEntries,
     pruneSelectedPaymentIds,
@@ -506,8 +510,14 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     handleStaffAuthFailure,
   })
 
+  const createStudentAdmin = useStaffCreateStudentAdmin({
+    onSuccess: refreshPaymentsBoard,
+    handleStaffAuthFailure,
+  })
+
   const staffUsersAdminViewProps = useStaffUsersAdminComposition({
     currentRole,
+    currentCategory,
     currentUserId,
     error,
     setError,
@@ -542,6 +552,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     profileScheduleAdmin,
     payrollAdmin,
     studentsBoardAdmin,
+    createStudentAdmin,
     saveCourseLink,
     deleteCourseLink,
     toggleCourseLinkActive,

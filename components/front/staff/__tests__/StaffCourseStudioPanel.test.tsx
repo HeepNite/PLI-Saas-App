@@ -210,4 +210,18 @@ describe("StaffCourseStudioPanel", () => {
     expect(props.wizard.onNext).toHaveBeenCalledWith(props.wizard.enabledContext)
     expect(props.wizard.onPrevious).toHaveBeenCalledWith(props.wizard.enabledContext)
   })
+
+  it("keeps draft schedule and preview steps available before the course is persisted", async () => {
+    const draftProps = createProps({
+      wizard: { ...createProps().wizard, step: 3, enabledContext: { courseEditingSlug: null } },
+      links: { ...createProps().links, courseEditingSlug: null },
+      pricing: { ...createProps().pricing, courseEditingSlug: null },
+      media: { ...createProps().media, courseEditingSlug: null },
+      publish: { ...createProps().publish, courseEditingSlug: null },
+    })
+    const node = await renderPanel(draftProps)
+
+    expect(node.textContent).toContain("Schedule builder")
+    expect(node.textContent).not.toContain("Create the course first to configure this step.")
+  })
 })

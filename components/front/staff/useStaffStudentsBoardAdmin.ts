@@ -11,6 +11,8 @@ import {
 import { useStudentGlobalSearch } from "@/components/front/staff/useStudentGlobalSearch"
 import { parseIsoDate } from "@/lib/class-schedule"
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory } from "@/lib/security/staff-category"
+import { canOperateStudentEdits } from "@/lib/security/staff-access"
 
 import {
   isCompletedClassEvidence,
@@ -60,6 +62,7 @@ type UseStaffStudentsBoardAdminOptions = {
   paymentsMonthlyCheckedInStudents: number
   nowTs: number
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
   usersWithAuditEntries: Set<string>
   checkUserHasAuditEntries: (userId: string) => Promise<void>
   pruneSelectedPaymentIds: (visibleIds: string[]) => void
@@ -85,6 +88,7 @@ export function useStaffStudentsBoardAdmin({
   paymentsMonthlyCheckedInStudents,
   nowTs,
   currentRole,
+  currentCategory,
   usersWithAuditEntries,
   checkUserHasAuditEntries,
   pruneSelectedPaymentIds,
@@ -252,9 +256,11 @@ export function useStaffStudentsBoardAdmin({
     setCurrentPage(1)
   }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, searchResultCards, studentSearchQuery])
 
-  // Check which displayed students have audit entries in the current month
+  // Check which displayed students have audit entries in the current month.
+  // Runs for all callers that can view the Change history button (owner, admin,
+  // front_desk) so the audit badge appears correctly for each allowed role.
   React.useEffect(() => {
-    if (currentRole !== "owner" && currentRole !== "admin") return
+    if (!canOperateStudentEdits(currentRole, currentCategory)) return
 
     const userIds = displayedStudentCards
       .map((card) => ("source" in card && card.source === "profile" ? card.userId : card.latestPayment?.userId))
@@ -265,7 +271,7 @@ export function useStaffStudentsBoardAdmin({
     uniqueIds.forEach((userId) => {
       void checkUserHasAuditEntries(userId)
     })
-  }, [displayedStudentCards, currentRole, checkUserHasAuditEntries, usersWithAuditEntries])
+  }, [displayedStudentCards, currentRole, currentCategory, checkUserHasAuditEntries, usersWithAuditEntries])
 
   React.useEffect(() => {
     setCurrentPage((prev) => Math.min(prev, totalPages))
@@ -346,6 +352,82 @@ export function useStaffStudentsBoardAdmin({
     return `${formatShortDate(historyFrom)} → ${formatShortDate(historyTo)}`
   }, [historyFrom, historyTo])
 
+  // ─── Web-cash arrival polling ─────────────────────────────
+  const [webCashArrivals, setWebCashArrivals] = React.useState<Array<{
+    attendanceId: string
+    userName: string
+    courseTitle: string
+    cashAmountCents: number
+    checkedInAt: string
+  }>>([])
+  const webCashLastPolledRef = React.useRef<string>(new Date().toISOString())
+  const webCashSeenIdsRef = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    if (isHistoryMode) return
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/staff/checkin/web-cash-arrivals?since=${encodeURIComponent(webCashLastPolledRef.current)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!Array.isArray(data) || data.length === 0) return
+
+        const newArrivals = data.filter(
+          (item: { attendanceId: string }) => !webCashSeenIdsRef.current.has(item.attendanceId)
+        )
+        if (newArrivals.length === 0) return
+
+        for (const arrival of newArrivals) {
+          webCashSeenIdsRef.current.add(arrival.attendanceId)
+        }
+        setWebCashArrivals((prev) => [...newArrivals, ...prev].slice(0, 10))
+        webCashLastPolledRef.current = new Date().toISOString()
+        // Refresh the board so new arrivals appear as cards
+        void refreshPaymentsBoard()
+      } catch {
+        // Silently ignore polling errors
+      }
+    }
+
+    void poll()
+    const interval = window.setInterval(poll, 10_000)
+    return () => window.clearInterval(interval)
+  }, [isHistoryMode, refreshPaymentsBoard])
+
+  const dismissWebCashArrival = React.useCallback((attendanceId: string) => {
+    setWebCashArrivals((prev) => prev.filter((item) => item.attendanceId !== attendanceId))
+  }, [])
+
+  // ─── Smart board refresh via lightweight pulse endpoint ────────────────
+  const pulseRef = React.useRef<{ purchaseCount: number; attendanceCount: number; latestPurchaseAt: string | null } | null>(null)
+
+  React.useEffect(() => {
+    if (isHistoryMode) return
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/staff/payments/pulse")
+        if (!res.ok) return
+        const data = await res.json()
+        const prev = pulseRef.current
+        if (prev && (
+          data.purchaseCount !== prev.purchaseCount ||
+          data.attendanceCount !== prev.attendanceCount ||
+          data.latestPurchaseAt !== prev.latestPurchaseAt
+        )) {
+          void refreshPaymentsBoard()
+        }
+        pulseRef.current = data
+      } catch {
+        // Silently ignore pulse errors
+      }
+    }
+
+    // Initial pulse (no refresh, just cache baseline)
+    void poll()
+    const interval = window.setInterval(poll, 15_000)
+    return () => window.clearInterval(interval)
+  }, [isHistoryMode, refreshPaymentsBoard])
+
   return {
     currentPage,
     setCurrentPage,
@@ -370,5 +452,7 @@ export function useStaffStudentsBoardAdmin({
     todayDateIso,
     historyReadableRange,
     shouldPreservePaymentBoard,
+    webCashArrivals,
+    dismissWebCashArrival,
   }
 }

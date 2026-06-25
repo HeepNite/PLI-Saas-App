@@ -51,6 +51,18 @@ type PackageOption = {
   expiresAt: string | null
 }
 
+type PurchaseOption = {
+  id: string
+  label: string
+  amount: number
+  currency: string
+  status: string
+  settlementStatus: string
+  outstandingBalance: number
+  paymentMethod: string
+  createdAt: string
+}
+
 type FormState = {
   entity: EntityType
   reason: string
@@ -200,6 +212,11 @@ export default function StudentDataOverrideModal({
   const [packagesError, setPackagesError] = React.useState<string | null>(null)
   const [showManualPackageId, setShowManualPackageId] = React.useState(false)
 
+  // Purchase selector state
+  const [availablePurchases, setAvailablePurchases] = React.useState<PurchaseOption[]>([])
+  const [purchasesLoading, setPurchasesLoading] = React.useState(false)
+  const [purchasesError, setPurchasesError] = React.useState<string | null>(null)
+
   const updateField = React.useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
       setForm((prev) => ({ ...prev, [key]: value }))
@@ -237,6 +254,9 @@ export default function StudentDataOverrideModal({
     setPackagesLoading(false)
     setPackagesError(null)
     setShowManualPackageId(false)
+    setAvailablePurchases([])
+    setPurchasesLoading(false)
+    setPurchasesError(null)
   }, [])
 
   const formatPackageSummary = React.useCallback((pkg: PackageOption): string => {
@@ -252,6 +272,14 @@ export default function StudentDataOverrideModal({
     const shortId = pkg.id.length > 8 ? `${pkg.id.slice(0, 8)}…` : pkg.id
 
     return `${pkg.label} · ${statusLabel} · ${creditsLabel} · ${expiresLabel} · ${shortId}`
+  }, [])
+
+  const formatPurchaseSummary = React.useCallback((p: PurchaseOption): string => {
+    const amountLabel = `$${(p.amount / 100).toFixed(2)}`
+    const statusLabel = p.settlementStatus.charAt(0).toUpperCase() + p.settlementStatus.slice(1)
+    const dateLabel = new Date(p.createdAt).toLocaleDateString()
+    const shortId = p.id.length > 8 ? `${p.id.slice(0, 8)}…` : p.id
+    return `${p.label} · ${amountLabel} · ${statusLabel} · ${dateLabel} · ${shortId}`
   }, [])
 
   const handleClose = React.useCallback(() => {
@@ -374,6 +402,119 @@ export default function StudentDataOverrideModal({
       cancelled = true
     }
   }, [open, form.entity, studentId])
+
+  // Fetch purchases when payment tab is active
+  React.useEffect(() => {
+    if (!open || form.entity !== "payment") return
+
+    let cancelled = false
+    setPurchasesLoading(true)
+    setPurchasesError(null)
+
+    fetch(`/api/staff/students/${encodeURIComponent(studentId)}/payments`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load purchases")
+        return res.json()
+      })
+      .then((data) => {
+        if (cancelled) return
+
+        const purchases = (data?.data?.purchases ?? []) as PurchaseOption[]
+        setAvailablePurchases(purchases)
+        setPurchasesLoading(false)
+
+        setForm((prev) => {
+          if (prev.entity !== "payment") return prev
+          if (prev.paymentPurchaseId && purchases.some((p) => p.id === prev.paymentPurchaseId)) {
+            return prev
+          }
+          if (purchases.length === 1) {
+            const p = purchases[0]
+            return {
+              ...prev,
+              paymentPurchaseId: p.id,
+              paymentAmount: (p.amount / 100).toFixed(2),
+              paymentSettlementStatus: p.settlementStatus,
+              paymentOutstandingBalance: (p.outstandingBalance / 100).toFixed(2),
+              paymentMethod: p.paymentMethod,
+            }
+          }
+          return { ...prev, paymentPurchaseId: "" }
+        })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setPurchasesError(err instanceof Error ? err.message : "Failed to load purchases")
+        setPurchasesLoading(false)
+        setAvailablePurchases([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, form.entity, studentId])
+
+  const handlePurchaseSelect = React.useCallback((purchaseId: string) => {
+    const purchase = availablePurchases.find((p) => p.id === purchaseId)
+    if (purchase) {
+      setForm((prev) => ({
+        ...prev,
+        paymentPurchaseId: purchaseId,
+        paymentAmount: (purchase.amount / 100).toFixed(2),
+        paymentSettlementStatus: purchase.settlementStatus,
+        paymentOutstandingBalance: (purchase.outstandingBalance / 100).toFixed(2),
+        paymentMethod: purchase.paymentMethod,
+      }))
+    } else {
+      updateField("paymentPurchaseId", purchaseId)
+    }
+    setErrorMessage(null)
+  }, [availablePurchases, updateField])
+
+  const handleDeletePurchase = React.useCallback(async () => {
+    if (!form.paymentPurchaseId || !form.reason.trim()) {
+      setErrorMessage("Please provide a reason before deleting.")
+      return
+    }
+
+    setSubmitState("submitting")
+    setErrorMessage(null)
+
+    try {
+      const res = await fetch(`/api/staff/students/${encodeURIComponent(studentId)}/payments`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          purchaseId: form.paymentPurchaseId,
+          reason: form.reason.trim(),
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Unknown error" }))
+        setErrorMessage(data.error || "Failed to delete purchase.")
+        setSubmitState("error")
+        return
+      }
+
+      setSubmitState("success")
+      setSuccessMessage("Purchase deleted successfully.")
+      // Remove from local list
+      setAvailablePurchases((prev) => prev.filter((p) => p.id !== form.paymentPurchaseId))
+      setForm((prev) => ({
+        ...prev,
+        paymentPurchaseId: "",
+        paymentAmount: "",
+        paymentSettlementStatus: "pending",
+        paymentOutstandingBalance: "",
+        paymentMethod: "cash",
+      }))
+      onSuccess?.()
+    } catch {
+      setErrorMessage("An unexpected error occurred.")
+      setSubmitState("error")
+    }
+  }, [form.paymentPurchaseId, form.reason, studentId, onSuccess])
 
   const validate = React.useCallback((): string | null => {
     if (!form.reason.trim()) return "Reason is required."
@@ -713,55 +854,69 @@ export default function StudentDataOverrideModal({
                         </div>
                       ) : (
                         <div className="max-h-52 overflow-y-auto rounded-md border border-black/15 bg-white dark:border-white/15 dark:bg-white/5">
-                          {visibleAttendanceSessions.map((session) => {
-                            const isSelected = form.attendanceSessionIds.includes(session.id)
+                          {(() => {
+                            const todayDateStr = new Date().toLocaleDateString()
+                            return visibleAttendanceSessions.map((session) => {
+                              const isSelected = form.attendanceSessionIds.includes(session.id)
+                              const isToday = new Date(session.startsAt).toLocaleDateString() === todayDateStr
 
-                            return (
-                              <label
-                                key={session.id}
-                                className={`flex items-start gap-3 border-b border-black/5 px-3 py-2.5 last:border-b-0 transition-colors dark:border-white/5 ${
-                                  isSelected
-                                    ? "bg-[var(--brand,#b61616)]/5 dark:bg-[var(--brand,#b61616)]/10"
-                                    : "hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
-                                } cursor-pointer`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleSession(session.id)}
-                                  className="mt-0.5 h-4 w-4 rounded border-black/30 text-[var(--brand,#b61616)] focus:ring-[var(--brand,#b61616)] dark:border-white/30"
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-black dark:text-white truncate">
-                                      {session.title || session.courseSlug}
-                                    </span>
-                                    {session.existingAttendanceStatus && (
-                                                      <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                                                        session.existingAttendanceStatus === "checked_in" || session.existingAttendanceStatus === "checked_out" || session.existingAttendanceStatus === "checked_in_no_package"
-                                                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                                                          : session.existingAttendanceStatus === "no_show"
-                                                          ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
-                                                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                                                      }`}>
-                                                        {formatAttendanceBadge(session)}
-                                                      </span>
-                                    )}
+                              return (
+                                <label
+                                  key={session.id}
+                                  className={`flex items-start gap-3 border-b border-black/5 px-3 py-2.5 last:border-b-0 transition-colors dark:border-white/5 ${
+                                    isSelected
+                                      ? "bg-[var(--brand,#b61616)]/5 dark:bg-[var(--brand,#b61616)]/10"
+                                      : "hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+                                  } cursor-pointer`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSession(session.id)}
+                                    className="mt-0.5 h-4 w-4 rounded border-black/30 text-[var(--brand,#b61616)] focus:ring-[var(--brand,#b61616)] dark:border-white/30"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-sm font-medium text-black dark:text-white truncate">
+                                        {session.title || session.courseSlug}
+                                      </span>
+                                      {isToday && (
+                                        <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                          Today
+                                        </span>
+                                      )}
+                                      {session.existingAttendanceStatus && (
+                                        <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                          session.existingAttendancePaymentSource === "package"
+                                            ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                                            : session.existingAttendancePaymentSource === "dropin" || session.existingAttendanceStatus === "checked_in_no_package"
+                                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                            : session.existingAttendanceStatus === "no_show"
+                                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                        }`}>
+                                          {formatAttendanceBadge(session)}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-black/50 dark:text-white/50">
+                                      {new Date(session.startsAt).toLocaleString(undefined, {
+                                        weekday: "short",
+                                        month: "short",
+                                        day: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                      {session.location ? ` · ${session.location}` : ""}
+                                      <span className="ml-1.5 text-black/30 dark:text-white/30">
+                                        {session.id.slice(0, 8)}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="mt-0.5 text-xs text-black/50 dark:text-white/50">
-                                    {new Date(session.startsAt).toLocaleString(undefined, {
-                                      weekday: "short",
-                                      month: "short",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                                    {session.location ? ` · ${session.location}` : ""}
-                                  </div>
-                                </div>
-                              </label>
-                            )
-                          })}
+                                </label>
+                              )
+                            })
+                          })()}
                         </div>
                       )}
                       {form.attendanceAction === "add" && (
@@ -794,15 +949,64 @@ export default function StudentDataOverrideModal({
                 {form.entity === "payment" && (
                   <div className="space-y-4">
                     <label className="block space-y-1">
-                      <span className="text-xs text-black/65 dark:text-white/65">Purchase ID</span>
-                      <input
-                        type="text"
-                        value={form.paymentPurchaseId}
-                        onChange={(e) => updateField("paymentPurchaseId", e.target.value)}
-                        placeholder="purchase-uuid"
-                        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                      />
+                      <span className="text-xs text-black/65 dark:text-white/65">
+                        Purchase <span className="text-[var(--brand,#b61616)]">*</span>
+                      </span>
+                      {purchasesLoading ? (
+                        <div className="flex items-center gap-2 rounded-md border border-black/10 bg-black/[0.02] px-3 py-2 text-sm text-black/50 dark:border-white/10 dark:bg-white/[0.02] dark:text-white/50">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading purchases...
+                        </div>
+                      ) : purchasesError ? (
+                        <div className="rounded-md border border-[var(--brand,#b61616)]/30 bg-[var(--brand,#b61616)]/5 px-3 py-2 text-sm text-[var(--brand,#b61616)]">
+                          {purchasesError}
+                        </div>
+                      ) : availablePurchases.length === 0 ? (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                          No purchases found for this student.
+                        </div>
+                      ) : (
+                        <>
+                          <select
+                            value={form.paymentPurchaseId}
+                            onChange={(e) => handlePurchaseSelect(e.target.value)}
+                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+                          >
+                            <option value="">Select purchase</option>
+                            {availablePurchases.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {formatPurchaseSummary(p)}
+                              </option>
+                            ))}
+                          </select>
+                          {availablePurchases.length === 1 && form.paymentPurchaseId ? (
+                            <p className="text-[11px] text-black/45 dark:text-white/45">
+                              Auto-selected: {formatPurchaseSummary(availablePurchases[0])}
+                            </p>
+                          ) : null}
+                        </>
+                      )}
                     </label>
+
+                    {form.paymentPurchaseId && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={submitState === "submitting"}
+                          onClick={() => {
+                            if (confirm("Are you sure you want to permanently delete this purchase? This cannot be undone.")) {
+                              void handleDeletePurchase()
+                            }
+                          }}
+                          className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
+                        >
+                          Delete this purchase
+                        </button>
+                        <span className="text-[11px] text-black/40 dark:text-white/40">
+                          Permanently removes the purchase record
+                        </span>
+                      </div>
+                    )}
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="block space-y-1">

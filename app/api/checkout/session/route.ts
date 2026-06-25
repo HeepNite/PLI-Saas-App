@@ -11,6 +11,7 @@ import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
     },
     {
       photoContext,
-      allowExistingAccountLookup: photoContext === "kiosk_terminal",
+      allowExistingAccountLookup: photoContext === FLOW_CONTEXT.KIOSK_TERMINAL,
       kioskSessionToken,
       serviceId: validation.serviceId,
       validation,
@@ -128,7 +129,7 @@ export async function POST(req: Request) {
   }
 
   const expiresAt =
-    photoContext === "kiosk_terminal" ? Math.floor(Date.now() / 1000) + 30 * 60 : undefined
+    photoContext === FLOW_CONTEXT.KIOSK_TERMINAL ? Math.floor(Date.now() / 1000) + 30 * 60 : undefined
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -174,7 +175,7 @@ export async function POST(req: Request) {
         phoneRaw: phone || "",
         email: identity.resolvedEmail,
         flowContext: photoContext,
-        paymentSurface: photoContext === "kiosk_terminal" ? "hosted_checkout" : "web_checkout",
+        paymentSurface: photoContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "hosted_checkout" : "web_checkout",
         // Consecutive class fields (present when user accepted the consecutive offer)
         consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
         consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",

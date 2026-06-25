@@ -5,6 +5,7 @@ import {
   STAFF_ROLES,
   type StaffRole,
 } from "@/lib/security/staff-role"
+import { asObject } from "@/lib/shared"
 import {
   extractStaffCategoryFromUserMetadata,
   parseStaffCategory,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/security/staff-category"
 import {
   canAccessStaffPortalSection,
+  canOperateStudentEdits,
   hasExplicitStaffPermission,
   type StaffPermission,
   type StaffPortalSection,
@@ -45,11 +47,6 @@ export type StaffPortalBaseAuthResult =
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 const STAFF_ROLE_SET = new Set<StaffRole>(STAFF_ROLES)
-
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
-}
 
 const parseSessionIssuedAtMs = (claims: unknown): number | null => {
   if (!claims || typeof claims !== "object") return null
@@ -205,6 +202,23 @@ export const authorizeStaffPermissionRequest = async (permission: StaffPermissio
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) return authResult
   if (!authResult.role || !hasExplicitStaffPermission(authResult.role, authResult.category, permission)) {
+    return { ok: false, status: 403, error: "Insufficient role" }
+  }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
+}
+
+/**
+ * Authorize requests that require student operational permission:
+ * owner, admin, or staff with front_desk category (including guest front_desk).
+ *
+ * Intentionally narrower than full users-section access. Use this for the
+ * student profile GET/PATCH and the override modal flows instead of granting
+ * broad staff-management rights to front-desk callers.
+ */
+export const authorizeStudentOperationalRequest = async (): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!authResult.role || !canOperateStudentEdits(authResult.role, authResult.category)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
   return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { ProfileRightRail } from "@/components/front/profile/sections/ProfileRightRail"
 
 describe("ProfileRightRail", () => {
-  it("renders booking actions, check-in state and recent request labels", () => {
+  it("renders booking actions and recent request labels without check-in card", () => {
     const html = renderToStaticMarkup(
       <ProfileRightRail
         rightRailRef={React.createRef<HTMLDivElement>()}
@@ -13,13 +13,6 @@ describe("ProfileRightRail", () => {
         selectedBooking={{ id: "booking-1", status: "BOOKED", startsAt: "2026-10-12T09:00:00.000Z", courseSlug: "salsa-1", courseTitle: "Salsa 1", sessionId: "session-1", packagePurchaseId: null, packageLabel: null }}
         bookingsError={null}
         onOpenChangeClassModal={vi.fn()}
-        nextCheckInBooking={{ id: "booking-1", status: "BOOKED", startsAt: "2026-10-12T09:00:00.000Z", courseSlug: "salsa-1", courseTitle: "Salsa 1", sessionId: "session-1", packagePurchaseId: null, packageLabel: null }}
-        pendingCheckInBooking={null}
-        checkInOpensAtLabel=""
-        onSubmitBookingCheckIn={vi.fn()}
-        checkInSubmittingId={null}
-        checkInError={null}
-        checkInSuccess="Checked in."
         onOpenRequestModal={vi.fn()}
         requestSubmitError={null}
         requestSubmitSuccess={null}
@@ -34,7 +27,7 @@ describe("ProfileRightRail", () => {
 
     expect(html).toContain("Book new class")
     expect(html).toContain("Change class")
-    expect(html).toContain("Check-in")
+    expect(html).not.toContain("Check-in")
     expect(html).toContain("Suspend / Cancel")
     expect(html).toContain("Recent requests")
     expect(html).toContain("Cancel class")

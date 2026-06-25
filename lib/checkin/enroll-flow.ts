@@ -9,11 +9,16 @@ type ResolveEnrollStepKeysInput = {
   isCheckInFlow: boolean
   isCheckInNewFlow: boolean
   isKioskTerminalFlow: boolean
+  isQrMobileCompactFlow?: boolean
   requiresPhotoStep: boolean
+  /** Trusted account flows (for example client profile booking) can skip contact collection. */
+  skipInfoStep?: boolean
   /** Whether the course has packages available (shows packages step in kiosk) */
   hasPackages?: boolean
-  /** Whether a consecutive class offer is available (shows consecutive step in kiosk) */
+  /** Whether a consecutive class offer is available (shows consecutive step before payment) */
   hasConsecutiveOffer?: boolean
+  /** Profile booking flow: date/time pre-selected, skip party+datetime+info+photo */
+  isProfileBookingFlow?: boolean
 }
 
 type ShouldIncludePhotoStepInput = {
@@ -49,11 +54,31 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
     ]
   }
 
+  if (input.isQrMobileCompactFlow) {
+    return [
+      ...(input.skipInfoStep ? [] : (["info"] as const)),
+      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+      ...(input.hasPackages ? (["packages"] as const) : []),
+      ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
+      "payments",
+    ]
+  }
+
+  if (input.isProfileBookingFlow) {
+    return [
+      ...(input.hasPackages ? (["packages"] as const) : []),
+      ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
+      "payments",
+      "review",
+    ] as EnrollStepKey[]
+  }
+
   return [
     "party",
     "datetime",
-    "info",
+    ...(input.skipInfoStep ? [] : (["info"] as const)),
     ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+    ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
     "payments",
     ...(input.isCheckInFlow ? [] : (["review"] as const)),
   ]
@@ -67,16 +92,24 @@ export const isCheckInContactGateStep = (input: {
 export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) =>
   input.isCheckInFlow && input.photoPolicyRequired && !(input.hasAvatar || input.photoSaved)
 
+export const shouldFetchConsecutiveOffer = (input: {
+  isQrMobileCompactFlow: boolean
+  isCheckInFlow: boolean
+  isProfileBookingFlow: boolean
+}) => input.isQrMobileCompactFlow || input.isCheckInFlow || input.isProfileBookingFlow
+
 export const getCheckInSignInModalVariant = (isCheckInFlow: boolean) =>
   isCheckInFlow ? "compact" : "sheet"
 
 export const resolvePostPhotoStepIndex = (input: {
   packagesStepIndex: number
+  consecutiveStepIndex?: number
   paymentsStepIndex: number
   currentStep: number
   stepsLength: number
 }) => {
   if (input.packagesStepIndex >= 0) return input.packagesStepIndex
+  if ((input.consecutiveStepIndex ?? -1) >= 0) return input.consecutiveStepIndex ?? -1
   if (input.paymentsStepIndex >= 0) return input.paymentsStepIndex
 
   const maxStep = Math.max(0, input.stepsLength - 1)
@@ -115,6 +148,11 @@ export const resolveStationTimeoutAction = (
   onTimeoutAction?: () => void,
   onCompletedAction?: () => void | Promise<void>
 ) => onTimeoutAction ?? onCompletedAction
+
+export const shouldRedirectPersonalCompletion = (input: {
+  success: boolean
+  isPersonalCompletion: boolean
+}) => input.success && input.isPersonalCompletion
 
 export const shouldHandleExistingUserDetected = (input: {
   isKioskTerminalFlow: boolean
