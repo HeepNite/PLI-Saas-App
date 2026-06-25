@@ -2,8 +2,7 @@ import "server-only"
 
 import { prisma } from "@/lib/prisma"
 import { getStartOfDayNY } from "@/lib/class-schedule"
-
-const ATTENDANCE_CHECKED_IN_STATUSES = ["checked_in", "checked_in_no_package"] as const
+import { ATTENDANCE_POINT_STATUSES as ATTENDANCE_CHECKED_IN_STATUSES } from "@/lib/attendance-constants"
 
 /**
  * Check if a user has attended a specific course today (America/New_York timezone).

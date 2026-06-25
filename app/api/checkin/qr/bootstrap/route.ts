@@ -15,6 +15,7 @@ import { computeDiscountPercent } from "@/lib/course-links"
 import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { normalizePhoneDigits } from "@/lib/shared"
+import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -178,10 +179,10 @@ export async function POST(req: Request) {
     const kioskSessionToken = normalizeString(payload?.kioskSessionToken)
     const flowContext = normalizeString(payload?.flowContext)
     const kioskCustomerAuth =
-      flowContext === "kiosk_terminal"
+      flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
         ? await resolveKioskCustomerClerkAuth(authResult.userId)
         : { userId: authResult.userId, clerkUser: null, blocked: false, blockedRole: null }
-    const shouldPreferKioskSession = flowContext === "kiosk_terminal" && Boolean(kioskSessionToken)
+    const shouldPreferKioskSession = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && Boolean(kioskSessionToken)
     const customerClerkUserId = shouldPreferKioskSession ? null : kioskCustomerAuth.userId
     const shouldResolveKioskSession = shouldPreferKioskSession || (!customerClerkUserId && Boolean(kioskSessionToken))
     const kioskSessionResult = shouldResolveKioskSession
@@ -192,7 +193,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            kioskCustomerAuth.blocked && flowContext === "kiosk_terminal"
+            kioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
               ? "Kiosk customer identification is required before continuing."
               : kioskSessionResult?.error || "Unauthorized",
         },
@@ -299,7 +300,7 @@ export async function POST(req: Request) {
       lastName = nameParts.lastName
     }
 
-    const isTerminalFlow = flowContext === "kiosk_terminal"
+    const isTerminalFlow = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 
     // ─── Consecutive offer detection ─────────────────────────
     const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
@@ -516,7 +517,7 @@ export async function POST(req: Request) {
       }
     })
 
-    if (flowContext === "kiosk_terminal" && kioskSessionResult?.ok && isPreparedCheckoutContextEnabled()) {
+    if (flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && kioskSessionResult?.ok && isPreparedCheckoutContextEnabled()) {
       await createPreparedCheckoutContext({
         terminalId: kioskSessionResult.terminalAuth.terminal.id,
         kioskSessionId: kioskSessionResult.session.id,
