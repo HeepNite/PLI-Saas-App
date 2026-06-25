@@ -31,7 +31,7 @@ export const normalizePhoneDigits = (value: string): string => {
 
 // ── Validation patterns ──────────────────────────────────────────
 
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/
 
 /** Basic email format check. */
 export const isEmail = (val: string | undefined): val is string =>
