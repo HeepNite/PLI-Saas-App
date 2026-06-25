@@ -68,8 +68,10 @@ export async function POST(req: Request) {
     )
   }
 
+  // Try exact match first, then with US country code prefix
+  const phoneCandidates = phone.startsWith("1") ? [phone, phone.slice(1)] : [phone, `1${phone}`]
   const user = await prisma.user.findFirst({
-    where: { phone },
+    where: { phone: { in: phoneCandidates } },
     select: { id: true },
   })
 
