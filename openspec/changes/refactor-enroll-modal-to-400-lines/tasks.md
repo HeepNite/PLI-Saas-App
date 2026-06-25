@@ -7,7 +7,7 @@
 | Estimated changed lines | ~1,370 additions + ~3,100 deletions from EnrollModal = ~4,470 raw; net diff per PR ≤ 400 |
 | 400-line budget risk | **High** |
 | Chained PRs recommended | **Yes** |
-| Suggested split | PR1a → PR1b → PR2 → PR3 → PR4a → PR4b → PR5 (7 PRs, feature-branch chain) |
+| Suggested split | PR1a → PR1b → PR2a → PR2b → PR2c → PR3 → PR4a → PR4b → PR5 (9 PRs, feature-branch chain) |
 | Delivery strategy | ask-always (interactive preflight) |
 | Chain strategy | feature-branch-chain |
 
@@ -20,8 +20,8 @@ Chain strategy: feature-branch-chain
 
 > **STOP GATE**: Before running `sdd-apply` for any slice, confirm the diff of
 > that slice is ≤ 400 changed lines against that slice's actual base branch
-> (for example: PR1a vs `origin/codex/develop`, PR1b vs PR1a branch, PR2 vs
-> PR1b branch). Do **not** measure PR2+ cumulatively against `origin/codex/develop`.
+> (for example: PR1a vs `origin/codex/develop`, PR1b vs PR1a branch, PR2a vs
+> PR1b branch, PR2b vs PR2a branch). Do **not** measure later slices cumulatively against `origin/codex/develop`.
 > If a slice exceeds budget after tests are included, split that slice further
 > before opening a PR.
 > **Target branch**: `codex/develop` — NEVER `main`.
@@ -34,8 +34,9 @@ Chain strategy: feature-branch-chain
 | Slice 1a | Pure `stepValid` extraction + tests | PR 1a | `codex/develop` | ~180 raw / ≤400 budget |
 | Slice 1b | Type-only props extraction | PR 1b | PR 1a branch | ~180 raw / ≤400 budget |
 | Slice 2a | Consecutive offer hook | PR 2a | PR 1b branch | ≤400 including tests |
-| Slice 2b | Open initialization hook | PR 2b | PR 2a branch | ≤400 including tests; split resetForm to 2c if exceeded |
-| Slice 3 | Kiosk inactivity + QR poller hooks | PR 3 | PR 2b branch | ≤400 including tests; split into 3a/3b if exceeded |
+| Slice 2b | Init ref scaffolding hook | PR 2b | PR 2a branch | ≤400 including tests; main open initialization moves to 2c |
+| Slice 2c | Open-triggered initialization hook body | PR 2c | PR 2b branch | ≤400 including tests; resetForm remains deferred unless separately budgeted |
+| Slice 3 | Kiosk inactivity + QR poller hooks | PR 3 | PR 2c branch | ≤400 including tests; split into 3a/3b if exceeded |
 | Slice 4a | Sidebar + overlays sub-components | PR 4a | PR 3 branch | ≤400 including tests |
 | Slice 4b | StepRouter sub-component | PR 4b | PR 4a branch | ≤400 including tests |
 | Slice 5 | Orchestrator trim to ≤ 400 lines | PR 5 | PR 4b branch | ≤400 including verification updates |
@@ -106,7 +107,7 @@ git revert <PR1a-merge-commit>
 ## Phase 2 — Slices 2a/2b: Consecutive Offer + Init Hooks
 
 > **Dependency**: Slices 1a and 1b merged.
-> **Target PRs**: PR 2a → PR 1b branch, then PR 2b → PR 2a branch.
+> **Target PRs**: PR 2a → PR 1b branch, PR 2b → PR 2a branch, then PR 2c → PR 2b branch.
 > **Split decision**: Read-only exploration showed the combined init +
 > consecutive-offer extraction would likely exceed 400 changed lines with tests,
 > and the original signatures missed real dependencies.
@@ -114,10 +115,12 @@ git revert <PR1a-merge-commit>
 - [x] 2a.1 Create `components/front/courses/enroll/hooks/useConsecutiveOffer.ts` — extract consecutive-offer fetch/reset effect with abort controller and explicit `enabled` / reset callbacks.
 - [x] 2a.2 Modify `EnrollModal.tsx` — replace only the consecutive-offer effect with `useConsecutiveOffer(...)`; preserve current gates and reset behavior.
 - [x] 2a.3 Write `tests/checkin/use-consecutive-offer.test.tsx` — cover disabled/no date/no time, prop-provided offer, success fetch, reset behavior, and abort cleanup.
-- [ ] 2b.1 Create `components/front/courses/enroll/hooks/useEnrollInit.ts` — extract open-triggered initialization/ref-sync logic using the updated signature in `design.md`.
-- [ ] 2b.2 Modify `EnrollModal.tsx` — replace only the extracted initialization/ref-sync effects with `useEnrollInit(...)`; keep `resetForm` inline unless the diff stays clean and under budget.
-- [ ] 2b.3 Write `tests/checkin/use-enroll-init.test.tsx` — cover default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
-- [ ] 2c.1 Optional: extract `resetForm` only if Slice 2b leaves a small, coherent, under-budget follow-up; otherwise defer to a later tracked change.
+- [x] 2b.1 Create `components/front/courses/enroll/hooks/useEnrollInit.ts` — extract init ref scaffolding, prefill/user ref synchronization, and close reset only.
+- [x] 2b.2 Modify `EnrollModal.tsx` — replace only the ref scaffolding/ref-sync/close-reset effects with `useEnrollInit(...)`; keep the main open-triggered initialization effect inline for Slice 2c.
+- [x] 2b.3 Write `tests/checkin/use-enroll-init.test.tsx` — cover ref synchronization and close reset only.
+- [ ] 2c.1 Move the open-triggered initialization effect body into `useEnrollInit(...)`, preserving default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
+- [ ] 2c.2 Add/expand `use-enroll-init` tests for default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
+- [ ] 2c.3 Optional: extract `resetForm` only if Slice 2c leaves a small, coherent, under-budget follow-up; otherwise defer to a later tracked change.
 
 ### Acceptance Criteria — Slice 2a
 
@@ -131,10 +134,10 @@ git revert <PR1a-merge-commit>
 ### Acceptance Criteria — Slice 2b
 
 - `useEnrollInit` is in `enroll/hooks/` and independently importable.
-- `EnrollModal.tsx` has no remaining inline initialization/ref-sync effects covered by the hook.
-- Dependency arrays in the extracted hook are equivalent to what was inlined.
-- `isQrMobileCompactFlow` / today-only autofill behavior is preserved.
-- `resetForm` is either intentionally left inline or extracted as a separately reviewed Slice 2c.
+- `EnrollModal.tsx` has no remaining inline ref-scaffolding, prefill/user ref-sync, or close-reset effects covered by the hook.
+- Dependency arrays in the extracted hook are equivalent to the moved ref-sync and close-reset effects.
+- Main open-triggered initialization, including `isQrMobileCompactFlow` / today-only autofill behavior, remains inline and unchanged until Slice 2c.
+- `resetForm` is intentionally left inline and deferred unless a later slice explicitly budgets it.
 - `react-hooks/exhaustive-deps` stays clean on the new hook.
 - All 10+ booking paths manually smoke-tested after PR 2b merges.
 - `tsc --noEmit`, focused vitest, and focused eslint — zero new errors.
@@ -158,6 +161,7 @@ npx vitest run tests/checkin/use-enroll-init.test.tsx
 npx eslint components/front/courses/enroll/hooks/useEnrollInit.ts tests/checkin/use-enroll-init.test.tsx components/front/courses/EnrollModal.tsx
 wc -l components/front/courses/EnrollModal.tsx
 git diff --stat <pr2a-branch>
+git diff --numstat <pr2a-branch>
 ```
 
 ### Rollback — Slices 2a/2b
@@ -172,8 +176,8 @@ git revert <PR2a-merge-commit>
 
 ## Phase 3 — Slice 3: Kiosk Hooks (Inactivity + QR Poller)
 
-> **Dependency**: Slices 2a and 2b merged.
-> **Target PR**: PR 3 → PR 2b branch.
+> **Dependency**: Slices 2a, 2b, and 2c merged.
+> **Target PR**: PR 3 → PR 2c branch.
 
 - [ ] 3.1 Create `components/front/courses/enroll/hooks/useKioskInactivity.ts` — extract station-completion timeout and kiosk inactivity controller wiring using the exact signature from `design.md` (~110 lines).
 - [ ] 3.2 Create `components/front/courses/enroll/hooks/useKioskQrPoller.ts` — extract `createKioskQrPoller` lifecycle (start/stop/outcome dispatch) using the exact signature from `design.md` (~90 lines).
@@ -197,14 +201,14 @@ npx tsc --noEmit
 npx vitest run
 npx eslint components/front/courses/enroll/hooks/useKioskInactivity.ts components/front/courses/enroll/hooks/useKioskQrPoller.ts
 wc -l components/front/courses/EnrollModal.tsx
-git diff --stat <pr2-branch>
+git diff --stat <pr2c-branch>
 ```
 
 ### Rollback — Slice 3
 
 ```bash
 git revert <PR3-merge-commit>
-# PR1a + PR1b + PR2 state remains valid. EnrollModal re-inlines kiosk timer/QR logic.
+# PR2c state remains valid. EnrollModal re-inlines kiosk timer/QR logic.
 ```
 
 ---
@@ -245,7 +249,7 @@ git diff --stat <pr3-branch>
 
 ```bash
 git revert <PR4a-merge-commit>
-# PR1a + PR1b + PR2 + PR3 state remains valid.
+# PR3 state remains valid.
 ```
 
 ---
@@ -281,7 +285,7 @@ git diff --stat <pr4a-branch>
 
 ```bash
 git revert <PR4b-merge-commit>
-# PR1a + PR1b + PR2 + PR3 + PR4a state remains valid.
+# PR4a state remains valid.
 ```
 
 ---
@@ -355,10 +359,12 @@ git revert <PR5-merge-commit>
 |----|-----------------|---------------------|
 | PR 1b | `git revert <pr1b>` | EnrollModal re-inlines types; PR1a remains valid |
 | PR 1a | `git revert <pr1a>` | EnrollModal re-inlines stepValid |
-| PR 2 | `git revert <pr2>` | PR1a + PR1b valid; EnrollModal re-inlines init/consecutive effects |
-| PR 3 | `git revert <pr3>` | PR1a + PR1b + PR2 valid; EnrollModal re-inlines kiosk hooks |
-| PR 4a | `git revert <pr4a>` | PR1a + PR1b + PR2 + PR3 valid; EnrollModal re-inlines sidebar/overlays |
-| PR 4b | `git revert <pr4b>` | PR1a + PR1b + PR2 + PR3 + PR4a valid; EnrollModal re-inlines step router |
+| PR 2a | `git revert <pr2a>` | PR1a + PR1b valid; EnrollModal re-inlines consecutive-offer effect |
+| PR 2b | `git revert <pr2b>` | PR2a valid; EnrollModal re-inlines init refs/ref-sync/close reset |
+| PR 2c | `git revert <pr2c>` | PR2b valid; EnrollModal re-inlines open-triggered initialization |
+| PR 3 | `git revert <pr3>` | PR2c valid; EnrollModal re-inlines kiosk hooks |
+| PR 4a | `git revert <pr4a>` | PR3 valid; EnrollModal re-inlines sidebar/overlays |
+| PR 4b | `git revert <pr4b>` | PR4a valid; EnrollModal re-inlines step router |
 | PR 5 | `git revert <pr5>` | PR4b valid — ≤ 800-line orchestrator, fully working |
 
 No database or API rollback needed — all changes are file-level only.
@@ -367,5 +373,5 @@ No database or API rollback needed — all changes are file-level only.
 
 ## Follow-up Tasks (out of scope for this change)
 
-- [ ] FU-1: Promote `ConsecutiveOfferData` type to a shared path (e.g., `lib/checkin/consecutive-offer.types.ts`) and update all consumers. Schedule as a separate tracked task after all 7 PRs land on `codex/develop`.
+- [ ] FU-1: Promote `ConsecutiveOfferData` type to a shared path (e.g., `lib/checkin/consecutive-offer.types.ts`) and update all consumers. Schedule as a separate tracked task after all 9 PRs land on `codex/develop`.
 - [ ] FU-2: Add a Vitest file-size assertion (or CI step) that gates `EnrollModal.tsx` line count ≤ 400 on every future PR touching that file.
