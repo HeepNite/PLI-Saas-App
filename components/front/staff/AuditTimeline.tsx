@@ -2,6 +2,7 @@
 
 import React from "react"
 import { Loader2, Clock, DollarSign, Package, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react"
+import { formatDateTime, formatRelativeTime } from "./staffAdminFormatters"
 
 // ============================================================
 // Types
@@ -90,40 +91,6 @@ function formatFieldLabel(field: string): string {
     .trim()
 }
 
-function formatTimestamp(iso: string): string {
-  try {
-    const date = new Date(iso)
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(date)
-  } catch {
-    return iso
-  }
-}
-
-function formatRelativeTime(iso: string): string {
-  try {
-    const date = new Date(iso)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
-    const diffDays = Math.floor(diffMs / 86400000)
-
-    if (diffMins < 1) return "just now"
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    if (diffDays < 7) return `${diffDays}d ago`
-    return formatTimestamp(iso)
-  } catch {
-    return iso
-  }
-}
-
 // ============================================================
 // Entry Row Component
 // ============================================================
@@ -161,7 +128,7 @@ function AuditEntryRow({ entry }: { entry: AuditEntry }) {
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-black/60 dark:text-white/60">
             <span>{entry.staffName || "Unknown staff"}</span>
             <span>·</span>
-            <span title={formatTimestamp(entry.createdAt)}>{formatRelativeTime(entry.createdAt)}</span>
+            <span title={formatDateTime(entry.createdAt)}>{formatRelativeTime(entry.createdAt)}</span>
           </div>
 
           {/* Inline diff preview */}
