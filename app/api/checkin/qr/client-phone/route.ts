@@ -9,10 +9,10 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { asText } from "@/lib/shared"
+import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
+import { PURCHASE_SOURCE } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
-
-const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"] as const
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
       },
     })
 
-    if (existingAttendance && ATTENDANCE_POINT_STATUSES.includes(existingAttendance.status as (typeof ATTENDANCE_POINT_STATUSES)[number])) {
+    if (existingAttendance && ATTENDANCE_POINT_STATUSES.includes(existingAttendance.status)) {
       return NextResponse.json({
         status: "already_checked_in",
         attendance: {
@@ -301,7 +301,7 @@ export async function POST(req: Request) {
           packageId: usablePackage.packageId,
           packagePurchaseId: usablePackage.id,
           source: "qr_client_phone_checkin",
-          purchaseSource: "kiosk",
+          purchaseSource: PURCHASE_SOURCE.KIOSK,
           date: context.date,
           time: context.time,
         })

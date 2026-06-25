@@ -28,6 +28,7 @@ import {
   isStudentPinLifecycleEnabled,
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
+import { ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
 
 type StaffPaymentsTodayWindow = {
   todayNY: string
@@ -35,7 +36,6 @@ type StaffPaymentsTodayWindow = {
   endOfTodayNY: Date
 }
 
-const ATTENDED_CHECKIN_STATUSES = ["checked_in", "checked_in_no_package", "checked_out"] as const
 const ATTENDED_CHECKIN_STATUS_SET = new Set<string>(ATTENDED_CHECKIN_STATUSES)
 
 const getAttendanceStatusRank = (status: string) => {

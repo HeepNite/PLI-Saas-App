@@ -2,11 +2,11 @@ import { NextResponse } from "next/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { prisma } from "@/lib/prisma"
+import { ACTIVE_ATTENDANCE_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
 
 const NY_TIMEZONE = "America/New_York"
-const ACTIVE_ATTENDANCE_STATUSES = ["scheduled", "checked_in", "checked_in_no_package"]
 
 const toDayKeyInNY = (input: Date) => {
   const parts = new Intl.DateTimeFormat("en-CA", {

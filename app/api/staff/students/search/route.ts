@@ -23,15 +23,14 @@ import {
   selectTodayCheckInByUser,
 } from "@/app/api/staff/payments/shared"
 
+import { ATTENDED_CHECKIN_STATUSES, TODAY_CHECKIN_STATUSES } from "@/lib/attendance-constants"
+
 export const runtime = "nodejs"
 
 type MatchedUser = Awaited<ReturnType<typeof loadMatchedUsers>>[number]
 type SearchPurchase = Awaited<ReturnType<typeof loadPurchases>>[number]
 type TodayPurchase = Awaited<ReturnType<typeof loadTodayPurchases>>[number]
 type LatestAttendanceRow = Awaited<ReturnType<typeof loadLatestAttendedRows>>[number]
-
-const ATTENDED_STATUSES = ["checked_in", "checked_in_no_package", "checked_out"] as const
-const TODAY_CHECKIN_STATUSES = ["checked_in", "checked_in_no_package", "checked_out", "scheduled"] as const
 
 const userSelect = {
   id: true,
@@ -206,7 +205,7 @@ const loadLatestAttendedRows = async (userIds: string[]) => {
   return prisma.attendance.findMany({
     where: {
       userId: { in: userIds },
-      status: { in: [...ATTENDED_STATUSES] },
+      status: { in: [...ATTENDED_CHECKIN_STATUSES] },
     },
     select: {
       id: true,
@@ -491,7 +490,7 @@ const buildTodayCheckInStatusByUser = async (todayPurchases: TodayPurchase[]) =>
 
   const attendanceBySlot = new Map<string, { status: StudentProfileCard["checkInStatus"]; checkedInAt: string }>()
   for (const attendance of attendances) {
-    if (!TODAY_CHECKIN_STATUSES.includes(attendance.status as (typeof TODAY_CHECKIN_STATUSES)[number])) continue
+    if (!TODAY_CHECKIN_STATUSES.includes(attendance.status)) continue
 
     const key = attendanceSlotKey(attendance.userId, attendance.session.courseSlug, attendance.session.startsAt.getTime())
     const current = attendanceBySlot.get(key)
