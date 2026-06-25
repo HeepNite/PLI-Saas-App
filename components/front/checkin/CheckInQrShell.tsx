@@ -96,6 +96,9 @@ export type CheckInQrShellProps = {
   returnedFromNewStudentFlow: boolean
   kioskPinPanelCopy: { title: string; description: string }
   hasKioskPinSession: boolean
+  kioskPhone: string
+  kioskPhoneLoading: boolean
+  onKioskPhoneIdentify: () => void
   kioskPin: string
   entryRevealedIndex: number | null
   entryActiveSlot: number
@@ -256,6 +259,9 @@ export function CheckInQrShell({
   returnedFromNewStudentFlow,
   kioskPinPanelCopy,
   hasKioskPinSession,
+  kioskPhone,
+  kioskPhoneLoading,
+  onKioskPhoneIdentify,
   kioskPin,
   entryRevealedIndex,
   entryActiveSlot,
@@ -444,10 +450,13 @@ export function CheckInQrShell({
 
             {showKioskPinPanel && (
               <KioskPinModal
-                title={returnedFromNewStudentFlow ? "Welcome back!" : kioskPinPanelCopy.title}
-                description={returnedFromNewStudentFlow ? "You\u0027re already a registered customer. Enter your PIN to continue with regular pricing." : kioskPinPanelCopy.description}
+                title={returnedFromNewStudentFlow ? "Welcome back!" : "Enter your phone number"}
+                description={returnedFromNewStudentFlow ? "You\u0027re already a registered customer. Enter your phone number to continue with regular pricing." : kioskPinPanelCopy.description}
                 onClose={onExistingCustomerDismiss}
                 hasSession={hasKioskPinSession}
+                phone={kioskPhone}
+                onPhoneIdentify={onKioskPhoneIdentify}
+                isPhoneIdentifying={kioskPhoneLoading}
                 entryPin={kioskPin}
                 entryRevealedIndex={entryRevealedIndex}
                 entryActiveSlot={entryActiveSlot}

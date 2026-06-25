@@ -88,6 +88,9 @@ export type UseCheckInQrShellPropsInput = {
   returnedFromNewStudentFlow: boolean
   kioskPinPanelCopy: { title: string; description: string }
   hasKioskPinSession: boolean
+  kioskPhone: string
+  kioskPhoneLoading: boolean
+  onKioskPhoneIdentify: () => void
   kioskPin: string
   entryRevealedIndex: number | null
   entryActiveSlot: number

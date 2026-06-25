@@ -8,6 +8,7 @@ import type {
   KioskPinIdentifySuccess,
   KioskPinRotationMode,
 } from "@/components/front/checkin/checkin-kiosk.types"
+
 import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 import {
   getActivePinSlotIndex,
@@ -16,6 +17,29 @@ import {
   resolveActiveKioskPinField,
   resolveKioskPinRotationMode,
 } from "@/lib/checkin/kiosk-pin-policy"
+
+// Shape returned by POST /api/checkin/phone/identify (same envelope as pin/identify)
+type KioskPhoneIdentifySuccess = {
+  identified: true
+  userId?: string
+  credentialKind: string
+  requiresPinRotation: false
+  sessionToken: string
+  sessionExpiresAt: string
+}
+
+type KioskPhoneIdentifyFailure = {
+  identified: false
+  message?: string
+}
+
+type KioskPhoneIdentifyError = {
+  error?: string
+  message?: string
+  severity?: "normal" | "warning" | "cooldown" | "emergency"
+  blockedUntil?: string | null
+  attemptsRemaining?: number
+}
 
 const PIN_LAST_DIGIT_REVEAL_MS = 700
 
@@ -34,6 +58,8 @@ export const useKioskPinFlow = <TBootstrap,>({
   setSuccess,
   pinLastDigitRevealMs = PIN_LAST_DIGIT_REVEAL_MS,
 }: UseKioskPinFlowParams<TBootstrap>) => {
+  const [kioskPhone, setKioskPhone] = React.useState("")
+  const [kioskPhoneLoading, setKioskPhoneLoading] = React.useState(false)
   const [kioskPin, setKioskPin] = React.useState("")
   const [kioskPinSessionToken, setKioskPinSessionToken] = React.useState("")
   const [kioskPinLoading, setKioskPinLoading] = React.useState(false)
@@ -94,6 +120,7 @@ export const useKioskPinFlow = <TBootstrap,>({
   const resetKioskPinFlow = React.useCallback(() => {
     clearPinRevealTimeout()
     setPinReveal(null)
+    setKioskPhone("")
     setKioskPin("")
     setKioskPinSessionToken("")
     setKioskPinLoading(false)
@@ -110,12 +137,11 @@ export const useKioskPinFlow = <TBootstrap,>({
   const handlePinDigitInput = React.useCallback(
     (digit: string) => {
       if (!hasKioskPinSession) {
-        setKioskPin((current) => {
-          const nextValue = `${current}${digit}`.slice(0, 4)
-          if (nextValue.length > current.length) {
-            revealLastPinDigit("entry", nextValue.length - 1)
-          }
-          return nextValue
+        // Primary path: collect phone digits (max 10)
+        setKioskPhone((current) => {
+          const digits = current.replace(/\D/g, "")
+          if (digits.length >= 10) return current
+          return `${digits}${digit}`
         })
         setError(null)
         return
@@ -146,8 +172,7 @@ export const useKioskPinFlow = <TBootstrap,>({
 
   const handlePinBackspace = React.useCallback(() => {
     if (!hasKioskPinSession) {
-      setKioskPin((current) => current.slice(0, -1))
-      clearPinRevealForField("entry")
+      setKioskPhone((current) => current.replace(/\D/g, "").slice(0, -1))
       setError(null)
       return
     }
@@ -165,8 +190,7 @@ export const useKioskPinFlow = <TBootstrap,>({
 
   const handlePinClear = React.useCallback(() => {
     if (!hasKioskPinSession) {
-      setKioskPin("")
-      clearPinRevealForField("entry")
+      setKioskPhone("")
       setError(null)
       return
     }
@@ -262,6 +286,64 @@ export const useKioskPinFlow = <TBootstrap,>({
     }
   }, [isKioskTerminalFlow, kioskPin, setBootstrap, setError, setSuccess])
 
+  const handleKioskPhoneIdentify = React.useCallback(async () => {
+    if (!isKioskTerminalFlow) return
+    setKioskPhoneLoading(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const res = await fetch("/api/checkin/phone/identify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ phone: kioskPhone }),
+      })
+      const data = (await res.json().catch(() => null)) as
+        | KioskPhoneIdentifyFailure
+        | KioskPhoneIdentifySuccess
+        | KioskPhoneIdentifyError
+        | null
+
+      if (!res.ok) {
+        const failure = data && "identified" in data && !data.identified ? (data as KioskPhoneIdentifyFailure) : null
+        const errorPayload = data && !("identified" in data) ? (data as KioskPhoneIdentifyError) : null
+        setKioskPinSessionToken("")
+        setKioskPinRotationRequired(false)
+        setKioskPinRotationMode(null)
+        setBootstrap(null)
+        setKioskPinAttemptsRemaining(typeof errorPayload?.attemptsRemaining === "number" ? errorPayload.attemptsRemaining : null)
+        setKioskPinBlockedUntil(typeof errorPayload?.blockedUntil === "string" ? errorPayload.blockedUntil : null)
+        setKioskPinThrottleSeverity(errorPayload?.severity ?? null)
+        const failureMessage = typeof failure?.message === "string" ? failure.message : null
+        const errorMessage = typeof errorPayload?.message === "string" ? errorPayload.message : null
+        setError(failureMessage || errorMessage || (typeof errorPayload?.error === "string" ? errorPayload.error : "Unable to identify this phone number."))
+        return
+      }
+
+      if (!data || !("identified" in data) || !data.identified) {
+        setError("We couldn't find an account with that phone number. Please try again.")
+        return
+      }
+
+      const successData = data as KioskPhoneIdentifySuccess
+      setKioskPinSessionToken(successData.sessionToken)
+      setKioskPinRotationRequired(false)
+      setKioskPinRotationMode(null)
+      setKioskPinAttemptsRemaining(null)
+      setKioskPinBlockedUntil(null)
+      setKioskPinThrottleSeverity(null)
+      setKioskPhone("")
+      setSuccess("Phone number verified. Loading your purchase options...")
+    } catch {
+      setError("Unable to identify this phone number.")
+    } finally {
+      setKioskPhoneLoading(false)
+    }
+  }, [isKioskTerminalFlow, kioskPhone, setBootstrap, setError, setSuccess])
+
   const handleKioskPinRotate = React.useCallback(async () => {
     if (!kioskPinSessionToken) return
     setKioskPinRotating(true)
@@ -315,8 +397,12 @@ export const useKioskPinFlow = <TBootstrap,>({
     confirmRevealedIndex,
     entryActiveSlot,
     entryRevealedIndex,
+    handleKioskPhoneIdentify,
     handleKioskPinIdentify,
     handleKioskPinRotate,
+    kioskPhone,
+    kioskPhoneLoading,
+    setKioskPhone,
     handlePinBackspace,
     handlePinClear,
     handlePinDigitInput,
