@@ -10,10 +10,9 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { buildSessionEndsAtUtc, findOverlappingRoomSession, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { findRoomAvailabilityConflict } from "@/lib/room-availability"
 import { buildCheckInUserLookupCriteria } from "./shared"
+import { ATTENDANCE_POINT_STATUSES, CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
-const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"]
-const CHECKOUT_ELIGIBLE_STATUSES = ["checked_in", "checked_in_no_package"]
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 

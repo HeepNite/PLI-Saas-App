@@ -7,6 +7,7 @@ import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { DEFAULT_CLASS_CAPACITY } from "@/lib/bookings"
+import { PURCHASE_SOURCE } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -174,7 +175,7 @@ export async function POST(req: Request) {
         packageId: resolvedPackage.packageId ?? packagePurchase.packageId,
         packagePurchaseId: resolvedPackage.id,
         source: "profile_booking",
-        purchaseSource: "web",
+        purchaseSource: PURCHASE_SOURCE.WEB,
         date,
         time,
       })

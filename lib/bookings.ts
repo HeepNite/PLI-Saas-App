@@ -5,7 +5,7 @@ import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 
 const DEFAULT_DURATION_MINUTES = 60
 export const DEFAULT_CLASS_CAPACITY = 12
-export const ACTIVE_BOOKING_STATUSES = ["scheduled", "checked_in", "checked_in_no_package"]
+export { ACTIVE_BOOKING_STATUSES } from "@/lib/attendance-constants"
 
 const isUniqueConstraintError = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"

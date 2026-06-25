@@ -4,12 +4,12 @@ import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { asObject, asText } from "@/lib/shared"
+import { VALID_PAYMENT_METHODS, PAYMENT_CHANNEL } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
-const VALID_PAYMENT_METHODS = ["cash", "card", "transfer", "other"]
 const normalizePaymentMethod = (raw: string): string =>
-  VALID_PAYMENT_METHODS.includes(raw) ? raw : "cash"
+  (VALID_PAYMENT_METHODS as readonly string[]).includes(raw) ? raw : PAYMENT_CHANNEL.CASH
 
 export async function GET(req: Request, context: { params: Promise<{ userId: string }> }) {
   const rateLimit = consumeRateLimit({

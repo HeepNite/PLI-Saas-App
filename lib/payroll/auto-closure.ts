@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
+import { CLOCK_STATUS } from "@/lib/payment-constants"
 
 /**
  * P0 on-demand auto-closure for open StaffClockEntry records.
@@ -191,7 +192,7 @@ export async function closeOpenClockEntriesForPayroll(
       },
       data: {
         actualClockOutAt: closureAt,
-        status: "clocked_out",
+        status: CLOCK_STATUS.CLOCKED_OUT,
         metadata: updatedMetadata as unknown as Prisma.InputJsonValue,
       },
     })

@@ -11,10 +11,10 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 import { asObject, normalizePhoneDigits } from "@/lib/shared"
+import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
+import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
-
-const ATTENDANCE_POINT_STATUSES = ["checked_in", "checked_in_no_package"] as const
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
@@ -43,7 +43,7 @@ const isHostedKioskCardPurchase = (value: unknown) => {
   const metadata = asObject(value)
   const flowContext = normalizeString(metadata.flowContext).toLowerCase()
   const paymentSurface = normalizeString(metadata.paymentSurface).toLowerCase()
-  return flowContext === "kiosk_terminal" && paymentSurface === "hosted_checkout"
+  return flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && paymentSurface === "hosted_checkout"
 }
 
 export async function POST(req: Request) {

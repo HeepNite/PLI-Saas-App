@@ -19,6 +19,7 @@ import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { normalizePhone } from "@/lib/shared"
+import { FLOW_CONTEXT, PURCHASE_SOURCE } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -74,7 +75,7 @@ const pickMetadata = (metadata?: Stripe.Metadata | null) => ({
 })
 
 const isTerminalFlow = (metadata: ReturnType<typeof pickMetadata>) => {
-  return metadata.flowContext === "kiosk_terminal"
+  return metadata.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 }
 
 const resolveAttendanceStatusForFlow = (input: {
@@ -238,7 +239,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
 
   if (mergedMetadata && typeof mergedMetadata === "object" && !Array.isArray(mergedMetadata)) {
     ;(mergedMetadata as Record<string, unknown>).purchaseSource =
-      (mergedMetadata as Record<string, unknown>)?.flowContext === "kiosk_terminal" ? "kiosk" : "web"
+      (mergedMetadata as Record<string, unknown>)?.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? PURCHASE_SOURCE.KIOSK : PURCHASE_SOURCE.WEB
   }
 
   const purchase = await prisma.purchase.upsert({
@@ -450,7 +451,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
 
   if (mergedMetadata && typeof mergedMetadata === "object" && !Array.isArray(mergedMetadata)) {
     ;(mergedMetadata as Record<string, unknown>).purchaseSource =
-      (mergedMetadata as Record<string, unknown>)?.flowContext === "kiosk_terminal" ? "kiosk" : "web"
+      (mergedMetadata as Record<string, unknown>)?.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? PURCHASE_SOURCE.KIOSK : PURCHASE_SOURCE.WEB
   }
 
   const purchase = await prisma.purchase.upsert({
