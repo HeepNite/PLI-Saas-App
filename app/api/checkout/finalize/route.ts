@@ -7,6 +7,7 @@ import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { normalizePhone } from "@/lib/shared"
+import { pickStripeMetadata, parseIntSafe, normalize } from "@/lib/stripe-metadata"
 
 export const runtime = "nodejs"
 
@@ -17,44 +18,6 @@ const stripe = stripeSecret
     })
   : null
 
-const normalize = (value: string | null | undefined) => {
-  const trimmed = value?.trim()
-  return trimmed && trimmed.length > 0 ? trimmed : undefined
-}
-
-const parseIntSafe = (value: string | undefined) => {
-  if (!value) return undefined
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
-const pickMetadata = (metadata?: Stripe.Metadata) => ({
-  courseSlug: normalize(metadata?.courseSlug),
-  courseTitle: normalize(metadata?.courseTitle),
-  packageId: normalize(metadata?.packageId),
-  packageLabel: normalize(metadata?.packageLabel),
-  packageTotalCredits: normalize(metadata?.packageTotalCredits),
-  packageIsUnlimited: normalize(metadata?.packageIsUnlimited),
-  packageCadence: normalize(metadata?.packageCadence),
-  packageMakeUps: normalize(metadata?.packageMakeUps),
-  packageValidDays: normalize(metadata?.packageValidDays),
-  serviceId: normalize(metadata?.serviceId),
-  userId: normalize(metadata?.userId),
-  participants: normalize(metadata?.participants),
-  coupon: normalize(metadata?.coupon),
-  addons: normalize(metadata?.addons),
-  name: normalize(metadata?.name),
-  email: normalize(metadata?.email),
-  phone: normalize(metadata?.phone),
-  phoneRaw: normalize(metadata?.phoneRaw),
-  date: normalize(metadata?.date),
-  time: normalize(metadata?.time),
-  // Consecutive class fields
-  consecutivePriceCents: normalize(metadata?.consecutivePriceCents),
-  consecutiveLinkedCourseSlug: normalize(metadata?.consecutiveLinkedCourseSlug),
-  consecutiveCourseTitle: normalize(metadata?.consecutiveCourseTitle),
-  consecutiveLinkedCourseTime: normalize(metadata?.consecutiveLinkedCourseTime),
-})
 
 type FinalizeBody = {
   paymentIntentId?: string
@@ -103,7 +66,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Payment not succeeded yet" }, { status: 409 })
   }
 
-  const meta = pickMetadata(intent.metadata)
+  const meta = pickStripeMetadata(intent.metadata)
   if (meta.userId && meta.userId !== "guest" && meta.userId !== authResult.userId) {
     return NextResponse.json({ error: "Payment intent user mismatch" }, { status: 403 })
   }
