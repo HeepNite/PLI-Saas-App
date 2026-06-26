@@ -7,7 +7,6 @@ import {
   requestCheckoutSessionStatusApi,
   requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
-  requestPinAvailabilityApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
 
 const getSingleFetchCall = (fetchImpl: ReturnType<typeof vi.fn>) => {
@@ -137,26 +136,6 @@ describe("checkout/checkin api adapters", () => {
     expect(data).toEqual({ ok: true })
   })
 
-  it("uses the correct request contract for PIN availability", async () => {
-    const fetchImpl = vi.fn(async () => {
-      return new Response(JSON.stringify({ available: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      })
-    })
-
-    const { data } = await requestPinAvailabilityApi({ pin: "1234", fetchImpl })
-
-    const [url, init] = getSingleFetchCall(fetchImpl)
-    expect(url).toBe("/api/checkin/pin/check")
-    expect(init).toMatchObject({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: "1234" }),
-    })
-    expect(data).toEqual({ available: true })
-  })
-
   it("uses the correct request contract for checkout finalize", async () => {
     const fetchImpl = vi.fn(async () => {
       return new Response(JSON.stringify({ ok: true }), {
@@ -251,18 +230,6 @@ describe("checkout/checkin api adapters", () => {
     })
 
     const { data } = await requestDropInCheckInApi({ token: "token_abc", payload, fetchImpl })
-    expect(data).toBeNull()
-  })
-
-  it("returns null data when PIN availability response json parsing fails", async () => {
-    const fetchImpl = vi.fn(async () => {
-      return new Response("not-json", {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      })
-    })
-
-    const { data } = await requestPinAvailabilityApi({ pin: "1234", fetchImpl })
     expect(data).toBeNull()
   })
 

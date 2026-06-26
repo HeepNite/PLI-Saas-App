@@ -88,7 +88,6 @@ import {
   requestCheckoutSessionApi,
   requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
-  requestPinAvailabilityApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
 import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
 import { resolveStepValid } from "@/components/front/courses/enroll/model/enroll-step-valid"
@@ -272,11 +271,7 @@ export default function EnrollModal({
   const [couponInput, setCouponInput] = React.useState<string>("")
   const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
   const paymentMethod = flowState.paymentMethod
-  const [studentPin, setStudentPin] = React.useState("")
-  const [studentPinConfirm, setStudentPinConfirm] = React.useState("")
-  const [pinAvailabilityError, setPinAvailabilityError] = React.useState<string | null>(null)
-  const [checkingPinAvailability, setCheckingPinAvailability] = React.useState(false)
-  const [activeNumericField, setActiveNumericField] = React.useState<"phone" | "pin" | "pin-confirm" | null>(null)
+  const [activeNumericField, setActiveNumericField] = React.useState<"phone" | null>(null)
   const [kioskInfoPhase, setKioskInfoPhase] = React.useState<KioskInfoPhase>("name-email")
   // Paso 2: datos de contacto (modular, sin teléfono)
   const contact = flowState.contact
@@ -601,10 +596,6 @@ export default function EnrollModal({
     setKioskQrCheckout(createEmptyKioskQrCheckoutState())
     setPreparedAccount(null)
     setPhotoSaved(false)
-    setStudentPin("")
-    setStudentPinConfirm("")
-    setPinAvailabilityError(null)
-    setCheckingPinAvailability(false)
     setNewStudentFallbackPhoneKey(null)
     setFlowPopup(null)
     setSignInPurpose("existing")
@@ -1103,8 +1094,6 @@ export default function EnrollModal({
       time,
       contact,
       skipContactValidation: skipContactStep,
-      studentPin,
-      studentPinConfirm,
       contactStepIndex: infoStepIndex,
       paymentMethod,
       paymentsStepIndex,
@@ -1129,8 +1118,6 @@ export default function EnrollModal({
         kioskSessionFields: createKioskSessionCheckoutPayloadFields(kioskSessionToken),
         checkInContextDate,
         checkInContextTime,
-        studentPin,
-        studentPinConfirm,
         consecutiveAccepted,
         consecutiveAddedCents,
         consecutiveOffer: effectiveConsecutiveOffer ?? undefined,
@@ -1157,8 +1144,6 @@ export default function EnrollModal({
       pkg,
       kioskSessionToken,
       service,
-      studentPin,
-      studentPinConfirm,
       time,
       total,
     ]
@@ -1217,62 +1202,22 @@ export default function EnrollModal({
     [contact.phone, regularServiceId, regularServicePrice, service, setService]
   )
 
-  const checkPinAvailability = React.useCallback(async (pin: string): Promise<boolean> => {
-    try {
-      setCheckingPinAvailability(true)
-      const { data } = await requestPinAvailabilityApi({ pin })
-      if (!data.available) {
-        setPinAvailabilityError(data.message || "This PIN is already in use. Please choose a different one.")
-        setStudentPin("")
-        setStudentPinConfirm("")
-        if (isKioskTerminalFlow) setActiveNumericField("pin")
-        return false
-      }
-      setPinAvailabilityError(null)
-      return true
-    } catch {
-      // Network error — proceed anyway, don't block on availability check failure
-      setPinAvailabilityError(null)
-      return true
-    } finally {
-      setCheckingPinAvailability(false)
-    }
-  }, [isKioskTerminalFlow])
-
   const handleNumpadDigit = React.useCallback((digit: string) => {
     if (activeNumericField === "phone") {
       setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
       setPhoneTouched(true)
-    } else if (activeNumericField === "pin") {
-      setStudentPin((prev) => {
-        const next = (prev + digit).slice(0, 4)
-        if (next.length === 4) setActiveNumericField("pin-confirm")
-        return next
-      })
-      setPinAvailabilityError(null)
-    } else if (activeNumericField === "pin-confirm") {
-      setStudentPinConfirm((prev) => (prev + digit).slice(0, 4))
-      setPinAvailabilityError(null)
     }
   }, [activeNumericField, setContact])
 
   const handleNumpadBackspace = React.useCallback(() => {
     if (activeNumericField === "phone") {
       setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
-    } else if (activeNumericField === "pin") {
-      setStudentPin((prev) => prev.slice(0, -1))
-    } else if (activeNumericField === "pin-confirm") {
-      setStudentPinConfirm((prev) => prev.slice(0, -1))
     }
   }, [activeNumericField, setContact])
 
   const handleNumpadClear = React.useCallback(() => {
     if (activeNumericField === "phone") {
       setContact((c) => ({ ...c, phone: "+1 " }))
-    } else if (activeNumericField === "pin") {
-      setStudentPin("")
-    } else if (activeNumericField === "pin-confirm") {
-      setStudentPinConfirm("")
     }
   }, [activeNumericField, setContact])
 
@@ -1285,13 +1230,6 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      // PIN availability check FIRST for new students - before any SMS verification
-      // This prevents wasting the user's time verifying SMS only to find the PIN is taken
-      if (service === "new-student" && /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm) {
-        const pinAvailable = await checkPinAvailability(studentPin)
-        if (!pinAvailable) return
-      }
-
       if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
         // Kiosk & QR mobile new-student flow: use the verification state machine.
         // This avoids the requiresSignIn sign-in modal which fails for newly created
@@ -1393,7 +1331,6 @@ export default function EnrollModal({
       setIdentityCheckBusy(false)
     }
   }, [
-    checkPinAvailability,
     contact.email,
     contact.phone,
     isCheckInFlow,
@@ -1419,8 +1356,6 @@ export default function EnrollModal({
     service,
     showRegularFallbackPopup,
     step,
-    studentPin,
-    studentPinConfirm,
     verifyNewStudent,
   ])
 
@@ -1766,7 +1701,7 @@ export default function EnrollModal({
       const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service)
       if (nextPhase !== "done") {
         setKioskInfoPhase(nextPhase)
-        if (isKioskTerminalFlow) setActiveNumericField(nextPhase === "phone" ? "phone" : "pin")
+        if (isKioskTerminalFlow) setActiveNumericField("phone")
         return
       }
     }
@@ -2080,8 +2015,6 @@ export default function EnrollModal({
       time,
       consecutiveOfferLoading,
       contact,
-      studentPin,
-      studentPinConfirm,
       requiresPhotoStep,
       photoSaved,
       consecutiveChoiceMade,
@@ -2092,9 +2025,7 @@ export default function EnrollModal({
   const canContinueCurrentStep = usesPhasedInfoForm && activeStepKey === "info"
     ? kioskInfoPhase === "name-email"
       ? contact.firstName.trim().length > 1 && contact.email.trim().length > 5
-      : kioskInfoPhase === "phone"
-        ? isCompleteUSPhone(contact.phone)
-        : canContinue
+      : isCompleteUSPhone(contact.phone)
     : canContinue
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
   const signInModalTitle =
@@ -2766,7 +2697,6 @@ export default function EnrollModal({
                 {activeStepKey === "info" && (
                   <EnrollInfoStep
                     activeNumericField={activeNumericField}
-                    checkPinAvailability={checkPinAvailability}
                     contact={contact}
                     handleNumpadBackspace={handleNumpadBackspace}
                     handleNumpadClear={handleNumpadClear}
@@ -2775,22 +2705,16 @@ export default function EnrollModal({
                     isKioskTerminalFlow={isKioskTerminalFlow}
                     kioskInfoPhase={kioskInfoPhase}
                     phoneTouched={phoneTouched}
-                    pinAvailabilityError={pinAvailabilityError}
                     service={service}
                     setActiveNumericField={setActiveNumericField}
                     setContact={setContact}
                     setExistingAccountDetected={setExistingAccountDetected}
                     setPendingAutoPay={setPendingAutoPay}
                     setPhoneTouched={setPhoneTouched}
-                    setPinAvailabilityError={setPinAvailabilityError}
                     setRequiresSignIn={setRequiresSignIn}
                     setResumeAfterSignInStep={setResumeAfterSignInStep}
                     setKioskInfoPhase={setKioskInfoPhase}
-                    setStudentPin={setStudentPin}
-                    setStudentPinConfirm={setStudentPinConfirm}
                     shouldMaskKioskInfoContent={shouldMaskKioskInfoContent}
-                    studentPin={studentPin}
-                    studentPinConfirm={studentPinConfirm}
                     t={t}
                     usesPhasedInfoForm={usesPhasedInfoForm}
                   />
@@ -3184,7 +3108,6 @@ export default function EnrollModal({
                         <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
                         <div>{t("email")}: {contact.email || "—"}</div>
                         <div>Phone: {contact.phone || "—"}</div>
-                        {service === "new-student" && <div>Student PIN: {studentPin ? "Configured" : "Required"}</div>}
                         <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
                         {contact.note && <div>{t("notes")}: {contact.note}</div>}
                         <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
@@ -3216,12 +3139,6 @@ export default function EnrollModal({
                             return
                           }
                           if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email") {
-                            if (kioskInfoPhase === "pin") {
-                              setKioskInfoPhase("phone")
-                              if (isKioskTerminalFlow) setActiveNumericField("phone")
-                              return
-                            }
-
                             setKioskInfoPhase("name-email")
                             setActiveNumericField(null)
                             return
@@ -3249,13 +3166,11 @@ export default function EnrollModal({
                         disabled={!canContinueCurrentStep || identityCheckBusy}
                         className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
-                        {checkingPinAvailability
-                          ? "Checking PIN..."
-                          : identityCheckBusy
-                            ? t("verifyingAccount")
-                            : consecutiveOfferLoading && (activeStepKey === "datetime" || activeStepKey === "payments")
-                              ? "Checking promotions..."
-                              : t("continue")}
+                        {identityCheckBusy
+                          ? t("verifyingAccount")
+                          : consecutiveOfferLoading && (activeStepKey === "datetime" || activeStepKey === "payments")
+                            ? "Checking promotions..."
+                            : t("continue")}
                       </button>
                     ) : (
                         <button

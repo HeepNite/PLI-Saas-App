@@ -8,7 +8,6 @@ type UseCheckInBootstrapOptions = {
   contextPayload: Record<string, unknown>
   getToken: (options: { skipCache: boolean }) => Promise<string | null>
   hasActiveClerkSession: boolean
-  kioskPinRotationRequired: boolean
   kioskPinSessionToken: string
   photoFlowContext: string
   setError: (value: string | null) => void
@@ -30,7 +29,6 @@ export function useCheckInBootstrap({
   contextPayload,
   getToken,
   hasActiveClerkSession,
-  kioskPinRotationRequired,
   kioskPinSessionToken,
   photoFlowContext,
   setError,
@@ -45,7 +43,6 @@ export function useCheckInBootstrap({
   const loadBootstrap = React.useCallback(async () => {
     if (!contextIsValid) return
     if (!hasActiveClerkSession && !kioskPinSessionToken) return
-    if (!hasActiveClerkSession && kioskPinRotationRequired) return
     setLoadingBootstrap(true)
     setError(null)
     try {
@@ -81,7 +78,7 @@ export function useCheckInBootstrap({
     } finally {
       setLoadingBootstrap(false)
     }
-  }, [contextIsValid, contextPayload, getToken, hasActiveClerkSession, kioskPinRotationRequired, kioskPinSessionToken, photoFlowContext, requestBootstrap, setConsecutiveOffer, setError, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
+  }, [contextIsValid, contextPayload, getToken, hasActiveClerkSession, kioskPinSessionToken, photoFlowContext, requestBootstrap, setConsecutiveOffer, setError, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
 
   return {
     bootstrap,

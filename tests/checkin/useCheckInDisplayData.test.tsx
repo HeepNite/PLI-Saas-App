@@ -20,7 +20,6 @@ const renderDisplay = async ({
   mode = "idle",
   hasActiveClerkSession = false,
   hasKioskPinSession = false,
-  kioskPinRotationRequired = false,
   bootstrap = null,
   processingPackageCheckIn = false,
   hasPackageCheckInResult = false,
@@ -34,7 +33,6 @@ const renderDisplay = async ({
   mode?: "idle" | "existing" | "new"
   hasActiveClerkSession?: boolean
   hasKioskPinSession?: boolean
-  kioskPinRotationRequired?: boolean
   bootstrap?: BootstrapResponse | null
   processingPackageCheckIn?: boolean
   hasPackageCheckInResult?: boolean
@@ -64,7 +62,6 @@ const renderDisplay = async ({
       mode,
       hasActiveClerkSession,
       hasKioskPinSession,
-      kioskPinRotationRequired,
       loadingBootstrap: false,
       bootstrap,
       visibleError: null,
@@ -336,7 +333,6 @@ describe("useCheckInDisplayData", () => {
       shellVariant: "terminal",
       mode: "existing",
       hasKioskPinSession: true,
-      kioskPinRotationRequired: false,
     })
     root = rendered.root
     container = rendered.container
@@ -352,7 +348,6 @@ describe("useCheckInDisplayData", () => {
       shellVariant: "terminal",
       mode: "existing",
       hasKioskPinSession: true,
-      kioskPinRotationRequired: false,
       bootstrap: createBootstrap({ package: createActivePackage() }),
       hasPackageCheckInResult: false,
     })
@@ -370,7 +365,6 @@ describe("useCheckInDisplayData", () => {
       shellVariant: "terminal",
       mode: "existing",
       hasKioskPinSession: true,
-      kioskPinRotationRequired: false,
       bootstrap: createBootstrap({ package: createActivePackage() }),
       hasPackageCheckInResult: true,
     })
@@ -381,17 +375,16 @@ describe("useCheckInDisplayData", () => {
     expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(false)
   })
 
-  it("keeps the kiosk PIN modal open when the identified PIN still requires rotation", async () => {
+  it("shows the kiosk PIN panel when there is no kiosk pin session in existing mode", async () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
       mode: "existing",
-      hasKioskPinSession: true,
-      kioskPinRotationRequired: true,
+      hasKioskPinSession: false,
     })
     root = rendered.root
     container = rendered.container
 
     expect(rendered.getSnapshot().showKioskPinPanel).toBe(true)
-    expect(rendered.getSnapshot().breadcrumbItems).toEqual(["Terminal", "Existing customer", "Rotate PIN"])
+    expect(rendered.getSnapshot().breadcrumbItems).toEqual(["Terminal", "Existing customer", "Enter phone"])
   })
 })

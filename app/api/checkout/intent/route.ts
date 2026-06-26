@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import {
   clearPreparedCheckoutAfterSuccess,
-  enrollStudentPinForCheckout,
   enforceNewStudentRules,
   resolveCheckoutPreparation,
   type ApiError,
@@ -54,8 +53,6 @@ export async function POST(req: Request) {
     phone = "",
     prepareOnly = false,
     kioskSessionToken,
-    studentPin,
-    studentPinConfirm,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
@@ -127,20 +124,6 @@ export async function POST(req: Request) {
   })
   if (newStudentError) {
     return toErrorResponse(newStudentError)
-  }
-
-  const studentPinEnrollment = await enrollStudentPinForCheckout({
-    serviceId: validation.serviceId,
-    prepareOnly,
-    resolvedClerkUserId: resolvedUserId,
-    resolvedEmail: identity.resolvedEmail,
-    phoneNormalized: identity.phoneNormalized,
-    name: name || [firstName, lastName].filter(Boolean).join(" ") || undefined,
-    studentPin,
-    studentPinConfirm,
-  })
-  if (isApiError(studentPinEnrollment)) {
-    return toErrorResponse(studentPinEnrollment)
   }
 
   try {

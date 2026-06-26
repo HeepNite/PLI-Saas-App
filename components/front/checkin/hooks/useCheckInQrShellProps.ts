@@ -3,7 +3,6 @@ import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrSh
 import type { EntryMode, BootstrapResponse, ConsecutiveOffer, TerminalPastClass } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
-import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 import type { ComponentProps } from "react"
 import type { CheckInQrOverlays } from "@/components/front/checkin/CheckInQrOverlays"
 
@@ -83,7 +82,7 @@ export type UseCheckInQrShellPropsInput = {
   onExistingClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   onNewClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
 
-  // Kiosk PIN
+  // Kiosk PIN (phone-only)
   showKioskPinPanel: boolean
   returnedFromNewStudentFlow: boolean
   kioskPinPanelCopy: { title: string; description: string }
@@ -91,25 +90,9 @@ export type UseCheckInQrShellPropsInput = {
   kioskPhone: string
   kioskPhoneLoading: boolean
   onKioskPhoneIdentify: () => void
-  kioskPin: string
-  entryRevealedIndex: number | null
-  entryActiveSlot: number
-  activePinField: "entry" | "next" | "confirm" | null
   kioskPinAttemptsRemaining: number | null
-  kioskPinThrottleSeverity: KioskPinThrottleSeverity | null
+  kioskPinThrottleSeverity: "normal" | "warning" | "cooldown" | "emergency" | null
   kioskPinBlockedUntil: string | null
-  canIdentify: boolean
-  kioskPinLoading: boolean
-  kioskPinNext: string
-  nextRevealedIndex: number | null
-  nextActiveSlot: number
-  kioskPinConfirm: string
-  confirmRevealedIndex: number | null
-  confirmActiveSlot: number
-  canRotate: boolean
-  kioskPinRotating: boolean
-  onKioskPinIdentify: () => void
-  onKioskPinRotate: () => void
   onPinDigitInput: (digit: string) => void
   onPinBackspace: () => void
   onPinClear: () => void

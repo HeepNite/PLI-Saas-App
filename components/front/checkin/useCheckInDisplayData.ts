@@ -39,7 +39,6 @@ type UseCheckInDisplayDataArgs = {
   mode: "idle" | "existing" | "new"
   hasActiveClerkSession: boolean
   hasKioskPinSession: boolean
-  kioskPinRotationRequired: boolean
   loadingBootstrap: boolean
   bootstrap: BootstrapResponse | null
   visibleError: string | null
@@ -70,7 +69,6 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     mode,
     hasActiveClerkSession,
     hasKioskPinSession,
-    kioskPinRotationRequired,
     loadingBootstrap,
     bootstrap,
     visibleError,
@@ -318,12 +316,12 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   const effectiveClerkSession = hasActiveClerkSession && !isKioskTerminalFlow
   const canShowSignedInBootstrapPanel = mode === "existing" && (effectiveClerkSession || hasKioskPinSession)
   const showKioskPinPanel =
-    mode === "existing" && isKioskTerminalFlow && (!hasKioskPinSession || kioskPinRotationRequired)
+    mode === "existing" && isKioskTerminalFlow && !hasKioskPinSession
   const showKioskResolvingOverlay = shouldShowKioskResolvingOverlay({
     isKioskTerminalFlow,
     mode,
     hasActiveCustomerSession: Boolean(hasActiveClerkSession || hasKioskPinSession),
-    hasPendingPinRotation: kioskPinRotationRequired,
+    hasPendingPinRotation: false,
     loadingBootstrap,
     hasBootstrap: Boolean(bootstrap),
     hasPackage: Boolean(bootstrap?.package),
@@ -340,7 +338,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     showSignedInBootstrapPanel ||
     showKioskPinPanel ||
     showKioskResolvingOverlay ||
-    (isKioskTerminalFlow && mode === "existing" && hasKioskPinSession && !kioskPinRotationRequired)
+    (isKioskTerminalFlow && mode === "existing" && hasKioskPinSession)
   const showCourseCardPanel = Boolean(checkInDisplayCourse || currentHomeCourse) && !showSignedInBootstrapPanel
   const showLatePaymentOffer = Boolean(
     shellVariant === "terminal" &&
@@ -362,12 +360,8 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     }
     if (mode === "existing") {
       items.push("Existing customer")
-      if (showKioskPinPanel && !hasKioskPinSession) {
-        items.push("Enter PIN")
-        return items
-      }
-      if (showKioskPinPanel && kioskPinRotationRequired) {
-        items.push("Rotate PIN")
+      if (showKioskPinPanel) {
+        items.push("Enter phone")
         return items
       }
       if (!hasActiveClerkSession && !hasKioskPinSession) {
@@ -394,7 +388,6 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     existingRegularBookingOverride,
     hasActiveClerkSession,
     hasKioskPinSession,
-    kioskPinRotationRequired,
     loadingBootstrap,
     mode,
     openNewBooking,

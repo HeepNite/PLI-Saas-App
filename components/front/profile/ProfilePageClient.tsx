@@ -7,7 +7,6 @@ import { demoCourses } from "@/constants/courses"
 import type { CourseData } from "@/constants/courses"
 import { useUser } from "@clerk/nextjs"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
-import { useStudentPinStatus } from "@/components/front/hooks/useStudentPinStatus"
 import {
   buildProfileConsecutiveCheckoutPayload,
   buildBookingPrefillContact,
@@ -33,7 +32,6 @@ import {
 import { mockProfile } from "./mock-profile"
 import { usePointsHistory } from "./hooks/usePointsHistory"
 import { useActionRequests } from "./hooks/useActionRequests"
-import { useStudentPinForm } from "./hooks/useStudentPinForm"
 import { useProfilePackages } from "./hooks/useProfilePackages"
 import { useProfileForm } from "./hooks/useProfileForm"
 import { useStickyRails } from "./hooks/useStickyRails"
@@ -52,7 +50,6 @@ import { MedalsCard } from "./sections/MedalsCard"
 import { GearCard } from "./sections/GearCard"
 import { ProfileLeftRail } from "./sections/ProfileLeftRail"
 import { ProfileFormCard } from "./sections/ProfileFormCard"
-import { StudentPinCard } from "./sections/StudentPinCard"
 import { MobileActionCards } from "./sections/MobileActionCards"
 import { AnalyticsCard } from "./sections/AnalyticsCard"
 import { AssignClassesCard } from "./sections/AssignClassesCard"
@@ -141,16 +138,6 @@ export default function ProfilePageClient() {
     completionPercent, avatarSrc,
     handleAvatarUpload, handleProfileSave,
   } = useProfileForm(canLoadProtectedData, user, onPointsBalanceChange, loadPointsHistory)
-
-  const { status: pinStatus, loading: pinLoading, error: pinStatusError, refresh: refreshPinStatus } = useStudentPinStatus(canLoadProtectedData)
-  const {
-    pinCurrentValue, setPinCurrentValue,
-    pinNextValue, setPinNextValue,
-    pinConfirmValue, setPinConfirmValue,
-    pinRecoveryMode, setPinRecoveryMode,
-    pinSaving, pinFormError, setPinFormError, pinFormSuccess, setPinFormSuccess,
-    submitStudentPin,
-  } = useStudentPinForm(pinStatus, refreshPinStatus)
 
   const [selectedBookingId, setSelectedBookingId] = React.useState<string>("")
   const [assignPackageId, setAssignPackageId] = React.useState("")
@@ -591,31 +578,6 @@ export default function ProfilePageClient() {
               onClose={() => setShowProfileForm(false)}
               onSave={handleProfileSave}
               onProfileFieldChange={handleProfileFieldChange}
-            />
-
-            <StudentPinCard
-              pinStatus={pinStatus}
-              pinLoading={pinLoading}
-              pinStatusError={pinStatusError}
-              pinRecoveryMode={pinRecoveryMode}
-              pinCurrentValue={pinCurrentValue}
-              pinNextValue={pinNextValue}
-              pinConfirmValue={pinConfirmValue}
-              pinSaving={pinSaving}
-              pinFormError={pinFormError}
-              pinFormSuccess={pinFormSuccess}
-              onPinCurrentChange={setPinCurrentValue}
-              onPinNextChange={setPinNextValue}
-              onPinConfirmChange={setPinConfirmValue}
-              onToggleRecoveryMode={() => {
-                setPinRecoveryMode((prev) => !prev)
-                setPinFormError(null)
-                setPinFormSuccess(null)
-                setPinCurrentValue("")
-              }}
-              onSubmit={() => {
-                void submitStudentPin()
-              }}
             />
 
             <MobileActionCards

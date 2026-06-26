@@ -50,9 +50,18 @@ const parsePayload = (body: unknown): ParseResult => {
 
   const record = body as Record<string, unknown>
   const email = safeText(record.email, 254)?.toLowerCase()
-  const phone = safeText(record.phone, 32)
+  let phone = safeText(record.phone, 32)
   const name = safeText(record.name, 120)
   const note = safeText(record.note, 500)
+
+  // Auto-prefix + for E.164 if user provided digits only
+  if (phone && !phone.startsWith("+")) {
+    phone = `+${phone.replace(/\D/g, "")}`
+  }
+  // Strip non-digit chars after the + (spaces, dashes, parens)
+  if (phone) {
+    phone = `+${phone.slice(1).replace(/\D/g, "")}`
+  }
 
   if (!email && !phone) {
     return { ok: false, error: "Provide an email or phone number." }
@@ -60,8 +69,8 @@ const parsePayload = (body: unknown): ParseResult => {
   if (email && !EMAIL_PATTERN.test(email)) {
     return { ok: false, error: "Invalid email." }
   }
-  if (phone && !phone.startsWith("+")) {
-    return { ok: false, error: "Phone must use E.164 format." }
+  if (phone && phone.length < 7) {
+    return { ok: false, error: "Phone number is too short." }
   }
 
   const amountCents = parseAmountCents(record.amountCents)

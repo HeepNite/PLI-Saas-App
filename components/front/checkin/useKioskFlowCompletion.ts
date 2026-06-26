@@ -1,7 +1,6 @@
 "use client"
 
 import React from "react"
-import type { KioskPinRotationMode } from "@/components/front/checkin/checkin-kiosk.types"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
 import type { ConsecutiveOffer, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 
@@ -24,8 +23,8 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setKioskPinBlockedUntil: React.Dispatch<React.SetStateAction<string | null>>
   setKioskPinConfirm: React.Dispatch<React.SetStateAction<string>>
   setKioskPinNext: React.Dispatch<React.SetStateAction<string>>
-  setKioskPinRotationMode: React.Dispatch<React.SetStateAction<KioskPinRotationMode | null>>
-  setKioskPinRotationRequired: React.Dispatch<React.SetStateAction<boolean>>
+  setKioskPinRotationMode: (value: unknown) => void
+  setKioskPinRotationRequired: (value: boolean | ((prev: boolean) => boolean)) => void
   setKioskPinSessionToken: React.Dispatch<React.SetStateAction<string>>
   setMode: React.Dispatch<React.SetStateAction<EntryMode>>
   setNewBookingOverride: React.Dispatch<React.SetStateAction<CheckInContextOverride | null>>

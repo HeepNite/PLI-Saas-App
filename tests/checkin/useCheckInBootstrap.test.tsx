@@ -28,7 +28,6 @@ const defaultParams = (override: Partial<HookParams> = {}): HookParams => ({
   contextPayload,
   getToken: vi.fn().mockResolvedValue("token-1"),
   hasActiveClerkSession: true,
-  kioskPinRotationRequired: false,
   kioskPinSessionToken: "",
   photoFlowContext: "kiosk_terminal",
   setError: vi.fn(),
@@ -88,15 +87,6 @@ describe("useCheckInBootstrap", () => {
       token: "token-1",
       payload: { ...params.contextPayload, flowContext: "kiosk_terminal", kioskSessionToken: "kiosk-token" },
     })
-  })
-
-  it("does not load when kiosk PIN rotation is required without Clerk session", async () => {
-    const params = defaultParams({ hasActiveClerkSession: false, kioskPinSessionToken: "kiosk-token", kioskPinRotationRequired: true })
-    const { getResult } = await mount(params)
-
-    await act(async () => getResult().loadBootstrap())
-
-    expect(params.requestBootstrap).not.toHaveBeenCalled()
   })
 
   it("preserves no-session gating by not loading without Clerk session or kiosk token", async () => {
