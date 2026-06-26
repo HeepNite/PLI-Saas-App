@@ -498,14 +498,14 @@ export default function EmbeddedSignIn({
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
-          <div>
+        <div className="space-y-3">
+          <div className="pr-36">
             <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">Verify your access</p>
             <p className="mt-1 text-sm text-white/82">
               Enter the code we sent to {verificationStrategy === "email_code" ? emailSafeIdentifier || "your email" : formatUSPhone(phone)}.
             </p>
           </div>
-          <label className="block space-y-2">
+          <label className="block space-y-1.5">
             <span className="text-xs font-medium text-white/85">Code</span>
             <div className="relative">
               <input
@@ -526,7 +526,7 @@ export default function EmbeddedSignIn({
                 autoComplete={CODE_INPUT_ATTRIBUTES.autoComplete}
                 enterKeyHint={CODE_INPUT_ATTRIBUTES.enterKeyHint}
                 placeholder="123456"
-                className={`h-11 w-full rounded-xl border bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition ${
+                className={`h-10 w-full rounded-xl border bg-white/[0.03] px-3 text-center text-lg tracking-[0.35em] text-white placeholder:tracking-normal placeholder:text-white/35 outline-none transition ${
                   useNumericKeypad && activeField === "code"
                     ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
                     : "border-white/12 focus:border-[var(--brand,#c71818)]"
@@ -553,6 +553,8 @@ export default function EmbeddedSignIn({
                 setCode(clearCodeDigits())
                 setError(null)
               }}
+              size="compact"
+              className="p-3"
             />
           )}
           {notice && <p className="text-xs text-white/70">{notice}</p>}
@@ -588,7 +590,7 @@ export default function EmbeddedSignIn({
             type="button"
             onClick={() => void verifyCode()}
             disabled={busy || code.length !== CODE_LENGTH}
-            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Continue
