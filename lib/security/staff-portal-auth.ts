@@ -19,6 +19,7 @@ import {
   type StaffPortalSection,
 } from "@/lib/security/staff-access"
 import { prisma } from "@/lib/prisma"
+import { getCachedClerkUser } from "@/lib/clerk-users"
 
 const isClerkRateLimitError = (error: unknown): boolean => {
   if (!error || typeof error !== "object") return false
@@ -48,20 +49,6 @@ const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 const STAFF_ROLE_SET = new Set<StaffRole>(STAFF_ROLES)
 
-// ── Short-lived getUser cache to prevent parallel Clerk API calls ────
-const CLERK_USER_CACHE_TTL_MS = 5_000
-const clerkUserCache = new Map<string, { user: Awaited<ReturnType<Awaited<ReturnType<typeof clerkClient>>["users"]["getUser"]>>; expiresAt: number }>()
-
-const getCachedClerkUser = async (userId: string) => {
-  const now = Date.now()
-  const cached = clerkUserCache.get(userId)
-  if (cached && cached.expiresAt > now) return cached.user
-
-  const client = await clerkClient()
-  const user = await client.users.getUser(userId)
-  clerkUserCache.set(userId, { user, expiresAt: now + CLERK_USER_CACHE_TTL_MS })
-  return user
-}
 
 const parseSessionIssuedAtMs = (claims: unknown): number | null => {
   if (!claims || typeof claims !== "object") return null

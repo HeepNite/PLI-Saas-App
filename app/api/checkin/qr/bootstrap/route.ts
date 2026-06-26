@@ -8,7 +8,7 @@ import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled, snapshotPreparedCheckoutVerification } from "@/lib/checkout/prepared-context"
 import type { CourseData } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
-import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
+import { findClerkUserByIdentifiers, getCachedClerkUser, resolveAvatarState } from "@/lib/clerk-users"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { computeDiscountPercent } from "@/lib/course-links"
@@ -234,13 +234,11 @@ export async function POST(req: Request) {
     if (customerClerkUserId || kioskUser?.clerkId) {
       clerkUser = customerClerkUserId ? kioskCustomerAuth.clerkUser : null
       if (!clerkUser) {
-        const client = await clerkClient()
-        clerkUser = await client.users.getUser((customerClerkUserId || kioskUser?.clerkId) as string)
+        clerkUser = await getCachedClerkUser((customerClerkUserId || kioskUser?.clerkId) as string)
       }
       let avatarState = resolveAvatarState(clerkUser)
       if (avatarState.needsRefresh && clerkUser?.id) {
-        const client = await clerkClient()
-        clerkUser = await client.users.getUser(clerkUser.id)
+        clerkUser = await getCachedClerkUser(clerkUser.id)
         avatarState = resolveAvatarState(clerkUser)
       }
       hasAvatar = Boolean(avatarState.hasAvatar)
@@ -258,8 +256,7 @@ export async function POST(req: Request) {
       if (clerkUser) {
         let avatarState = resolveAvatarState(clerkUser)
         if (avatarState.needsRefresh && clerkUser.id) {
-          const client = await clerkClient()
-          clerkUser = await client.users.getUser(clerkUser.id)
+          clerkUser = await getCachedClerkUser(clerkUser.id)
           avatarState = resolveAvatarState(clerkUser)
         }
         hasAvatar = Boolean(avatarState.hasAvatar)
