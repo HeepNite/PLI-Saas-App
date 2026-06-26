@@ -202,10 +202,13 @@ const loadActivePackages = async (userIds: string[]) => {
 const loadLatestAttendedRows = async (userIds: string[]) => {
   if (userIds.length === 0) return []
 
+  const lookbackDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+
   return prisma.attendance.findMany({
     where: {
       userId: { in: userIds },
       status: { in: [...ATTENDED_CHECKIN_STATUSES] },
+      checkedInAt: { gte: lookbackDate },
     },
     select: {
       id: true,
@@ -222,6 +225,8 @@ const loadLatestAttendedRows = async (userIds: string[]) => {
         },
       },
     },
+    orderBy: { checkedInAt: "desc" },
+    take: Math.max(userIds.length * 2, 50),
   })
 }
 

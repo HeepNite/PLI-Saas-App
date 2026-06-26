@@ -716,35 +716,37 @@ const loadAuxiliaryData = async (input: AuxiliaryDataInput) => {
           })
 
           const packagePurchaseIds = packagePurchases.map((item) => item.id)
-          const usageEntries = paymentsRequest.mode === "history" && packagePurchaseIds.length
-            ? await prisma.packageUsageLedger.findMany({
-                where: {
-                  packagePurchaseId: { in: packagePurchaseIds },
-                  attendanceId: { not: null },
-                },
-                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-                select: {
-                  id: true,
-                  packagePurchaseId: true,
-                  attendanceId: true,
-                  createdAt: true,
-                },
-              })
-            : []
-
           const fundingPurchaseIds = [...new Set(packagePurchases.map((item) => item.purchaseId).filter((item): item is string => Boolean(item)))]
-          const fundingPurchases = fundingPurchaseIds.length
-            ? await prisma.purchase.findMany({
-                where: { id: { in: fundingPurchaseIds } },
-                select: {
-                  id: true,
-                  amount: true,
-                  currency: true,
-                  createdAt: true,
-                  courseTitle: true,
-                },
-              })
-            : []
+
+          const [usageEntries, fundingPurchases] = await Promise.all([
+            paymentsRequest.mode === "history" && packagePurchaseIds.length
+              ? prisma.packageUsageLedger.findMany({
+                  where: {
+                    packagePurchaseId: { in: packagePurchaseIds },
+                    attendanceId: { not: null },
+                  },
+                  orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                  select: {
+                    id: true,
+                    packagePurchaseId: true,
+                    attendanceId: true,
+                    createdAt: true,
+                  },
+                })
+              : [],
+            fundingPurchaseIds.length
+              ? prisma.purchase.findMany({
+                  where: { id: { in: fundingPurchaseIds } },
+                  select: {
+                    id: true,
+                    amount: true,
+                    currency: true,
+                    createdAt: true,
+                    courseTitle: true,
+                  },
+                })
+              : [],
+          ])
 
           return {
             packagePurchases,
@@ -1043,18 +1045,18 @@ const loadClerkUserData = async (purchaseUsers: AuxiliaryData["purchaseUsers"]) 
         }
       }
       const missingClerkIds = clerkIds.filter((clerkId) => !imageByClerkId.has(clerkId) && !nameByClerkId.has(clerkId))
-      for (const clerkId of missingClerkIds) {
-        try {
-          const user = await client.users.getUser(clerkId)
-          if (user.imageUrl) {
-            imageByClerkId.set(user.id, user.imageUrl)
-          }
-          const displayName = buildClerkDisplayName(user.firstName, user.lastName)
-          if (displayName) {
-            nameByClerkId.set(user.id, displayName)
-          }
-        } catch {
-          // Keep this payment row usable even if an individual Clerk lookup fails.
+      const missingResults = await Promise.allSettled(
+        missingClerkIds.map((clerkId) => client.users.getUser(clerkId))
+      )
+      for (const result of missingResults) {
+        if (result.status !== "fulfilled") continue
+        const user = result.value
+        if (user.imageUrl) {
+          imageByClerkId.set(user.id, user.imageUrl)
+        }
+        const displayName = buildClerkDisplayName(user.firstName, user.lastName)
+        if (displayName) {
+          nameByClerkId.set(user.id, displayName)
         }
       }
       for (const row of batch) {
@@ -1206,11 +1208,6 @@ export const loadStaffPaymentsData = async (
     studentPinState,
   } = auxiliary
 
-  const { packagePurchases, fundingPurchases } = await loadAttendanceDerivedExtras({
-    auxiliary,
-    todayAttendanceByPurchaseId: todayAttendanceOrchestration.todayAttendanceByPurchaseId,
-  })
-
   const pointsByUser = new Map<string, number>()
   for (const row of pointsGrouped) {
     pointsByUser.set(row.userId, row._sum.points || 0)
@@ -1269,7 +1266,20 @@ export const loadStaffPaymentsData = async (
 
   const selectedActivePackages = selectActivePackagesByUser(activePackages)
   const selectedActivePackageIds = [...new Set([...selectedActivePackages.values()].map((pkg) => pkg.id).filter((id): id is string => Boolean(id)))]
-  const activePackageUsageRows = await loadActivePackageClassesUsed(selectedActivePackageIds)
+
+  // ── Parallel: three independent async operations ──
+  const [
+    { packagePurchases, fundingPurchases },
+    activePackageUsageRows,
+    { avatarByUserId, clerkNameByUserId },
+  ] = await Promise.all([
+    loadAttendanceDerivedExtras({
+      auxiliary,
+      todayAttendanceByPurchaseId: todayAttendanceOrchestration.todayAttendanceByPurchaseId,
+    }),
+    loadActivePackageClassesUsed(selectedActivePackageIds),
+    loadClerkUserData(purchaseUsers),
+  ])
   const activePackageClassesUsedById = new Map<string, number>()
   for (const row of activePackageUsageRows) {
     activePackageClassesUsedById.set(row.packagePurchaseId, row._count._all)
@@ -1385,8 +1395,6 @@ export const loadStaffPaymentsData = async (
       fundingPurchaseByPackagePurchaseId.set(row.id, fundingPayment)
     }
   }
-
-  const { avatarByUserId, clerkNameByUserId } = await loadClerkUserData(purchaseUsers)
 
   const dbNameByUserId = new Map<string, string | null>()
   const dbEmailByUserId = new Map<string, string>()
