@@ -1,13 +1,13 @@
 import type { CardCheckInStatus } from "@/components/front/staff/historyCardAggregates"
 import { asObject, asText } from "@/lib/shared"
 export { asObject, asText } from "@/lib/shared"
-import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { PAYMENT_CHANNEL, PURCHASE_SOURCE, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
-export type SettlementStatus = "pending" | "paid"
-export type PaymentChannel = "cash" | "card" | "package_credit" | "unknown"
+export type SettlementStatus = (typeof SETTLEMENT_STATUS)[keyof typeof SETTLEMENT_STATUS]
+export type PaymentChannel = (typeof PAYMENT_CHANNEL)[keyof typeof PAYMENT_CHANNEL]
 export type PurchaseCategory = "package" | "dropin" | "other"
 
-export const COMPLETED_PAYMENT_STATUSES = new Set(["succeeded", "paid", "completed"])
+export const COMPLETED_PAYMENT_STATUSES = new Set<string>([PURCHASE_STATUS.SUCCEEDED, PURCHASE_STATUS.PAID, PURCHASE_STATUS.COMPLETED])
 
 export const normalizeSettlementStatus = (value: unknown): SettlementStatus => {
   if (typeof value !== "string") return SETTLEMENT_STATUS.PENDING
@@ -49,7 +49,7 @@ export const normalizePaymentChannel = (input: {
   return PAYMENT_CHANNEL.UNKNOWN
 }
 
-export type PurchaseSource = "web" | "kiosk" | "front_desk" | "unknown"
+export type PurchaseSource = (typeof PURCHASE_SOURCE)[keyof typeof PURCHASE_SOURCE]
 
 export const normalizePurchaseSource = (metadata: unknown): PurchaseSource => {
   const meta = asObject(metadata)

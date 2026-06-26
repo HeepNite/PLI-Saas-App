@@ -20,6 +20,7 @@ import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { normalizePhone } from "@/lib/shared"
 import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { pickStripeMetadata, parseIntSafe, normalize, type StripeMetadata } from "@/lib/stripe-metadata"
 
 export const runtime = "nodejs"
 
@@ -32,54 +33,14 @@ const stripe = stripeSecret
     })
   : null
 
-const normalize = (value: string | undefined | null) => {
-  const trimmed = value?.trim()
-  return trimmed && trimmed.length > 0 ? trimmed : undefined
-}
-
-const parseIntSafe = (value: string | undefined) => {
-  if (!value) return undefined
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
 const packagePurchaseEventKey = (packagePurchaseId: string) => `package-purchase:${packagePurchaseId}`
 
-const pickMetadata = (metadata?: Stripe.Metadata | null) => ({
-  courseSlug: normalize(metadata?.courseSlug),
-  courseTitle: normalize(metadata?.courseTitle),
-  date: normalize(metadata?.date),
-  time: normalize(metadata?.time),
-  packageId: normalize(metadata?.packageId),
-  packageLabel: normalize(metadata?.packageLabel),
-  packageTotalCredits: normalize(metadata?.packageTotalCredits),
-  packageIsUnlimited: normalize(metadata?.packageIsUnlimited),
-  packageCadence: normalize(metadata?.packageCadence),
-  packageMakeUps: normalize(metadata?.packageMakeUps),
-  packageValidDays: normalize(metadata?.packageValidDays),
-  serviceId: normalize(metadata?.serviceId),
-  userId: normalize(metadata?.userId),
-  participants: normalize(metadata?.participants),
-  coupon: normalize(metadata?.coupon),
-  addons: normalize(metadata?.addons),
-  name: normalize(metadata?.name),
-  email: normalize(metadata?.email),
-  phone: normalize(metadata?.phone),
-  phoneRaw: normalize(metadata?.phoneRaw),
-  consecutivePriceCents: normalize(metadata?.consecutivePriceCents),
-  consecutiveLinkedCourseSlug: normalize(metadata?.consecutiveLinkedCourseSlug),
-  consecutiveCourseTitle: normalize(metadata?.consecutiveCourseTitle),
-  consecutiveLinkedCourseTime: normalize(metadata?.consecutiveLinkedCourseTime),
-  flowContext: normalize(metadata?.flowContext),
-  paymentSurface: normalize(metadata?.paymentSurface),
-})
-
-const isTerminalFlow = (metadata: ReturnType<typeof pickMetadata>) => {
+const isTerminalFlow = (metadata: StripeMetadata) => {
   return metadata.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 }
 
 const resolveAttendanceStatusForFlow = (input: {
-  metadata: ReturnType<typeof pickMetadata>
+  metadata: StripeMetadata
   hasPackagePurchase?: boolean
 }) => {
   if (!isTerminalFlow(input.metadata)) return "scheduled" as const
@@ -88,7 +49,7 @@ const resolveAttendanceStatusForFlow = (input: {
 
 const buildConsecutiveSplit = (input: {
   totalAmount: number
-  metadata: ReturnType<typeof pickMetadata>
+  metadata: StripeMetadata
 }) => {
   const consecutivePriceCents = parseIntSafe(input.metadata.consecutivePriceCents)
   const consecutiveCourseSlug = input.metadata.consecutiveLinkedCourseSlug
@@ -177,7 +138,7 @@ async function resolveUser(params: {
 }
 
 async function handleCheckoutSession(session: Stripe.Checkout.Session) {
-  const meta = pickMetadata(session.metadata)
+  const meta = pickStripeMetadata(session.metadata)
   const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
   const email = meta.email || session.customer_details?.email || session.customer_email || undefined
   const purchaseName = session.customer_details?.name || meta.name || undefined
@@ -410,7 +371,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   })
   if (existingByIntent) return
 
-  const meta = pickMetadata(intent.metadata)
+  const meta = pickStripeMetadata(intent.metadata)
   const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
   const email = meta.email || intent.receipt_email || undefined
   const purchaseName = meta.name || undefined
