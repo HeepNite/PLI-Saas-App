@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { buildSessionStartsAt, getCourseBySlug } from "@/lib/class-schedule"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 
 const DEFAULT_DURATION_MINUTES = 60
 export const DEFAULT_CLASS_CAPACITY = 12
@@ -30,12 +31,12 @@ export const syncScheduledAttendanceFromPurchase = async (input: {
 
   const course = getCourseBySlug(input.courseSlug)
   const sessionTitle = course?.title || input.courseTitle || input.courseSlug
-  const preferredStatus = input.preferredStatus || "scheduled"
+  const preferredStatus = input.preferredStatus || ATTENDANCE_STATUS.SCHEDULED
   const source = input.source || "purchase_booking"
 
   const shouldUpgradeStatus = (current: string) => {
-    if (preferredStatus === "checked_in") return current === "scheduled"
-    if (preferredStatus === "checked_in_no_package") return current === "scheduled"
+    if (preferredStatus === ATTENDANCE_STATUS.CHECKED_IN) return current === ATTENDANCE_STATUS.SCHEDULED
+    if (preferredStatus === ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE) return current === ATTENDANCE_STATUS.SCHEDULED
     return false
   }
 

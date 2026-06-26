@@ -3,6 +3,7 @@ import Stripe from "stripe"
 import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
+import { PURCHASE_STATUS } from "@/lib/payment-constants"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -11,7 +12,7 @@ const stripe = secret
     })
   : null
 
-const DURABLE_COMPLETE_PURCHASE_STATUSES = new Set(["paid", "succeeded", "completed"])
+const DURABLE_COMPLETE_PURCHASE_STATUSES: Set<string> = new Set([PURCHASE_STATUS.PAID, PURCHASE_STATUS.SUCCEEDED, PURCHASE_STATUS.COMPLETED])
 
 const isStripeNotFoundError = (error: unknown) =>
   Boolean(

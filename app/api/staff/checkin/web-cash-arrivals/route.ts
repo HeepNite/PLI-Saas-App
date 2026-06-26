@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
+import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
           ? purchaseMeta.settlementStatus
           : ""
 
-        if (paymentChannel !== "cash" || settlementStatus !== "pending") return null
+        if (paymentChannel !== PAYMENT_CHANNEL.CASH || settlementStatus !== SETTLEMENT_STATUS.PENDING) return null
 
         return {
           attendanceId: attendance.id,

@@ -5,6 +5,7 @@ import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { asObject, asText } from "@/lib/shared"
+import { ATTENDANCE_STATUS, ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
 
@@ -232,8 +233,8 @@ async function applyUpdate(
   })
 
   // Handle credit restoration/consumption based on status change
-  const wasAttended = ["checked_in", "checked_in_no_package", "checked_out"].includes(attendance.status)
-  const isAttended = ["checked_in", "checked_in_no_package", "checked_out"].includes(status)
+  const wasAttended = ATTENDED_CHECKIN_STATUSES.includes(attendance.status)
+  const isAttended = ATTENDED_CHECKIN_STATUSES.includes(status)
 
   if (wasAttended && !isAttended) {
     // Restoring credit: status changed from attended to non-attended
@@ -374,7 +375,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
   sessionIds = [...new Set(sessionIds)]
 
   const status = typeof payload.status === "string" ? payload.status : ""
-  const validStatuses = ["checked_in", "checked_in_no_package", "checked_out", "scheduled", "no_show"]
+  const validStatuses: string[] = [ATTENDANCE_STATUS.CHECKED_IN, ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE, ATTENDANCE_STATUS.CHECKED_OUT, ATTENDANCE_STATUS.SCHEDULED, ATTENDANCE_STATUS.NO_SHOW]
   if (action !== "remove" && !validStatuses.includes(status)) {
     return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` }, { status: 400 })
   }

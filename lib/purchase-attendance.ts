@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { PAYMENT_CHANNEL, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 type PurchaseWriteClient = Pick<typeof prisma, "$executeRaw" | "purchase">
 
@@ -28,10 +29,10 @@ export const ensureAttendancePackagePurchase = async (
     where: {
       userId: input.userId,
       packageId: input.packageId,
-      status: "paid",
+      status: PURCHASE_STATUS.PAID,
       AND: [
         { metadata: { path: ["attendanceId"], equals: input.attendanceId } },
-        { metadata: { path: ["paymentChannel"], equals: "package_credit" } },
+        { metadata: { path: ["paymentChannel"], equals: PAYMENT_CHANNEL.PACKAGE_CREDIT } },
       ],
     },
     orderBy: { createdAt: "asc" },
@@ -48,15 +49,15 @@ export const ensureAttendancePackagePurchase = async (
       courseTitle: input.courseTitle,
       amount: 0,
       currency: "usd",
-      status: "paid",
+      status: PURCHASE_STATUS.PAID,
       email: input.email,
       name: input.name,
       phone: input.phone,
       participants: 1,
       packageId: input.packageId,
       metadata: {
-        paymentChannel: "package_credit",
-        settlementStatus: "paid",
+        paymentChannel: PAYMENT_CHANNEL.PACKAGE_CREDIT,
+        settlementStatus: SETTLEMENT_STATUS.PAID,
         date: input.date,
         time: input.time,
         source: input.source,

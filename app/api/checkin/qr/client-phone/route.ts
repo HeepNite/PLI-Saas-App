@@ -9,8 +9,8 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { asText } from "@/lib/shared"
-import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
-import { PURCHASE_SOURCE } from "@/lib/payment-constants"
+import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -152,7 +152,7 @@ export async function POST(req: Request) {
       const paymentChannel = asText(meta?.paymentChannel)
       const settlementStatus = asText(meta?.settlementStatus)
       const isPaid = SUCCESSFUL_PURCHASE_STATUSES.includes(matchingPurchase.status)
-      const isCashPending = paymentChannel === "cash" && (matchingPurchase.status === "pending" || settlementStatus === "pending")
+      const isCashPending = paymentChannel === PAYMENT_CHANNEL.CASH && (matchingPurchase.status === SETTLEMENT_STATUS.PENDING || settlementStatus === SETTLEMENT_STATUS.PENDING)
 
       if (!isPaid && !isCashPending) {
         return NextResponse.json({
@@ -171,7 +171,7 @@ export async function POST(req: Request) {
           ? await tx.attendance.update({
               where: { id: existingAttendance.id },
               data: {
-                status: "checked_in",
+                status: ATTENDANCE_STATUS.CHECKED_IN,
                 checkedInAt: now,
                 metadata: {
                   ...(toRecord(existingAttendance.metadata) || {}),
@@ -184,7 +184,7 @@ export async function POST(req: Request) {
               data: {
                 userId: dbUser.id,
                 sessionId: session.id,
-                status: "checked_in",
+                status: ATTENDANCE_STATUS.CHECKED_IN,
                 checkedInAt: now,
                 metadata: {
                   checkinSource: "qr_client_phone",
@@ -221,7 +221,7 @@ export async function POST(req: Request) {
       const points = await awardCheckInPoints(dbUser.id, context.courseSlug)
 
       return NextResponse.json({
-        status: "checked_in",
+        status: ATTENDANCE_STATUS.CHECKED_IN,
         attendance: {
           id: attendance.id,
           status: attendance.status,
@@ -270,7 +270,7 @@ export async function POST(req: Request) {
           data: {
             userId: dbUser.id,
             sessionId: session.id,
-            status: "checked_in",
+            status: ATTENDANCE_STATUS.CHECKED_IN,
             checkedInAt: now,
             metadata: {
               checkinSource: "qr_client_phone",
@@ -317,7 +317,7 @@ export async function POST(req: Request) {
       const points = await awardCheckInPoints(dbUser.id, context.courseSlug)
 
       return NextResponse.json({
-        status: "checked_in",
+        status: ATTENDANCE_STATUS.CHECKED_IN,
         attendance: {
           id: result.id,
           status: result.status,

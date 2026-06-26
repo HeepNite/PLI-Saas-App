@@ -7,6 +7,7 @@ import {
   ACTIVE_BOOKING_STATUSES,
   DEFAULT_CLASS_CAPACITY,
 } from "@/lib/bookings"
+import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import {
   buildSessionStartsAt,
   getCourseBySlug,
@@ -90,7 +91,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Booking not found" }, { status: 404 })
     }
 
-    if (currentAttendance.status !== "scheduled") {
+    if (currentAttendance.status !== ATTENDANCE_STATUS.SCHEDULED) {
       return NextResponse.json({ error: "Only scheduled classes can be changed" }, { status: 400 })
     }
 
@@ -171,7 +172,7 @@ export async function POST(req: Request) {
         where: { id: currentAttendance.id },
         data: {
           sessionId: targetSession.id,
-          status: "scheduled",
+          status: ATTENDANCE_STATUS.SCHEDULED,
           metadata: {
             ...(currentAttendance.metadata && typeof currentAttendance.metadata === "object"
               ? (currentAttendance.metadata as Record<string, unknown>)

@@ -11,8 +11,8 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 import { asObject, normalizePhoneDigits } from "@/lib/shared"
-import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
-import { FLOW_CONTEXT } from "@/lib/payment-constants"
+import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -32,9 +32,9 @@ const isCashPurchaseMetadata = (value: unknown) => {
   const paymentMethod = normalizeString(metadata.paymentMethod).toLowerCase()
   const source = normalizeString(metadata.source).toLowerCase()
   return (
-    paymentChannel === "cash" ||
+    paymentChannel === PAYMENT_CHANNEL.CASH ||
     paymentMethod === "onsite" ||
-    paymentMethod === "cash" ||
+    paymentMethod === PAYMENT_CHANNEL.CASH ||
     source === "cash_checkout"
   )
 }
@@ -293,7 +293,7 @@ export async function POST(req: Request) {
         ? await tx.attendance.update({
             where: { id: existingAttendance.id },
             data: {
-              status: "checked_in_no_package",
+              status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE,
               checkedInAt: now,
               metadata: {
                 ...previousMetadata,
@@ -308,7 +308,7 @@ export async function POST(req: Request) {
             data: {
               userId: dbUser.id,
               sessionId: session.id,
-              status: "checked_in_no_package",
+              status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE,
               checkedInAt: now,
               metadata: {
                 source: "qr_dropin_checkin",
@@ -374,7 +374,7 @@ export async function POST(req: Request) {
         purchaseId: dropInPurchase.id,
         paymentIntentId: dropInPurchase.stripePaymentIntentId,
         paymentStatus: dropInPurchase.status,
-        paymentMode: isCashPurchaseMetadata(dropInPurchase.metadata) ? "cash" : "card",
+        paymentMode: isCashPurchaseMetadata(dropInPurchase.metadata) ? PAYMENT_CHANNEL.CASH : PAYMENT_CHANNEL.CARD,
       },
       points: {
         awarded: result.pointsAwarded,
