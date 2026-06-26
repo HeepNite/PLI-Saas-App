@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
 
@@ -85,7 +86,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
         const actualCompleted = await tx.attendance.count({
           where: {
             userId,
-            status: { in: ["checked_in", "checked_in_no_package", "checked_out"] },
+            status: { in: [...ATTENDED_CHECKIN_STATUSES] },
           },
         })
 
@@ -113,7 +114,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
             where: {
               packagePurchaseId: activePackage.id,
               attendance: {
-                status: { in: ["checked_in", "checked_in_no_package", "checked_out"] },
+                status: { in: [...ATTENDED_CHECKIN_STATUSES] },
               },
             },
           })

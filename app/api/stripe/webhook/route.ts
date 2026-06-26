@@ -19,7 +19,8 @@ import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { normalizePhone } from "@/lib/shared"
-import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { pickStripeMetadata, parseIntSafe, normalize, type StripeMetadata } from "@/lib/stripe-metadata"
 
 export const runtime = "nodejs"
@@ -43,8 +44,8 @@ const resolveAttendanceStatusForFlow = (input: {
   metadata: StripeMetadata
   hasPackagePurchase?: boolean
 }) => {
-  if (!isTerminalFlow(input.metadata)) return "scheduled" as const
-  return input.hasPackagePurchase ? ("checked_in" as const) : ("checked_in_no_package" as const)
+  if (!isTerminalFlow(input.metadata)) return ATTENDANCE_STATUS.SCHEDULED
+  return input.hasPackagePurchase ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
 }
 
 const buildConsecutiveSplit = (input: {
@@ -81,12 +82,12 @@ const buildConsecutiveSplit = (input: {
 }
 
 const mergeCardSettlementMetadata = (metadata: Record<string, unknown>, status: string) => {
-  if (status !== "paid") return metadata
+  if (status !== SETTLEMENT_STATUS.PAID) return metadata
 
   return {
     ...metadata,
-    paymentChannel: "card",
-    settlementStatus: "paid",
+    paymentChannel: PAYMENT_CHANNEL.CARD,
+    settlementStatus: SETTLEMENT_STATUS.PAID,
     settledAt: normalize(metadata.settledAt as string | undefined) || new Date().toISOString(),
   }
 }

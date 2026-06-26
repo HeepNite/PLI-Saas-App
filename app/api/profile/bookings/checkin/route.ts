@@ -5,7 +5,7 @@ import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
-import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
+import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
 const CHECK_IN_OPEN_WINDOW_MS = 2 * 60 * 60 * 1000
@@ -149,7 +149,7 @@ export async function POST(req: Request) {
       })
     }
 
-    if (attendance.status !== "scheduled") {
+    if (attendance.status !== ATTENDANCE_STATUS.SCHEDULED) {
       return NextResponse.json(
         { error: "Only scheduled classes can be checked in." },
         { status: 400 }
@@ -161,7 +161,7 @@ export async function POST(req: Request) {
         ? (attendance.metadata as Record<string, unknown>)
         : {}
     const hasReservedPackage = Boolean(attendance.packageUsage?.packagePurchaseId)
-    const nextStatus = hasReservedPackage ? "checked_in" : "checked_in_no_package"
+    const nextStatus = hasReservedPackage ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
 
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendance.id },

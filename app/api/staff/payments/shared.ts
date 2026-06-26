@@ -54,9 +54,9 @@ export type PurchaseSource = (typeof PURCHASE_SOURCE)[keyof typeof PURCHASE_SOUR
 export const normalizePurchaseSource = (metadata: unknown): PurchaseSource => {
   const meta = asObject(metadata)
   const explicit = asText(meta.purchaseSource).toLowerCase()
-  if (explicit === "web") return PURCHASE_SOURCE.WEB
-  if (explicit === "kiosk") return PURCHASE_SOURCE.KIOSK
-  if (explicit === "front_desk") return PURCHASE_SOURCE.FRONT_DESK
+  if (explicit === PURCHASE_SOURCE.WEB) return PURCHASE_SOURCE.WEB
+  if (explicit === PURCHASE_SOURCE.KIOSK) return PURCHASE_SOURCE.KIOSK
+  if (explicit === PURCHASE_SOURCE.FRONT_DESK) return PURCHASE_SOURCE.FRONT_DESK
 
   const source = asText(meta.source).toLowerCase()
   if (source.includes("kiosk") || source.includes("terminal")) return PURCHASE_SOURCE.KIOSK
@@ -173,14 +173,14 @@ export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(pur
   return {
     paymentChannel,
     settlementStatus,
-    isOpen: settlementStatus !== "paid" && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === "cash"),
+    isOpen: settlementStatus !== SETTLEMENT_STATUS.PAID && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === PAYMENT_CHANNEL.CASH),
   }
 }
 
 export const isPendingProcessablePurchase = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
   const { paymentChannel, isOpen } = isOpenPurchase(purchase)
   if (!isOpen) return false
-  if (paymentChannel === "cash") return true
+  if (paymentChannel === PAYMENT_CHANNEL.CASH) return true
   return paymentChannel === "unknown" && !purchase.stripePaymentIntentId && !purchase.stripeCheckoutSessionId
 }
 

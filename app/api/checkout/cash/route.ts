@@ -13,7 +13,7 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -197,8 +197,8 @@ export async function POST(req: Request) {
             source: "cash_checkout",
             purchaseSource: resolveKioskPurchaseSource(photoContext),
             paymentMethod: "onsite",
-            paymentChannel: "cash",
-            settlementStatus: "pending",
+            paymentChannel: PAYMENT_CHANNEL.CASH,
+            settlementStatus: SETTLEMENT_STATUS.PENDING,
             settledAt: null,
             date: effectiveSession.date,
             time: effectiveSession.time,
@@ -250,8 +250,8 @@ export async function POST(req: Request) {
             source: "cash_checkout",
             purchaseSource: resolveKioskPurchaseSource(photoContext),
             paymentMethod: "onsite",
-            paymentChannel: "cash",
-            settlementStatus: "pending",
+            paymentChannel: PAYMENT_CHANNEL.CASH,
+            settlementStatus: SETTLEMENT_STATUS.PENDING,
             settledAt: null,
             date: effectiveSession.date,
             time: validation.consecutiveLinkedCourseTime ?? effectiveSession.time,
@@ -329,8 +329,8 @@ export async function POST(req: Request) {
         source: "cash_checkout",
         purchaseSource: resolveKioskPurchaseSource(photoContext),
         paymentMethod: "onsite",
-        paymentChannel: "cash",
-        settlementStatus: "pending",
+        paymentChannel: PAYMENT_CHANNEL.CASH,
+        settlementStatus: SETTLEMENT_STATUS.PENDING,
         settledAt: null,
         date: effectiveSession.date,
         time: effectiveSession.time,

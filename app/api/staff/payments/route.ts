@@ -6,6 +6,7 @@ import { buildStaffPaymentResponseRow } from "@/app/api/staff/payments/payments-
 import { getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
 import { loadStaffPaymentsData } from "@/app/api/staff/payments/payments-loader"
 import { isCompletedPaymentStatus } from "@/app/api/staff/payments/shared"
+import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -20,10 +21,10 @@ const buildPaymentsSummary = <TItem extends {
   totalCollected: items
     .filter((item) => isCompletedPaymentStatus(item.paymentStatus))
     .reduce((sum, item) => sum + item.amount, 0),
-  pendingSettlement: items.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "pending").length,
-  paidSettlement: items.filter((item) => item.paymentChannel === "cash" && item.settlementStatus === "paid").length,
-  pendingStripe: items.filter((item) => item.paymentChannel === "card" && !item.classPaid).length,
-  paidStripe: items.filter((item) => item.paymentChannel === "card" && item.classPaid).length,
+  pendingSettlement: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CASH && item.settlementStatus === SETTLEMENT_STATUS.PENDING).length,
+  paidSettlement: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CASH && item.settlementStatus === SETTLEMENT_STATUS.PAID).length,
+  pendingStripe: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CARD && !item.classPaid).length,
+  paidStripe: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CARD && item.classPaid).length,
 })
 
 export async function GET(req: Request) {

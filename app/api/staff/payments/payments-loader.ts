@@ -28,7 +28,8 @@ import {
   isStudentPinLifecycleEnabled,
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
-import { ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
+import { ATTENDED_CHECKIN_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 type StaffPaymentsTodayWindow = {
   todayNY: string
@@ -39,10 +40,10 @@ type StaffPaymentsTodayWindow = {
 const ATTENDED_CHECKIN_STATUS_SET = new Set<string>(ATTENDED_CHECKIN_STATUSES)
 
 const getAttendanceStatusRank = (status: string) => {
-  if (status === "checked_out") return 4
-  if (status === "checked_in") return 3
-  if (status === "checked_in_no_package") return 2
-  if (status === "scheduled") return 1
+  if (status === ATTENDANCE_STATUS.CHECKED_OUT) return 4
+  if (status === ATTENDANCE_STATUS.CHECKED_IN) return 3
+  if (status === ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE) return 2
+  if (status === ATTENDANCE_STATUS.SCHEDULED) return 1
   return 0
 }
 
@@ -304,8 +305,8 @@ const dedupEnrichedPurchasesBySlot = <TItem extends {
       bySlot.set(key, item)
       continue
     }
-    const existingIsCredit = asText(existing.metadata.paymentChannel) === "package_credit"
-    const newIsCredit = asText(item.metadata.paymentChannel) === "package_credit"
+    const existingIsCredit = asText(existing.metadata.paymentChannel) === PAYMENT_CHANNEL.PACKAGE_CREDIT
+    const newIsCredit = asText(item.metadata.paymentChannel) === PAYMENT_CHANNEL.PACKAGE_CREDIT
 
     if (existingIsCredit && !newIsCredit) {
       const creditMeta = existing.metadata as Record<string, unknown> | null
@@ -529,7 +530,7 @@ const loadTodayStaffPaymentsAttendances = async (input: {
           packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
         },
         userId: att.userId,
-        settlementStatus: "pending",
+        settlementStatus: SETTLEMENT_STATUS.PENDING,
         settlementNote: "",
         settledAt: null,
         classDate: todayNY,

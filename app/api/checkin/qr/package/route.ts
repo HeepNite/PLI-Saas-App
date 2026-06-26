@@ -14,8 +14,8 @@ import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-aut
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 import { normalizePhoneDigits } from "@/lib/shared"
-import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
-import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -322,7 +322,7 @@ export async function POST(req: Request) {
           data: {
             userId: dbUser.id,
             sessionId: session.id,
-            status: "checked_in_no_package",
+            status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE,
             checkedInAt: now,
             metadata: {
               source: "qr_package_consecutive_addon",
@@ -344,11 +344,11 @@ export async function POST(req: Request) {
             courseTitle: course.title,
             amount: recordedConsecutivePriceCents,
             currency: "usd",
-            status: consecutiveCashPayment ? "pending" : "paid",
+            status: consecutiveCashPayment ? SETTLEMENT_STATUS.PENDING : SETTLEMENT_STATUS.PAID,
             participants: 1,
             metadata: {
-              paymentChannel: consecutiveCashPayment ? "cash" : "consecutive_addon",
-              settlementStatus: consecutiveCashPayment ? "pending" : "paid",
+              paymentChannel: consecutiveCashPayment ? PAYMENT_CHANNEL.CASH : "consecutive_addon",
+              settlementStatus: consecutiveCashPayment ? SETTLEMENT_STATUS.PENDING : SETTLEMENT_STATUS.PAID,
               settledAt: consecutiveCashPayment ? null : undefined,
               date: context.date,
               time: context.time,
@@ -477,7 +477,7 @@ export async function POST(req: Request) {
         ? await tx.attendance.update({
             where: { id: existingAttendance.id },
             data: {
-              status: "checked_in",
+              status: ATTENDANCE_STATUS.CHECKED_IN,
               checkedInAt: now,
               metadata: {
                 ...previousMetadata,
@@ -491,7 +491,7 @@ export async function POST(req: Request) {
             data: {
               userId: dbUser.id,
               sessionId: session.id,
-              status: "checked_in",
+              status: ATTENDANCE_STATUS.CHECKED_IN,
               checkedInAt: now,
               metadata: {
                 source: "qr_package_checkin",

@@ -10,7 +10,8 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { buildSessionEndsAtUtc, findOverlappingRoomSession, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { findRoomAvailabilityConflict } from "@/lib/room-availability"
 import { buildCheckInUserLookupCriteria } from "./shared"
-import { ATTENDANCE_POINT_STATUSES, CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/attendance-constants"
+import { ATTENDANCE_STATUS, ATTENDANCE_POINT_STATUSES, CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/attendance-constants"
+import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
@@ -277,14 +278,14 @@ export async function POST(req: Request) {
       },
     },
     update: {
-      status: "checked_in",
+      status: ATTENDANCE_STATUS.CHECKED_IN,
       checkedInAt: new Date(),
       metadata: parsed.notes ? { notes: parsed.notes } : undefined,
     },
     create: {
       userId: user.id,
       sessionId: session.id,
-      status: "checked_in",
+      status: ATTENDANCE_STATUS.CHECKED_IN,
       metadata: parsed.notes ? { notes: parsed.notes } : undefined,
     },
   })
@@ -297,16 +298,16 @@ export async function POST(req: Request) {
   })
   const packagePurchase = packageResult.packagePurchase
 
-  const attendanceStatus = packagePurchase ? "checked_in" : "checked_in_no_package"
+  const attendanceStatus = packagePurchase ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
   const purchaseDate = getDateKeyInTimeZone(startsAt)
   const purchaseTime = getTimeKeyInTimeZone(startsAt)
 
   if (!packagePurchase) {
     await prisma.attendance.update({
       where: { id: attendance.id },
-      data: { status: "checked_in_no_package" },
+      data: { status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE },
     })
-    
+
     await prisma.purchase.create({
       data: {
         userId: user.id,
@@ -319,8 +320,8 @@ export async function POST(req: Request) {
         name: user.name || null,
         phone: user.phone || null,
         metadata: {
-          paymentChannel: "cash",
-          settlementStatus: "pending",
+          paymentChannel: PAYMENT_CHANNEL.CASH,
+          settlementStatus: SETTLEMENT_STATUS.PENDING,
           date: purchaseDate,
           time: purchaseTime,
           source: "staff_checkin_no_package",
@@ -474,7 +475,7 @@ export async function PATCH(req: Request) {
   const updatedAttendance = await prisma.attendance.update({
     where: { id: existingAttendance.id },
     data: {
-      status: "checked_out",
+      status: ATTENDANCE_STATUS.CHECKED_OUT,
       checkedOutAt: new Date(),
     },
     include: { session: true },
