@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
-import { auth, clerkClient } from "@clerk/nextjs/server"
+import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { normalizePhone } from "@/lib/shared"
+import { getCachedClerkUser } from "@/lib/clerk-users"
 import { pickStripeMetadata, parseIntSafe, normalize } from "@/lib/stripe-metadata"
 
 export const runtime = "nodejs"
@@ -71,8 +72,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Payment intent user mismatch" }, { status: 403 })
   }
 
-  const client = await clerkClient()
-  const clerkUser = await client.users.getUser(authResult.userId)
+  const clerkUser = await getCachedClerkUser(authResult.userId)
   const email = meta.email || intent.receipt_email || clerkUser.primaryEmailAddress?.emailAddress || undefined
   const phone =
     normalizePhone(meta.phone) ||
