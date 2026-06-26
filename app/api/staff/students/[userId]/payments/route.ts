@@ -35,25 +35,26 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   }
 
   try {
-    const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+    const [student, purchases] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { id: true } }),
+      prisma.purchase.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          courseSlug: true,
+          courseTitle: true,
+          amount: true,
+          currency: true,
+          status: true,
+          metadata: true,
+          createdAt: true,
+        },
+      }),
+    ])
     if (!student) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 })
     }
-
-    const purchases = await prisma.purchase.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        courseSlug: true,
-        courseTitle: true,
-        amount: true,
-        currency: true,
-        status: true,
-        metadata: true,
-        createdAt: true,
-      },
-    })
 
     const normalized = purchases.map((purchase) => {
       const metadata = asObject(purchase.metadata)

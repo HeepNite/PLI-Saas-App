@@ -81,19 +81,20 @@ export async function POST(req: Request) {
     email: parsed.email,
   })
 
-  const user = await prisma.user.findFirst({
-    where: {
-      OR: userSearchOr,
-    },
-  })
+  const [user, course] = await Promise.all([
+    prisma.user.findFirst({
+      where: {
+        OR: userSearchOr,
+      },
+    }),
+    prisma.courseCatalog.findUnique({
+      where: { slug: parsed.courseSlug },
+      select: { title: true, dropInPriceCents: true }
+    }),
+  ])
   if (!user) {
     return NextResponse.json({ error: "User not found" }, { status: 404 })
   }
-
-  const course = await prisma.courseCatalog.findUnique({
-    where: { slug: parsed.courseSlug },
-    select: { title: true, dropInPriceCents: true }
-  })
 
   const startsAt = parsed.startsAt || new Date()
   const durationMinutes = parsed.durationMinutes
@@ -346,15 +347,16 @@ export async function POST(req: Request) {
     })
   }
 
-  const checkedInCount = await prisma.attendance.count({
-    where: {
-      userId: user.id,
-      status: { in: ATTENDANCE_POINT_STATUSES },
-      session: { courseSlug: parsed.courseSlug },
-    },
-  })
-
-  const attendanceMilestoneEvery = await getAttendanceMilestoneClasses()
+  const [checkedInCount, attendanceMilestoneEvery] = await Promise.all([
+    prisma.attendance.count({
+      where: {
+        userId: user.id,
+        status: { in: ATTENDANCE_POINT_STATUSES },
+        session: { courseSlug: parsed.courseSlug },
+      },
+    }),
+    getAttendanceMilestoneClasses(),
+  ])
   let pointsAwarded = 0
   let attendanceMilestone = 0
   if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {

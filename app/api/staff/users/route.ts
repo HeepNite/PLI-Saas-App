@@ -430,25 +430,20 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
     .filter((user) => (shouldForcePerUserSessionLookup ? true : shouldVerifyUserActiveSession(user)))
 
   if (verificationCandidates.length > 0) {
-    const batches = chunkArray(verificationCandidates, 10)
-    for (const batch of batches) {
-      await Promise.all(
-        batch.map(async (user) => {
-          try {
-            const sessions = await client.sessions.getSessionList({
-              userId: user.id,
-              status: "active",
-              limit: 1,
-            })
-            if (sessions.data.length > 0) {
-              activeSessionUserIds.add(user.id)
-            }
-          } catch {
-            // Ignore per-user session lookup failure and keep fallback presence logic.
-          }
+    const results = await Promise.allSettled(
+      verificationCandidates.map(async (user) => {
+        const sessions = await client.sessions.getSessionList({
+          userId: user.id,
+          status: "active",
+          limit: 1,
         })
-      )
-    }
+        if (sessions.data.length > 0) {
+          activeSessionUserIds.add(user.id)
+        }
+      })
+    )
+    // Silently ignore per-user session lookup failures.
+    void results
   }
 
   let list = usersData

@@ -71,35 +71,31 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
     // Explicit course filter
     relevantCourseSlugs = [courseSlugParam]
   } else {
-    // Infer from user's purchases
-    const purchases = await prisma.purchase.findMany({
-      where: { userId },
-      select: { courseSlug: true },
-      distinct: ["courseSlug"],
-    })
-    relevantCourseSlugs = purchases.map((p) => p.courseSlug)
+    // Infer from user's purchases, attendances, and active packages in parallel
+    const [purchases, attendances, packages] = await Promise.all([
+      prisma.purchase.findMany({
+        where: { userId },
+        select: { courseSlug: true },
+        distinct: ["courseSlug"],
+      }),
+      prisma.attendance.findMany({
+        where: { userId },
+        select: { session: { select: { courseSlug: true } } },
+      }),
+      prisma.packagePurchase.findMany({
+        where: { userId, status: "active" },
+        select: { courseSlug: true },
+      }),
+    ])
 
-    // Also infer from existing attendances
-    const attendances = await prisma.attendance.findMany({
-      where: { userId },
-      select: { session: { select: { courseSlug: true } } },
-    })
+    const slugSet = new Set(purchases.map((p) => p.courseSlug))
     for (const a of attendances) {
-      if (a.session?.courseSlug && !relevantCourseSlugs.includes(a.session.courseSlug)) {
-        relevantCourseSlugs.push(a.session.courseSlug)
-      }
+      if (a.session?.courseSlug) slugSet.add(a.session.courseSlug)
     }
-
-    // Also from active package purchases
-    const packages = await prisma.packagePurchase.findMany({
-      where: { userId, status: "active" },
-      select: { courseSlug: true },
-    })
     for (const p of packages) {
-      if (p.courseSlug && !relevantCourseSlugs.includes(p.courseSlug)) {
-        relevantCourseSlugs.push(p.courseSlug)
-      }
+      if (p.courseSlug) slugSet.add(p.courseSlug)
     }
+    relevantCourseSlugs = [...slugSet]
   }
 
   // Build session query
