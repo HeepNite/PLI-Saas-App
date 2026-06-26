@@ -104,10 +104,10 @@ function FormView({
         onChange={(v) => onUpdateField("email", v)}
       />
       <FieldInput
-        label="Phone (E.164)"
+        label="Phone"
         icon={<Phone className="h-4 w-4" />}
         type="tel"
-        placeholder="+1 555 123 4567"
+        placeholder="1 555 123 4567"
         value={form.phone}
         onChange={(v) => onUpdateField("phone", v)}
       />
