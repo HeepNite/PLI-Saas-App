@@ -1,6 +1,6 @@
-import { clerkClient } from "@clerk/nextjs/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { getCachedClerkUser } from "@/lib/clerk-users"
 import { asObject } from "@/lib/shared"
 import { apiError, readJsonBody as _readJsonBody } from "@/lib/api-response"
 
@@ -29,20 +29,36 @@ export const jsonError = apiError
 
 export const readJsonBody = _readJsonBody
 
+const resolveSchoolIdFromMetadata = (metadata: unknown): string | null => {
+  const record = asObject(metadata)
+
+  return asOptionalString(record.schoolId) || asOptionalString(record.staffSchoolId)
+}
+
 export async function resolveSchoolIdForClerkUser(userId: string): Promise<string | null> {
-  const client = await clerkClient()
-  const user = await client.users.getUser(userId)
-  const publicMetadata = asObject(user.publicMetadata)
-  const privateMetadata = asObject(user.privateMetadata)
+  const staffAccount = await prisma.staffAccount.findUnique({
+    where: { clerkUserId: userId },
+    select: {
+      metadata: true,
+      paymentModel: {
+        select: { schoolId: true },
+      },
+    },
+  })
 
   const resolvedId =
-    asOptionalString(publicMetadata.schoolId) ||
-    asOptionalString(publicMetadata.staffSchoolId) ||
-    asOptionalString(privateMetadata.schoolId) ||
-    asOptionalString(privateMetadata.staffSchoolId)
+    resolveSchoolIdFromMetadata(staffAccount?.metadata) ||
+    asOptionalString(staffAccount?.paymentModel?.schoolId)
+
+  if (resolvedId) return resolvedId
+
+  const clerkUser = await getCachedClerkUser(userId)
+  const clerkSchoolId =
+    resolveSchoolIdFromMetadata(clerkUser.publicMetadata) ||
+    resolveSchoolIdFromMetadata(clerkUser.privateMetadata)
 
   // Fallback for local testing or when metadata is missing
-  return resolvedId || "default-school"
+  return clerkSchoolId || "default-school"
 }
 
 export async function currencyExists(code: string): Promise<boolean> {

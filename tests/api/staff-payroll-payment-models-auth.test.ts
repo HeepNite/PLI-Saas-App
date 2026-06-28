@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockAuthorizeOwnerRequest = vi.fn()
 const mockAuthorizeStaffPortalRequest = vi.fn()
 const mockClerkClient = vi.fn()
+const mockClerkGetUser = vi.fn()
 const mockWritePayrollAudit = vi.fn()
 
 const mockPrisma = {
@@ -40,7 +41,7 @@ describe("payment models auth gates", () => {
 
     mockClerkClient.mockResolvedValue({
       users: {
-        getUser: vi.fn().mockResolvedValue({ publicMetadata: { schoolId: "school_1" }, privateMetadata: {} }),
+        getUser: mockClerkGetUser.mockResolvedValue({ publicMetadata: { schoolId: "school_1" }, privateMetadata: {} }),
       },
     })
     mockPrisma.currency.findUnique.mockResolvedValue({ code: "ARS" })
@@ -56,6 +57,8 @@ describe("payment models auth gates", () => {
     mockPrisma.staffAccount.findUnique.mockResolvedValue({
       id: "staff_1",
       clerkUserId: "staff_user_1",
+      metadata: { schoolId: "school_1" },
+      paymentModel: null,
       paymentModelId: "model_old",
       hourlyRate: 100,
       paydayWeekday: 2,
@@ -81,6 +84,21 @@ describe("payment models auth gates", () => {
       const res = await GET()
 
       expect(res.status).toBe(200)
+    })
+
+    it("resolves school context from the local staff mirror without calling Clerk", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "owner_1", role: "owner", category: "manager" })
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+
+      expect(res.status).toBe(200)
+      expect(mockPrisma.staffAccount.findUnique).toHaveBeenCalledWith({
+        where: { clerkUserId: "owner_1" },
+        select: { metadata: true, paymentModel: { select: { schoolId: true } } },
+      })
+      expect(mockClerkClient).not.toHaveBeenCalled()
+      expect(mockClerkGetUser).not.toHaveBeenCalled()
     })
 
     it("admin+manager can view payment models", async () => {

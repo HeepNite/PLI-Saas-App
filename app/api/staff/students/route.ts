@@ -45,10 +45,11 @@ const parseAmountCents = (value: unknown): number | null => {
 
 const normalizeStaffPhone = (value: string | undefined) => {
   if (!value) return undefined
+  const trimmed = value.trim()
   const digits = value.replace(/\D/g, "")
 
-  if (value.trim().startsWith("+")) {
-    return /^1\d{10}$/.test(digits) ? `+${digits}` : null
+  if (trimmed.startsWith("+")) {
+    return /^\+[\d\s().-]+$/.test(trimmed) && /^[1-9]\d{7,14}$/.test(digits) ? `+${digits}` : null
   }
 
   return /^\d{10}$/.test(digits) ? `+1${digits}` : null
@@ -70,7 +71,7 @@ const parsePayload = (body: unknown): ParseResult => {
     return { ok: false, error: "Invalid email." }
   }
   if (phoneInput && !phone) {
-    return { ok: false, error: "Enter a valid US phone number with 10 digits or +1 followed by 10 digits." }
+    return { ok: false, error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." }
   }
   if (!email && !phone) {
     return { ok: false, error: "Provide an email or phone number." }

@@ -93,6 +93,8 @@ describe("staff payroll payment models routes", () => {
     mockPrisma.staffAccount.findUnique.mockResolvedValue({
       id: "staff_1",
       clerkUserId: "staff_user_1",
+      metadata: { schoolId: "school_1" },
+      paymentModel: null,
       paymentModelId: "model_old",
       hourlyRate: 100,
       paydayWeekday: 2,

@@ -236,11 +236,37 @@ describe("POST /api/staff/students", () => {
     expect(mockEnsureClerkUser).toHaveBeenCalledWith({ email: undefined, phone: "+12015398283", name: "US Student" })
   })
 
+  it("accepts valid international E.164 phone numbers", async () => {
+    const res = await postCreateStudent({ phone: "+5491123456789", name: "International Student" })
+
+    expect(res.status).toBe(201)
+    expect(mockFindClerkUserByIdentifiers).toHaveBeenCalledWith({ email: undefined, phone: "+5491123456789" })
+    expect(mockEnsureClerkUser).toHaveBeenCalledWith({ email: undefined, phone: "+5491123456789", name: "International Student" })
+  })
+
   it("rejects malformed phone numbers before calling Clerk", async () => {
     const res = await postCreateStudent({ phone: "201-539", name: "Bad Phone" })
 
     expect(res.status).toBe(400)
-    await expect(res.json()).resolves.toEqual({ error: "Enter a valid US phone number with 10 digits or +1 followed by 10 digits." })
+    await expect(res.json()).resolves.toEqual({ error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." })
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+  })
+
+  it("rejects malformed + phone numbers before calling Clerk", async () => {
+    const res = await postCreateStudent({ phone: "+0123456789", name: "Bad International Phone" })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." })
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+  })
+
+  it("rejects short + phone numbers before calling Clerk", async () => {
+    const res = await postCreateStudent({ phone: "+1234567", name: "Short International Phone" })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." })
     expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
     expect(mockEnsureClerkUser).not.toHaveBeenCalled()
   })
