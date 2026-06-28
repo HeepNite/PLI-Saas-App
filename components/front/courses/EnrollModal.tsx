@@ -452,13 +452,6 @@ export default function EnrollModal({
     user?.primaryEmailAddress?.emailAddress,
     user?.primaryPhoneNumber?.phoneNumber,
   ])
-  const { openInitializationRef, prefillContactRef, prefillSelectionRef, userContactRef } = useEnrollInit({
-    open,
-    prefillContact,
-    prefillSelection,
-    userContact: currentUserContact,
-    setKioskStepHydrating,
-  })
   React.useEffect(() => {
     if (!isCheckInFlow || !open) return
     setCheckInNow(new Date())
@@ -468,6 +461,11 @@ export default function EnrollModal({
 
   const signInReturnTo = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
+  const initialServiceId = React.useMemo(() => {
+    if (isCheckInNewFlow) return forcedNewStudentServiceId
+    if (isCheckInExistingFlow) return regularServiceId
+    return availableServices[0]?.id ?? ""
+  }, [availableServices, forcedNewStudentServiceId, isCheckInExistingFlow, isCheckInNewFlow, regularServiceId])
 
   const setService = React.useCallback((value: React.SetStateAction<string>) => {
     dispatchFlow({ type: "field/set-service", value })
@@ -520,6 +518,52 @@ export default function EnrollModal({
   const setSignInPurpose = React.useCallback((value: React.SetStateAction<EnrollFlowState["signInPurpose"]>) => {
     dispatchFlow({ type: "field/set-sign-in-purpose", value })
   }, [])
+
+  useEnrollInit({
+    open,
+    prefillContact,
+    prefillSelection,
+    userContact: currentUserContact,
+    setKioskStepHydrating,
+    course,
+    sourceCourses,
+    availableServices,
+    draftKey,
+    useDraft,
+    initialServiceId,
+    isCheckInNewFlow,
+    isCheckInFlow,
+    isCheckInExistingFlow,
+    isKioskTerminalFlow,
+    isQrMobileCompactFlow,
+    checkInContextDate,
+    checkInContextTime,
+    effectiveInitialStep,
+    kioskFastPathAdvanceTriggeredRef,
+    kioskFastPathSubmitTriggeredRef,
+    setService,
+    setPkg,
+    setAddons,
+    setParticipants,
+    setDate,
+    setTime,
+    setContact,
+    setCouponInput,
+    setAppliedCoupon,
+    setPaymentMethod,
+    setStep,
+    setCheckInScheduleNotice,
+    setRequiresSignIn,
+    setExistingAccountDetected,
+    setResumeAfterSignInStep,
+    setPendingAutoPay,
+    setIdentityCheckBusy,
+    setPhoneTouched,
+    setStripeClientSecret,
+    setShowStripeModal,
+    setKioskQrCheckout,
+    setFormError,
+  })
 
   useEnrollDraft({
     open: useDraft ? open : false,
@@ -794,130 +838,6 @@ export default function EnrollModal({
       phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
     }))
   }, [isCheckInNewFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
-
-  const initialServiceId = React.useMemo(() => {
-    if (isCheckInNewFlow) return forcedNewStudentServiceId
-    if (isCheckInExistingFlow) return regularServiceId
-    return availableServices[0]?.id ?? ""
-  }, [availableServices, forcedNewStudentServiceId, isCheckInExistingFlow, isCheckInNewFlow, regularServiceId])
-
-  React.useEffect(() => {
-    if (!open) return
-    if (typeof window === "undefined") return
-    if (openInitializationRef.current) return
-    const hasDraft = useDraft ? sessionStorage.getItem(draftKey) : null
-    if (useDraft && hasDraft) {
-      openInitializationRef.current = true
-      setKioskStepHydrating(false)
-      return
-    }
-    setKioskStepHydrating(isKioskTerminalFlow && isCheckInExistingFlow)
-    if (!useDraft) {
-      sessionStorage.removeItem(draftKey)
-    }
-    openInitializationRef.current = true
-    const userContact = userContactRef.current
-    const initialContact: EnrollmentContact = isCheckInNewFlow
-      ? {
-          firstName: "",
-          lastName: "",
-          email: "",
-          phone: "+1 ",
-          note: "",
-        }
-        : {
-            firstName: prefillContactRef.current?.firstName ?? userContact.firstName ?? "",
-            lastName: prefillContactRef.current?.lastName ?? userContact.lastName ?? "",
-            email: prefillContactRef.current?.email ?? userContact.email ?? "",
-            phone: normalizeEnrollPhonePrefill(prefillContactRef.current?.phone ?? userContact.phone),
-            note: prefillContactRef.current?.note ?? "",
-          }
-    const shouldAutofillDateTime = isCheckInFlow || Boolean(checkInContextDate || checkInContextTime)
-    const todayOnlyAutofill = isKioskTerminalFlow || isQrMobileCompactFlow
-    const checkInAutofill = shouldAutofillDateTime
-      ? computeCheckInAutofill(course.slug, sourceCourses, {
-          date: checkInContextDate,
-          time: checkInContextTime,
-        }, undefined, todayOnlyAutofill)
-      : { date: "", time: "", notice: null as string | null }
-    const nextService =
-      prefillSelectionRef.current?.service &&
-      availableServices.some((item) => item.id === prefillSelectionRef.current?.service)
-        ? prefillSelectionRef.current.service
-        : initialServiceId
-    const nextPackage =
-      prefillSelectionRef.current?.packageId &&
-      course.enrollment.packages.some((item) => item.id === prefillSelectionRef.current?.packageId)
-        ? prefillSelectionRef.current.packageId
-        : ""
-    const nextAddons = (prefillSelectionRef.current?.addons || []).filter((id) =>
-      course.enrollment.addons?.some((item) => item.id === id)
-    )
-    const nextParticipants =
-      typeof prefillSelectionRef.current?.participants === "number" &&
-      Number.isFinite(prefillSelectionRef.current.participants)
-        ? Math.max(1, Math.min(10, Math.round(prefillSelectionRef.current.participants)))
-        : 1
-    setService(nextService)
-    setPkg(nextPackage)
-    setAddons(nextAddons)
-    setParticipants(nextParticipants)
-    setDate(checkInAutofill.date)
-    setTime(checkInAutofill.time)
-    setContact(initialContact)
-    setCouponInput("")
-    setAppliedCoupon(null)
-    setPaymentMethod(prefillSelectionRef.current?.paymentMethod || "")
-    setStep(effectiveInitialStep)
-    setCheckInScheduleNotice(checkInAutofill.notice)
-    setRequiresSignIn(false)
-    setExistingAccountDetected(false)
-    setResumeAfterSignInStep(null)
-    setPendingAutoPay(false)
-    setIdentityCheckBusy(false)
-    setPhoneTouched(false)
-    setStripeClientSecret("")
-    setShowStripeModal(false)
-    setKioskQrCheckout(createEmptyKioskQrCheckoutState())
-    setFormError(null)
-    kioskFastPathAdvanceTriggeredRef.current = false
-    kioskFastPathSubmitTriggeredRef.current = false
-    setKioskStepHydrating(false)
-  }, [
-    open,
-    course.slug,
-    draftKey,
-    useDraft,
-    initialServiceId,
-    availableServices,
-    course.enrollment.addons,
-    course.enrollment.packages,
-    isCheckInNewFlow,
-    isCheckInFlow,
-    isCheckInExistingFlow,
-    isKioskTerminalFlow,
-    isQrMobileCompactFlow,
-    checkInContextDate,
-    checkInContextTime,
-    effectiveInitialStep,
-    openInitializationRef,
-    prefillContactRef,
-    prefillSelectionRef,
-    userContactRef,
-    setAddons,
-    setContact,
-    setExistingAccountDetected,
-    setFormError,
-    setKioskQrCheckout,
-    setParticipants,
-    setPaymentMethod,
-    setPkg,
-    setRequiresSignIn,
-    setResumeAfterSignInStep,
-    setService,
-    setStep,
-    sourceCourses,
-  ])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
