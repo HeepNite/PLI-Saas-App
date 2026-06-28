@@ -13,76 +13,18 @@ interface SkippedStaff {
   reason: string
 }
 
+interface ResolvedPaymentModel {
+  modelId: string
+  hourlyRate: number
+  currency: string
+  paymentMethodId: string | null
+  paydayWeekday: number
+}
+
 async function getSchoolIdFromUserId(userId: string): Promise<string | null> {
   // Import here to avoid circular dependency
   const { resolveSchoolIdForClerkUser } = await import("@/lib/payroll/route-helpers")
   return resolveSchoolIdForClerkUser(userId)
-}
-
-async function resolveEffectivePaymentModel(staffAccountId: string, schoolId: string | null) {
-  const staffAccount = await prisma.staffAccount.findUnique({
-    where: { id: staffAccountId },
-    select: {
-      paymentModelId: true,
-    },
-  })
-
-  if (!staffAccount) {
-    return null
-  }
-
-  if (staffAccount.paymentModelId) {
-    const model = await prisma.staffPaymentModel.findUnique({
-      where: { id: staffAccount.paymentModelId },
-      select: { 
-        id: true, 
-        hourlyRate: true, 
-        currency: true, 
-        defaultPaymentMethodId: true,
-        paydayWeekday: true,
-      },
-    })
-    if (model) {
-      return {
-        modelId: model.id,
-        hourlyRate: model.hourlyRate,
-        currency: model.currency,
-        paymentMethodId: model.defaultPaymentMethodId,
-        paydayWeekday: model.paydayWeekday,
-      }
-    }
-  }
-
-  if (!schoolId) {
-    return null
-  }
-
-  const defaultModel = await prisma.staffPaymentModel.findFirst({
-    where: {
-      schoolId,
-      isDefault: true,
-      active: true,
-    },
-    select: { 
-      id: true, 
-      hourlyRate: true, 
-      currency: true, 
-      defaultPaymentMethodId: true,
-      paydayWeekday: true,
-    },
-  })
-
-  if (!defaultModel) {
-    return null
-  }
-
-  return {
-    modelId: defaultModel.id,
-    hourlyRate: defaultModel.hourlyRate,
-    currency: defaultModel.currency,
-    paymentMethodId: defaultModel.defaultPaymentMethodId,
-    paydayWeekday: defaultModel.paydayWeekday,
-  }
 }
 
 async function getActiveStaffAccounts(schoolId: string | null) {
@@ -90,7 +32,7 @@ async function getActiveStaffAccounts(schoolId: string | null) {
   if (schoolId) {
     whereClause.schoolId = schoolId
   }
-  
+
   return prisma.staffAccount.findMany({
     where: {
       ...whereClause,
@@ -104,23 +46,90 @@ async function getActiveStaffAccounts(schoolId: string | null) {
   })
 }
 
-async function checkForApprovedSuspension(
-  prismaClient: typeof prisma,
-  staffAccountId: string,
+/**
+ * Batch-resolve payment models for all staff accounts in 2 queries
+ * instead of 2-3 queries per staff member.
+ */
+async function batchResolvePaymentModels(
+  staffAccounts: Array<{ id: string; paymentModelId: string | null }>,
+  schoolId: string | null,
+): Promise<Map<string, ResolvedPaymentModel>> {
+  const modelIds = [...new Set(
+    staffAccounts.map((s) => s.paymentModelId).filter((id): id is string => Boolean(id))
+  )]
+
+  // Batch 1: fetch all referenced payment models + default model in parallel
+  const [assignedModels, defaultModel] = await Promise.all([
+    modelIds.length
+      ? prisma.staffPaymentModel.findMany({
+          where: { id: { in: modelIds } },
+          select: {
+            id: true,
+            hourlyRate: true,
+            currency: true,
+            defaultPaymentMethodId: true,
+            paydayWeekday: true,
+          },
+        })
+      : Promise.resolve([]),
+    schoolId
+      ? prisma.staffPaymentModel.findFirst({
+          where: { schoolId, isDefault: true, active: true },
+          select: {
+            id: true,
+            hourlyRate: true,
+            currency: true,
+            defaultPaymentMethodId: true,
+            paydayWeekday: true,
+          },
+        })
+      : Promise.resolve(null),
+  ])
+
+  const modelById = new Map(assignedModels.map((m) => [m.id, m]))
+
+  const result = new Map<string, ResolvedPaymentModel>()
+  for (const staff of staffAccounts) {
+    const model = staff.paymentModelId ? modelById.get(staff.paymentModelId) : null
+    const resolved = model ?? defaultModel
+    if (resolved) {
+      result.set(staff.id, {
+        modelId: resolved.id,
+        hourlyRate: resolved.hourlyRate,
+        currency: resolved.currency,
+        paymentMethodId: resolved.defaultPaymentMethodId,
+        paydayWeekday: resolved.paydayWeekday,
+      })
+    }
+  }
+
+  return result
+}
+
+/**
+ * Batch-check suspensions for all staff accounts in 1 query
+ * instead of 1 query per staff member.
+ */
+async function batchCheckSuspensions(
+  staffIds: string[],
   periodStart: Date,
-  periodEnd: Date
-): Promise<boolean> {
-  const suspensionCount = await prismaClient.staffUnavailabilityRequest.count({
+  periodEnd: Date,
+): Promise<Set<string>> {
+  if (staffIds.length === 0) return new Set()
+
+  const suspensions = await prisma.staffUnavailabilityRequest.findMany({
     where: {
-      staffAccountId,
+      staffAccountId: { in: staffIds },
       type: UNAVAILABILITY_TYPES.SUSPENSION,
       status: UNAVAILABILITY_STATUSES.APPROVED,
       startDate: { lte: periodEnd },
       endDate: { gte: periodStart },
-    }
+    },
+    select: { staffAccountId: true },
+    distinct: ["staffAccountId"],
   })
-  
-  return suspensionCount > 0
+
+  return new Set(suspensions.map((s) => s.staffAccountId))
 }
 
 function calculateNextPayday(
@@ -189,97 +198,85 @@ export async function POST(req: Request) {
 
   // Get school ID from the authenticated user
   const schoolId = await getSchoolIdFromUserId(authResult.userId)
-  
-  // Fetch all active staff accounts for the school
+
+  // Batch: fetch staff accounts, then payment models + suspensions in parallel
   const staffAccounts = await getActiveStaffAccounts(schoolId)
-  
+  const staffIds = staffAccounts.map((s) => s.id)
+
+  const [paymentModelMap, suspendedStaffIds] = await Promise.all([
+    batchResolvePaymentModels(staffAccounts, schoolId),
+    batchCheckSuspensions(staffIds, periodStartDate, periodEndDate),
+  ])
+
   const results = {
     created: 0,
     skipped: [] as SkippedStaff[],
     errors: [] as Array<{ staffId: string; error: string }>
   }
-  
-  // Process each staff account
+
+  // Pre-filter: resolve skips and errors synchronously before doing any DB writes
+  const staffToProcess: Array<{ id: string; paymentModel: ResolvedPaymentModel }> = []
+
   for (const staffAccount of staffAccounts) {
-    try {
-      // Resolve effective payment model
-      const paymentModel = await resolveEffectivePaymentModel(staffAccount.id, schoolId)
-      
-      if (!paymentModel) {
-        results.errors.push({
-          staffId: staffAccount.id,
-          error: "No payment model found for staff member"
-        })
-        continue
-      }
-      
-      // Check if paydayWeekday reached for current week
-      // We'll consider the periodEnd date to determine if we should process this pay period
-      const nextPayday = calculateNextPayday(periodStartDate, paymentModel.paydayWeekday)
-      
-      // For simplicity, we'll process if the periodEnd is on or after the calculated payday
-      // In a real implementation, you might want to check if today is the payday
-      const shouldProcess = periodEndDate >= nextPayday
-      
-      if (!shouldProcess) {
-        results.skipped.push({
-          staffId: staffAccount.id,
-          reason: "Payday not reached for current week"
-        })
-        continue
-      }
-      
-      // Check for approved suspension overlap
-      const hasSuspension = await checkForApprovedSuspension(
-        prisma,
-        staffAccount.id,
-        periodStartDate,
-        periodEndDate
-      )
-      
-      if (hasSuspension) {
-        results.skipped.push({
-          staffId: staffAccount.id,
-          reason: "Approved suspension overlaps with period"
-        })
-        continue
-      }
-      
-      // If dryRun, skip actual creation but count as would-be created
-      if (dryRun) {
-        results.created++
-        continue
-      }
-      
-      // P0: auto-close open clock entries before deriving hours (idempotent)
+    const paymentModel = paymentModelMap.get(staffAccount.id)
+
+    if (!paymentModel) {
+      results.errors.push({
+        staffId: staffAccount.id,
+        error: "No payment model found for staff member"
+      })
+      continue
+    }
+
+    const nextPayday = calculateNextPayday(periodStartDate, paymentModel.paydayWeekday)
+    if (periodEndDate < nextPayday) {
+      results.skipped.push({
+        staffId: staffAccount.id,
+        reason: "Payday not reached for current week"
+      })
+      continue
+    }
+
+    if (suspendedStaffIds.has(staffAccount.id)) {
+      results.skipped.push({
+        staffId: staffAccount.id,
+        reason: "Approved suspension overlaps with period"
+      })
+      continue
+    }
+
+    if (dryRun) {
+      results.created++
+      continue
+    }
+
+    staffToProcess.push({ id: staffAccount.id, paymentModel })
+  }
+
+  // Process remaining staff in parallel (close → derive → create per staff)
+  const processResults = await Promise.allSettled(
+    staffToProcess.map(async ({ id, paymentModel }) => {
       await closeOpenClockEntriesForPayroll(prisma, {
-        staffAccountId: staffAccount.id,
+        staffAccountId: id,
         periodStart: periodStartDate,
         periodEnd: periodEndDate,
         source: "payroll-run-payday",
       })
 
-      // Calculate hours worked using the existing function
-      const hoursResult = await deriveHoursWorked(
+      const { hoursWorked } = await deriveHoursWorked(
         prisma,
-        staffAccount.id,
+        id,
         periodStartDate,
         periodEndDate
       )
-      const hoursWorked = hoursResult.hoursWorked
-      
-      // Calculate bonus amount (simplified - in reality this would be more complex)
-      // For now, we'll set bonus to 0 as the B04 logic would handle this separately
+
       const bonusAmount = 0
-      
-      // Calculate amounts
       const grossAmount = Math.ceil(hoursWorked * paymentModel.hourlyRate * 100)
       const totalAmount = grossAmount + bonusAmount
-      
-      // Create payroll entry
+
       await prisma.staffPayrollEntry.create({
         data: {
-          staffAccountId: staffAccount.id,
+          staffAccountId: id,
           periodStart: periodStartDate,
           periodEnd: periodEndDate,
           hoursWorked,
@@ -293,16 +290,24 @@ export async function POST(req: Request) {
           paymentModelId: paymentModel.modelId,
         }
       })
-      
+
+      return id
+    })
+  )
+
+  for (let i = 0; i < processResults.length; i++) {
+    const result = processResults[i]
+    if (result.status === "fulfilled") {
       results.created++
-    } catch (error) {
-      console.error(`Error processing staff ${staffAccount.id}:`, error)
+    } else {
+      const staffId = staffToProcess[i].id
+      console.error(`Error processing staff ${staffId}:`, result.reason)
       results.errors.push({
-        staffId: staffAccount.id,
-        error: error instanceof Error ? error.message : "Unknown error"
+        staffId,
+        error: result.reason instanceof Error ? result.reason.message : "Unknown error"
       })
     }
   }
-  
+
   return NextResponse.json(results)
 }
