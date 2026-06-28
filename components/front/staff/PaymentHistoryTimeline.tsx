@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect, useCallback, useState } from "react"
+import { useMounted } from "@/components/front/hooks/useMounted"
 import { useGSAP } from "@gsap/react"
 import gsap from "gsap"
 import {
@@ -304,7 +305,7 @@ export default function PaymentHistoryTimeline({
   const popoverRef = useRef<HTMLDivElement>(null)
   const lineRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<PopoverPosition | null>(null)
-  const [mounted, setMounted] = useState(false)
+  const mounted = useMounted()
 
   const handleClose = useCallback(() => {
     if (!isOpen) return
@@ -341,11 +342,6 @@ export default function PaymentHistoryTimeline({
       window.removeEventListener("scroll", updatePosition, true)
     }
   }, [isOpen, anchorEl])
-
-  // Mark mounted for SSR safety
-  useEffect(() => {
-    setMounted(true)
-  }, [])
 
   // GSAP animations
   useGSAP(
