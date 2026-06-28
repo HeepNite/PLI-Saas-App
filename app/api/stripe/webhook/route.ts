@@ -138,62 +138,50 @@ async function resolveUser(params: {
   })
 }
 
-async function handleCheckoutSession(session: Stripe.Checkout.Session) {
-  const meta = pickStripeMetadata(session.metadata)
-  const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
-  const email = meta.email || session.customer_details?.email || session.customer_email || undefined
-  const purchaseName = session.customer_details?.name || meta.name || undefined
-  const phone =
-    normalizePhone(meta.phone) ||
-    normalizePhone(meta.phoneRaw) ||
-    normalizePhone(session.customer_details?.phone) ||
-    undefined
-  const stripeCustomerId = typeof session.customer === "string" ? session.customer : undefined
-  const paymentIntentId =
-    typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id
+type ResolvedUser = NonNullable<Awaited<ReturnType<typeof resolveUser>>>
 
-  const user = await resolveUser({
-    clerkId,
+type UpsertWhere =
+  | { stripeCheckoutSessionId: string }
+  | { stripePaymentIntentId: string }
+
+interface ProcessPaidEventParams {
+  upsertWhere: UpsertWhere
+  upsertCreateIds: { stripeCheckoutSessionId?: string; stripePaymentIntentId?: string }
+  existingMetadata: Prisma.JsonValue | undefined | null
+  incomingRawMeta: Record<string, unknown> | null | undefined
+  meta: StripeMetadata
+  user: ResolvedUser
+  amount: number
+  currency: string
+  status: string
+  purchaseName: string | undefined
+  email: string | undefined
+  phone: string | undefined
+  source: "stripe_webhook_checkout" | "stripe_webhook_intent"
+}
+
+async function processPaidStripeEvent(params: ProcessPaidEventParams) {
+  const {
+    upsertWhere,
+    upsertCreateIds,
+    existingMetadata,
+    incomingRawMeta,
+    meta,
+    user,
+    amount,
+    currency,
+    status,
+    purchaseName,
     email,
-    name: undefined,
     phone,
-    stripeCustomerId,
-  })
+    source,
+  } = params
 
-  if (!user) {
-    console.warn("Stripe webhook: user resolution failed", { clerkId, email })
-    return
-  }
-
-  const amount = session.amount_total ?? 0
-  const currency = session.currency || "usd"
-  const status = normalizePersistedPurchaseStatus(session.payment_status)
   const participants = parseIntSafe(meta.participants)
   const courseSlug = meta.courseSlug || "unknown"
   const split = buildConsecutiveSplit({ totalAmount: amount, metadata: meta })
 
-  // If the payment_intent.succeeded handler already created a Purchase for this PI,
-  // link it to the checkout session so the upsert below finds it instead of creating a duplicate.
-  if (paymentIntentId) {
-    const existingByIntent = await prisma.purchase.findUnique({
-      where: { stripePaymentIntentId: paymentIntentId },
-      select: { id: true, stripeCheckoutSessionId: true },
-    })
-    if (existingByIntent && !existingByIntent.stripeCheckoutSessionId) {
-      await prisma.purchase.update({
-        where: { id: existingByIntent.id },
-        data: { stripeCheckoutSessionId: session.id },
-      })
-    }
-  }
-
-  // Fetch existing metadata to avoid clobbering stripeFailure on success
-  const existingPurchase = await prisma.purchase.findUnique({
-    where: { stripeCheckoutSessionId: session.id },
-    select: { metadata: true },
-  })
-  const incomingMeta = session.metadata as Record<string, unknown> | null | undefined
-  const baseMeta = mergeMetadataPreservingFailure(existingPurchase?.metadata, incomingMeta)
+  const baseMeta = mergeMetadataPreservingFailure(existingMetadata, incomingRawMeta)
   const mergedMetadata = mergeCardSettlementMetadata(
     status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta,
     status,
@@ -205,9 +193,9 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   }
 
   const purchase = await prisma.purchase.upsert({
-    where: { stripeCheckoutSessionId: session.id },
+    where: upsertWhere as Parameters<typeof prisma.purchase.upsert>[0]["where"],
     update: {
-      stripePaymentIntentId: paymentIntentId,
+      ...upsertCreateIds,
       status,
       amount: split.primaryAmount,
       currency,
@@ -225,8 +213,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
     },
     create: {
       userId: user.id,
-      stripeCheckoutSessionId: session.id,
-      stripePaymentIntentId: paymentIntentId,
+      ...upsertCreateIds,
       status,
       amount: split.primaryAmount,
       currency,
@@ -323,7 +310,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
         },
         hasPackagePurchase: Boolean(packagePurchase?.id),
       }),
-      source: "stripe_webhook_checkout",
+      source,
     })
 
     if (split.hasConsecutiveSplit && consecutivePurchase?.id) {
@@ -342,7 +329,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
           },
           hasPackagePurchase: false,
         }),
-        source: "stripe_webhook_checkout",
+        source,
       })
     }
 
@@ -356,11 +343,83 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
           purchaseId: purchase.id,
           packagePurchaseId: packagePurchase.id,
           packageId: packagePurchase.packageId,
-          source: "stripe_webhook_checkout",
+          source,
         },
       })
     }
   }
+}
+
+async function handleCheckoutSession(session: Stripe.Checkout.Session) {
+  const meta = pickStripeMetadata(session.metadata)
+  const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
+  const email = meta.email || session.customer_details?.email || session.customer_email || undefined
+  const purchaseName = session.customer_details?.name || meta.name || undefined
+  const phone =
+    normalizePhone(meta.phone) ||
+    normalizePhone(meta.phoneRaw) ||
+    normalizePhone(session.customer_details?.phone) ||
+    undefined
+  const stripeCustomerId = typeof session.customer === "string" ? session.customer : undefined
+  const paymentIntentId =
+    typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id
+
+  const user = await resolveUser({
+    clerkId,
+    email,
+    name: undefined,
+    phone,
+    stripeCustomerId,
+  })
+
+  if (!user) {
+    console.warn("Stripe webhook: user resolution failed", { clerkId, email })
+    return
+  }
+
+  const amount = session.amount_total ?? 0
+  const currency = session.currency || "usd"
+  const status = normalizePersistedPurchaseStatus(session.payment_status)
+
+  // If the payment_intent.succeeded handler already created a Purchase for this PI,
+  // link it to the checkout session so the upsert below finds it instead of creating a duplicate.
+  if (paymentIntentId) {
+    const existingByIntent = await prisma.purchase.findUnique({
+      where: { stripePaymentIntentId: paymentIntentId },
+      select: { id: true, stripeCheckoutSessionId: true },
+    })
+    if (existingByIntent && !existingByIntent.stripeCheckoutSessionId) {
+      await prisma.purchase.update({
+        where: { id: existingByIntent.id },
+        data: { stripeCheckoutSessionId: session.id },
+      })
+    }
+  }
+
+  // Fetch existing metadata to avoid clobbering stripeFailure on success
+  const existingPurchase = await prisma.purchase.findUnique({
+    where: { stripeCheckoutSessionId: session.id },
+    select: { metadata: true },
+  })
+
+  await processPaidStripeEvent({
+    upsertWhere: { stripeCheckoutSessionId: session.id },
+    upsertCreateIds: {
+      stripeCheckoutSessionId: session.id,
+      stripePaymentIntentId: paymentIntentId,
+    },
+    existingMetadata: existingPurchase?.metadata,
+    incomingRawMeta: session.metadata as Record<string, unknown> | null | undefined,
+    meta,
+    user,
+    amount,
+    currency,
+    status,
+    purchaseName,
+    email,
+    phone,
+    source: "stripe_webhook_checkout",
+  })
 }
 
 async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
@@ -395,182 +454,30 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   const amount = intent.amount ?? 0
   const currency = intent.currency || "usd"
   const status = normalizePersistedPurchaseStatus(intent.status)
-  const participants = parseIntSafe(meta.participants)
-  const courseSlug = meta.courseSlug || "unknown"
-  const split = buildConsecutiveSplit({ totalAmount: amount, metadata: meta })
 
   // Fetch existing metadata to avoid clobbering stripeFailure on success
+  // Note: existingByIntent is null here (we returned early if it existed),
+  // so existingPurchase will always be null — kept for symmetry with checkout handler.
   const existingPurchase = await prisma.purchase.findUnique({
     where: { stripePaymentIntentId: intent.id },
     select: { metadata: true },
   })
-  const incomingMeta = intent.metadata as Record<string, unknown> | null | undefined
-  const baseMeta = mergeMetadataPreservingFailure(existingPurchase?.metadata, incomingMeta)
-  const mergedMetadata = mergeCardSettlementMetadata(
-    status === "paid" ? clearFailureFromMetadata(baseMeta) : baseMeta,
+
+  await processPaidStripeEvent({
+    upsertWhere: { stripePaymentIntentId: intent.id },
+    upsertCreateIds: { stripePaymentIntentId: intent.id },
+    existingMetadata: existingPurchase?.metadata,
+    incomingRawMeta: intent.metadata as Record<string, unknown> | null | undefined,
+    meta,
+    user,
+    amount,
+    currency,
     status,
-  ) as Prisma.InputJsonValue
-
-  if (mergedMetadata && typeof mergedMetadata === "object" && !Array.isArray(mergedMetadata)) {
-    ;(mergedMetadata as Record<string, unknown>).purchaseSource =
-      resolveKioskPurchaseSource((mergedMetadata as Record<string, unknown>)?.flowContext as string | undefined)
-  }
-
-  const purchase = await prisma.purchase.upsert({
-    where: { stripePaymentIntentId: intent.id },
-    update: {
-      status,
-      amount: split.primaryAmount,
-      currency,
-      email,
-      name: purchaseName,
-      phone,
-      participants,
-      coupon: meta.coupon,
-      packageId: meta.packageId,
-      serviceId: meta.serviceId,
-      addonsCsv: meta.addons,
-      courseSlug,
-      courseTitle: meta.courseTitle,
-      metadata: mergedMetadata,
-    },
-    create: {
-      userId: user.id,
-      stripePaymentIntentId: intent.id,
-      status,
-      amount: split.primaryAmount,
-      currency,
-      email,
-      name: purchaseName,
-      phone,
-      participants,
-      coupon: meta.coupon,
-      packageId: meta.packageId,
-      serviceId: meta.serviceId,
-      addonsCsv: meta.addons,
-      courseSlug,
-      courseTitle: meta.courseTitle,
-      metadata: {
-        ...(mergedMetadata as Record<string, unknown>),
-        ...(split.hasConsecutiveSplit ? { hasConsecutiveLinkedPurchase: true } : {}),
-      } as Prisma.InputJsonValue,
-    },
+    purchaseName,
+    email,
+    phone,
+    source: "stripe_webhook_intent",
   })
-
-  let consecutivePurchase: { id: string } | null = null
-  if (split.hasConsecutiveSplit) {
-    consecutivePurchase = await prisma.$transaction(async (tx) => {
-      const existingChild = await tx.purchase.findFirst({
-        where: {
-          userId: user.id,
-          metadata: { path: ["parentPurchaseId"], equals: purchase.id },
-        },
-        select: { id: true },
-      })
-
-      if (existingChild) return existingChild
-
-      return tx.purchase.create({
-        data: {
-          userId: user.id,
-          courseSlug: split.consecutiveCourseSlug as string,
-          courseTitle: split.consecutiveCourseTitle,
-          amount: split.consecutiveAmount as number,
-          currency,
-          status,
-          email,
-          name: purchaseName,
-          phone,
-          participants: 1,
-          coupon: null,
-          packageId: null,
-          serviceId: meta.serviceId,
-          addonsCsv: null,
-          metadata: {
-            ...(mergedMetadata as Record<string, unknown>),
-            parentPurchaseId: purchase.id,
-            consecutiveLinkedFrom: courseSlug,
-            courseSlug: split.consecutiveCourseSlug,
-            courseTitle: split.consecutiveCourseTitle || "",
-            time: split.consecutiveCourseTime || meta.time || "",
-          },
-        },
-        select: { id: true },
-      })
-    })
-  }
-
-  if (status === "paid") {
-    const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
-      userId: user.id,
-      purchaseId: purchase.id,
-      purchasedAt: purchase.createdAt,
-      metadata: {
-        courseSlug,
-        packageId: meta.packageId,
-        packageLabel: meta.packageLabel,
-        packageTotalCredits: meta.packageTotalCredits,
-        packageIsUnlimited: meta.packageIsUnlimited,
-        packageCadence: meta.packageCadence,
-        packageMakeUps: meta.packageMakeUps,
-        packageValidDays: meta.packageValidDays,
-      },
-    })
-
-    await syncScheduledAttendanceFromPurchase({
-      userId: user.id,
-      purchaseId: purchase.id,
-      courseSlug,
-      courseTitle: meta.courseTitle,
-      date: meta.date,
-      time: meta.time,
-      packagePurchaseId: packagePurchase?.id,
-      preferredStatus: resolveAttendanceStatusForFlow({
-        metadata: {
-          ...meta,
-          flowContext: meta.flowContext || normalize((mergedMetadata as Record<string, unknown>)?.flowContext as string | undefined),
-          paymentSurface: meta.paymentSurface || normalize((mergedMetadata as Record<string, unknown>)?.paymentSurface as string | undefined),
-        },
-        hasPackagePurchase: Boolean(packagePurchase?.id),
-      }),
-      source: "stripe_webhook_intent",
-    })
-
-    if (split.hasConsecutiveSplit && consecutivePurchase?.id) {
-      await syncScheduledAttendanceFromPurchase({
-        userId: user.id,
-        purchaseId: consecutivePurchase.id,
-        courseSlug: split.consecutiveCourseSlug as string,
-        courseTitle: split.consecutiveCourseTitle,
-        date: meta.date,
-        time: split.consecutiveCourseTime || meta.time,
-        preferredStatus: resolveAttendanceStatusForFlow({
-          metadata: {
-            ...meta,
-            flowContext: meta.flowContext || normalize((mergedMetadata as Record<string, unknown>)?.flowContext as string | undefined),
-            paymentSurface: meta.paymentSurface || normalize((mergedMetadata as Record<string, unknown>)?.paymentSurface as string | undefined),
-          },
-          hasPackagePurchase: false,
-        }),
-        source: "stripe_webhook_intent",
-      })
-    }
-
-    if (packagePurchase?.id) {
-      await awardPointsFromRule({
-        userId: user.id,
-        ruleKey: POINTS_RULE_KEYS.PACKAGE_PURCHASE,
-        eventKey: packagePurchaseEventKey(packagePurchase.id),
-        fallbackType: "PACKAGE_PURCHASE",
-        meta: {
-          purchaseId: purchase.id,
-          packagePurchaseId: packagePurchase.id,
-          packageId: packagePurchase.packageId,
-          source: "stripe_webhook_intent",
-        },
-      })
-    }
-  }
 }
 
 async function handlePaymentIntentFailure(event: Stripe.Event) {
