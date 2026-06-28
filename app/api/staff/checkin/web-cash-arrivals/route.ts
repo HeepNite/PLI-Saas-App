@@ -43,19 +43,31 @@ export async function GET(req: NextRequest) {
       take: 20,
     })
 
-    // Filter to only cash-pending: find matching purchase
-    const results = await Promise.all(
-      arrivals.map(async (attendance) => {
+    // Batch-fetch all referenced purchases in a single query (was N+1)
+    const purchaseIds = arrivals
+      .map((a) => {
+        const meta = a.metadata && typeof a.metadata === "object" ? (a.metadata as Record<string, unknown>) : null
+        return typeof meta?.purchaseId === "string" ? meta.purchaseId : null
+      })
+      .filter((id): id is string => Boolean(id))
+
+    const purchases = purchaseIds.length
+      ? await prisma.purchase.findMany({
+          where: { id: { in: purchaseIds } },
+          select: { id: true, status: true, amount: true, metadata: true },
+        })
+      : []
+    const purchaseById = new Map(purchases.map((p) => [p.id, p]))
+
+    const results = arrivals
+      .map((attendance) => {
         const meta = attendance.metadata && typeof attendance.metadata === "object"
           ? (attendance.metadata as Record<string, unknown>)
           : null
         const purchaseId = typeof meta?.purchaseId === "string" ? meta.purchaseId : null
         if (!purchaseId) return null
 
-        const purchase = await prisma.purchase.findUnique({
-          where: { id: purchaseId },
-          select: { status: true, amount: true, metadata: true },
-        })
+        const purchase = purchaseById.get(purchaseId)
         if (!purchase) return null
 
         const purchaseMeta = purchase.metadata && typeof purchase.metadata === "object"
@@ -78,9 +90,9 @@ export async function GET(req: NextRequest) {
           checkedInAt: attendance.checkedInAt.toISOString(),
         }
       })
-    )
+      .filter(Boolean)
 
-    return NextResponse.json(results.filter(Boolean))
+    return NextResponse.json(results)
   } catch (error) {
     console.error("Web cash arrivals GET failed", error)
     return NextResponse.json({ error: "Unable to fetch arrivals" }, { status: 500 })

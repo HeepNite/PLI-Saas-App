@@ -71,6 +71,9 @@ model Purchase {
 
   @@index([userId])
   @@index([courseSlug])
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 model PackagePlan {
@@ -330,6 +333,9 @@ model Attendance {
   @@unique([userId, sessionId])
   @@index([userId])
   @@index([sessionId])
+  @@index([status])
+  @@index([checkedInAt])
+  @@index([userId, status, checkedInAt])
 }
 
 model PackageUsageLedger {
@@ -840,4 +846,14 @@ model MonthlyBoundary {
 
   @@unique([year, month])
   @@index([closedAt])
+}
+
+model StripeWebhookEvent {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([processedAt])
 }
