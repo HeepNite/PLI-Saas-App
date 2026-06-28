@@ -61,7 +61,11 @@ export default function StaffAssistantRightRail({
       <button
         type="button"
         onClick={onToggleRail}
-        className="fixed bottom-4 right-4 z-[125] flex h-[56px] w-[56px] items-center justify-center rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-all duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 min-[1180px]:hidden"
+        className={`fixed bottom-4 right-4 z-[125] flex h-[56px] w-[56px] items-center justify-center rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-all duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 ${
+          isRailCollapsed
+            ? "min-[1180px]:pointer-events-auto min-[1180px]:translate-y-0 min-[1180px]:scale-100 min-[1180px]:opacity-100"
+            : "min-[1180px]:pointer-events-none min-[1180px]:translate-y-2 min-[1180px]:scale-95 min-[1180px]:opacity-0"
+        }`}
         aria-label={isRailCollapsed ? "Show AI assistant" : "Hide AI assistant"}
         data-assistant-rail-trigger
       >

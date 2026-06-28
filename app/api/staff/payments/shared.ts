@@ -60,6 +60,7 @@ export const normalizePurchaseSource = (metadata: unknown): PurchaseSource => {
 
   const source = asText(meta.source).toLowerCase()
   if (source.includes("kiosk") || source.includes("terminal")) return PURCHASE_SOURCE.KIOSK
+  if (source === "staff_created_student") return PURCHASE_SOURCE.FRONT_DESK
   if (source.includes("stripe_webhook") || source === "cash_checkout") return PURCHASE_SOURCE.WEB
   return PURCHASE_SOURCE.UNKNOWN
 }

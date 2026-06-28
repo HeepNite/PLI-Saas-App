@@ -502,6 +502,9 @@ const hasUsablePackageCredit = (activePackage: { remainingCredits: number | null
 const resolveFastClassActionLabel = (activePackage: { remainingCredits: number | null; isUnlimited: boolean } | null | undefined) =>
   hasUsablePackageCredit(activePackage) ? "Fast Sign" : "Fast Pay"
 
+const isFrontDeskPurchaseSource = (source: string | undefined) =>
+  source === "kiosk" || source === "front_desk"
+
 async function postFastClassAction(userId: string, options: FastClassActionOptions = {}) {
   const response = await fetch("/api/staff/students/fast-class-action", {
     method: "POST",
@@ -564,7 +567,7 @@ function StudentCardsGrid(props: StudentCardsGridProps) {
     const kiosk: AnyStudentCardForPanel[] = []
     for (const card of displayedStudentCards) {
       const source = getCardPurchaseSource(card)
-      if (source === "kiosk") {
+      if (isFrontDeskPurchaseSource(source)) {
         kiosk.push(card)
       } else {
         web.push(card)
