@@ -18,9 +18,15 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
   const { pathname } = req.nextUrl
 
-  // Protected staff routes — auth is already populated by clerkMiddleware callback
-  // Let pages handle their own auth to avoid redirect loops
-  // The pages will redirect to log-in if needed
+  // Defense-in-depth: reject unauthenticated requests to staff API routes.
+  // Individual routes still run their own authorizeStaffPortalRequest() checks,
+  // but this catches any route that forgets to add one.
+  if (pathname.startsWith("/api/staff")) {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+  }
 
   return NextResponse.next()
 })
