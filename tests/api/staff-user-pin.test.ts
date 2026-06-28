@@ -41,6 +41,17 @@ vi.mock("@/lib/security/student-pin", () => ({
   isStudentPinFormatValid: (value: string) => /^\d{4}$/.test(value),
   isStudentPinConflictError: (error: unknown) =>
     Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "PIN_ALREADY_IN_USE"),
+  isStudentPinSchemaUnavailableError: (error: unknown) => {
+    const code =
+      typeof error === "object" && error && "code" in error && typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string }).code
+        : null
+    const name =
+      typeof error === "object" && error && "name" in error && typeof (error as { name?: unknown }).name === "string"
+        ? (error as { name: string }).name
+        : null
+    return name === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(code ?? "")
+  },
   issueProvisionalStudentPin: (...args: unknown[]) => mockIssueProvisionalStudentPin(...args),
   replacePermanentStudentPin: (...args: unknown[]) => mockReplacePermanentStudentPin(...args),
   clearStudentPinLockout: (...args: unknown[]) => mockClearStudentPinLockout(...args),

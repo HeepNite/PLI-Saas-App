@@ -8,14 +8,12 @@ import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
+import { asObject, asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 const DEFAULT_DROP_IN_CENTS = 2000
 const SERIALIZABLE_RETRY_ATTEMPTS = 3
-
-const toRecord = (value: unknown) => value && typeof value === "object" ? value as Record<string, unknown> : {}
-const normalizeString = (value: unknown) => typeof value === "string" ? value.trim() : ""
 const isOpenCashPurchase = (purchase: { status: string; amount: number }) => purchase.status !== "paid" ? purchase.amount : undefined
 const PENDING_PAYMENT_MESSAGE = "You still have a pending payment. Please resolve it first."
 const COMPLETED_PURCHASE_MESSAGE = "This student already has a completed purchase for this class."
@@ -37,7 +35,7 @@ const runSerializableTransaction = async <T>(callback: (tx: Prisma.TransactionCl
 
 const parseBody = async (req: Request) => {
   try {
-    return toRecord(await req.json())
+    return asObject(await req.json())
   } catch {
     return null
   }
@@ -208,16 +206,16 @@ export async function POST(req: Request) {
 
   const body = await parseBody(req)
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  const userId = normalizeString(body.userId)
+  const userId = asText(body.userId)
   if (!userId) return NextResponse.json({ error: "userId is required" }, { status: 400 })
 
   const now = new Date()
   if (body.acceptConsecutive === true) {
-    const promo = toRecord(body.promo)
+    const promo = asObject(body.promo)
     const result = await createPromoCash({
       userId,
-      linkedCourseSlug: normalizeString(promo.linkedCourseSlug),
-      linkedFromCourseSlug: normalizeString(promo.linkedFromCourseSlug),
+      linkedCourseSlug: asText(promo.linkedCourseSlug),
+      linkedFromCourseSlug: asText(promo.linkedFromCourseSlug),
       priceCents: Number(promo.priceCents),
       now,
     })

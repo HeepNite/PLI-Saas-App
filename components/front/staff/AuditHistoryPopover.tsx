@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { useMounted } from "@/components/front/hooks/useMounted"
 import { X, Loader2, Clock, DollarSign, Package, CheckCircle2, ChevronDown, ChevronUp, History, Download, UserCircle } from "lucide-react"
 import {
   computePopoverPosition,
@@ -344,7 +345,7 @@ export default function AuditHistoryPopover({
 }: AuditHistoryPopoverProps) {
   const popoverRef = React.useRef<HTMLDivElement>(null)
   const [position, setPosition] = React.useState<PopoverPosition | null>(null)
-  const [mounted, setMounted] = React.useState(false)
+  const mounted = useMounted()
   const [entries, setEntries] = React.useState<AuditEntry[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -451,11 +452,6 @@ export default function AuditHistoryPopover({
       setDownloading(false)
     }
   }, [studentId, activeTab])
-
-  // Mark mounted for SSR safety
-  React.useEffect(() => {
-    setMounted(true)
-  }, [])
 
   if (!mounted || !isOpen) return null
 

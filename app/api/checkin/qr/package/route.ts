@@ -13,7 +13,7 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
-import { normalizePhoneDigits } from "@/lib/shared"
+import { asRecord, asText, normalizePhoneDigits } from "@/lib/shared"
 import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 
@@ -22,13 +22,6 @@ export const runtime = "nodejs"
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
-
-const toRecord = (value: unknown) =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 const pickPreferredPackage = (input: {
   courseSlug: string
@@ -84,7 +77,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const payload = toRecord(body)
+    const payload = asRecord(body)
     const authResult = await auth()
     const kioskSessionToken = typeof payload?.kioskSessionToken === "string" ? payload.kioskSessionToken.trim() : ""
     const flowContext = typeof payload?.flowContext === "string" ? payload.flowContext.trim() : ""
@@ -173,8 +166,8 @@ export async function POST(req: Request) {
     // ─── Consecutive package-holder add-on ───────────────────
     const consecutiveAddOn = payload?.consecutiveAddOn === true
     const consecutiveCashPayment = payload?.consecutiveCashPayment === true
-    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
-    const linkedFromAttendanceId = normalizeString(payload?.linkedFromAttendanceId)
+    const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
+    const linkedFromAttendanceId = asText(payload?.linkedFromAttendanceId)
     const consecutivePriceCents = payload?.consecutivePriceCents != null
       ? Number(payload.consecutivePriceCents)
       : null
