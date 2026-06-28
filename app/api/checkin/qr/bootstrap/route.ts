@@ -15,7 +15,9 @@ import { computeDiscountPercent } from "@/lib/course-links"
 import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { normalizePhoneDigits } from "@/lib/shared"
-import { FLOW_CONTEXT } from "@/lib/payment-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL } from "@/lib/payment-constants"
+import { getDayOfWeekCount } from "@/lib/checkin/day-of-week-counter"
+import { getEtDateIso } from "@/lib/checkin/et-time"
 
 export const runtime = "nodejs"
 
@@ -400,7 +402,17 @@ export async function POST(req: Request) {
       }
     }
 
-    const [allActivePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
+    // ─── Day-of-week counter query (terminal flow only) ──────────
+    const currentDayOfWeek = (() => {
+      const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+      const weekday = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+      }).format(now)
+      return weekdayLabels.findIndex((label) => label === weekday)
+    })()
+
+    const [allActivePackages, recentPurchases, anyCompletedPurchase, dayOfWeekPurchaseCount] = await Promise.all([
       prisma.packagePurchase.findMany({
         where: {
           userId: dbUser.id,
@@ -442,6 +454,9 @@ export async function POST(req: Request) {
             },
             select: { id: true },
           }),
+      isTerminalFlow
+        ? getDayOfWeekCount(dbUser.id, currentDayOfWeek)
+        : Promise.resolve(0),
     ])
     const lastPurchase = recentPurchases[0] || null
 
@@ -549,6 +564,24 @@ export async function POST(req: Request) {
       })
     }
 
+    const quickRepeatEligible = dayOfWeekPurchaseCount >= 3
+
+    // Extract last purchase pattern for quick-repeat overlay (terminal flow only)
+    const lastPurchasePattern = isTerminalFlow && lastPurchase
+      ? (() => {
+          const meta = toRecord(lastPurchase.metadata)
+          const paymentChannel =
+            typeof meta?.paymentChannel === "string" && meta.paymentChannel
+              ? meta.paymentChannel
+              : PAYMENT_CHANNEL.CASH
+          return {
+            paymentChannel,
+            courseSlug: lastPurchase.courseSlug,
+            amount: lastPurchase.amount,
+          }
+        })()
+      : null
+
     const terminalPayload = isTerminalFlow
 
     console.info("[staff-terminal-checkout-latency] bootstrap", {
@@ -599,7 +632,12 @@ export async function POST(req: Request) {
           }
         : null,
       ...(terminalPayload
-        ? { hasExistingPurchaseForSession }
+        ? {
+            hasExistingPurchaseForSession,
+            dayOfWeekPurchaseCount,
+            quickRepeatEligible,
+            lastPurchasePattern,
+          }
         : {
             purchaseHistory,
             hasPreviousPurchase: Boolean(lastPurchase),

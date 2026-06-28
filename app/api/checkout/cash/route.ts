@@ -13,6 +13,7 @@ import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 
 export const runtime = "nodejs"
 
@@ -269,6 +270,10 @@ export async function POST(req: Request) {
       validation,
     })
 
+    if (photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && effectiveSession.date) {
+      await incrementDayOfWeekCounter(dbUser.id, new Date(`${effectiveSession.date}T12:00:00.000Z`))
+    }
+
     console.info("[staff-terminal-checkout-latency] checkout-cash", {
       segment: "cash_consecutive",
       source,
@@ -347,6 +352,10 @@ export async function POST(req: Request) {
     kioskSessionToken,
     validation,
   })
+
+  if (photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && effectiveSession.date) {
+    await incrementDayOfWeekCounter(dbUser.id, new Date(`${effectiveSession.date}T12:00:00.000Z`))
+  }
 
   console.info("[staff-terminal-checkout-latency] checkout-cash", {
     segment: "cash_next_step",

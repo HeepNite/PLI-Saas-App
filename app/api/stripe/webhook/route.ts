@@ -22,6 +22,7 @@ import { normalizePhone } from "@/lib/shared"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { pickStripeMetadata, parseIntSafe, normalize, type StripeMetadata } from "@/lib/stripe-metadata"
+import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 
 export const runtime = "nodejs"
 
@@ -346,6 +347,20 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
           source,
         },
       })
+    }
+
+    // Increment day-of-week counter for kiosk purchases
+    const purchaseSource =
+      typeof (mergedMetadata as Record<string, unknown>)?.purchaseSource === "string"
+        ? (mergedMetadata as Record<string, unknown>).purchaseSource as string
+        : null
+    if (purchaseSource === PURCHASE_SOURCE.KIOSK && meta.date) {
+      try {
+        await incrementDayOfWeekCounter(user.id, new Date(`${meta.date}T12:00:00.000Z`))
+      } catch (err) {
+        // Non-critical — log and continue; do not fail the webhook
+        console.warn("Failed to increment day-of-week purchase counter", { userId: user.id, date: meta.date, err })
+      }
     }
   }
 }
