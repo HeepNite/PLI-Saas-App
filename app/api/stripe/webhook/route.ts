@@ -630,6 +630,22 @@ export async function POST(req: Request) {
     return new NextResponse(`Webhook error: ${message}`, { status: 400 })
   }
 
+  // Deduplicate webhook events — Stripe may retry on timeout
+  try {
+    await prisma.stripeWebhookEvent.create({
+      data: {
+        eventId: event.id,
+        eventType: event.type,
+      },
+    })
+  } catch (err) {
+    // Unique constraint violation = already processed
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return new NextResponse("Event already processed", { status: 200 })
+    }
+    throw err
+  }
+
   try {
     switch (event.type) {
       case "checkout.session.completed":

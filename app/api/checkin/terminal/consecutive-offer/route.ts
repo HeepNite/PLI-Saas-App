@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { computeDiscountPercent } from "@/lib/course-links"
 
@@ -43,6 +44,15 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
  * before the student checks in or authenticates.
  */
 export async function GET(req: NextRequest) {
+  const ip = getClientIp(req)
+  const rateLimit = consumeRateLimit({ key: buildRateLimitKey("terminal:consecutive-offer", ip), limit: 60, windowMs: 60_000 })
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
   const courseSlug = req.nextUrl.searchParams.get("courseSlug")
   const selectedTime = req.nextUrl.searchParams.get("time")
   const selectedDate = req.nextUrl.searchParams.get("date")

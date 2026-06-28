@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 
 export const runtime = "nodejs"
 
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+  const authResult = await authorizeStaffPortalSectionRequest("schedule")
+  if (!authResult.ok) {
+    return NextResponse.json(
+      { error: authResult.error },
+      { status: authResult.status }
+    )
+  }
+
   const { id } = await context.params
   const mediaId = typeof id === "string" ? id.trim() : ""
   if (!mediaId) {

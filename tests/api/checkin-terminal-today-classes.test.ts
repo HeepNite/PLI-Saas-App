@@ -53,7 +53,8 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     ])
 
     const { GET } = await import("@/app/api/checkin/terminal/today-classes/route")
-    const res = await GET()
+    const req = new Request("http://localhost/api/checkin/terminal/today-classes") as unknown as import("next/server").NextRequest
+    const res = await GET(req)
 
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -100,7 +101,8 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     ])
 
     const { GET } = await import("@/app/api/checkin/terminal/today-classes/route")
-    const res = await GET()
+    const req = new Request("http://localhost/api/checkin/terminal/today-classes") as unknown as import("next/server").NextRequest
+    const res = await GET(req)
 
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -124,7 +126,8 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     mockCourseCatalogFindMany.mockResolvedValue([])
 
     const { GET } = await import("@/app/api/checkin/terminal/today-classes/route")
-    const res = await GET()
+    const req = new Request("http://localhost/api/checkin/terminal/today-classes") as unknown as import("next/server").NextRequest
+    const res = await GET(req)
 
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -157,7 +160,8 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     ])
 
     const { GET } = await import("@/app/api/checkin/terminal/today-classes/route")
-    const res = await GET()
+    const req = new Request("http://localhost/api/checkin/terminal/today-classes") as unknown as import("next/server").NextRequest
+    const res = await GET(req)
 
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -188,7 +192,8 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     ])
 
     const { GET } = await import("@/app/api/checkin/terminal/today-classes/route")
-    const res = await GET()
+    const req = new Request("http://localhost/api/checkin/terminal/today-classes") as unknown as import("next/server").NextRequest
+    const res = await GET(req)
 
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -204,7 +209,8 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     mockCourseCatalogFindMany.mockRejectedValue(new Error("Database connection failed"))
 
     const { GET } = await import("@/app/api/checkin/terminal/today-classes/route")
-    const res = await GET()
+    const req = new Request("http://localhost/api/checkin/terminal/today-classes") as unknown as import("next/server").NextRequest
+    const res = await GET(req)
 
     expect(res.status).toBe(500)
     const data = await res.json()
