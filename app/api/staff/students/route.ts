@@ -43,6 +43,17 @@ const parseAmountCents = (value: unknown): number | null => {
   return value
 }
 
+const normalizeStaffPhone = (value: string | undefined) => {
+  if (!value) return undefined
+  const digits = value.replace(/\D/g, "")
+
+  if (value.trim().startsWith("+")) {
+    return /^1\d{10}$/.test(digits) ? `+${digits}` : null
+  }
+
+  return /^\d{10}$/.test(digits) ? `+1${digits}` : null
+}
+
 const parsePayload = (body: unknown): ParseResult => {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "Invalid JSON body" }
@@ -50,27 +61,19 @@ const parsePayload = (body: unknown): ParseResult => {
 
   const record = body as Record<string, unknown>
   const email = safeText(record.email, 254)?.toLowerCase()
-  let phone = safeText(record.phone, 32)
+  const phoneInput = safeText(record.phone, 32)
+  const phone = normalizeStaffPhone(phoneInput)
   const name = safeText(record.name, 120)
   const note = safeText(record.note, 500)
 
-  // Auto-prefix + for E.164 if user provided digits only
-  if (phone && !phone.startsWith("+")) {
-    phone = `+${phone.replace(/\D/g, "")}`
-  }
-  // Strip non-digit chars after the + (spaces, dashes, parens)
-  if (phone) {
-    phone = `+${phone.slice(1).replace(/\D/g, "")}`
-  }
-
-  if (!email && !phone) {
-    return { ok: false, error: "Provide an email or phone number." }
-  }
   if (email && !EMAIL_PATTERN.test(email)) {
     return { ok: false, error: "Invalid email." }
   }
-  if (phone && phone.length < 7) {
-    return { ok: false, error: "Phone number is too short." }
+  if (phoneInput && !phone) {
+    return { ok: false, error: "Enter a valid US phone number with 10 digits or +1 followed by 10 digits." }
+  }
+  if (!email && !phone) {
+    return { ok: false, error: "Provide an email or phone number." }
   }
 
   const amountCents = parseAmountCents(record.amountCents)
@@ -93,7 +96,7 @@ const parsePayload = (body: unknown): ParseResult => {
     ok: true,
     payload: {
       email,
-      phone,
+      phone: phone ?? undefined,
       name,
       amountCents,
       paymentMode: paymentMode as "cash" | "card_qr" | undefined,
@@ -112,6 +115,28 @@ const emailFromClerkUser = (user: ClerkUser, fallback?: string) =>
 
 const phoneFromClerkUser = (user: ClerkUser, fallback?: string) =>
   user.phoneNumbers?.[0]?.phoneNumber || fallback
+
+const clerkErrorStatus = (error: unknown) => {
+  if (!error || typeof error !== "object") return undefined
+  const record = error as Record<string, unknown>
+  const status = record.status ?? record.statusCode
+  return typeof status === "number" ? status : undefined
+}
+
+const describeClerkIdentityFailure = (error: unknown) => {
+  const status = clerkErrorStatus(error)
+  if (status === 400 || status === 422) {
+    return {
+      status: 400,
+      error: "Unable to create student identity with the provided email or phone. Please check the contact details.",
+    }
+  }
+
+  return {
+    status: 503,
+    error: "Student identity service is temporarily unavailable. Please try again.",
+  }
+}
 
 const maybeSendEmailInvitation = async (req: Request, email?: string) => {
   if (!email) return false
@@ -248,23 +273,31 @@ const writePaymentCreationAudit = async (
 }
 
 const createOrReuseStudentIdentity = async (payload: StaffCreateStudentPayload, req: Request) => {
-  const existingClerkUser = await findClerkUserByIdentifiers({ email: payload.email, phone: payload.phone })
-  const clerkUser = existingClerkUser || await ensureClerkUser({
-    email: payload.email,
-    phone: payload.phone,
-    name: payload.name,
-  })
+  let existingClerkUser: ClerkUser | null
+  let clerkUser: ClerkUser | null
 
-  if (!clerkUser) {
-    return { ok: false as const, error: "Unable to create student identity." }
-  }
-
-  if (existingClerkUser) {
-    await updateClerkUserIfMissing(existingClerkUser, {
+  try {
+    existingClerkUser = await findClerkUserByIdentifiers({ email: payload.email, phone: payload.phone })
+    clerkUser = existingClerkUser || await ensureClerkUser({
       email: payload.email,
       phone: payload.phone,
       name: payload.name,
     })
+
+    if (existingClerkUser) {
+      await updateClerkUserIfMissing(existingClerkUser, {
+        email: payload.email,
+        phone: payload.phone,
+        name: payload.name,
+      })
+    }
+  } catch (error) {
+    console.warn("Clerk student identity operation failed", error)
+    return { ok: false as const, ...describeClerkIdentityFailure(error) }
+  }
+
+  if (!clerkUser) {
+    return { ok: false as const, error: "Student identity service is temporarily unavailable. Please try again.", status: 503 }
   }
 
   const localUser = await upsertUserByIdentifiers({
@@ -276,7 +309,7 @@ const createOrReuseStudentIdentity = async (payload: StaffCreateStudentPayload, 
   })
 
   if (!localUser) {
-    return { ok: false as const, error: "Unable to link student identity." }
+    return { ok: false as const, error: "Student identity service is temporarily unavailable. Please try again.", status: 503 }
   }
 
   const emailInvitationAttempted = await maybeSendEmailInvitation(req, payload.email)
@@ -325,7 +358,7 @@ export async function POST(req: Request) {
 
   const identity = await createOrReuseStudentIdentity(parsed.payload, req)
   if (!identity.ok) {
-    return NextResponse.json({ error: identity.error }, { status: 500 })
+    return NextResponse.json({ error: identity.error }, { status: identity.status })
   }
 
   await writeProfileCreationAudit(identity.localUser.id, authResult)

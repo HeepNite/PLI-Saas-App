@@ -204,7 +204,7 @@ describe("POST /api/staff/students", () => {
     expect(mockEnsureClerkUser).not.toHaveBeenCalled()
     expect(mockUpdateClerkUserIfMissing).toHaveBeenCalledWith(createdClerkUser, {
       email: "student@example.com",
-      phone: "+1 555 123 4567",
+      phone: "+15551234567",
       name: "Maria Student",
     })
     await expect(res.json()).resolves.toMatchObject({ isExisting: true, userId: "user_student_1" })
@@ -214,9 +214,55 @@ describe("POST /api/staff/students", () => {
     const res = await postCreateStudent({ phone: "+1 555 123 4567", name: "Phone Student" })
 
     expect(res.status).toBe(201)
-    expect(mockEnsureClerkUser).toHaveBeenCalledWith({ email: undefined, phone: "+1 555 123 4567", name: "Phone Student" })
+    expect(mockEnsureClerkUser).toHaveBeenCalledWith({ email: undefined, phone: "+15551234567", name: "Phone Student" })
     await expect(res.json()).resolves.toMatchObject({
       activation: { emailInvitationAttempted: false, phoneSignInAvailable: true },
+    })
+  })
+
+  it("normalizes 10 US phone digits with the +1 country code", async () => {
+    const res = await postCreateStudent({ phone: "2015398283", name: "US Student" })
+
+    expect(res.status).toBe(201)
+    expect(mockFindClerkUserByIdentifiers).toHaveBeenCalledWith({ email: undefined, phone: "+12015398283" })
+    expect(mockEnsureClerkUser).toHaveBeenCalledWith({ email: undefined, phone: "+12015398283", name: "US Student" })
+  })
+
+  it("passes valid +1 E.164 phone numbers through unchanged", async () => {
+    const res = await postCreateStudent({ phone: "+12015398283", name: "US Student" })
+
+    expect(res.status).toBe(201)
+    expect(mockFindClerkUserByIdentifiers).toHaveBeenCalledWith({ email: undefined, phone: "+12015398283" })
+    expect(mockEnsureClerkUser).toHaveBeenCalledWith({ email: undefined, phone: "+12015398283", name: "US Student" })
+  })
+
+  it("rejects malformed phone numbers before calling Clerk", async () => {
+    const res = await postCreateStudent({ phone: "201-539", name: "Bad Phone" })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Enter a valid US phone number with 10 digits or +1 followed by 10 digits." })
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+  })
+
+  it("returns a controlled retry response when Clerk identity lookup fails", async () => {
+    mockFindClerkUserByIdentifiers.mockRejectedValue(Object.assign(new Error("rate limited"), { status: 429 }))
+
+    const res = await postCreateStudent({ phone: "2015398283", name: "US Student" })
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toEqual({ error: "Student identity service is temporarily unavailable. Please try again." })
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+  })
+
+  it("returns a controlled validation response when Clerk rejects contact details", async () => {
+    mockEnsureClerkUser.mockRejectedValue(Object.assign(new Error("invalid phone"), { status: 400 }))
+
+    const res = await postCreateStudent({ phone: "2015398283", name: "US Student" })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: "Unable to create student identity with the provided email or phone. Please check the contact details.",
     })
   })
 
