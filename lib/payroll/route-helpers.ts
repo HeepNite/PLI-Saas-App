@@ -1,8 +1,8 @@
 import { clerkClient } from "@clerk/nextjs/server"
 import { Prisma } from "@prisma/client"
-import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { asObject } from "@/lib/shared"
+import { apiError, readJsonBody as _readJsonBody } from "@/lib/api-response"
 
 export type JsonRecord = Record<string, unknown>
 
@@ -24,22 +24,10 @@ export const asOptionalBoolean = (value: unknown): boolean | null => {
   return value
 }
 
-export const jsonError = (error: string, status: number, details?: unknown) =>
-  NextResponse.json(details === undefined ? { error } : { error, details }, { status })
+/** @deprecated Use `apiError` from `@/lib/api-response` instead */
+export const jsonError = apiError
 
-export async function readJsonBody(req: Request): Promise<{ ok: true; body: JsonRecord } | { ok: false; response: NextResponse }> {
-  try {
-    const body = await req.json()
-
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      return { ok: false, response: jsonError("Invalid JSON body", 400) }
-    }
-
-    return { ok: true, body: body as JsonRecord }
-  } catch {
-    return { ok: false, response: jsonError("Invalid JSON body", 400) }
-  }
-}
+export const readJsonBody = _readJsonBody
 
 export async function resolveSchoolIdForClerkUser(userId: string): Promise<string | null> {
   const client = await clerkClient()
