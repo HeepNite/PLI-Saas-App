@@ -52,7 +52,7 @@ describe("enroll flow helpers", () => {
     ).toEqual(["info", "payments"])
   })
 
-  it("starts kiosk existing-customer check-in on info and hides party/datetime", () => {
+  it("starts kiosk existing-customer check-in on info only (photo step removed from kiosk flow)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -60,7 +60,7 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: true,
       })
-    ).toEqual(["info", "photo", "payments"])
+    ).toEqual(["info", "payments"])
   })
 
   it("keeps the standard non-kiosk flow steps unchanged", () => {
@@ -235,7 +235,7 @@ describe("enroll flow helpers", () => {
     expect(shouldRedirectPersonalCompletion({ success: true, isPersonalCompletion: false })).toBe(false)
   })
 
-  it("includes packages step in kiosk flow when hasPackages is true", () => {
+  it("uses only info and payments in kiosk flow regardless of hasPackages (packages are not a separate step in kiosk)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -244,10 +244,10 @@ describe("enroll flow helpers", () => {
         requiresPhotoStep: false,
         hasPackages: true,
       })
-    ).toEqual(["info", "packages", "payments"])
+    ).toEqual(["info", "payments"])
   })
 
-  it("includes packages step with photo in kiosk flow when both are needed", () => {
+  it("uses only info and payments in kiosk flow even when both photo and packages are requested (both removed from kiosk)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -256,10 +256,10 @@ describe("enroll flow helpers", () => {
         requiresPhotoStep: true,
         hasPackages: true,
       })
-    ).toEqual(["info", "photo", "packages", "payments"])
+    ).toEqual(["info", "payments"])
   })
 
-  it("skips packages step in kiosk flow when hasPackages is false", () => {
+  it("uses only info and payments in kiosk flow when hasPackages is false", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
