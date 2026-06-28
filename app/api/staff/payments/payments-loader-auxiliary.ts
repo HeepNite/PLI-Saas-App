@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { getCurrentMonthBoundariesNY } from "@/lib/monthly-boundary"
@@ -8,6 +7,8 @@ import {
   isLockedCredential,
   isProvisionalStudentPinActive,
   isStudentPinLifecycleEnabled,
+  isStudentPinSchemaUnavailableError,
+  loadStudentPinCredentials,
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
 import { ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
@@ -22,60 +23,6 @@ export type StudentPinSummary = {
   permanentStatus: StudentPinStatusValue | null
   provisionalActive: boolean
   provisionalExpiresAt: string | null
-}
-
-export const isStudentPinSchemaUnavailableError = (error: unknown) => {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
-    const fallbackCode =
-      typeof error === "object" && error && "code" in error && typeof error.code === "string" ? error.code : null
-    const fallbackName =
-      typeof error === "object" && error && "name" in error && typeof error.name === "string" ? error.name : null
-    return fallbackName === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(fallbackCode || "")
-  }
-  return ["P2021", "P2022"].includes(error.code)
-}
-
-export const loadStudentPinCredentials = async (userIds: string[]) => {
-  if (!userIds.length || !isStudentPinLifecycleEnabled()) {
-    return { available: false, credentials: [] as Array<{
-      userId: string
-      kind: string
-      status: string
-      failedAttempts: number
-      lockedAt: Date | null
-      expiresAt: Date | null
-    }> }
-  }
-
-  try {
-    const credentials = await prisma.studentPinCredential.findMany({
-      where: {
-        userId: { in: userIds },
-        kind: { in: ["permanent", "provisional"] },
-      },
-      select: {
-        userId: true,
-        kind: true,
-        status: true,
-        failedAttempts: true,
-        lockedAt: true,
-        expiresAt: true,
-      },
-    })
-    return { available: true, credentials }
-  } catch (error) {
-    if (isStudentPinSchemaUnavailableError(error)) {
-      return { available: false, credentials: [] as Array<{
-        userId: string
-        kind: string
-        status: string
-        failedAttempts: number
-        lockedAt: Date | null
-        expiresAt: Date | null
-      }> }
-    }
-    throw error
-  }
 }
 
 type AuxiliaryDataInput = {

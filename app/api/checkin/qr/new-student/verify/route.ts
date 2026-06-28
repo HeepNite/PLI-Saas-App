@@ -5,6 +5,7 @@ import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
 import { normalizePhone } from "@/lib/checkout/validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
+import { asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -31,10 +32,6 @@ type VerifyResponse = {
   }
 }
 
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
 
 const buildPhoneVariants = (normalizedPhone: string) => {
   const digits = normalizedPhone.replace(/\D/g, "")
@@ -113,8 +110,8 @@ export async function POST(req: Request) {
     }
 
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
-    const phoneInput = normalizeString(payload?.phone)
-    const emailInput = normalizeString(payload?.email)
+    const phoneInput = asText(payload?.phone)
+    const emailInput = asText(payload?.email)
 
     const phoneNormalized = normalizePhone(phoneInput) || ""
     const phoneVariants = buildPhoneVariants(phoneNormalized)

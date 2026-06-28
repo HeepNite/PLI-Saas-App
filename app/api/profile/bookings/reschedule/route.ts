@@ -16,13 +16,9 @@ import {
   parseTime24,
 } from "@/lib/class-schedule"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
-
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
 
 const isUniqueError = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
@@ -54,9 +50,9 @@ export async function POST(req: Request) {
     }
 
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
-    const attendanceId = normalizeString(payload?.attendanceId)
-    const date = normalizeString(payload?.date)
-    const time = normalizeString(payload?.time)
+    const attendanceId = asText(payload?.attendanceId)
+    const date = asText(payload?.date)
+    const time = asText(payload?.time)
 
     if (!attendanceId || !parseIsoDate(date) || !parseTime24(time)) {
       return NextResponse.json({ error: "Invalid reschedule payload" }, { status: 400 })
