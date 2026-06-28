@@ -179,14 +179,21 @@ export const syncStaffAccountFromClerkUser = async (user: ClerkStaffUser, option
   if (!role && !options.allowWithoutRole) return null
 
   const privateMetadata = asObject(user.privateMetadata)
+  const publicMetadata = asObject(user.publicMetadata)
   const hasPin = typeof privateMetadata.staffPinHash === "string" && privateMetadata.staffPinHash.length > 0
   const lastCheckInAt = toIsoDate(privateMetadata.staffLastCheckInAt)
   const email = primaryEmailFromUser(user)
   if (!email) return null
+  const schoolId =
+    asOptionalString(publicMetadata.schoolId) ||
+    asOptionalString(publicMetadata.staffSchoolId) ||
+    asOptionalString(privateMetadata.schoolId) ||
+    asOptionalString(privateMetadata.staffSchoolId)
 
   const roleToPersist = role || "removed"
   const metadata = {
     imageUrl: user.imageUrl || null,
+    ...(schoolId ? { schoolId } : {}),
     syncSource: options.source || "clerk",
     ...(options.metadata || {}),
   }

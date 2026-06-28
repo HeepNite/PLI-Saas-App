@@ -2,7 +2,7 @@
 
 import React from "react"
 import { useMounted } from "@/components/front/hooks/useMounted"
-import { X, Loader2, Clock, DollarSign, Package, CheckCircle2, ChevronDown, ChevronUp, History, Download } from "lucide-react"
+import { X, Loader2, Clock, DollarSign, Package, CheckCircle2, ChevronDown, ChevronUp, History, Download, UserCircle } from "lucide-react"
 import {
   computePopoverPosition,
   useClickOutside,
@@ -21,7 +21,7 @@ type AuditEntry = {
   id: string
   staffClerkId: string
   staffName: string | null
-  entity: "attendance" | "payment" | "package" | "stats"
+  entity: "attendance" | "payment" | "package" | "stats" | "profile"
   entityId: string | null
   field: string
   valueBefore: unknown
@@ -47,6 +47,7 @@ const ENTITY_ICONS: Record<AuditEntry["entity"], React.ComponentType<{ className
   payment: DollarSign,
   package: Package,
   stats: CheckCircle2,
+  profile: UserCircle,
 }
 
 const ENTITY_COLORS: Record<AuditEntry["entity"], string> = {
@@ -54,6 +55,7 @@ const ENTITY_COLORS: Record<AuditEntry["entity"], string> = {
   payment: "text-emerald-400",
   package: "text-purple-400",
   stats: "text-amber-400",
+  profile: "text-sky-400",
 }
 
 const ENTITY_BG: Record<AuditEntry["entity"], string> = {
@@ -61,6 +63,7 @@ const ENTITY_BG: Record<AuditEntry["entity"], string> = {
   payment: "bg-emerald-500/10",
   package: "bg-purple-500/10",
   stats: "bg-amber-500/10",
+  profile: "bg-sky-500/10",
 }
 
 const ENTITY_BORDER: Record<AuditEntry["entity"], string> = {
@@ -68,6 +71,7 @@ const ENTITY_BORDER: Record<AuditEntry["entity"], string> = {
   payment: "border-emerald-400/20",
   package: "border-purple-400/20",
   stats: "border-amber-400/20",
+  profile: "border-sky-400/20",
 }
 
 const ENTITY_DOT_BG: Record<AuditEntry["entity"], string> = {
@@ -75,6 +79,7 @@ const ENTITY_DOT_BG: Record<AuditEntry["entity"], string> = {
   payment: "bg-emerald-400",
   package: "bg-purple-400",
   stats: "bg-amber-400",
+  profile: "bg-sky-400",
 }
 
 type FriendlyAuditValue = {
