@@ -333,6 +333,30 @@ describe("StaffStudentsBoardPanel", () => {
     expect(onRepairClerkSync).toHaveBeenCalledTimes(1)
   })
 
+  it("shows neutral Clerk sync unavailable status when only the health check errors", async () => {
+    const node = await renderPanel(
+      createProps({
+        clerkSync: {
+          canManageClerkSync: true,
+          clerkSyncLoading: false,
+          clerkSyncRepairing: false,
+          clerkSyncError: "Service temporarily busy. Please try again shortly.",
+          clerkSyncMessage: null,
+          clerkSyncHealth: null,
+          onCheckClerkSync: vi.fn(),
+          onRepairClerkSync: vi.fn(),
+          clerkMismatchByUserId: new Map(),
+          clerkSyncUserBusyId: null,
+          onSyncClerkUser: vi.fn(),
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("User sync unavailable")
+    expect(node.textContent).toContain("User sync status is temporarily unavailable")
+    expect(node.textContent).not.toContain("Users need sync")
+  })
+
   it("hides Clerk sync banner when user cannot manage and nothing is wrong", async () => {
     const node = await renderPanel(createProps())
     expect(node.textContent).not.toContain("Users need sync")

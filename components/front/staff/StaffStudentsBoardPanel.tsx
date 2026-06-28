@@ -215,14 +215,21 @@ function ClerkSyncBanner({
 
   if (!shouldRender) return null
 
+  const hasConfirmedSyncIssue = hasMissing || hasMismatched
   const statusLabel = clerkSyncLoading
     ? "Checking users"
     : clerkSyncRepairing
       ? "Syncing users"
-      : "Users need sync"
+      : hasConfirmedSyncIssue
+        ? "Users need sync"
+        : "User sync unavailable"
 
   const healthMessage = (() => {
-    if (!clerkSyncHealth) return "Checking whether all users are ready to use the app."
+    if (!clerkSyncHealth) {
+      return clerkSyncError
+        ? "User sync status is temporarily unavailable. Try checking again shortly."
+        : "Checking whether all users are ready to use the app."
+    }
     const missing = clerkSyncHealth.missingCount
     const mismatched = clerkSyncHealth.mismatchedCount ?? 0
     if (missing > 0 && mismatched > 0) {

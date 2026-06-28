@@ -187,7 +187,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const staffDirectoryAdmin = useStaffDirectoryAdmin({
     canAccessUsersNav,
     canManageClerkSync,
-    shouldFetchClerkSyncHealth: isStudentsView && canManageClerkSync,
+    shouldFetchClerkSyncHealth: false,
     scheduleEventsByDay,
     ensureMinimumLoadingTime,
     handleStaffAuthFailure,
