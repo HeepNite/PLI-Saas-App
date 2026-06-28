@@ -6,16 +6,32 @@ export type ClerkUser = Awaited<ReturnType<ClerkClient["users"]["getUser"]>>
 // ── Short-lived getUser cache (shared with staff-portal-auth) ────
 const CLERK_CACHE_TTL_MS = 5_000
 const clerkUserCache = new Map<string, { user: ClerkUser; expiresAt: number }>()
+const clerkUserInflight = new Map<string, Promise<ClerkUser>>()
 
 export const getCachedClerkUser = async (userId: string): Promise<ClerkUser> => {
   const now = Date.now()
   const cached = clerkUserCache.get(userId)
   if (cached && cached.expiresAt > now) return cached.user
 
-  const client = await clerkClient()
-  const user = await client.users.getUser(userId)
-  clerkUserCache.set(userId, { user, expiresAt: now + CLERK_CACHE_TTL_MS })
-  return user
+  const inflight = clerkUserInflight.get(userId)
+  if (inflight) return inflight
+
+  const fetchUser = (async () => {
+    const client = await clerkClient()
+    const user = await client.users.getUser(userId)
+    clerkUserCache.set(userId, { user, expiresAt: now + CLERK_CACHE_TTL_MS })
+    return user
+  })()
+
+  clerkUserInflight.set(userId, fetchUser)
+
+  try {
+    return await fetchUser
+  } finally {
+    if (clerkUserInflight.get(userId) === fetchUser) {
+      clerkUserInflight.delete(userId)
+    }
+  }
 }
 
 /**

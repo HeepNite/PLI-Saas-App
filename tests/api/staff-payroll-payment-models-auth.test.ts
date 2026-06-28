@@ -111,6 +111,22 @@ describe("payment models auth gates", () => {
       expect(res.status).toBe(401)
       expect(await res.json()).toEqual({ error: "Unauthorized" })
     })
+
+    it("forwards Retry-After on transient auth failures", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({
+        ok: false,
+        status: 503,
+        error: "Service temporarily busy. Please try again shortly.",
+        retryAfterSec: 15,
+      })
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+
+      expect(res.status).toBe(503)
+      expect(res.headers.get("Retry-After")).toBe("15")
+      expect(await res.json()).toEqual({ error: "Service temporarily busy. Please try again shortly." })
+    })
   })
 
   describe("POST /api/staff/payroll/payment-models", () => {
@@ -176,6 +192,26 @@ describe("payment models auth gates", () => {
 
       expect(res.status).toBe(401)
       expect(await res.json()).toEqual({ error: "Unauthorized" })
+    })
+
+    it("forwards Retry-After on transient auth failures", async () => {
+      mockAuthorizeOwnerRequest.mockResolvedValue({
+        ok: false,
+        status: 503,
+        error: "Service temporarily busy. Please try again shortly.",
+        retryAfterSec: 15,
+      })
+
+      const { POST } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await POST(new Request("http://localhost/api/staff/payroll/payment-models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validBody),
+      }))
+
+      expect(res.status).toBe(503)
+      expect(res.headers.get("Retry-After")).toBe("15")
+      expect(await res.json()).toEqual({ error: "Service temporarily busy. Please try again shortly." })
     })
   })
 
