@@ -79,7 +79,7 @@ import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
-import { nextKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
+import { nextKioskInfoPhase, initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 import {
   requestCheckoutCashApi,
@@ -272,7 +272,9 @@ export default function EnrollModal({
   const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
   const paymentMethod = flowState.paymentMethod
   const [activeNumericField, setActiveNumericField] = React.useState<"phone" | null>(null)
-  const [kioskInfoPhase, setKioskInfoPhase] = React.useState<KioskInfoPhase>("name-email")
+  const [kioskInfoPhase, setKioskInfoPhase] = React.useState<KioskInfoPhase>(() =>
+    initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
+  )
   // Paso 2: datos de contacto (modular, sin teléfono)
   const contact = flowState.contact
   // Flujo multi‑paso + éxito
@@ -590,7 +592,7 @@ export default function EnrollModal({
     setIdentityCheckBusy(false)
     setPhoneTouched(false)
     setActiveNumericField(null)
-    setKioskInfoPhase("name-email")
+    setKioskInfoPhase(initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow }))
     setStripeClientSecret("")
     setShowStripeModal(false)
     setKioskQrCheckout(createEmptyKioskQrCheckoutState())
@@ -1698,10 +1700,14 @@ export default function EnrollModal({
 
   const handleFormStepSubmit = async () => {
     if (usesPhasedInfoForm && activeStepKey === "info") {
-      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service)
+      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service, { phoneFirst: isKioskTerminalFlow })
       if (nextPhase !== "done") {
         setKioskInfoPhase(nextPhase)
-        if (isKioskTerminalFlow) setActiveNumericField("phone")
+        // For phone-first kiosk, after phone → name-email (activate text input, not numpad)
+        // For standard flow, after name-email → phone (activate numpad)
+        if (isKioskTerminalFlow && nextPhase === "phone") setActiveNumericField("phone")
+        else if (isKioskTerminalFlow && nextPhase === "name-email") setActiveNumericField(null)
+        else if (isKioskTerminalFlow) setActiveNumericField("phone")
         return
       }
     }
@@ -2392,6 +2398,45 @@ export default function EnrollModal({
 
             {success ? (
               <div className="mt-2">
+                {/* Kiosk terminal: compact inline success within payment completion state */}
+                {isKioskTerminalFlow ? (
+                  <div className="relative overflow-hidden rounded-[1.15rem] border border-emerald-500/20 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_40%),linear-gradient(145deg,rgba(28,32,44,0.98),rgba(16,18,28,0.99))] p-6 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
+                    <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-400/20" aria-hidden />
+                    <div className="flex flex-col items-center gap-4 text-center">
+                      <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-2xl" aria-hidden>✓</span>
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">Purchase Complete!</h3>
+                        {successMessage && (
+                          <p className="mt-2 text-sm leading-relaxed text-white/68">{successMessage}</p>
+                        )}
+                      </div>
+                      <div className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/70">
+                        <p className="font-medium text-white/90 mb-1">Complete your student profile</p>
+                        <p className="text-xs text-white/55">
+                          Visit{" "}
+                          <span className="font-medium text-emerald-300">{typeof window !== "undefined" ? window.location.origin : ""}/client-profile</span>
+                          {" "}to upload your photo and manage your account.
+                        </p>
+                      </div>
+                      {isStationCompletion && onCompletedAction && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (stationCompletionTimeoutRef.current !== null) {
+                              window.clearTimeout(stationCompletionTimeoutRef.current)
+                              stationCompletionTimeoutRef.current = null
+                            }
+                            void onCompletedAction()
+                          }}
+                          className="mt-2 w-full rounded-xl bg-[var(--brand,#111)] px-4 py-3 text-sm font-semibold text-white"
+                        >
+                          {t("finish")}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                <div>
                 {/* Success header */}
                 <div className="flex flex-col items-center py-4">
                   <div className="mb-2" aria-hidden>
@@ -2479,6 +2524,8 @@ export default function EnrollModal({
                     {isStationCompletion ? t("finish") : isPersonalCompletion ? "Close" : t("finish")}
                   </button>
                 </div>
+                </div>
+                )}
               </div>
             ) : (
               <form
@@ -2915,6 +2962,67 @@ export default function EnrollModal({
 
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
+                    {/* Kiosk terminal: inline consecutive offer toggle (replaces separate consecutive step) */}
+                    {isKioskTerminalFlow && effectiveConsecutiveOffer && (() => {
+                      const consecutivePriceCents = effectiveIsPackageHolder
+                        ? (effectiveConsecutiveOffer.packageHolderConsecutiveCents ?? 0)
+                        : (effectiveConsecutiveOffer.dropInConsecutiveCents ?? 0)
+                      const regularPriceCents = effectiveConsecutiveOffer.regularDropInCents ?? 0
+                      return (
+                        <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4">
+                          <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-white/48">Add Second Class Promotion</p>
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="min-w-0">
+                              <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200 mb-1">
+                                Promo
+                              </span>
+                              <p className="text-sm font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
+                              {effectiveConsecutiveOffer.linkedCourseTime && (
+                                <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
+                              )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-lg font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
+                              {regularPriceCents > 0 && (
+                                <p className="text-xs font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConsecutiveAccepted(true)
+                                setConsecutiveChoiceMade(true)
+                                setConsecutiveAddedCents(consecutivePriceCents)
+                              }}
+                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                                consecutiveAccepted && consecutiveChoiceMade
+                                  ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-400/25"
+                                  : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300 hover:border-emerald-400/50"
+                              }`}
+                            >
+                              Add +${(consecutivePriceCents / 100).toFixed(2)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConsecutiveAccepted(false)
+                                setConsecutiveChoiceMade(true)
+                                setConsecutiveAddedCents(0)
+                              }}
+                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                                consecutiveChoiceMade && !consecutiveAccepted
+                                  ? "border-white/35 bg-white/[0.08] text-white ring-2 ring-white/10"
+                                  : "border-white/12 bg-white/[0.03] text-white/72 hover:border-white/22 hover:text-white"
+                              }`}
+                            >
+                              No thanks
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
                     {/* Selected package card with remove action (kiosk flows) */}
                     {isCheckInFlow && pkg && (
                       <div className="rounded-xl border border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.08)] p-4">
@@ -3130,7 +3238,7 @@ export default function EnrollModal({
                     {allowPanelAccess && (
                       <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
                     )}
-                    {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === "name-email") && (
+                    {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -3138,9 +3246,11 @@ export default function EnrollModal({
                             resetKioskQrCheckout()
                             return
                           }
-                          if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email") {
-                            setKioskInfoPhase("name-email")
-                            setActiveNumericField(null)
+                          if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })) {
+                            // Go back to the initial phase of the info form
+                            setKioskInfoPhase(initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow }))
+                            if (isKioskTerminalFlow) setActiveNumericField("phone")
+                            else setActiveNumericField(null)
                             return
                           }
                           if (step === 0) {
@@ -3153,7 +3263,7 @@ export default function EnrollModal({
                       >
                         {kioskQrCheckoutLocked
                           ? "Cancel QR"
-                          : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email"
+                          : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
                             ? "Back"
                             : step === 0
                               ? t("cancel")
