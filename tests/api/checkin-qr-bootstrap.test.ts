@@ -14,6 +14,10 @@ const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockCreatePreparedCheckoutContext = vi.fn()
 
+const mockDayOfWeekFindUnique = vi.fn().mockResolvedValue(null)
+const mockClassSessionFindUnique = vi.fn().mockResolvedValue(null)
+const mockAttendanceFindUnique = vi.fn().mockResolvedValue(null)
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     packagePurchase: {
@@ -22,6 +26,15 @@ vi.mock("@/lib/prisma", () => ({
     purchase: {
       findMany: (...args: unknown[]) => mockPurchaseFindMany(...args),
       findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
+    },
+    dayOfWeekPurchaseCount: {
+      findUnique: (...args: unknown[]) => mockDayOfWeekFindUnique(...args),
+    },
+    classSession: {
+      findUnique: (...args: unknown[]) => mockClassSessionFindUnique(...args),
+    },
+    attendance: {
+      findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
     },
   },
 }))
@@ -73,6 +86,12 @@ describe("qr check-in bootstrap route", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockCreatePreparedCheckoutContext.mockReset()
+    mockDayOfWeekFindUnique.mockReset()
+    mockDayOfWeekFindUnique.mockResolvedValue(null)
+    mockClassSessionFindUnique.mockReset()
+    mockClassSessionFindUnique.mockResolvedValue(null)
+    mockAttendanceFindUnique.mockReset()
+    mockAttendanceFindUnique.mockResolvedValue(null)
 
     mockClerkClient.mockResolvedValue({
       users: {
