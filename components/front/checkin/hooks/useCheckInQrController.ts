@@ -13,6 +13,7 @@ import {
   createEmptyKioskQrCheckoutState,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
+import { requestCheckoutSessionApi } from "@/lib/checkin/checkin-qr-api"
 import { useConsecutiveOfferUiHandlers } from "@/components/front/checkin/hooks/useConsecutiveOfferUiHandlers"
 import { useCheckInPackageFlow } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
 import { useCheckInBootstrap } from "@/components/front/checkin/hooks/useCheckInBootstrap"
@@ -124,6 +125,13 @@ export function useCheckInQrController({
 
   // ─── Consecutive card QR checkout state ─────────────────────
   const [consecutiveQrCheckout, setConsecutiveQrCheckout] = React.useState<KioskQrCheckoutState>(
+    createEmptyKioskQrCheckoutState()
+  )
+
+  // ─── Quick repeat overlay state ──────────────────────────────
+  const [showQuickRepeat, setShowQuickRepeat] = React.useState(false)
+  const [quickRepeatProcessing, setQuickRepeatProcessing] = React.useState(false)
+  const [quickRepeatQrCheckout, setQuickRepeatQrCheckout] = React.useState<KioskQrCheckoutState>(
     createEmptyKioskQrCheckoutState()
   )
 
@@ -264,6 +272,14 @@ export function useCheckInQrController({
     setShowConsecutivePaymentSelection,
   })
   setBootstrapRef.current = setBootstrap
+
+  // Activate quick repeat overlay when bootstrap signals eligibility
+  React.useEffect(() => {
+    if (bootstrap?.quickRepeatEligible && isKioskTerminalFlow) {
+      setShowQuickRepeat(true)
+      setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+    }
+  }, [bootstrap?.quickRepeatEligible, isKioskTerminalFlow])
 
   const checkConsecutiveOfferAfterCheckInFromRef = React.useCallback(
     () => checkConsecutiveOfferAfterCheckInRef.current(),
@@ -417,6 +433,162 @@ export function useCheckInQrController({
     setAwaitingConsecutivePaymentSelection,
   })
   handleStationCompletionRef.current = handleStationCompletion
+
+  // ─── Quick repeat handlers ───────────────────────────────────
+  const handleQuickRepeatDecline = React.useCallback(() => {
+    setShowQuickRepeat(false)
+    setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+    // Fall through to the existing student flow — openExistingPurchaseFlow is
+    // called reactively by the bootstrap effect when existingRegularBookingOverride
+    // is set. We just clear the overlay gate here; the existing terminal flow
+    // already handles the rest.
+  }, [])
+
+  const handleQuickRepeatConfirm = React.useCallback(async (
+    paymentChannel: "cash" | "card",
+    consecutiveAccepted: boolean,
+  ) => {
+    if (!bootstrap) return
+    const { context, customer, consecutiveOffer: bsConsecutiveOffer, lastPurchasePattern } = bootstrap
+
+    setQuickRepeatProcessing(true)
+
+    if (paymentChannel === "cash") {
+      try {
+        const amountCents = lastPurchasePattern?.amount ?? 0
+        const consecutiveOffer = consecutiveAccepted ? bsConsecutiveOffer ?? null : null
+        const consecutivePriceCents = consecutiveAccepted && consecutiveOffer
+          ? (consecutiveOffer.dropInConsecutiveCents ?? null)
+          : null
+
+        const payload: Record<string, unknown> = {
+          courseSlug: context.courseSlug,
+          courseTitle: context.courseTitle,
+          amount: amountCents,
+          currency: "usd",
+          date: context.date,
+          time: context.time,
+          firstName: customer.firstName,
+          lastName: customer.lastName,
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          participants: 1,
+          addons: [],
+          serviceId: "",
+          photoContext: "kiosk_terminal",
+          flowContext: "kiosk_terminal",
+          ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+          ...(consecutiveOffer && consecutivePriceCents != null
+            ? {
+                consecutivePriceCents,
+                consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
+                consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
+                consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime ?? context.time,
+              }
+            : {}),
+        }
+
+        const res = await fetch("/api/checkout/cash", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        })
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => null)
+          setError(typeof data?.error === "string" ? data.error : "Quick check-in failed. Please try again.")
+          setShowQuickRepeat(false)
+          setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+          return
+        }
+
+        setShowQuickRepeat(false)
+        setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+        void handleStationCompletionFromRef()
+      } catch {
+        setError("Quick check-in failed. Please try again.")
+        setShowQuickRepeat(false)
+        setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+      } finally {
+        setQuickRepeatProcessing(false)
+      }
+      return
+    }
+
+    // Card path — create a Stripe session and show QR within the overlay
+    const amountCents = lastPurchasePattern?.amount ?? 0
+    if (amountCents <= 0) {
+      setError("Unable to determine amount for card payment.")
+      setQuickRepeatProcessing(false)
+      return
+    }
+
+    setQuickRepeatQrCheckout({ ...createEmptyKioskQrCheckoutState(), phase: "creating" })
+
+    try {
+      const consecutiveOfferForCard = consecutiveAccepted ? (bootstrap.consecutiveOffer ?? null) : null
+      const consecutivePriceCents = consecutiveOfferForCard
+        ? (consecutiveOfferForCard.dropInConsecutiveCents ?? null)
+        : null
+
+      const sessionPayload: Record<string, unknown> = {
+        courseSlug: context.courseSlug,
+        courseTitle: context.courseTitle,
+        amount: amountCents,
+        currency: "usd",
+        date: context.date,
+        time: context.time,
+        serviceId: "",
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+        participants: 1,
+        photoContext: "kiosk_terminal",
+        ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+        ...(consecutiveOfferForCard && consecutivePriceCents != null
+          ? {
+              consecutivePriceCents,
+              consecutiveLinkedCourseSlug: consecutiveOfferForCard.linkedCourseSlug,
+              consecutiveCourseTitle: consecutiveOfferForCard.linkedCourseTitle,
+              consecutiveLinkedCourseTime: consecutiveOfferForCard.linkedCourseTime ?? context.time,
+            }
+          : {}),
+      }
+
+      const { res, data } = await requestCheckoutSessionApi({ payload: sessionPayload })
+
+      if (!res.ok || typeof data?.url !== "string" || typeof data?.sessionId !== "string") {
+        const message = typeof data?.error === "string" && data.error.trim().length > 0
+          ? data.error
+          : "Error starting card checkout."
+        setQuickRepeatQrCheckout({ ...createEmptyKioskQrCheckoutState(), phase: "error", error: message })
+        setQuickRepeatProcessing(false)
+        return
+      }
+
+      setQuickRepeatQrCheckout({
+        phase: "qr_ready",
+        sessionId: data.sessionId,
+        url: data.url,
+        expiresAt: data.expiresAt ?? null,
+        awaitingWebhook: false,
+        purchaseId: null,
+        paymentStatus: null,
+        error: null,
+      })
+    } catch {
+      setQuickRepeatQrCheckout({
+        ...createEmptyKioskQrCheckoutState(),
+        phase: "error",
+        error: "Unable to start card checkout.",
+      })
+    } finally {
+      setQuickRepeatProcessing(false)
+    }
+  }, [bootstrap, kioskPinSessionToken, handleStationCompletionFromRef, setError])
 
   // ─── Booking modal orchestration ────────────────────────────
   const {
@@ -773,5 +945,10 @@ export function useCheckInQrController({
     onPhoneSignInSession: handlePhoneSignInSession,
     onPhoneSignInSuccess: handlePhoneSignInSuccess,
     onStationCompletion: handleStationCompletion,
+    showQuickRepeat,
+    quickRepeatQrCheckout,
+    quickRepeatProcessing,
+    onQuickRepeatConfirm: handleQuickRepeatConfirm,
+    onQuickRepeatDecline: handleQuickRepeatDecline,
   })
 }
