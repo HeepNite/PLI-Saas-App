@@ -11,6 +11,13 @@
 
 import { describe, expect, it } from "vitest"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
+import {
+  buildCreateStudentRequestBody,
+  canSubmitCreateStudentForm,
+  createInitialStudentForm,
+  reconcileCreateStudentFormWithSessions,
+  type CreateStudentFormState,
+} from "@/components/front/staff/useStaffCreateStudentAdmin"
 
 const STAFF_REGISTRATION_SENTINEL = "_staff_registration"
 
@@ -54,5 +61,88 @@ describe("sentinel purchase safety", () => {
     expect(isStaffRegistrationSentinel(null)).toBe(false)
     expect(isStaffRegistrationSentinel(undefined)).toBe(false)
     expect(isStaffRegistrationSentinel("")).toBe(false)
+  })
+})
+
+describe("create student attendance payload", () => {
+  it("defaults attendance creation to the current class session when available", () => {
+    const form = createInitialStudentForm([
+      {
+        id: "session_current",
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics",
+        startsAt: "2026-05-01T18:00:00.000Z",
+        durationMinutes: 60,
+        isCurrent: true,
+      },
+    ])
+
+    expect(form.createAttendance).toBe(true)
+    expect(form.attendanceSessionId).toBe("session_current")
+  })
+
+  it("submits the selected attendance session in the checkIn payload", () => {
+    const form: CreateStudentFormState = {
+      ...createInitialStudentForm(),
+      email: "student@example.com",
+      createAttendance: true,
+      attendanceSessionId: "session_previous",
+    }
+
+    expect(buildCreateStudentRequestBody(form)).toMatchObject({
+      email: "student@example.com",
+      amountCents: 0,
+      checkIn: { enabled: true, sessionId: "session_previous" },
+    })
+  })
+
+  it("blocks submit when attendance is enabled without a selected session", () => {
+    const form: CreateStudentFormState = {
+      ...createInitialStudentForm(),
+      email: "student@example.com",
+      createAttendance: true,
+      attendanceSessionId: "",
+    }
+
+    expect(canSubmitCreateStudentForm({ form, hasAmount: false, submitting: false })).toBe(false)
+  })
+
+  it("replaces a stale selected session with the current session after a fresh load", () => {
+    const form: CreateStudentFormState = {
+      ...createInitialStudentForm(),
+      email: "student@example.com",
+      createAttendance: true,
+      attendanceSessionId: "session_stale",
+    }
+
+    const reconciled = reconcileCreateStudentFormWithSessions(form, [
+      {
+        id: "session_current",
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics",
+        startsAt: "2026-05-01T18:00:00.000Z",
+        durationMinutes: 60,
+        isCurrent: true,
+      },
+    ])
+
+    expect(reconciled.createAttendance).toBe(true)
+    expect(reconciled.attendanceSessionId).toBe("session_current")
+    expect(reconciled.email).toBe("student@example.com")
+  })
+
+  it("clears a stale selected session when no fresh current session exists", () => {
+    const form: CreateStudentFormState = {
+      ...createInitialStudentForm(),
+      email: "student@example.com",
+      createAttendance: true,
+      attendanceSessionId: "session_stale",
+    }
+
+    const reconciled = reconcileCreateStudentFormWithSessions(form, [])
+
+    expect(reconciled.createAttendance).toBe(false)
+    expect(reconciled.attendanceSessionId).toBe("")
+    expect(reconciled.email).toBe("student@example.com")
   })
 })

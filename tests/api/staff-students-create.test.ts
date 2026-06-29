@@ -22,6 +22,17 @@ vi.mock("@/lib/users", () => ({
 }))
 
 const mockPrisma = {
+  $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma)),
+  classSession: {
+    findMany: vi.fn(),
+  },
+  attendance: {
+    findUnique: vi.fn(),
+    create: vi.fn(),
+  },
+  packagePurchase: {
+    findMany: vi.fn(),
+  },
   purchase: {
     create: vi.fn(),
   },
@@ -46,6 +57,17 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/audit/student-data-audit", () => ({
   writeStudentDataAudit: (...args: unknown[]) => mockWriteStudentDataAudit(...args),
+}))
+
+const mockReservePackageCreditForAttendanceTx = vi.fn()
+const mockEnsureAttendancePackagePurchase = vi.fn()
+
+vi.mock("@/lib/packages", () => ({
+  reservePackageCreditForAttendanceTx: (...args: unknown[]) => mockReservePackageCreditForAttendanceTx(...args),
+}))
+
+vi.mock("@/lib/purchase-attendance", () => ({
+  ensureAttendancePackagePurchase: (...args: unknown[]) => mockEnsureAttendancePackagePurchase(...args),
 }))
 
 vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_fake")
@@ -87,6 +109,26 @@ const localStudent = {
   name: "Maria Student",
 }
 
+const selectableSession = () => ({
+  id: "session_1",
+  courseSlug: "salsa-basics",
+  title: "Salsa Basics",
+  startsAt: new Date(),
+  durationMinutes: 60,
+})
+
+const activePackagePurchase = {
+  id: "package_purchase_1",
+  packageId: "package_1",
+  packageLabel: "Salsa 5 Pack",
+  courseSlug: "salsa-basics",
+  isUnlimited: false,
+  remainingCredits: 3,
+  expiresAt: null,
+  status: "active",
+  packagePlan: { courseSlugs: ["salsa-basics"] },
+}
+
 const postCreateStudent = async (body: unknown) => {
   const { POST } = await import("@/app/api/staff/students/route")
   return POST(
@@ -107,9 +149,16 @@ describe("POST /api/staff/students", () => {
     mockUpdateClerkUserIfMissing.mockReset()
     mockUpsertUserByIdentifiers.mockReset()
     mockClerkClient.mockReset()
+    mockPrisma.$transaction.mockClear()
+    mockPrisma.classSession.findMany.mockReset()
+    mockPrisma.attendance.findUnique.mockReset()
+    mockPrisma.attendance.create.mockReset()
+    mockPrisma.packagePurchase.findMany.mockReset()
     mockPrisma.purchase.create.mockReset()
     mockWriteStudentDataAudit.mockReset()
     mockStripeCheckoutSessionsCreate.mockReset()
+    mockReservePackageCreditForAttendanceTx.mockReset()
+    mockEnsureAttendancePackagePurchase.mockReset()
     mockAuthorizeStudentOperationalRequest.mockResolvedValue(frontDeskAuth)
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockEnsureClerkUser.mockResolvedValue(createdClerkUser)
@@ -127,6 +176,17 @@ describe("POST /api/staff/students", () => {
       amount: 1000,
       status: "pending",
     })
+    mockPrisma.classSession.findMany.mockResolvedValue([selectableSession()])
+    mockPrisma.attendance.findUnique.mockResolvedValue(null)
+    mockPrisma.attendance.create.mockResolvedValue({
+      id: "attendance_1",
+      userId: "user_student_1",
+      sessionId: "session_1",
+      status: "checked_in_no_package",
+    })
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([])
+    mockReservePackageCreditForAttendanceTx.mockResolvedValue({ consumed: false, packagePurchase: null })
+    mockEnsureAttendancePackagePurchase.mockResolvedValue(undefined)
     mockWriteStudentDataAudit.mockResolvedValue(undefined)
     mockStripeCheckoutSessionsCreate.mockResolvedValue({
       id: "cs_test_123",
@@ -383,5 +443,144 @@ describe("POST /api/staff/students", () => {
 
     expect(res.status).toBe(201)
     expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("creates attendance for the selected class session and links the manual purchase metadata", async () => {
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      amountCents: 1000,
+      paymentMode: "cash",
+      checkIn: { enabled: true, sessionId: "session_1" },
+    })
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ attendanceId: "attendance_1", purchaseId: "purchase_1" })
+    expect(mockPrisma.classSession.findMany).toHaveBeenCalledWith({
+      where: { startsAt: { gte: expect.any(Date), lte: expect.any(Date) } },
+      select: { id: true, courseSlug: true, title: true, startsAt: true, durationMinutes: true },
+      orderBy: { startsAt: "desc" },
+      take: 50,
+    })
+    expect(mockPrisma.attendance.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "user_student_1",
+        sessionId: "session_1",
+        status: "checked_in_no_package",
+        metadata: expect.objectContaining({ source: "staff_created_student", staffUserId: "front_desk_1" }),
+      }),
+    })
+    expect(mockPrisma.purchase.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadata: expect.objectContaining({ attendanceId: "attendance_1" }),
+      }),
+    })
+  })
+
+  it.each([
+    ["stale", "session_stale"],
+    ["far-future", "session_future"],
+    ["non-selectable", "session_51"],
+  ])("rejects %s class sessions outside the selectable sessions contract", async (_label, sessionId) => {
+    mockPrisma.classSession.findMany.mockResolvedValue([selectableSession()])
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, sessionId },
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Selected class session is not available for staff check-in." })
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("reserves an active package credit and creates a package-credit purchase link for attendance", async () => {
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([activePackagePurchase])
+    mockPrisma.attendance.create.mockResolvedValue({
+      id: "attendance_1",
+      userId: "user_student_1",
+      sessionId: "session_1",
+      status: "checked_in",
+    })
+    mockReservePackageCreditForAttendanceTx.mockResolvedValue({
+      consumed: true,
+      packagePurchase: { ...activePackagePurchase, remainingCredits: 2 },
+    })
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, sessionId: "session_1" },
+    })
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ attendanceId: "attendance_1" })
+    expect(mockPrisma.packagePurchase.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ userId: "user_student_1", status: "active" }),
+      take: 1,
+    }))
+    expect(mockPrisma.attendance.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: "checked_in" }),
+    })
+    expect(mockReservePackageCreditForAttendanceTx).toHaveBeenCalledWith(mockPrisma, {
+      packagePurchaseId: "package_purchase_1",
+      userId: "user_student_1",
+      attendanceId: "attendance_1",
+      courseSlug: "salsa-basics",
+      at: expect.any(Date),
+      reason: "STAFF_CREATED_STUDENT_CHECK_IN",
+    })
+    expect(mockEnsureAttendancePackagePurchase).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+      attendanceId: "attendance_1",
+      userId: "user_student_1",
+      courseSlug: "salsa-basics",
+      packageId: "package_1",
+      packagePurchaseId: "package_purchase_1",
+      source: "staff_created_student",
+    }))
+  })
+
+  it("does not create manual or package-credit purchase records when duplicate attendance is rejected", async () => {
+    mockPrisma.attendance.findUnique.mockResolvedValue({ id: "attendance_existing" })
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([activePackagePurchase])
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      amountCents: 1000,
+      paymentMode: "cash",
+      checkIn: { enabled: true, sessionId: "session_1" },
+    })
+
+    expect(res.status).toBe(409)
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+    expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+    expect(mockEnsureAttendancePackagePurchase).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("returns 409 when attendance already exists for the selected class session", async () => {
+    mockPrisma.attendance.findUnique.mockResolvedValue({ id: "attendance_existing" })
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, sessionId: "session_1" },
+    })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ error: "Student is already checked in for this class session." })
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("preserves existing creation behavior when attendance is omitted", async () => {
+    const res = await postCreateStudent({ email: "student@example.com", amountCents: 0 })
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.classSession.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+    const data = await res.json()
+    expect(data.userId).toBe("user_student_1")
+    expect(data).not.toHaveProperty("attendanceId")
   })
 })

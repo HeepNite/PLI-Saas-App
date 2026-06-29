@@ -3,7 +3,7 @@
 import React from "react"
 import { createPortal } from "react-dom"
 import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle } from "lucide-react"
-import type { CreateStudentFormState, CreateStudentResult } from "./useStaffCreateStudentAdmin"
+import type { CreateStudentFormState, CreateStudentResult, CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
 
 type CreateStudentModalProps = {
   isOpen: boolean
@@ -13,6 +13,7 @@ type CreateStudentModalProps = {
   result: CreateStudentResult | null
   hasAmount: boolean
   canSubmit: boolean
+  attendanceSessions: CreateStudentSessionOption[]
   onClose: () => void
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
@@ -26,6 +27,7 @@ export default function CreateStudentModal({
   result,
   hasAmount,
   canSubmit,
+  attendanceSessions,
   onClose,
   onUpdateField,
   onSubmit,
@@ -60,6 +62,7 @@ export default function CreateStudentModal({
             error={error}
             hasAmount={hasAmount}
             canSubmit={canSubmit}
+            attendanceSessions={attendanceSessions}
             onUpdateField={onUpdateField}
             onSubmit={onSubmit}
           />
@@ -76,6 +79,7 @@ function FormView({
   error,
   hasAmount,
   canSubmit,
+  attendanceSessions,
   onUpdateField,
   onSubmit,
 }: {
@@ -84,6 +88,7 @@ function FormView({
   error: string | null
   hasAmount: boolean
   canSubmit: boolean
+  attendanceSessions: CreateStudentSessionOption[]
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
 }) {
@@ -158,6 +163,45 @@ function FormView({
         onChange={(v) => onUpdateField("note", v)}
       />
 
+      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <label className="flex items-start gap-2 text-xs text-white/75">
+          <input
+            type="checkbox"
+            checked={form.createAttendance}
+            onChange={(e) => onUpdateField("createAttendance", e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="block font-medium text-white/85">Create class check-in</span>
+            <span className="text-white/50">Use this when the new student is physically present for class.</span>
+          </span>
+        </label>
+
+        {form.createAttendance && (
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-white/70" htmlFor="create-student-session">
+              Class session
+            </label>
+            <select
+              id="create-student-session"
+              value={form.attendanceSessionId}
+              onChange={(e) => onUpdateField("attendanceSessionId", e.target.value)}
+              className="w-full rounded-lg border border-white/12 bg-black/20 px-3 py-2 text-sm text-white outline-none transition focus:border-[var(--brand,#b61616)]"
+            >
+              <option value="">Select a class session</option>
+              {attendanceSessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {formatSessionOption(session)}
+                </option>
+              ))}
+            </select>
+            {!form.attendanceSessionId && (
+              <p className="text-[11px] text-amber-300">Select a class session or turn off check-in to create the student.</p>
+            )}
+          </div>
+        )}
+      </div>
+
       {error && (
         <div className="flex items-start gap-2 rounded-lg bg-red-500/15 border border-red-500/30 p-2.5 text-xs text-red-300">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -174,6 +218,14 @@ function FormView({
       </button>
     </form>
   )
+}
+
+function formatSessionOption(session: CreateStudentSessionOption) {
+  const startsAt = new Date(session.startsAt)
+  const dateLabel = Number.isNaN(startsAt.getTime())
+    ? session.startsAt
+    : startsAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+  return `${session.isCurrent ? "Current · " : ""}${session.title || session.courseSlug} · ${dateLabel}`
 }
 
 function SuccessView({ result, onClose }: { result: CreateStudentResult; onClose: () => void }) {
