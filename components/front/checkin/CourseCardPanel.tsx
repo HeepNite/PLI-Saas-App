@@ -202,6 +202,7 @@ function PastCoursesList({
                   src={item.imageUrl || "/images/hero-menu/live-academy.JPG"}
                   alt={item.title}
                   fill
+                  unoptimized={item.imageUrl?.startsWith("/api/")}
                   sizes="18vw"
                   className="object-cover"
                 />
@@ -429,6 +430,7 @@ function CourseCardContent({
               src={cardImage}
               alt={courseTitle}
               fill
+              unoptimized={cardImage.startsWith("/api/")}
               sizes={isSplit
                 ? "(max-width: 767px) 100vw, (max-width: 1279px) 38vw, 32vw"
                 : "(max-width: 640px) 42vw, 32vw"
