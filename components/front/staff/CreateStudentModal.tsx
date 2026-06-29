@@ -3,7 +3,7 @@
 import React from "react"
 import { createPortal } from "react-dom"
 import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle } from "lucide-react"
-import type { CreateStudentFormState, CreateStudentResult, CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
+import { getEarliestStaffAttendanceDate, getTodayStaffDate, type CreateStudentFormState, type CreateStudentResult, type CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
 
 type CreateStudentModalProps = {
   isOpen: boolean
@@ -37,11 +37,16 @@ export default function CreateStudentModal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-student-dialog-title"
+        className="relative z-10 w-full max-w-md rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl"
+      >
         <header className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-[var(--brand,#b61616)]" />
-            <h2 className="text-lg font-semibold text-white">New student</h2>
+            <h2 id="create-student-dialog-title" className="text-lg font-semibold text-white">New student</h2>
           </div>
           <button
             type="button"
@@ -178,7 +183,16 @@ function FormView({
         </label>
 
         {form.createAttendance && (
-          <div className="space-y-1">
+          <div className="space-y-2">
+            <FieldInput
+              label="Check-in date"
+              type="date"
+              placeholder="YYYY-MM-DD"
+              value={form.attendanceDate}
+              onChange={(v) => onUpdateField("attendanceDate", v)}
+              min={getEarliestStaffAttendanceDate()}
+              max={getTodayStaffDate()}
+            />
             <label className="block text-xs font-medium text-white/70" htmlFor="create-student-session">
               Class session
             </label>
@@ -195,6 +209,9 @@ function FormView({
                 </option>
               ))}
             </select>
+            {attendanceSessions.length === 0 && (
+              <p className="text-[11px] text-amber-300">No class sessions are scheduled for this date. Choose another date or turn off check-in.</p>
+            )}
             {!form.attendanceSessionId && (
               <p className="text-[11px] text-amber-300">Select a class session or turn off check-in to create the student.</p>
             )}
@@ -285,6 +302,7 @@ function FieldInput({
   value,
   onChange,
   min,
+  max,
   step,
 }: {
   label: string
@@ -294,6 +312,7 @@ function FieldInput({
   value: string
   onChange: (value: string) => void
   min?: string
+  max?: string
   step?: string
 }) {
   return (
@@ -311,6 +330,7 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           min={min}
+          max={max}
           step={step}
           className={`w-full rounded-xl border border-white/15 bg-white/5 ${icon ? "pl-9" : "pl-3"} pr-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[var(--brand,#b61616)]/60`}
         />
@@ -336,6 +356,7 @@ function PaymentModeButton({
     <button
       type="button"
       onClick={onSelect}
+      aria-pressed={selected}
       className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition ${
         selected
           ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 text-white"

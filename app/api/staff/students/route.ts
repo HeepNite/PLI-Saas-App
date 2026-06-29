@@ -11,7 +11,7 @@ import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
-import { findSelectableClassSessions } from "./sessions/selectable-sessions"
+import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey } from "./sessions/selectable-sessions"
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY
 const stripe = stripeSecret
@@ -33,6 +33,7 @@ type StaffCreateStudentPayload = {
   checkIn?: {
     enabled: boolean
     sessionId?: string
+    date?: string
   }
 }
 
@@ -43,6 +44,12 @@ type ParseResult =
 const safeText = (value: unknown, max = 120) => {
   if (typeof value !== "string") return undefined
   const trimmed = value.trim().slice(0, max)
+  return trimmed || undefined
+}
+
+const safeCheckInDateText = (value: unknown) => {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
   return trimmed || undefined
 }
 
@@ -81,6 +88,7 @@ const parsePayload = (body: unknown): ParseResult => {
     : null
   const checkInEnabled = checkInRecord ? checkInRecord.enabled === true : Boolean(attendanceSessionId)
   const checkInSessionId = safeText(checkInRecord?.sessionId, 120) || attendanceSessionId
+  const checkInDate = safeCheckInDateText(checkInRecord?.date)
 
   if (email && !EMAIL_PATTERN.test(email)) {
     return { ok: false, error: "Invalid email." }
@@ -110,6 +118,9 @@ const parsePayload = (body: unknown): ParseResult => {
   if (checkInEnabled && !checkInSessionId) {
     return { ok: false, error: "Select a class session for check-in." }
   }
+  if (checkInEnabled && checkInDate && (checkInDate.length > 64 || !isValidSessionDateKey(checkInDate))) {
+    return { ok: false, error: "Invalid check-in date. Use YYYY-MM-DD." }
+  }
 
   return {
     ok: true,
@@ -120,7 +131,7 @@ const parsePayload = (body: unknown): ParseResult => {
       amountCents,
       paymentMode: paymentMode as "cash" | "card_qr" | undefined,
       note,
-      checkIn: checkInEnabled ? { enabled: true, sessionId: checkInSessionId } : undefined,
+      checkIn: checkInEnabled ? { enabled: true, sessionId: checkInSessionId, date: checkInDate } : undefined,
     },
   }
 }
@@ -319,11 +330,12 @@ const createManualAttendanceTx = async (
   input: {
     user: { id: string; email?: string | null; name?: string | null; phone?: string | null }
     sessionId: string
+    date?: string
     staffUserId: string
   }
 ) => {
   const now = new Date()
-  const selectableSessions = await findSelectableClassSessions(tx, now)
+  const selectableSessions = await findSelectableClassSessions(tx, now, input.date)
   const session = selectableSessions.find((candidate) => candidate.id === input.sessionId) || null
   if (!session) {
     return { ok: false as const, status: 400, error: "Selected class session is not available for staff check-in." }
@@ -374,7 +386,7 @@ const createManualAttendanceTx = async (
       packagePurchaseId: packagePurchase.id,
       source: "staff_created_student",
       purchaseSource: PURCHASE_SOURCE.FRONT_DESK,
-      date: startsAtIso.slice(0, 10),
+      date: input.date || startsAtIso.slice(0, 10),
       time: startsAtIso.slice(11, 16),
     })
   }
@@ -502,8 +514,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 400 })
   }
 
+  const now = new Date()
+  if (parsed.payload.checkIn?.date && !isSelectableSessionDateKey(parsed.payload.checkIn.date, now)) {
+    return NextResponse.json({ error: "Check-in date must be today or within the last 14 days." }, { status: 400 })
+  }
+
   if (parsed.payload.checkIn?.enabled) {
-    const selectableSessions = await findSelectableClassSessions(prisma, new Date())
+    const selectableSessions = await findSelectableClassSessions(prisma, now, parsed.payload.checkIn.date)
     const isSelectableSession = selectableSessions.some((session) => session.id === parsed.payload.checkIn?.sessionId)
     if (!isSelectableSession) {
       return NextResponse.json({ error: "Selected class session is not available for staff check-in." }, { status: 400 })
@@ -526,6 +543,7 @@ export async function POST(req: Request) {
         ? await createManualAttendanceTx(tx, {
             user: identity.localUser,
             sessionId: parsed.payload.checkIn.sessionId || "",
+            date: parsed.payload.checkIn.date,
             staffUserId: authResult.userId,
           })
         : null

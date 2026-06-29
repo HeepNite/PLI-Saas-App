@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
-import { findSelectableClassSessions } from "./selectable-sessions"
+import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey } from "./selectable-sessions"
 
 export const runtime = "nodejs"
 
@@ -24,8 +24,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status })
   }
 
+  const requestUrl = new URL(req.url)
+  const date = (requestUrl.searchParams.get("date") || "").trim()
   const now = new Date()
-  const sessions = await findSelectableClassSessions(prisma, now)
+  if (date && !isValidSessionDateKey(date)) {
+    return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 })
+  }
+  if (date && !isSelectableSessionDateKey(date, now)) {
+    return NextResponse.json({ error: "Date must be today or within the last 14 days." }, { status: 400 })
+  }
+
+  const sessions = await findSelectableClassSessions(prisma, now, date || undefined)
 
   return NextResponse.json({
     items: sessions.map((session) => {

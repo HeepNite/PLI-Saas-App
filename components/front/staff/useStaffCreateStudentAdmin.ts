@@ -8,6 +8,7 @@ export type CreateStudentFormState = {
   paymentMode: "cash" | "card_qr" | ""
   note: string
   createAttendance: boolean
+  attendanceDate: string
   attendanceSessionId: string
 }
 
@@ -42,13 +43,44 @@ const INITIAL_FORM: CreateStudentFormState = {
   paymentMode: "",
   note: "",
   createAttendance: false,
+  attendanceDate: "",
   attendanceSessionId: "",
+}
+
+export const getTodayStaffDate = (now = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now)
+  const year = parts.find((part) => part.type === "year")?.value ?? ""
+  const month = parts.find((part) => part.type === "month")?.value ?? ""
+  const day = parts.find((part) => part.type === "day")?.value ?? ""
+  return year && month && day ? `${year}-${month}-${day}` : now.toISOString().slice(0, 10)
+}
+
+export const STAFF_ATTENDANCE_BACKFILL_DAYS = 14
+
+const addDaysToDateKey = (dateKey: string, days: number) => {
+  const [year, month, day] = dateKey.split("-").map((part) => Number.parseInt(part, 10))
+  const value = new Date(Date.UTC(year, month - 1, day + days))
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`
+}
+
+export const getEarliestStaffAttendanceDate = (now = new Date()) =>
+  addDaysToDateKey(getTodayStaffDate(now), -STAFF_ATTENDANCE_BACKFILL_DAYS)
+
+export const buildCreateStudentSessionsRequestUrl = (date: string) => {
+  const query = date ? `?date=${encodeURIComponent(date)}` : ""
+  return `/api/staff/students/sessions${query}`
 }
 
 export const createInitialStudentForm = (sessions: CreateStudentSessionOption[] = []): CreateStudentFormState => {
   const defaultSession = sessions.find((session) => session.isCurrent) || null
   return {
     ...INITIAL_FORM,
+    attendanceDate: getTodayStaffDate(),
     createAttendance: Boolean(defaultSession),
     attendanceSessionId: defaultSession?.id || "",
   }
@@ -64,7 +96,7 @@ export const buildCreateStudentRequestBody = (form: CreateStudentFormState) => {
     paymentMode: amountCents > 0 ? form.paymentMode || undefined : undefined,
     note: form.note.trim() || undefined,
     checkIn: form.createAttendance
-      ? { enabled: true, sessionId: form.attendanceSessionId || undefined }
+      ? { enabled: true, date: form.attendanceDate || undefined, sessionId: form.attendanceSessionId || undefined }
       : undefined,
   }
 }
@@ -92,9 +124,21 @@ export const reconcileCreateStudentFormWithSessions = (
   const defaultSession = sessions.find((session) => session.isCurrent) || null
   return {
     ...form,
-    createAttendance: Boolean(defaultSession),
+    createAttendance: form.createAttendance || Boolean(defaultSession),
     attendanceSessionId: defaultSession?.id || "",
   }
+}
+
+export const updateCreateStudentFormField = <K extends keyof CreateStudentFormState>(
+  form: CreateStudentFormState,
+  field: K,
+  value: CreateStudentFormState[K]
+): CreateStudentFormState => {
+  if (field === "attendanceDate") {
+    return { ...form, attendanceDate: value as string, attendanceSessionId: "" }
+  }
+
+  return { ...form, [field]: value }
 }
 
 type UseStaffCreateStudentAdminOptions = {
@@ -133,7 +177,7 @@ export function useStaffCreateStudentAdmin({
 
     const loadSessions = async () => {
       try {
-        const res = await fetch("/api/staff/students/sessions")
+        const res = await fetch(buildCreateStudentSessionsRequestUrl(form.attendanceDate))
         if (!res.ok) return
         const data = await res.json().catch(() => ({}))
         const sessions = Array.isArray(data.items) ? data.items as CreateStudentSessionOption[] : []
@@ -150,11 +194,11 @@ export function useStaffCreateStudentAdmin({
     return () => {
       cancelled = true
     }
-  }, [isOpen])
+  }, [form.attendanceDate, isOpen])
 
   const updateField = React.useCallback(
     <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => {
-      setForm((prev) => ({ ...prev, [field]: value }))
+      setForm((prev) => updateCreateStudentFormField(prev, field, value))
     },
     []
   )

@@ -21,9 +21,10 @@ vi.mock("@/lib/security/rate-limit", () => ({
   getClientIp: vi.fn(() => "127.0.0.1"),
 }))
 
-const getSessions = async () => {
+const getSessions = async (date?: string) => {
   const { GET } = await import("@/app/api/staff/students/sessions/route")
-  return GET(new Request("http://localhost/api/staff/students/sessions"))
+  const query = date ? `?date=${date}` : ""
+  return GET(new Request(`http://localhost/api/staff/students/sessions${query}`))
 }
 
 describe("GET /api/staff/students/sessions", () => {
@@ -131,8 +132,8 @@ describe("GET /api/staff/students/sessions", () => {
     expect(mockPrisma.classSession.findMany).toHaveBeenCalledWith({
       where: {
         startsAt: {
-          gte: new Date("2026-04-17T18:30:00.000Z"),
-          lte: new Date("2026-05-02T18:30:00.000Z"),
+          gte: new Date("2026-04-17T04:00:00.000Z"),
+          lt: new Date("2026-05-02T04:00:00.000Z"),
         },
       },
       select: {
@@ -148,5 +149,42 @@ describe("GET /api/staff/students/sessions", () => {
     expect(body.items.map((session: { id: string }) => session.id)).toEqual(["session_current", "session_recent"])
     expect(body.items).toContainEqual(expect.objectContaining({ id: "session_current", isCurrent: true }))
     expect(body.items).toContainEqual(expect.objectContaining({ id: "session_recent", isCurrent: false }))
+  })
+
+  it.each([
+    ["future", "2026-05-02"],
+    ["too-old historical", "2026-04-16"],
+  ])("rejects a %s selected date", async (_label, date) => {
+    const res = await getSessions(date)
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Date must be today or within the last 14 days." })
+    expect(mockPrisma.classSession.findMany).not.toHaveBeenCalled()
+  })
+
+  it("returns sessions for the requested date and excludes other dates at the query boundary", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValueOnce([
+      {
+        id: "session_prior_day",
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics",
+        startsAt: new Date("2026-04-30T18:00:00.000Z"),
+        durationMinutes: 60,
+      },
+    ])
+
+    const res = await getSessions("2026-04-30")
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.classSession.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        startsAt: {
+          gte: new Date("2026-04-30T04:00:00.000Z"),
+          lt: new Date("2026-05-01T04:00:00.000Z"),
+        },
+      },
+    }))
+    expect(body.items.map((session: { id: string }) => session.id)).toEqual(["session_prior_day"])
   })
 })

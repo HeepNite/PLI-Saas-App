@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockAuthorizeStudentOperationalRequest = vi.fn()
 const mockFindClerkUserByIdentifiers = vi.fn()
@@ -142,6 +142,8 @@ const postCreateStudent = async (body: unknown) => {
 
 describe("POST /api/staff/students", () => {
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-01T18:30:00.000Z"))
     vi.resetModules()
     mockAuthorizeStudentOperationalRequest.mockReset()
     mockFindClerkUserByIdentifiers.mockReset()
@@ -192,6 +194,10 @@ describe("POST /api/staff/students", () => {
       id: "cs_test_123",
       url: "https://checkout.stripe.com/pay/cs_test_123",
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it("rejects unauthorized requests before validating the payload", async () => {
@@ -456,7 +462,7 @@ describe("POST /api/staff/students", () => {
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({ attendanceId: "attendance_1", purchaseId: "purchase_1" })
     expect(mockPrisma.classSession.findMany).toHaveBeenCalledWith({
-      where: { startsAt: { gte: expect.any(Date), lte: expect.any(Date) } },
+      where: { startsAt: { gte: expect.any(Date), lt: expect.any(Date) } },
       select: { id: true, courseSlug: true, title: true, startsAt: true, durationMinutes: true },
       orderBy: { startsAt: "desc" },
       take: 50,
@@ -474,6 +480,89 @@ describe("POST /api/staff/students", () => {
         metadata: expect.objectContaining({ attendanceId: "attendance_1" }),
       }),
     })
+  })
+
+  it("accepts a selectable check-in session for the selected prior date", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValue([
+      {
+        id: "session_prior_day",
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics",
+        startsAt: new Date("2026-04-30T18:00:00.000Z"),
+        durationMinutes: 60,
+      },
+    ])
+    mockPrisma.attendance.create.mockResolvedValue({
+      id: "attendance_prior",
+      userId: "user_student_1",
+      sessionId: "session_prior_day",
+      status: "checked_in_no_package",
+    })
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, date: "2026-04-30", sessionId: "session_prior_day" },
+    })
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ attendanceId: "attendance_prior" })
+    expect(mockPrisma.classSession.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        startsAt: {
+          gte: new Date("2026-04-30T04:00:00.000Z"),
+          lt: new Date("2026-05-01T04:00:00.000Z"),
+        },
+      },
+    }))
+    expect(mockPrisma.attendance.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ sessionId: "session_prior_day" }),
+    })
+  })
+
+  it("rejects a check-in session that is not selectable for the selected date", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValue([])
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, date: "2026-04-30", sessionId: "session_current_day" },
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Selected class session is not available for staff check-in." })
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["malformed", "2026-04-30-extra"],
+    ["overlong", `2026-04-30${"0".repeat(80)}`],
+  ])("rejects a %s check-in date before identity creation", async (_label, date) => {
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, date, sessionId: "session_1" },
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid check-in date. Use YYYY-MM-DD." })
+    expect(mockPrisma.classSession.findMany).not.toHaveBeenCalled()
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["future", "2026-05-02"],
+    ["too-old historical", "2026-04-16"],
+  ])("rejects a %s check-in date before identity creation", async (_label, date) => {
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, date, sessionId: "session_1" },
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Check-in date must be today or within the last 14 days." })
+    expect(mockPrisma.classSession.findMany).not.toHaveBeenCalled()
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -538,6 +627,41 @@ describe("POST /api/staff/students", () => {
       packageId: "package_1",
       packagePurchaseId: "package_purchase_1",
       source: "staff_created_student",
+    }))
+  })
+
+  it("uses the selected check-in date for package-credit purchase metadata", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValue([
+      {
+        id: "session_late_local_day",
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics",
+        startsAt: new Date("2026-05-01T02:00:00.000Z"),
+        durationMinutes: 60,
+      },
+    ])
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([activePackagePurchase])
+    mockPrisma.attendance.create.mockResolvedValue({
+      id: "attendance_late_local_day",
+      userId: "user_student_1",
+      sessionId: "session_late_local_day",
+      status: "checked_in",
+    })
+    mockReservePackageCreditForAttendanceTx.mockResolvedValue({
+      consumed: true,
+      packagePurchase: { ...activePackagePurchase, remainingCredits: 2 },
+    })
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: { enabled: true, date: "2026-04-30", sessionId: "session_late_local_day" },
+    })
+
+    expect(res.status).toBe(201)
+    expect(mockEnsureAttendancePackagePurchase).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+      attendanceId: "attendance_late_local_day",
+      date: "2026-04-30",
+      time: "02:00",
     }))
   })
 
