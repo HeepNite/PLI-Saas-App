@@ -227,11 +227,6 @@ export default function EnrollInfoStep({
           {kioskInfoPhase === "phone" && (
             <motion.div key="phone" variants={phaseVariants} initial="initial" animate="animate" exit="exit" className="grid grid-cols-1 gap-4">
               {phoneField}
-              {phoneComplete && (
-                <p className="rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-center text-sm text-white/70">
-                  Phone complete. Tap Continue below to finish.
-                </p>
-              )}
             </motion.div>
           )}
         </AnimatePresence>

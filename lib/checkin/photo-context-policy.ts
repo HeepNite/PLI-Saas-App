@@ -33,10 +33,10 @@ export const getPhotoPolicy = (context: PhotoFlowContext): PhotoPolicy => {
     case "kiosk_terminal":
       return {
         context,
-        photoRequired: true,
-        allowCameraCapture: true,
+        photoRequired: false,
+        allowCameraCapture: false,
         allowGalleryUpload: false,
-        uploadMode: "terminal_managed",
+        uploadMode: "none",
       }
     case "qr_phone":
       return {
