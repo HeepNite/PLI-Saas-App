@@ -25,6 +25,10 @@ const mockPrisma = {
   $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma)),
   classSession: {
     findMany: vi.fn(),
+    upsert: vi.fn(),
+  },
+  courseCatalog: {
+    findMany: vi.fn(),
   },
   attendance: {
     findUnique: vi.fn(),
@@ -153,6 +157,8 @@ describe("POST /api/staff/students", () => {
     mockClerkClient.mockReset()
     mockPrisma.$transaction.mockClear()
     mockPrisma.classSession.findMany.mockReset()
+    mockPrisma.classSession.upsert.mockReset()
+    mockPrisma.courseCatalog.findMany.mockReset()
     mockPrisma.attendance.findUnique.mockReset()
     mockPrisma.attendance.create.mockReset()
     mockPrisma.packagePurchase.findMany.mockReset()
@@ -179,6 +185,8 @@ describe("POST /api/staff/students", () => {
       status: "pending",
     })
     mockPrisma.classSession.findMany.mockResolvedValue([selectableSession()])
+    mockPrisma.classSession.upsert.mockResolvedValue(selectableSession())
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([])
     mockPrisma.attendance.findUnique.mockResolvedValue(null)
     mockPrisma.attendance.create.mockResolvedValue({
       id: "attendance_1",
@@ -519,6 +527,148 @@ describe("POST /api/staff/students", () => {
     })
   })
 
+  it("materializes a valid synthetic scheduled session before creating attendance", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValue([])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      {
+        slug: "salsa-basics",
+        title: "Salsa Basics",
+        durationMinutes: 60,
+        availableWeekdays: [5],
+        availableTimes: ["18:00"],
+        scheduleRules: null,
+      },
+    ])
+    mockPrisma.classSession.upsert.mockResolvedValue({
+      id: "session_materialized",
+      courseSlug: "salsa-basics",
+      title: "Salsa Basics",
+      startsAt: new Date("2026-05-01T22:00:00.000Z"),
+      durationMinutes: 60,
+    })
+    mockPrisma.attendance.create.mockResolvedValue({
+      id: "attendance_materialized",
+      userId: "user_student_1",
+      sessionId: "session_materialized",
+      status: "checked_in_no_package",
+    })
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: {
+        enabled: true,
+        date: "2026-05-01",
+        sessionId: "scheduled:salsa-basics:2026-05-01:18:00",
+      },
+    })
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ attendanceId: "attendance_materialized" })
+    expect(mockPrisma.classSession.upsert).toHaveBeenCalledWith({
+      where: {
+        courseSlug_startsAt: {
+          courseSlug: "salsa-basics",
+          startsAt: new Date("2026-05-01T22:00:00.000Z"),
+        },
+      },
+      update: {
+        title: "Salsa Basics",
+        durationMinutes: 60,
+      },
+      create: {
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics",
+        startsAt: new Date("2026-05-01T22:00:00.000Z"),
+        durationMinutes: 60,
+      },
+      select: {
+        id: true,
+        courseSlug: true,
+        title: true,
+        startsAt: true,
+        durationMinutes: true,
+      },
+    })
+    expect(mockPrisma.attendance.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ sessionId: "session_materialized" }),
+    })
+  })
+
+  it("accepts a valid synthetic scheduled session ID after the class session already exists", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValue([
+      {
+        id: "session_existing",
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics Live",
+        startsAt: new Date("2026-05-01T22:00:00.000Z"),
+        durationMinutes: 75,
+      },
+    ])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      {
+        slug: "salsa-basics",
+        title: "Salsa Basics",
+        durationMinutes: 60,
+        availableWeekdays: [5],
+        availableTimes: ["18:00"],
+        scheduleRules: null,
+      },
+    ])
+    mockPrisma.classSession.upsert.mockResolvedValue({
+      id: "session_existing",
+      courseSlug: "salsa-basics",
+      title: "Salsa Basics Live",
+      startsAt: new Date("2026-05-01T22:00:00.000Z"),
+      durationMinutes: 75,
+    })
+    mockPrisma.attendance.create.mockResolvedValue({
+      id: "attendance_existing",
+      userId: "user_student_1",
+      sessionId: "session_existing",
+      status: "checked_in_no_package",
+    })
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: {
+        enabled: true,
+        date: "2026-05-01",
+        sessionId: "scheduled:salsa-basics:2026-05-01:18:00",
+      },
+    })
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ attendanceId: "attendance_existing" })
+    expect(mockPrisma.classSession.upsert).toHaveBeenCalledWith({
+      where: {
+        courseSlug_startsAt: {
+          courseSlug: "salsa-basics",
+          startsAt: new Date("2026-05-01T22:00:00.000Z"),
+        },
+      },
+      update: {
+        title: "Salsa Basics Live",
+        durationMinutes: 75,
+      },
+      create: {
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics Live",
+        startsAt: new Date("2026-05-01T22:00:00.000Z"),
+        durationMinutes: 75,
+      },
+      select: {
+        id: true,
+        courseSlug: true,
+        title: true,
+        startsAt: true,
+        durationMinutes: true,
+      },
+    })
+    expect(mockPrisma.attendance.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ sessionId: "session_existing" }),
+    })
+  })
+
   it("rejects a check-in session that is not selectable for the selected date", async () => {
     mockPrisma.classSession.findMany.mockResolvedValue([])
 
@@ -530,6 +680,35 @@ describe("POST /api/staff/students", () => {
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toEqual({ error: "Selected class session is not available for staff check-in." })
     expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+  })
+
+  it("rejects an arbitrary synthetic session ID that is not generated for the selected date", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValue([])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      {
+        slug: "salsa-basics",
+        title: "Salsa Basics",
+        durationMinutes: 60,
+        availableWeekdays: [5],
+        availableTimes: ["18:00"],
+        scheduleRules: null,
+      },
+    ])
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      checkIn: {
+        enabled: true,
+        date: "2026-05-01",
+        sessionId: "scheduled:salsa-basics:2026-05-01:19:00",
+      },
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Selected class session is not available for staff check-in." })
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.classSession.upsert).not.toHaveBeenCalled()
     expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
   })
 

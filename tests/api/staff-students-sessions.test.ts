@@ -7,6 +7,9 @@ const mockPrisma = {
   classSession: {
     findMany: vi.fn(),
   },
+  courseCatalog: {
+    findMany: vi.fn(),
+  },
 }
 
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }))
@@ -35,6 +38,7 @@ describe("GET /api/staff/students/sessions", () => {
     mockAuthorizeStudentOperationalRequest.mockReset()
     mockConsumeRateLimit.mockReset()
     mockPrisma.classSession.findMany.mockReset()
+    mockPrisma.courseCatalog.findMany.mockReset()
 
     mockAuthorizeStudentOperationalRequest.mockResolvedValue({
       ok: true,
@@ -45,6 +49,7 @@ describe("GET /api/staff/students/sessions", () => {
     })
     mockConsumeRateLimit.mockReturnValue({ ok: true })
     mockPrisma.classSession.findMany.mockResolvedValue([])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([])
   })
 
   it("returns auth and rate limit errors before querying sessions", async () => {
@@ -55,6 +60,7 @@ describe("GET /api/staff/students/sessions", () => {
     expect(unauthorizedRes.status).toBe(401)
     await expect(unauthorizedRes.json()).resolves.toEqual({ error: "Unauthorized" })
     expect(mockPrisma.classSession.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.courseCatalog.findMany).not.toHaveBeenCalled()
 
     mockConsumeRateLimit.mockReturnValueOnce({ ok: false, retryAfterSec: 11 })
 
@@ -63,6 +69,7 @@ describe("GET /api/staff/students/sessions", () => {
     expect(rateLimitedRes.status).toBe(429)
     expect(rateLimitedRes.headers.get("Retry-After")).toBe("11")
     expect(mockPrisma.classSession.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.courseCatalog.findMany).not.toHaveBeenCalled()
   })
 
   it("returns the external selectable session item contract", async () => {
@@ -108,7 +115,7 @@ describe("GET /api/staff/students/sessions", () => {
     })
   })
 
-  it("queries only the selectable window and marks the active session current", async () => {
+  it("queries the selectable 14-day window when no date is provided and marks the active session current", async () => {
     mockPrisma.classSession.findMany.mockResolvedValueOnce([
       {
         id: "session_current",
@@ -149,6 +156,120 @@ describe("GET /api/staff/students/sessions", () => {
     expect(body.items.map((session: { id: string }) => session.id)).toEqual(["session_current", "session_recent"])
     expect(body.items).toContainEqual(expect.objectContaining({ id: "session_current", isCurrent: true }))
     expect(body.items).toContainEqual(expect.objectContaining({ id: "session_recent", isCurrent: false }))
+  })
+
+  it("returns today's scheduled course catalog sessions with synthetic IDs when no date is provided and no class session exists", async () => {
+    mockPrisma.courseCatalog.findMany.mockResolvedValueOnce([
+      {
+        slug: "salsa-basics",
+        title: "Salsa Basics",
+        durationMinutes: 60,
+        availableWeekdays: [5],
+        availableTimes: ["18:00"],
+        scheduleRules: null,
+      },
+    ])
+
+    const res = await getSessions()
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      items: [
+        {
+          id: "scheduled:salsa-basics:2026-05-01:18:00",
+          courseSlug: "salsa-basics",
+          title: "Salsa Basics",
+          startsAt: "2026-05-01T22:00:00.000Z",
+          durationMinutes: 60,
+          isCurrent: false,
+        },
+      ],
+    })
+  })
+
+  it("returns scheduled course catalog sessions with synthetic IDs when no class session exists", async () => {
+    mockPrisma.courseCatalog.findMany.mockResolvedValueOnce([
+      {
+        slug: "salsa-basics",
+        title: "Salsa Basics",
+        durationMinutes: 60,
+        availableWeekdays: [5],
+        availableTimes: ["18:00"],
+        scheduleRules: null,
+      },
+    ])
+
+    const res = await getSessions("2026-05-01")
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      items: [
+        {
+          id: "scheduled:salsa-basics:2026-05-01:18:00",
+          courseSlug: "salsa-basics",
+          title: "Salsa Basics",
+          startsAt: "2026-05-01T22:00:00.000Z",
+          durationMinutes: 60,
+          isCurrent: false,
+        },
+      ],
+    })
+  })
+
+  it("excludes scheduled course catalog sessions when available weekdays do not include the selected JS weekday", async () => {
+    mockPrisma.courseCatalog.findMany.mockResolvedValueOnce([
+      {
+        slug: "salsa-basics",
+        title: "Salsa Basics",
+        durationMinutes: 60,
+        availableWeekdays: [4],
+        availableTimes: ["18:00"],
+        scheduleRules: null,
+      },
+    ])
+
+    const res = await getSessions("2026-05-01")
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ items: [] })
+  })
+
+  it("uses the real class session ID for a scheduled course/time that already exists", async () => {
+    mockPrisma.classSession.findMany.mockResolvedValueOnce([
+      {
+        id: "session_existing",
+        courseSlug: "salsa-basics",
+        title: "Salsa Basics Live",
+        startsAt: new Date("2026-05-01T22:00:00.000Z"),
+        durationMinutes: 75,
+      },
+    ])
+    mockPrisma.courseCatalog.findMany.mockResolvedValueOnce([
+      {
+        slug: "salsa-basics",
+        title: "Salsa Basics",
+        durationMinutes: 60,
+        availableWeekdays: [5],
+        availableTimes: ["18:00"],
+        scheduleRules: null,
+      },
+    ])
+
+    const res = await getSessions("2026-05-01")
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      items: [
+        {
+          id: "session_existing",
+          courseSlug: "salsa-basics",
+          title: "Salsa Basics Live",
+          startsAt: "2026-05-01T22:00:00.000Z",
+          durationMinutes: 75,
+          isCurrent: false,
+        },
+      ],
+    })
   })
 
   it.each([

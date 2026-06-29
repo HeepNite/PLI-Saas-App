@@ -11,7 +11,7 @@ import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
-import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey } from "./sessions/selectable-sessions"
+import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey, materializeSelectableClassSession } from "./sessions/selectable-sessions"
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY
 const stripe = stripeSecret
@@ -335,8 +335,7 @@ const createManualAttendanceTx = async (
   }
 ) => {
   const now = new Date()
-  const selectableSessions = await findSelectableClassSessions(tx, now, input.date)
-  const session = selectableSessions.find((candidate) => candidate.id === input.sessionId) || null
+  const session = await materializeSelectableClassSession(tx, now, input.sessionId, input.date)
   if (!session) {
     return { ok: false as const, status: 400, error: "Selected class session is not available for staff check-in." }
   }
@@ -521,7 +520,10 @@ export async function POST(req: Request) {
 
   if (parsed.payload.checkIn?.enabled) {
     const selectableSessions = await findSelectableClassSessions(prisma, now, parsed.payload.checkIn.date)
-    const isSelectableSession = selectableSessions.some((session) => session.id === parsed.payload.checkIn?.sessionId)
+    const isSelectableSession = selectableSessions.some((session) => (
+      session.id === parsed.payload.checkIn?.sessionId
+        || ("syntheticId" in session && session.syntheticId === parsed.payload.checkIn?.sessionId)
+    ))
     if (!isSelectableSession) {
       return NextResponse.json({ error: "Selected class session is not available for staff check-in." }, { status: 400 })
     }
