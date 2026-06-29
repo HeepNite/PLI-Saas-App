@@ -70,7 +70,7 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
     : undefined
 
   const existing = existingByClerkId || (clerkId
-    ? phoneUnlinkedMatch || emailUnlinkedMatch || unlinkedMatch || null
+    ? phoneUnlinkedMatch || emailUnlinkedMatch || unlinkedMatch || linkedToDifferentClerk || null
     : identityMatches[0] || null)
 
   const data: UpsertUserInput = {}

@@ -271,7 +271,9 @@ export default function EnrollModal({
   const [couponInput, setCouponInput] = React.useState<string>("")
   const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
   const paymentMethod = flowState.paymentMethod
-  const [activeNumericField, setActiveNumericField] = React.useState<"phone" | null>(null)
+  const [activeNumericField, setActiveNumericField] = React.useState<"phone" | null>(() =>
+    isKioskTerminalFlow ? "phone" : null
+  )
   const [kioskInfoPhase, setKioskInfoPhase] = React.useState<KioskInfoPhase>(() =>
     initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
   )
@@ -591,7 +593,7 @@ export default function EnrollModal({
     setResumeContactFlowAfterSignIn(false)
     setIdentityCheckBusy(false)
     setPhoneTouched(false)
-    setActiveNumericField(null)
+    setActiveNumericField(isKioskTerminalFlow ? "phone" : null)
     setKioskInfoPhase(initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow }))
     setStripeClientSecret("")
     setShowStripeModal(false)
