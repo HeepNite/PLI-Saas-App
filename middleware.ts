@@ -23,7 +23,17 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     "/api/staff/checkin/pin",
   ])
 
-  if (publicStaffApiPaths.has(pathname)) {
+  // Terminal and checkin routes use STAFF_CHECKIN_TOKEN, not Clerk auth
+  const tokenAuthPrefixes = [
+    "/api/staff/terminal",
+    "/api/staff/terminals",
+    "/api/staff/checkin",
+  ]
+
+  if (
+    publicStaffApiPaths.has(pathname) ||
+    tokenAuthPrefixes.some((prefix) => pathname.startsWith(prefix))
+  ) {
     return NextResponse.next()
   }
 
