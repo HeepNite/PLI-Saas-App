@@ -150,4 +150,25 @@ describe("StaffUsersAdminView", () => {
 
     expect(props.actions.onOpenAssistantConfig).toHaveBeenCalledTimes(1)
   })
+
+  it("expands the main desktop grid when the assistant rail is hidden", async () => {
+    const props = createProps()
+    props.shell.showInlineRightRail = false
+    const node = await renderView(props)
+    const grid = node.firstElementChild
+
+    expect(grid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)]")
+    expect(grid?.className).not.toContain("_330px")
+    expect(grid?.className).not.toContain("transition-[grid")
+  })
+
+  it("reserves the desktop assistant column only while the inline rail is visible", async () => {
+    const props = createProps()
+    props.shell.showInlineRightRail = true
+    const node = await renderView(props)
+    const grid = node.firstElementChild
+
+    expect(grid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)_330px]")
+    expect(grid?.className).not.toContain("transition-[grid")
+  })
 })

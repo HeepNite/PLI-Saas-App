@@ -34,7 +34,7 @@ export default function StaffAssistantRightRail({
       ) : null}
 
       <aside
-        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-3 transform-gpu transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform sm:bottom-[5.25rem] sm:px-4 md:bottom-[6rem] md:px-6 min-[1180px]:static min-[1180px]:block min-[1180px]:self-start min-[1180px]:px-0 min-[1180px]:transform-none min-[1180px]:transition-none ${
+        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-3 transform-gpu transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform sm:bottom-[5.25rem] sm:px-4 md:bottom-[6rem] md:px-6 min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:block min-[1180px]:h-fit min-[1180px]:self-start min-[1180px]:px-0 min-[1180px]:transform-none min-[1180px]:transition-none ${
           showInlineRightRail
             ? "translate-y-0 opacity-100"
             : "pointer-events-none translate-y-10 opacity-0 min-[1180px]:hidden"
@@ -42,7 +42,7 @@ export default function StaffAssistantRightRail({
       >
         <div
           ref={rightRailRef}
-          className="w-full max-w-md max-h-[64vh] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#0f121a]/96 p-4 text-white shadow-[0_28px_80px_-36px_rgba(0,0,0,0.82)] backdrop-blur-xl min-[1180px]:max-h-none min-[1180px]:max-w-none min-[1180px]:overflow-visible min-[1180px]:rounded-2xl min-[1180px]:border-black/10 min-[1180px]:bg-white/80 min-[1180px]:text-inherit min-[1180px]:shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] min-[1180px]:dark:border-white/10 min-[1180px]:dark:bg-[#11131a]/95 min-[1180px]:sticky min-[1180px]:top-0"
+          className="w-full max-w-md max-h-[64vh] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#0f121a]/96 p-4 text-white shadow-[0_28px_80px_-36px_rgba(0,0,0,0.82)] backdrop-blur-xl min-[1180px]:max-h-none min-[1180px]:max-w-none min-[1180px]:overflow-visible min-[1180px]:rounded-2xl min-[1180px]:border-black/10 min-[1180px]:bg-white/80 min-[1180px]:p-3 min-[1180px]:text-inherit min-[1180px]:shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] min-[1180px]:dark:border-white/10 min-[1180px]:dark:bg-[#11131a]/95"
         >
           <div className="pointer-events-none mb-3 flex justify-center min-[1180px]:hidden">
             <span
