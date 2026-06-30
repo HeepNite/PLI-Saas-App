@@ -12,6 +12,7 @@ import {
   Camera,
   CreditCard,
   Building2,
+  Tag,
   User,
   FileText,
   CheckCircle2,
@@ -373,9 +374,11 @@ export default function EnrollModal({
                 ? t("step_info")
                 : key === "packages"
                   ? "Packages"
-                  : key === "consecutive"
-                    ? "Promo"
-                    : key === "payments"
+                  : key === "promo"
+                    ? "Deals"
+                    : key === "consecutive"
+                      ? "Promo"
+                      : key === "payments"
                       ? t("step_payments")
                       : key === "review"
                         ? t("step_review")
@@ -389,6 +392,7 @@ export default function EnrollModal({
     info: FileText,
     photo: Camera,
     packages: Building2,
+    promo: Tag,
     consecutive: CalendarCheck,
     payments: CreditCard,
     review: CheckCircle2,
@@ -414,6 +418,10 @@ export default function EnrollModal({
   )
   const packagesStepIndex = React.useMemo(
     () => steps.findIndex((item) => item.key === "packages"),
+    [steps]
+  )
+  const promoStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "promo"),
     [steps]
   )
   const regularServicePrice = React.useMemo(
@@ -1234,22 +1242,8 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      if (service === "new-student" && isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
-        // Kiosk terminal: verify phone to detect existing users.
-        // New students skip SMS (staff present) — fall through to account prep.
-        const result = await verifyNewStudent(contact.phone, contact.email)
-        if (handleExistingUserDetected({
-          isKioskTerminalFlow,
-          service,
-          verifyResult: result,
-          onExistingUserDetected,
-        })) {
-          return
-        }
-        resetVerification()
-        // Fall through to account preparation below
-      } else if (service === "new-student" && isQrMobileCompactFlow && isCompleteUSPhone(contact.phone)) {
-        // QR mobile: SMS verification via EmbeddedSignIn.
+      if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
+        // Kiosk & QR mobile new-student flow: verify phone via SMS.
         const result = await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({
           isKioskTerminalFlow,
@@ -1262,6 +1256,7 @@ export default function EnrollModal({
         if (result === "sms_pending") {
           const account = await requestAccountPreparation()
           if (!account) return
+          // EmbeddedSignIn will render via JSX conditional on verification.state
           return
         }
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
@@ -1326,12 +1321,15 @@ export default function EnrollModal({
         return
       }
 
-      // Go to packages step if it exists, otherwise payments
+      // Go to promo step if it exists, then packages, then payments
+      if (promoStepIndex >= 0) {
+        setStep(promoStepIndex)
+        return
+      }
       if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
         return
       }
-
       if (paymentsStepIndex >= 0) {
         setStep(paymentsStepIndex)
         return
@@ -1349,6 +1347,7 @@ export default function EnrollModal({
     onExistingUserDetected,
     packagesStepIndex,
     paymentsStepIndex,
+    promoStepIndex,
     photoPolicy,
     photoSaved,
     photoStepIndex,
@@ -1820,6 +1819,8 @@ export default function EnrollModal({
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
+      } else if (promoStepIndex >= 0) {
+        setStep(promoStepIndex)
       } else if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
       } else if (paymentsStepIndex >= 0) {
@@ -1828,7 +1829,7 @@ export default function EnrollModal({
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
+  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
 
   const activeStepKey = steps[step]?.key || ""
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
@@ -2395,55 +2396,19 @@ export default function EnrollModal({
                   <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
                     {activeStepKey === "packages"
                       ? course.title
-                      : activeStepKey === "consecutive"
-                        ? "Promotion for the Second Class"
-                        : activeStepKey === "payments"
-                          ? "Payment for Salsa Class"
-                        : `${steps[step]?.label} • ${course.title}`}
+                      : activeStepKey === "promo"
+                        ? "Deals & Promotions"
+                        : activeStepKey === "consecutive"
+                          ? "Promotion for the Second Class"
+                          : activeStepKey === "payments"
+                            ? `Payment for ${course.title}`
+                            : `${steps[step]?.label} • ${course.title}`}
                   </h3>
                 </div>
               )}
 
             {success ? (
               <div className="mt-2">
-                {/* Kiosk terminal: compact inline success within payment completion state */}
-                {isKioskTerminalFlow ? (
-                  <div className="relative overflow-hidden rounded-[1.15rem] border border-emerald-500/20 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_40%),linear-gradient(145deg,rgba(28,32,44,0.98),rgba(16,18,28,0.99))] p-6 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
-                    <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-400/20" aria-hidden />
-                    <div className="flex flex-col items-center gap-4 text-center">
-                      <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-2xl" aria-hidden>✓</span>
-                      <div>
-                        <h3 className="text-xl font-semibold text-white">Purchase Complete!</h3>
-                        {successMessage && (
-                          <p className="mt-2 text-sm leading-relaxed text-white/68">{successMessage}</p>
-                        )}
-                      </div>
-                      <div className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/70">
-                        <p className="font-medium text-white/90 mb-1">Complete your student profile</p>
-                        <p className="text-xs text-white/55">
-                          Visit{" "}
-                          <span className="font-medium text-emerald-300">{typeof window !== "undefined" ? window.location.origin : ""}/client-profile</span>
-                          {" "}to upload your photo and manage your account.
-                        </p>
-                      </div>
-                      {isStationCompletion && onCompletedAction && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (stationCompletionTimeoutRef.current !== null) {
-                              window.clearTimeout(stationCompletionTimeoutRef.current)
-                              stationCompletionTimeoutRef.current = null
-                            }
-                            void onCompletedAction()
-                          }}
-                          className="mt-2 w-full rounded-xl bg-[var(--brand,#111)] px-4 py-3 text-sm font-semibold text-white"
-                        >
-                          {t("finish")}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
                 <div>
                 {/* Success header */}
                 <div className="flex flex-col items-center py-4">
@@ -2533,7 +2498,6 @@ export default function EnrollModal({
                   </button>
                 </div>
                 </div>
-                )}
               </div>
             ) : (
               <form
@@ -2805,16 +2769,19 @@ export default function EnrollModal({
                           hasPackages: (course?.enrollment?.packages?.length ?? 0) > 0,
                           hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
                         })
+                        const promoIdx = postSkipKeys.indexOf("promo")
                         const packagesIdx = postSkipKeys.indexOf("packages")
                         const consecutiveIdx = postSkipKeys.indexOf("consecutive")
                         const paymentsIdx = postSkipKeys.indexOf("payments")
-                        const targetStep = packagesIdx >= 0
-                          ? packagesIdx
-                          : consecutiveIdx >= 0
-                            ? consecutiveIdx
-                            : paymentsIdx >= 0
-                              ? paymentsIdx
-                              : postSkipKeys.length - 1
+                        const targetStep = promoIdx >= 0
+                          ? promoIdx
+                          : packagesIdx >= 0
+                            ? packagesIdx
+                            : consecutiveIdx >= 0
+                              ? consecutiveIdx
+                              : paymentsIdx >= 0
+                                ? paymentsIdx
+                                : postSkipKeys.length - 1
 
                         setPhotoSaved(true)
                         setStep(targetStep)
@@ -2898,6 +2865,145 @@ export default function EnrollModal({
                   </div>
                 )}
 
+                {/* Kiosk promo step: packages + consecutive offer combined */}
+                {activeStepKey === "promo" && (
+                  <div className="space-y-4">
+                    {course.enrollment.packages.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-white/48">Choose a Package</p>
+                        <div className={`grid gap-2.5 ${course.enrollment.packages.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                          {course.enrollment.packages.map((p, index) => {
+                            const selected = pkg === p.id
+                            const metaLine = formatPackageMeta(p)
+                            const descriptionLine = p.description || metaLine
+                            const shouldShowMetaLine = Boolean(p.description && metaLine && metaLine !== p.description)
+                            const packageCardBackgrounds = [
+                              "bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.28),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_34%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))]",
+                              "bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(182,22,22,0.18),transparent_36%),linear-gradient(145deg,rgba(48,49,55,0.94),rgba(20,21,28,0.98))]",
+                              "bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.22),transparent_34%),radial-gradient(circle_at_center_right,rgba(255,255,255,0.09),transparent_38%),linear-gradient(145deg,rgba(50,48,54,0.95),rgba(19,18,25,0.99))]",
+                            ]
+                            const packageCardBackground = packageCardBackgrounds[index % packageCardBackgrounds.length]
+                            const isLastOddPackage = course.enrollment.packages.length > 1 &&
+                              course.enrollment.packages.length % 2 === 1 &&
+                              index === course.enrollment.packages.length - 1
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setPkg(selected ? "" : p.id)}
+                                className={`relative min-h-[5.5rem] w-full overflow-hidden rounded-[1.1rem] border px-3 py-3 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition ${isLastOddPackage ? "col-span-2" : ""} ${packageCardBackground} ${
+                                  selected
+                                    ? "border-[rgba(220,38,38,0.72)] ring-2 ring-[rgba(182,22,22,0.38)]"
+                                    : "border-white/14 hover:border-white/24 hover:brightness-110"
+                                }`}
+                              >
+                                <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
+                                <div className="relative flex h-full flex-col gap-1.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="min-w-0 text-sm font-semibold uppercase tracking-[-0.01em] text-white leading-tight">{p.label}</p>
+                                    {p.price != null && (
+                                      <p className="shrink-0 text-right text-base font-semibold text-white">{formatEnrollmentOptionPrice(p.price)}</p>
+                                    )}
+                                  </div>
+                                  {descriptionLine && (
+                                    <p className="w-full text-xs leading-snug text-white/68 line-clamp-2">{descriptionLine}</p>
+                                  )}
+                                  {shouldShowMetaLine && (
+                                    <p className="mt-auto w-full text-[11px] text-white/48">{metaLine}</p>
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => setPkg("")}
+                            className={`relative min-h-[5.5rem] w-full overflow-hidden rounded-[1.1rem] border px-3 py-3 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition ${course.enrollment.packages.length > 1 ? "col-span-2" : ""} bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(182,22,22,0.22),transparent_36%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))] ${
+                              !pkg
+                                ? "border-[rgba(220,38,38,0.72)] ring-2 ring-[rgba(182,22,22,0.38)]"
+                                : "border-white/14 hover:border-white/24 hover:brightness-110"
+                            }`}
+                          >
+                            <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
+                            <div className="relative flex h-full flex-col gap-1.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold uppercase tracking-[-0.01em] text-white">Drop-in</p>
+                                  <p className="mt-0.5 text-[11px] text-white/50">{course.title} / {to12h(time)}</p>
+                                </div>
+                                <p className="shrink-0 text-right text-base font-semibold text-white">${(isCheckInNewFlow || isQrMobileCompactFlow) ? "15" : "20"}</p>
+                              </div>
+                              <p className="w-full text-xs leading-snug text-white/68">
+                                {isCheckInNewFlow ? "First-time student single class." : "Single class without a package."}
+                              </p>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {effectiveConsecutiveOffer && (() => {
+                      const consecutivePriceCents = effectiveIsPackageHolder
+                        ? (effectiveConsecutiveOffer.packageHolderConsecutiveCents ?? 0)
+                        : (effectiveConsecutiveOffer.dropInConsecutiveCents ?? 0)
+                      const regularPriceCents = effectiveConsecutiveOffer.regularDropInCents ?? 0
+                      return (
+                        <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4">
+                          <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-white/48">Add Second Class Promotion</p>
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="min-w-0">
+                              <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200 mb-1">
+                                Promo
+                              </span>
+                              <p className="text-sm font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
+                              {effectiveConsecutiveOffer.linkedCourseTime && (
+                                <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
+                              )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-lg font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
+                              {regularPriceCents > 0 && (
+                                <p className="text-xs font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConsecutiveAccepted(true)
+                                setConsecutiveChoiceMade(true)
+                                setConsecutiveAddedCents(consecutivePriceCents)
+                              }}
+                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                                consecutiveAccepted && consecutiveChoiceMade
+                                  ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-400/25"
+                                  : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300 hover:border-emerald-400/50"
+                              }`}
+                            >
+                              Add +${(consecutivePriceCents / 100).toFixed(2)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConsecutiveAccepted(false)
+                                setConsecutiveChoiceMade(true)
+                                setConsecutiveAddedCents(0)
+                              }}
+                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                                consecutiveChoiceMade && !consecutiveAccepted
+                                  ? "border-white/35 bg-white/[0.08] text-white ring-2 ring-white/10"
+                                  : "border-white/12 bg-white/[0.03] text-white/72 hover:border-white/22 hover:text-white"
+                              }`}
+                            >
+                              No thanks
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+
                 {/* Consecutive class offer step before payments */}
                 {activeStepKey === "consecutive" && effectiveConsecutiveOffer && (
                   <div className="space-y-4">
@@ -2970,106 +3076,6 @@ export default function EnrollModal({
 
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
-                    {/* Kiosk terminal: inline consecutive offer toggle (replaces separate consecutive step) */}
-                    {isKioskTerminalFlow && effectiveConsecutiveOffer && (() => {
-                      const consecutivePriceCents = effectiveIsPackageHolder
-                        ? (effectiveConsecutiveOffer.packageHolderConsecutiveCents ?? 0)
-                        : (effectiveConsecutiveOffer.dropInConsecutiveCents ?? 0)
-                      const regularPriceCents = effectiveConsecutiveOffer.regularDropInCents ?? 0
-                      return (
-                        <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4">
-                          <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-white/48">Add Second Class Promotion</p>
-                          <div className="flex items-start justify-between gap-3 mb-3">
-                            <div className="min-w-0">
-                              <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200 mb-1">
-                                Promo
-                              </span>
-                              <p className="text-sm font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
-                              {effectiveConsecutiveOffer.linkedCourseTime && (
-                                <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
-                              )}
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <p className="text-lg font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
-                              {regularPriceCents > 0 && (
-                                <p className="text-xs font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setConsecutiveAccepted(true)
-                                setConsecutiveChoiceMade(true)
-                                setConsecutiveAddedCents(consecutivePriceCents)
-                              }}
-                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-                                consecutiveAccepted && consecutiveChoiceMade
-                                  ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-400/25"
-                                  : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300 hover:border-emerald-400/50"
-                              }`}
-                            >
-                              Add +${(consecutivePriceCents / 100).toFixed(2)}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setConsecutiveAccepted(false)
-                                setConsecutiveChoiceMade(true)
-                                setConsecutiveAddedCents(0)
-                              }}
-                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-                                consecutiveChoiceMade && !consecutiveAccepted
-                                  ? "border-white/35 bg-white/[0.08] text-white ring-2 ring-white/10"
-                                  : "border-white/12 bg-white/[0.03] text-white/72 hover:border-white/22 hover:text-white"
-                              }`}
-                            >
-                              No thanks
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })()}
-                    {/* Selected package card with remove action (kiosk flows) */}
-                    {isCheckInFlow && pkg && (
-                      <div className="rounded-xl border border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.08)] p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Selected Package</p>
-                            <p className="text-base font-semibold">{course.enrollment.packages.find((p) => p.id === pkg)?.label}</p>
-                            {course.enrollment.packages.find((p) => p.id === pkg)?.price != null && (
-                              <p className="mt-1 text-sm font-medium">{formatEnrollmentOptionPrice(course.enrollment.packages.find((p) => p.id === pkg)?.price)}</p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setStep(stepKeys.indexOf("packages"))}
-                            className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
-                          >
-                            Change
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {/* No package selected info (kiosk flows) */}
-                    {isCheckInFlow && !pkg && isKioskTerminalFlow && course.enrollment.packages.length > 0 && (
-                      <div className="rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Package</p>
-                            <p className="text-sm text-neutral-600 dark:text-white/70">Single class (no package)</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setStep(stepKeys.indexOf("packages"))}
-                            className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
-                          >
-                            Add Package
-                          </button>
-                        </div>
-                      </div>
-                    )}
                     {/* Payments step */}
                     <div className="relative overflow-hidden rounded-[1.15rem] border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_30%),linear-gradient(145deg,rgba(44,45,55,0.96),rgba(19,20,27,0.99))] p-4 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
                       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
@@ -3395,7 +3401,7 @@ export default function EnrollModal({
           </div>
         </div>
       )}
-      {(verificationState === "sms_pending" || verificationState === "sms_verifying") && isQrMobileCompactFlow && !isKioskTerminalFlow && (
+      {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
           <button
             type="button"
