@@ -34,7 +34,7 @@ export default function StaffAssistantRightRail({
       ) : null}
 
       <aside
-        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-3 transform-gpu transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform sm:bottom-[5.25rem] sm:px-4 md:bottom-[6rem] md:px-6 min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:block min-[1180px]:h-fit min-[1180px]:self-start min-[1180px]:px-0 min-[1180px]:transform-none min-[1180px]:transition-none ${
+          className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:block min-[1180px]:h-fit min-[1180px]:self-start min-[1180px]:transform-none min-[1180px]:transition-none ${
           showInlineRightRail
             ? "translate-y-0 opacity-100"
             : "pointer-events-none translate-y-10 opacity-0 min-[1180px]:hidden"

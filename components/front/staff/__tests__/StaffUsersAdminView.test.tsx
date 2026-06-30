@@ -171,4 +171,15 @@ describe("StaffUsersAdminView", () => {
     expect(grid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)_330px]")
     expect(grid?.className).not.toContain("transition-[grid")
   })
+
+  it("keeps the desktop assistant rail close to the content without adding outer gap", async () => {
+    const props = createProps()
+    props.shell.showInlineRightRail = true
+    const node = await renderView(props)
+    const grid = node.firstElementChild
+
+    expect(grid?.className).toContain("gap-y-4")
+    expect(grid?.className).toContain("min-[1180px]:gap-x-2")
+    expect(grid?.className).not.toContain("gap-4")
+  })
 })

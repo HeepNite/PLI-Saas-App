@@ -49,7 +49,10 @@ describe("StaffAssistantRightRail", () => {
 
     expect(rail?.className).toContain("min-[1180px]:sticky")
     expect(rail?.className).toContain("min-[1180px]:top-3")
-    expect(rail?.className).toContain("min-[1180px]:px-0")
+    expect(rail?.className).toContain("px-0")
+    expect(rail?.className).not.toContain("px-3")
+    expect(rail?.className).not.toContain("sm:px-4")
+    expect(rail?.className).not.toContain("md:px-6")
     expect(panel?.className).toContain("min-[1180px]:p-3")
     expect(panel?.className).not.toContain("min-[1180px]:sticky")
   })
