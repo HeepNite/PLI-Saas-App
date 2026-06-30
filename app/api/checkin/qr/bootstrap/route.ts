@@ -11,9 +11,7 @@ import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, getCachedClerkUser, resolveAvatarState } from "@/lib/clerk-users"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { computeDiscountPercent } from "@/lib/course-links"
-import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
-import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
+import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
 import { asRecord, asText, normalizePhoneDigits } from "@/lib/shared"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
@@ -291,106 +289,15 @@ export async function POST(req: Request) {
 
     const isTerminalFlow = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 
-    // ─── Consecutive offer detection ─────────────────────────
     const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
-    let consecutiveOffer: {
-      linkedCourseSlug: string
-      linkedCourseTitle: string
-      dropInConsecutiveCents: number | null
-      packageHolderConsecutiveCents: number | null
-      regularDropInCents: number
-      discountPercent: number
-      hasAttendedFirstClass: boolean
-    } | null = null
-
-    if (linkedFromCourseSlug && dbUser) {
-      const links = await prisma.courseLink.findMany({
-        where: {
-          OR: [
-            { courseSlugA: linkedFromCourseSlug.toLowerCase() },
-            { courseSlugB: linkedFromCourseSlug.toLowerCase() },
-          ],
-          active: true,
-        },
-      })
-
-      if (links.length > 0) {
-        const todayJsWeekday = (() => {
-          const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
-          const weekday = new Intl.DateTimeFormat("en-US", {
-            timeZone: "America/New_York",
-            weekday: "short",
-          }).format(now)
-          return weekdayLabels.findIndex((label) => label === weekday)
-        })()
-        const aTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
-        const aMinutes = aTimeMatch
-          ? Number(aTimeMatch[1]) * 60 + Number(aTimeMatch[2])
-          : null
-
-        const candidates = await Promise.all(links.map(async (link) => {
-          const linkedCourseSlug = link.courseSlugA === linkedFromCourseSlug.toLowerCase()
-            ? link.courseSlugB
-            : link.courseSlugA
-          const linkedCourse = await getCatalogCourseBySlug(linkedCourseSlug)
-          const hasAlreadyLinkedCourse = await hasPurchaseForCourseToday(dbUser.id, linkedCourseSlug, now)
-          return { link, linkedCourseSlug, linkedCourse, hasAlreadyLinkedCourse }
-        }))
-
-        // Validate that course B is actually scheduled today and starts after A's
-        // selected time. This prevents surfacing a consecutive offer for a class
-        // that isn't scheduled today (e.g. Rueda on Mondays — only on Fridays).
-        //
-        // Only enforce the check when course B has day-specific schedule rules.
-        // If no day-specific rules are present we cannot reliably determine
-        // today's availability here, so we fall back to the prior behavior and
-        // let downstream validation (attendance / check-in window) catch it.
-        const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, now)
-        const nextCandidate = candidates
-          .filter((candidate) => candidate.linkedCourse && !candidate.hasAlreadyLinkedCourse)
-          .map((candidate) => {
-            const linkedScheduleRules = candidate.linkedCourse?.scheduleRules
-            const parsedRules = parseScheduleRules(linkedScheduleRules)
-            let linkedStartMinutes: number | null = null
-            let isLinkedScheduledLaterToday = true
-            if (parsedRules?.rules?.length) {
-              const linkedTimesToday = getTimesForWeekday(linkedScheduleRules, todayJsWeekday) ?? []
-              const laterTimes = linkedTimesToday
-                .map((time) => {
-                  const match = /^(\d{2}):(\d{2})$/.exec(time)
-                  if (!match) return null
-                  const minutes = Number(match[1]) * 60 + Number(match[2])
-                  return aMinutes === null || minutes > aMinutes ? minutes : null
-                })
-                .filter((minutes): minutes is number => minutes !== null)
-                .sort((left, right) => left - right)
-              linkedStartMinutes = laterTimes[0] ?? null
-              isLinkedScheduledLaterToday = laterTimes.length > 0
-            }
-            return { ...candidate, linkedStartMinutes, isLinkedScheduledLaterToday }
-          })
-          .filter((candidate) => candidate.isLinkedScheduledLaterToday)
-          .sort((left, right) => (left.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER) - (right.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER))[0]
-
-        if (nextCandidate?.linkedCourse && hasAttendedA) {
-          const regularDropIn = nextCandidate.linkedCourse.enrollment.services.find((s) => s.id === "dropin")?.price ?? 0
-          const discountPercent = computeDiscountPercent(
-            regularDropIn * 100,
-            nextCandidate.link.dropInConsecutiveCents
-          )
-
-          consecutiveOffer = {
-            linkedCourseSlug: nextCandidate.linkedCourseSlug,
-            linkedCourseTitle: nextCandidate.linkedCourse.title,
-            dropInConsecutiveCents: nextCandidate.link.dropInConsecutiveCents,
-            packageHolderConsecutiveCents: nextCandidate.link.packageHolderConsecutiveCents,
-            regularDropInCents: regularDropIn * 100,
-            discountPercent,
-            hasAttendedFirstClass: hasAttendedA,
-          }
-        }
-      }
-    }
+    const consecutiveOffer = linkedFromCourseSlug && dbUser
+      ? await resolveConsecutiveOffer({
+          linkedFromCourseSlug,
+          userId: dbUser.id,
+          currentCourseTime: context.time,
+          now,
+        })
+      : null
 
     const [allActivePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
       prisma.packagePurchase.findMany({

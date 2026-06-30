@@ -97,6 +97,42 @@ const createEmptyMethodForm = (defaultCurrency = "USD") => ({
   configJson: "{}",
 })
 
+function useFormSubmit(
+  setError: (msg: string | null) => void,
+  setSuccess: (msg: string | null) => void,
+) {
+  const [saving, setSaving] = React.useState(false)
+
+  const submit = React.useCallback(
+    async (
+      event: React.FormEvent<HTMLFormElement>,
+      handler: () => Promise<{ ok: boolean; error?: string }>,
+      onSuccess: () => void,
+      successMessage: string,
+    ) => {
+      event.preventDefault()
+      setSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      try {
+        const result = await handler()
+        if (!result.ok) {
+          setError(result.error ?? "An unexpected error occurred.")
+          return
+        }
+        onSuccess()
+        setSuccess(successMessage)
+      } finally {
+        setSaving(false)
+      }
+    },
+    [setError, setSuccess],
+  )
+
+  return { saving, submit }
+}
+
 export default function StaffPaymentMethodConfigPanel() {
   const [activeTab, setActiveTab] = React.useState<"methods" | "models" | "currencies">("methods")
   const [methods, setMethods] = React.useState<StaffPaymentMethodRecord[]>([])
@@ -109,11 +145,11 @@ export default function StaffPaymentMethodConfigPanel() {
   const [showMethodForm, setShowMethodForm] = React.useState(false)
   const [showModelForm, setShowModelForm] = React.useState(false)
   const [showCurrencyForm, setShowCurrencyForm] = React.useState(false)
-  
-  const [savingMethod, setSavingMethod] = React.useState(false)
-  const [savingModel, setSavingModel] = React.useState(false)
-  const [savingCurrency, setSavingCurrency] = React.useState(false)
-  
+
+  const { saving: savingMethod, submit: submitMethodForm } = useFormSubmit(setError, setSuccess)
+  const { saving: savingModel, submit: submitModelForm } = useFormSubmit(setError, setSuccess)
+  const { saving: savingCurrency, submit: submitCurrencyForm } = useFormSubmit(setError, setSuccess)
+
   const [defaultBusyId, setDefaultBusyId] = React.useState<string | null>(null)
   
   const [methodForm, setMethodForm] = React.useState(() => createEmptyMethodForm())
@@ -242,13 +278,8 @@ export default function StaffPaymentMethodConfigPanel() {
   }, [fetchConfigData])
 
   const submitMethod = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setSavingMethod(true)
-    setError(null)
-    setSuccess(null)
-
     let finalConfig: Record<string, unknown> = {}
-    
+
     if (methodForm.adapterType === "direct_deposit") {
       finalConfig = {
         bankName: methodForm.bankName.trim(),
@@ -276,127 +307,121 @@ export default function StaffPaymentMethodConfigPanel() {
         finalConfig = JSON.parse(methodForm.configJson) as Record<string, unknown>
       } catch {
         setError("Config JSON must be valid JSON.")
-        setSavingMethod(false)
         return
       }
     }
 
-    try {
-      const res = await fetch("/api/staff/payroll/payment-methods", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: methodForm.name.trim(),
-          adapterType: methodForm.adapterType,
-          currency: methodForm.currency.trim().toUpperCase(),
-          config: finalConfig,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-
-      if (!res.ok) {
-        setError(typeof data?.error === "string" ? data.error : "Unable to create payment method.")
-        return
-      }
-
-      setMethodForm(createEmptyMethodForm(currencies[0]?.code || "USD"))
-      setShowMethodForm(false)
-      setSuccess("Payment method created.")
-      await fetchConfigData({ showLoader: false })
-    } catch {
-      setError("Network error while creating payment method.")
-    } finally {
-      setSavingMethod(false)
-    }
-  }, [fetchConfigData, methodForm, currencies])
+    await submitMethodForm(
+      event,
+      async () => {
+        try {
+          const res = await fetch("/api/staff/payroll/payment-methods", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: methodForm.name.trim(),
+              adapterType: methodForm.adapterType,
+              currency: methodForm.currency.trim().toUpperCase(),
+              config: finalConfig,
+            }),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            return { ok: false, error: typeof data?.error === "string" ? data.error : "Unable to create payment method." }
+          }
+          return { ok: true }
+        } catch {
+          return { ok: false, error: "Network error while creating payment method." }
+        }
+      },
+      async () => {
+        setMethodForm(createEmptyMethodForm(currencies[0]?.code || "USD"))
+        setShowMethodForm(false)
+        await fetchConfigData({ showLoader: false })
+      },
+      "Payment method created.",
+    )
+  }, [fetchConfigData, methodForm, currencies, submitMethodForm, setError])
 
   const submitModel = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setSavingModel(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const res = await fetch("/api/staff/payroll/payment-models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: modelForm.name.trim(),
-          type: modelForm.type,
-          hourlyRate: modelForm.type === "per_percentage" ? 0 : Number(modelForm.hourlyRate),
-          ...(modelForm.type !== "per_hour" && modelForm.percentageRate !== "" && {
-            percentageRate: Number(modelForm.percentageRate),
-          }),
-          currency: modelForm.currency.trim().toUpperCase(),
-          paydayWeekday: Number(modelForm.paydayWeekday),
-          creditCapCents: Number(modelForm.creditCapCents),
-          defaultPaymentMethodId: modelForm.defaultPaymentMethodId || null,
-          isDefault: modelForm.isDefault,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-
-      if (!res.ok) {
-        setError(typeof data?.error === "string" ? data.error : "Unable to create payment model.")
-        return
-      }
-
-      setModelForm((prev) => ({
-        ...prev,
-        name: "",
-        type: "per_hour" as const,
-        hourlyRate: "",
-        percentageRate: "",
-        creditCapCents: "0",
-        isDefault: false,
-      }))
-      setShowModelForm(false)
-      setSuccess("Payment model created.")
-      await fetchConfigData({ showLoader: false })
-    } catch {
-      setError("Network error while creating payment model.")
-    } finally {
-      setSavingModel(false)
-    }
-  }, [fetchConfigData, modelForm])
+    await submitModelForm(
+      event,
+      async () => {
+        try {
+          const res = await fetch("/api/staff/payroll/payment-models", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: modelForm.name.trim(),
+              type: modelForm.type,
+              hourlyRate: modelForm.type === "per_percentage" ? 0 : Number(modelForm.hourlyRate),
+              ...(modelForm.type !== "per_hour" && modelForm.percentageRate !== "" && {
+                percentageRate: Number(modelForm.percentageRate),
+              }),
+              currency: modelForm.currency.trim().toUpperCase(),
+              paydayWeekday: Number(modelForm.paydayWeekday),
+              creditCapCents: Number(modelForm.creditCapCents),
+              defaultPaymentMethodId: modelForm.defaultPaymentMethodId || null,
+              isDefault: modelForm.isDefault,
+            }),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            return { ok: false, error: typeof data?.error === "string" ? data.error : "Unable to create payment model." }
+          }
+          return { ok: true }
+        } catch {
+          return { ok: false, error: "Network error while creating payment model." }
+        }
+      },
+      async () => {
+        setModelForm((prev) => ({
+          ...prev,
+          name: "",
+          type: "per_hour" as const,
+          hourlyRate: "",
+          percentageRate: "",
+          creditCapCents: "0",
+          isDefault: false,
+        }))
+        setShowModelForm(false)
+        await fetchConfigData({ showLoader: false })
+      },
+      "Payment model created.",
+    )
+  }, [fetchConfigData, modelForm, submitModelForm])
 
   const submitCurrency = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setSavingCurrency(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const res = await fetch("/api/staff/payroll/currencies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: currencyForm.code.trim().toUpperCase(),
-          symbol: currencyForm.symbol.trim() || currencyForm.code.trim().toUpperCase(),
-          decimals: Number(currencyForm.decimals),
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-
-      if (!res.ok) {
-        setError(typeof data?.error === "string" ? data.error : "Unable to create currency.")
-        return
-      }
-
-      setCurrencyForm({
-        code: "",
-        symbol: "",
-        decimals: "2",
-      })
-      setShowCurrencyForm(false)
-      setSuccess("Currency created.")
-      await fetchConfigData({ showLoader: false })
-    } catch {
-      setError("Network error while creating currency.")
-    } finally {
-      setSavingCurrency(false)
-    }
-  }, [fetchConfigData, currencyForm])
+    await submitCurrencyForm(
+      event,
+      async () => {
+        try {
+          const res = await fetch("/api/staff/payroll/currencies", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: currencyForm.code.trim().toUpperCase(),
+              symbol: currencyForm.symbol.trim() || currencyForm.code.trim().toUpperCase(),
+              decimals: Number(currencyForm.decimals),
+            }),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            return { ok: false, error: typeof data?.error === "string" ? data.error : "Unable to create currency." }
+          }
+          return { ok: true }
+        } catch {
+          return { ok: false, error: "Network error while creating currency." }
+        }
+      },
+      async () => {
+        setCurrencyForm({ code: "", symbol: "", decimals: "2" })
+        setShowCurrencyForm(false)
+        await fetchConfigData({ showLoader: false })
+      },
+      "Currency created.",
+    )
+  }, [fetchConfigData, currencyForm, submitCurrencyForm])
 
   const setModelAsDefault = React.useCallback(async (modelId: string) => {
     setDefaultBusyId(modelId)
