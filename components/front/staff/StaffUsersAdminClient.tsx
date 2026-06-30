@@ -174,8 +174,8 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   expandAssistantRailRef.current = assistantAdmin.expandRail
   const showRightRail = true
   const showInlineRightRail = showRightRail && !assistantAdmin.isRailCollapsed
-  const shouldReserveAssistantColumn = useStaffAssistantRailLayout(assistantAdmin.isRailCollapsed)
-  const reserveAssistantColumn = showRightRail && shouldReserveAssistantColumn
+  const assistantRailLayout = useStaffAssistantRailLayout(assistantAdmin.isRailCollapsed)
+  const reserveAssistantColumn = showRightRail && assistantRailLayout.shouldReserveAssistantColumn
 
   const scheduleAdmin = useStaffScheduleAdmin({
     canAccessSchoolNav,
@@ -530,6 +530,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     showRightRail,
     showInlineRightRail,
     reserveAssistantColumn,
+    isAssistantLayoutSettling: assistantRailLayout.isAssistantLayoutSettling,
     schoolWizard,
     wizardEnabledCtx,
     reviewPreviewHover,

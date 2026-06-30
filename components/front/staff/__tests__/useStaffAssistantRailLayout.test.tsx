@@ -19,15 +19,21 @@ function Probe({
   onValue,
 }: {
   isRailCollapsed: boolean
-  onValue: (value: boolean) => void
+  onValue: (value: { shouldReserveAssistantColumn: boolean; isAssistantLayoutSettling: boolean }) => void
 }) {
-  const shouldReserveAssistantColumn = useStaffAssistantRailLayout(isRailCollapsed)
+  const layout = useStaffAssistantRailLayout(isRailCollapsed)
 
   React.useEffect(() => {
-    onValue(shouldReserveAssistantColumn)
-  }, [onValue, shouldReserveAssistantColumn])
+    onValue(layout)
+  }, [layout, onValue])
 
-  return <div data-testid="reservation-probe" data-reserved={String(shouldReserveAssistantColumn)} />
+  return (
+    <div
+      data-testid="reservation-probe"
+      data-reserved={String(layout.shouldReserveAssistantColumn)}
+      data-settling={String(layout.isAssistantLayoutSettling)}
+    />
+  )
 }
 
 describe("useStaffAssistantRailLayout", () => {
@@ -46,7 +52,10 @@ describe("useStaffAssistantRailLayout", () => {
     vi.useRealTimers()
   })
 
-  async function renderProbe(isRailCollapsed: boolean, onValue: (value: boolean) => void) {
+  async function renderProbe(
+    isRailCollapsed: boolean,
+    onValue: (value: { shouldReserveAssistantColumn: boolean; isAssistantLayoutSettling: boolean }) => void
+  ) {
     if (!container) {
       container = document.createElement("div")
       document.body.appendChild(container)
@@ -59,8 +68,8 @@ describe("useStaffAssistantRailLayout", () => {
   it("keeps the assistant column reserved until the rail exit delay completes", async () => {
     const values: boolean[] = []
 
-    await renderProbe(false, (value) => values.push(value))
-    await renderProbe(true, (value) => values.push(value))
+    await renderProbe(false, (value) => values.push(value.shouldReserveAssistantColumn))
+    await renderProbe(true, (value) => values.push(value.shouldReserveAssistantColumn))
 
     expect(values.at(-1)).toBe(true)
 
@@ -85,12 +94,48 @@ describe("useStaffAssistantRailLayout", () => {
   it("reserves the assistant column immediately when the rail reopens", async () => {
     const values: boolean[] = []
 
-    await renderProbe(true, (value) => values.push(value))
+    await renderProbe(true, (value) => values.push(value.shouldReserveAssistantColumn))
     expect(values.at(-1)).toBe(false)
 
-    await renderProbe(false, (value) => values.push(value))
+    await renderProbe(false, (value) => values.push(value.shouldReserveAssistantColumn))
 
     expect(values.at(-1)).toBe(true)
+  })
+
+  it("marks the layout as settling through the delayed release and clears it after the visual ease", async () => {
+    const values: boolean[] = []
+
+    await renderProbe(false, (value) => values.push(value.isAssistantLayoutSettling))
+    await renderProbe(true, (value) => values.push(value.isAssistantLayoutSettling))
+
+    expect(values.at(-1)).toBe(true)
+
+    await act(async () => {
+      vi.advanceTimersByTime(STAFF_ASSISTANT_RAIL_EXIT_LAYOUT_DELAY_MS)
+    })
+
+    expect(values.at(-1)).toBe(true)
+
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+    })
+
+    expect(values.at(-1)).toBe(false)
+  })
+
+  it("marks the layout as settling briefly when the rail reopens", async () => {
+    const values: boolean[] = []
+
+    await renderProbe(true, (value) => values.push(value.isAssistantLayoutSettling))
+    await renderProbe(false, (value) => values.push(value.isAssistantLayoutSettling))
+
+    expect(values.at(-1)).toBe(true)
+
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+    })
+
+    expect(values.at(-1)).toBe(false)
   })
 
   it("resolves the assistant column reservation on the first reopen render before passive effects", () => {

@@ -27,6 +27,7 @@ describe("buildStaffUsersAdminViewProps", () => {
         leftRailRef: { current: null },
         showInlineRightRail: false,
         reserveAssistantColumn: false,
+        isAssistantLayoutSettling: false,
         visibleNavItems: [],
         activeNav: "users",
         handleNavSelection,

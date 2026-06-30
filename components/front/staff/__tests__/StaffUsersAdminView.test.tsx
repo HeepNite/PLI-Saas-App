@@ -51,6 +51,7 @@ const createProps = (): StaffUsersAdminViewProps => ({
     leftRailRef: { current: null },
     showInlineRightRail: false,
     reserveAssistantColumn: false,
+    isAssistantLayoutSettling: false,
     visibleNavItems: [
       { key: "users", label: "User Management", icon: (() => null) as never },
       { key: "assistant", label: "AI Assistant", icon: (() => null) as never },
@@ -182,5 +183,31 @@ describe("StaffUsersAdminView", () => {
     expect(grid?.className).toContain("gap-y-4")
     expect(grid?.className).toContain("min-[1180px]:gap-x-2")
     expect(grid?.className).not.toContain("gap-4")
+  })
+
+  it("uses a lightweight main-section settling transition instead of grid animation", async () => {
+    const props = createProps()
+    props.shell.isAssistantLayoutSettling = true
+    const node = await renderView(props)
+    const grid = node.firstElementChild
+    const mainSection = node.querySelector("section")
+
+    expect(grid?.className).not.toContain("transition-[grid")
+    expect(mainSection?.className).toContain("transform-gpu")
+    expect(mainSection?.className).toContain("transition-[opacity,transform]")
+    expect(mainSection?.className).toContain("min-[1180px]:opacity-[0.985]")
+    expect(mainSection?.className).toContain("min-[1180px]:scale-[0.997]")
+    expect(mainSection?.className).toContain("min-[1180px]:translate-y-[1px]")
+  })
+
+  it("settles the main section back to its normal visual state", async () => {
+    const props = createProps()
+    props.shell.isAssistantLayoutSettling = false
+    const node = await renderView(props)
+    const mainSection = node.querySelector("section")
+
+    expect(mainSection?.className).toContain("min-[1180px]:opacity-100")
+    expect(mainSection?.className).toContain("min-[1180px]:scale-100")
+    expect(mainSection?.className).toContain("min-[1180px]:translate-y-0")
   })
 })

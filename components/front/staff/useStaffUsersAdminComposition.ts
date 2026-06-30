@@ -47,6 +47,7 @@ type StaffUsersAdminCompositionInput = {
   showRightRail: boolean
   showInlineRightRail: boolean
   reserveAssistantColumn: boolean
+  isAssistantLayoutSettling: boolean
   schoolWizard: SchoolWizardState
   wizardEnabledCtx: StepEnabledContext
   reviewPreviewHover: "home" | "single" | null
@@ -140,6 +141,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
       leftRailRef: input.refs.leftRailRef,
       showInlineRightRail: input.showInlineRightRail,
       reserveAssistantColumn: input.reserveAssistantColumn,
+      isAssistantLayoutSettling: input.isAssistantLayoutSettling,
       visibleNavItems: portalShellAdmin.visibleNavItems,
       activeNav: portalShellAdmin.activeNav,
       handleNavSelection: portalShellAdmin.handleNavSelection,
