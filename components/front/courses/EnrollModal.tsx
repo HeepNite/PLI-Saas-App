@@ -1234,11 +1234,9 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
-        // Kiosk & QR mobile new-student flow: use the verification state machine.
-        // This avoids the requiresSignIn sign-in modal which fails for newly created
-        // Clerk accounts due to propagation delay. Instead, EmbeddedSignIn renders
-        // via JSX conditional with activateSessionOnSuccess={false}.
+      if (service === "new-student" && isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
+        // Kiosk terminal: verify phone to detect existing users.
+        // New students skip SMS (staff present) — fall through to account prep.
         const result = await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({
           isKioskTerminalFlow,
@@ -1246,19 +1244,26 @@ export default function EnrollModal({
           verifyResult: result,
           onExistingUserDetected,
         })) {
-          // Parent handles transition to PIN flow
+          return
+        }
+        resetVerification()
+        // Fall through to account preparation below
+      } else if (service === "new-student" && isQrMobileCompactFlow && isCompleteUSPhone(contact.phone)) {
+        // QR mobile: SMS verification via EmbeddedSignIn.
+        const result = await verifyNewStudent(contact.phone, contact.email)
+        if (handleExistingUserDetected({
+          isKioskTerminalFlow,
+          service,
+          verifyResult: result,
+          onExistingUserDetected,
+        })) {
           return
         }
         if (result === "sms_pending") {
-          // Create the Clerk user via backend BEFORE showing EmbeddedSignIn.
-          // This ensures signIn.create() works (user must exist in Clerk first).
           const account = await requestAccountPreparation()
           if (!account) return
-          // EmbeddedSignIn will render via JSX conditional on verification.state
-          // Flow continues after SMS verification via the verified effect below
           return
         }
-        // If somehow already verified, continue to account prep below
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
         // Web new-student flow: use requestNewStudentOutcome + sign-in modal
         const verifyResult = await requestNewStudentOutcome()
@@ -1350,6 +1355,7 @@ export default function EnrollModal({
     preparedAccount,
     requestAccountPreparation,
     requestNewStudentOutcome,
+    resetVerification,
     setExistingAccountDetected,
     setFormError,
     setRequiresSignIn,
@@ -3389,7 +3395,7 @@ export default function EnrollModal({
           </div>
         </div>
       )}
-      {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
+      {(verificationState === "sms_pending" || verificationState === "sms_verifying") && isQrMobileCompactFlow && !isKioskTerminalFlow && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
           <button
             type="button"

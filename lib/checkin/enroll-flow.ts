@@ -3,7 +3,7 @@ type ResolveEnrollInitialStepInput = {
   stepsLength: number
 }
 
-export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "consecutive" | "payments" | "review"
+export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "consecutive" | "promo" | "payments" | "review"
 
 type ResolveEnrollStepKeysInput = {
   isCheckInFlow: boolean
@@ -45,10 +45,8 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
-    // 3-step kiosk flow: info → payments only.
-    // Photo and packages steps are removed; consecutive offer is rendered
-    // as an inline toggle within the payments step.
-    return ["info", "payments"]
+    const hasPromo = input.hasPackages || input.hasConsecutiveOffer
+    return ["info", ...(hasPromo ? (["promo"] as const) : []), "payments"]
   }
 
   if (input.isQrMobileCompactFlow) {
