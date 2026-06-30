@@ -188,6 +188,8 @@ type KioskResolvingOverlayInput = {
   paymentsStepReady: boolean
   /** True if user already has a purchase for this exact session — show popup instead of flow */
   hasExistingPurchaseForSession?: boolean
+  /** True when quick repeat overlay will handle the flow — hide resolving overlay */
+  quickRepeatEligible?: boolean
 }
 
 /**
@@ -204,6 +206,8 @@ export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInpu
     return false
   }
   if (input.hasPendingPinRotation) return false
+  // Quick repeat eligible — the quick repeat overlay handles the flow
+  if (input.quickRepeatEligible) return false
   // Duplicate purchase detected — hide overlay so the popup can show
   if (input.hasExistingPurchaseForSession) return false
   // Package offer screen is the visible UI — hide the overlay to prevent flash.
