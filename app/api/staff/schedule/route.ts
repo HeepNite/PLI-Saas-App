@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { prisma } from "@/lib/prisma"
 import { ACTIVE_ATTENDANCE_STATUSES } from "@/lib/attendance-constants"
 
@@ -47,22 +47,11 @@ const parseMonthParam = (value: string | null) => {
 }
 
 export async function GET(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:schedule:get", getClientIp(req)),
-    limit: 120,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:schedule:get", limit: 120, windowMs: 60_000 },
+    authorize: authorizeStaffPortalRequest,
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   const requestUrl = new URL(req.url)
   const { year, month } = parseMonthParam(requestUrl.searchParams.get("month"))

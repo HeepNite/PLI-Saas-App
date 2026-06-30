@@ -2,6 +2,7 @@
 
 import React from "react"
 import { Loader2, X, AlertTriangle, CheckCircle2, Clock, Package, DollarSign } from "lucide-react"
+import { useAsyncFetch } from "@/components/front/hooks/useAsyncFetch"
 
 // ============================================================
 // Types
@@ -196,26 +197,61 @@ export default function StudentDataOverrideModal({
   const [successMessage, setSuccessMessage] = React.useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
-  // Session picker state
-  const [availableSessions, setAvailableSessions] = React.useState<SessionItem[]>([])
-  const [sessionsLoading, setSessionsLoading] = React.useState(false)
-  const [sessionsError, setSessionsError] = React.useState<string | null>(null)
-
   // Course selector state (for choosing any course, not just student's courses)
-  const [allCourses, setAllCourses] = React.useState<CourseOption[]>([])
   const [selectedCourseSlug, setSelectedCourseSlug] = React.useState<string>("")
-  const [coursesLoading, setCoursesLoading] = React.useState(false)
 
   // Package selector state
-  const [availablePackages, setAvailablePackages] = React.useState<PackageOption[]>([])
-  const [packagesLoading, setPackagesLoading] = React.useState(false)
-  const [packagesError, setPackagesError] = React.useState<string | null>(null)
   const [showManualPackageId, setShowManualPackageId] = React.useState(false)
 
-  // Purchase selector state
-  const [availablePurchases, setAvailablePurchases] = React.useState<PurchaseOption[]>([])
-  const [purchasesLoading, setPurchasesLoading] = React.useState(false)
-  const [purchasesError, setPurchasesError] = React.useState<string | null>(null)
+  // Tracks purchases deleted in this session so they can be filtered out optimistically
+  const [deletedPurchaseIds, setDeletedPurchaseIds] = React.useState<ReadonlySet<string>>(new Set())
+
+  const isAttendanceTab = open && form.entity === "attendance"
+  const isPackageTab = open && form.entity === "package"
+  const isPaymentTab = open && form.entity === "payment"
+
+  const { data: coursesData, loading: coursesLoading } = useAsyncFetch<CourseOption[]>(
+    "/api/catalog/courses",
+    isAttendanceTab,
+    (json) => {
+      const raw = json as { courses?: { slug: string; title?: string }[] }
+      return (raw.courses ?? []).map((c) => ({ slug: c.slug, title: c.title || c.slug }))
+    },
+  )
+  const allCourses = coursesData ?? []
+
+  const sessionsUrl = isAttendanceTab
+    ? `/api/staff/students/${encodeURIComponent(studentId)}/sessions${selectedCourseSlug ? `?courseSlug=${encodeURIComponent(selectedCourseSlug)}` : ""}`
+    : null
+  const { data: sessionsData, loading: sessionsLoading, error: sessionsError } = useAsyncFetch<SessionItem[]>(
+    sessionsUrl,
+    isAttendanceTab,
+    (json) => {
+      const raw = json as { data?: { sessions?: SessionItem[] } }
+      return raw.data?.sessions ?? []
+    },
+  )
+  const availableSessions = sessionsData ?? []
+
+  const { data: packagesData, loading: packagesLoading, error: packagesError } = useAsyncFetch<PackageOption[]>(
+    `/api/staff/students/${encodeURIComponent(studentId)}/packages`,
+    isPackageTab,
+    (json) => {
+      const raw = json as { data?: { packages?: PackageOption[] } }
+      return (raw.data?.packages ?? []) as PackageOption[]
+    },
+  )
+  const availablePackages = packagesData ?? []
+
+  const { data: purchasesData, loading: purchasesLoading, error: purchasesError } = useAsyncFetch<PurchaseOption[]>(
+    `/api/staff/students/${encodeURIComponent(studentId)}/payments`,
+    isPaymentTab,
+    (json) => {
+      const raw = json as { data?: { purchases?: PurchaseOption[] } }
+      return (raw.data?.purchases ?? []) as PurchaseOption[]
+    },
+  )
+  const availablePurchases = (purchasesData ?? []).filter((p) => !deletedPurchaseIds.has(p.id))
 
   const updateField = React.useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -246,17 +282,9 @@ export default function StudentDataOverrideModal({
     setErrorMessage(null)
     setSuccessMessage(null)
     setConfirmOpen(false)
-    setAvailableSessions([])
-    setSessionsLoading(false)
-    setSessionsError(null)
     setSelectedCourseSlug("")
-    setAvailablePackages([])
-    setPackagesLoading(false)
-    setPackagesError(null)
     setShowManualPackageId(false)
-    setAvailablePurchases([])
-    setPurchasesLoading(false)
-    setPurchasesError(null)
+    setDeletedPurchaseIds(new Set())
   }, [])
 
   const formatPackageSummary = React.useCallback((pkg: PackageOption): string => {
@@ -288,171 +316,43 @@ export default function StudentDataOverrideModal({
     onClose()
   }, [onClose, resetForm, submitState])
 
-  // Fetch all courses when modal opens and entity is attendance
+  // Auto-select package purchase when packages load
   React.useEffect(() => {
-    if (!open || form.entity !== "attendance") return
+    if (!packagesData) return
+    setForm((prev) => {
+      if (prev.entity !== "package") return prev
+      if (prev.packagePurchaseId && packagesData.some((item) => item.id === prev.packagePurchaseId)) {
+        return prev
+      }
+      if (packagesData.length === 1) {
+        return { ...prev, packagePurchaseId: packagesData[0].id }
+      }
+      return { ...prev, packagePurchaseId: "" }
+    })
+  }, [packagesData])
 
-    let cancelled = false
-    setCoursesLoading(true)
-
-    fetch("/api/catalog/courses")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load courses")
-        return res.json()
-      })
-      .then((data) => {
-        if (!cancelled) {
-          const courses: CourseOption[] = (data.courses ?? []).map((c: { slug: string; title?: string }) => ({
-            slug: c.slug,
-            title: c.title || c.slug,
-          }))
-          setAllCourses(courses)
-          setCoursesLoading(false)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAllCourses([])
-          setCoursesLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [open, form.entity])
-
-  // Fetch available sessions when modal opens and entity is attendance
-  // Re-fetch when selectedCourseSlug changes
+  // Auto-select and populate fields when purchases load
   React.useEffect(() => {
-    if (!open || form.entity !== "attendance") return
-
-    let cancelled = false
-    setSessionsLoading(true)
-    setSessionsError(null)
-    setAvailableSessions([])
-
-    const url = new URL(`/api/staff/students/${encodeURIComponent(studentId)}/sessions`, window.location.origin)
-    if (selectedCourseSlug) {
-      url.searchParams.set("courseSlug", selectedCourseSlug)
-    }
-
-    fetch(url.toString())
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load sessions")
-        return res.json()
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setAvailableSessions(data.data?.sessions ?? [])
-          setSessionsLoading(false)
+    if (!purchasesData) return
+    setForm((prev) => {
+      if (prev.entity !== "payment") return prev
+      if (prev.paymentPurchaseId && purchasesData.some((p) => p.id === prev.paymentPurchaseId)) {
+        return prev
+      }
+      if (purchasesData.length === 1) {
+        const p = purchasesData[0]
+        return {
+          ...prev,
+          paymentPurchaseId: p.id,
+          paymentAmount: (p.amount / 100).toFixed(2),
+          paymentSettlementStatus: p.settlementStatus,
+          paymentOutstandingBalance: (p.outstandingBalance / 100).toFixed(2),
+          paymentMethod: p.paymentMethod,
         }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setSessionsError(err instanceof Error ? err.message : "Failed to load sessions")
-          setSessionsLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [open, form.entity, studentId, selectedCourseSlug])
-
-  // Fetch package purchases when package tab is active
-  React.useEffect(() => {
-    if (!open || form.entity !== "package") return
-
-    let cancelled = false
-    setPackagesLoading(true)
-    setPackagesError(null)
-
-    fetch(`/api/staff/students/${encodeURIComponent(studentId)}/packages`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load package purchases")
-        return res.json()
-      })
-      .then((data) => {
-        if (cancelled) return
-
-        const packages = (data?.data?.packages ?? []) as PackageOption[]
-        setAvailablePackages(packages)
-        setPackagesLoading(false)
-
-        setForm((prev) => {
-          if (prev.entity !== "package") return prev
-          if (prev.packagePurchaseId && packages.some((item) => item.id === prev.packagePurchaseId)) {
-            return prev
-          }
-          if (packages.length === 1) {
-            return { ...prev, packagePurchaseId: packages[0].id }
-          }
-          return { ...prev, packagePurchaseId: "" }
-        })
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setPackagesError(err instanceof Error ? err.message : "Failed to load package purchases")
-        setPackagesLoading(false)
-        setAvailablePackages([])
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [open, form.entity, studentId])
-
-  // Fetch purchases when payment tab is active
-  React.useEffect(() => {
-    if (!open || form.entity !== "payment") return
-
-    let cancelled = false
-    setPurchasesLoading(true)
-    setPurchasesError(null)
-
-    fetch(`/api/staff/students/${encodeURIComponent(studentId)}/payments`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load purchases")
-        return res.json()
-      })
-      .then((data) => {
-        if (cancelled) return
-
-        const purchases = (data?.data?.purchases ?? []) as PurchaseOption[]
-        setAvailablePurchases(purchases)
-        setPurchasesLoading(false)
-
-        setForm((prev) => {
-          if (prev.entity !== "payment") return prev
-          if (prev.paymentPurchaseId && purchases.some((p) => p.id === prev.paymentPurchaseId)) {
-            return prev
-          }
-          if (purchases.length === 1) {
-            const p = purchases[0]
-            return {
-              ...prev,
-              paymentPurchaseId: p.id,
-              paymentAmount: (p.amount / 100).toFixed(2),
-              paymentSettlementStatus: p.settlementStatus,
-              paymentOutstandingBalance: (p.outstandingBalance / 100).toFixed(2),
-              paymentMethod: p.paymentMethod,
-            }
-          }
-          return { ...prev, paymentPurchaseId: "" }
-        })
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setPurchasesError(err instanceof Error ? err.message : "Failed to load purchases")
-        setPurchasesLoading(false)
-        setAvailablePurchases([])
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [open, form.entity, studentId])
+      }
+      return { ...prev, paymentPurchaseId: "" }
+    })
+  }, [purchasesData])
 
   const handlePurchaseSelect = React.useCallback((purchaseId: string) => {
     const purchase = availablePurchases.find((p) => p.id === purchaseId)
@@ -499,8 +399,7 @@ export default function StudentDataOverrideModal({
 
       setSubmitState("success")
       setSuccessMessage("Purchase deleted successfully.")
-      // Remove from local list
-      setAvailablePurchases((prev) => prev.filter((p) => p.id !== form.paymentPurchaseId))
+      setDeletedPurchaseIds((prev) => new Set([...prev, form.paymentPurchaseId]))
       setForm((prev) => ({
         ...prev,
         paymentPurchaseId: "",
