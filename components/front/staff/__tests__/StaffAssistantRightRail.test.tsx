@@ -63,7 +63,10 @@ describe("StaffAssistantRightRail", () => {
 
     expect(rail?.className).toContain("transform-gpu")
     expect(rail?.className).toContain("transition-[transform,opacity]")
-    expect(rail?.className).toContain("translate-y-10")
+    expect(rail?.className).toContain("duration-700")
+    expect(rail?.className).toContain("ease-[cubic-bezier(0.16,1,0.3,1)]")
+    expect(rail?.className).toContain("translate-y-6")
+    expect(rail?.className).toContain("scale-[0.98]")
     expect(rail?.className).toContain("opacity-0")
   })
 
