@@ -68,6 +68,23 @@ describe("StaffAssistantRightRail", () => {
     expect(rail?.className).toContain("translate-y-6")
     expect(rail?.className).toContain("scale-[0.98]")
     expect(rail?.className).toContain("opacity-0")
+    expect(rail?.className).not.toContain("min-[1180px]:hidden")
+  })
+
+  it("makes the collapsed animated rail inaccessible to assistive tech and keyboard focus", async () => {
+    const node = await renderRail(createProps({ showInlineRightRail: false, isRailCollapsed: true }))
+    const rail = node.querySelector("aside")
+
+    expect(rail?.getAttribute("aria-hidden")).toBe("true")
+    expect(rail?.hasAttribute("inert")).toBe(true)
+  })
+
+  it("keeps the open rail accessible", async () => {
+    const node = await renderRail(createProps({ showInlineRightRail: true, isRailCollapsed: false }))
+    const rail = node.querySelector("aside")
+
+    expect(rail?.hasAttribute("aria-hidden")).toBe(false)
+    expect(rail?.hasAttribute("inert")).toBe(false)
   })
 
   it("hides the floating assistant reopen button while the rail is open", async () => {

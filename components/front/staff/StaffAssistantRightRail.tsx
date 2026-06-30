@@ -34,10 +34,12 @@ export default function StaffAssistantRightRail({
       ) : null}
 
       <aside
-          className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:block min-[1180px]:h-fit min-[1180px]:self-start min-[1180px]:transition-[transform,opacity] ${
+        aria-hidden={isRailCollapsed ? "true" : undefined}
+        inert={isRailCollapsed ? true : undefined}
+        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:transition-[transform,opacity] ${
           showInlineRightRail
-            ? "translate-y-0 scale-100 opacity-100"
-            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:hidden"
+            ? "translate-y-0 scale-100 opacity-100 min-[1180px]:sticky min-[1180px]:block min-[1180px]:h-fit min-[1180px]:self-start"
+            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:absolute min-[1180px]:bottom-auto min-[1180px]:left-auto min-[1180px]:right-0 min-[1180px]:w-[330px] xl:w-[360px]"
         } relative`}
       >
         <div
