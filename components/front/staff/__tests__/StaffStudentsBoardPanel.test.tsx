@@ -518,6 +518,36 @@ describe("StaffStudentsBoardPanel", () => {
     expect(node.textContent).toContain("Kiosk / Terminal")
   })
 
+  it("groups front desk students with terminal payments instead of web", async () => {
+    const payment = createPaymentRow({ purchaseSource: "front_desk" })
+    const node = await renderPanel(
+      createProps({
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [{
+            source: "payment",
+            key: "user-1",
+            allPayments: [payment],
+            latestPayment: payment,
+            latestAttendedPayment: null,
+            totalPayments: 1,
+            totalCollectedCents: 2000,
+            paidPayments: 0,
+            checkedInPayments: 0,
+            coursesPurchasedCount: 1,
+            totalPackageClassesConsumed: 0,
+            completedClassesTotal: 0,
+            packageClassesUsedTotal: 0,
+          }],
+          filteredStudentCardsCount: 1,
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("Kiosk / Terminal / Front desk")
+    expect(node.textContent).not.toContain("Web")
+  })
+
   it("previews promo before processing and processes both classes after accept", async () => {
     const onRefreshPaymentsBoard = vi.fn()
     const fetchMock = vi.fn()

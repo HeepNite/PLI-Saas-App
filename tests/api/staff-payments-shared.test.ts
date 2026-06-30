@@ -5,6 +5,7 @@ import {
   isCompletedPaymentStatus,
   isOpenPurchase,
   normalizePaymentChannel,
+  normalizePurchaseSource,
   selectActivePackagesByUser,
   selectTodayCheckInByUser,
 } from "@/app/api/staff/payments/shared"
@@ -168,6 +169,10 @@ describe("staff payments shared helpers", () => {
         stripeCheckoutSessionId: null,
       })
     ).toBe("card")
+  })
+
+  it("normalizes staff-created student purchases as front desk source", () => {
+    expect(normalizePurchaseSource({ source: "staff_created_student" })).toBe("front_desk")
   })
 
   it("prefers active today check-ins over later lower-priority rows", () => {
