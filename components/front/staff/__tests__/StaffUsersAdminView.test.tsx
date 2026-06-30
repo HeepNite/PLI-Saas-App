@@ -50,6 +50,7 @@ const createProps = (): StaffUsersAdminViewProps => ({
     gridRef: { current: null },
     leftRailRef: { current: null },
     showInlineRightRail: false,
+    reserveAssistantColumn: false,
     visibleNavItems: [
       { key: "users", label: "User Management", icon: (() => null) as never },
       { key: "assistant", label: "AI Assistant", icon: (() => null) as never },
@@ -162,9 +163,9 @@ describe("StaffUsersAdminView", () => {
     expect(grid?.className).not.toContain("transition-[grid")
   })
 
-  it("reserves the desktop assistant column only while the inline rail is visible", async () => {
+  it("reserves the desktop assistant column while the layout is holding assistant space", async () => {
     const props = createProps()
-    props.shell.showInlineRightRail = true
+    props.shell.reserveAssistantColumn = true
     const node = await renderView(props)
     const grid = node.firstElementChild
 

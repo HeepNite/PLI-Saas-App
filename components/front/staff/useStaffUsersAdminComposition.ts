@@ -46,6 +46,7 @@ type StaffUsersAdminCompositionInput = {
   setStudentSearchQuery: React.Dispatch<React.SetStateAction<string>>
   showRightRail: boolean
   showInlineRightRail: boolean
+  reserveAssistantColumn: boolean
   schoolWizard: SchoolWizardState
   wizardEnabledCtx: StepEnabledContext
   reviewPreviewHover: "home" | "single" | null
@@ -138,6 +139,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
       gridRef: input.refs.gridRef,
       leftRailRef: input.refs.leftRailRef,
       showInlineRightRail: input.showInlineRightRail,
+      reserveAssistantColumn: input.reserveAssistantColumn,
       visibleNavItems: portalShellAdmin.visibleNavItems,
       activeNav: portalShellAdmin.activeNav,
       handleNavSelection: portalShellAdmin.handleNavSelection,

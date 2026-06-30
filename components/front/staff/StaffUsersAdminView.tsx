@@ -24,6 +24,7 @@ export type StaffUsersAdminViewProps = {
     gridRef: React.RefObject<HTMLDivElement | null>
     leftRailRef: React.RefObject<HTMLDivElement | null>
     showInlineRightRail: boolean
+    reserveAssistantColumn: boolean
     visibleNavItems: StaffPortalNavItem[]
     activeNav: string
     handleNavSelection: React.ComponentProps<typeof StaffPortalNavButton>["onSelect"]
@@ -89,7 +90,7 @@ export default function StaffUsersAdminView({
       <div
         ref={shell.gridRef}
         className={`relative grid gap-y-4 min-[1180px]:gap-x-2 min-[1180px]:items-start ${
-          shell.showInlineRightRail
+          shell.reserveAssistantColumn
             ? "min-[1180px]:grid-cols-[86px_minmax(0,1fr)_330px] xl:grid-cols-[90px_minmax(0,1fr)_360px]"
             : "min-[1180px]:grid-cols-[86px_minmax(0,1fr)] xl:grid-cols-[90px_minmax(0,1fr)]"
         }`}
