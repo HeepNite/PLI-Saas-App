@@ -118,8 +118,8 @@ git revert <PR1a-merge-commit>
 - [x] 2b.1 Create `components/front/courses/enroll/hooks/useEnrollInit.ts` — extract init ref scaffolding, prefill/user ref synchronization, and close reset only.
 - [x] 2b.2 Modify `EnrollModal.tsx` — replace only the ref scaffolding/ref-sync/close-reset effects with `useEnrollInit(...)`; keep the main open-triggered initialization effect inline for Slice 2c.
 - [x] 2b.3 Write `tests/checkin/use-enroll-init.test.tsx` — cover ref synchronization and close reset only.
-- [ ] 2c.1 Move the open-triggered initialization effect body into `useEnrollInit(...)`, preserving default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
-- [ ] 2c.2 Add/expand `use-enroll-init` tests for default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
+- [x] 2c.1 Move the open-triggered initialization effect body into `useEnrollInit(...)`, preserving default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
+- [x] 2c.2 Add/expand `use-enroll-init` tests for default booking, check-in new flow, kiosk hydrating, and QR mobile compact today-only autofill.
 - [ ] 2c.3 Optional: extract `resetForm` only if Slice 2c leaves a small, coherent, under-budget follow-up; otherwise defer to a later tracked change.
 
 ### Acceptance Criteria — Slice 2a
