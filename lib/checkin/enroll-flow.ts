@@ -45,8 +45,7 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
-    const hasPromo = input.hasPackages || input.hasConsecutiveOffer
-    return ["info", ...(hasPromo ? (["promo"] as const) : []), "payments"]
+    return ["info", ...(input.hasConsecutiveOffer ? (["promo"] as const) : []), "payments"]
   }
 
   if (input.isQrMobileCompactFlow) {
