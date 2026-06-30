@@ -1,13 +1,11 @@
 import React from "react"
 
-export const STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS = 350
-export const STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS = "duration-[350ms]"
-export const STAFF_ASSISTANT_RAIL_EXIT_LAYOUT_DELAY_MS = 360
-export const STAFF_ASSISTANT_LAYOUT_SETTLE_DURATION_MS = 180
+export const STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS = 160
+export const STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS = "duration-[160ms]"
+export const STAFF_ASSISTANT_LAYOUT_RELEASE_DELAY_MS = 140
 
 type StaffAssistantRailLayoutState = {
   shouldReserveAssistantColumn: boolean
-  isAssistantLayoutSettling: boolean
 }
 
 export function resolveStaffAssistantColumnReservation(isRailCollapsed: boolean, delayedReservationHeld: boolean) {
@@ -15,49 +13,27 @@ export function resolveStaffAssistantColumnReservation(isRailCollapsed: boolean,
 }
 
 export function useStaffAssistantRailLayout(isRailCollapsed: boolean) {
-  const [shouldReserveAssistantColumn, setShouldReserveAssistantColumn] = React.useState(() => !isRailCollapsed)
-  const [isAssistantLayoutSettling, setIsAssistantLayoutSettling] = React.useState(false)
-  const previousRailCollapsedRef = React.useRef(isRailCollapsed)
+  const [delayedReservationHeld, setDelayedReservationHeld] = React.useState(!isRailCollapsed)
 
   React.useEffect(() => {
-    let releaseColumnTimer: number | undefined
-    let clearSettlingTimer: number | undefined
-    const railCollapseChanged = previousRailCollapsedRef.current !== isRailCollapsed
-    previousRailCollapsedRef.current = isRailCollapsed
-
-    if (!railCollapseChanged) return
-
     if (!isRailCollapsed) {
-      setShouldReserveAssistantColumn(true)
-      setIsAssistantLayoutSettling(true)
-      clearSettlingTimer = window.setTimeout(() => {
-        setIsAssistantLayoutSettling(false)
-      }, STAFF_ASSISTANT_LAYOUT_SETTLE_DURATION_MS)
-
-      return () => {
-        window.clearTimeout(clearSettlingTimer)
-      }
+      setDelayedReservationHeld(true)
+      return
     }
 
-    setIsAssistantLayoutSettling(true)
-    releaseColumnTimer = window.setTimeout(() => {
-      setShouldReserveAssistantColumn(false)
-      clearSettlingTimer = window.setTimeout(() => {
-        setIsAssistantLayoutSettling(false)
-      }, STAFF_ASSISTANT_LAYOUT_SETTLE_DURATION_MS)
-    }, STAFF_ASSISTANT_RAIL_EXIT_LAYOUT_DELAY_MS)
+    const releaseReservation = window.setTimeout(() => {
+      setDelayedReservationHeld(false)
+    }, STAFF_ASSISTANT_LAYOUT_RELEASE_DELAY_MS)
 
     return () => {
-      window.clearTimeout(releaseColumnTimer)
-      window.clearTimeout(clearSettlingTimer)
+      window.clearTimeout(releaseReservation)
     }
   }, [isRailCollapsed])
 
   return React.useMemo<StaffAssistantRailLayoutState>(
     () => ({
-      shouldReserveAssistantColumn: resolveStaffAssistantColumnReservation(isRailCollapsed, shouldReserveAssistantColumn),
-      isAssistantLayoutSettling,
+      shouldReserveAssistantColumn: resolveStaffAssistantColumnReservation(isRailCollapsed, delayedReservationHeld),
     }),
-    [isAssistantLayoutSettling, isRailCollapsed, shouldReserveAssistantColumn]
+    [delayedReservationHeld, isRailCollapsed]
   )
 }

@@ -6,6 +6,7 @@ import { STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS } from "@/components/front/sta
 type StaffAssistantRightRailProps = {
   showRightRail: boolean
   showInlineRightRail: boolean
+  reserveAssistantColumn: boolean
   isRailCollapsed: boolean
   rightRailRef: React.RefObject<HTMLDivElement | null>
   onCloseOverlay: () => void
@@ -16,6 +17,7 @@ type StaffAssistantRightRailProps = {
 export default function StaffAssistantRightRail({
   showRightRail,
   showInlineRightRail,
+  reserveAssistantColumn,
   isRailCollapsed,
   rightRailRef,
   onCloseOverlay,
@@ -38,15 +40,21 @@ export default function StaffAssistantRightRail({
       <aside
         aria-hidden={isRailCollapsed ? "true" : undefined}
         inert={isRailCollapsed ? true : undefined}
-        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:transition-[transform,opacity] ${
+        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:h-fit min-[1180px]:self-start ${
+          reserveAssistantColumn ? "min-[1180px]:block" : "min-[1180px]:hidden"
+        } ${
           showInlineRightRail
-            ? "translate-y-0 scale-100 opacity-100 min-[1180px]:sticky min-[1180px]:block min-[1180px]:h-fit min-[1180px]:self-start"
-            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:absolute min-[1180px]:bottom-auto min-[1180px]:left-auto min-[1180px]:right-0 min-[1180px]:w-[330px] xl:w-[360px]"
+            ? "translate-y-0 scale-100 opacity-100"
+            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:translate-y-0 min-[1180px]:scale-100 min-[1180px]:opacity-100"
         } relative`}
       >
         <div
           ref={rightRailRef}
-          className="w-full max-w-md max-h-[64vh] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#0f121a]/96 p-4 text-white shadow-[0_28px_80px_-36px_rgba(0,0,0,0.82)] backdrop-blur-xl min-[1180px]:max-h-none min-[1180px]:max-w-none min-[1180px]:overflow-visible min-[1180px]:rounded-2xl min-[1180px]:border-black/10 min-[1180px]:bg-white/80 min-[1180px]:p-3 min-[1180px]:text-inherit min-[1180px]:shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] min-[1180px]:dark:border-white/10 min-[1180px]:dark:bg-[#11131a]/95"
+          className={`w-full max-w-md max-h-[64vh] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#0f121a]/96 p-4 text-white shadow-[0_28px_80px_-36px_rgba(0,0,0,0.82)] backdrop-blur-xl min-[1180px]:w-[330px] min-[1180px]:max-h-none min-[1180px]:max-w-none min-[1180px]:overflow-visible min-[1180px]:rounded-2xl min-[1180px]:border-black/10 min-[1180px]:bg-white/80 min-[1180px]:p-3 min-[1180px]:text-inherit min-[1180px]:shadow-[0_20px_46px_-24px_rgba(0,0,0,0.45)] min-[1180px]:transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} min-[1180px]:ease-[cubic-bezier(0.16,1,0.3,1)] min-[1180px]:dark:border-white/10 min-[1180px]:dark:bg-[#11131a]/95 xl:w-[360px] ${
+            showInlineRightRail
+              ? "min-[1180px]:translate-x-0 min-[1180px]:opacity-100"
+              : "min-[1180px]:translate-x-3 min-[1180px]:opacity-0"
+          }`}
         >
           <div className="pointer-events-none mb-3 flex justify-center min-[1180px]:hidden">
             <span

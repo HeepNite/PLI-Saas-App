@@ -51,7 +51,6 @@ const createProps = (): StaffUsersAdminViewProps => ({
     leftRailRef: { current: null },
     showInlineRightRail: false,
     reserveAssistantColumn: false,
-    isAssistantLayoutSettling: false,
     visibleNavItems: [
       { key: "users", label: "User Management", icon: (() => null) as never },
       { key: "assistant", label: "AI Assistant", icon: (() => null) as never },
@@ -153,25 +152,26 @@ describe("StaffUsersAdminView", () => {
     expect(props.actions.onOpenAssistantConfig).toHaveBeenCalledTimes(1)
   })
 
-  it("expands the main desktop grid when the assistant rail is hidden", async () => {
+  it("uses a two-column desktop grid when no assistant rail column is reserved", async () => {
     const props = createProps()
-    props.shell.showInlineRightRail = false
     const node = await renderView(props)
     const grid = node.firstElementChild
 
     expect(grid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)]")
+    expect(grid?.className).not.toContain("_0px")
     expect(grid?.className).not.toContain("_330px")
-    expect(grid?.className).not.toContain("transition-[grid")
+    expect(grid?.className).not.toContain("transition-[grid-template-columns]")
   })
 
-  it("reserves the desktop assistant column while the layout is holding assistant space", async () => {
+  it("uses a stable auto desktop assistant column when the rail participates in layout", async () => {
     const props = createProps()
     props.shell.reserveAssistantColumn = true
     const node = await renderView(props)
     const grid = node.firstElementChild
 
-    expect(grid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)_330px]")
-    expect(grid?.className).not.toContain("transition-[grid")
+    expect(grid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)_auto]")
+    expect(grid?.className).toContain("xl:grid-cols-[90px_minmax(0,1fr)_auto]")
+    expect(grid?.className).not.toContain("transition-[grid-template-columns]")
   })
 
   it("keeps the desktop assistant rail close to the content without adding outer gap", async () => {
@@ -185,29 +185,36 @@ describe("StaffUsersAdminView", () => {
     expect(grid?.className).not.toContain("gap-4")
   })
 
-  it("uses a lightweight main-section settling transition instead of grid animation", async () => {
+  it("does not animate dashboard grid columns or gap", async () => {
     const props = createProps()
-    props.shell.isAssistantLayoutSettling = true
     const node = await renderView(props)
     const grid = node.firstElementChild
     const mainSection = node.querySelector("section")
 
-    expect(grid?.className).not.toContain("transition-[grid")
-    expect(mainSection?.className).toContain("transform-gpu")
-    expect(mainSection?.className).toContain("transition-[opacity,transform]")
-    expect(mainSection?.className).toContain("min-[1180px]:opacity-[0.985]")
-    expect(mainSection?.className).toContain("min-[1180px]:scale-[0.997]")
-    expect(mainSection?.className).toContain("min-[1180px]:translate-y-[1px]")
+    expect(grid?.className).not.toContain("transition-[grid-template-columns]")
+    expect(grid?.className).not.toContain("transition-[gap")
+    expect(mainSection?.className).toBe("min-w-0 space-y-4")
   })
 
-  it("settles the main section back to its normal visual state", async () => {
+  it("keeps rail width animation responsibility out of the dashboard grid", async () => {
     const props = createProps()
-    props.shell.isAssistantLayoutSettling = false
-    const node = await renderView(props)
-    const mainSection = node.querySelector("section")
+    const collapsedNode = await renderView(props)
+    const collapsedGrid = collapsedNode.firstElementChild
 
-    expect(mainSection?.className).toContain("min-[1180px]:opacity-100")
-    expect(mainSection?.className).toContain("min-[1180px]:scale-100")
-    expect(mainSection?.className).toContain("min-[1180px]:translate-y-0")
+    await act(async () => {
+      root?.unmount()
+    })
+    root = null
+    container?.remove()
+    container = null
+
+    props.shell.reserveAssistantColumn = true
+    const expandedNode = await renderView(props)
+    const expandedGrid = expandedNode.firstElementChild
+
+    expect(collapsedGrid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)]")
+    expect(expandedGrid?.className).toContain("min-[1180px]:grid-cols-[86px_minmax(0,1fr)_auto]")
+    expect(collapsedGrid?.className).not.toContain("transition-[grid-template-columns]")
+    expect(expandedGrid?.className).not.toContain("transition-[grid-template-columns]")
   })
 })

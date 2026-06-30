@@ -25,7 +25,6 @@ export type StaffUsersAdminViewProps = {
     leftRailRef: React.RefObject<HTMLDivElement | null>
     showInlineRightRail: boolean
     reserveAssistantColumn: boolean
-    isAssistantLayoutSettling: boolean
     visibleNavItems: StaffPortalNavItem[]
     activeNav: string
     handleNavSelection: React.ComponentProps<typeof StaffPortalNavButton>["onSelect"]
@@ -92,7 +91,7 @@ export default function StaffUsersAdminView({
         ref={shell.gridRef}
         className={`relative grid gap-y-4 min-[1180px]:gap-x-2 min-[1180px]:items-start ${
           shell.reserveAssistantColumn
-            ? "min-[1180px]:grid-cols-[86px_minmax(0,1fr)_330px] xl:grid-cols-[90px_minmax(0,1fr)_360px]"
+            ? "min-[1180px]:grid-cols-[86px_minmax(0,1fr)_auto] xl:grid-cols-[90px_minmax(0,1fr)_auto]"
             : "min-[1180px]:grid-cols-[86px_minmax(0,1fr)] xl:grid-cols-[90px_minmax(0,1fr)]"
         }`}
       >
@@ -115,13 +114,7 @@ export default function StaffUsersAdminView({
           </div>
         </aside>
 
-        <section
-          className={`min-w-0 transform-gpu space-y-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${
-            shell.isAssistantLayoutSettling
-              ? "min-[1180px]:translate-y-[1px] min-[1180px]:scale-[0.997] min-[1180px]:opacity-[0.985]"
-              : "min-[1180px]:translate-y-0 min-[1180px]:scale-100 min-[1180px]:opacity-100"
-          }`}
-        >
+        <section className="min-w-0 space-y-4">
           <div className="min-[1180px]:hidden">
             <div className="rounded-xl border border-black/10 bg-white/80 p-1.5 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#11131a]/90 sm:p-2">
               <div

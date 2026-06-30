@@ -530,7 +530,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     showRightRail,
     showInlineRightRail,
     reserveAssistantColumn,
-    isAssistantLayoutSettling: assistantRailLayout.isAssistantLayoutSettling,
     schoolWizard,
     wizardEnabledCtx,
     reviewPreviewHover,
