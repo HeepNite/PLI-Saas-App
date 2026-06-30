@@ -58,15 +58,18 @@ export default function StaffAssistantRightRail({
         />
       </aside>
 
-      <button
-        type="button"
-        onClick={onToggleRail}
-        className="fixed bottom-4 right-4 z-[125] flex h-[56px] w-[56px] items-center justify-center rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-all duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 min-[1180px]:hidden"
-        aria-label={isRailCollapsed ? "Show AI assistant" : "Hide AI assistant"}
-        data-assistant-rail-trigger
-      >
-        <Bot className="h-5.5 w-5.5" />
-      </button>
+      {isRailCollapsed ? (
+        <button
+          type="button"
+          onClick={onToggleRail}
+          className="fixed bottom-4 right-4 z-[125] flex h-[56px] w-[56px] items-center justify-center gap-2 rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-all duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 min-[1180px]:h-11 min-[1180px]:w-auto min-[1180px]:px-4"
+          aria-label="Show AI assistant"
+          data-assistant-rail-trigger
+        >
+          <Bot className="h-5.5 w-5.5" />
+          <span className="hidden text-sm font-semibold min-[1180px]:inline">AI Assistant</span>
+        </button>
+      ) : null}
     </>
   )
 }

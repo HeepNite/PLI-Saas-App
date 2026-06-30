@@ -63,4 +63,31 @@ describe("StaffAssistantRightRail", () => {
     expect(rail?.className).toContain("translate-y-10")
     expect(rail?.className).toContain("opacity-0")
   })
+
+  it("hides the floating assistant reopen button while the rail is open", async () => {
+    const node = await renderRail(createProps({ showInlineRightRail: true, isRailCollapsed: false }))
+
+    expect(node.querySelector("[data-assistant-rail-trigger]")).toBeNull()
+  })
+
+  it("shows the floating assistant reopen button when the rail is closed", async () => {
+    const node = await renderRail(createProps({ showInlineRightRail: false, isRailCollapsed: true }))
+    const reopenButton = node.querySelector<HTMLButtonElement>("[data-assistant-rail-trigger]")
+
+    expect(reopenButton).not.toBeNull()
+    expect(reopenButton?.getAttribute("aria-label")).toBe("Show AI assistant")
+    expect(reopenButton?.className).not.toContain("min-[1180px]:hidden")
+  })
+
+  it("reopens the assistant with the existing rail toggle handler", async () => {
+    const onToggleRail = vi.fn()
+    const node = await renderRail(createProps({ showInlineRightRail: false, isRailCollapsed: true, onToggleRail }))
+    const reopenButton = node.querySelector<HTMLButtonElement>("[data-assistant-rail-trigger]")
+
+    await act(async () => {
+      reopenButton!.click()
+    })
+
+    expect(onToggleRail).toHaveBeenCalledTimes(1)
+  })
 })
