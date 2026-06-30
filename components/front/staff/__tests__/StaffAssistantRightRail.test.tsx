@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import StaffAssistantRightRail from "@/components/front/staff/StaffAssistantRightRail"
+import { STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS } from "@/components/front/staff/useStaffAssistantRailLayout"
 
 const testGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 testGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -63,7 +64,7 @@ describe("StaffAssistantRightRail", () => {
 
     expect(rail?.className).toContain("transform-gpu")
     expect(rail?.className).toContain("transition-[transform,opacity]")
-    expect(rail?.className).toContain("duration-700")
+    expect(rail?.className).toContain(STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS)
     expect(rail?.className).toContain("ease-[cubic-bezier(0.16,1,0.3,1)]")
     expect(rail?.className).toContain("translate-y-6")
     expect(rail?.className).toContain("scale-[0.98]")

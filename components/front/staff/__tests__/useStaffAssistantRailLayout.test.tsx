@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS,
   STAFF_ASSISTANT_RAIL_EXIT_LAYOUT_DELAY_MS,
   resolveStaffAssistantColumnReservation,
   useStaffAssistantRailLayout,
@@ -74,6 +75,11 @@ describe("useStaffAssistantRailLayout", () => {
     })
 
     expect(values.at(-1)).toBe(false)
+  })
+
+  it("releases layout shortly after the faster rail exit timing", () => {
+    expect(STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS).toBe(350)
+    expect(STAFF_ASSISTANT_RAIL_EXIT_LAYOUT_DELAY_MS).toBe(360)
   })
 
   it("reserves the assistant column immediately when the rail reopens", async () => {

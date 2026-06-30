@@ -1,6 +1,8 @@
 import React from "react"
 
-export const STAFF_ASSISTANT_RAIL_EXIT_LAYOUT_DELAY_MS = 700
+export const STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS = 350
+export const STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS = "duration-[350ms]"
+export const STAFF_ASSISTANT_RAIL_EXIT_LAYOUT_DELAY_MS = 360
 
 export function resolveStaffAssistantColumnReservation(isRailCollapsed: boolean, delayedReservationHeld: boolean) {
   return !isRailCollapsed || delayedReservationHeld
