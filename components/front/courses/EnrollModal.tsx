@@ -2918,8 +2918,8 @@ export default function EnrollModal({
                               }}
                               className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
                                 consecutiveChoiceMade && !consecutiveAccepted
-                                  ? "border-white/35 bg-white/[0.08] text-white ring-2 ring-white/10"
-                                  : "border-white/12 bg-white/[0.03] text-white/72 hover:border-white/22 hover:text-white"
+                                  ? "border-red-500/60 bg-red-500/10 text-red-300 ring-2 ring-red-500/25"
+                                  : "border-red-500/25 bg-red-500/5 text-red-300/70 hover:border-red-500/40 hover:text-red-300"
                               }`}
                             >
                               No thanks

@@ -38,7 +38,7 @@ export const resolveStepValid = (stepIndex: number, ctx: StepValidContext): bool
     case "packages":
       return true
     case "promo":
-      return true
+      return ctx.consecutiveChoiceMade
     case "consecutive":
       return ctx.consecutiveChoiceMade
     case "payments":
