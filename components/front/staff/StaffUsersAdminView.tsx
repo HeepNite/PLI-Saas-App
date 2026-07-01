@@ -23,7 +23,6 @@ export type StaffUsersAdminViewProps = {
   shell: {
     gridRef: React.RefObject<HTMLDivElement | null>
     leftRailRef: React.RefObject<HTMLDivElement | null>
-    showInlineRightRail: boolean
     reserveAssistantColumn: boolean
     visibleNavItems: StaffPortalNavItem[]
     activeNav: string

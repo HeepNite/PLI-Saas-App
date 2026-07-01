@@ -25,7 +25,6 @@ describe("buildStaffUsersAdminViewProps", () => {
       shell: {
         gridRef: { current: null },
         leftRailRef: { current: null },
-        showInlineRightRail: false,
         reserveAssistantColumn: false,
         visibleNavItems: [],
         activeNav: "users",

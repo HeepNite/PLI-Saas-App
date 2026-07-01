@@ -40,7 +40,7 @@ export default function StaffAssistantRightRail({
       <aside
         aria-hidden={isRailCollapsed ? "true" : undefined}
         inert={isRailCollapsed ? true : undefined}
-          className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:h-fit min-[1180px]:self-start ${
+        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:h-fit min-[1180px]:self-start ${
           reserveAssistantColumn
             ? "min-[1180px]:block"
             : "min-[1180px]:hidden"

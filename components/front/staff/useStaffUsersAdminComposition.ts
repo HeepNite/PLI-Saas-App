@@ -138,7 +138,6 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
     shell: {
       gridRef: input.refs.gridRef,
       leftRailRef: input.refs.leftRailRef,
-      showInlineRightRail: input.showInlineRightRail,
       reserveAssistantColumn: input.reserveAssistantColumn,
       visibleNavItems: portalShellAdmin.visibleNavItems,
       activeNav: portalShellAdmin.activeNav,

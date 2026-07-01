@@ -59,8 +59,8 @@ describe("StaffAssistantRightRail", () => {
     expect(panel?.className).not.toContain("min-[1180px]:sticky")
   })
 
-  it("uses only transform and opacity for the compact rail animation", async () => {
-    const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: true, isRailCollapsed: true }))
+  it("uses transform and opacity only for compact visual states", async () => {
+    const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: false, isRailCollapsed: true }))
     const rail = node.querySelector("aside")
     const panel = node.querySelector("aside > div")
 
@@ -74,10 +74,7 @@ describe("StaffAssistantRightRail", () => {
     expect(rail?.className).not.toContain("transition-[width]")
     expect(rail?.className).not.toContain("min-[1180px]:w-0")
     expect(rail?.className).not.toContain("min-[1180px]:fixed")
-    expect(rail?.className).toContain("min-[1180px]:block")
     expect(panel?.className).toContain("min-[1180px]:transition-[transform,opacity]")
-    expect(panel?.className).toContain("min-[1180px]:translate-x-3")
-    expect(panel?.className).toContain("min-[1180px]:opacity-0")
   })
 
   it("keeps desktop width on the content panel instead of animating the wrapper", async () => {
@@ -93,16 +90,19 @@ describe("StaffAssistantRightRail", () => {
     expect(panel?.className).toContain("min-[1180px]:opacity-100")
   })
 
-  it("removes the collapsed desktop rail from layout after the short handoff", async () => {
+  it("releases the collapsed desktop rail from layout immediately instead of faking a desktop close animation", async () => {
     const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: false, isRailCollapsed: true }))
     const rail = node.querySelector("aside")
+    const panel = node.querySelector("aside > div")
 
     expect(rail?.className).toContain("min-[1180px]:hidden")
     expect(rail?.className).not.toContain("transition-[width]")
+    expect(panel?.className).toContain("min-[1180px]:translate-x-3")
+    expect(panel?.className).toContain("min-[1180px]:opacity-0")
   })
 
-  it("makes the collapsed animated rail inaccessible to assistive tech and keyboard focus", async () => {
-    const node = await renderRail(createProps({ showInlineRightRail: false, isRailCollapsed: true }))
+  it("makes the collapsed rail inaccessible to assistive tech and keyboard focus", async () => {
+    const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: false, isRailCollapsed: true }))
     const rail = node.querySelector("aside")
 
     expect(rail?.getAttribute("aria-hidden")).toBe("true")
@@ -124,7 +124,7 @@ describe("StaffAssistantRightRail", () => {
   })
 
   it("shows the floating assistant reopen button when the rail is closed", async () => {
-    const node = await renderRail(createProps({ showInlineRightRail: false, isRailCollapsed: true }))
+    const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: false, isRailCollapsed: true }))
     const reopenButton = node.querySelector<HTMLButtonElement>("[data-assistant-rail-trigger]")
 
     expect(reopenButton).not.toBeNull()
@@ -134,7 +134,7 @@ describe("StaffAssistantRightRail", () => {
 
   it("reopens the assistant with the existing rail toggle handler", async () => {
     const onToggleRail = vi.fn()
-    const node = await renderRail(createProps({ showInlineRightRail: false, isRailCollapsed: true, onToggleRail }))
+    const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: false, isRailCollapsed: true, onToggleRail }))
     const reopenButton = node.querySelector<HTMLButtonElement>("[data-assistant-rail-trigger]")
 
     await act(async () => {

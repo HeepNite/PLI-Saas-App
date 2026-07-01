@@ -49,7 +49,6 @@ const createProps = (): StaffUsersAdminViewProps => ({
   shell: {
     gridRef: { current: null },
     leftRailRef: { current: null },
-    showInlineRightRail: false,
     reserveAssistantColumn: false,
     visibleNavItems: [
       { key: "users", label: "User Management", icon: (() => null) as never },
@@ -176,7 +175,6 @@ describe("StaffUsersAdminView", () => {
 
   it("keeps the desktop assistant rail close to the content without adding outer gap", async () => {
     const props = createProps()
-    props.shell.showInlineRightRail = true
     const node = await renderView(props)
     const grid = node.firstElementChild
 
