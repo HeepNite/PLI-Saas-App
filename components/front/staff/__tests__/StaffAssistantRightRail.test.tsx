@@ -130,6 +130,62 @@ describe("StaffAssistantRightRail", () => {
     expect(reopenButton).not.toBeNull()
     expect(reopenButton?.getAttribute("aria-label")).toBe("Show AI assistant")
     expect(reopenButton?.className).not.toContain("min-[1180px]:hidden")
+    expect(reopenButton?.className).toContain("transition-[background-color,box-shadow,transform]")
+  })
+
+  it("moves focus to the floating launcher when collapse starts from inside the rail", async () => {
+    const rightRailRef = React.createRef<HTMLDivElement>()
+    const openProps = createProps({
+      rightRailRef,
+      children: <button type="button">Hide AI assistant</button>,
+    })
+    const node = await renderRail(openProps)
+    const internalCloseButton = node.querySelector<HTMLButtonElement>("aside button")
+
+    internalCloseButton?.focus()
+
+    expect(document.activeElement).toBe(internalCloseButton)
+
+    await act(async () => {
+      root!.render(
+        <StaffAssistantRightRail
+          {...openProps}
+          showInlineRightRail={false}
+          reserveAssistantColumn={false}
+          isRailCollapsed={true}
+        />,
+      )
+    })
+
+    const reopenButton = node.querySelector<HTMLButtonElement>("[data-assistant-rail-trigger]")
+
+    expect(document.activeElement).toBe(reopenButton)
+  })
+
+  it("does not move focus when collapse starts outside the rail", async () => {
+    const rightRailRef = React.createRef<HTMLDivElement>()
+    const outsideButton = document.createElement("button")
+    const openProps = createProps({ rightRailRef })
+    const node = await renderRail(openProps)
+
+    document.body.appendChild(outsideButton)
+    outsideButton.focus()
+
+    await act(async () => {
+      root!.render(
+        <StaffAssistantRightRail
+          {...openProps}
+          showInlineRightRail={false}
+          reserveAssistantColumn={false}
+          isRailCollapsed={true}
+        />,
+      )
+    })
+
+    expect(node.querySelector("[data-assistant-rail-trigger]")).not.toBeNull()
+    expect(document.activeElement).toBe(outsideButton)
+
+    outsideButton.remove()
   })
 
   it("reopens the assistant with the existing rail toggle handler", async () => {

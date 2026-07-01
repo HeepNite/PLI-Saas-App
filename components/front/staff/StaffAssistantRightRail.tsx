@@ -24,6 +24,24 @@ export default function StaffAssistantRightRail({
   onToggleRail,
   children,
 }: StaffAssistantRightRailProps) {
+  const launcherRef = React.useRef<HTMLButtonElement>(null)
+  const wasRailCollapsedRef = React.useRef(isRailCollapsed)
+
+  React.useLayoutEffect(() => {
+    const wasRailCollapsed = wasRailCollapsedRef.current
+    wasRailCollapsedRef.current = isRailCollapsed
+
+    if (!isRailCollapsed || wasRailCollapsed) return
+
+    const railElement = rightRailRef.current
+    const activeElement = document.activeElement
+
+    if (!railElement || !(activeElement instanceof Node)) return
+    if (!railElement.contains(activeElement)) return
+
+    launcherRef.current?.focus()
+  }, [isRailCollapsed, rightRailRef])
+
   if (!showRightRail) return null
 
   return (
@@ -76,9 +94,10 @@ export default function StaffAssistantRightRail({
 
       {isRailCollapsed ? (
         <button
+          ref={launcherRef}
           type="button"
           onClick={onToggleRail}
-          className="fixed bottom-4 right-4 z-[125] flex h-[56px] w-[56px] items-center justify-center gap-2 rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-all duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 min-[1180px]:h-11 min-[1180px]:w-auto min-[1180px]:px-4"
+          className="fixed bottom-4 right-4 z-[125] flex h-[56px] w-[56px] items-center justify-center gap-2 rounded-full border border-white/12 bg-[#0f121a]/95 text-white shadow-[0_18px_42px_-20px_rgba(0,0,0,0.72)] backdrop-blur transition-[background-color,box-shadow,transform] duration-300 ease-out hover:-translate-y-0.5 hover:bg-[#171c28] active:scale-[0.98] sm:bottom-5 sm:right-5 md:bottom-6 md:right-6 min-[1180px]:h-11 min-[1180px]:w-auto min-[1180px]:px-4"
           aria-label="Show AI assistant"
           data-assistant-rail-trigger
         >
