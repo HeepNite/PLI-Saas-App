@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { buildSessionStartsAt, getTodayNewYork } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { isProvisionalStudentPinActive, loadStudentPinCredentials } from "@/lib/security/student-pin"
 import type { ActivePackage, ProfileLatestClassAttended, StudentProfileCard } from "@/components/front/staff/historyCardAggregates"
 import { resolveStudentIdentity, type ClerkUserData } from "@/app/api/staff/students/search/shared"
@@ -627,22 +628,11 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
 }
 
 export async function GET(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:students:search:get", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:students:search:get", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalSectionRequest("students"),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalSectionRequest("students")
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   const url = new URL(req.url)
   const rawQuery = url.searchParams.get("q")

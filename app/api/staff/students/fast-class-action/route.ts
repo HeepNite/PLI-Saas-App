@@ -5,7 +5,8 @@ import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { prisma } from "@/lib/prisma"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
 import { asObject, asText } from "@/lib/shared"
@@ -198,11 +199,12 @@ const createPromoCash = async (input: { userId: string; linkedCourseSlug: string
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({ key: buildRateLimitKey("staff:students:fast-class-action", getClientIp(req)), limit: 60, windowMs: 60_000 })
-  if (!rateLimit.ok) return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
-
-  const staffAuth = await authorizeStudentOperationalRequest()
-  if (!staffAuth.ok) return NextResponse.json({ error: staffAuth.error }, { status: staffAuth.status })
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:students:fast-class-action", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStudentOperationalRequest(),
+  })
+  if (!guard.ok) return guard.response
+  const staffAuth = guard.auth
 
   const body = await parseBody(req)
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
