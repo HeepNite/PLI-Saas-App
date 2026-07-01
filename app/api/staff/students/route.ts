@@ -4,7 +4,8 @@ import Stripe from "stripe"
 import { clerkClient } from "@clerk/nextjs/server"
 import { ensureClerkUser, findClerkUserByIdentifiers, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
 import { authorizeStudentOperationalRequest, type StaffPortalAuthResult } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
@@ -484,22 +485,12 @@ const createOrReuseStudentIdentity = async (payload: StaffCreateStudentPayload, 
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:students:create", getClientIp(req)),
-    limit: 30,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:students:create", limit: 30, windowMs: 60_000 },
+    authorize: () => authorizeStudentOperationalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStudentOperationalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   let body: unknown
   try {

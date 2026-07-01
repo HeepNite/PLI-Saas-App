@@ -3,7 +3,8 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText } from "@/lib/shared"
 import { ATTENDANCE_STATUS, ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
 
@@ -307,22 +308,12 @@ async function applyUpdate(
 // ─── Route handler ───
 
 export async function PATCH(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:attendance:patch", getClientIp(req)),
-    limit: 90,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:attendance:patch", limit: 90, windowMs: 60_000 },
+    authorize: () => authorizeOwnerOrAdminRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeOwnerOrAdminRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { userId } = await context.params
   if (!userId) {
