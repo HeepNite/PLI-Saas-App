@@ -69,8 +69,6 @@ export async function POST(req: Request) {
     },
   })
 
-  // Notification stub (log for now)
-  console.log(`Staff unavailability request created: ${created.id} for staff ${authResult.userId}`)
 
   return NextResponse.json(
     {
