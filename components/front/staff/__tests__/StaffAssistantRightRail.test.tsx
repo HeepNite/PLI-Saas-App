@@ -74,6 +74,11 @@ describe("StaffAssistantRightRail", () => {
     expect(rail?.className).not.toContain("transition-[width]")
     expect(rail?.className).not.toContain("min-[1180px]:w-0")
     expect(rail?.className).not.toContain("min-[1180px]:fixed")
+    expect(rail?.className).not.toContain("min-[1180px]:sticky")
+    expect(rail?.className).not.toContain("min-[1180px]:hidden")
+    expect(rail?.className).toContain("min-[1180px]:absolute")
+    expect(rail?.className).toContain("min-[1180px]:translate-x-4")
+    expect(rail?.className).toContain("min-[1180px]:opacity-0")
     expect(panel?.className).toContain("min-[1180px]:transition-[transform,opacity]")
   })
 
@@ -90,12 +95,14 @@ describe("StaffAssistantRightRail", () => {
     expect(panel?.className).toContain("min-[1180px]:opacity-100")
   })
 
-  it("releases the collapsed desktop rail from layout immediately instead of faking a desktop close animation", async () => {
+  it("keeps the collapsed desktop rail out of layout without using display hidden", async () => {
     const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: false, isRailCollapsed: true }))
     const rail = node.querySelector("aside")
     const panel = node.querySelector("aside > div")
 
-    expect(rail?.className).toContain("min-[1180px]:hidden")
+    expect(rail?.className).not.toContain("min-[1180px]:hidden")
+    expect(rail?.className).toContain("min-[1180px]:absolute")
+    expect(rail?.className).toContain("min-[1180px]:right-0")
     expect(rail?.className).not.toContain("transition-[width]")
     expect(panel?.className).toContain("min-[1180px]:translate-x-3")
     expect(panel?.className).toContain("min-[1180px]:opacity-0")

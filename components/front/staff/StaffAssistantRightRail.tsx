@@ -58,14 +58,14 @@ export default function StaffAssistantRightRail({
       <aside
         aria-hidden={isRailCollapsed ? "true" : undefined}
         inert={isRailCollapsed ? true : undefined}
-        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:h-fit min-[1180px]:self-start ${
+        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:h-fit ${
           reserveAssistantColumn
-            ? "min-[1180px]:block"
-            : "min-[1180px]:hidden"
+            ? "min-[1180px]:sticky min-[1180px]:block min-[1180px]:self-start"
+            : "min-[1180px]:absolute min-[1180px]:inset-x-auto min-[1180px]:bottom-auto min-[1180px]:right-0"
         } ${
           showInlineRightRail
             ? "translate-y-0 scale-100 opacity-100"
-            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:translate-y-0 min-[1180px]:translate-x-0 min-[1180px]:scale-100 min-[1180px]:opacity-100"
+            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:translate-y-0 min-[1180px]:translate-x-4 min-[1180px]:scale-100 min-[1180px]:opacity-0"
         } relative`}
       >
         <div
