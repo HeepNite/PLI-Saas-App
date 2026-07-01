@@ -1,28 +1,17 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey } from "./selectable-sessions"
 
 export const runtime = "nodejs"
 
 export async function GET(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:students:sessions:get", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:students:sessions:get", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStudentOperationalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStudentOperationalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   const requestUrl = new URL(req.url)
   const date = (requestUrl.searchParams.get("date") || "").trim()

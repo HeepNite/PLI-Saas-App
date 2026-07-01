@@ -8,14 +8,18 @@ type RateLimitOptions = {
   windowMs: number
 }
 
-type GuardOptions = {
+type AnyAuthResult =
+  | { ok: true; [key: string]: unknown }
+  | { ok: false; status: number; error: string; [key: string]: unknown }
+
+type GuardOptions<TAuth extends AnyAuthResult> = {
   rateLimit: RateLimitOptions
-  authorize: () => Promise<StaffPortalAuthResult>
+  authorize: () => Promise<TAuth>
 }
 
-type GuardSuccess = {
+type GuardSuccess<TAuth extends AnyAuthResult> = {
   ok: true
-  auth: Extract<StaffPortalAuthResult, { ok: true }>
+  auth: Extract<TAuth, { ok: true }>
 }
 
 type GuardFailure = {
@@ -23,9 +27,12 @@ type GuardFailure = {
   response: NextResponse
 }
 
-export type StaffGuardResult = GuardSuccess | GuardFailure
+export type StaffGuardResult = GuardSuccess<StaffPortalAuthResult> | GuardFailure
 
-export async function withStaffGuard(req: Request, options: GuardOptions): Promise<StaffGuardResult> {
+export async function withStaffGuard<TAuth extends AnyAuthResult>(
+  req: Request,
+  options: GuardOptions<TAuth>
+): Promise<GuardSuccess<TAuth> | GuardFailure> {
   const rateLimit = consumeRateLimit({
     key: buildRateLimitKey(options.rateLimit.scope, getClientIp(req)),
     limit: options.rateLimit.limit,
@@ -49,5 +56,5 @@ export async function withStaffGuard(req: Request, options: GuardOptions): Promi
     }
   }
 
-  return { ok: true, auth: authResult }
+  return { ok: true, auth: authResult as Extract<TAuth, { ok: true }> }
 }

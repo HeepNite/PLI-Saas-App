@@ -1,29 +1,19 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { parseStaffRequestStatus } from "@/lib/security/staff-request"
 import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 export async function PATCH(req: Request, context: { params: Promise<{ requestId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:requests:patch", getClientIp(req)),
-    limit: 120,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:requests:patch", limit: 120, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { requestId } = await context.params
   if (!requestId) {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import {
   resolveReportsSuggestionsWithProvider,
   type ReportsSuggestionPayload,
@@ -35,22 +35,11 @@ const parseRequestBody = (value: unknown): ReportsSuggestionsRequest => {
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:reports:suggestions:post", getClientIp(req)),
-    limit: 40,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:reports:suggestions:post", limit: 40, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   let body: unknown
   try {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import {
   buildRoomListWhere,
   isUniqueConstraintError,
@@ -38,19 +38,11 @@ const getRoomDelegate = (): RoomDelegate | null => {
 }
 
 export async function GET(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:rooms:get", getClientIp(req)),
-    limit: 120,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:rooms:get", limit: 120, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   const requestUrl = new URL(req.url)
   const query = toSafeRoomText(requestUrl.searchParams.get("q"), 100)
@@ -100,19 +92,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:rooms:post", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:rooms:post", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   let payload: unknown
   try {

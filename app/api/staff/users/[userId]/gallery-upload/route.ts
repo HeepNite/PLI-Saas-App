@@ -5,7 +5,7 @@ import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 
 export const runtime = "nodejs"
 
@@ -19,22 +19,12 @@ const safeExtension = (filename: string) => {
 }
 
 export async function POST(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:users:gallery-upload:post", getClientIp(req)),
-    limit: 80,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:users:gallery-upload:post", limit: 80, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { userId } = await context.params
   if (!userId) {

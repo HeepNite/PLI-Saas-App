@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText, normalizePaymentChannel } from "@/app/api/staff/payments/shared"
 
 export const runtime = "nodejs"
@@ -149,22 +149,12 @@ const resolveAttendanceIdForCashSettlement = async (input: {
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:payments:bulk-post", getClientIp(req)),
-    limit: 40,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:payments:bulk-post", limit: 40, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalSectionRequest("students"),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalSectionRequest("students")
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   let body: unknown
   try {

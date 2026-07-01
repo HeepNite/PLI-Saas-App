@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "crypto"
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
 
@@ -32,22 +32,11 @@ const isValidPinHash = (pin: string, pinHash: string) => {
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:pin-auth:post", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:pin-auth:post", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   let body: unknown
   try {

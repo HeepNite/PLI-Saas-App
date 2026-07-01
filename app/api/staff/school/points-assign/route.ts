@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
@@ -8,17 +8,12 @@ export const runtime = "nodejs"
 const toSafeText = (value: unknown, max = 200) => (typeof value === "string" ? value.trim().slice(0, max) : "")
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:school:points-assign:post", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:school:points-assign:post", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   let payload: unknown
   try {

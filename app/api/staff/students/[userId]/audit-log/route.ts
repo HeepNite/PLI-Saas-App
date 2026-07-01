@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { buildDateWhereClause } from "@/lib/audit-date-filter"
 
 export const runtime = "nodejs"
@@ -10,22 +10,11 @@ const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 200
 
 export async function GET(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:audit-log:get", getClientIp(req)),
-    limit: 120,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:audit-log:get", limit: 120, windowMs: 60_000 },
+    authorize: () => authorizeOwnerOrAdminRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeOwnerOrAdminRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   const { userId } = await context.params
   if (!userId) {
