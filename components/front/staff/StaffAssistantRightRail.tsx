@@ -40,12 +40,14 @@ export default function StaffAssistantRightRail({
       <aside
         aria-hidden={isRailCollapsed ? "true" : undefined}
         inert={isRailCollapsed ? true : undefined}
-        className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:h-fit min-[1180px]:self-start ${
-          reserveAssistantColumn ? "min-[1180px]:block" : "min-[1180px]:hidden"
+          className={`fixed inset-x-0 bottom-[4.5rem] z-[124] flex justify-end px-0 transform-gpu transition-[transform,opacity] ${STAFF_ASSISTANT_RAIL_EXIT_DURATION_CLASS} ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] sm:bottom-[5.25rem] md:bottom-[6rem] min-[1180px]:sticky min-[1180px]:top-3 min-[1180px]:z-40 min-[1180px]:h-fit min-[1180px]:self-start ${
+          reserveAssistantColumn
+            ? "min-[1180px]:block"
+            : "min-[1180px]:hidden"
         } ${
           showInlineRightRail
             ? "translate-y-0 scale-100 opacity-100"
-            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:translate-y-0 min-[1180px]:scale-100 min-[1180px]:opacity-100"
+            : "pointer-events-none translate-y-6 scale-[0.98] opacity-0 min-[1180px]:translate-y-0 min-[1180px]:translate-x-0 min-[1180px]:scale-100 min-[1180px]:opacity-100"
         } relative`}
       >
         <div
@@ -56,13 +58,15 @@ export default function StaffAssistantRightRail({
               : "min-[1180px]:translate-x-3 min-[1180px]:opacity-0"
           }`}
         >
-          <div className="pointer-events-none mb-3 flex justify-center min-[1180px]:hidden">
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-14 rounded-full border border-white/6 bg-[linear-gradient(90deg,rgba(255,255,255,0.08),rgba(255,255,255,0.24),rgba(255,255,255,0.08))] shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)]"
-            />
+          <div>
+            <div className="pointer-events-none mb-3 flex justify-center min-[1180px]:hidden">
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-14 rounded-full border border-white/6 bg-[linear-gradient(90deg,rgba(255,255,255,0.08),rgba(255,255,255,0.24),rgba(255,255,255,0.08))] shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)]"
+              />
+            </div>
+            {children}
           </div>
-          {children}
         </div>
         <div
           aria-hidden="true"

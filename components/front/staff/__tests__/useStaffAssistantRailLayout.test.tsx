@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  STAFF_ASSISTANT_LAYOUT_RELEASE_DELAY_MS,
   STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS,
   resolveStaffAssistantColumnReservation,
   useStaffAssistantRailLayout,
@@ -60,26 +59,17 @@ describe("useStaffAssistantRailLayout", () => {
     await act(async () => root!.render(<Probe isRailCollapsed={isRailCollapsed} onValue={onValue} />))
   }
 
-  it("keeps the assistant grid column reserved only during the quick content exit", async () => {
-    vi.useFakeTimers()
+  it("releases the assistant grid column immediately when the rail closes", async () => {
     const values: boolean[] = []
 
     await renderProbe(false, (value) => values.push(value.shouldReserveAssistantColumn))
     await renderProbe(true, (value) => values.push(value.shouldReserveAssistantColumn))
 
-    expect(values.at(-1)).toBe(true)
-
-    await act(async () => {
-      vi.advanceTimersByTime(STAFF_ASSISTANT_LAYOUT_RELEASE_DELAY_MS)
-    })
-
     expect(values.at(-1)).toBe(false)
   })
 
-  it("uses quick transform/opacity timing and a minimal discrete layout release delay", () => {
-    expect(STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS).toBe(160)
-    expect(STAFF_ASSISTANT_LAYOUT_RELEASE_DELAY_MS).toBe(140)
-    expect(STAFF_ASSISTANT_LAYOUT_RELEASE_DELAY_MS).toBeLessThanOrEqual(160)
+  it("keeps rail timing visual-only without an artificial layout handoff", () => {
+    expect(STAFF_ASSISTANT_RAIL_EXIT_DURATION_MS).toBe(240)
   })
 
   it("reserves the assistant column immediately when the rail reopens", async () => {
@@ -87,9 +77,6 @@ describe("useStaffAssistantRailLayout", () => {
     const values: boolean[] = []
 
     await renderProbe(true, (value) => values.push(value.shouldReserveAssistantColumn))
-    await act(async () => {
-      vi.advanceTimersByTime(STAFF_ASSISTANT_LAYOUT_RELEASE_DELAY_MS)
-    })
     expect(values.at(-1)).toBe(false)
 
     await renderProbe(false, (value) => values.push(value.shouldReserveAssistantColumn))

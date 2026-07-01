@@ -60,7 +60,7 @@ describe("StaffAssistantRightRail", () => {
   })
 
   it("uses only transform and opacity for the compact rail animation", async () => {
-    const node = await renderRail(createProps({ showInlineRightRail: false, isRailCollapsed: true }))
+    const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: true, isRailCollapsed: true }))
     const rail = node.querySelector("aside")
     const panel = node.querySelector("aside > div")
 
@@ -73,10 +73,11 @@ describe("StaffAssistantRightRail", () => {
     expect(rail?.className).toContain("opacity-0")
     expect(rail?.className).not.toContain("transition-[width]")
     expect(rail?.className).not.toContain("min-[1180px]:w-0")
+    expect(rail?.className).not.toContain("min-[1180px]:fixed")
+    expect(rail?.className).toContain("min-[1180px]:block")
     expect(panel?.className).toContain("min-[1180px]:transition-[transform,opacity]")
     expect(panel?.className).toContain("min-[1180px]:translate-x-3")
     expect(panel?.className).toContain("min-[1180px]:opacity-0")
-    expect(rail?.className).not.toContain("min-[1180px]:hidden")
   })
 
   it("keeps desktop width on the content panel instead of animating the wrapper", async () => {
@@ -92,7 +93,7 @@ describe("StaffAssistantRightRail", () => {
     expect(panel?.className).toContain("min-[1180px]:opacity-100")
   })
 
-  it("removes the collapsed desktop rail from layout after the delayed reservation is released", async () => {
+  it("removes the collapsed desktop rail from layout after the short handoff", async () => {
     const node = await renderRail(createProps({ showInlineRightRail: false, reserveAssistantColumn: false, isRailCollapsed: true }))
     const rail = node.querySelector("aside")
 
