@@ -2,20 +2,17 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { canHardDeletePrivateReservation } from "@/lib/room-availability"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 
 export const runtime = "nodejs"
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:room-reservations:safe-delete:post", getClientIp(req)),
-    limit: 20,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:room-reservations:safe-delete:post", limit: 20, windowMs: 60_000 },
+    authorize: () => authorizeOwnerOrAdminRequest(),
   })
-  if (!rateLimit.ok) return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
-
-  const auth = await authorizeOwnerOrAdminRequest()
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+  if (!guard.ok) return guard.response
+  const auth = guard.auth
   const actorRole = auth.role as string
 
   const body = (await req.json().catch(() => ({}))) as { reason?: unknown }
