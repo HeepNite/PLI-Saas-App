@@ -75,7 +75,6 @@ export async function POST(
       }),
     ])
 
-    console.log("[NOTIFICATION STUB] Notify owners and admins about partial rejection for entry:", entryId)
 
     return NextResponse.json(updated)
   } catch (error) {

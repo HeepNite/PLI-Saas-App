@@ -50,8 +50,6 @@ export async function DELETE(
     },
   })
 
-  // Notification stub (log for now)
-  console.log(`Staff unavailability request cancelled: ${updated.id} by staff ${authResult.userId}`)
 
   return NextResponse.json({
     id: updated.id,
@@ -126,8 +124,6 @@ export async function PATCH(
     },
   })
 
-  // Notification stub (log for now)
-  console.log(`Staff unavailability request ${status}: ${updated.id} by staff ${authResult.userId}`)
 
   return NextResponse.json({
     id: updated.id,
