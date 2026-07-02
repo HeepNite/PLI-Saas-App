@@ -41,7 +41,24 @@ type KioskPhoneIdentifyError = {
   attemptsRemaining?: number
 }
 
+// Merged identify+bootstrap endpoint response shapes
+type MergedIdentifyResponse = {
+  identified: true
+  path: "fast" | "full"
+  sessionToken: string
+  sessionExpiresAt: string
+  [key: string]: unknown
+}
+
 const PIN_LAST_DIGIT_REVEAL_MS = 700
+
+type BootstrapContextPayload = {
+  courseSlug?: string
+  date?: string
+  time?: string
+  durationMinutes?: number
+  linkedFromCourseSlug?: string
+} | null
 
 type UseKioskPinFlowParams<TBootstrap> = {
   isKioskTerminalFlow: boolean
@@ -49,6 +66,8 @@ type UseKioskPinFlowParams<TBootstrap> = {
   setError: React.Dispatch<React.SetStateAction<string | null>>
   setSuccess: React.Dispatch<React.SetStateAction<string | null>>
   pinLastDigitRevealMs?: number
+  /** Class context to send with the merged phone identify+bootstrap request */
+  bootstrapContextPayload?: BootstrapContextPayload
 }
 
 export const useKioskPinFlow = <TBootstrap,>({
@@ -57,9 +76,11 @@ export const useKioskPinFlow = <TBootstrap,>({
   setError,
   setSuccess,
   pinLastDigitRevealMs = PIN_LAST_DIGIT_REVEAL_MS,
+  bootstrapContextPayload = null,
 }: UseKioskPinFlowParams<TBootstrap>) => {
   const [kioskPhone, setKioskPhone] = React.useState("")
   const [kioskPhoneLoading, setKioskPhoneLoading] = React.useState(false)
+  const [bootstrapFromPhone, setBootstrapFromPhone] = React.useState(false)
   const [kioskPin, setKioskPin] = React.useState("")
   const [kioskPinSessionToken, setKioskPinSessionToken] = React.useState("")
   const [kioskPinLoading, setKioskPinLoading] = React.useState(false)
@@ -132,6 +153,7 @@ export const useKioskPinFlow = <TBootstrap,>({
     setKioskPinAttemptsRemaining(null)
     setKioskPinBlockedUntil(null)
     setKioskPinThrottleSeverity(null)
+    setBootstrapFromPhone(false)
   }, [clearPinRevealTimeout])
 
   const handlePinDigitInput = React.useCallback(
@@ -292,57 +314,129 @@ export const useKioskPinFlow = <TBootstrap,>({
     setError(null)
     setSuccess(null)
 
-    try {
-      const res = await fetch("/api/checkin/phone/identify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({ phone: kioskPhone }),
-      })
-      const data = (await res.json().catch(() => null)) as
-        | KioskPhoneIdentifyFailure
-        | KioskPhoneIdentifySuccess
-        | KioskPhoneIdentifyError
-        | null
+    // Use merged endpoint when class context is available; fall back to legacy
+    // identify-only endpoint if context payload is missing (defensive).
+    const hasMergedContext = Boolean(
+      bootstrapContextPayload?.courseSlug &&
+        bootstrapContextPayload?.date &&
+        bootstrapContextPayload?.time
+    )
 
-      if (!res.ok) {
-        const failure = data && "identified" in data && !data.identified ? (data as KioskPhoneIdentifyFailure) : null
-        const errorPayload = data && !("identified" in data) ? (data as KioskPhoneIdentifyError) : null
-        setKioskPinSessionToken("")
+    try {
+      if (hasMergedContext && bootstrapContextPayload) {
+        // Merged identify+bootstrap: single round-trip
+        const res = await fetch("/api/checkin/phone/identify-and-bootstrap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            phone: kioskPhone,
+            courseSlug: bootstrapContextPayload.courseSlug,
+            date: bootstrapContextPayload.date,
+            time: bootstrapContextPayload.time,
+            durationMinutes: bootstrapContextPayload.durationMinutes,
+            linkedFromCourseSlug: bootstrapContextPayload.linkedFromCourseSlug,
+          }),
+        })
+        const data = (await res.json().catch(() => null)) as MergedIdentifyResponse | KioskPhoneIdentifyError | null
+
+        if (!res.ok) {
+          const errorPayload = data && !("identified" in data) ? (data as KioskPhoneIdentifyError) : null
+          const identifiedFalsePayload = data && "identified" in data && !(data as { identified: boolean }).identified ? data : null
+          setKioskPinSessionToken("")
+          setKioskPinRotationRequired(false)
+          setKioskPinRotationMode(null)
+          setBootstrap(null)
+          setBootstrapFromPhone(false)
+          setKioskPinAttemptsRemaining(
+            typeof errorPayload?.attemptsRemaining === "number" ? errorPayload.attemptsRemaining : null
+          )
+          setKioskPinBlockedUntil(
+            typeof errorPayload?.blockedUntil === "string" ? errorPayload.blockedUntil : null
+          )
+          setKioskPinThrottleSeverity(errorPayload?.severity ?? null)
+          const errMsg =
+            typeof (identifiedFalsePayload as Record<string, unknown> | null)?.message === "string"
+              ? String((identifiedFalsePayload as Record<string, unknown>).message)
+              : typeof errorPayload?.message === "string"
+              ? errorPayload.message
+              : typeof errorPayload?.error === "string"
+              ? errorPayload.error
+              : "Unable to identify this phone number."
+          setError(errMsg)
+          return
+        }
+
+        if (!data || !("identified" in data) || !data.identified) {
+          setError("We couldn't find an account with that phone number. Please try again.")
+          return
+        }
+
+        const mergedData = data as MergedIdentifyResponse
+        setKioskPinSessionToken(mergedData.sessionToken)
         setKioskPinRotationRequired(false)
         setKioskPinRotationMode(null)
-        setBootstrap(null)
-        setKioskPinAttemptsRemaining(typeof errorPayload?.attemptsRemaining === "number" ? errorPayload.attemptsRemaining : null)
-        setKioskPinBlockedUntil(typeof errorPayload?.blockedUntil === "string" ? errorPayload.blockedUntil : null)
-        setKioskPinThrottleSeverity(errorPayload?.severity ?? null)
-        const failureMessage = typeof failure?.message === "string" ? failure.message : null
-        const errorMessage = typeof errorPayload?.message === "string" ? errorPayload.message : null
-        setError(failureMessage || errorMessage || (typeof errorPayload?.error === "string" ? errorPayload.error : "Unable to identify this phone number."))
-        return
-      }
+        setKioskPinAttemptsRemaining(null)
+        setKioskPinBlockedUntil(null)
+        setKioskPinThrottleSeverity(null)
+        setKioskPhone("")
+        // Populate bootstrap directly from the merged response — no second round-trip needed
+        setBootstrap(mergedData as unknown as TBootstrap)
+        setBootstrapFromPhone(true)
+        setSuccess("Phone number verified.")
+      } else {
+        // Legacy fallback: identify only, bootstrap will load via effect
+        const res = await fetch("/api/checkin/phone/identify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ phone: kioskPhone }),
+        })
+        const data = (await res.json().catch(() => null)) as
+          | KioskPhoneIdentifyFailure
+          | KioskPhoneIdentifySuccess
+          | KioskPhoneIdentifyError
+          | null
 
-      if (!data || !("identified" in data) || !data.identified) {
-        setError("We couldn't find an account with that phone number. Please try again.")
-        return
-      }
+        if (!res.ok) {
+          const failure = data && "identified" in data && !data.identified ? (data as KioskPhoneIdentifyFailure) : null
+          const errorPayload = data && !("identified" in data) ? (data as KioskPhoneIdentifyError) : null
+          setKioskPinSessionToken("")
+          setKioskPinRotationRequired(false)
+          setKioskPinRotationMode(null)
+          setBootstrap(null)
+          setBootstrapFromPhone(false)
+          setKioskPinAttemptsRemaining(typeof errorPayload?.attemptsRemaining === "number" ? errorPayload.attemptsRemaining : null)
+          setKioskPinBlockedUntil(typeof errorPayload?.blockedUntil === "string" ? errorPayload.blockedUntil : null)
+          setKioskPinThrottleSeverity(errorPayload?.severity ?? null)
+          const failureMessage = typeof failure?.message === "string" ? failure.message : null
+          const errorMessage = typeof errorPayload?.message === "string" ? errorPayload.message : null
+          setError(failureMessage || errorMessage || (typeof errorPayload?.error === "string" ? errorPayload.error : "Unable to identify this phone number."))
+          return
+        }
 
-      const successData = data as KioskPhoneIdentifySuccess
-      setKioskPinSessionToken(successData.sessionToken)
-      setKioskPinRotationRequired(false)
-      setKioskPinRotationMode(null)
-      setKioskPinAttemptsRemaining(null)
-      setKioskPinBlockedUntil(null)
-      setKioskPinThrottleSeverity(null)
-      setKioskPhone("")
-      setSuccess("Phone number verified. Loading your purchase options...")
+        if (!data || !("identified" in data) || !data.identified) {
+          setError("We couldn't find an account with that phone number. Please try again.")
+          return
+        }
+
+        const successData = data as KioskPhoneIdentifySuccess
+        setKioskPinSessionToken(successData.sessionToken)
+        setKioskPinRotationRequired(false)
+        setKioskPinRotationMode(null)
+        setKioskPinAttemptsRemaining(null)
+        setKioskPinBlockedUntil(null)
+        setKioskPinThrottleSeverity(null)
+        setKioskPhone("")
+        setBootstrapFromPhone(false)
+        setSuccess("Phone number verified. Loading your purchase options...")
+      }
     } catch {
       setError("Unable to identify this phone number.")
     } finally {
       setKioskPhoneLoading(false)
     }
-  }, [isKioskTerminalFlow, kioskPhone, setBootstrap, setError, setSuccess])
+  }, [bootstrapContextPayload, isKioskTerminalFlow, kioskPhone, setBootstrap, setError, setSuccess])
 
   const handleKioskPinRotate = React.useCallback(async () => {
     if (!kioskPinSessionToken) return
@@ -391,6 +485,7 @@ export const useKioskPinFlow = <TBootstrap,>({
 
   return {
     activePinField,
+    bootstrapFromPhone,
     canIdentify,
     canRotate,
     confirmActiveSlot,

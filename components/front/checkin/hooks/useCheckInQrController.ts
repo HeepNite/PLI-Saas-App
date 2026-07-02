@@ -203,6 +203,7 @@ export function useCheckInQrController({
   // ─── Kiosk hooks ────────────────────────────────────────────
   const {
     activePinField,
+    bootstrapFromPhone,
     canIdentify,
     canRotate,
     confirmActiveSlot,
@@ -246,6 +247,7 @@ export function useCheckInQrController({
     setBootstrap: setBootstrapFromRef,
     setError,
     setSuccess,
+    bootstrapContextPayload: contextPayload,
   })
 
   const {
@@ -630,6 +632,7 @@ export function useCheckInQrController({
     setIsCompactViewport,
     showPhoneSignIn,
     setShowPhoneSignIn,
+    bootstrapFromPhone,
     packageOfferContext,
     setPackageOfferContext,
     setPackageOfferSelectedId,

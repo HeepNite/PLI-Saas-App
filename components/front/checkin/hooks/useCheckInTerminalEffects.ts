@@ -40,6 +40,9 @@ export type UseCheckInTerminalEffectsInput = {
   showPhoneSignIn: boolean
   setShowPhoneSignIn: (v: boolean) => void
 
+  // Phone identify fast-path guard
+  bootstrapFromPhone: boolean
+
   // Package offer
   packageOfferContext: PackageOfferContext
   setPackageOfferContext: (ctx: PackageOfferContext) => void
@@ -108,6 +111,7 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
     setIsCompactViewport,
     showPhoneSignIn,
     setShowPhoneSignIn,
+    bootstrapFromPhone,
     packageOfferContext,
     setPackageOfferContext,
     setPackageOfferSelectedId,
@@ -155,12 +159,15 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
   }, [bootstrap, packageOfferContext, setPackageOfferContext, setPackageOfferSelectedId])
 
   // ── Existing-mode bootstrap load ────────────────────────────
+  // Skip when bootstrap was already populated by the merged phone
+  // identify+bootstrap endpoint — no second round-trip needed.
   React.useEffect(() => {
     if (mode !== "existing") return
     if (!isLoaded) return
     if (!hasActiveClerkSession && !kioskPinSessionToken) return
+    if (bootstrapFromPhone && bootstrap) return
     void loadBootstrap()
-  }, [hasActiveClerkSession, isLoaded, kioskPinSessionToken, loadBootstrap, mode])
+  }, [bootstrap, bootstrapFromPhone, hasActiveClerkSession, isLoaded, kioskPinSessionToken, loadBootstrap, mode])
 
   // ── Auto-promote to existing mode ───────────────────────────
   React.useEffect(() => {
