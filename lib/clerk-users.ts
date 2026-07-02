@@ -4,7 +4,7 @@ import { clerkClient } from "@clerk/nextjs/server"
 export type ClerkUser = Awaited<ReturnType<ClerkClient["users"]["getUser"]>>
 
 // ── Short-lived getUser cache (shared with staff-portal-auth) ────
-const CLERK_CACHE_TTL_MS = 5_000
+const CLERK_CACHE_TTL_MS = 60_000
 const clerkUserCache = new Map<string, { user: ClerkUser; expiresAt: number }>()
 const clerkUserInflight = new Map<string, Promise<ClerkUser>>()
 

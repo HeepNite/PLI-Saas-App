@@ -178,7 +178,11 @@ export function useCheckInQrController({
     resetKioskPinFlow,
   } = useKioskPinFlow<BootstrapResponse>({
     isKioskTerminalFlow,
+    contextPayload,
     setBootstrap: setBootstrapFromRef,
+    setConsecutiveOffer,
+    setShowConsecutiveOverlay,
+    setShowConsecutivePaymentSelection,
     setError,
     setSuccess,
   })

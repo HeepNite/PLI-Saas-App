@@ -155,12 +155,16 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
   }, [bootstrap, packageOfferContext, setPackageOfferContext, setPackageOfferSelectedId])
 
   // ── Existing-mode bootstrap load ────────────────────────────
+  // Skip when bootstrap is already populated — the kiosk phone identify flow
+  // fetches bootstrap inline via the merged endpoint and sets it directly,
+  // so firing loadBootstrap here would be a redundant round-trip.
   React.useEffect(() => {
     if (mode !== "existing") return
     if (!isLoaded) return
     if (!hasActiveClerkSession && !kioskPinSessionToken) return
+    if (bootstrap) return
     void loadBootstrap()
-  }, [hasActiveClerkSession, isLoaded, kioskPinSessionToken, loadBootstrap, mode])
+  }, [bootstrap, hasActiveClerkSession, isLoaded, kioskPinSessionToken, loadBootstrap, mode])
 
   // ── Auto-promote to existing mode ───────────────────────────
   React.useEffect(() => {
