@@ -13,6 +13,7 @@ import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
 import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey, materializeSelectableClassSession } from "./sessions/selectable-sessions"
+import { safeOptionalText as safeText } from "@/lib/api-helpers"
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY
 const stripe = stripeSecret
@@ -41,12 +42,6 @@ type StaffCreateStudentPayload = {
 type ParseResult =
   | { ok: true; payload: StaffCreateStudentPayload }
   | { ok: false; error: string }
-
-const safeText = (value: unknown, max = 120) => {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim().slice(0, max)
-  return trimmed || undefined
-}
 
 const safeCheckInDateText = (value: unknown) => {
   if (typeof value !== "string") return undefined
