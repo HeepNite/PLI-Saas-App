@@ -48,6 +48,16 @@ const nextPollBackoffMs = (response: Response | null, failures: number) => {
   return Math.min(5_000 * Math.max(1, 2 ** Math.max(0, failures - 1)), STAFF_BOARD_POLL_BACKOFF_MAX_MS)
 }
 
+const isDegradedStaffServiceResponse = (response: Response, payload?: unknown) => {
+  if (response.headers.get("X-Staff-Service-Status") === "degraded") return true
+  return Boolean(payload && typeof payload === "object" && (payload as { status?: unknown }).status === "degraded")
+}
+
+const backOffStaffBoardPoll = (response: Response | null, failuresRef: React.MutableRefObject<number>, backoffUntilRef: React.MutableRefObject<number>) => {
+  failuresRef.current += 1
+  backoffUntilRef.current = Date.now() + nextPollBackoffMs(response, failuresRef.current)
+}
+
 type UpdateSettlementBulk = (options: {
   action: "mark_paid" | "mark_pending"
   ids: string[]
@@ -384,8 +394,11 @@ export function useStaffStudentsBoardAdmin({
         const res = await fetch(`/api/staff/checkin/web-cash-arrivals?since=${encodeURIComponent(webCashLastPolledRef.current)}`)
         if (!res.ok) {
           if (handleStaffAuthFailure(res.status)) return
-          webCashFailuresRef.current += 1
-          webCashBackoffUntilRef.current = Date.now() + nextPollBackoffMs(res, webCashFailuresRef.current)
+          backOffStaffBoardPoll(res, webCashFailuresRef, webCashBackoffUntilRef)
+          return
+        }
+        if (isDegradedStaffServiceResponse(res)) {
+          backOffStaffBoardPoll(res, webCashFailuresRef, webCashBackoffUntilRef)
           return
         }
         webCashFailuresRef.current = 0
@@ -406,8 +419,7 @@ export function useStaffStudentsBoardAdmin({
         // Refresh the board so new arrivals appear as cards
         void refreshPaymentsBoard()
       } catch {
-        webCashFailuresRef.current += 1
-        webCashBackoffUntilRef.current = Date.now() + nextPollBackoffMs(null, webCashFailuresRef.current)
+        backOffStaffBoardPoll(null, webCashFailuresRef, webCashBackoffUntilRef)
         // Silently ignore polling errors
       } finally {
         webCashInFlightRef.current = false
@@ -438,14 +450,16 @@ export function useStaffStudentsBoardAdmin({
         const res = await fetch("/api/staff/payments/pulse")
         if (!res.ok) {
           if (handleStaffAuthFailure(res.status)) return
-          pulseFailuresRef.current += 1
-          pulseBackoffUntilRef.current = Date.now() + nextPollBackoffMs(res, pulseFailuresRef.current)
+          backOffStaffBoardPoll(res, pulseFailuresRef, pulseBackoffUntilRef)
+          return
+        }
+        const data = await res.json()
+        if (isDegradedStaffServiceResponse(res, data)) {
+          backOffStaffBoardPoll(res, pulseFailuresRef, pulseBackoffUntilRef)
           return
         }
         pulseFailuresRef.current = 0
         pulseBackoffUntilRef.current = 0
-        const data = await res.json()
-        if (data?.status === "degraded") return
         const prev = pulseRef.current
         if (prev && (
           data.purchaseCount !== prev.purchaseCount ||
@@ -456,8 +470,7 @@ export function useStaffStudentsBoardAdmin({
         }
         pulseRef.current = data
       } catch {
-        pulseFailuresRef.current += 1
-        pulseBackoffUntilRef.current = Date.now() + nextPollBackoffMs(null, pulseFailuresRef.current)
+        backOffStaffBoardPoll(null, pulseFailuresRef, pulseBackoffUntilRef)
         // Silently ignore pulse errors
       } finally {
         pulseInFlightRef.current = false

@@ -11,11 +11,10 @@ const isPrismaSchemaUnavailableError = (error: unknown) => {
   return record.name === "PrismaClientKnownRequestError" && (record.code === "P2021" || record.code === "P2022")
 }
 
-const degradedPulse = (reason: string, status = 200) =>
+const degradedPulse = (status = 200) =>
   NextResponse.json(
     {
       status: "degraded",
-      serviceStatus: reason,
       purchaseCount: 0,
       attendanceCount: 0,
       latestPurchaseAt: null,
@@ -70,9 +69,9 @@ export async function GET() {
   } catch (error) {
     if (isPrismaSchemaUnavailableError(error)) {
       console.warn("Staff payments pulse degraded because the database schema is not ready", error)
-      return degradedPulse("schema_unavailable")
+      return degradedPulse()
     }
     console.error("Staff payments pulse failed", error)
-    return degradedPulse("database_unavailable", 503)
+    return degradedPulse(503)
   }
 }

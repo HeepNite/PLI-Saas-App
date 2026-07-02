@@ -11,12 +11,11 @@ const isPrismaSchemaUnavailableError = (error: unknown) => {
   return record.name === "PrismaClientKnownRequestError" && (record.code === "P2021" || record.code === "P2022")
 }
 
-const degradedEmptyArrivals = (reason: string) =>
+const degradedEmptyArrivals = () =>
   NextResponse.json([], {
     status: 200,
     headers: {
       "X-Staff-Service-Status": "degraded",
-      "X-Staff-Service-Reason": reason,
     },
   })
 
@@ -111,7 +110,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     if (isPrismaSchemaUnavailableError(error)) {
       console.warn("Web cash arrivals unavailable because the database schema is not ready", error)
-      return degradedEmptyArrivals("schema_unavailable")
+      return degradedEmptyArrivals()
     }
     console.error("Web cash arrivals GET failed", error)
     return NextResponse.json({ error: "Unable to fetch arrivals" }, { status: 500 })

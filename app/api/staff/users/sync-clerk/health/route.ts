@@ -16,17 +16,10 @@ const retryAfterSecFrom = (error: unknown) => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.ceil(parsed) : 30
 }
 
-const degradedHealth = (reason: "clerk_rate_limited" | "clerk_unavailable" | "database_unavailable", retryAfterSec?: number) =>
+const degradedHealth = (retryAfterSec?: number) =>
   NextResponse.json(
     {
       status: "degraded",
-      serviceStatus: reason,
-      clerkUsers: 0,
-      dbUsersWithClerkId: 0,
-      missingCount: 0,
-      missingUsers: [],
-      mismatchedCount: 0,
-      mismatchedUsers: [],
       error: "User sync status is temporarily unavailable. Try checking again shortly.",
     },
     {
@@ -58,9 +51,9 @@ export async function GET() {
     })
   } catch (error) {
     console.warn("Clerk sync health check degraded", error)
-    if (isClerkRateLimitError(error)) return degradedHealth("clerk_rate_limited", retryAfterSecFrom(error))
+    if (isClerkRateLimitError(error)) return degradedHealth(retryAfterSecFrom(error))
     const status = error && typeof error === "object" ? (error as { status?: unknown }).status : null
-    if (typeof status === "number" && status >= 500) return degradedHealth("clerk_unavailable", 30)
-    return degradedHealth("database_unavailable")
+    if (typeof status === "number" && status >= 500) return degradedHealth(30)
+    return degradedHealth()
   }
 }

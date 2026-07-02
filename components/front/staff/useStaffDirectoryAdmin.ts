@@ -330,6 +330,14 @@ export const useStaffDirectoryAdmin = ({
         })
         return
       }
+      if (data?.status === "degraded") {
+        dispatchClerkSync({ type: "SET_CLERK_SYNC_HEALTH", payload: null })
+        dispatchClerkSync({
+          type: "SET_CLERK_SYNC_ERROR",
+          payload: typeof data?.error === "string" ? data.error : "User sync status is temporarily unavailable. Try checking again shortly.",
+        })
+        return
+      }
       dispatchClerkSync({
         type: "SET_CLERK_SYNC_HEALTH",
         payload: {

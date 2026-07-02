@@ -63,6 +63,7 @@ describe("staff service busy hardening", () => {
 
     expect(res.status).toBe(200)
     expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
+    expect(res.headers.get("X-Staff-Service-Reason")).toBeNull()
     expect(await res.json()).toEqual([])
   })
 
@@ -77,12 +78,10 @@ describe("staff service busy hardening", () => {
     expect(res.headers.get("Retry-After")).toBe("45")
     expect(payload).toMatchObject({
       status: "degraded",
-      serviceStatus: "clerk_rate_limited",
-      missingCount: 0,
-      mismatchedCount: 0,
-      missingUsers: [],
-      mismatchedUsers: [],
+      error: "User sync status is temporarily unavailable. Try checking again shortly.",
     })
+    expect(payload.serviceStatus).toBeUndefined()
+    expect(payload.missingCount).toBeUndefined()
   })
 
   it("returns degraded payments pulse for optional schema drift without breaking the staff board", async () => {
@@ -97,10 +96,42 @@ describe("staff service busy hardening", () => {
     expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
     expect(payload).toEqual({
       status: "degraded",
-      serviceStatus: "schema_unavailable",
       purchaseCount: 0,
       attendanceCount: 0,
       latestPurchaseAt: null,
     })
+  })
+
+  it("still requires staff auth before returning optional web-cash arrivals", async () => {
+    mockAuthorizeStaffPortalSectionRequest.mockResolvedValueOnce({ ok: false, status: 401, error: "Unauthorized" })
+
+    const { GET } = await import("@/app/api/staff/checkin/web-cash-arrivals/route")
+    const res = await GET(new NextRequest("http://localhost/api/staff/checkin/web-cash-arrivals"))
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: "Unauthorized" })
+    expect(mockPrisma.attendance.findMany).not.toHaveBeenCalled()
+  })
+
+  it("still requires staff auth before returning optional payments pulse", async () => {
+    mockAuthorizeStaffPortalSectionRequest.mockResolvedValueOnce({ ok: false, status: 403, error: "Forbidden" })
+
+    const { GET } = await import("@/app/api/staff/payments/pulse/route")
+    const res = await GET()
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Forbidden" })
+    expect(mockPrisma.purchase.aggregate).not.toHaveBeenCalled()
+  })
+
+  it("still requires owner/admin auth before returning Clerk sync health", async () => {
+    mockAuthorizeOwnerOrAdminRequest.mockResolvedValueOnce({ ok: false, status: 401, error: "Unauthorized" })
+
+    const { GET } = await import("@/app/api/staff/users/sync-clerk/health/route")
+    const res = await GET()
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: "Unauthorized" })
+    expect(mockGetUserList).not.toHaveBeenCalled()
   })
 })

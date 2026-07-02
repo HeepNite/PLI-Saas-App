@@ -148,19 +148,12 @@ describe("useStaffDirectoryAdmin", () => {
     )
   })
 
-  it("treats degraded Clerk sync health as non-blocking empty health", async () => {
+  it("treats degraded Clerk sync health as a visible non-blocking unavailable state", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const url = String(input)
       if (url.includes("/api/staff/users/sync-clerk/health")) {
         return jsonResponse({
           status: "degraded",
-          serviceStatus: "clerk_rate_limited",
-          clerkUsers: 0,
-          dbUsersWithClerkId: 0,
-          missingCount: 0,
-          missingUsers: [],
-          mismatchedCount: 0,
-          mismatchedUsers: [],
           error: "User sync status is temporarily unavailable. Try checking again shortly.",
         })
       }
@@ -175,7 +168,7 @@ describe("useStaffDirectoryAdmin", () => {
       await state.fetchClerkSyncHealth()
     })
 
-    expect(latestState!.clerkSyncError).toBeNull()
-    expect(latestState!.clerkSyncHealth).toMatchObject({ missingCount: 0, mismatchedCount: 0 })
+    expect(latestState!.clerkSyncError).toBe("User sync status is temporarily unavailable. Try checking again shortly.")
+    expect(latestState!.clerkSyncHealth).toBeNull()
   })
 })
