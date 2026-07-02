@@ -294,7 +294,18 @@ export async function POST(req: Request) {
       ? await resolveConsecutiveOffer({
           linkedFromCourseSlug,
           userId: dbUser.id,
-          currentCourseTime: context.time,
+          todayJsWeekday: (() => {
+            const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+            const weekday = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York",
+              weekday: "short",
+            }).format(now)
+            return weekdayLabels.findIndex((label) => label === weekday)
+          })(),
+          courseTimeMinutes: (() => {
+            const match = /^(\d{2}):(\d{2})$/.exec(context.time || "")
+            return match ? Number(match[1]) * 60 + Number(match[2]) : null
+          })(),
           now,
         })
       : null
