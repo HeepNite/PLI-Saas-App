@@ -35,7 +35,7 @@ export const clerkDarkAuthAppearance = {
   },
 } as const
 
-export const clerkDarkStaffAppearance = {
+const clerkDarkStaffAppearance = {
   ...clerkDarkAuthAppearance,
   elements: {
     ...clerkDarkAuthAppearance.elements,
