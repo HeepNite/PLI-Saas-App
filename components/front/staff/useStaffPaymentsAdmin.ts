@@ -564,23 +564,28 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     dispatchSelection({ type: "SELECTION/SET_CHECKOUT_MENU_ID", id })
   }, [])
 
-  const setPaymentHistoryAnchor = React.useCallback((anchor: HTMLElement | null) => {
+  const setPaymentHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
+    const anchor = typeof value === "function" ? value(popover.paymentHistoryAnchor) : value
     dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY", anchor, studentId: popover.paymentHistoryStudentId })
-  }, [popover.paymentHistoryStudentId])
+  }, [popover.paymentHistoryAnchor, popover.paymentHistoryStudentId])
 
-  const setPaymentHistoryStudentId = React.useCallback((studentId: string | null) => {
+  const setPaymentHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentId = typeof value === "function" ? value(popover.paymentHistoryStudentId) : value
     dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY", anchor: popover.paymentHistoryAnchor, studentId })
-  }, [popover.paymentHistoryAnchor])
+  }, [popover.paymentHistoryAnchor, popover.paymentHistoryStudentId])
 
-  const setAttendanceHistoryAnchor = React.useCallback((anchor: HTMLElement | null) => {
+  const setAttendanceHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
+    const anchor = typeof value === "function" ? value(popover.attendanceHistoryAnchor) : value
     dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY", anchor, studentId: popover.attendanceHistoryStudentId })
-  }, [popover.attendanceHistoryStudentId])
+  }, [popover.attendanceHistoryAnchor, popover.attendanceHistoryStudentId])
 
-  const setAttendanceHistoryStudentId = React.useCallback((studentId: string | null) => {
+  const setAttendanceHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentId = typeof value === "function" ? value(popover.attendanceHistoryStudentId) : value
     dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY", anchor: popover.attendanceHistoryAnchor, studentId })
-  }, [popover.attendanceHistoryAnchor])
+  }, [popover.attendanceHistoryAnchor, popover.attendanceHistoryStudentId])
 
-  const setAuditHistoryAnchor = React.useCallback((anchor: HTMLElement | null) => {
+  const setAuditHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
+    const anchor = typeof value === "function" ? value(popover.auditHistoryAnchor) : value
     dispatchPopover({
       type: "POPOVER/SET_AUDIT_HISTORY",
       anchor,
@@ -589,23 +594,25 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     })
   }, [popover.auditHistoryStudentId, popover.auditHistoryStudentName])
 
-  const setAuditHistoryStudentId = React.useCallback((studentId: string | null) => {
+  const setAuditHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentId = typeof value === "function" ? value(popover.auditHistoryStudentId) : value
     dispatchPopover({
       type: "POPOVER/SET_AUDIT_HISTORY",
       anchor: popover.auditHistoryAnchor,
       studentId,
       studentName: popover.auditHistoryStudentName,
     })
-  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentName])
+  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentId, popover.auditHistoryStudentName])
 
-  const setAuditHistoryStudentName = React.useCallback((studentName: string | null) => {
+  const setAuditHistoryStudentName: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentName = typeof value === "function" ? value(popover.auditHistoryStudentName) : value
     dispatchPopover({
       type: "POPOVER/SET_AUDIT_HISTORY",
       anchor: popover.auditHistoryAnchor,
       studentId: popover.auditHistoryStudentId,
       studentName,
     })
-  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentId])
+  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentId, popover.auditHistoryStudentName])
 
   return {
     // State
