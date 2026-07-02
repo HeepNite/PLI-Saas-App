@@ -40,6 +40,11 @@ import { useEnrollDerivedState } from "@/components/front/courses/enroll/hooks/u
 import { useEnrollEffects } from "@/components/front/courses/enroll/hooks/useEnrollEffects"
 import { useEnrollActions } from "@/components/front/courses/enroll/hooks/useEnrollActions"
 
+const STEP_KEY_STATIC_HEADING: Record<string, string> = {
+  consecutive: "Promotion for the Second Class",
+  payments: "Payment for Salsa Class",
+}
+
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_24_REGEX = /^\d{2}:\d{2}$/
 
@@ -209,8 +214,16 @@ export default function EnrollModal({
     ? kioskInfoPhase === "name-email" ? contact.firstName.trim().length > 1 && contact.email.trim().length > 5 : isCompleteUSPhone(contact.phone)
     : canContinue
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
-  const signInModalTitle = signInPurpose === "sms_verification" ? "Verify your phone to keep the new-student price" : signInPurpose === "account_preparation" ? "Sign in to continue" : showAccountExistsSignInCopy ? t("account_exists_title") : t("sign_in_modal_title")
-  const signInModalSubtitle = signInPurpose === "sms_verification" ? "Complete SMS verification now. If you skip it, the booking will continue with the regular price." : signInPurpose === "account_preparation" ? "Sign in with your phone to upload your profile photo before payment." : showAccountExistsSignInCopy ? t("existing_customer_signin_required") : t("sign_in_modal_subtitle")
+  const signInModalTitle =
+    signInPurpose === "sms_verification" ? "Verify your phone to keep the new-student price" :
+    signInPurpose === "account_preparation" ? "Sign in to continue" :
+    showAccountExistsSignInCopy ? t("account_exists_title") :
+    t("sign_in_modal_title")
+  const signInModalSubtitle =
+    signInPurpose === "sms_verification" ? "Complete SMS verification now. If you skip it, the booking will continue with the regular price." :
+    signInPurpose === "account_preparation" ? "Sign in with your phone to upload your profile photo before payment." :
+    showAccountExistsSignInCopy ? t("existing_customer_signin_required") :
+    t("sign_in_modal_subtitle")
   const kioskQrCheckoutPending = isKioskQrPendingPhase(kioskQrCheckout.phase)
   const kioskQrCheckoutLocked = isKioskTerminalFlow && (kioskQrCheckout.phase === "creating" || kioskQrCheckoutPending)
   const hideCalendarSidebar = Boolean((success && isCheckInFlow) || (isKioskTerminalFlow && steps[step]?.key === "payments"))
@@ -233,7 +246,11 @@ export default function EnrollModal({
               {!(success && isCheckInFlow) && (
                 <div className="mb-3 flex items-center gap-2 pr-12">
                   {step > 0 && <button type="button" aria-label={t("back")} onClick={() => setStep((s) => Math.max(0, s - 1))} className="flex h-8 w-8 items-center justify-center rounded-md border border-black/10">←</button>}
-                  <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>{activeStepKey === "packages" ? course.title : activeStepKey === "consecutive" ? "Promotion for the Second Class" : activeStepKey === "payments" ? "Payment for Salsa Class" : `${steps[step]?.label} • ${course.title}`}</h3>
+                  <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>{
+                    activeStepKey === "packages" ? course.title :
+                    STEP_KEY_STATIC_HEADING[activeStepKey] ??
+                    `${steps[step]?.label} • ${course.title}`
+                  }</h3>
                 </div>
               )}
               {success ? (
