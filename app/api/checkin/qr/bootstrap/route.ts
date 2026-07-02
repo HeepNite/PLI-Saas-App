@@ -8,13 +8,11 @@ import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled, snapshotPreparedCheckoutVerification } from "@/lib/checkout/prepared-context"
 import type { CourseData } from "@/constants/courses"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
-import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
+import { findClerkUserByIdentifiers, getCachedClerkUser, resolveAvatarState } from "@/lib/clerk-users"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { computeDiscountPercent } from "@/lib/course-links"
-import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
-import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
-import { normalizePhoneDigits } from "@/lib/shared"
+import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
+import { asRecord, asText, normalizePhoneDigits } from "@/lib/shared"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
@@ -32,11 +30,6 @@ type CoursePricingTemplate = {
   amountCents: number
 }
 
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
-
 const splitName = (value: string) => {
   const parts = value.trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return { firstName: "", lastName: "" }
@@ -45,9 +38,6 @@ const splitName = (value: string) => {
     lastName: parts.slice(1).join(" "),
   }
 }
-
-const toRecord = (value: unknown) =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 const toStringArray = (value: unknown) => {
   if (!Array.isArray(value)) return [] as string[]
@@ -71,12 +61,12 @@ const buildPricingTemplate = (input: {
   const course = input.course
 
   const metadata = input.lastPurchaseMetadata
-  const serviceIdCandidate = normalizeString(metadata?.serviceId)
-  const packageIdCandidate = normalizeString(metadata?.packageId)
+  const serviceIdCandidate = asText(metadata?.serviceId)
+  const packageIdCandidate = asText(metadata?.packageId)
   const participantsCandidate = input.lastPurchaseParticipants && Number.isFinite(input.lastPurchaseParticipants)
     ? Math.max(1, Math.min(10, Math.round(input.lastPurchaseParticipants)))
     : 1
-  const couponCandidate = normalizeString(input.lastPurchaseCoupon)
+  const couponCandidate = asText(input.lastPurchaseCoupon)
   const addonsFromMetadata = toStringArray(metadata?.addons)
   const addonsFromCsv = typeof input.lastPurchaseAddonsCsv === "string"
     ? input.lastPurchaseAddonsCsv
@@ -174,10 +164,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const payload = toRecord(body)
+    const payload = asRecord(body)
     const authResult = await auth()
-    const kioskSessionToken = normalizeString(payload?.kioskSessionToken)
-    const flowContext = normalizeString(payload?.flowContext)
+    const kioskSessionToken = asText(payload?.kioskSessionToken)
+    const flowContext = asText(payload?.flowContext)
     const kioskCustomerAuth =
       flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
         ? await resolveKioskCustomerClerkAuth(authResult.userId)
@@ -234,13 +224,11 @@ export async function POST(req: Request) {
     if (customerClerkUserId || kioskUser?.clerkId) {
       clerkUser = customerClerkUserId ? kioskCustomerAuth.clerkUser : null
       if (!clerkUser) {
-        const client = await clerkClient()
-        clerkUser = await client.users.getUser((customerClerkUserId || kioskUser?.clerkId) as string)
+        clerkUser = await getCachedClerkUser((customerClerkUserId || kioskUser?.clerkId) as string)
       }
       let avatarState = resolveAvatarState(clerkUser)
       if (avatarState.needsRefresh && clerkUser?.id) {
-        const client = await clerkClient()
-        clerkUser = await client.users.getUser(clerkUser.id)
+        clerkUser = await getCachedClerkUser(clerkUser.id)
         avatarState = resolveAvatarState(clerkUser)
       }
       hasAvatar = Boolean(avatarState.hasAvatar)
@@ -258,8 +246,7 @@ export async function POST(req: Request) {
       if (clerkUser) {
         let avatarState = resolveAvatarState(clerkUser)
         if (avatarState.needsRefresh && clerkUser.id) {
-          const client = await clerkClient()
-          clerkUser = await client.users.getUser(clerkUser.id)
+          clerkUser = await getCachedClerkUser(clerkUser.id)
           avatarState = resolveAvatarState(clerkUser)
         }
         hasAvatar = Boolean(avatarState.hasAvatar)
@@ -302,106 +289,28 @@ export async function POST(req: Request) {
 
     const isTerminalFlow = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 
-    // ─── Consecutive offer detection ─────────────────────────
-    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
-    let consecutiveOffer: {
-      linkedCourseSlug: string
-      linkedCourseTitle: string
-      dropInConsecutiveCents: number | null
-      packageHolderConsecutiveCents: number | null
-      regularDropInCents: number
-      discountPercent: number
-      hasAttendedFirstClass: boolean
-    } | null = null
-
-    if (linkedFromCourseSlug && dbUser) {
-      const links = await prisma.courseLink.findMany({
-        where: {
-          OR: [
-            { courseSlugA: linkedFromCourseSlug.toLowerCase() },
-            { courseSlugB: linkedFromCourseSlug.toLowerCase() },
-          ],
-          active: true,
-        },
-      })
-
-      if (links.length > 0) {
-        const todayJsWeekday = (() => {
-          const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
-          const weekday = new Intl.DateTimeFormat("en-US", {
-            timeZone: "America/New_York",
-            weekday: "short",
-          }).format(now)
-          return weekdayLabels.findIndex((label) => label === weekday)
-        })()
-        const aTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
-        const aMinutes = aTimeMatch
-          ? Number(aTimeMatch[1]) * 60 + Number(aTimeMatch[2])
-          : null
-
-        const candidates = await Promise.all(links.map(async (link) => {
-          const linkedCourseSlug = link.courseSlugA === linkedFromCourseSlug.toLowerCase()
-            ? link.courseSlugB
-            : link.courseSlugA
-          const linkedCourse = await getCatalogCourseBySlug(linkedCourseSlug)
-          const hasAlreadyLinkedCourse = await hasPurchaseForCourseToday(dbUser.id, linkedCourseSlug, now)
-          return { link, linkedCourseSlug, linkedCourse, hasAlreadyLinkedCourse }
-        }))
-
-        // Validate that course B is actually scheduled today and starts after A's
-        // selected time. This prevents surfacing a consecutive offer for a class
-        // that isn't scheduled today (e.g. Rueda on Mondays — only on Fridays).
-        //
-        // Only enforce the check when course B has day-specific schedule rules.
-        // If no day-specific rules are present we cannot reliably determine
-        // today's availability here, so we fall back to the prior behavior and
-        // let downstream validation (attendance / check-in window) catch it.
-        const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, now)
-        const nextCandidate = candidates
-          .filter((candidate) => candidate.linkedCourse && !candidate.hasAlreadyLinkedCourse)
-          .map((candidate) => {
-            const linkedScheduleRules = candidate.linkedCourse?.scheduleRules
-            const parsedRules = parseScheduleRules(linkedScheduleRules)
-            let linkedStartMinutes: number | null = null
-            let isLinkedScheduledLaterToday = true
-            if (parsedRules?.rules?.length) {
-              const linkedTimesToday = getTimesForWeekday(linkedScheduleRules, todayJsWeekday) ?? []
-              const laterTimes = linkedTimesToday
-                .map((time) => {
-                  const match = /^(\d{2}):(\d{2})$/.exec(time)
-                  if (!match) return null
-                  const minutes = Number(match[1]) * 60 + Number(match[2])
-                  return aMinutes === null || minutes > aMinutes ? minutes : null
-                })
-                .filter((minutes): minutes is number => minutes !== null)
-                .sort((left, right) => left - right)
-              linkedStartMinutes = laterTimes[0] ?? null
-              isLinkedScheduledLaterToday = laterTimes.length > 0
-            }
-            return { ...candidate, linkedStartMinutes, isLinkedScheduledLaterToday }
-          })
-          .filter((candidate) => candidate.isLinkedScheduledLaterToday)
-          .sort((left, right) => (left.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER) - (right.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER))[0]
-
-        if (nextCandidate?.linkedCourse && hasAttendedA) {
-          const regularDropIn = nextCandidate.linkedCourse.enrollment.services.find((s) => s.id === "dropin")?.price ?? 0
-          const discountPercent = computeDiscountPercent(
-            regularDropIn * 100,
-            nextCandidate.link.dropInConsecutiveCents
-          )
-
-          consecutiveOffer = {
-            linkedCourseSlug: nextCandidate.linkedCourseSlug,
-            linkedCourseTitle: nextCandidate.linkedCourse.title,
-            dropInConsecutiveCents: nextCandidate.link.dropInConsecutiveCents,
-            packageHolderConsecutiveCents: nextCandidate.link.packageHolderConsecutiveCents,
-            regularDropInCents: regularDropIn * 100,
-            discountPercent,
-            hasAttendedFirstClass: hasAttendedA,
-          }
-        }
-      }
-    }
+    const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
+    const todayJsWeekday = (() => {
+      const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+      const weekday = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+      }).format(now)
+      return weekdayLabels.findIndex((label) => label === weekday)
+    })()
+    const courseTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
+    const courseTimeMinutes = courseTimeMatch
+      ? Number(courseTimeMatch[1]) * 60 + Number(courseTimeMatch[2])
+      : null
+    const consecutiveOffer = linkedFromCourseSlug && dbUser
+      ? await resolveConsecutiveOffer({
+          linkedFromCourseSlug,
+          userId: dbUser.id,
+          todayJsWeekday,
+          courseTimeMinutes,
+          now,
+        })
+      : null
 
     const [allActivePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
       prisma.packagePurchase.findMany({
@@ -484,7 +393,7 @@ export async function POST(req: Request) {
       packages: activePackages,
     })
 
-    const purchaseMetadata = toRecord(lastPurchase?.metadata)
+    const purchaseMetadata = asRecord(lastPurchase?.metadata)
     const quickTemplate = lastPurchase
       ? buildPricingTemplate({
           course,
@@ -501,7 +410,7 @@ export async function POST(req: Request) {
     }))
 
     const purchaseHistory = recentPurchases.map((purchase) => {
-      const metadata = toRecord(purchase.metadata)
+      const metadata = asRecord(purchase.metadata)
       return {
         id: purchase.id,
         createdAt: purchase.createdAt.toISOString(),
@@ -509,11 +418,11 @@ export async function POST(req: Request) {
         currency: purchase.currency || "usd",
         status: purchase.status,
         participants: purchase.participants,
-        serviceId: normalizeString(metadata?.serviceId),
-        packageId: normalizeString(metadata?.packageId),
+        serviceId: asText(metadata?.serviceId),
+        packageId: asText(metadata?.packageId),
         addons: toStringArray(metadata?.addons),
-        date: normalizeString(metadata?.date),
-        time: normalizeString(metadata?.time),
+        date: asText(metadata?.date),
+        time: asText(metadata?.time),
       }
     })
 
