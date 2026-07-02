@@ -92,7 +92,7 @@ export function getCurrentMonthBoundariesNY(
 /**
  * Format a date as "Mes YYYY" in Spanish (e.g., "Mayo 2026").
  */
-export function formatMonthKey(date: Date): string {
+function formatMonthKey(date: Date): string {
   const parts = new Intl.DateTimeFormat("es-ES", {
     timeZone: NY_TIMEZONE,
     year: "numeric",
@@ -108,7 +108,7 @@ export function formatMonthKey(date: Date): string {
 /**
  * Format a year/month pair as "Mes YYYY" in Spanish (e.g., "Mayo 2026").
  */
-export function formatMonthKeyFromYM(year: number, month: number): string {
+function formatMonthKeyFromYM(year: number, month: number): string {
   // Use a safe date (15th of the month) to avoid any DST edge issues
   const date = new Date(year, month - 1, 15, 12, 0, 0, 0)
   const monthName = SPANISH_MONTHS[month - 1]

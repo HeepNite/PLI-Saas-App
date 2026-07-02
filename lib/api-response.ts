@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 export const apiError = (error: string, status: number, details?: unknown) =>
   NextResponse.json(details === undefined ? { error } : { error, details }, { status })
 
-export const apiOk = <T>(data: T, status = 200) =>
+const apiOk = <T>(data: T, status = 200) =>
   NextResponse.json(data, { status })
 
 export async function readJsonBody(req: Request): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: NextResponse }> {

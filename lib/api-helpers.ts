@@ -2,7 +2,7 @@
  * Shared API helper utilities.
  */
 
-export const MAX_TEXT_FIELD_LENGTH = 120
+const MAX_TEXT_FIELD_LENGTH = 120
 
 /**
  * Trims and clamps a string value to the given max length.
