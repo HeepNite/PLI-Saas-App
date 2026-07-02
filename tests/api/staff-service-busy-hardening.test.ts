@@ -62,6 +62,7 @@ describe("staff service busy hardening", () => {
     const res = await GET(new NextRequest("http://localhost/api/staff/checkin/web-cash-arrivals?since=2026-07-02T00%3A00%3A00.000Z"))
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Retry-After")).toBe("30")
     expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
     expect(res.headers.get("X-Staff-Service-Reason")).toBeNull()
     expect(await res.json()).toEqual([])
@@ -93,6 +94,7 @@ describe("staff service busy hardening", () => {
     const payload = await res.json()
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Retry-After")).toBe("30")
     expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
     expect(payload).toEqual({
       status: "degraded",

@@ -15,6 +15,7 @@ const degradedEmptyArrivals = () =>
   NextResponse.json([], {
     status: 200,
     headers: {
+      "Retry-After": "30",
       "X-Staff-Service-Status": "degraded",
     },
   })

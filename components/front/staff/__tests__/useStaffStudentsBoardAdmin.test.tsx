@@ -239,6 +239,11 @@ describe("useStaffStudentsBoardAdmin", () => {
     })
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      vi.advanceTimersByTime(20_000)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it("backs off payments pulse polling when a degraded 200 payload is returned", async () => {
@@ -261,5 +266,12 @@ describe("useStaffStudentsBoardAdmin", () => {
     })
 
     expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/staff/payments/pulse"))).toHaveLength(1)
+    await act(async () => {
+      vi.advanceTimersByTime(15_000)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/staff/payments/pulse"))).toHaveLength(2)
   })
 })
