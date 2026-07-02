@@ -38,6 +38,15 @@ import type {
 } from "./staffAdminTypes"
 
 const PAGE_SIZE = 9
+const STAFF_BOARD_POLL_BACKOFF_MAX_MS = 60_000
+
+const nextPollBackoffMs = (response: Response | null, failures: number) => {
+  const retryAfterSec = response ? Number(response.headers.get("Retry-After")) : NaN
+  if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
+    return Math.min(retryAfterSec * 1000, STAFF_BOARD_POLL_BACKOFF_MAX_MS)
+  }
+  return Math.min(5_000 * Math.max(1, 2 ** Math.max(0, failures - 1)), STAFF_BOARD_POLL_BACKOFF_MAX_MS)
+}
 
 type UpdateSettlementBulk = (options: {
   action: "mark_paid" | "mark_pending"
@@ -362,13 +371,25 @@ export function useStaffStudentsBoardAdmin({
   }>>([])
   const webCashLastPolledRef = React.useRef<string>(new Date().toISOString())
   const webCashSeenIdsRef = React.useRef<Set<string>>(new Set())
+  const webCashBackoffUntilRef = React.useRef(0)
+  const webCashFailuresRef = React.useRef(0)
+  const webCashInFlightRef = React.useRef(false)
 
   React.useEffect(() => {
     if (isHistoryMode) return
     const poll = async () => {
+      if (webCashInFlightRef.current || Date.now() < webCashBackoffUntilRef.current) return
+      webCashInFlightRef.current = true
       try {
         const res = await fetch(`/api/staff/checkin/web-cash-arrivals?since=${encodeURIComponent(webCashLastPolledRef.current)}`)
-        if (!res.ok) return
+        if (!res.ok) {
+          if (handleStaffAuthFailure(res.status)) return
+          webCashFailuresRef.current += 1
+          webCashBackoffUntilRef.current = Date.now() + nextPollBackoffMs(res, webCashFailuresRef.current)
+          return
+        }
+        webCashFailuresRef.current = 0
+        webCashBackoffUntilRef.current = 0
         const data = await res.json()
         if (!Array.isArray(data) || data.length === 0) return
 
@@ -385,14 +406,18 @@ export function useStaffStudentsBoardAdmin({
         // Refresh the board so new arrivals appear as cards
         void refreshPaymentsBoard()
       } catch {
+        webCashFailuresRef.current += 1
+        webCashBackoffUntilRef.current = Date.now() + nextPollBackoffMs(null, webCashFailuresRef.current)
         // Silently ignore polling errors
+      } finally {
+        webCashInFlightRef.current = false
       }
     }
 
     void poll()
     const interval = window.setInterval(poll, 10_000)
     return () => window.clearInterval(interval)
-  }, [isHistoryMode, refreshPaymentsBoard])
+  }, [handleStaffAuthFailure, isHistoryMode, refreshPaymentsBoard])
 
   const dismissWebCashArrival = React.useCallback((attendanceId: string) => {
     setWebCashArrivals((prev) => prev.filter((item) => item.attendanceId !== attendanceId))
@@ -400,14 +425,27 @@ export function useStaffStudentsBoardAdmin({
 
   // ─── Smart board refresh via lightweight pulse endpoint ────────────────
   const pulseRef = React.useRef<{ purchaseCount: number; attendanceCount: number; latestPurchaseAt: string | null } | null>(null)
+  const pulseBackoffUntilRef = React.useRef(0)
+  const pulseFailuresRef = React.useRef(0)
+  const pulseInFlightRef = React.useRef(false)
 
   React.useEffect(() => {
     if (isHistoryMode) return
     const poll = async () => {
+      if (pulseInFlightRef.current || Date.now() < pulseBackoffUntilRef.current) return
+      pulseInFlightRef.current = true
       try {
         const res = await fetch("/api/staff/payments/pulse")
-        if (!res.ok) return
+        if (!res.ok) {
+          if (handleStaffAuthFailure(res.status)) return
+          pulseFailuresRef.current += 1
+          pulseBackoffUntilRef.current = Date.now() + nextPollBackoffMs(res, pulseFailuresRef.current)
+          return
+        }
+        pulseFailuresRef.current = 0
+        pulseBackoffUntilRef.current = 0
         const data = await res.json()
+        if (data?.status === "degraded") return
         const prev = pulseRef.current
         if (prev && (
           data.purchaseCount !== prev.purchaseCount ||
@@ -418,7 +456,11 @@ export function useStaffStudentsBoardAdmin({
         }
         pulseRef.current = data
       } catch {
+        pulseFailuresRef.current += 1
+        pulseBackoffUntilRef.current = Date.now() + nextPollBackoffMs(null, pulseFailuresRef.current)
         // Silently ignore pulse errors
+      } finally {
+        pulseInFlightRef.current = false
       }
     }
 
@@ -426,7 +468,7 @@ export function useStaffStudentsBoardAdmin({
     void poll()
     const interval = window.setInterval(poll, 15_000)
     return () => window.clearInterval(interval)
-  }, [isHistoryMode, refreshPaymentsBoard])
+  }, [handleStaffAuthFailure, isHistoryMode, refreshPaymentsBoard])
 
   return {
     currentPage,

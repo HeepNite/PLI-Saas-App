@@ -5,6 +5,21 @@ import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
+const isPrismaSchemaUnavailableError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false
+  const record = error as { code?: unknown; name?: unknown }
+  return record.name === "PrismaClientKnownRequestError" && (record.code === "P2021" || record.code === "P2022")
+}
+
+const degradedEmptyArrivals = (reason: string) =>
+  NextResponse.json([], {
+    status: 200,
+    headers: {
+      "X-Staff-Service-Status": "degraded",
+      "X-Staff-Service-Reason": reason,
+    },
+  })
+
 /**
  * GET /api/staff/checkin/web-cash-arrivals?since=<ISO>
  *
@@ -94,6 +109,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(results)
   } catch (error) {
+    if (isPrismaSchemaUnavailableError(error)) {
+      console.warn("Web cash arrivals unavailable because the database schema is not ready", error)
+      return degradedEmptyArrivals("schema_unavailable")
+    }
     console.error("Web cash arrivals GET failed", error)
     return NextResponse.json({ error: "Unable to fetch arrivals" }, { status: 500 })
   }
