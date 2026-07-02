@@ -554,7 +554,7 @@ export default function EmbeddedSignIn({
         <div className="space-y-3">
           <div className="pr-16">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand,#c71818)]">Phone access</p>
-            <p className="mt-1 text-xs text-white/82">We'll text you a verification code.</p>
+            <p className="mt-1 text-xs text-white/82">We&apos;ll text you a verification code.</p>
           </div>
           <label className="block space-y-1.5">
             <span className="text-xs font-medium text-white/85">Phone</span>
