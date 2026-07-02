@@ -4,10 +4,9 @@ import { buildTerminalPinAlert } from "@/lib/security/kiosk-pin-throttle"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { hashStaffTerminalPin, toTerminalSlug, verifyStaffTerminalPin } from "@/lib/security/staff-terminal"
+import { safeText } from "@/lib/api-helpers"
 
 export const runtime = "nodejs"
-
-const safeText = (value: unknown, max = 120) => (typeof value === "string" ? value.trim().slice(0, max) : "")
 
 const serializeTerminal = (terminal: {
   id: string
