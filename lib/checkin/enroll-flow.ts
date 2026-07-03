@@ -44,7 +44,13 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  * Kiosk flow: info → [photo] → [packages] → payments
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
+  if (input.isCheckInFlow && input.isKioskTerminalFlow && input.isCheckInNewFlow) {
+    // "I'm new" on kiosk: streamlined 3-step flow
+    return ["info", "promo", "payments"]
+  }
+
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
+    // Existing customer declining Quick Repeat: full flow with packages
     return [
       "info",
       ...(input.requiresPhotoStep ? (["photo"] as const) : []),
