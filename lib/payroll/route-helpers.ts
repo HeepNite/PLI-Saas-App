@@ -1,8 +1,8 @@
-import { clerkClient } from "@clerk/nextjs/server"
 import { Prisma } from "@prisma/client"
-import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { getCachedClerkUser } from "@/lib/clerk-users"
 import { asObject } from "@/lib/shared"
+import { apiError, readJsonBody as _readJsonBody } from "@/lib/api-response"
 
 export type JsonRecord = Record<string, unknown>
 
@@ -24,37 +24,41 @@ export const asOptionalBoolean = (value: unknown): boolean | null => {
   return value
 }
 
-export const jsonError = (error: string, status: number, details?: unknown) =>
-  NextResponse.json(details === undefined ? { error } : { error, details }, { status })
+/** @deprecated Use `apiError` from `@/lib/api-response` instead */
+export const jsonError = apiError
 
-export async function readJsonBody(req: Request): Promise<{ ok: true; body: JsonRecord } | { ok: false; response: NextResponse }> {
-  try {
-    const body = await req.json()
+export const readJsonBody = _readJsonBody
 
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      return { ok: false, response: jsonError("Invalid JSON body", 400) }
-    }
+const resolveSchoolIdFromMetadata = (metadata: unknown): string | null => {
+  const record = asObject(metadata)
 
-    return { ok: true, body: body as JsonRecord }
-  } catch {
-    return { ok: false, response: jsonError("Invalid JSON body", 400) }
-  }
+  return asOptionalString(record.schoolId) || asOptionalString(record.staffSchoolId)
 }
 
 export async function resolveSchoolIdForClerkUser(userId: string): Promise<string | null> {
-  const client = await clerkClient()
-  const user = await client.users.getUser(userId)
-  const publicMetadata = asObject(user.publicMetadata)
-  const privateMetadata = asObject(user.privateMetadata)
+  const staffAccount = await prisma.staffAccount.findUnique({
+    where: { clerkUserId: userId },
+    select: {
+      metadata: true,
+      paymentModel: {
+        select: { schoolId: true },
+      },
+    },
+  })
 
   const resolvedId =
-    asOptionalString(publicMetadata.schoolId) ||
-    asOptionalString(publicMetadata.staffSchoolId) ||
-    asOptionalString(privateMetadata.schoolId) ||
-    asOptionalString(privateMetadata.staffSchoolId)
+    resolveSchoolIdFromMetadata(staffAccount?.metadata) ||
+    asOptionalString(staffAccount?.paymentModel?.schoolId)
+
+  if (resolvedId) return resolvedId
+
+  const clerkUser = await getCachedClerkUser(userId)
+  const clerkSchoolId =
+    resolveSchoolIdFromMetadata(clerkUser.publicMetadata) ||
+    resolveSchoolIdFromMetadata(clerkUser.privateMetadata)
 
   // Fallback for local testing or when metadata is missing
-  return resolvedId || "default-school"
+  return clerkSchoolId || "default-school"
 }
 
 export async function currencyExists(code: string): Promise<boolean> {

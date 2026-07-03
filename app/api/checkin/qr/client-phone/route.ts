@@ -8,7 +8,7 @@ import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
-import { asText } from "@/lib/shared"
+import { asRecord, asText } from "@/lib/shared"
 import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
@@ -17,13 +17,6 @@ export const runtime = "nodejs"
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
-
-const toRecord = (value: unknown) =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 /**
  * POST /api/checkin/qr/client-phone
@@ -62,7 +55,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const payload = toRecord(body)
+    const payload = asRecord(body)
     const context = parseQrCheckInContext({
       courseSlug: payload?.courseSlug,
       date: payload?.date,
@@ -142,13 +135,13 @@ export async function POST(req: Request) {
     })
 
     const matchingPurchase = purchases.find((p) => {
-      const meta = toRecord(p.metadata)
+      const meta = asRecord(p.metadata)
       const purchaseDate = asText(meta?.date)
       return purchaseDate === context.date
     })
 
     if (matchingPurchase) {
-      const meta = toRecord(matchingPurchase.metadata)
+      const meta = asRecord(matchingPurchase.metadata)
       const paymentChannel = asText(meta?.paymentChannel)
       const settlementStatus = asText(meta?.settlementStatus)
       const isPaid = SUCCESSFUL_PURCHASE_STATUSES.includes(matchingPurchase.status)
@@ -174,7 +167,7 @@ export async function POST(req: Request) {
                 status: ATTENDANCE_STATUS.CHECKED_IN,
                 checkedInAt: now,
                 metadata: {
-                  ...(toRecord(existingAttendance.metadata) || {}),
+                  ...(asRecord(existingAttendance.metadata) || {}),
                   checkinSource: "qr_client_phone",
                   purchaseId: matchingPurchase.id,
                 },

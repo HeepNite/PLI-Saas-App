@@ -46,6 +46,7 @@ type StaffUsersAdminCompositionInput = {
   setStudentSearchQuery: React.Dispatch<React.SetStateAction<string>>
   showRightRail: boolean
   showInlineRightRail: boolean
+  reserveAssistantColumn: boolean
   schoolWizard: SchoolWizardState
   wizardEnabledCtx: StepEnabledContext
   reviewPreviewHover: "home" | "single" | null
@@ -137,7 +138,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
     shell: {
       gridRef: input.refs.gridRef,
       leftRailRef: input.refs.leftRailRef,
-      showInlineRightRail: input.showInlineRightRail,
+      reserveAssistantColumn: input.reserveAssistantColumn,
       visibleNavItems: portalShellAdmin.visibleNavItems,
       activeNav: portalShellAdmin.activeNav,
       handleNavSelection: portalShellAdmin.handleNavSelection,
@@ -232,7 +233,7 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
       performanceMetrics: { showStaffOps: portalShellAdmin.showStaffOps, teacherRows: teacherAdmin.teacherRows, teacherUserId: teacherAdmin.teacherUserId, selectedTeacher: teacherAdmin.selectedTeacher, teacherRating: teacherAdmin.teacherRating, teacherAiTips: teacherAdmin.teacherAiTips, visibleTeacherMetrics: teacherAdmin.visibleTeacherMetrics, metricsView: teacherAdmin.metricsView, teacherReviewCycleDays: teacherAdmin.teacherReviewCycleDays, metricsSaving: teacherAdmin.metricsSaving, metricsSuccess: teacherAdmin.metricsSuccess, metricsError: teacherAdmin.metricsError, teacherDonutStyle: teacherAdmin.teacherDonutStyle, teacherMetricsAverage: teacherAdmin.teacherMetricsAverage, setTeacherUserId: teacherAdmin.setTeacherUserId, setMetricsView: teacherAdmin.setMetricsView, setTeacherReviewCycleDays: teacherAdmin.setTeacherReviewCycleDays, saveTeacherReviewCycle: teacherAdmin.saveTeacherReviewCycle },
     },
     assistant: {
-      rightRail: { showRightRail: input.showRightRail, showInlineRightRail: input.showInlineRightRail, isRailCollapsed: assistantAdmin.isRailCollapsed, rightRailRef: input.refs.rightRailRef, onCloseOverlay: assistantAdmin.collapseRail, onToggleRail: assistantAdmin.toggleRail },
+      rightRail: { showRightRail: input.showRightRail, showInlineRightRail: input.showInlineRightRail, reserveAssistantColumn: input.reserveAssistantColumn, isRailCollapsed: assistantAdmin.isRailCollapsed, rightRailRef: input.refs.rightRailRef, onCloseOverlay: assistantAdmin.collapseRail, onToggleRail: assistantAdmin.toggleRail },
       content: { isRailCollapsed: assistantAdmin.isRailCollapsed, activeNavLabel: portalShellAdmin.activeNavLabel, chatMessages: assistantAdmin.chatMessages, chatInput: assistantAdmin.chatInput, onToggleRail: assistantAdmin.toggleRail, onOpenAssistantConfig: () => {}, onChatInputChange: assistantAdmin.setChatInput, onSendChatMessage: assistantAdmin.sendChatMessage },
     },
     modals: {

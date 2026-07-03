@@ -1,28 +1,18 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { jsonError } from "@/lib/payroll/route-helpers"
 
 export const runtime = "nodejs"
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:unavailability:post", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:unavailability:post", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalBaseRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalBaseRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   let body: unknown
   try {
@@ -79,8 +69,6 @@ export async function POST(req: Request) {
     },
   })
 
-  // Notification stub (log for now)
-  console.log(`Staff unavailability request created: ${created.id} for staff ${authResult.userId}`)
 
   return NextResponse.json(
     {

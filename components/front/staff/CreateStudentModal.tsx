@@ -3,7 +3,7 @@
 import React from "react"
 import { createPortal } from "react-dom"
 import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle } from "lucide-react"
-import type { CreateStudentFormState, CreateStudentResult } from "./useStaffCreateStudentAdmin"
+import { getEarliestStaffAttendanceDate, getTodayStaffDate, type CreateStudentFormState, type CreateStudentResult, type CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
 
 type CreateStudentModalProps = {
   isOpen: boolean
@@ -13,6 +13,7 @@ type CreateStudentModalProps = {
   result: CreateStudentResult | null
   hasAmount: boolean
   canSubmit: boolean
+  attendanceSessions: CreateStudentSessionOption[]
   onClose: () => void
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
@@ -26,6 +27,7 @@ export default function CreateStudentModal({
   result,
   hasAmount,
   canSubmit,
+  attendanceSessions,
   onClose,
   onUpdateField,
   onSubmit,
@@ -35,11 +37,16 @@ export default function CreateStudentModal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-student-dialog-title"
+        className="relative z-10 w-full max-w-md rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl"
+      >
         <header className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-[var(--brand,#b61616)]" />
-            <h2 className="text-lg font-semibold text-white">New student</h2>
+            <h2 id="create-student-dialog-title" className="text-lg font-semibold text-white">New student</h2>
           </div>
           <button
             type="button"
@@ -60,6 +67,7 @@ export default function CreateStudentModal({
             error={error}
             hasAmount={hasAmount}
             canSubmit={canSubmit}
+            attendanceSessions={attendanceSessions}
             onUpdateField={onUpdateField}
             onSubmit={onSubmit}
           />
@@ -76,6 +84,7 @@ function FormView({
   error,
   hasAmount,
   canSubmit,
+  attendanceSessions,
   onUpdateField,
   onSubmit,
 }: {
@@ -84,6 +93,7 @@ function FormView({
   error: string | null
   hasAmount: boolean
   canSubmit: boolean
+  attendanceSessions: CreateStudentSessionOption[]
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
 }) {
@@ -158,6 +168,57 @@ function FormView({
         onChange={(v) => onUpdateField("note", v)}
       />
 
+      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <label className="flex items-start gap-2 text-xs text-white/75">
+          <input
+            type="checkbox"
+            checked={form.createAttendance}
+            onChange={(e) => onUpdateField("createAttendance", e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="block font-medium text-white/85">Create class check-in</span>
+            <span className="text-white/50">Use this when the new student is physically present for class.</span>
+          </span>
+        </label>
+
+        {form.createAttendance && (
+          <div className="space-y-2">
+            <FieldInput
+              label="Check-in date"
+              type="date"
+              placeholder="YYYY-MM-DD"
+              value={form.attendanceDate}
+              onChange={(v) => onUpdateField("attendanceDate", v)}
+              min={getEarliestStaffAttendanceDate()}
+              max={getTodayStaffDate()}
+            />
+            <label className="block text-xs font-medium text-white/70" htmlFor="create-student-session">
+              Class session
+            </label>
+            <select
+              id="create-student-session"
+              value={form.attendanceSessionId}
+              onChange={(e) => onUpdateField("attendanceSessionId", e.target.value)}
+              className="w-full rounded-lg border border-white/12 bg-black/20 px-3 py-2 text-sm text-white outline-none transition focus:border-[var(--brand,#b61616)]"
+            >
+              <option value="">Select a class session</option>
+              {attendanceSessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {formatSessionOption(session)}
+                </option>
+              ))}
+            </select>
+            {attendanceSessions.length === 0 && (
+              <p className="text-[11px] text-amber-300">No class sessions are scheduled for this date. Choose another date or turn off check-in.</p>
+            )}
+            {!form.attendanceSessionId && (
+              <p className="text-[11px] text-amber-300">Select a class session or turn off check-in to create the student.</p>
+            )}
+          </div>
+        )}
+      </div>
+
       {error && (
         <div className="flex items-start gap-2 rounded-lg bg-red-500/15 border border-red-500/30 p-2.5 text-xs text-red-300">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -174,6 +235,14 @@ function FormView({
       </button>
     </form>
   )
+}
+
+function formatSessionOption(session: CreateStudentSessionOption) {
+  const startsAt = new Date(session.startsAt)
+  const dateLabel = Number.isNaN(startsAt.getTime())
+    ? session.startsAt
+    : startsAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+  return `${session.isCurrent ? "Current · " : ""}${session.title || session.courseSlug} · ${dateLabel}`
 }
 
 function SuccessView({ result, onClose }: { result: CreateStudentResult; onClose: () => void }) {
@@ -233,6 +302,7 @@ function FieldInput({
   value,
   onChange,
   min,
+  max,
   step,
 }: {
   label: string
@@ -242,6 +312,7 @@ function FieldInput({
   value: string
   onChange: (value: string) => void
   min?: string
+  max?: string
   step?: string
 }) {
   return (
@@ -259,6 +330,7 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           min={min}
+          max={max}
           step={step}
           className={`w-full rounded-xl border border-white/15 bg-white/5 ${icon ? "pl-9" : "pl-3"} pr-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[var(--brand,#b61616)]/60`}
         />
@@ -284,6 +356,7 @@ function PaymentModeButton({
     <button
       type="button"
       onClick={onSelect}
+      aria-pressed={selected}
       className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition ${
         selected
           ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 text-white"

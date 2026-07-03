@@ -21,7 +21,13 @@ const isValidAdapterType = (value: string): value is (typeof VALID_ADAPTER_TYPES
 export async function PATCH(req: Request, context: { params: Promise<{ methodId: string }> }) {
   const authResult = await authorizeOwnerRequest()
   if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+    return NextResponse.json(
+      { error: authResult.error },
+      {
+        status: authResult.status,
+        headers: authResult.retryAfterSec ? { "Retry-After": String(authResult.retryAfterSec) } : undefined,
+      }
+    )
   }
 
   const schoolId = await resolveSchoolIdForClerkUser(authResult.userId)

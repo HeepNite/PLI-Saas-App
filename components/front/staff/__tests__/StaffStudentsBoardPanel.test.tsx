@@ -333,6 +333,30 @@ describe("StaffStudentsBoardPanel", () => {
     expect(onRepairClerkSync).toHaveBeenCalledTimes(1)
   })
 
+  it("shows neutral Clerk sync unavailable status when only the health check errors", async () => {
+    const node = await renderPanel(
+      createProps({
+        clerkSync: {
+          canManageClerkSync: true,
+          clerkSyncLoading: false,
+          clerkSyncRepairing: false,
+          clerkSyncError: "Service temporarily busy. Please try again shortly.",
+          clerkSyncMessage: null,
+          clerkSyncHealth: null,
+          onCheckClerkSync: vi.fn(),
+          onRepairClerkSync: vi.fn(),
+          clerkMismatchByUserId: new Map(),
+          clerkSyncUserBusyId: null,
+          onSyncClerkUser: vi.fn(),
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("User sync unavailable")
+    expect(node.textContent).toContain("User sync status is temporarily unavailable")
+    expect(node.textContent).not.toContain("Users need sync")
+  })
+
   it("hides Clerk sync banner when user cannot manage and nothing is wrong", async () => {
     const node = await renderPanel(createProps())
     expect(node.textContent).not.toContain("Users need sync")
@@ -492,6 +516,36 @@ describe("StaffStudentsBoardPanel", () => {
     expect(node.textContent).toContain("Fast Sign")
     expect(node.textContent).toContain("Prov PIN")
     expect(node.textContent).toContain("Kiosk / Terminal")
+  })
+
+  it("groups front desk students with terminal payments instead of web", async () => {
+    const payment = createPaymentRow({ purchaseSource: "front_desk" })
+    const node = await renderPanel(
+      createProps({
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [{
+            source: "payment",
+            key: "user-1",
+            allPayments: [payment],
+            latestPayment: payment,
+            latestAttendedPayment: null,
+            totalPayments: 1,
+            totalCollectedCents: 2000,
+            paidPayments: 0,
+            checkedInPayments: 0,
+            coursesPurchasedCount: 1,
+            totalPackageClassesConsumed: 0,
+            completedClassesTotal: 0,
+            packageClassesUsedTotal: 0,
+          }],
+          filteredStudentCardsCount: 1,
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("Kiosk / Terminal / Front desk")
+    expect(node.textContent).not.toContain("Web")
   })
 
   it("previews promo before processing and processes both classes after accept", async () => {

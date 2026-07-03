@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { parseStaffPaymentsRequest } from "@/app/api/staff/payments/payments-request"
 import { buildStaffPaymentResponseRow } from "@/app/api/staff/payments/payments-row"
 import { getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
@@ -28,22 +28,11 @@ const buildPaymentsSummary = <TItem extends {
 })
 
 export async function GET(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:payments:get", getClientIp(req)),
-    limit: 90,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:payments:get", limit: 90, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalSectionRequest("students"),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalSectionRequest("students")
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   const paymentsRequest = parseStaffPaymentsRequest(req)
   if (!paymentsRequest.ok) {

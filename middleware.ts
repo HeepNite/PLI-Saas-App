@@ -18,6 +18,25 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
   const { pathname } = req.nextUrl
 
+  const publicStaffApiPaths = new Set([
+    "/api/staff/login/pin",
+    "/api/staff/checkin/pin",
+  ])
+
+  // Terminal and checkin routes use STAFF_CHECKIN_TOKEN, not Clerk auth
+  const tokenAuthPrefixes = [
+    "/api/staff/terminal",
+    "/api/staff/terminals",
+    "/api/staff/checkin",
+  ]
+
+  if (
+    publicStaffApiPaths.has(pathname) ||
+    tokenAuthPrefixes.some((prefix) => pathname.startsWith(prefix))
+  ) {
+    return NextResponse.next()
+  }
+
   // Defense-in-depth: reject unauthenticated requests to staff API routes.
   // Individual routes still run their own authorizeStaffPortalRequest() checks,
   // but this catches any route that forgets to add one.

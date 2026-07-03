@@ -4,14 +4,11 @@ import Link from "next/link";
 import Image from "next/image";
 import React from "react";
 import { useTheme } from "next-themes";
+import { useMounted } from "@/components/front/hooks/useMounted";
 
 const HeaderLogo = () => {
   const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useMounted();
 
   const logoSrc = !mounted
     ? "/logo/logo-black.png"

@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import Stripe from "stripe"
 import { clerkClient } from "@clerk/nextjs/server"
 import { ensureClerkUser, findClerkUserByIdentifiers, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
 import { authorizeStudentOperationalRequest, type StaffPortalAuthResult } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
+import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
+import { PURCHASE_SOURCE } from "@/lib/payment-constants"
+import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey, materializeSelectableClassSession } from "./sessions/selectable-sessions"
+import { safeOptionalText as safeText } from "@/lib/api-helpers"
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY
 const stripe = stripeSecret
@@ -25,15 +32,20 @@ type StaffCreateStudentPayload = {
   amountCents: number
   paymentMode?: "cash" | "card_qr"
   note?: string
+  checkIn?: {
+    enabled: boolean
+    sessionId?: string
+    date?: string
+  }
 }
 
 type ParseResult =
   | { ok: true; payload: StaffCreateStudentPayload }
   | { ok: false; error: string }
 
-const safeText = (value: unknown, max = 120) => {
+const safeCheckInDateText = (value: unknown) => {
   if (typeof value !== "string") return undefined
-  const trimmed = value.trim().slice(0, max)
+  const trimmed = value.trim()
   return trimmed || undefined
 }
 
@@ -43,6 +55,18 @@ const parseAmountCents = (value: unknown): number | null => {
   return value
 }
 
+const normalizeStaffPhone = (value: string | undefined) => {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  const digits = value.replace(/\D/g, "")
+
+  if (trimmed.startsWith("+")) {
+    return /^\+[\d\s().-]+$/.test(trimmed) && /^[1-9]\d{7,14}$/.test(digits) ? `+${digits}` : null
+  }
+
+  return /^\d{10}$/.test(digits) ? `+1${digits}` : null
+}
+
 const parsePayload = (body: unknown): ParseResult => {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "Invalid JSON body" }
@@ -50,27 +74,26 @@ const parsePayload = (body: unknown): ParseResult => {
 
   const record = body as Record<string, unknown>
   const email = safeText(record.email, 254)?.toLowerCase()
-  let phone = safeText(record.phone, 32)
+  const phoneInput = safeText(record.phone, 32)
+  const phone = normalizeStaffPhone(phoneInput)
   const name = safeText(record.name, 120)
   const note = safeText(record.note, 500)
+  const attendanceSessionId = safeText(record.attendanceSessionId, 120)
+  const checkInRecord = record.checkIn && typeof record.checkIn === "object" && !Array.isArray(record.checkIn)
+    ? record.checkIn as Record<string, unknown>
+    : null
+  const checkInEnabled = checkInRecord ? checkInRecord.enabled === true : Boolean(attendanceSessionId)
+  const checkInSessionId = safeText(checkInRecord?.sessionId, 120) || attendanceSessionId
+  const checkInDate = safeCheckInDateText(checkInRecord?.date)
 
-  // Auto-prefix + for E.164 if user provided digits only
-  if (phone && !phone.startsWith("+")) {
-    phone = `+${phone.replace(/\D/g, "")}`
-  }
-  // Strip non-digit chars after the + (spaces, dashes, parens)
-  if (phone) {
-    phone = `+${phone.slice(1).replace(/\D/g, "")}`
-  }
-
-  if (!email && !phone) {
-    return { ok: false, error: "Provide an email or phone number." }
-  }
   if (email && !EMAIL_PATTERN.test(email)) {
     return { ok: false, error: "Invalid email." }
   }
-  if (phone && phone.length < 7) {
-    return { ok: false, error: "Phone number is too short." }
+  if (phoneInput && !phone) {
+    return { ok: false, error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." }
+  }
+  if (!email && !phone) {
+    return { ok: false, error: "Provide an email or phone number." }
   }
 
   const amountCents = parseAmountCents(record.amountCents)
@@ -88,16 +111,23 @@ const parsePayload = (body: unknown): ParseResult => {
   if (paymentMode && !PAYMENT_MODES.has(paymentMode)) {
     return { ok: false, error: "Payment mode must be cash or card_qr." }
   }
+  if (checkInEnabled && !checkInSessionId) {
+    return { ok: false, error: "Select a class session for check-in." }
+  }
+  if (checkInEnabled && checkInDate && (checkInDate.length > 64 || !isValidSessionDateKey(checkInDate))) {
+    return { ok: false, error: "Invalid check-in date. Use YYYY-MM-DD." }
+  }
 
   return {
     ok: true,
     payload: {
       email,
-      phone,
+      phone: phone ?? undefined,
       name,
       amountCents,
       paymentMode: paymentMode as "cash" | "card_qr" | undefined,
       note,
+      checkIn: checkInEnabled ? { enabled: true, sessionId: checkInSessionId, date: checkInDate } : undefined,
     },
   }
 }
@@ -112,6 +142,28 @@ const emailFromClerkUser = (user: ClerkUser, fallback?: string) =>
 
 const phoneFromClerkUser = (user: ClerkUser, fallback?: string) =>
   user.phoneNumbers?.[0]?.phoneNumber || fallback
+
+const clerkErrorStatus = (error: unknown) => {
+  if (!error || typeof error !== "object") return undefined
+  const record = error as Record<string, unknown>
+  const status = record.status ?? record.statusCode
+  return typeof status === "number" ? status : undefined
+}
+
+const describeClerkIdentityFailure = (error: unknown) => {
+  const status = clerkErrorStatus(error)
+  if (status === 400 || status === 422) {
+    return {
+      status: 400,
+      error: "Unable to create student identity with the provided email or phone. Please check the contact details.",
+    }
+  }
+
+  return {
+    status: 503,
+    error: "Student identity service is temporarily unavailable. Please try again.",
+  }
+}
 
 const maybeSendEmailInvitation = async (req: Request, email?: string) => {
   if (!email) return false
@@ -132,8 +184,16 @@ const maybeSendEmailInvitation = async (req: Request, email?: string) => {
   }
 }
 
-const createCashPurchase = async (userId: string, amountCents: number, note?: string) => {
-  return prisma.purchase.create({
+type PurchaseDelegate = Pick<typeof prisma.purchase, "create">
+
+const createCashPurchase = async (
+  purchaseDelegate: PurchaseDelegate,
+  userId: string,
+  amountCents: number,
+  note?: string,
+  attendanceId?: string
+) => {
+  return purchaseDelegate.create({
     data: {
       userId,
       courseSlug: "_staff_registration",
@@ -148,13 +208,20 @@ const createCashPurchase = async (userId: string, amountCents: number, note?: st
         settlementStatus: "pending",
         isRegistrationDeposit: true,
         staffNote: note ?? null,
+        attendanceId: attendanceId ?? null,
       },
     },
   })
 }
 
-const createCardQrPurchase = async (userId: string, amountCents: number, req: Request, note?: string) => {
-  const purchase = await prisma.purchase.create({
+const createCardQrPurchaseRecord = async (
+  purchaseDelegate: PurchaseDelegate,
+  userId: string,
+  amountCents: number,
+  note?: string,
+  attendanceId?: string
+) => {
+  return purchaseDelegate.create({
     data: {
       userId,
       courseSlug: "_staff_registration",
@@ -169,12 +236,16 @@ const createCardQrPurchase = async (userId: string, amountCents: number, req: Re
         settlementStatus: "pending",
         isRegistrationDeposit: true,
         staffNote: note ?? null,
+        attendanceId: attendanceId ?? null,
       },
     },
   })
+}
+
+const createStripeCheckoutUrl = async (purchase: { id: string }, userId: string, amountCents: number, req: Request) => {
 
   if (!stripe) {
-    return { purchase, checkoutUrl: undefined }
+    return undefined
   }
 
   const requestUrl = new URL(req.url)
@@ -208,7 +279,114 @@ const createCardQrPurchase = async (userId: string, amountCents: number, req: Re
     },
   })
 
-  return { purchase, checkoutUrl: session.url ?? undefined }
+  return session.url ?? undefined
+}
+
+const findUsablePackageTx = async (
+  tx: Prisma.TransactionClient,
+  userId: string,
+  courseSlug: string,
+  now: Date
+) => {
+  const packages = await tx.packagePurchase.findMany({
+    where: {
+      userId,
+      status: "active",
+      AND: [
+        {
+          OR: [
+            { courseSlug },
+            { packagePlan: { courseSlugs: { has: courseSlug } } },
+            { courseSlug: null, packagePlanId: null },
+          ],
+        },
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+        { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
+      ],
+    },
+    select: {
+      id: true,
+      packageId: true,
+      packageLabel: true,
+      courseSlug: true,
+      isUnlimited: true,
+      remainingCredits: true,
+      expiresAt: true,
+      status: true,
+      packagePlan: { select: { courseSlugs: true } },
+    },
+    orderBy: [{ expiresAt: "asc" }, { purchasedAt: "desc" }],
+    take: 1,
+  })
+  return packages[0] || null
+}
+
+const createManualAttendanceTx = async (
+  tx: Prisma.TransactionClient,
+  input: {
+    user: { id: string; email?: string | null; name?: string | null; phone?: string | null }
+    sessionId: string
+    date?: string
+    staffUserId: string
+  }
+) => {
+  const now = new Date()
+  const session = await materializeSelectableClassSession(tx, now, input.sessionId, input.date)
+  if (!session) {
+    return { ok: false as const, status: 400, error: "Selected class session is not available for staff check-in." }
+  }
+
+  const existingAttendance = await tx.attendance.findUnique({
+    where: { userId_sessionId: { userId: input.user.id, sessionId: session.id } },
+    select: { id: true },
+  })
+  if (existingAttendance) {
+    return { ok: false as const, status: 409, error: "Student is already checked in for this class session." }
+  }
+
+  const selectedPackage = await findUsablePackageTx(tx, input.user.id, session.courseSlug, now)
+  const attendance = await tx.attendance.create({
+    data: {
+      userId: input.user.id,
+      sessionId: session.id,
+      status: selectedPackage ? "checked_in" : "checked_in_no_package",
+      checkedInAt: now,
+      metadata: {
+        source: "staff_created_student",
+        staffUserId: input.staffUserId,
+      },
+    },
+  })
+
+  if (selectedPackage) {
+    const reserveResult = await reservePackageCreditForAttendanceTx(tx, {
+      packagePurchaseId: selectedPackage.id,
+      userId: input.user.id,
+      attendanceId: attendance.id,
+      courseSlug: session.courseSlug,
+      at: now,
+      reason: "STAFF_CREATED_STUDENT_CHECK_IN",
+    })
+    const packagePurchase = reserveResult.packagePurchase || selectedPackage
+    const startsAtIso = session.startsAt.toISOString()
+    await ensureAttendancePackagePurchase(tx, {
+      attendanceId: attendance.id,
+      userId: input.user.id,
+      courseSlug: session.courseSlug,
+      courseTitle: session.title || session.courseSlug,
+      email: input.user.email || null,
+      name: input.user.name || null,
+      phone: input.user.phone || null,
+      packageId: packagePurchase.packageId,
+      packagePurchaseId: packagePurchase.id,
+      source: "staff_created_student",
+      purchaseSource: PURCHASE_SOURCE.FRONT_DESK,
+      date: input.date || startsAtIso.slice(0, 10),
+      time: startsAtIso.slice(11, 16),
+    })
+  }
+
+  return { ok: true as const, attendance }
 }
 
 const writeProfileCreationAudit = async (
@@ -248,23 +426,31 @@ const writePaymentCreationAudit = async (
 }
 
 const createOrReuseStudentIdentity = async (payload: StaffCreateStudentPayload, req: Request) => {
-  const existingClerkUser = await findClerkUserByIdentifiers({ email: payload.email, phone: payload.phone })
-  const clerkUser = existingClerkUser || await ensureClerkUser({
-    email: payload.email,
-    phone: payload.phone,
-    name: payload.name,
-  })
+  let existingClerkUser: ClerkUser | null
+  let clerkUser: ClerkUser | null
 
-  if (!clerkUser) {
-    return { ok: false as const, error: "Unable to create student identity." }
-  }
-
-  if (existingClerkUser) {
-    await updateClerkUserIfMissing(existingClerkUser, {
+  try {
+    existingClerkUser = await findClerkUserByIdentifiers({ email: payload.email, phone: payload.phone })
+    clerkUser = existingClerkUser || await ensureClerkUser({
       email: payload.email,
       phone: payload.phone,
       name: payload.name,
     })
+
+    if (existingClerkUser) {
+      await updateClerkUserIfMissing(existingClerkUser, {
+        email: payload.email,
+        phone: payload.phone,
+        name: payload.name,
+      })
+    }
+  } catch (error) {
+    console.warn("Clerk student identity operation failed", error)
+    return { ok: false as const, ...describeClerkIdentityFailure(error) }
+  }
+
+  if (!clerkUser) {
+    return { ok: false as const, error: "Student identity service is temporarily unavailable. Please try again.", status: 503 }
   }
 
   const localUser = await upsertUserByIdentifiers({
@@ -276,7 +462,7 @@ const createOrReuseStudentIdentity = async (payload: StaffCreateStudentPayload, 
   })
 
   if (!localUser) {
-    return { ok: false as const, error: "Unable to link student identity." }
+    return { ok: false as const, error: "Student identity service is temporarily unavailable. Please try again.", status: 503 }
   }
 
   const emailInvitationAttempted = await maybeSendEmailInvitation(req, payload.email)
@@ -294,22 +480,12 @@ const createOrReuseStudentIdentity = async (payload: StaffCreateStudentPayload, 
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:students:create", getClientIp(req)),
-    limit: 30,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:students:create", limit: 30, windowMs: 60_000 },
+    authorize: () => authorizeStudentOperationalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStudentOperationalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   let body: unknown
   try {
@@ -323,33 +499,87 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 400 })
   }
 
+  const now = new Date()
+  if (parsed.payload.checkIn?.date && !isSelectableSessionDateKey(parsed.payload.checkIn.date, now)) {
+    return NextResponse.json({ error: "Check-in date must be today or within the last 14 days." }, { status: 400 })
+  }
+
+  if (parsed.payload.checkIn?.enabled) {
+    const selectableSessions = await findSelectableClassSessions(prisma, now, parsed.payload.checkIn.date)
+    const isSelectableSession = selectableSessions.some((session) => (
+      session.id === parsed.payload.checkIn?.sessionId
+        || ("syntheticId" in session && session.syntheticId === parsed.payload.checkIn?.sessionId)
+    ))
+    if (!isSelectableSession) {
+      return NextResponse.json({ error: "Selected class session is not available for staff check-in." }, { status: 400 })
+    }
+  }
+
   const identity = await createOrReuseStudentIdentity(parsed.payload, req)
   if (!identity.ok) {
-    return NextResponse.json({ error: identity.error }, { status: 500 })
+    return NextResponse.json({ error: identity.error }, { status: identity.status })
+  }
+
+  const { amountCents, paymentMode, note } = parsed.payload
+  let purchase: { id: string } | undefined
+  let attendanceId: string | undefined
+  let stripeCheckoutUrl: string | undefined
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const attendanceResult = parsed.payload.checkIn?.enabled
+        ? await createManualAttendanceTx(tx, {
+            user: identity.localUser,
+            sessionId: parsed.payload.checkIn.sessionId || "",
+            date: parsed.payload.checkIn.date,
+            staffUserId: authResult.userId,
+          })
+        : null
+
+      if (attendanceResult && !attendanceResult.ok) {
+        return attendanceResult
+      }
+
+      const resolvedAttendanceId = attendanceResult?.attendance.id
+      let createdPurchase: { id: string } | undefined
+
+      if (amountCents > 0 && paymentMode === "cash") {
+        createdPurchase = await createCashPurchase(tx.purchase, identity.localUser.id, amountCents, note, resolvedAttendanceId)
+      } else if (amountCents > 0 && paymentMode === "card_qr") {
+        createdPurchase = await createCardQrPurchaseRecord(tx.purchase, identity.localUser.id, amountCents, note, resolvedAttendanceId)
+      }
+
+      return { ok: true as const, attendanceId: resolvedAttendanceId, purchase: createdPurchase }
+    })
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status })
+    }
+
+    attendanceId = result.attendanceId
+    purchase = result.purchase
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json({ error: "Student is already checked in for this class session." }, { status: 409 })
+    }
+    throw error
   }
 
   await writeProfileCreationAudit(identity.localUser.id, authResult)
 
-  const { amountCents, paymentMode, note } = parsed.payload
-  let purchaseId: string | undefined
-  let stripeCheckoutUrl: string | undefined
-
-  if (amountCents > 0 && paymentMode === "cash") {
-    const purchase = await createCashPurchase(identity.localUser.id, amountCents, note)
-    purchaseId = purchase.id
-    await writePaymentCreationAudit(identity.localUser.id, purchase.id, amountCents, "cash", authResult)
-  } else if (amountCents > 0 && paymentMode === "card_qr") {
-    const { purchase, checkoutUrl } = await createCardQrPurchase(identity.localUser.id, amountCents, req, note)
-    purchaseId = purchase.id
-    stripeCheckoutUrl = checkoutUrl
-    await writePaymentCreationAudit(identity.localUser.id, purchase.id, amountCents, "card_qr", authResult)
+  if (purchase && amountCents > 0 && paymentMode) {
+    await writePaymentCreationAudit(identity.localUser.id, purchase.id, amountCents, paymentMode, authResult)
+    if (paymentMode === "card_qr") {
+      stripeCheckoutUrl = await createStripeCheckoutUrl(purchase, identity.localUser.id, amountCents, req)
+    }
   }
 
   return NextResponse.json({
     userId: identity.localUser.id,
     clerkUserId: identity.clerkUser.id,
     isExisting: identity.isExisting,
-    purchaseId,
+    purchaseId: purchase?.id,
+    attendanceId,
     paymentMode: amountCents > 0 ? paymentMode : undefined,
     stripeCheckoutUrl,
     activation: identity.activation,

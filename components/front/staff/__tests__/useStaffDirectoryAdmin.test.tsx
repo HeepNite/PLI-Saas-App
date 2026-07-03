@@ -11,7 +11,17 @@ testGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
 type HookState = ReturnType<typeof useStaffDirectoryAdmin>
 
-function HookHarness({ onState, canAccessUsersNav = true }: { onState: (state: HookState) => void; canAccessUsersNav?: boolean }) {
+function HookHarness({
+  onState,
+  canAccessUsersNav = true,
+  canManageClerkSync = false,
+  shouldFetchClerkSyncHealth = false,
+}: {
+  onState: (state: HookState) => void
+  canAccessUsersNav?: boolean
+  canManageClerkSync?: boolean
+  shouldFetchClerkSyncHealth?: boolean
+}) {
   const [error, setError] = React.useState<string | null>(null)
   const scheduleEventsByDay = React.useMemo(() => ({}), [])
   const ensureMinimumLoadingTime = React.useCallback(async () => undefined, [])
@@ -19,8 +29,8 @@ function HookHarness({ onState, canAccessUsersNav = true }: { onState: (state: H
   const isInsideCriticalClassWindow = React.useCallback(() => false, [])
   const state = useStaffDirectoryAdmin({
     canAccessUsersNav,
-    canManageClerkSync: false,
-    shouldFetchClerkSyncHealth: false,
+    canManageClerkSync,
+    shouldFetchClerkSyncHealth,
     scheduleEventsByDay,
     ensureMinimumLoadingTime,
     handleStaffAuthFailure,
@@ -54,11 +64,11 @@ describe("useStaffDirectoryAdmin", () => {
     vi.restoreAllMocks()
   })
 
-  async function renderHookHarness(canAccessUsersNav = true) {
+  async function renderHookHarness(props: Partial<React.ComponentProps<typeof HookHarness>> = {}) {
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
-    await act(async () => root!.render(<HookHarness canAccessUsersNav={canAccessUsersNav} onState={(state) => { latestState = state }} />))
+    await act(async () => root!.render(<HookHarness {...props} onState={(state) => { latestState = state }} />))
     return latestState!
   }
 
@@ -103,10 +113,62 @@ describe("useStaffDirectoryAdmin", () => {
   it("clears directory state when users nav is inaccessible", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({} as Response)
 
-    const state = await renderHookHarness(false)
+    const state = await renderHookHarness({ canAccessUsersNav: false })
 
     expect(state.loading).toBe(false)
     expect(state.rows).toEqual([])
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("does not check Clerk sync health on load and preserves explicit manual checks", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes("/api/staff/users/sync-clerk/health")) {
+        return jsonResponse({ clerkUsers: 1, dbUsersWithClerkId: 1, missingCount: 0, missingUsers: [] })
+      }
+      if (url.includes("/api/staff/users") && !url.includes("payroll-model")) return jsonResponse({ items: [] })
+      if (url.includes("/api/staff/payroll/payment-models")) return jsonResponse({ items: [] })
+      return jsonResponse({})
+    })
+
+    const state = await renderHookHarness({ canManageClerkSync: true, shouldFetchClerkSyncHealth: false })
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/staff/users/sync-clerk/health",
+      expect.anything(),
+    )
+
+    await act(async () => {
+      await state.fetchClerkSyncHealth()
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/staff/users/sync-clerk/health",
+      expect.objectContaining({ cache: "no-store" }),
+    )
+  })
+
+  it("treats degraded Clerk sync health as a visible non-blocking unavailable state", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes("/api/staff/users/sync-clerk/health")) {
+        return jsonResponse({
+          status: "degraded",
+          error: "User sync status is temporarily unavailable. Try checking again shortly.",
+        })
+      }
+      if (url.includes("/api/staff/users") && !url.includes("payroll-model")) return jsonResponse({ items: [] })
+      if (url.includes("/api/staff/payroll/payment-models")) return jsonResponse({ items: [] })
+      return jsonResponse({})
+    })
+
+    const state = await renderHookHarness({ canManageClerkSync: true, shouldFetchClerkSyncHealth: false })
+
+    await act(async () => {
+      await state.fetchClerkSyncHealth()
+    })
+
+    expect(latestState!.clerkSyncError).toBe("User sync status is temporarily unavailable. Try checking again shortly.")
+    expect(latestState!.clerkSyncHealth).toBeNull()
   })
 })

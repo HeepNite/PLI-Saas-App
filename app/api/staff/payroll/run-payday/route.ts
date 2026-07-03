@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { jsonError, readJsonBody } from "@/lib/payroll/route-helpers"
 import { deriveHoursWorked } from "@/lib/payroll/hours"
 import { closeOpenClockEntriesForPayroll } from "@/lib/payroll/auto-closure"
@@ -154,10 +155,16 @@ function calculateNextPayday(
 }
 
 export async function POST(req: Request) {
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  const guard = await withStaffGuard(req, {
+    rateLimit: {
+      scope: "staff:payroll:run-payday:post",
+      limit: 10,
+      windowMs: 60_000,
+    },
+    authorize: () => authorizeStaffPortalRequest(),
+  })
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const parsedBody = await readJsonBody(req)
   if (!parsedBody.ok) return parsedBody.response

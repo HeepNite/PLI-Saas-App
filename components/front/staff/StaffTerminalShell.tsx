@@ -147,7 +147,7 @@ export default function StaffTerminalShell({
 
   const [todayClasses, setTodayClasses] = useState<TodayClassItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [origin, setOrigin] = useState("")
+  const origin = typeof window !== "undefined" ? window.location.origin : ""
 
   const fetchDateKeyRef = React.useRef<string | null>(null)
 
@@ -171,12 +171,6 @@ export default function StaffTerminalShell({
   useEffect(() => {
     void fetchTodayClasses()
   }, [fetchTodayClasses])
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setOrigin(window.location.origin)
-    }
-  }, [])
 
   // Re-fetch when the day changes (single timeout to next midnight ET) + on wake from sleep
   useEffect(() => {

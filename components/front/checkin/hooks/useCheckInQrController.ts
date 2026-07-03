@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { useAuth, useClerk, useUser } from "@clerk/nextjs"
 import { demoCourses } from "@/constants/courses"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
@@ -23,19 +23,12 @@ import { useConsecutiveOfferState } from "@/components/front/checkin/hooks/useCo
 import { useConsecutiveOfferActions } from "@/components/front/checkin/hooks/useConsecutiveOfferActions"
 import { useEntryModeRouter } from "@/components/front/checkin/hooks/useEntryModeRouter"
 import { useCheckInBookingModalFlow } from "@/components/front/checkin/hooks/useCheckInBookingModalFlow"
-import { parseDuration } from "@/lib/checkin/checkin-helpers"
-import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
-import {
-  resolveCheckInActiveContext,
-  resolveCheckInBootstrapContextPayload,
-} from "@/lib/checkin/checkin-bootstrap-context"
 import { useCheckInTerminalEffects } from "@/components/front/checkin/hooks/useCheckInTerminalEffects"
+import { useCheckInQrCoreState } from "@/components/front/checkin/hooks/useCheckInQrCoreState"
 import type {
-  EntryMode,
   BootstrapResponse,
   CheckInQrClientProps,
-  PackageOfferContext,
 } from "@/components/front/checkin/checkin.types"
 import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrShell"
 
@@ -70,52 +63,72 @@ export function useCheckInQrController({
     [catalogCourses]
   )
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const { isLoaded, isSignedIn, user } = useUser()
   const { getToken, sessionId: activeSessionId } = useAuth()
   const clerk = useClerk()
-  const [internalNowTick, setInternalNowTick] = React.useState<Date>(() => new Date())
-  const nowTick = simulatedNowTick ?? internalNowTick
-  const [origin, setOrigin] = React.useState("")
-  const [isCompactViewport, setIsCompactViewport] = React.useState(false)
-  const durationMinutes = parseDuration(searchParams.get("durationMinutes"))
 
-  // ─── State ──────────────────────────────────────────────────
-  const [mode, setMode] = React.useState<EntryMode>("idle")
-  const [openNewBooking, setOpenNewBooking] = React.useState(false)
-  const [newBookingOverride, setNewBookingOverride] = React.useState<{
-    courseSlug: string
-    date: string
-    time: string
-  } | null>(null)
-  const [latePaymentEntryOverride, setLatePaymentEntryOverride] = React.useState<{
-    courseSlug: string
-    date: string
-    time: string
-  } | null>(null)
-  const [showPhoneSignIn, setShowPhoneSignIn] = React.useState(false)
-  const [pendingLoginPhone, setPendingLoginPhone] = React.useState("")
-  const [existingRegularBookingOverride, setExistingRegularBookingOverride] = React.useState<{
-    courseSlug: string
-    date: string
-    time: string
-  } | null>(null)
-  const [existingRegularBookingKey, setExistingRegularBookingKey] = React.useState(0)
-  // When the user accepts a consecutive offer pre-check-in with a positive
-  // price, we first show the package success overlay (credit consumed,
-  // remaining credits) and wait for the operator/student to press "Done"
-  // before opening the Cash/Card payment selection for class B. This flag
-  // tells the Done handler to advance to payment selection instead of
-  // resetting the station.
-  const [awaitingConsecutivePaymentSelection, setAwaitingConsecutivePaymentSelection] = React.useState(false)
-  const [paymentsModalReady, setPaymentsModalReady] = React.useState(false)
-  const [processingPackageCheckIn, setProcessingPackageCheckIn] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-  const [success, setSuccess] = React.useState<string | null>(null)
-  const [showDuplicatePurchasePopup, setShowDuplicatePurchasePopup] = React.useState(false)
-  const [packageOfferContext, setPackageOfferContext] = React.useState<PackageOfferContext>(null)
-  const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
-  const [returnedFromNewStudentFlow, setReturnedFromNewStudentFlow] = React.useState(false)
+  // ─── Core state (primitive state + derived context) ──────────
+  const {
+    searchParams,
+    internalNowTick: _internalNowTick,
+    setInternalNowTick,
+    nowTick,
+    origin,
+    setOrigin,
+    isCompactViewport,
+    setIsCompactViewport,
+    durationMinutes,
+    mode,
+    setMode,
+    openNewBooking,
+    setOpenNewBooking,
+    newBookingOverride,
+    setNewBookingOverride,
+    latePaymentEntryOverride,
+    setLatePaymentEntryOverride,
+    showPhoneSignIn,
+    setShowPhoneSignIn,
+    pendingLoginPhone,
+    setPendingLoginPhone,
+    existingRegularBookingOverride,
+    setExistingRegularBookingOverride,
+    existingRegularBookingKey,
+    setExistingRegularBookingKey,
+    awaitingConsecutivePaymentSelection,
+    setAwaitingConsecutivePaymentSelection,
+    paymentsModalReady,
+    setPaymentsModalReady,
+    processingPackageCheckIn,
+    setProcessingPackageCheckIn,
+    error,
+    setError,
+    success,
+    setSuccess,
+    showDuplicatePurchasePopup,
+    setShowDuplicatePurchasePopup,
+    packageOfferContext,
+    setPackageOfferContext,
+    packageOfferSelectedId,
+    setPackageOfferSelectedId,
+    returnedFromNewStudentFlow,
+    setReturnedFromNewStudentFlow,
+    consecutiveQrCheckout,
+    setConsecutiveQrCheckout,
+    preDisplayActiveContext,
+    contextPayload,
+    visibleError,
+    photoFlowContext,
+    isKioskTerminalFlow,
+  } = useCheckInQrCoreState({
+    sourceCourses,
+    shellVariant,
+    forcedCourseSlug,
+    forcedClassContext,
+    selectedCourseSlug,
+    terminalTodayOnly,
+    simulatedNowTick,
+  })
+
   const setBootstrapRef = React.useRef<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(() => {})
   const setBootstrapFromRef = React.useCallback<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(
     (value) => setBootstrapRef.current(value),
@@ -232,7 +245,11 @@ export function useCheckInQrController({
     resetKioskPinFlow,
   } = useKioskPinFlow<BootstrapResponse>({
     isKioskTerminalFlow,
+    contextPayload,
     setBootstrap: setBootstrapFromRef,
+    setConsecutiveOffer,
+    setShowConsecutiveOverlay,
+    setShowConsecutivePaymentSelection,
     setError,
     setSuccess,
   })
@@ -324,7 +341,7 @@ export function useCheckInQrController({
     hideQrPanel,
     qrPathOverride,
     pathname,
-    searchParams,
+    searchParams: searchParams as URLSearchParams,
     forcedDeviceMode,
     forcedCourseSlug,
     forcedClassContext,

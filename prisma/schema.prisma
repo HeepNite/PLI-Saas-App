@@ -70,6 +70,7 @@ model Purchase {
   packagePurchases        PackagePurchase[]
 
   @@index([userId])
+  @@index([userId, status])
   @@index([courseSlug])
   @@index([status])
   @@index([createdAt])

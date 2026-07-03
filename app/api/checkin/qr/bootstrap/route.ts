@@ -34,11 +34,6 @@ type CoursePricingTemplate = {
   amountCents: number
 }
 
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
-
 const splitName = (value: string) => {
   const parts = value.trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return { firstName: "", lastName: "" }
@@ -47,9 +42,6 @@ const splitName = (value: string) => {
     lastName: parts.slice(1).join(" "),
   }
 }
-
-const toRecord = (value: unknown) =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 const toStringArray = (value: unknown) => {
   if (!Array.isArray(value)) return [] as string[]
@@ -73,12 +65,12 @@ const buildPricingTemplate = (input: {
   const course = input.course
 
   const metadata = input.lastPurchaseMetadata
-  const serviceIdCandidate = normalizeString(metadata?.serviceId)
-  const packageIdCandidate = normalizeString(metadata?.packageId)
+  const serviceIdCandidate = asText(metadata?.serviceId)
+  const packageIdCandidate = asText(metadata?.packageId)
   const participantsCandidate = input.lastPurchaseParticipants && Number.isFinite(input.lastPurchaseParticipants)
     ? Math.max(1, Math.min(10, Math.round(input.lastPurchaseParticipants)))
     : 1
-  const couponCandidate = normalizeString(input.lastPurchaseCoupon)
+  const couponCandidate = asText(input.lastPurchaseCoupon)
   const addonsFromMetadata = toStringArray(metadata?.addons)
   const addonsFromCsv = typeof input.lastPurchaseAddonsCsv === "string"
     ? input.lastPurchaseAddonsCsv
@@ -176,10 +168,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const payload = toRecord(body)
+    const payload = asRecord(body)
     const authResult = await auth()
-    const kioskSessionToken = normalizeString(payload?.kioskSessionToken)
-    const flowContext = normalizeString(payload?.flowContext)
+    const kioskSessionToken = asText(payload?.kioskSessionToken)
+    const flowContext = asText(payload?.flowContext)
     const kioskCustomerAuth =
       flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
         ? await resolveKioskCustomerClerkAuth(authResult.userId)
@@ -508,7 +500,7 @@ export async function POST(req: Request) {
       packages: activePackages,
     })
 
-    const purchaseMetadata = toRecord(lastPurchase?.metadata)
+    const purchaseMetadata = asRecord(lastPurchase?.metadata)
     const quickTemplate = lastPurchase
       ? buildPricingTemplate({
           course,
@@ -525,7 +517,7 @@ export async function POST(req: Request) {
     }))
 
     const purchaseHistory = recentPurchases.map((purchase) => {
-      const metadata = toRecord(purchase.metadata)
+      const metadata = asRecord(purchase.metadata)
       return {
         id: purchase.id,
         createdAt: purchase.createdAt.toISOString(),
@@ -533,11 +525,11 @@ export async function POST(req: Request) {
         currency: purchase.currency || "usd",
         status: purchase.status,
         participants: purchase.participants,
-        serviceId: normalizeString(metadata?.serviceId),
-        packageId: normalizeString(metadata?.packageId),
+        serviceId: asText(metadata?.serviceId),
+        packageId: asText(metadata?.packageId),
         addons: toStringArray(metadata?.addons),
-        date: normalizeString(metadata?.date),
-        time: normalizeString(metadata?.time),
+        date: asText(metadata?.date),
+        time: asText(metadata?.time),
       }
     })
 

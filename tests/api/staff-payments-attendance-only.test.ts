@@ -60,6 +60,22 @@ vi.mock("@/lib/security/student-pin", () => ({
   isLockedCredential: vi.fn(() => false),
   isProvisionalStudentPinActive: vi.fn(() => false),
   isStudentPinLifecycleEnabled: vi.fn(() => true),
+  isStudentPinSchemaUnavailableError: (error: unknown) => {
+    const code =
+      typeof error === "object" && error && "code" in error && typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string }).code
+        : null
+    const name =
+      typeof error === "object" && error && "name" in error && typeof (error as { name?: unknown }).name === "string"
+        ? (error as { name: string }).name
+        : null
+    return name === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(code ?? "")
+  },
+  loadStudentPinCredentials: async (userIds: string[]) => {
+    if (!userIds.length) return { available: false, credentials: [] }
+    const credentials = await mockPrisma.studentPinCredential.findMany()
+    return { available: true, credentials }
+  },
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({

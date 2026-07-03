@@ -64,6 +64,13 @@ vi.mock("@/lib/security/student-pin", () => ({
   isStudentPinLifecycleEnabled: () => mockIsStudentPinLifecycleEnabled(),
   isProvisionalStudentPinActive: (credential: { kind: string; status: string; expiresAt?: Date | null } | null | undefined) =>
     mockIsProvisionalStudentPinActive(credential),
+  loadStudentPinCredentials: async (userIds: string[]) => {
+    if (!userIds.length || !mockIsStudentPinLifecycleEnabled()) {
+      return { available: false, credentials: [] }
+    }
+    const credentials = await mockPrisma.studentPinCredential.findMany()
+    return { available: true, credentials }
+  },
 }))
 
 const buildUser = ({

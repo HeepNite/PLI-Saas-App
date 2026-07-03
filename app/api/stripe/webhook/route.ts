@@ -548,6 +548,7 @@ export async function POST(req: Request) {
   try {
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret)
   } catch (err) {
+    console.error("Stripe webhook: failed to construct event from signature", err)
     const message = err instanceof Error ? err.message : "Unknown error"
     return new NextResponse(`Webhook error: ${message}`, { status: 400 })
   }
@@ -565,6 +566,7 @@ export async function POST(req: Request) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return new NextResponse("Event already processed", { status: 200 })
     }
+    console.error("Stripe webhook: failed to persist webhook event", err)
     throw err
   }
 

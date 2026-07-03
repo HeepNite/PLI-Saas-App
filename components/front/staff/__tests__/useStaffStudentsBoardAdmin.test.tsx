@@ -120,6 +120,7 @@ describe("useStaffStudentsBoardAdmin", () => {
     root = null
     container = null
     latestState = null
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -217,5 +218,60 @@ describe("useStaffStudentsBoardAdmin", () => {
     expect(state.historyDerivedStats).toMatchObject({ studentCount: 2, checkedInCount: 2, packages: 1, dropIn: 1 })
     expect(state.studentsSummary).toMatchObject({ totalStudents: 7, checkedInStudents: 5, totalRevenueCents: 12000 })
     expect(state.historyReadableRange).toBe("Wed 25 Mar 26 → Thu 26 Mar 26")
+  })
+
+  it("backs off web-cash arrival polling when a degraded 200 response is returned", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-03-25T12:00:00.000Z"))
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "X-Staff-Service-Status": "degraded", "Retry-After": "30" },
+      }),
+    )
+
+    await renderHook(createOptions())
+    await act(async () => undefined)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      vi.advanceTimersByTime(20_000)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it("backs off payments pulse polling when a degraded 200 payload is returned", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-03-25T12:00:00.000Z"))
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes("/api/staff/payments/pulse")) {
+        return Promise.resolve(new Response(JSON.stringify({ status: "degraded" }), { status: 200, headers: { "Retry-After": "30" } }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    })
+
+    await renderHook(createOptions())
+    await act(async () => undefined)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      vi.advanceTimersByTime(15_000)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/staff/payments/pulse"))).toHaveLength(1)
+    await act(async () => {
+      vi.advanceTimersByTime(15_000)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/staff/payments/pulse"))).toHaveLength(2)
   })
 })

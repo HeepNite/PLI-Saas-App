@@ -33,6 +33,189 @@ export type StaffPaymentsAdminInput = {
   setError: (error: string | null) => void
 }
 
+// ---------------------------------------------------------------------------
+// State shape
+// ---------------------------------------------------------------------------
+
+type BoardState = {
+  payments: PaymentRow[]
+  paymentsMonthlySummaryApi: PaymentsApiSummary | null // null = "use factory on init"
+  paymentsMonthlyStudentCount: number
+  paymentsMonthlyCheckedInStudents: number
+  paymentsLoading: boolean
+}
+
+type FilterState = {
+  paymentsFilter: "all" | "pending" | "paid"
+  paymentCategoryFilter: PaymentCategoryFilter
+  historyFrom: string
+  historyTo: string
+  historyPaymentMethodFilter: HistoryPaymentMethodFilter
+  historyAttendanceFilter: HistoryAttendanceFilter
+  historyClassKey: string
+  historyClassOptions: HistoryClassOption[]
+  isHistorySearchLoading: boolean
+}
+
+type SelectionState = {
+  selectedPaymentIds: string[]
+  paymentsBulkBusyAction: PaymentsBulkBusyAction
+  checkoutMenuPaymentId: string | null
+}
+
+type PopoverState = {
+  paymentHistoryAnchor: HTMLElement | null
+  paymentHistoryStudentId: string | null
+  attendanceHistoryAnchor: HTMLElement | null
+  attendanceHistoryStudentId: string | null
+  auditHistoryAnchor: HTMLElement | null
+  auditHistoryStudentId: string | null
+  auditHistoryStudentName: string | null
+  userHistoryPayments: PaymentRow[]
+  userHistoryLoading: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Action discriminated union
+// ---------------------------------------------------------------------------
+
+type BoardAction =
+  | { type: "BOARD/SET_PAYMENTS"; payments: PaymentRow[]; summary: PaymentsApiSummary }
+  | { type: "BOARD/SET_SUMMARY"; summary: PaymentsApiSummary; studentCount: number; checkedInStudents: number }
+  | { type: "BOARD/RESET_PAYMENTS"; emptySummary: PaymentsApiSummary }
+  | { type: "BOARD/SET_LOADING"; loading: boolean }
+
+type FilterAction =
+  | { type: "FILTER/SET_PAYMENTS_FILTER"; value: "all" | "pending" | "paid" }
+  | { type: "FILTER/SET_CATEGORY"; category: PaymentCategoryFilter }
+  | { type: "FILTER/CLEAR_HISTORY" }
+  | { type: "FILTER/SET_HISTORY_FROM"; value: string }
+  | { type: "FILTER/SET_HISTORY_TO"; value: string }
+  | { type: "FILTER/SET_HISTORY_PAYMENT_METHOD"; value: HistoryPaymentMethodFilter }
+  | { type: "FILTER/SET_HISTORY_ATTENDANCE"; value: HistoryAttendanceFilter }
+  | { type: "FILTER/SET_HISTORY_CLASS_KEY"; value: string }
+  | { type: "FILTER/SET_HISTORY_CLASS_OPTIONS"; options: HistoryClassOption[] }
+  | { type: "FILTER/SET_HISTORY_SEARCH_LOADING"; loading: boolean }
+
+type SelectionAction =
+  | { type: "SELECTION/SELECT_IDS"; ids: string[] }
+  | { type: "SELECTION/DESELECT_IDS"; ids: string[] }
+  | { type: "SELECTION/CLEAR" }
+  | { type: "SELECTION/PRUNE"; visibleIds: string[] }
+  | { type: "SELECTION/SET_BULK_BUSY"; action: PaymentsBulkBusyAction }
+  | { type: "SELECTION/SET_CHECKOUT_MENU_ID"; id: string | null }
+
+type PopoverAction =
+  | { type: "POPOVER/SET_PAYMENT_HISTORY"; anchor: HTMLElement | null; studentId: string | null }
+  | { type: "POPOVER/SET_ATTENDANCE_HISTORY"; anchor: HTMLElement | null; studentId: string | null }
+  | { type: "POPOVER/SET_AUDIT_HISTORY"; anchor: HTMLElement | null; studentId: string | null; studentName: string | null }
+  | { type: "POPOVER/SET_USER_HISTORY_PAYMENTS"; payments: PaymentRow[] }
+  | { type: "POPOVER/SET_USER_HISTORY_LOADING"; loading: boolean }
+
+// ---------------------------------------------------------------------------
+// Reducers
+// ---------------------------------------------------------------------------
+
+function boardReducer(state: BoardState, action: BoardAction): BoardState {
+  switch (action.type) {
+    case "BOARD/SET_PAYMENTS":
+      return { ...state, payments: action.payments, paymentsMonthlySummaryApi: action.summary }
+    case "BOARD/SET_SUMMARY":
+      return {
+        ...state,
+        paymentsMonthlySummaryApi: action.summary,
+        paymentsMonthlyStudentCount: action.studentCount,
+        paymentsMonthlyCheckedInStudents: action.checkedInStudents,
+      }
+    case "BOARD/RESET_PAYMENTS":
+      return { ...state, payments: [], paymentsMonthlySummaryApi: action.emptySummary }
+    case "BOARD/SET_LOADING":
+      return { ...state, paymentsLoading: action.loading }
+    default:
+      return state
+  }
+}
+
+function filterReducer(state: FilterState, action: FilterAction): FilterState {
+  switch (action.type) {
+    case "FILTER/SET_PAYMENTS_FILTER":
+      return { ...state, paymentsFilter: action.value }
+    case "FILTER/SET_CATEGORY":
+      return { ...state, paymentCategoryFilter: action.category }
+    case "FILTER/CLEAR_HISTORY":
+      return {
+        ...state,
+        historyFrom: "",
+        historyTo: "",
+        historyPaymentMethodFilter: "all",
+        historyAttendanceFilter: "all",
+        historyClassKey: "",
+        historyClassOptions: [],
+      }
+    case "FILTER/SET_HISTORY_FROM":
+      return { ...state, historyFrom: action.value }
+    case "FILTER/SET_HISTORY_TO":
+      return { ...state, historyTo: action.value }
+    case "FILTER/SET_HISTORY_PAYMENT_METHOD":
+      return { ...state, historyPaymentMethodFilter: action.value }
+    case "FILTER/SET_HISTORY_ATTENDANCE":
+      return { ...state, historyAttendanceFilter: action.value }
+    case "FILTER/SET_HISTORY_CLASS_KEY":
+      return { ...state, historyClassKey: action.value }
+    case "FILTER/SET_HISTORY_CLASS_OPTIONS":
+      return { ...state, historyClassOptions: action.options }
+    case "FILTER/SET_HISTORY_SEARCH_LOADING":
+      return { ...state, isHistorySearchLoading: action.loading }
+    default:
+      return state
+  }
+}
+
+function selectionReducer(state: SelectionState, action: SelectionAction): SelectionState {
+  switch (action.type) {
+    case "SELECTION/SELECT_IDS":
+      return { ...state, selectedPaymentIds: [...new Set([...state.selectedPaymentIds, ...action.ids])] }
+    case "SELECTION/DESELECT_IDS":
+      return { ...state, selectedPaymentIds: state.selectedPaymentIds.filter((id) => !action.ids.includes(id)) }
+    case "SELECTION/CLEAR":
+      return { ...state, selectedPaymentIds: [] }
+    case "SELECTION/PRUNE":
+      return { ...state, selectedPaymentIds: state.selectedPaymentIds.filter((id) => action.visibleIds.includes(id)) }
+    case "SELECTION/SET_BULK_BUSY":
+      return { ...state, paymentsBulkBusyAction: action.action }
+    case "SELECTION/SET_CHECKOUT_MENU_ID":
+      return { ...state, checkoutMenuPaymentId: action.id }
+    default:
+      return state
+  }
+}
+
+function popoverReducer(state: PopoverState, action: PopoverAction): PopoverState {
+  switch (action.type) {
+    case "POPOVER/SET_PAYMENT_HISTORY":
+      return { ...state, paymentHistoryAnchor: action.anchor, paymentHistoryStudentId: action.studentId }
+    case "POPOVER/SET_ATTENDANCE_HISTORY":
+      return { ...state, attendanceHistoryAnchor: action.anchor, attendanceHistoryStudentId: action.studentId }
+    case "POPOVER/SET_AUDIT_HISTORY":
+      return {
+        ...state,
+        auditHistoryAnchor: action.anchor,
+        auditHistoryStudentId: action.studentId,
+        auditHistoryStudentName: action.studentName,
+      }
+    case "POPOVER/SET_USER_HISTORY_PAYMENTS":
+      return { ...state, userHistoryPayments: action.payments }
+    case "POPOVER/SET_USER_HISTORY_LOADING":
+      return { ...state, userHistoryLoading: action.loading }
+    default:
+      return state
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 const buildHistoryClassOptionsFromApi = (input: unknown): HistoryClassOption[] => {
   if (!Array.isArray(input)) return []
   return input
@@ -45,6 +228,10 @@ const buildHistoryClassOptionsFromApi = (input: unknown): HistoryClassOption[] =
     .filter((item): item is HistoryClassOption => Boolean(item))
 }
 
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
 export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
   const {
     studentSearchQuery,
@@ -55,77 +242,78 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     setError,
   } = input
 
-  // Payments board state
-  const [payments, setPayments] = React.useState<PaymentRow[]>([])
-  const [paymentsMonthlySummaryApi, setPaymentsMonthlySummaryApi] = React.useState<PaymentsApiSummary>(
-    () => createEmptyPaymentsSummary()
-  )
-  const [paymentsMonthlyStudentCount, setPaymentsMonthlyStudentCount] = React.useState(0)
-  const [paymentsMonthlyCheckedInStudents, setPaymentsMonthlyCheckedInStudents] = React.useState(0)
-  const [paymentsLoading, setPaymentsLoading] = React.useState(false)
+  const [board, dispatchBoard] = React.useReducer(boardReducer, undefined, (): BoardState => ({
+    payments: [],
+    paymentsMonthlySummaryApi: createEmptyPaymentsSummary(),
+    paymentsMonthlyStudentCount: 0,
+    paymentsMonthlyCheckedInStudents: 0,
+    paymentsLoading: false,
+  }))
 
-  // Filters
-  const [paymentsFilter, setPaymentsFilter] = React.useState<"all" | "pending" | "paid">("all")
-  const [paymentCategoryFilter, setPaymentCategoryFilter] = React.useState<PaymentCategoryFilter>("all")
-  const isHistoryMode = paymentCategoryFilter === "history"
+  const [filter, dispatchFilter] = React.useReducer(filterReducer, {
+    paymentsFilter: "all",
+    paymentCategoryFilter: "all",
+    historyFrom: "",
+    historyTo: "",
+    historyPaymentMethodFilter: "all",
+    historyAttendanceFilter: "all",
+    historyClassKey: "",
+    historyClassOptions: [],
+    isHistorySearchLoading: false,
+  })
 
-  // History filters
-  const [historyFrom, setHistoryFrom] = React.useState("")
-  const [historyTo, setHistoryTo] = React.useState("")
-  const [historyPaymentMethodFilter, setHistoryPaymentMethodFilter] = React.useState<HistoryPaymentMethodFilter>("all")
-  const [historyAttendanceFilter, setHistoryAttendanceFilter] = React.useState<HistoryAttendanceFilter>("all")
-  const [historyClassKey, setHistoryClassKey] = React.useState("")
-  const [historyClassOptions, setHistoryClassOptions] = React.useState<HistoryClassOption[]>([])
-  const [isHistorySearchLoading, setIsHistorySearchLoading] = React.useState(false)
+  const [selection, dispatchSelection] = React.useReducer(selectionReducer, {
+    selectedPaymentIds: [],
+    paymentsBulkBusyAction: null,
+    checkoutMenuPaymentId: null,
+  })
 
-  // Bulk + checkout state
-  const [selectedPaymentIds, setSelectedPaymentIds] = React.useState<string[]>([])
-  const [paymentsBulkBusyAction, setPaymentsBulkBusyAction] = React.useState<PaymentsBulkBusyAction>(null)
-  const [checkoutMenuPaymentId, setCheckoutMenuPaymentId] = React.useState<string | null>(null)
+  const [popover, dispatchPopover] = React.useReducer(popoverReducer, {
+    paymentHistoryAnchor: null,
+    paymentHistoryStudentId: null,
+    attendanceHistoryAnchor: null,
+    attendanceHistoryStudentId: null,
+    auditHistoryAnchor: null,
+    auditHistoryStudentId: null,
+    auditHistoryStudentName: null,
+    userHistoryPayments: [],
+    userHistoryLoading: false,
+  })
 
-  // Timeline popover anchors
-  const [paymentHistoryAnchor, setPaymentHistoryAnchor] = React.useState<HTMLElement | null>(null)
-  const [paymentHistoryStudentId, setPaymentHistoryStudentId] = React.useState<string | null>(null)
-  const [attendanceHistoryAnchor, setAttendanceHistoryAnchor] = React.useState<HTMLElement | null>(null)
-  const [attendanceHistoryStudentId, setAttendanceHistoryStudentId] = React.useState<string | null>(null)
-  const [auditHistoryAnchor, setAuditHistoryAnchor] = React.useState<HTMLElement | null>(null)
-  const [auditHistoryStudentId, setAuditHistoryStudentId] = React.useState<string | null>(null)
-  const [auditHistoryStudentName, setAuditHistoryStudentName] = React.useState<string | null>(null)
-  const [userHistoryPayments, setUserHistoryPayments] = React.useState<PaymentRow[]>([])
-  const [userHistoryLoading, setUserHistoryLoading] = React.useState(false)
+  // Derived
+  const isHistoryMode = filter.paymentCategoryFilter === "history"
 
+  // Stable refs — avoid stale closures in callbacks
   const studentSearchQueryRef = React.useRef("")
   const historyPopoverContextRef = React.useRef({ historyFrom: "", historyTo: "", isHistoryMode: false })
   const historySearchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Keep ref in sync with search query so fetchPayments stays stable across renders.
   React.useEffect(() => {
     studentSearchQueryRef.current = studentSearchQuery
   }, [studentSearchQuery])
 
   React.useEffect(() => {
-    historyPopoverContextRef.current = { historyFrom, historyTo, isHistoryMode }
-  }, [historyFrom, historyTo, isHistoryMode])
+    historyPopoverContextRef.current = { historyFrom: filter.historyFrom, historyTo: filter.historyTo, isHistoryMode }
+  }, [filter.historyFrom, filter.historyTo, isHistoryMode])
 
   const fetchPayments = React.useCallback(async (overrideSearchQuery?: string) => {
     const startedAt = Date.now()
-    setPaymentsLoading(true)
+    dispatchBoard({ type: "BOARD/SET_LOADING", loading: true })
     if (isHistoryMode && overrideSearchQuery !== undefined) {
-      setIsHistorySearchLoading(true)
+      dispatchFilter({ type: "FILTER/SET_HISTORY_SEARCH_LOADING", loading: true })
     }
     try {
-      if (isHistoryMode && (!historyFrom || !historyTo || historyFrom > historyTo)) {
-        setPayments([])
-        setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
-        setHistoryClassOptions([])
+      if (isHistoryMode && (!filter.historyFrom || !filter.historyTo || filter.historyFrom > filter.historyTo)) {
+        dispatchBoard({ type: "BOARD/RESET_PAYMENTS", emptySummary: createEmptyPaymentsSummary() })
+        dispatchFilter({ type: "FILTER/SET_HISTORY_CLASS_OPTIONS", options: [] })
         return
       }
 
       const url = new URL("/api/staff/payments", window.location.origin)
       const searchParams = buildPaymentsRequestSearchParams({
         isHistoryMode,
-        historyFrom,
-        historyTo,
+        historyFrom: filter.historyFrom,
+        historyTo: filter.historyTo,
         studentSearchQuery: overrideSearchQuery ?? studentSearchQueryRef.current,
       })
       url.search = searchParams.toString()
@@ -134,32 +322,36 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
         setError(typeof data?.error === "string" ? data.error : "Failed to load payments")
-        setPayments([])
-        setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
-        setHistoryClassOptions([])
+        dispatchBoard({ type: "BOARD/RESET_PAYMENTS", emptySummary: createEmptyPaymentsSummary() })
+        dispatchFilter({ type: "FILTER/SET_HISTORY_CLASS_OPTIONS", options: [] })
         return
       }
-      setPayments(Array.isArray(data?.items) ? data.items : [])
-      setPaymentsMonthlySummaryApi(normalizePaymentsSummary(data?.summary))
-      setHistoryClassOptions(isHistoryMode ? buildHistoryClassOptionsFromApi(data?.classOptions) : [])
+      dispatchBoard({
+        type: "BOARD/SET_PAYMENTS",
+        payments: Array.isArray(data?.items) ? data.items : [],
+        summary: normalizePaymentsSummary(data?.summary),
+      })
+      dispatchFilter({
+        type: "FILTER/SET_HISTORY_CLASS_OPTIONS",
+        options: isHistoryMode ? buildHistoryClassOptionsFromApi(data?.classOptions) : [],
+      })
     } catch {
       setError("Network error while loading payments")
-      setPayments([])
-      setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
-      setHistoryClassOptions([])
+      dispatchBoard({ type: "BOARD/RESET_PAYMENTS", emptySummary: createEmptyPaymentsSummary() })
+      dispatchFilter({ type: "FILTER/SET_HISTORY_CLASS_OPTIONS", options: [] })
     } finally {
       await ensureMinimumLoadingTime(startedAt)
-      setPaymentsLoading(false)
+      dispatchBoard({ type: "BOARD/SET_LOADING", loading: false })
       if (isHistoryMode && overrideSearchQuery !== undefined) {
-        setIsHistorySearchLoading(false)
+        dispatchFilter({ type: "FILTER/SET_HISTORY_SEARCH_LOADING", loading: false })
       }
     }
   }, [
     createEmptyPaymentsSummary,
     ensureMinimumLoadingTime,
     handleStaffAuthFailure,
-    historyFrom,
-    historyTo,
+    filter.historyFrom,
+    filter.historyTo,
     isHistoryMode,
     normalizePaymentsSummary,
     setError,
@@ -201,33 +393,40 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
-        setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
-        setPaymentsMonthlyStudentCount(0)
-        setPaymentsMonthlyCheckedInStudents(0)
+        dispatchBoard({
+          type: "BOARD/SET_SUMMARY",
+          summary: createEmptyPaymentsSummary(),
+          studentCount: 0,
+          checkedInStudents: 0,
+        })
         return
       }
 
       const monthlyPayments = Array.isArray(data?.items) ? (data.items as PaymentRow[]) : []
       const monthlyStudentCards = buildHistoryStudentCards(monthlyPayments)
 
-      setPaymentsMonthlySummaryApi(normalizePaymentsSummary(data?.summary))
-      setPaymentsMonthlyStudentCount(monthlyStudentCards.length)
-      setPaymentsMonthlyCheckedInStudents(
-        monthlyStudentCards.filter((item) => Boolean(item.latestAttendedPayment)).length
-      )
+      dispatchBoard({
+        type: "BOARD/SET_SUMMARY",
+        summary: normalizePaymentsSummary(data?.summary),
+        studentCount: monthlyStudentCards.length,
+        checkedInStudents: monthlyStudentCards.filter((item) => Boolean(item.latestAttendedPayment)).length,
+      })
     } catch {
-      setPaymentsMonthlySummaryApi(createEmptyPaymentsSummary())
-      setPaymentsMonthlyStudentCount(0)
-      setPaymentsMonthlyCheckedInStudents(0)
+      dispatchBoard({
+        type: "BOARD/SET_SUMMARY",
+        summary: createEmptyPaymentsSummary(),
+        studentCount: 0,
+        checkedInStudents: 0,
+      })
     }
   }, [createEmptyPaymentsSummary, handleStaffAuthFailure, normalizePaymentsSummary])
 
   // Reset history class key when its option disappears from the latest class options.
   React.useEffect(() => {
-    if (!historyClassKey) return
-    if (historyClassOptions.some((option) => option.slug === historyClassKey)) return
-    setHistoryClassKey("")
-  }, [historyClassKey, historyClassOptions])
+    if (!filter.historyClassKey) return
+    if (filter.historyClassOptions.some((option) => option.slug === filter.historyClassKey)) return
+    dispatchFilter({ type: "FILTER/SET_HISTORY_CLASS_KEY", value: "" })
+  }, [filter.historyClassKey, filter.historyClassOptions])
 
   // Load user payment history for history-range popovers only.
   // Daily PMT history must remain board-scoped to NY-today rows.
@@ -235,16 +434,16 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     const { historyFrom: activeHistoryFrom, historyTo: activeHistoryTo, isHistoryMode: activeIsHistoryMode } =
       historyPopoverContextRef.current
     const userId = activeIsHistoryMode
-      ? (paymentHistoryStudentId || attendanceHistoryStudentId)
-      : (attendanceHistoryStudentId || null)
+      ? (popover.paymentHistoryStudentId || popover.attendanceHistoryStudentId)
+      : (popover.attendanceHistoryStudentId || null)
     if (!userId) {
-      setUserHistoryPayments([])
+      dispatchPopover({ type: "POPOVER/SET_USER_HISTORY_PAYMENTS", payments: [] })
       return
     }
 
     let cancelled = false
-    setUserHistoryPayments([])
-    setUserHistoryLoading(true)
+    dispatchPopover({ type: "POPOVER/SET_USER_HISTORY_PAYMENTS", payments: [] })
+    dispatchPopover({ type: "POPOVER/SET_USER_HISTORY_LOADING", loading: true })
 
     const params = new URLSearchParams()
     params.set("userId", userId)
@@ -258,62 +457,60 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
       .then((data) => {
         if (cancelled) return
         if (data.items && Array.isArray(data.items)) {
-          setUserHistoryPayments(data.items as PaymentRow[])
+          dispatchPopover({ type: "POPOVER/SET_USER_HISTORY_PAYMENTS", payments: data.items as PaymentRow[] })
         }
       })
       .catch(() => {
         // Attendance History fallback in history mode only.
         // Daily PMT History is always board-scoped from `payments` at render time.
         if (!cancelled) {
-          if (paymentHistoryStudentId && activeIsHistoryMode) {
-            setUserHistoryPayments(payments.filter((p) => p.userId === userId))
+          if (popover.paymentHistoryStudentId && activeIsHistoryMode) {
+            dispatchPopover({
+              type: "POPOVER/SET_USER_HISTORY_PAYMENTS",
+              payments: board.payments.filter((p) => p.userId === userId),
+            })
           } else {
-            setUserHistoryPayments([])
+            dispatchPopover({ type: "POPOVER/SET_USER_HISTORY_PAYMENTS", payments: [] })
           }
         }
       })
       .finally(() => {
-        if (!cancelled) setUserHistoryLoading(false)
+        if (!cancelled) dispatchPopover({ type: "POPOVER/SET_USER_HISTORY_LOADING", loading: false })
       })
 
     return () => {
       cancelled = true
     }
-  }, [attendanceHistoryStudentId, paymentHistoryStudentId, payments])
+  }, [popover.attendanceHistoryStudentId, popover.paymentHistoryStudentId, board.payments])
 
   const handlePaymentCategoryChange = React.useCallback((nextCategory: PaymentCategoryFilter) => {
-    setPaymentCategoryFilter(nextCategory)
+    dispatchFilter({ type: "FILTER/SET_CATEGORY", category: nextCategory })
     if (nextCategory !== "history") {
-      setHistoryFrom("")
-      setHistoryTo("")
-      setHistoryPaymentMethodFilter("all")
-      setHistoryAttendanceFilter("all")
-      setHistoryClassKey("")
-      setHistoryClassOptions([])
+      dispatchFilter({ type: "FILTER/CLEAR_HISTORY" })
     }
   }, [])
 
   const selectPaymentIds = React.useCallback((ids: string[]) => {
     if (ids.length === 0) return
-    setSelectedPaymentIds((prev) => [...new Set([...prev, ...ids])])
+    dispatchSelection({ type: "SELECTION/SELECT_IDS", ids })
   }, [])
 
   const deselectPaymentIds = React.useCallback((ids: string[]) => {
     if (ids.length === 0) return
-    setSelectedPaymentIds((prev) => prev.filter((id) => !ids.includes(id)))
+    dispatchSelection({ type: "SELECTION/DESELECT_IDS", ids })
   }, [])
 
   const clearSelectedPayments = React.useCallback(() => {
-    setSelectedPaymentIds([])
+    dispatchSelection({ type: "SELECTION/CLEAR" })
   }, [])
 
   const pruneSelectedPaymentIds = React.useCallback((visibleIds: string[]) => {
-    setSelectedPaymentIds((prev) => prev.filter((id) => visibleIds.includes(id)))
+    dispatchSelection({ type: "SELECTION/PRUNE", visibleIds })
   }, [])
 
   const updateSettlementBulk = React.useCallback(async ({ action, ids, onSuccess }: UpdateSettlementBulkOptions) => {
     if (ids.length === 0) return
-    setPaymentsBulkBusyAction(action)
+    dispatchSelection({ type: "SELECTION/SET_BULK_BUSY", action })
     setError(null)
     try {
       const res = await fetch("/api/staff/payments/bulk", {
@@ -327,43 +524,125 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
         return
       }
       await onSuccess?.()
-      deselectPaymentIds(ids)
+      dispatchSelection({ type: "SELECTION/DESELECT_IDS", ids })
     } catch {
       setError("Network error while updating settlement in bulk")
     } finally {
-      setPaymentsBulkBusyAction(null)
+      dispatchSelection({ type: "SELECTION/SET_BULK_BUSY", action: null })
     }
-  }, [deselectPaymentIds, setError])
+  }, [setError])
+
+  // ---------------------------------------------------------------------------
+  // Public setters that mirror the original useState setters
+  // ---------------------------------------------------------------------------
+
+  const setPaymentsFilter = React.useCallback((value: "all" | "pending" | "paid") => {
+    dispatchFilter({ type: "FILTER/SET_PAYMENTS_FILTER", value })
+  }, [])
+
+  const setHistoryFrom = React.useCallback((value: string) => {
+    dispatchFilter({ type: "FILTER/SET_HISTORY_FROM", value })
+  }, [])
+
+  const setHistoryTo = React.useCallback((value: string) => {
+    dispatchFilter({ type: "FILTER/SET_HISTORY_TO", value })
+  }, [])
+
+  const setHistoryPaymentMethodFilter = React.useCallback((value: HistoryPaymentMethodFilter) => {
+    dispatchFilter({ type: "FILTER/SET_HISTORY_PAYMENT_METHOD", value })
+  }, [])
+
+  const setHistoryAttendanceFilter = React.useCallback((value: HistoryAttendanceFilter) => {
+    dispatchFilter({ type: "FILTER/SET_HISTORY_ATTENDANCE", value })
+  }, [])
+
+  const setHistoryClassKey = React.useCallback((value: string) => {
+    dispatchFilter({ type: "FILTER/SET_HISTORY_CLASS_KEY", value })
+  }, [])
+
+  const setCheckoutMenuPaymentId = React.useCallback((id: string | null) => {
+    dispatchSelection({ type: "SELECTION/SET_CHECKOUT_MENU_ID", id })
+  }, [])
+
+  const setPaymentHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
+    const anchor = typeof value === "function" ? value(popover.paymentHistoryAnchor) : value
+    dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY", anchor, studentId: popover.paymentHistoryStudentId })
+  }, [popover.paymentHistoryAnchor, popover.paymentHistoryStudentId])
+
+  const setPaymentHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentId = typeof value === "function" ? value(popover.paymentHistoryStudentId) : value
+    dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY", anchor: popover.paymentHistoryAnchor, studentId })
+  }, [popover.paymentHistoryAnchor, popover.paymentHistoryStudentId])
+
+  const setAttendanceHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
+    const anchor = typeof value === "function" ? value(popover.attendanceHistoryAnchor) : value
+    dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY", anchor, studentId: popover.attendanceHistoryStudentId })
+  }, [popover.attendanceHistoryAnchor, popover.attendanceHistoryStudentId])
+
+  const setAttendanceHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentId = typeof value === "function" ? value(popover.attendanceHistoryStudentId) : value
+    dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY", anchor: popover.attendanceHistoryAnchor, studentId })
+  }, [popover.attendanceHistoryAnchor, popover.attendanceHistoryStudentId])
+
+  const setAuditHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
+    const anchor = typeof value === "function" ? value(popover.auditHistoryAnchor) : value
+    dispatchPopover({
+      type: "POPOVER/SET_AUDIT_HISTORY",
+      anchor,
+      studentId: popover.auditHistoryStudentId,
+      studentName: popover.auditHistoryStudentName,
+    })
+  }, [popover.auditHistoryStudentId, popover.auditHistoryStudentName])
+
+  const setAuditHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentId = typeof value === "function" ? value(popover.auditHistoryStudentId) : value
+    dispatchPopover({
+      type: "POPOVER/SET_AUDIT_HISTORY",
+      anchor: popover.auditHistoryAnchor,
+      studentId,
+      studentName: popover.auditHistoryStudentName,
+    })
+  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentId, popover.auditHistoryStudentName])
+
+  const setAuditHistoryStudentName: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
+    const studentName = typeof value === "function" ? value(popover.auditHistoryStudentName) : value
+    dispatchPopover({
+      type: "POPOVER/SET_AUDIT_HISTORY",
+      anchor: popover.auditHistoryAnchor,
+      studentId: popover.auditHistoryStudentId,
+      studentName,
+    })
+  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentId, popover.auditHistoryStudentName])
 
   return {
     // State
-    payments,
-    paymentsMonthlySummaryApi,
-    paymentsMonthlyStudentCount,
-    paymentsMonthlyCheckedInStudents,
-    paymentsLoading,
-    paymentsFilter,
-    paymentCategoryFilter,
+    payments: board.payments,
+    paymentsMonthlySummaryApi: board.paymentsMonthlySummaryApi as PaymentsApiSummary,
+    paymentsMonthlyStudentCount: board.paymentsMonthlyStudentCount,
+    paymentsMonthlyCheckedInStudents: board.paymentsMonthlyCheckedInStudents,
+    paymentsLoading: board.paymentsLoading,
+    paymentsFilter: filter.paymentsFilter,
+    paymentCategoryFilter: filter.paymentCategoryFilter,
     isHistoryMode,
-    historyFrom,
-    historyTo,
-    historyPaymentMethodFilter,
-    historyAttendanceFilter,
-    historyClassKey,
-    historyClassOptions,
-    isHistorySearchLoading,
-    selectedPaymentIds,
-    paymentsBulkBusyAction,
-    checkoutMenuPaymentId,
-    paymentHistoryAnchor,
-    paymentHistoryStudentId,
-    attendanceHistoryAnchor,
-    attendanceHistoryStudentId,
-    auditHistoryAnchor,
-    auditHistoryStudentId,
-    auditHistoryStudentName,
-    userHistoryPayments,
-    userHistoryLoading,
+    historyFrom: filter.historyFrom,
+    historyTo: filter.historyTo,
+    historyPaymentMethodFilter: filter.historyPaymentMethodFilter,
+    historyAttendanceFilter: filter.historyAttendanceFilter,
+    historyClassKey: filter.historyClassKey,
+    historyClassOptions: filter.historyClassOptions,
+    isHistorySearchLoading: filter.isHistorySearchLoading,
+    selectedPaymentIds: selection.selectedPaymentIds,
+    paymentsBulkBusyAction: selection.paymentsBulkBusyAction,
+    checkoutMenuPaymentId: selection.checkoutMenuPaymentId,
+    paymentHistoryAnchor: popover.paymentHistoryAnchor,
+    paymentHistoryStudentId: popover.paymentHistoryStudentId,
+    attendanceHistoryAnchor: popover.attendanceHistoryAnchor,
+    attendanceHistoryStudentId: popover.attendanceHistoryStudentId,
+    auditHistoryAnchor: popover.auditHistoryAnchor,
+    auditHistoryStudentId: popover.auditHistoryStudentId,
+    auditHistoryStudentName: popover.auditHistoryStudentName,
+    userHistoryPayments: popover.userHistoryPayments,
+    userHistoryLoading: popover.userHistoryLoading,
     // UI state setters
     setPaymentsFilter,
     setHistoryFrom,

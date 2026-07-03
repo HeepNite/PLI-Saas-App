@@ -85,13 +85,69 @@ export default function ProfilePageClient() {
   const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
   const [enrollOpen, setEnrollOpen] = React.useState(false)
   const [selectedDateTime, setSelectedDateTime] = React.useState<{ date: string; time: string } | null>(null)
-  const [profileConsecutiveOffer, setProfileConsecutiveOffer] = React.useState<ConsecutiveOfferData | null>(null)
-  const [profileConsecutiveSource, setProfileConsecutiveSource] = React.useState<{ courseSlug: string; date: string; time: string } | null>(null)
-  const [profileConsecutiveProcessing, setProfileConsecutiveProcessing] = React.useState(false)
-  const [profileConsecutiveProcessingAction, setProfileConsecutiveProcessingAction] = React.useState<"accept" | "decline" | "cash" | "card" | null>(null)
-  const [profileConsecutivePaymentSelection, setProfileConsecutivePaymentSelection] = React.useState(false)
-  const [profileConsecutiveError, setProfileConsecutiveError] = React.useState<string | null>(null)
-  const [profileConsecutiveSuccess, setProfileConsecutiveSuccess] = React.useState<{ courseTitle: string } | null>(null)
+  type ConsecutiveState = {
+    offer: ConsecutiveOfferData | null
+    source: { courseSlug: string; date: string; time: string } | null
+    processing: boolean
+    processingAction: "accept" | "decline" | "cash" | "card" | null
+    paymentSelection: boolean
+    error: string | null
+    success: { courseTitle: string } | null
+  }
+  type ConsecutiveAction =
+    | { type: "SET_OFFER"; offer: ConsecutiveOfferData; source: { courseSlug: string; date: string; time: string } }
+    | { type: "CLEAR_OFFER" }
+    | { type: "SET_PROCESSING"; processing: boolean; action: "accept" | "decline" | "cash" | "card" | null }
+    | { type: "SET_PAYMENT_SELECTION"; value: boolean }
+    | { type: "SET_ERROR"; error: string | null }
+    | { type: "SET_SUCCESS"; success: { courseTitle: string } | null }
+
+  function consecutiveReducer(state: ConsecutiveState, action: ConsecutiveAction): ConsecutiveState {
+    switch (action.type) {
+      case "SET_OFFER":
+        return { ...state, offer: action.offer, source: action.source, error: null, success: null, paymentSelection: false }
+      case "CLEAR_OFFER":
+        return { ...state, offer: null, source: null, error: null, paymentSelection: false }
+      case "SET_PROCESSING":
+        return { ...state, processing: action.processing, processingAction: action.action }
+      case "SET_PAYMENT_SELECTION":
+        return { ...state, paymentSelection: action.value }
+      case "SET_ERROR":
+        return { ...state, error: action.error }
+      case "SET_SUCCESS":
+        return { ...state, success: action.success }
+      default:
+        return state
+    }
+  }
+
+  const [consecutiveState, dispatchConsecutive] = React.useReducer(consecutiveReducer, {
+    offer: null,
+    source: null,
+    processing: false,
+    processingAction: null,
+    paymentSelection: false,
+    error: null,
+    success: null,
+  })
+
+  const profileConsecutiveOffer = consecutiveState.offer
+  const profileConsecutiveSource = consecutiveState.source
+  const profileConsecutiveProcessing = consecutiveState.processing
+  const profileConsecutiveProcessingAction = consecutiveState.processingAction
+  const profileConsecutivePaymentSelection = consecutiveState.paymentSelection
+  const profileConsecutiveError = consecutiveState.error
+  const profileConsecutiveSuccess = consecutiveState.success
+
+  const setProfileConsecutivePaymentSelection = React.useCallback((value: boolean) => {
+    dispatchConsecutive({ type: "SET_PAYMENT_SELECTION", value })
+  }, [])
+  const setProfileConsecutiveError = React.useCallback((error: string | null) => {
+    dispatchConsecutive({ type: "SET_ERROR", error })
+  }, [])
+  const setProfileConsecutiveSuccess = React.useCallback((success: { courseTitle: string } | null) => {
+    dispatchConsecutive({ type: "SET_SUCCESS", success })
+  }, [])
   const canLoadProtectedData = (isLoaded && isSignedIn) || e2eAuthBypass
 
   // --- Extracted hooks (Slice 2) ---
@@ -209,17 +265,10 @@ export default function ProfilePageClient() {
     return (await offerRes.json().catch(() => null)) as ConsecutiveOfferData | null
   }, [])
   const showProfileConsecutiveOffer = React.useCallback((offer: ConsecutiveOfferData, source: { courseSlug: string; date: string; time: string }) => {
-    setProfileConsecutiveOffer(offer)
-    setProfileConsecutiveSource(source)
-    setProfileConsecutiveError(null)
-    setProfileConsecutiveSuccess(null)
-    setProfileConsecutivePaymentSelection(false)
+    dispatchConsecutive({ type: "SET_OFFER", offer, source })
   }, [])
   const clearProfileConsecutiveOffer = React.useCallback(() => {
-    setProfileConsecutiveOffer(null)
-    setProfileConsecutiveSource(null)
-    setProfileConsecutiveError(null)
-    setProfileConsecutivePaymentSelection(false)
+    dispatchConsecutive({ type: "CLEAR_OFFER" })
   }, [])
   const consumeProfilePackageCredit = React.useCallback(async (source: { courseSlug: string; date: string; time: string }) => {
     const res = await fetch("/api/profile/bookings/use-credit", {
@@ -242,8 +291,7 @@ export default function ProfilePageClient() {
   }, [consumeProfilePackageCredit, loadBookings, setCheckInSuccess])
   const handleProfileConsecutiveDecline = React.useCallback(async () => {
     if (!profileConsecutiveSource) return
-    setProfileConsecutiveProcessing(true)
-    setProfileConsecutiveProcessingAction("decline")
+    dispatchConsecutive({ type: "SET_PROCESSING", processing: true, action: "decline" })
     setProfileConsecutiveError(null)
     try {
       const completed = await completeProfileFastCredit(profileConsecutiveSource, "Class booked! A package credit has been applied.")
@@ -251,8 +299,7 @@ export default function ProfilePageClient() {
     } catch {
       setProfileConsecutiveError("Unable to book this class with your package.")
     } finally {
-      setProfileConsecutiveProcessing(false)
-      setProfileConsecutiveProcessingAction(null)
+      dispatchConsecutive({ type: "SET_PROCESSING", processing: false, action: null })
     }
   }, [clearProfileConsecutiveOffer, completeProfileFastCredit, profileConsecutiveSource])
   const handleProfileConsecutiveAccept = React.useCallback(() => {
@@ -273,8 +320,7 @@ export default function ProfilePageClient() {
       setProfileConsecutiveError("Unable to start checkout for this promotion.")
       return
     }
-    setProfileConsecutiveProcessing(true)
-    setProfileConsecutiveProcessingAction("card")
+    dispatchConsecutive({ type: "SET_PROCESSING", processing: true, action: "card" })
     setProfileConsecutiveError(null)
     try {
       const { data: creditData } = await consumeProfilePackageCredit(profileConsecutiveSource)
@@ -296,14 +342,12 @@ export default function ProfilePageClient() {
     } catch {
       setProfileConsecutiveError("Unable to start checkout for this promotion.")
     } finally {
-      setProfileConsecutiveProcessing(false)
-      setProfileConsecutiveProcessingAction(null)
+      dispatchConsecutive({ type: "SET_PROCESSING", processing: false, action: null })
     }
   }, [bookingPrefillContact, consumeProfilePackageCredit, profileConsecutiveOffer, profileConsecutiveSource, sourceCourses])
   const handleProfileConsecutivePayCash = React.useCallback(async () => {
     if (!profileConsecutiveOffer || !profileConsecutiveSource) return
-    setProfileConsecutiveProcessing(true)
-    setProfileConsecutiveProcessingAction("cash")
+    dispatchConsecutive({ type: "SET_PROCESSING", processing: true, action: "cash" })
     setProfileConsecutiveError(null)
     try {
       const { data: creditData } = await consumeProfilePackageCredit(profileConsecutiveSource)
@@ -333,16 +377,13 @@ export default function ProfilePageClient() {
         return
       }
       setProfileConsecutiveSuccess({ courseTitle: profileConsecutiveOffer.linkedCourseTitle })
-      setProfileConsecutiveOffer(null)
-      setProfileConsecutiveSource(null)
-      setProfileConsecutivePaymentSelection(false)
+      dispatchConsecutive({ type: "CLEAR_OFFER" })
       await loadBookings()
       setCheckInSuccess("Class booked! A package credit has been applied. Cash promotion recorded.")
     } catch {
       setProfileConsecutiveError("Unable to record cash payment for this promotion.")
     } finally {
-      setProfileConsecutiveProcessing(false)
-      setProfileConsecutiveProcessingAction(null)
+      dispatchConsecutive({ type: "SET_PROCESSING", processing: false, action: null })
     }
   }, [consumeProfilePackageCredit, loadBookings, profileConsecutiveOffer, profileConsecutiveSource, setCheckInSuccess])
   const {

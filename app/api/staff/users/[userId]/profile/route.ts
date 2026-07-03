@@ -13,6 +13,7 @@ import {
   STAFF_ROLES,
   type StaffRole,
 } from "@/lib/security/staff-role"
+import { safeText } from "@/lib/api-helpers"
 import {
   applyStaffCategoryToMetadata,
   extractStaffCategoryFromUserMetadata,
@@ -57,11 +58,6 @@ type StaffProfilePayload = {
   clearPin: boolean
   paymentPreference: StaffPaymentPreference | null
   paymentInfo: StaffPaymentInfo | null
-}
-
-const safeText = (value: unknown, max = 120) => {
-  if (typeof value !== "string") return ""
-  return value.trim().slice(0, max)
 }
 
 const safeOptionalText = (value: unknown, max = 120) => {
