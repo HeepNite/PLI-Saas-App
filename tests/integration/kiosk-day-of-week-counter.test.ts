@@ -130,7 +130,7 @@ describe("cash checkout API — DayOfWeekPurchaseCount created/updated (Task 5.6
       },
     }
 
-    mockTransaction.mockImplementation((cb: (tx: typeof tx) => Promise<unknown>) => cb(tx))
+    mockTransaction.mockImplementation((cb: (arg: typeof tx) => Promise<unknown>) => cb(tx))
 
     const { incrementDayOfWeekCounter } = await import("@/lib/checkin/day-of-week-counter")
     await incrementDayOfWeekCounter("user_new", new Date("2026-06-25T20:00:00.000Z"))
@@ -158,7 +158,7 @@ describe("cash checkout API — DayOfWeekPurchaseCount created/updated (Task 5.6
       },
     }
 
-    mockTransaction.mockImplementation((cb: (tx: typeof tx) => Promise<unknown>) => cb(tx))
+    mockTransaction.mockImplementation((cb: (arg: typeof tx) => Promise<unknown>) => cb(tx))
 
     const { incrementDayOfWeekCounter } = await import("@/lib/checkin/day-of-week-counter")
     await incrementDayOfWeekCounter("user_existing", new Date("2026-06-25T20:00:00.000Z"))
@@ -187,7 +187,7 @@ describe("cash checkout API — DayOfWeekPurchaseCount created/updated (Task 5.6
       },
     }
 
-    mockTransaction.mockImplementation((cb: (tx: typeof tx) => Promise<unknown>) => cb(tx))
+    mockTransaction.mockImplementation((cb: (arg: typeof tx) => Promise<unknown>) => cb(tx))
 
     const { incrementDayOfWeekCounter } = await import("@/lib/checkin/day-of-week-counter")
     // Purchase date is later on the same ET day

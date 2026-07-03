@@ -43,7 +43,7 @@ function makeTxContext(existingRecord: { id: string; lastCountedDate: Date | nul
   }
 
   // $transaction executes the callback immediately with the mock tx
-  mockTransaction.mockImplementation((cb: (tx: typeof tx) => Promise<unknown>) => cb(tx))
+  mockTransaction.mockImplementation((cb: (arg: typeof tx) => Promise<unknown>) => cb(tx))
 
   return { txFindUnique, txUpdate, txCreate }
 }

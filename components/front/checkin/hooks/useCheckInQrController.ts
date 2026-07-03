@@ -137,11 +137,6 @@ export function useCheckInQrController({
   const handleStationCompletionRef = React.useRef<() => void | Promise<void>>(() => {})
   const checkConsecutiveOfferAfterCheckInRef = React.useRef<() => Promise<boolean>>(async () => false)
 
-  // ─── Consecutive card QR checkout state ─────────────────────
-  const [consecutiveQrCheckout, setConsecutiveQrCheckout] = React.useState<KioskQrCheckoutState>(
-    createEmptyKioskQrCheckoutState()
-  )
-
   // ─── Quick repeat overlay state ──────────────────────────────
   const [showQuickRepeat, setShowQuickRepeat] = React.useState(false)
   const [quickRepeatProcessing, setQuickRepeatProcessing] = React.useState(false)
@@ -150,53 +145,6 @@ export function useCheckInQrController({
   const [quickRepeatQrCheckout, setQuickRepeatQrCheckout] = React.useState<KioskQrCheckoutState>(
     createEmptyKioskQrCheckoutState()
   )
-
-  const preDisplayActiveContext = React.useMemo(
-    () => resolveCheckInActiveContext({
-      sourceCourses,
-      shellVariant,
-      searchParams,
-      forcedCourseSlug,
-      forcedClassContext,
-      selectedCourseSlug,
-      nowTick,
-      terminalTodayOnly,
-    }),
-    [forcedClassContext, forcedCourseSlug, nowTick, searchParams, selectedCourseSlug, shellVariant, sourceCourses, terminalTodayOnly]
-  )
-  const contextPayload = React.useMemo(
-    () => resolveCheckInBootstrapContextPayload({
-      activeCourseSlug: preDisplayActiveContext.activeCourseSlug,
-      activeDate: preDisplayActiveContext.activeDate,
-      activeTime: preDisplayActiveContext.activeTime,
-      durationMinutes,
-      latePaymentEntryOverride,
-    }),
-    [durationMinutes, latePaymentEntryOverride, preDisplayActiveContext.activeCourseSlug, preDisplayActiveContext.activeDate, preDisplayActiveContext.activeTime]
-  )
-
-  // ─── Derived error ──────────────────────────────────────────
-  const visibleError = React.useMemo(() => {
-    if (!error) return null
-    const normalized = error.trim().toLowerCase()
-    if (
-      normalized.includes("we couldn't prepare the fast flow") ||
-      normalized.includes("we couldn't load the fast flow")
-    ) {
-      return null
-    }
-    return error
-  }, [error])
-
-  const isQrEntry = React.useMemo(() => {
-    const qrView = (searchParams.get("fromQr") || searchParams.get("scan") || "").trim().toLowerCase()
-    return qrView === "1" || qrView === "true"
-  }, [searchParams])
-  const photoFlowContext = React.useMemo(
-    () => resolvePhotoFlowContext({ shellVariant, isQrEntry }),
-    [isQrEntry, shellVariant]
-  )
-  const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
 
   const {
     consecutiveOffer,

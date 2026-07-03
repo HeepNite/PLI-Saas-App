@@ -14,7 +14,7 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { computeDiscountPercent } from "@/lib/course-links"
 import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
-import { normalizePhoneDigits } from "@/lib/shared"
+import { asRecord, asText, normalizePhoneDigits, asObject } from "@/lib/shared"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL } from "@/lib/payment-constants"
 import { getDayOfWeekCount } from "@/lib/checkin/day-of-week-counter"
 import { getEtDateIso } from "@/lib/checkin/et-time"
@@ -294,7 +294,7 @@ export async function POST(req: Request) {
     const isTerminalFlow = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 
     // ─── Consecutive offer detection ─────────────────────────
-    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
     let consecutiveOffer: {
       linkedCourseSlug: string
       linkedCourseTitle: string
@@ -576,7 +576,7 @@ export async function POST(req: Request) {
     const catalogDropInCents = (course.enrollment?.services?.find((s: { id: string }) => s.id === "dropin")?.price ?? 0) * 100
     const lastPurchasePattern = isTerminalFlow
       ? (() => {
-          const meta = lastPurchase ? toRecord(lastPurchase.metadata) : null
+          const meta = lastPurchase ? asObject(lastPurchase.metadata) : null
           const paymentChannel =
             meta && typeof meta.paymentChannel === "string" && meta.paymentChannel
               ? meta.paymentChannel
