@@ -306,6 +306,7 @@ export async function POST(req: Request) {
     let consecutiveOffer: {
       linkedCourseSlug: string
       linkedCourseTitle: string
+      linkedCourseTime: string | null
       dropInConsecutiveCents: number | null
       packageHolderConsecutiveCents: number | null
       regularDropInCents: number
@@ -382,7 +383,7 @@ export async function POST(req: Request) {
           .filter((candidate) => candidate.isLinkedScheduledLaterToday)
           .sort((left, right) => (left.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER) - (right.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER))[0]
 
-        if (nextCandidate?.linkedCourse && hasAttendedA) {
+        if (nextCandidate?.linkedCourse && (isTerminalFlow || hasAttendedA)) {
           const regularDropIn = nextCandidate.linkedCourse.enrollment.services.find((s) => s.id === "dropin")?.price ?? 0
           const discountPercent = computeDiscountPercent(
             regularDropIn * 100,
@@ -392,6 +393,9 @@ export async function POST(req: Request) {
           consecutiveOffer = {
             linkedCourseSlug: nextCandidate.linkedCourseSlug,
             linkedCourseTitle: nextCandidate.linkedCourse.title,
+            linkedCourseTime: nextCandidate.linkedStartMinutes != null
+              ? `${String(Math.floor(nextCandidate.linkedStartMinutes / 60)).padStart(2, "0")}:${String(nextCandidate.linkedStartMinutes % 60).padStart(2, "0")}`
+              : null,
             dropInConsecutiveCents: nextCandidate.link.dropInConsecutiveCents,
             packageHolderConsecutiveCents: nextCandidate.link.packageHolderConsecutiveCents,
             regularDropInCents: regularDropIn * 100,
@@ -412,7 +416,7 @@ export async function POST(req: Request) {
       return weekdayLabels.findIndex((label) => label === weekday)
     })()
 
-    const [allActivePackages, recentPurchases, anyCompletedPurchase, dayOfWeekPurchaseCount] = await Promise.all([
+    const [allActivePackages, recentPurchases, anyCompletedPurchase, dayOfWeekPurchaseCount, totalPurchaseCount] = await Promise.all([
       prisma.packagePurchase.findMany({
         where: {
           userId: dbUser.id,
@@ -456,6 +460,14 @@ export async function POST(req: Request) {
           }),
       isTerminalFlow
         ? getDayOfWeekCount(dbUser.id, currentDayOfWeek)
+        : Promise.resolve(0),
+      isTerminalFlow
+        ? prisma.purchase.count({
+            where: {
+              userId: dbUser.id,
+              status: { in: SUCCESSFUL_PURCHASE_STATUSES },
+            },
+          })
         : Promise.resolve(0),
     ])
     const lastPurchase = recentPurchases[0] || null
@@ -564,20 +576,23 @@ export async function POST(req: Request) {
       })
     }
 
-    const quickRepeatEligible = dayOfWeekPurchaseCount >= 3
+    const quickRepeatEligible = totalPurchaseCount >= 3
 
     // Extract last purchase pattern for quick-repeat overlay (terminal flow only)
-    const lastPurchasePattern = isTerminalFlow && lastPurchase
+    // Always use catalog drop-in price so the amount matches validation regardless
+    // of whether the student's last purchase had a discount or was for a different course.
+    const catalogDropInCents = (course.enrollment?.services?.find((s: { id: string }) => s.id === "dropin")?.price ?? 0) * 100
+    const lastPurchasePattern = isTerminalFlow
       ? (() => {
-          const meta = toRecord(lastPurchase.metadata)
+          const meta = lastPurchase ? toRecord(lastPurchase.metadata) : null
           const paymentChannel =
-            typeof meta?.paymentChannel === "string" && meta.paymentChannel
+            meta && typeof meta.paymentChannel === "string" && meta.paymentChannel
               ? meta.paymentChannel
               : PAYMENT_CHANNEL.CASH
           return {
             paymentChannel,
-            courseSlug: lastPurchase.courseSlug,
-            amount: lastPurchase.amount,
+            courseSlug: context.courseSlug,
+            amount: catalogDropInCents,
           }
         })()
       : null
@@ -590,6 +605,16 @@ export async function POST(req: Request) {
       durationMs: Date.now() - startedAt,
       hasQuickCheckout: Boolean(quickTemplate),
     })
+
+    if (isTerminalFlow) {
+      console.info("[QuickRepeat debug]", {
+        totalPurchaseCount,
+        quickRepeatEligible,
+        lastPurchaseAmount: lastPurchasePattern?.amount,
+        catalogDropInCents,
+        hasLastPurchase: Boolean(lastPurchase),
+      })
+    }
 
     return NextResponse.json({
       context: {

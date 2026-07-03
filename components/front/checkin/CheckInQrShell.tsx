@@ -185,6 +185,8 @@ export type CheckInQrShellProps = {
   showQuickRepeat: boolean
   quickRepeatQrCheckout: KioskQrCheckoutState
   quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
   onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
   onQuickRepeatDecline: () => void
 }
@@ -336,6 +338,8 @@ export function CheckInQrShell({
   showQuickRepeat,
   quickRepeatQrCheckout,
   quickRepeatProcessing,
+  quickRepeatSuccess,
+  quickRepeatSuccessChannel,
   onQuickRepeatConfirm,
   onQuickRepeatDecline,
 }: CheckInQrShellProps) {
@@ -533,6 +537,8 @@ export function CheckInQrShell({
         showQuickRepeat={showQuickRepeat}
         quickRepeatQrCheckout={quickRepeatQrCheckout}
         quickRepeatProcessing={quickRepeatProcessing}
+        quickRepeatSuccess={quickRepeatSuccess}
+        quickRepeatSuccessChannel={quickRepeatSuccessChannel}
         onQuickRepeatConfirm={onQuickRepeatConfirm}
         onQuickRepeatDecline={onQuickRepeatDecline}
       />

@@ -73,7 +73,7 @@ export async function POST(req: Request) {
   })
 
   const base = getBaseUrl()
-  const success = `${base}/courses/${validation.courseSlug}?status=success`
+  const success = `${base}/client-profile?status=success`
   const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(

@@ -227,7 +227,8 @@ export const validateCheckoutPayload = async (
   }
 
   if (Math.round(expected * 100) !== amountInt) {
-    return { status: 400, error: "Amount mismatch" }
+    console.error("[validation] Amount mismatch", { expected, expectedCents: Math.round(expected * 100), amountInt, serviceId, servicePrice: service?.price, courseSlug })
+    return { status: 400, error: `Amount mismatch (expected ${Math.round(expected * 100)} cents, got ${amountInt} cents, service.price=${service?.price})` }
   }
 
   return {

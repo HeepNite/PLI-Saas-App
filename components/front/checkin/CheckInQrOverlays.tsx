@@ -80,6 +80,8 @@ type CheckInQrOverlaysProps = {
   showQuickRepeat: boolean
   quickRepeatQrCheckout: KioskQrCheckoutState
   quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
   onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
   onQuickRepeatDecline: () => void
 }
@@ -142,6 +144,8 @@ export function CheckInQrOverlays({
   showQuickRepeat,
   quickRepeatQrCheckout,
   quickRepeatProcessing,
+  quickRepeatSuccess,
+  quickRepeatSuccessChannel,
   onQuickRepeatConfirm,
   onQuickRepeatDecline,
 }: CheckInQrOverlaysProps) {
@@ -154,6 +158,8 @@ export function CheckInQrOverlays({
           onConfirm={onQuickRepeatConfirm}
           onDecline={onQuickRepeatDecline}
           isProcessing={quickRepeatProcessing}
+          success={quickRepeatSuccess}
+          successChannel={quickRepeatSuccessChannel}
         />
       )}
 

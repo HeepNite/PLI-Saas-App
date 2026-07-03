@@ -174,6 +174,8 @@ export type UseCheckInQrShellPropsInput = {
   showQuickRepeat: boolean
   quickRepeatQrCheckout: KioskQrCheckoutState
   quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
   onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
   onQuickRepeatDecline: () => void
 }

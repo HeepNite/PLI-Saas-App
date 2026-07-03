@@ -12,9 +12,21 @@ type QuickRepeatOverlayProps = {
   onDecline: () => void
   /** True while a confirm action is in-flight */
   isProcessing: boolean
+  /** True after successful payment — shows success screen */
+  success: boolean
+  /** Which channel was used for the successful payment */
+  successChannel?: "cash" | "card" | null
 }
 
 const formatDollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, "")}`
+
+const format12h = (time24: string | null | undefined) => {
+  if (!time24) return null
+  const [h, m] = time24.split(":").map(Number)
+  const suffix = h >= 12 ? "PM" : "AM"
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, "0")} ${suffix}`
+}
 
 /**
  * Full-screen overlay that presents the Quick Repeat offer for returning students.
@@ -26,14 +38,19 @@ export function KioskQuickRepeatOverlay({
   onConfirm,
   onDecline,
   isProcessing,
+  success,
+  successChannel = null,
 }: QuickRepeatOverlayProps) {
-  const [consecutiveAccepted, setConsecutiveAccepted] = React.useState(false)
+  const [promoDecided, setPromoDecided] = React.useState(false)
+  const [promoAccepted, setPromoAccepted] = React.useState(false)
 
   const pattern = bootstrap.lastPurchasePattern
   const consecutiveOffer = bootstrap.consecutiveOffer ?? null
   const courseTitle = bootstrap.context.courseTitle
   const amountCents = pattern?.amount ?? 0
   const firstName = bootstrap.customer.firstName
+  const hasPromo = Boolean(consecutiveOffer)
+  const paymentEnabled = !hasPromo || promoDecided
 
   // When card QR checkout is active, render the QR panel within the overlay
   const isCardFlow = qrCheckout.phase !== "idle"
@@ -41,12 +58,12 @@ export function KioskQuickRepeatOverlay({
 
   const handleCash = () => {
     if (isProcessing) return
-    void onConfirm("cash", consecutiveAccepted)
+    void onConfirm("cash", promoAccepted)
   }
 
   const handleCard = () => {
     if (isProcessing) return
-    void onConfirm("card", consecutiveAccepted)
+    void onConfirm("card", promoAccepted)
   }
 
   return (
@@ -58,61 +75,124 @@ export function KioskQuickRepeatOverlay({
     >
       <div className="w-full max-w-md rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] p-6 text-white shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 sm:p-8">
 
+        {success ? (
+          <div className="py-6 text-center" style={{ animation: "quickRepeatSlideIn 400ms ease-out" }}>
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20">
+              <svg className="h-8 w-8 text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </div>
+            <h2 className="mt-4 text-2xl font-semibold sm:text-3xl">You&apos;re all set{firstName ? `, ${firstName}` : ""}!</h2>
+            {successChannel === "cash" ? (
+              <p className="mt-3 text-lg font-semibold text-amber-400">Remember to pay at the front desk.</p>
+            ) : (
+              <p className="mt-3 text-lg font-semibold text-emerald-400">Payment confirmed!</p>
+            )}
+            <p className="mt-1 text-sm text-white/50">Enjoy your class today.</p>
+          </div>
+        ) : (
+          <>
         {/* Header */}
         <div className="text-center">
           <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Quick check-in</p>
           <h2 className="mt-2 text-2xl font-semibold leading-tight sm:text-3xl">
-            Welcome back{firstName ? `, ${firstName}` : ""}!
+            Same as always{firstName ? `, ${firstName}` : ""}!
           </h2>
-          <p className="mt-2 text-base text-white/70">
-            Joining{" "}
-            <span className="font-medium text-white">{courseTitle}</span>
+          <p className="mt-3 flex items-baseline justify-center gap-2 text-lg leading-snug">
+            <span className="font-semibold text-[var(--brand,#b61616)]">{courseTitle}</span>
             {amountCents > 0 ? (
-              <>
-                {" "}for{" "}
-                <span className="font-semibold text-white">{formatDollars(amountCents)}</span>
-              </>
+              <span className="font-bold text-emerald-400">{formatDollars(amountCents)}</span>
             ) : null}
           </p>
         </div>
 
-        {/* Consecutive offer toggle */}
-        {consecutiveOffer && !isCardFlow && (
+        {/* Consecutive offer card — before decision */}
+        {consecutiveOffer && !isCardFlow && !promoDecided && (
           <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
-            <p className="text-sm font-medium text-white">
-              Add{" "}
-              <span className="text-white/90">{consecutiveOffer.linkedCourseTitle}</span>
-              {consecutiveOffer.dropInConsecutiveCents != null ? (
-                <span className="ml-1 text-emerald-300">
-                  +{formatDollars(consecutiveOffer.dropInConsecutiveCents)}
-                </span>
-              ) : null}
-            </p>
-            <p className="mt-0.5 text-xs text-white/55">Consecutive class discount</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/55">Add second class promotion</p>
+            <div className="mt-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                    PROMO
+                  </span>
+                </div>
+                <p className="mt-1.5 font-semibold text-white leading-snug">{consecutiveOffer.linkedCourseTitle}</p>
+                {format12h(consecutiveOffer.linkedCourseTime) ? (
+                  <p className="mt-0.5 text-xs text-white/55">
+                    {format12h(consecutiveOffer.linkedCourseTime)}
+                  </p>
+                ) : null}
+              </div>
+              {consecutiveOffer.dropInConsecutiveCents != null && (
+                <div className="flex-shrink-0 text-right">
+                  {consecutiveOffer.regularDropInCents != null && consecutiveOffer.regularDropInCents > consecutiveOffer.dropInConsecutiveCents && (
+                    <p className="text-xs text-red-400 line-through leading-none">
+                      {formatDollars(consecutiveOffer.regularDropInCents)}
+                    </p>
+                  )}
+                  <p className="text-base font-bold text-white leading-snug">
+                    {formatDollars(consecutiveOffer.dropInConsecutiveCents)}
+                  </p>
+                </div>
+              )}
+            </div>
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
-                onClick={() => setConsecutiveAccepted(true)}
-                className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition ${
-                  consecutiveAccepted
-                    ? "bg-emerald-500 text-white shadow-md"
-                    : "border border-white/15 bg-white/8 text-white/80 hover:bg-white/12"
-                }`}
+                onClick={() => { setPromoAccepted(true); setPromoDecided(true) }}
+                className="flex-1 rounded-lg bg-emerald-500 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-400"
               >
-                Yes, add it
+                {consecutiveOffer.dropInConsecutiveCents != null
+                  ? `Add +${formatDollars(consecutiveOffer.dropInConsecutiveCents)}`
+                  : "Add class"}
               </button>
               <button
                 type="button"
-                onClick={() => setConsecutiveAccepted(false)}
-                className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition ${
-                  !consecutiveAccepted
-                    ? "bg-white/15 text-white"
-                    : "border border-white/15 bg-transparent text-white/55 hover:bg-white/8"
-                }`}
+                onClick={() => { setPromoAccepted(false); setPromoDecided(true) }}
+                className="flex-1 rounded-lg border border-red-400/30 bg-transparent py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/10"
               >
                 No thanks
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Checkout summary — after promo decision */}
+        {!isCardFlow && promoDecided && (
+          <div
+            className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4"
+            style={{ animation: "quickRepeatSlideIn 400ms ease-out" }}
+          >
+            <p className="text-[10px] uppercase tracking-widest text-white/55">Order summary</p>
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/80">{courseTitle}</span>
+                <span className="text-sm font-semibold text-white">{formatDollars(amountCents)}</span>
+              </div>
+              {promoAccepted && consecutiveOffer?.dropInConsecutiveCents != null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/80">
+                    {consecutiveOffer.linkedCourseTitle}
+                    <span className="ml-1.5 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">promo</span>
+                  </span>
+                  <span className="text-sm font-semibold text-white">{formatDollars(consecutiveOffer.dropInConsecutiveCents)}</span>
+                </div>
+              )}
+              <div className="border-t border-white/10 pt-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-white">Total</span>
+                <span className="text-lg font-bold text-emerald-400">
+                  {formatDollars(amountCents + (promoAccepted && consecutiveOffer?.dropInConsecutiveCents != null ? consecutiveOffer.dropInConsecutiveCents : 0))}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setPromoDecided(false); setPromoAccepted(false) }}
+              className="mt-2 text-xs text-white/40 underline underline-offset-2 transition hover:text-white/70"
+            >
+              change promo
+            </button>
           </div>
         )}
 
@@ -148,25 +228,35 @@ export function KioskQuickRepeatOverlay({
           </div>
         )}
 
-        {/* Payment buttons */}
+        {/* Payment buttons — hidden until promo is decided, slide in with animation */}
         {!isCardFlow && (
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={handleCash}
-              disabled={isProcessing}
-              className="flex-1 rounded-xl bg-white px-6 py-4 text-base font-semibold text-[#1a1d2e] transition hover:bg-white/90 disabled:opacity-50"
-            >
-              Pay Cash
-            </button>
-            <button
-              type="button"
-              onClick={handleCard}
-              disabled={isProcessing}
-              className="flex-1 rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-base font-semibold text-white transition hover:bg-white/15 disabled:opacity-50"
-            >
-              Pay by Card
-            </button>
+          <div
+            className={`grid transition-all duration-500 ease-out ${
+              paymentEnabled
+                ? "mt-6 grid-rows-[1fr] opacity-100"
+                : "mt-0 grid-rows-[0fr] opacity-0"
+            }`}
+          >
+            <div className="overflow-hidden">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={handleCash}
+                  disabled={isProcessing || !paymentEnabled}
+                  className="flex-1 rounded-xl bg-[var(--brand,#b61616)] px-6 py-4 text-base font-semibold text-white transition hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Pay Cash
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCard}
+                  disabled={isProcessing || !paymentEnabled}
+                  className="flex-1 rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-base font-semibold text-white transition hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Pay by Card
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -181,6 +271,8 @@ export function KioskQuickRepeatOverlay({
             Not today
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   )
