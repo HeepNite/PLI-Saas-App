@@ -523,41 +523,90 @@ describe("staff users routes", () => {
   })
 
   describe("Clerk error handling", () => {
-    it("GET returns 429 with Retry-After when Clerk returns 429 on getUserList", async () => {
+    it("GET returns saved staff rows as degraded 200 when optional Clerk list is rate limited", async () => {
       const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429, headers: { "retry-after": "10" } })
       usersApi.getUserList.mockRejectedValue(clerkError)
       sessionsApi.getSessionList.mockResolvedValue({ data: [] })
+      mockPrisma.staffAccount.findMany.mockResolvedValueOnce([
+        {
+          clerkUserId: "u_saved",
+          email: "saved@example.com",
+          firstName: "Saved",
+          lastName: "Staff",
+          role: "staff",
+          category: "teacher",
+          banned: false,
+          locked: false,
+          hasPin: true,
+          paymentModelId: "model_1",
+          createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        },
+      ])
 
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
-      expect(res.status).toBe(429)
+      expect(res.status).toBe(200)
       expect(res.headers.get("Retry-After")).toBe("10")
+      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
       const data = await res.json()
-      expect(data.error).toMatch(/temporarily busy/i)
+      expect(data).toMatchObject({ status: "degraded", presenceUnavailable: true })
+      expect(data.items).toHaveLength(1)
+      expect(data.items[0]).toMatchObject({ id: "u_saved", email: "saved@example.com", paymentModelId: "model_1" })
     })
 
-    it("GET returns 503 with Retry-After when Clerk returns 500 on getUserList", async () => {
+    it("GET returns degraded 200 with Retry-After when optional Clerk list returns 500", async () => {
       const clerkError = Object.assign(new Error("Internal Server Error"), { status: 500 })
       usersApi.getUserList.mockRejectedValue(clerkError)
       sessionsApi.getSessionList.mockResolvedValue({ data: [] })
 
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
-      expect(res.status).toBe(503)
+      expect(res.status).toBe(200)
       expect(res.headers.get("Retry-After")).toBe("5")
+      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
       const data = await res.json()
-      expect(data.error).toMatch(/temporarily unavailable/i)
+      expect(data).toMatchObject({ status: "degraded", items: [] })
     })
 
-    it("GET returns 429 with default Retry-After when Clerk 429 has no retry-after header", async () => {
+    it("GET returns degraded 200 with default Retry-After when Clerk 429 has no retry-after header", async () => {
       const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429 })
       usersApi.getUserList.mockRejectedValue(clerkError)
       sessionsApi.getSessionList.mockResolvedValue({ data: [] })
 
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
-      expect(res.status).toBe(429)
+      expect(res.status).toBe(200)
       expect(res.headers.get("Retry-After")).toBe("5")
+    })
+
+    it("GET caps per-user session lookups and returns a degraded presence flag", async () => {
+      const now = Date.now()
+      usersApi.getUserList.mockResolvedValue({
+        data: Array.from({ length: 12 }, (_, index) => ({
+          id: `u_presence_${index}`,
+          firstName: "Presence",
+          lastName: String(index),
+          emailAddresses: [{ emailAddress: `presence-${index}@example.com` }],
+          publicMetadata: { role: "staff" },
+          privateMetadata: { staffPresenceStatus: "online", staffPresenceUpdatedAt: new Date(now).toISOString() },
+          banned: false,
+          locked: false,
+          createdAt: now - index,
+          lastSignInAt: now,
+          lastActiveAt: now,
+        })),
+      })
+      sessionsApi.getSessionList.mockResolvedValue({ data: [] })
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
+      expect(data).toMatchObject({ status: "degraded", presenceUnavailable: true })
+      expect(data.items).toHaveLength(12)
+      expect(sessionsApi.getSessionList).toHaveBeenCalledTimes(11)
     })
   })
 })

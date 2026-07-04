@@ -51,6 +51,7 @@ const STAFF_PRESENCE_BACKOFF_MAX_MS = 300_000
 type DataState = {
   rows: StaffUserRow[]
   loading: boolean
+  directoryStatusMessage: string | null
   query: string
   categoryFilter: StaffCategory | "all"
   busyUserId: string | null
@@ -60,6 +61,7 @@ type DataState = {
 type DataAction =
   | { type: "SET_ROWS"; payload: StaffUserRow[] }
   | { type: "SET_LOADING"; payload: boolean }
+  | { type: "SET_DIRECTORY_STATUS_MESSAGE"; payload: string | null }
   | { type: "SET_QUERY"; payload: string }
   | { type: "SET_CATEGORY_FILTER"; payload: StaffCategory | "all" }
   | { type: "SET_BUSY_USER_ID"; payload: string | null }
@@ -71,6 +73,7 @@ type DataAction =
 const initialDataState: DataState = {
   rows: [],
   loading: true,
+  directoryStatusMessage: null,
   query: "",
   categoryFilter: "all",
   busyUserId: null,
@@ -83,6 +86,8 @@ function dataReducer(state: DataState, action: DataAction): DataState {
       return { ...state, rows: action.payload }
     case "SET_LOADING":
       return { ...state, loading: action.payload }
+    case "SET_DIRECTORY_STATUS_MESSAGE":
+      return { ...state, directoryStatusMessage: action.payload }
     case "SET_QUERY":
       return { ...state, query: action.payload }
     case "SET_CATEGORY_FILTER":
@@ -106,7 +111,7 @@ function dataReducer(state: DataState, action: DataAction): DataState {
         ),
       }
     case "RESET_ACCESS_DENIED":
-      return { ...state, loading: false, rows: [] }
+      return { ...state, loading: false, rows: [], directoryStatusMessage: null }
     default:
       return state
   }
@@ -246,7 +251,7 @@ export const useStaffDirectoryAdmin = ({
   dataStateRef.current = dataState
 
   // Convenience destructures so callbacks below read naturally
-  const { rows, loading, query, categoryFilter, busyUserId, presenceMenuUserId } = dataState
+  const { rows, loading, directoryStatusMessage, query, categoryFilter, busyUserId, presenceMenuUserId } = dataState
   const { payrollModelOptions, payrollModelLoading, payrollModelError, payrollModelActionByUserId } = payrollState
   const {
     clerkSyncHealth,
@@ -284,14 +289,34 @@ export const useStaffDirectoryAdmin = ({
           const jitter = Math.floor(Math.random() * 1000)
           backoffUntilRef.current = Date.now() + backoffMs + jitter
           consecutiveFailuresRef.current += 1
+          if (dataStateRef.current.rows.length > 0) {
+            dispatchData({
+              type: "SET_DIRECTORY_STATUS_MESSAGE",
+              payload: typeof data?.error === "string" ? data.error : "Staff users are temporarily busy. Showing existing rows.",
+            })
+            return
+          }
         }
         setError(typeof data?.error === "string" ? data.error : "Failed to load staff users")
-        if (showLoader) dispatchData({ type: "SET_ROWS", payload: [] })
+        if (showLoader && dataStateRef.current.rows.length === 0) dispatchData({ type: "SET_ROWS", payload: [] })
         return
       }
       consecutiveFailuresRef.current = 0
       backoffUntilRef.current = 0
-      dispatchData({ type: "SET_ROWS", payload: Array.isArray(data?.items) ? data.items : [] })
+      if (data?.status === "degraded" || data?.degraded === true || data?.presenceUnavailable === true) {
+        dispatchData({
+          type: "SET_DIRECTORY_STATUS_MESSAGE",
+          payload:
+            typeof data?.message === "string"
+              ? data.message
+              : "Staff user presence is temporarily unavailable. Showing saved user rows.",
+        })
+      } else {
+        dispatchData({ type: "SET_DIRECTORY_STATUS_MESSAGE", payload: null })
+      }
+      const nextRows = Array.isArray(data?.items) ? data.items : []
+      if (data?.presenceUnavailable === true && nextRows.length === 0 && dataStateRef.current.rows.length > 0) return
+      dispatchData({ type: "SET_ROWS", payload: nextRows })
     } catch {
       consecutiveFailuresRef.current += 1
       const backoffMs = Math.min(
@@ -300,7 +325,7 @@ export const useStaffDirectoryAdmin = ({
       )
       backoffUntilRef.current = Date.now() + backoffMs
       setError("Network error while loading staff users")
-      if (showLoader) dispatchData({ type: "SET_ROWS", payload: [] })
+      if (showLoader && dataStateRef.current.rows.length === 0) dispatchData({ type: "SET_ROWS", payload: [] })
     } finally {
       fetchInFlightRef.current = false
       if (enforceMinDelay) await ensureMinimumLoadingTime(startedAt)
@@ -627,6 +652,7 @@ export const useStaffDirectoryAdmin = ({
   return {
     rows,
     loading,
+    directoryStatusMessage,
     setError,
     query,
     setQuery: (value: string) => dispatchData({ type: "SET_QUERY", payload: value }),

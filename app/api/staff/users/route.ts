@@ -219,6 +219,31 @@ const sanitizeName = (value: unknown, max = 80) => {
 const PRESENCE_MAX_AGE_MS = 16 * 60 * 60 * 1000
 const PRESENCE_ONLINE_MAX_AGE_MS = 30 * 60 * 1000
 const VERIFY_SESSION_ACTIVE_WINDOW_MS = 72 * 60 * 60 * 1000
+const MAX_PER_USER_SESSION_LOOKUPS = 10
+
+type StaffUsersDegradedState = {
+  degraded: boolean
+  message: string | null
+  retryAfterSec?: number
+  presenceUnavailable: boolean
+}
+
+const createHealthyStaffUsersState = (): StaffUsersDegradedState => ({
+  degraded: false,
+  message: null,
+  presenceUnavailable: false,
+})
+
+const markStaffUsersDegraded = (
+  state: StaffUsersDegradedState,
+  message: string,
+  options: { retryAfterSec?: number; presenceUnavailable?: boolean } = {}
+) => {
+  state.degraded = true
+  state.message = state.message || message
+  if (options.retryAfterSec) state.retryAfterSec = options.retryAfterSec
+  if (options.presenceUnavailable) state.presenceUnavailable = true
+}
 
 const shouldVerifyUserActiveSession = (user: {
   lastActiveAt?: number | null
@@ -247,15 +272,6 @@ const shouldVerifyUserActiveSession = (user: {
     return true
   }
   return false
-}
-
-const chunkArray = <T,>(items: T[], size: number): T[][] => {
-  if (size <= 0) return [items]
-  const chunks: T[][] = []
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size))
-  }
-  return chunks
 }
 
 const toStaffListItem = (user: {
@@ -353,6 +369,121 @@ const toStaffListItem = (user: {
   }
 }
 
+type StaffAccountRow = {
+  clerkUserId: string
+  email: string
+  phone?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  role: string
+  category?: string | null
+  banned?: boolean | null
+  locked?: boolean | null
+  hasPin?: boolean | null
+  lastSignInAt?: Date | string | number | null
+  lastCheckInAt?: Date | string | number | null
+  paymentModelId?: string | null
+  hourlyRate?: number | null
+  paydayWeekday?: number | null
+  createdAt?: Date | string | number | null
+  metadata?: unknown
+}
+
+const dateishToMillis = (value: Date | string | number | null | undefined): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (value instanceof Date) {
+    const millis = value.getTime()
+    return Number.isFinite(millis) ? millis : null
+  }
+  if (typeof value === "string" && value.trim()) {
+    const millis = Date.parse(value)
+    return Number.isFinite(millis) ? millis : null
+  }
+  return null
+}
+
+const toStaffListItemFromAccount = (account: StaffAccountRow): StaffListItem | null => {
+  const role = parseRole(account.role)
+  if (!role) return null
+  const category = parseStaffCategory(account.category) || "guest"
+  const metadata = asObject(account.metadata)
+  const lastCheckInAt = dateishToMillis(account.lastCheckInAt)
+  const lastSignInAt = dateishToMillis(account.lastSignInAt)
+  return {
+    id: account.clerkUserId,
+    paymentModelId: account.paymentModelId ?? null,
+    email: account.email,
+    phone: account.phone || "",
+    avatarUrl: typeof metadata.imageUrl === "string" ? metadata.imageUrl : "",
+    location: "—",
+    hasPin: Boolean(account.hasPin),
+    firstName: account.firstName || "",
+    lastName: account.lastName || "",
+    role,
+    category,
+    payrollHoursWorked: null,
+    payrollHourlyRate: asNumber(account.hourlyRate),
+    payrollStatus: null,
+    payrollPaydayWeekday: asWeekday(account.paydayWeekday),
+    payrollDelayEntries: [],
+    performanceRating: null,
+    performanceReviewsCount: null,
+    performanceReviewCycleDays: null,
+    teacherType: "",
+    teacherAssignedUserId: "",
+    teacherRecurrenceUnit: "month",
+    teacherRecurrenceInterval: null,
+    teacherCourseSlugs: [],
+    teacherWeekdays: [],
+    teacherShiftStart: "",
+    teacherShiftEnd: "",
+    teacherWeeklyHours: null,
+    teacherBonusTargetHours: null,
+    banned: Boolean(account.banned),
+    locked: Boolean(account.locked),
+    online: Boolean(lastCheckInAt && Date.now() - lastCheckInAt <= PRESENCE_ONLINE_MAX_AGE_MS),
+    authOnline: false,
+    lastActiveAt: null,
+    staffLastCheckInAt: lastCheckInAt,
+    createdAt: dateishToMillis(account.createdAt) || Date.now(),
+    lastSignInAt,
+  }
+}
+
+const readStaffAccounts = async (clerkUserIds?: string[]) => {
+  if (!clerkUserIds) return (await prisma.staffAccount.findMany()) as StaffAccountRow[]
+  return (await prisma.staffAccount.findMany({ where: { clerkUserId: { in: clerkUserIds } } })) as StaffAccountRow[]
+}
+
+const buildStaffUsersResponse = (list: StaffListItem[], state: StaffUsersDegradedState, requestUrl: URL) => {
+  const body = state.degraded
+    ? {
+        items: list,
+        status: "degraded",
+        degraded: true,
+        message: state.message || "Staff user presence is temporarily unavailable. Showing saved staff records.",
+        presenceUnavailable: state.presenceUnavailable,
+        ...(state.retryAfterSec ? { retryAfterSec: state.retryAfterSec } : {}),
+      }
+    : { items: list }
+
+  const response = NextResponse.json(body, {
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      ...(state.degraded ? { "X-Staff-Service-Status": "degraded" } : {}),
+      ...(state.retryAfterSec ? { "Retry-After": String(state.retryAfterSec) } : {}),
+    },
+  })
+
+  const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
+  staffUsersCache.set(cacheKey, {
+    expiresAt: Date.now() + STAFF_USERS_CACHE_TTL_MS,
+    response: response.clone(),
+  })
+
+  return response
+}
+
 const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   const authResult = await authorizeStaffPortalRequest()
   if (!authResult.ok) {
@@ -367,6 +498,7 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   const { query, categoryFilter } = parseStaffUsersGetFilters(requestUrl)
 
   const client = await clerkClient()
+  const degradedState = createHealthyStaffUsersState()
 
   let activeSessionUserIds = new Set<string>()
   try {
@@ -379,7 +511,12 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
         .map((session) => (typeof session.userId === "string" ? session.userId : ""))
         .filter((userId) => userId.length > 0)
     )
-  } catch {
+  } catch (error) {
+    markStaffUsersDegraded(
+      degradedState,
+      "Staff user presence is temporarily unavailable. Showing saved user rows.",
+      { retryAfterSec: isClerkRateLimitError(error) ? extractRetryAfterSec(error) : undefined, presenceUnavailable: true }
+    )
     activeSessionUserIds = new Set<string>()
   }
 
@@ -411,16 +548,40 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   } catch (error) {
     if (isClerkRateLimitError(error)) {
       const retryAfterSec = extractRetryAfterSec(error)
-      return NextResponse.json(
-        { error: "Service temporarily busy. Please try again shortly." },
-        { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+      markStaffUsersDegraded(
+        degradedState,
+        "Staff user details are temporarily limited. Showing saved staff records.",
+        { retryAfterSec, presenceUnavailable: true }
       )
+      const accounts = await readStaffAccounts()
+      let fallbackList = accounts.map(toStaffListItemFromAccount).filter((item): item is StaffListItem => Boolean(item))
+      if (query) {
+        const normalizedQuery = query.toLowerCase()
+        fallbackList = fallbackList.filter((item) =>
+          [item.email, item.firstName, item.lastName].some((value) => value.toLowerCase().includes(normalizedQuery))
+        )
+      }
+      if (categoryFilter) fallbackList = fallbackList.filter((item) => item.category === categoryFilter)
+      fallbackList = fallbackList.sort((a, b) => b.createdAt - a.createdAt)
+      return buildStaffUsersResponse(fallbackList, degradedState, requestUrl)
     }
     if (isClerkTransientError(error)) {
-      return NextResponse.json(
-        { error: "Service temporarily unavailable. Please try again shortly." },
-        { status: 503, headers: { "Retry-After": "5" } }
+      markStaffUsersDegraded(
+        degradedState,
+        "Staff user details are temporarily unavailable. Showing saved staff records.",
+        { retryAfterSec: 5, presenceUnavailable: true }
       )
+      const accounts = await readStaffAccounts()
+      let fallbackList = accounts.map(toStaffListItemFromAccount).filter((item): item is StaffListItem => Boolean(item))
+      if (query) {
+        const normalizedQuery = query.toLowerCase()
+        fallbackList = fallbackList.filter((item) =>
+          [item.email, item.firstName, item.lastName].some((value) => value.toLowerCase().includes(normalizedQuery))
+        )
+      }
+      if (categoryFilter) fallbackList = fallbackList.filter((item) => item.category === categoryFilter)
+      fallbackList = fallbackList.sort((a, b) => b.createdAt - a.createdAt)
+      return buildStaffUsersResponse(fallbackList, degradedState, requestUrl)
     }
     throw error
   }
@@ -430,9 +591,19 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
     .filter((user) => !activeSessionUserIds.has(user.id))
     .filter((user) => (shouldForcePerUserSessionLookup ? true : shouldVerifyUserActiveSession(user)))
 
-  if (verificationCandidates.length > 0) {
+  if (verificationCandidates.length > MAX_PER_USER_SESSION_LOOKUPS) {
+    markStaffUsersDegraded(
+      degradedState,
+      "Staff user presence is temporarily limited. Showing saved user rows.",
+      { presenceUnavailable: true }
+    )
+  }
+
+  const cappedVerificationCandidates = verificationCandidates.slice(0, MAX_PER_USER_SESSION_LOOKUPS)
+
+  if (cappedVerificationCandidates.length > 0) {
     const results = await Promise.allSettled(
-      verificationCandidates.map(async (user) => {
+      cappedVerificationCandidates.map(async (user) => {
         const sessions = await client.sessions.getSessionList({
           userId: user.id,
           status: "active",
@@ -443,8 +614,13 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
         }
       })
     )
-    // Silently ignore per-user session lookup failures.
-    void results
+    if (results.some((result) => result.status === "rejected")) {
+      markStaffUsersDegraded(
+        degradedState,
+        "Staff user presence is temporarily unavailable. Showing saved user rows.",
+        { presenceUnavailable: true }
+      )
+    }
   }
 
   let list = usersData
@@ -457,11 +633,7 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
 
   const clerkUserIds = list.map((item) => item.id).filter(Boolean)
   if (clerkUserIds.length > 0) {
-    const staffAccounts = (await prisma.staffAccount.findMany({
-      where: {
-        clerkUserId: { in: clerkUserIds },
-      },
-    })) as Array<{ clerkUserId: string; paymentModelId?: string | null }>
+    const staffAccounts = await readStaffAccounts(clerkUserIds)
     const paymentModelByUserId = new Map(staffAccounts.map((account) => [account.clerkUserId, account.paymentModelId]))
     list = list.map((item) => ({
       ...item,
@@ -469,23 +641,7 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
     }))
   }
 
-  const response = NextResponse.json(
-    { items: list },
-    {
-      headers: {
-        "Cache-Control": "no-store, max-age=0",
-      },
-    }
-  )
-
-  // Store in short-lived cache for deduplication
-  const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
-  staffUsersCache.set(cacheKey, {
-    expiresAt: Date.now() + STAFF_USERS_CACHE_TTL_MS,
-    response: response.clone(),
-  })
-
-  return response
+  return buildStaffUsersResponse(list, degradedState, requestUrl)
 }
 
 export async function GET(req: Request) {
