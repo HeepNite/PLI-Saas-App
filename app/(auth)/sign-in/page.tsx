@@ -13,6 +13,13 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const rawRedirect = typeof params.redirect_url === "string" ? params.redirect_url.trim() : ""
   const safeRedirect = rawRedirect.startsWith("/") ? rawRedirect : ""
   return (
+    {/* Force white text on all Clerk alternative method buttons */}
+    <style>{`
+      [data-auth-page] .cl-alternativeMethods button,
+      [data-auth-page] .cl-alternativeMethods a,
+      [data-auth-page] .cl-alternativeMethods span,
+      [data-auth-page] [class*="alternativeMethod"] { color: rgba(255,255,255,0.8) !important; }
+    `}</style>
     <main
       data-auth-page="true"
       className="relative flex min-h-dvh w-full items-center justify-center gap-0 overflow-hidden bg-[#13141d] px-5 py-8"

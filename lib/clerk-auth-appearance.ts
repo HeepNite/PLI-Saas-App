@@ -31,6 +31,8 @@ export const clerkDarkAuthAppearance = {
     identityPreviewText: "text-white/75",
     identityPreviewEditButton: "text-[var(--brand,#e31b1b)]",
     alternativeMethodsBlockButton: "text-white/80 hover:bg-white/[0.06]",
+    alternativeMethodsBlockButtonText: "text-white/80",
+    alternativeMethodsBlockButtonArrow: "text-white/50",
     alertText: "text-red-300",
     alert: "border border-red-500/30 bg-red-500/10",
   },
