@@ -44,6 +44,17 @@ const STAFF_USERS_CRITICAL_REFRESH_MS = 15_000
 const STAFF_USERS_NORMAL_REFRESH_MS = 60_000
 const STAFF_PRESENCE_BACKOFF_MAX_MS = 300_000
 
+const parseRetryAfterMs = (retryAfter: string | null, fallbackSec: unknown): number => {
+  const headerValue = Number(retryAfter)
+  const bodyValue = typeof fallbackSec === "number" ? fallbackSec : Number(fallbackSec)
+  const retryAfterSec = Number.isFinite(headerValue) && headerValue > 0
+    ? headerValue
+    : Number.isFinite(bodyValue) && bodyValue > 0
+      ? bodyValue
+      : 0
+  return Math.min(retryAfterSec * 1000, STAFF_PRESENCE_BACKOFF_MAX_MS)
+}
+
 // ---------------------------------------------------------------------------
 // Data reducer
 // ---------------------------------------------------------------------------
@@ -284,8 +295,7 @@ export const useStaffDirectoryAdmin = ({
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
         if (res.status === 429 || res.status === 503) {
-          const retryAfterSec = Number(res.headers.get("Retry-After")) || 5
-          const backoffMs = Math.min(retryAfterSec * 1000, STAFF_PRESENCE_BACKOFF_MAX_MS)
+          const backoffMs = parseRetryAfterMs(res.headers.get("Retry-After"), 5)
           const jitter = Math.floor(Math.random() * 1000)
           backoffUntilRef.current = Date.now() + backoffMs + jitter
           consecutiveFailuresRef.current += 1
@@ -301,9 +311,13 @@ export const useStaffDirectoryAdmin = ({
         if (showLoader && dataStateRef.current.rows.length === 0) dispatchData({ type: "SET_ROWS", payload: [] })
         return
       }
-      consecutiveFailuresRef.current = 0
-      backoffUntilRef.current = 0
       if (data?.status === "degraded" || data?.degraded === true || data?.presenceUnavailable === true) {
+        const backoffMs = parseRetryAfterMs(res.headers.get("Retry-After"), data?.retryAfterSec)
+        if (backoffMs > 0) {
+          const jitter = Math.floor(Math.random() * 1000)
+          backoffUntilRef.current = Date.now() + backoffMs + jitter
+          consecutiveFailuresRef.current += 1
+        }
         dispatchData({
           type: "SET_DIRECTORY_STATUS_MESSAGE",
           payload:
@@ -312,6 +326,8 @@ export const useStaffDirectoryAdmin = ({
               : "Staff user presence is temporarily unavailable. Showing saved user rows.",
         })
       } else {
+        consecutiveFailuresRef.current = 0
+        backoffUntilRef.current = 0
         dispatchData({ type: "SET_DIRECTORY_STATUS_MESSAGE", payload: null })
       }
       const nextRows = Array.isArray(data?.items) ? data.items : []

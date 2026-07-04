@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockAuthorizePortal = vi.fn()
 const mockClerkClient = vi.fn()
@@ -59,6 +59,10 @@ describe("staff users routes", () => {
     mockClerkClient.mockResolvedValue({ users: usersApi, invitations: invitationsApi, sessions: sessionsApi })
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
     mockPrisma.staffAccount.findMany.mockResolvedValue([])
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it("GET returns 401 when portal auth fails", async () => {
@@ -151,6 +155,43 @@ describe("staff users routes", () => {
     expect(usersApi.getUserList).toHaveBeenCalledWith(
       expect.objectContaining({ query: "ana" })
     )
+  })
+
+  it("GET requires auth before returning a cached staff users response", async () => {
+    vi.stubEnv("STAFF_USERS_CACHE_TEST_ENABLED", "true")
+    usersApi.getUserList.mockResolvedValue({
+      data: [
+        {
+          id: "u_cached_staff",
+          firstName: "Cached",
+          lastName: "Staff",
+          emailAddresses: [{ emailAddress: "cached@example.com" }],
+          publicMetadata: { role: "staff" },
+          banned: false,
+          locked: false,
+          createdAt: Date.now(),
+          lastSignInAt: Date.now(),
+        },
+      ],
+    })
+
+    const { GET } = await import("@/app/api/staff/users/route")
+
+    const first = await GET(new Request("http://localhost/api/staff/users?q=cached"))
+    expect(first.status).toBe(200)
+    expect((await first.json()).items[0].id).toBe("u_cached_staff")
+
+    const second = await GET(new Request("http://localhost/api/staff/users?q=cached"))
+    expect(second.status).toBe(200)
+    expect((await second.json()).items[0].id).toBe("u_cached_staff")
+    expect(usersApi.getUserList).toHaveBeenCalledTimes(1)
+
+    mockAuthorizePortal.mockResolvedValueOnce({ ok: false, status: 401, error: "Invalid key" })
+    const unauthorized = await GET(new Request("http://localhost/api/staff/users?q=cached"))
+    expect(unauthorized.status).toBe(401)
+    expect(await unauthorized.json()).toEqual({ error: "Invalid key" })
+    expect(mockAuthorizePortal).toHaveBeenCalledTimes(3)
+    expect(usersApi.getUserList).toHaveBeenCalledTimes(1)
   })
 
   it("normalizes q before building cache key", async () => {

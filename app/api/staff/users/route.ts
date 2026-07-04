@@ -42,7 +42,17 @@ const staffUsersCache = new Map<string, CacheEntry>()
 const inflightRequests = new Map<string, Promise<NextResponse>>()
 
 const shouldBypassStaffUsersCache = () =>
-  process.env.NODE_ENV === "test"
+  process.env.NODE_ENV === "test" && process.env.STAFF_USERS_CACHE_TEST_ENABLED !== "true"
+
+type StaffPortalAuthResult = Awaited<ReturnType<typeof authorizeStaffPortalRequest>>
+
+const buildStaffUsersAuthFailureResponse = (authResult: Extract<StaffPortalAuthResult, { ok: false }>) => {
+  const headers: Record<string, string> = {}
+  if (authResult.status === 503 && authResult.retryAfterSec) {
+    headers["Retry-After"] = String(authResult.retryAfterSec)
+  }
+  return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers })
+}
 
 const isClerkRateLimitError = (error: unknown): boolean => {
   if (!error || typeof error !== "object") return false
@@ -484,14 +494,10 @@ const buildStaffUsersResponse = (list: StaffListItem[], state: StaffUsersDegrade
   return response
 }
 
-const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
-  const authResult = await authorizeStaffPortalRequest()
+const executeStaffUsersGet = async (req: Request, preflightAuth?: StaffPortalAuthResult): Promise<NextResponse> => {
+  const authResult = preflightAuth ?? await authorizeStaffPortalRequest()
   if (!authResult.ok) {
-    const headers: Record<string, string> = {}
-    if (authResult.status === 503 && authResult.retryAfterSec) {
-      headers["Retry-After"] = String(authResult.retryAfterSec)
-    }
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers })
+    return buildStaffUsersAuthFailureResponse(authResult)
   }
 
   const requestUrl = new URL(req.url)
@@ -657,7 +663,12 @@ export async function GET(req: Request) {
     )
   }
 
-  // Check short-lived cache first (avoids redundant Clerk calls during rapid polling)
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return buildStaffUsersAuthFailureResponse(authResult)
+  }
+
+  // Check short-lived cache after backend auth/authorization succeeds.
   if (!shouldBypassStaffUsersCache()) {
     const requestUrl = new URL(req.url)
     const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
@@ -673,7 +684,7 @@ export async function GET(req: Request) {
       return existingInflight
     }
 
-    const pendingPromise = executeStaffUsersGet(req).finally(() => {
+    const pendingPromise = executeStaffUsersGet(req, authResult).finally(() => {
       inflightRequests.delete(cacheKey)
     })
 
@@ -682,7 +693,7 @@ export async function GET(req: Request) {
     return pendingPromise
   }
 
-  return executeStaffUsersGet(req)
+  return executeStaffUsersGet(req, authResult)
 }
 
 export async function POST(req: Request) {

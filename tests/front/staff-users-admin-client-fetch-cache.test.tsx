@@ -69,4 +69,10 @@ describe("StaffUsersAdminClient fetch cache regression", () => {
 
     expect(offenders, `GET fetches without cache: "no-store": ${offenders.join(", ")}`).toEqual([])
   })
+
+  it("honors Retry-After on degraded staff users 200 responses without clearing existing rows", () => {
+    expect(source).toContain('const backoffMs = parseRetryAfterMs(res.headers.get("Retry-After"), data?.retryAfterSec)')
+    expect(source).toContain("backoffUntilRef.current = Date.now() + backoffMs + jitter")
+    expect(source).toContain("if (data?.presenceUnavailable === true && nextRows.length === 0 && dataStateRef.current.rows.length > 0) return")
+  })
 })
