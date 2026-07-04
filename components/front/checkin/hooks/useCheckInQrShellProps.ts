@@ -170,6 +170,14 @@ export type UseCheckInQrShellPropsInput = {
   onPhoneSignInSession: (sessionId: string) => Promise<void>
   onPhoneSignInSuccess: () => Promise<void>
   onStationCompletion: () => void | Promise<void>
+  // Quick repeat overlay
+  showQuickRepeat: boolean
+  quickRepeatQrCheckout: KioskQrCheckoutState
+  quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
+  onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
+  onQuickRepeatDecline: () => void
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────

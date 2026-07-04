@@ -37,6 +37,8 @@ export const resolveStepValid = (stepIndex: number, ctx: StepValidContext): bool
       return !ctx.requiresPhotoStep || ctx.photoSaved
     case "packages":
       return true
+    case "promo":
+      return ctx.consecutiveChoiceMade
     case "consecutive":
       return ctx.consecutiveChoiceMade
     case "payments":

@@ -12,6 +12,7 @@ import {
 } from "@/components/front/checkin/KioskResolvingOverlay"
 import { PhoneSignInModal } from "@/components/front/checkin/PhoneSignInModal"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
+import { KioskQuickRepeatOverlay } from "@/components/front/checkin/KioskQuickRepeatOverlay"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
@@ -75,6 +76,14 @@ type CheckInQrOverlaysProps = {
   onPhoneSignInSuccess: () => Promise<void>
   onStationCompletion: () => void | Promise<void>
   prefillSelection: EnrollModalProps["prefillSelection"]
+  // Quick repeat overlay
+  showQuickRepeat: boolean
+  quickRepeatQrCheckout: KioskQrCheckoutState
+  quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
+  onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
+  onQuickRepeatDecline: () => void
 }
 
 export function CheckInQrOverlays({
@@ -132,9 +141,28 @@ export function CheckInQrOverlays({
   onPhoneSignInSuccess,
   onStationCompletion,
   prefillSelection,
+  showQuickRepeat,
+  quickRepeatQrCheckout,
+  quickRepeatProcessing,
+  quickRepeatSuccess,
+  quickRepeatSuccessChannel,
+  onQuickRepeatConfirm,
+  onQuickRepeatDecline,
 }: CheckInQrOverlaysProps) {
   return (
     <>
+      {showQuickRepeat && bootstrap && (
+        <KioskQuickRepeatOverlay
+          bootstrap={bootstrap}
+          qrCheckout={quickRepeatQrCheckout}
+          onConfirm={onQuickRepeatConfirm}
+          onDecline={onQuickRepeatDecline}
+          isProcessing={quickRepeatProcessing}
+          success={quickRepeatSuccess}
+          successChannel={quickRepeatSuccessChannel}
+        />
+      )}
+
       {(showDuplicatePurchasePopup || (bootstrap?.hasExistingPurchaseForSession && !showConsecutiveOverlay)) && (
         <KioskDuplicatePurchaseOverlay
           customerName={bootstrap?.customer?.firstName}
@@ -219,7 +247,7 @@ export function CheckInQrOverlays({
         />
       )}
 
-      {existingRegularBookingCourse && (
+      {existingRegularBookingCourse && !showQuickRepeat && (
         <EnrollModal
           key={`existing-regular-${existingRegularBookingKey}-${existingRegularBookingOverride?.courseSlug || existingRegularBookingCourse.slug}-${existingRegularBookingOverride?.date || ""}-${existingRegularBookingOverride?.time || ""}-${consecutiveOffer?.linkedCourseSlug ?? "no-promo"}`}
           course={existingRegularBookingCourse}

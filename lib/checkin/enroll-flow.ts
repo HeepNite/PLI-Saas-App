@@ -3,7 +3,7 @@ type ResolveEnrollInitialStepInput = {
   stepsLength: number
 }
 
-export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "consecutive" | "payments" | "review"
+export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "consecutive" | "promo" | "payments" | "review"
 
 type ResolveEnrollStepKeysInput = {
   isCheckInFlow: boolean
@@ -44,8 +44,20 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  * Kiosk flow: info → [photo] → [packages] → payments
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
+  if (input.isCheckInFlow && input.isKioskTerminalFlow && input.isCheckInNewFlow) {
+    // "I'm new" on kiosk: streamlined 3-step flow
+    return ["info", "promo", "payments"]
+  }
+
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
-    return ["info", "payments"]
+    // Existing customer declining Quick Repeat: full flow with packages
+    return [
+      "info",
+      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+      ...(input.hasPackages ? (["packages"] as const) : []),
+      ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
+      "payments",
+    ]
   }
 
   if (input.isQrMobileCompactFlow) {

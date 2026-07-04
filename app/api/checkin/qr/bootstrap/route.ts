@@ -11,9 +11,13 @@ import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, getCachedClerkUser, resolveAvatarState } from "@/lib/clerk-users"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
-import { asRecord, asText, normalizePhoneDigits } from "@/lib/shared"
-import { FLOW_CONTEXT } from "@/lib/payment-constants"
+import { computeDiscountPercent } from "@/lib/course-links"
+import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
+import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
+import { asRecord, asText, normalizePhoneDigits, asObject } from "@/lib/shared"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL } from "@/lib/payment-constants"
+import { getDayOfWeekCount } from "@/lib/checkin/day-of-week-counter"
+import { getEtDateIso } from "@/lib/checkin/et-time"
 
 export const runtime = "nodejs"
 
@@ -289,28 +293,122 @@ export async function POST(req: Request) {
 
     const isTerminalFlow = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
 
+    // ─── Consecutive offer detection ─────────────────────────
     const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
-    const consecutiveOffer = linkedFromCourseSlug && dbUser
-      ? await resolveConsecutiveOffer({
-          linkedFromCourseSlug,
-          userId: dbUser.id,
-          todayJsWeekday: (() => {
-            const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
-            const weekday = new Intl.DateTimeFormat("en-US", {
-              timeZone: "America/New_York",
-              weekday: "short",
-            }).format(now)
-            return weekdayLabels.findIndex((label) => label === weekday)
-          })(),
-          courseTimeMinutes: (() => {
-            const match = /^(\d{2}):(\d{2})$/.exec(context.time || "")
-            return match ? Number(match[1]) * 60 + Number(match[2]) : null
-          })(),
-          now,
-        })
-      : null
+    let consecutiveOffer: {
+      linkedCourseSlug: string
+      linkedCourseTitle: string
+      linkedCourseTime: string | null
+      dropInConsecutiveCents: number | null
+      packageHolderConsecutiveCents: number | null
+      regularDropInCents: number
+      discountPercent: number
+      hasAttendedFirstClass: boolean
+    } | null = null
 
-    const [allActivePackages, recentPurchases, anyCompletedPurchase] = await Promise.all([
+    if (linkedFromCourseSlug && dbUser) {
+      const links = await prisma.courseLink.findMany({
+        where: {
+          OR: [
+            { courseSlugA: linkedFromCourseSlug.toLowerCase() },
+            { courseSlugB: linkedFromCourseSlug.toLowerCase() },
+          ],
+          active: true,
+        },
+      })
+
+      if (links.length > 0) {
+        const todayJsWeekday = (() => {
+          const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+          const weekday = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            weekday: "short",
+          }).format(now)
+          return weekdayLabels.findIndex((label) => label === weekday)
+        })()
+        const aTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
+        const aMinutes = aTimeMatch
+          ? Number(aTimeMatch[1]) * 60 + Number(aTimeMatch[2])
+          : null
+
+        const candidates = await Promise.all(links.map(async (link) => {
+          const linkedCourseSlug = link.courseSlugA === linkedFromCourseSlug.toLowerCase()
+            ? link.courseSlugB
+            : link.courseSlugA
+          const linkedCourse = await getCatalogCourseBySlug(linkedCourseSlug)
+          const hasAlreadyLinkedCourse = await hasPurchaseForCourseToday(dbUser.id, linkedCourseSlug, now)
+          return { link, linkedCourseSlug, linkedCourse, hasAlreadyLinkedCourse }
+        }))
+
+        // Validate that course B is actually scheduled today and starts after A's
+        // selected time. This prevents surfacing a consecutive offer for a class
+        // that isn't scheduled today (e.g. Rueda on Mondays — only on Fridays).
+        //
+        // Only enforce the check when course B has day-specific schedule rules.
+        // If no day-specific rules are present we cannot reliably determine
+        // today's availability here, so we fall back to the prior behavior and
+        // let downstream validation (attendance / check-in window) catch it.
+        const hasAttendedA = await hasAttendedCourseToday(dbUser.id, linkedFromCourseSlug, now)
+        const nextCandidate = candidates
+          .filter((candidate) => candidate.linkedCourse && !candidate.hasAlreadyLinkedCourse)
+          .map((candidate) => {
+            const linkedScheduleRules = candidate.linkedCourse?.scheduleRules
+            const parsedRules = parseScheduleRules(linkedScheduleRules)
+            let linkedStartMinutes: number | null = null
+            let isLinkedScheduledLaterToday = true
+            if (parsedRules?.rules?.length) {
+              const linkedTimesToday = getTimesForWeekday(linkedScheduleRules, todayJsWeekday) ?? []
+              const laterTimes = linkedTimesToday
+                .map((time) => {
+                  const match = /^(\d{2}):(\d{2})$/.exec(time)
+                  if (!match) return null
+                  const minutes = Number(match[1]) * 60 + Number(match[2])
+                  return aMinutes === null || minutes > aMinutes ? minutes : null
+                })
+                .filter((minutes): minutes is number => minutes !== null)
+                .sort((left, right) => left - right)
+              linkedStartMinutes = laterTimes[0] ?? null
+              isLinkedScheduledLaterToday = laterTimes.length > 0
+            }
+            return { ...candidate, linkedStartMinutes, isLinkedScheduledLaterToday }
+          })
+          .filter((candidate) => candidate.isLinkedScheduledLaterToday)
+          .sort((left, right) => (left.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER) - (right.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER))[0]
+
+        if (nextCandidate?.linkedCourse && (isTerminalFlow || hasAttendedA)) {
+          const regularDropIn = nextCandidate.linkedCourse.enrollment.services.find((s) => s.id === "dropin")?.price ?? 0
+          const discountPercent = computeDiscountPercent(
+            regularDropIn * 100,
+            nextCandidate.link.dropInConsecutiveCents
+          )
+
+          consecutiveOffer = {
+            linkedCourseSlug: nextCandidate.linkedCourseSlug,
+            linkedCourseTitle: nextCandidate.linkedCourse.title,
+            linkedCourseTime: nextCandidate.linkedStartMinutes != null
+              ? `${String(Math.floor(nextCandidate.linkedStartMinutes / 60)).padStart(2, "0")}:${String(nextCandidate.linkedStartMinutes % 60).padStart(2, "0")}`
+              : null,
+            dropInConsecutiveCents: nextCandidate.link.dropInConsecutiveCents,
+            packageHolderConsecutiveCents: nextCandidate.link.packageHolderConsecutiveCents,
+            regularDropInCents: regularDropIn * 100,
+            discountPercent,
+            hasAttendedFirstClass: hasAttendedA,
+          }
+        }
+      }
+    }
+
+    // ─── Day-of-week counter query (terminal flow only) ──────────
+    const currentDayOfWeek = (() => {
+      const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+      const weekday = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+      }).format(now)
+      return weekdayLabels.findIndex((label) => label === weekday)
+    })()
+
+    const [allActivePackages, recentPurchases, anyCompletedPurchase, dayOfWeekPurchaseCount, totalPurchaseCount] = await Promise.all([
       prisma.packagePurchase.findMany({
         where: {
           userId: dbUser.id,
@@ -352,6 +450,17 @@ export async function POST(req: Request) {
             },
             select: { id: true },
           }),
+      isTerminalFlow
+        ? getDayOfWeekCount(dbUser.id, currentDayOfWeek)
+        : Promise.resolve(0),
+      isTerminalFlow
+        ? prisma.purchase.count({
+            where: {
+              userId: dbUser.id,
+              status: { in: SUCCESSFUL_PURCHASE_STATUSES },
+            },
+          })
+        : Promise.resolve(0),
     ])
     const lastPurchase = recentPurchases[0] || null
 
@@ -459,6 +568,27 @@ export async function POST(req: Request) {
       })
     }
 
+    const quickRepeatEligible = totalPurchaseCount >= 3
+
+    // Extract last purchase pattern for quick-repeat overlay (terminal flow only)
+    // Always use catalog drop-in price so the amount matches validation regardless
+    // of whether the student's last purchase had a discount or was for a different course.
+    const catalogDropInCents = (course.enrollment?.services?.find((s: { id: string }) => s.id === "dropin")?.price ?? 0) * 100
+    const lastPurchasePattern = isTerminalFlow
+      ? (() => {
+          const meta = lastPurchase ? asObject(lastPurchase.metadata) : null
+          const paymentChannel =
+            meta && typeof meta.paymentChannel === "string" && meta.paymentChannel
+              ? meta.paymentChannel
+              : PAYMENT_CHANNEL.CASH
+          return {
+            paymentChannel,
+            courseSlug: context.courseSlug,
+            amount: catalogDropInCents,
+          }
+        })()
+      : null
+
     const terminalPayload = isTerminalFlow
 
     console.info("[staff-terminal-checkout-latency] bootstrap", {
@@ -467,6 +597,16 @@ export async function POST(req: Request) {
       durationMs: Date.now() - startedAt,
       hasQuickCheckout: Boolean(quickTemplate),
     })
+
+    if (isTerminalFlow) {
+      console.info("[QuickRepeat debug]", {
+        totalPurchaseCount,
+        quickRepeatEligible,
+        lastPurchaseAmount: lastPurchasePattern?.amount,
+        catalogDropInCents,
+        hasLastPurchase: Boolean(lastPurchase),
+      })
+    }
 
     return NextResponse.json({
       context: {
@@ -509,7 +649,12 @@ export async function POST(req: Request) {
           }
         : null,
       ...(terminalPayload
-        ? { hasExistingPurchaseForSession }
+        ? {
+            hasExistingPurchaseForSession,
+            dayOfWeekPurchaseCount,
+            quickRepeatEligible,
+            lastPurchasePattern,
+          }
         : {
             purchaseHistory,
             hasPreviousPurchase: Boolean(lastPurchase),

@@ -111,7 +111,10 @@ const normalizeTime24 = (value: unknown): string | null => {
 
 export { isEmail, normalizePhone }
 
-export const validateCheckoutPayload = async (body: CheckoutBody): Promise<CheckoutValidation | ApiError> => {
+export const validateCheckoutPayload = async (
+  body: CheckoutBody,
+  opts?: { prepareOnly?: boolean },
+): Promise<CheckoutValidation | ApiError> => {
   const {
     courseSlug,
     courseTitle = "Course booking",
@@ -136,7 +139,7 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
 
   const rawAmount = typeof amount === "number" ? amount : Number.NaN
   const amountInt = Number.isFinite(rawAmount) ? Math.round(rawAmount) : 0
-  if (!courseSlug || amountInt <= 0) {
+  if (!courseSlug || (!opts?.prepareOnly && amountInt <= 0)) {
     return { status: 400, error: "Missing course slug or amount" }
   }
 
@@ -224,7 +227,8 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
   }
 
   if (Math.round(expected * 100) !== amountInt) {
-    return { status: 400, error: "Amount mismatch" }
+    console.error("[validation] Amount mismatch", { expected, expectedCents: Math.round(expected * 100), amountInt, serviceId, servicePrice: service?.price, courseSlug })
+    return { status: 400, error: `Amount mismatch (expected ${Math.round(expected * 100)} cents, got ${amountInt} cents, service.price=${service?.price})` }
   }
 
   return {

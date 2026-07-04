@@ -332,6 +332,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     hasPackageOffer: showPackageOfferScreen,
     paymentsStepReady: paymentsModalReady,
     hasExistingPurchaseForSession: Boolean(bootstrap?.hasExistingPurchaseForSession),
+    quickRepeatEligible: Boolean(bootstrap?.quickRepeatEligible),
   })
   const showSignedInBootstrapPanel = canShowSignedInBootstrapPanel && !showKioskResolvingOverlay && !isKioskTerminalFlow
   const hideEntrySelection =

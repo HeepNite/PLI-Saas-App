@@ -181,6 +181,14 @@ export type CheckInQrShellProps = {
   onPhoneSignInSession: (sessionId: string) => Promise<void>
   onPhoneSignInSuccess: () => Promise<void>
   onStationCompletion: () => void | Promise<void>
+  // Quick repeat overlay
+  showQuickRepeat: boolean
+  quickRepeatQrCheckout: KioskQrCheckoutState
+  quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
+  onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
+  onQuickRepeatDecline: () => void
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -327,6 +335,13 @@ export function CheckInQrShell({
   onPhoneSignInSession,
   onPhoneSignInSuccess,
   onStationCompletion,
+  showQuickRepeat,
+  quickRepeatQrCheckout,
+  quickRepeatProcessing,
+  quickRepeatSuccess,
+  quickRepeatSuccessChannel,
+  onQuickRepeatConfirm,
+  onQuickRepeatDecline,
 }: CheckInQrShellProps) {
   const isTerminal = shellVariant === "terminal"
 
@@ -519,6 +534,13 @@ export function CheckInQrShell({
         onPhoneSignInSuccess={onPhoneSignInSuccess}
         onStationCompletion={onStationCompletion}
         prefillSelection={prefillSelection}
+        showQuickRepeat={showQuickRepeat}
+        quickRepeatQrCheckout={quickRepeatQrCheckout}
+        quickRepeatProcessing={quickRepeatProcessing}
+        quickRepeatSuccess={quickRepeatSuccess}
+        quickRepeatSuccessChannel={quickRepeatSuccessChannel}
+        onQuickRepeatConfirm={onQuickRepeatConfirm}
+        onQuickRepeatDecline={onQuickRepeatDecline}
       />
     </main>
   )

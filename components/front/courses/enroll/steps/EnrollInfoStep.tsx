@@ -72,6 +72,16 @@ export default function EnrollInfoStep({
 }: EnrollInfoStepProps) {
   const phoneComplete = isCompleteUSPhone(contact.phone)
 
+  // For phone-first kiosk flow: initial phase is "phone", second phase is "name-email".
+  // For standard QR compact flow: initial phase is "name-email", second phase is "phone".
+  const isPhoneFirst = isKioskTerminalFlow
+
+  const editInitialPhase = React.useCallback(() => {
+    setKioskInfoPhase(isPhoneFirst ? "phone" : "name-email")
+    setActiveNumericField(isPhoneFirst ? "phone" : null)
+  }, [isPhoneFirst, setActiveNumericField, setKioskInfoPhase])
+
+  // Keep for QR compact flow compatibility
   const editNameEmail = React.useCallback(() => {
     setKioskInfoPhase("name-email")
     setActiveNumericField(null)
@@ -195,12 +205,18 @@ export default function EnrollInfoStep({
   )
 
   if (isKioskTerminalFlow || usesPhasedInfoForm) {
+    // Phone-first flow (kiosk terminal): phone → name-email → done
+    // Standard phased flow (QR compact): name-email → phone → done
+    const isOnSecondPhase = isPhoneFirst
+      ? kioskInfoPhase === "name-email"
+      : kioskInfoPhase === "phone"
+
     return (
       <div className="space-y-4">
         <AnimatePresence>
-          {kioskInfoPhase !== "name-email" && (contact.firstName || contact.lastName || contact.email) && (
+          {isOnSecondPhase && (
             <motion.div
-              key="name-email-summary"
+              key="first-phase-summary"
               variants={pillVariants}
               initial="initial"
               animate="animate"
@@ -208,9 +224,11 @@ export default function EnrollInfoStep({
               className="flex items-center justify-between gap-3 rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white/80"
             >
               <span className="truncate">
-                {[contact.firstName, contact.lastName].filter(Boolean).join(" ")}{contact.email ? ` · ${contact.email}` : ""}
+                {isPhoneFirst
+                  ? contact.phone
+                  : `${contact.firstName} ${contact.lastName} · ${contact.email}`}
               </span>
-              <button type="button" onClick={editNameEmail} className="shrink-0 font-semibold text-[var(--brand,#ff7a7a)] underline-offset-4 hover:underline">
+              <button type="button" onClick={editInitialPhase} className="shrink-0 font-semibold text-[var(--brand,#ff7a7a)] underline-offset-4 hover:underline">
                 Edit
               </button>
             </motion.div>

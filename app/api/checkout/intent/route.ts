@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
-  const validation = await validateCheckoutPayload(body)
+  const validation = await validateCheckoutPayload(body, { prepareOnly })
   if (isApiError(validation)) {
     return toErrorResponse(validation)
   }
