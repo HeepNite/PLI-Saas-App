@@ -8,7 +8,10 @@ export const metadata: Metadata = {
   description: "Access your PLI account to manage bookings and courses.",
 }
 
-export default function SignInPage() {
+export default async function SignInPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const params = await searchParams
+  const rawRedirect = typeof params.redirect_url === "string" ? params.redirect_url.trim() : ""
+  const safeRedirect = rawRedirect.startsWith("/") ? rawRedirect : ""
   return (
     <main
       data-auth-page="true"
@@ -39,6 +42,7 @@ export default function SignInPage() {
                 "border border-white/15 bg-white/[0.03] hover:bg-white/[0.08] text-white rounded-md h-12 [&_svg]:text-white [&_svg]:fill-white",
             },
           }}
+          forceRedirectUrl={safeRedirect || undefined}
           fallbackRedirectUrl="/client-profile"
         />
       </div>

@@ -30,6 +30,7 @@ export const clerkDarkAuthAppearance = {
     footerActionLink: "text-[var(--brand,#e31b1b)] hover:text-[#ff4f4f] font-medium",
     identityPreviewText: "text-white/75",
     identityPreviewEditButton: "text-[var(--brand,#e31b1b)]",
+    alternativeMethodsBlockButton: "text-white/80 hover:bg-white/[0.06]",
     alertText: "text-red-300",
     alert: "border border-red-500/30 bg-red-500/10",
   },

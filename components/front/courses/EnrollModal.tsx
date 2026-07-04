@@ -467,7 +467,16 @@ export default function EnrollModal({
     return () => window.clearInterval(intervalId)
   }, [isCheckInFlow, open])
 
-  const signInReturnTo = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
+  const signInReturnTo = React.useMemo(() => {
+    const base = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
+    if (!isQrMobileCompactFlow) return base
+    const extras = [
+      "qrBooking=1",
+      checkInContextDate && `date=${checkInContextDate}`,
+      checkInContextTime && `time=${checkInContextTime}`,
+    ].filter(Boolean).join("&")
+    return extras ? `${base}&${extras}` : base
+  }, [course.slug, steps.length, step, isQrMobileCompactFlow, checkInContextDate, checkInContextTime])
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
   const setService = React.useCallback((value: React.SetStateAction<string>) => {
