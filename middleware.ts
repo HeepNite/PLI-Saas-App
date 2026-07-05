@@ -48,7 +48,7 @@ export default function middleware(req: NextRequest, event: NextFetchEvent) {
   // Vercel Preview Toolbar (feedback.js) sends OPTIONS requests that Clerk
   // cannot handle, causing 400 responses and a client-side retry loop.
   if (req.method === "OPTIONS") {
-    return NextResponse.next()
+    return new NextResponse(null, { status: 204 })
   }
 
   return clerkProtectedMiddleware(req, event)

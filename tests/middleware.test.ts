@@ -45,8 +45,7 @@ describe("middleware staff API auth guard", () => {
     )
 
     expect(response).toBeDefined()
-    expect(response!.status).not.toBe(400)
-    expect(response!.status).not.toBe(401)
+    expect(response!.status).toBe(204)
     expect(authMock).not.toHaveBeenCalled()
     expect(clerkWrappedMiddlewareMock).not.toHaveBeenCalled()
   })
@@ -60,8 +59,7 @@ describe("middleware staff API auth guard", () => {
     )
 
     expect(response).toBeDefined()
-    expect(response!.status).not.toBe(400)
-    expect(response!.status).not.toBe(401)
+    expect(response!.status).toBe(204)
     expect(authMock).not.toHaveBeenCalled()
     expect(clerkWrappedMiddlewareMock).not.toHaveBeenCalled()
   })
