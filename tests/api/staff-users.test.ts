@@ -22,6 +22,16 @@ const sessionsApi = {
   getSessionList: vi.fn(),
 }
 
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
+
 const mockPrisma = {
   staffAccount: {
     findMany: vi.fn(),
@@ -191,6 +201,60 @@ describe("staff users routes", () => {
     expect(unauthorized.status).toBe(401)
     expect(await unauthorized.json()).toEqual({ error: "Invalid key" })
     expect(mockAuthorizePortal).toHaveBeenCalledTimes(3)
+    expect(usersApi.getUserList).toHaveBeenCalledTimes(1)
+  })
+
+  it("GET requires auth before joining an in-flight staff users response", async () => {
+    vi.stubEnv("STAFF_USERS_CACHE_TEST_ENABLED", "true")
+    const getUserListStarted = createDeferred<void>()
+    const pendingUsers = createDeferred<{
+      data: Array<{
+        id: string
+        firstName: string
+        lastName: string
+        emailAddresses: Array<{ emailAddress: string }>
+        publicMetadata: { role: string }
+        banned: boolean
+        locked: boolean
+        createdAt: number
+        lastSignInAt: number
+      }>
+    }>()
+    sessionsApi.getSessionList.mockResolvedValue({ data: [] })
+    usersApi.getUserList.mockImplementationOnce(() => {
+      getUserListStarted.resolve()
+      return pendingUsers.promise
+    })
+
+    const { GET } = await import("@/app/api/staff/users/route")
+
+    const authorized = GET(new Request("http://localhost/api/staff/users?q=inflight-auth"))
+    await getUserListStarted.promise
+
+    mockAuthorizePortal.mockResolvedValueOnce({ ok: false, status: 401, error: "Invalid key" })
+    const unauthorized = await GET(new Request("http://localhost/api/staff/users?q=inflight-auth"))
+    expect(unauthorized.status).toBe(401)
+    expect(await unauthorized.json()).toEqual({ error: "Invalid key" })
+
+    pendingUsers.resolve({
+      data: [
+        {
+          id: "u_inflight_staff",
+          firstName: "Inflight",
+          lastName: "Staff",
+          emailAddresses: [{ emailAddress: "inflight@example.com" }],
+          publicMetadata: { role: "staff" },
+          banned: false,
+          locked: false,
+          createdAt: Date.now(),
+          lastSignInAt: Date.now(),
+        },
+      ],
+    })
+
+    const authorizedResponse = await authorized
+    expect(authorizedResponse.status).toBe(200)
+    expect((await authorizedResponse.json()).items[0].id).toBe("u_inflight_staff")
     expect(usersApi.getUserList).toHaveBeenCalledTimes(1)
   })
 
@@ -485,7 +549,13 @@ describe("staff users routes", () => {
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
       expect(res.status).toBe(200)
+      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
       const data = await res.json()
+      expect(data).toMatchObject({
+        status: "degraded",
+        presenceUnavailable: true,
+      })
+      expect(data.error).toBeUndefined()
       expect(data.items).toHaveLength(1)
       expect(data.items[0].online).toBe(false)
       expect(data.items[0].authOnline).toBe(false)
