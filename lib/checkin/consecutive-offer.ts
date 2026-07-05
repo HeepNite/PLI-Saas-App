@@ -34,10 +34,16 @@ type ResolveConsecutiveOfferInput = {
 export const resolveConsecutiveOffer = async ({
   userId,
   linkedFromCourseSlug,
-  todayJsWeekday,
+  todayJsWeekday: _rawWeekday,
   courseTimeMinutes,
   now = new Date(),
 }: ResolveConsecutiveOfferInput): Promise<ConsecutiveOfferResult> => {
+  // Always derive weekday from ET timezone — server may run in UTC where
+  // getDay() returns the wrong day (e.g. Sunday in UTC while still Saturday in ET)
+  const ET_DAY_MAP: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const todayJsWeekday = ET_DAY_MAP[
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(now)
+  ] ?? _rawWeekday
   const links = await prisma.courseLink.findMany({
     where: {
       OR: [
