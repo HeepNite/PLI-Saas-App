@@ -98,6 +98,13 @@ export async function POST(req: Request) {
       },
     })
 
+    // ─── Resolve course title (catalog > session > slug) ─────
+    const catalogRow = await prisma.courseCatalog.findUnique({
+      where: { slug: context.courseSlug },
+      select: { title: true },
+    })
+    const courseTitle = session.title || catalogRow?.title || context.courseSlug
+
     // ─── Check existing Attendance ───────────────────────────
     const existingAttendance = await prisma.attendance.findUnique({
       where: { userId_sessionId: { userId: dbUser.id, sessionId: session.id } },
@@ -120,7 +127,7 @@ export async function POST(req: Request) {
           status: existingAttendance.status,
           checkedInAt: existingAttendance.checkedInAt.toISOString(),
           courseSlug: context.courseSlug,
-          courseTitle: session.title || context.courseSlug,
+          courseTitle: courseTitle,
           startsAt: session.startsAt.toISOString(),
         },
         package: existingAttendance.packageUsage?.packagePurchase || null,
@@ -216,7 +223,7 @@ export async function POST(req: Request) {
         courseTimeMinutes: context.startsAt.getHours() * 60 + context.startsAt.getMinutes(),
         now,
       })
-      const courseTitle = session.title || context.courseSlug
+
 
       return NextResponse.json({
         status: ATTENDANCE_STATUS.CHECKED_IN,
@@ -294,7 +301,7 @@ export async function POST(req: Request) {
             attendanceId: attendance.id,
             userId: dbUser.id,
             courseSlug: context.courseSlug,
-            courseTitle: session.title || context.courseSlug,
+            courseTitle: courseTitle,
             email: email || null,
             name: name || null,
             phone: phone || null,
@@ -328,7 +335,7 @@ export async function POST(req: Request) {
         courseTimeMinutes: context.startsAt.getHours() * 60 + context.startsAt.getMinutes(),
         now,
       })
-      const courseTitle = session.title || context.courseSlug
+
 
       return NextResponse.json({
         status: ATTENDANCE_STATUS.CHECKED_IN,

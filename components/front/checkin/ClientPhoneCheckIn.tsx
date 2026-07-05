@@ -108,7 +108,8 @@ export default function ClientPhoneCheckIn() {
     durationMinutes,
   })
   const { user } = useUser()
-  const firstName = user?.firstName
+  const rawFirstName = user?.firstName || ""
+  const firstName = rawFirstName.charAt(0).toUpperCase() + rawFirstName.slice(1)
 
   const bookingUrl = buildQrBookingUrl({ courseSlug, date, time, durationMinutes })
   const signInUrl = buildQrSignInUrl(`/checkin?${searchParams.toString()}`)
