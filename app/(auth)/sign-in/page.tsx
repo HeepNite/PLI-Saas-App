@@ -23,6 +23,12 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
         [data-auth-page] .cl-alternativeMethods a,
         [data-auth-page] .cl-alternativeMethods span,
         [data-auth-page] [class*="alternativeMethod"] { color: rgba(255,255,255,0.8) !important; }
+        [data-auth-page] .cl-otpCodeField,
+        [data-auth-page] [class*="otpCodeField"]:not(input) {
+          border: none !important;
+          box-shadow: none !important;
+          background: transparent !important;
+        }
         [data-auth-page] .cl-otpCodeFieldInput,
         [data-auth-page] [class*="otpCodeFieldInput"],
         [data-auth-page] .cl-otpCodeField input {
