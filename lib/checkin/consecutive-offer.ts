@@ -9,6 +9,7 @@ import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 export type ConsecutiveOfferResult = {
   linkedCourseSlug: string
   linkedCourseTitle: string
+  linkedCourseTime: string | null
   dropInConsecutiveCents: number | null
   packageHolderConsecutiveCents: number | null
   regularDropInCents: number
@@ -137,9 +138,14 @@ export const resolveConsecutiveOffer = async ({
     nextCandidate.link.dropInConsecutiveCents
   )
 
+  const linkedCourseTime = nextCandidate.linkedStartMinutes != null
+    ? `${String(Math.floor(nextCandidate.linkedStartMinutes / 60)).padStart(2, "0")}:${String(nextCandidate.linkedStartMinutes % 60).padStart(2, "0")}`
+    : null
+
   return {
     linkedCourseSlug: nextCandidate.linkedCourseSlug,
     linkedCourseTitle: nextCandidate.linkedCatalog.title,
+    linkedCourseTime,
     dropInConsecutiveCents: nextCandidate.link.dropInConsecutiveCents,
     packageHolderConsecutiveCents: nextCandidate.link.packageHolderConsecutiveCents,
     regularDropInCents: regularDropIn * 100,

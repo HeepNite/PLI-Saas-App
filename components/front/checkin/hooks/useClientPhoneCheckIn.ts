@@ -31,6 +31,7 @@ type CheckInResult = {
   consecutiveOffer?: {
     linkedCourseSlug: string
     linkedCourseTitle: string
+    linkedCourseTime: string | null
     dropInConsecutiveCents: number | null
     discountPercent: number
   } | null

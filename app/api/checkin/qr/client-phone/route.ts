@@ -244,6 +244,7 @@ export async function POST(req: Request) {
           ? {
               linkedCourseSlug: consecutiveOffer.linkedCourseSlug,
               linkedCourseTitle: consecutiveOffer.linkedCourseTitle,
+              linkedCourseTime: consecutiveOffer.linkedCourseTime,
               dropInConsecutiveCents: consecutiveOffer.dropInConsecutiveCents,
               discountPercent: consecutiveOffer.discountPercent,
             }
@@ -354,6 +355,7 @@ export async function POST(req: Request) {
           ? {
               linkedCourseSlug: consecutiveOffer.linkedCourseSlug,
               linkedCourseTitle: consecutiveOffer.linkedCourseTitle,
+              linkedCourseTime: consecutiveOffer.linkedCourseTime,
               dropInConsecutiveCents: consecutiveOffer.dropInConsecutiveCents,
               discountPercent: consecutiveOffer.discountPercent,
             }

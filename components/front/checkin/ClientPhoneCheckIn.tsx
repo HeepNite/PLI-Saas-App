@@ -67,6 +67,7 @@ function ConsecutiveOfferOverlay({
   offer: {
     linkedCourseSlug: string
     linkedCourseTitle: string
+    linkedCourseTime?: string | null
     dropInConsecutiveCents: number | null
     discountPercent: number
   }
@@ -74,10 +75,11 @@ function ConsecutiveOfferOverlay({
   isPackageHolder: boolean
   onDismiss: () => void
 }) {
-  const ctaUrl = buildQrBookingUrl({
-    courseSlug: offer.linkedCourseSlug,
-    date,
-  })
+  // Package holders go straight to check-in (uses package credits).
+  // Non-package users go to the booking/purchase flow.
+  const ctaUrl = isPackageHolder
+    ? `/checkin?courseSlug=${offer.linkedCourseSlug}&date=${date}${offer.linkedCourseTime ? `&time=${offer.linkedCourseTime}` : ""}`
+    : buildQrBookingUrl({ courseSlug: offer.linkedCourseSlug, date, time: offer.linkedCourseTime || undefined })
 
   const displayPrice = offer.dropInConsecutiveCents != null
     ? (offer.dropInConsecutiveCents / 100).toFixed(2)
