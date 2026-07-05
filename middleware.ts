@@ -1,14 +1,7 @@
 import { clerkMiddleware } from "@clerk/nextjs/server"
-import { NextResponse, type NextRequest } from "next/server"
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server"
 
-export default clerkMiddleware(async (auth, req: NextRequest) => {
-  // Let CORS preflight requests through without auth processing.
-  // Vercel Preview Toolbar (feedback.js) sends OPTIONS requests that Clerk
-  // cannot handle, causing 400 responses and a client-side retry loop.
-  if (req.method === "OPTIONS") {
-    return NextResponse.next()
-  }
-
+const clerkProtectedMiddleware = clerkMiddleware(async (auth, req: NextRequest) => {
   const allowE2eBypass =
     process.env.NODE_ENV !== "production" && req.nextUrl.searchParams.get("e2eAuth") === "1"
 
@@ -49,6 +42,17 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
   return NextResponse.next()
 })
+
+export default function middleware(req: NextRequest, event: NextFetchEvent) {
+  // Let CORS preflight requests through before Clerk auth processing.
+  // Vercel Preview Toolbar (feedback.js) sends OPTIONS requests that Clerk
+  // cannot handle, causing 400 responses and a client-side retry loop.
+  if (req.method === "OPTIONS") {
+    return NextResponse.next()
+  }
+
+  return clerkProtectedMiddleware(req, event)
+}
 
 export const config = {
   matcher: [
