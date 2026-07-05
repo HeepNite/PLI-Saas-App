@@ -13,17 +13,17 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const rawRedirect = typeof params.redirect_url === "string" ? params.redirect_url.trim() : ""
   const safeRedirect = rawRedirect.startsWith("/") ? rawRedirect : ""
   return (
-    {/* Force white text on all Clerk alternative method buttons */}
-    <style>{`
-      [data-auth-page] .cl-alternativeMethods button,
-      [data-auth-page] .cl-alternativeMethods a,
-      [data-auth-page] .cl-alternativeMethods span,
-      [data-auth-page] [class*="alternativeMethod"] { color: rgba(255,255,255,0.8) !important; }
-    `}</style>
     <main
       data-auth-page="true"
       className="relative flex min-h-dvh w-full items-center justify-center gap-0 overflow-hidden bg-[#13141d] px-5 py-8"
     >
+      {/* Force white text on all Clerk alternative method buttons */}
+      <style>{`
+        [data-auth-page] .cl-alternativeMethods button,
+        [data-auth-page] .cl-alternativeMethods a,
+        [data-auth-page] .cl-alternativeMethods span,
+        [data-auth-page] [class*="alternativeMethod"] { color: rgba(255,255,255,0.8) !important; }
+      `}</style>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_55%_at_50%_0%,rgba(182,22,22,0.2),transparent_70%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04)_0%,rgba(255,255,255,0)_40%)]" />
       <div className="relative z-10 flex w-full max-w-full flex-col items-center justify-center gap-6">

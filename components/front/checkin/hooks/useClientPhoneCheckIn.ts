@@ -27,6 +27,13 @@ type CheckInResult = {
     milestoneEvery: number
   }
   message?: string
+  courseTitle?: string
+  consecutiveOffer?: {
+    linkedCourseSlug: string
+    linkedCourseTitle: string
+    dropInConsecutiveCents: number | null
+    discountPercent: number
+  } | null
 }
 
 type UseClientPhoneCheckInParams = {
