@@ -3,7 +3,7 @@ import "server-only"
 import { prisma } from "@/lib/prisma"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { computeDiscountPercent } from "@/lib/course-links"
-import { hasAttendedCourseToday, hasPurchasesForCoursesToday } from "@/lib/checkin/consecutive-class"
+import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 
 export type ConsecutiveOfferResult = {
@@ -68,8 +68,6 @@ export const resolveConsecutiveOffer = async ({
     },
   })
 
-  const alreadyPurchasedSlugs = await hasPurchasesForCoursesToday(userId, linkedSlugs, now)
-
   const hasAttendedA = await hasAttendedCourseToday(userId, linkedFromCourseSlug, now)
 
   const candidates = links
@@ -79,45 +77,49 @@ export const resolveConsecutiveOffer = async ({
           ? link.courseSlugB
           : link.courseSlugA
       const linkedCatalog = linkedCatalogRows.find((row) => row.slug === linkedCourseSlug)
-      const hasAlreadyLinkedCourse = alreadyPurchasedSlugs.has(linkedCourseSlug)
-      return { link, linkedCourseSlug, linkedCatalog, hasAlreadyLinkedCourse }
+      return { link, linkedCourseSlug, linkedCatalog }
     })
-    .filter((c) => c.linkedCatalog && !c.hasAlreadyLinkedCourse)
+    .filter((c) => c.linkedCatalog)
 
   const withSchedule = candidates.map((candidate) => {
     const parsedRules = parseScheduleRules(candidate.linkedCatalog?.scheduleRules)
     let linkedStartMinutes: number | null = null
-    let isLinkedScheduledLaterToday = true
+    let isLinkedScheduledToday = true
 
     if (parsedRules?.rules?.length) {
       const linkedTimesToday =
         getTimesForWeekday(candidate.linkedCatalog?.scheduleRules, todayJsWeekday) ?? []
-      const laterTimes = linkedTimesToday
+      const todayTimes = linkedTimesToday
         .map((time) => {
           const match = /^(\d{2}):(\d{2})$/.exec(time)
           if (!match) return null
-          const minutes = Number(match[1]) * 60 + Number(match[2])
-          return courseTimeMinutes === null || minutes > courseTimeMinutes ? minutes : null
+          return Number(match[1]) * 60 + Number(match[2])
         })
         .filter((minutes): minutes is number => minutes !== null)
         .sort((left, right) => left - right)
 
-      linkedStartMinutes = laterTimes[0] ?? null
-      isLinkedScheduledLaterToday = laterTimes.length > 0
+      linkedStartMinutes = todayTimes[0] ?? null
+      isLinkedScheduledToday = todayTimes.length > 0
     }
 
-    return { ...candidate, linkedStartMinutes, isLinkedScheduledLaterToday }
+    return { ...candidate, linkedStartMinutes, isLinkedScheduledToday }
   })
 
+  // Prefer later-today candidates, but fall back to any scheduled-today candidate.
+  // The promo must always appear when a course link exists and the linked course
+  // runs today — regardless of class order or prior attendance.
   const nextCandidate = withSchedule
-    .filter((c) => c.isLinkedScheduledLaterToday)
-    .sort(
-      (a, b) =>
-        (a.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER) -
-        (b.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER)
-    )[0]
+    .filter((c) => c.isLinkedScheduledToday)
+    .sort((a, b) => {
+      // Prefer classes that are later than the current class
+      const aIsLater = a.linkedStartMinutes !== null && courseTimeMinutes !== null && a.linkedStartMinutes > courseTimeMinutes
+      const bIsLater = b.linkedStartMinutes !== null && courseTimeMinutes !== null && b.linkedStartMinutes > courseTimeMinutes
+      if (aIsLater && !bIsLater) return -1
+      if (!aIsLater && bIsLater) return 1
+      return (a.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER) - (b.linkedStartMinutes ?? Number.MAX_SAFE_INTEGER)
+    })[0]
 
-  if (!nextCandidate?.linkedCatalog || !hasAttendedA) return null
+  if (!nextCandidate?.linkedCatalog) return null
 
   const linkedCourse = await getCatalogCourseBySlug(nextCandidate.linkedCourseSlug)
   if (!linkedCourse) return null
