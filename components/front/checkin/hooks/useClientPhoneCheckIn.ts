@@ -33,6 +33,7 @@ type CheckInResult = {
     linkedCourseTitle: string
     linkedCourseTime: string | null
     dropInConsecutiveCents: number | null
+    packageHolderConsecutiveCents: number | null
     discountPercent: number
   } | null
 }
