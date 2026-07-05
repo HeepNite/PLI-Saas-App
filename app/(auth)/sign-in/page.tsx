@@ -17,12 +17,24 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
       data-auth-page="true"
       className="relative flex min-h-dvh w-full items-center justify-center gap-0 overflow-hidden bg-[#13141d] px-5 py-8"
     >
-      {/* Force white text on all Clerk alternative method buttons */}
+      {/* Force styles on Clerk elements that resist appearance API */}
       <style>{`
         [data-auth-page] .cl-alternativeMethods button,
         [data-auth-page] .cl-alternativeMethods a,
         [data-auth-page] .cl-alternativeMethods span,
         [data-auth-page] [class*="alternativeMethod"] { color: rgba(255,255,255,0.8) !important; }
+        [data-auth-page] .cl-otpCodeFieldInput,
+        [data-auth-page] [class*="otpCodeFieldInput"],
+        [data-auth-page] .cl-otpCodeField input {
+          border: 1px solid rgba(255,255,255,0.3) !important;
+          background: rgba(255,255,255,0.03) !important;
+          color: #fff !important;
+        }
+        [data-auth-page] .cl-otpCodeFieldInput:focus,
+        [data-auth-page] .cl-otpCodeField input:focus {
+          border-color: #b61616 !important;
+          box-shadow: 0 0 0 2px rgba(182,22,22,0.35) !important;
+        }
       `}</style>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_55%_at_50%_0%,rgba(182,22,22,0.2),transparent_70%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04)_0%,rgba(255,255,255,0)_40%)]" />
