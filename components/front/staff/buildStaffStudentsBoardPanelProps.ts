@@ -137,11 +137,12 @@ export function buildStaffStudentsBoardPanelProps({
       paymentsLoading,
       onRefreshPaymentsBoard: () => void refreshPaymentsBoard(),
     },
+    staffUserPresenceMessage: directoryStatusMessage,
     clerkSync: {
       canManageClerkSync,
       clerkSyncLoading,
       clerkSyncRepairing,
-      clerkSyncError: clerkSyncError || directoryStatusMessage,
+      clerkSyncError,
       clerkSyncMessage,
       clerkSyncHealth,
       onCheckClerkSync: () => void fetchClerkSyncHealth(),

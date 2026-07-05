@@ -8,6 +8,7 @@ import StaffStudentsBoardPanel, {
   type StaffStudentsBoardPanelProps,
   type TerminalPinAlert,
 } from "@/components/front/staff/StaffStudentsBoardPanel"
+import { buildStaffStudentsBoardPanelProps } from "@/components/front/staff/buildStaffStudentsBoardPanelProps"
 import type { StudentProfileCard } from "@/components/front/staff/historyCardAggregates"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
 
@@ -157,6 +158,102 @@ const createControls = (): StaffStudentsBoardPanelProps["controls"] => ({
   hasGlobalSearchResults: false,
 })
 
+const createBuildInput = (
+  staffDirectoryAdmin: Partial<Parameters<typeof buildStaffStudentsBoardPanelProps>[0]["staffDirectoryAdmin"]>,
+): Parameters<typeof buildStaffStudentsBoardPanelProps>[0] => ({
+  isStudentsView: true,
+  currentRole: "staff",
+  currentCategory: null,
+  studentSearchQuery: "",
+  setStudentSearchQuery: vi.fn(),
+  portalShellAdmin: {
+    nowTs: Date.parse("2026-05-26T12:00:00.000Z"),
+    canManageClerkSync: true,
+    canOperateStudentPins: false,
+  } as Parameters<typeof buildStaffStudentsBoardPanelProps>[0]["portalShellAdmin"],
+  staffDirectoryAdmin: {
+    clerkSyncHealth: null,
+    clerkSyncLoading: false,
+    clerkSyncRepairing: false,
+    clerkSyncError: null,
+    directoryStatusMessage: null,
+    clerkSyncMessage: null,
+    clerkSyncUserBusyId: null,
+    clerkMismatchByUserId: new Map(),
+    fetchClerkSyncHealth: vi.fn(),
+    repairClerkSync: vi.fn(),
+    syncClerkUser: vi.fn(),
+    ...staffDirectoryAdmin,
+  } as Parameters<typeof buildStaffStudentsBoardPanelProps>[0]["staffDirectoryAdmin"],
+  paymentsAdmin: {
+    paymentsLoading: false,
+    paymentsFilter: "all",
+    paymentCategoryFilter: "all",
+    isHistoryMode: false,
+    historyFrom: "",
+    historyTo: "",
+    historyPaymentMethodFilter: "all",
+    historyAttendanceFilter: "all",
+    historyClassKey: "",
+    historyClassOptions: [],
+    isHistorySearchLoading: false,
+    selectedPaymentIds: [],
+    paymentsBulkBusyAction: null,
+    paymentHistoryStudentId: null,
+    attendanceHistoryStudentId: null,
+    setPaymentsFilter: vi.fn(),
+    setHistoryFrom: vi.fn(),
+    setHistoryTo: vi.fn(),
+    setHistoryPaymentMethodFilter: vi.fn(),
+    setHistoryAttendanceFilter: vi.fn(),
+    setHistoryClassKey: vi.fn(),
+    setPaymentHistoryAnchor: vi.fn(),
+    setPaymentHistoryStudentId: vi.fn(),
+    setAttendanceHistoryAnchor: vi.fn(),
+    setAttendanceHistoryStudentId: vi.fn(),
+    setAuditHistoryAnchor: vi.fn(),
+    setAuditHistoryStudentId: vi.fn(),
+    setAuditHistoryStudentName: vi.fn(),
+    handlePaymentCategoryChange: vi.fn(),
+    selectPaymentIds: vi.fn(),
+    deselectPaymentIds: vi.fn(),
+    clearSelectedPayments: vi.fn(),
+  } as unknown as Parameters<typeof buildStaffStudentsBoardPanelProps>[0]["paymentsAdmin"],
+  pinAdmin: {
+    prioritizedTerminalPinAlerts: [],
+    hasAnyTerminalPinAlerts: false,
+    refreshPaymentsBoard: vi.fn(),
+    openStudentPinModal: vi.fn(),
+    openStudentPinModalForProfile: vi.fn(),
+  } as unknown as Parameters<typeof buildStaffStudentsBoardPanelProps>[0]["pinAdmin"],
+  studentsBoardAdmin: {
+    currentPage: 1,
+    setCurrentPage: vi.fn(),
+    filteredStudentCards: [],
+    searchResultCards: null,
+    isGlobalSearchLoading: false,
+    globalSearchError: null,
+    handleSettlementBulkUpdate: vi.fn(),
+    cardContext: "daily",
+    cardVariant: createProps().cards.cardVariant,
+    totalPages: 1,
+    displayedStudentCards: [],
+    visiblePaymentIds: [],
+    selectedFilteredPaymentIds: [],
+    cashSelectedCount: 0,
+    historyDerivedStats: createControls().historyDerivedStats,
+    studentsSummary: createControls().studentsSummary,
+    todayDateIso: "2026-05-26",
+    historyReadableRange: "",
+    shouldPreservePaymentBoard: false,
+  } as unknown as Parameters<typeof buildStaffStudentsBoardPanelProps>[0]["studentsBoardAdmin"],
+  studentAuditAdmin: {
+    usersWithAuditEntries: new Set<string>(),
+    openOverrideModal: vi.fn(),
+  } as unknown as Parameters<typeof buildStaffStudentsBoardPanelProps>[0]["studentAuditAdmin"],
+  formatMoney: (cents) => `$${(cents / 100).toFixed(2)}`,
+})
+
 const createProps = (
   overrides: Partial<StaffStudentsBoardPanelProps> = {},
 ): StaffStudentsBoardPanelProps => ({
@@ -165,6 +262,7 @@ const createProps = (
     paymentsLoading: false,
     onRefreshPaymentsBoard: vi.fn(),
   },
+  staffUserPresenceMessage: null,
   clerkSync: {
     canManageClerkSync: false,
     clerkSyncLoading: false,
@@ -266,6 +364,18 @@ describe("StaffStudentsBoardPanel", () => {
     return container
   }
 
+  it("keeps staff presence degradation separate from Clerk sync props", () => {
+    const props = buildStaffStudentsBoardPanelProps(
+      createBuildInput({
+        clerkSyncError: null,
+        directoryStatusMessage: "Staff user presence is temporarily unavailable. Showing saved user rows.",
+      }),
+    )
+
+    expect(props.staffUserPresenceMessage).toBe("Staff user presence is temporarily unavailable. Showing saved user rows.")
+    expect(props.clerkSync.clerkSyncError).toBeNull()
+  })
+
   it("returns null when isStudentsView is false", async () => {
     const node = await renderPanel(createProps({ isStudentsView: false }))
     expect(node.textContent).not.toContain("Student payment board")
@@ -355,6 +465,31 @@ describe("StaffStudentsBoardPanel", () => {
     expect(node.textContent).toContain("User sync unavailable")
     expect(node.textContent).toContain("User sync status is temporarily unavailable")
     expect(node.textContent).not.toContain("Users need sync")
+    expect(node.textContent).toContain("Check users")
+    expect(node.textContent).toContain("Sync users")
+  })
+
+  it("renders staff presence degradation as non-blocking status without Clerk sync actions", async () => {
+    const node = await renderPanel(
+      createProps({
+        staffUserPresenceMessage: "Staff user presence is temporarily unavailable. Showing saved user rows.",
+        clerkSync: {
+          ...createProps().clerkSync,
+          canManageClerkSync: true,
+        },
+        cards: {
+          ...createProps().cards,
+          displayedStudentCards: [createProfileCard()],
+          filteredStudentCardsCount: 1,
+        },
+      }),
+    )
+
+    expect(node.textContent).toContain("Staff user presence is temporarily unavailable. Showing saved user rows.")
+    expect(node.textContent).toContain("Test Student")
+    expect(node.textContent).not.toContain("User sync unavailable")
+    expect(node.textContent).not.toContain("Check users")
+    expect(node.textContent).not.toContain("Sync users")
   })
 
   it("hides Clerk sync banner when user cannot manage and nothing is wrong", async () => {

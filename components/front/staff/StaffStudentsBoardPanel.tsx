@@ -28,6 +28,7 @@ import type { StaffStudentsBoardPanelProps } from "./studentsBoardTypes"
 export default function StaffStudentsBoardPanel({
   isStudentsView,
   loadingStatus,
+  staffUserPresenceMessage,
   clerkSync,
   terminalAlerts,
   controls,
@@ -96,6 +97,11 @@ export default function StaffStudentsBoardPanel({
       )}
 
       <ClerkSyncBanner {...clerkSync} />
+      {staffUserPresenceMessage ? (
+        <div className="mb-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+          {staffUserPresenceMessage}
+        </div>
+      ) : null}
       <TerminalPinAlertsStrip {...terminalAlerts} />
 
       <StaffPaymentsBoardControls {...controls} />
