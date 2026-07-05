@@ -57,10 +57,12 @@ function BrandedSuccessHeader({
   )
 }
 
-// ─── Consecutive offer card ─────────────────────────────────
-function ConsecutiveOfferCard({
+// ─── Consecutive offer overlay (replicates kiosk design) ────
+function ConsecutiveOfferOverlay({
   offer,
   date,
+  isPackageHolder,
+  onDismiss,
 }: {
   offer: {
     linkedCourseSlug: string
@@ -69,25 +71,65 @@ function ConsecutiveOfferCard({
     discountPercent: number
   }
   date: string
+  isPackageHolder: boolean
+  onDismiss: () => void
 }) {
   const ctaUrl = buildQrBookingUrl({
     courseSlug: offer.linkedCourseSlug,
     date,
   })
 
+  const displayPrice = offer.dropInConsecutiveCents != null
+    ? (offer.dropInConsecutiveCents / 100).toFixed(2)
+    : "—"
+  const discountLabel = `${offer.discountPercent}% off`
+  const subtitle = isPackageHolder
+    ? "Add your second class at a special price (separate from your package)"
+    : "Add your second class at a special price"
+
   return (
-    <div className="mt-4 rounded-xl border border-[#b61616]/30 bg-[#b61616]/10 p-4 text-left">
-      <p className="text-xs uppercase tracking-[0.15em] text-[#b61616]">Join next class</p>
-      <p className="mt-1 text-sm font-semibold text-white">{offer.linkedCourseTitle}</p>
-      {offer.discountPercent > 0 && (
-        <p className="mt-0.5 text-xs text-white/50">{offer.discountPercent}% consecutive discount</p>
-      )}
-      <Link
-        href={ctaUrl}
-        className="mt-3 inline-block w-full rounded-md bg-[#b61616] px-4 py-2 text-center text-sm font-semibold text-white"
-      >
-        Book {offer.linkedCourseTitle}
-      </Link>
+    <div className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center">
+      <div className="rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 max-w-sm w-full">
+        {/* Discount badge */}
+        {offer.discountPercent > 0 && (
+          <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-400 ring-1 ring-emerald-400/20">
+            <span className="text-lg">{discountLabel}</span>
+          </div>
+        )}
+
+        {/* Title */}
+        <h2 className="text-2xl font-semibold text-white">
+          Add {offer.linkedCourseTitle}
+        </h2>
+
+        {/* Subtitle */}
+        <p className="mt-2 text-sm text-white/70">{subtitle}</p>
+
+        {/* Price */}
+        <div className="mt-5 rounded-xl bg-white/5 px-4 py-4 ring-1 ring-white/10">
+          <p className="text-xs text-white/50">Your price</p>
+          <p className="mt-1 text-3xl font-bold text-white">
+            ${displayPrice}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="mt-5 flex flex-col gap-3">
+          <Link
+            href={ctaUrl}
+            className="w-full rounded-xl bg-[var(--brand,#b61616)] px-5 py-3.5 text-base font-semibold text-white text-center transition-colors hover:bg-[#a01212]"
+          >
+            Add Class
+          </Link>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="w-full rounded-xl border border-white/15 bg-white/10 px-5 py-3.5 text-base font-semibold text-white transition-colors hover:bg-white/15"
+          >
+            No Thanks
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -110,6 +152,8 @@ export default function ClientPhoneCheckIn() {
   const { user } = useUser()
   const rawFirstName = user?.firstName || ""
   const firstName = rawFirstName.charAt(0).toUpperCase() + rawFirstName.slice(1)
+
+  const [offerDismissed, setOfferDismissed] = React.useState(false)
 
   const bookingUrl = buildQrBookingUrl({ courseSlug, date, time, durationMinutes })
   const signInUrl = buildQrSignInUrl(`/checkin?${searchParams.toString()}`)
@@ -233,8 +277,13 @@ export default function ClientPhoneCheckIn() {
           {result.points && result.points.awarded > 0 && (
             <p className="mt-2 text-xs text-emerald-300">+{result.points.awarded} points earned!</p>
           )}
-          {result.consecutiveOffer && (
-            <ConsecutiveOfferCard offer={result.consecutiveOffer} date={date} />
+          {result.consecutiveOffer && !offerDismissed && (
+            <ConsecutiveOfferOverlay
+              offer={result.consecutiveOffer}
+              date={date}
+              isPackageHolder={!!result.package}
+              onDismiss={() => setOfferDismissed(true)}
+            />
           )}
         </div>
       </div>
@@ -256,8 +305,13 @@ export default function ClientPhoneCheckIn() {
           {result.points && result.points.awarded > 0 && (
             <p className="mt-2 text-xs text-emerald-300">+{result.points.awarded} points earned!</p>
           )}
-          {result.consecutiveOffer && (
-            <ConsecutiveOfferCard offer={result.consecutiveOffer} date={date} />
+          {result.consecutiveOffer && !offerDismissed && (
+            <ConsecutiveOfferOverlay
+              offer={result.consecutiveOffer}
+              date={date}
+              isPackageHolder={!!result.package}
+              onDismiss={() => setOfferDismissed(true)}
+            />
           )}
         </div>
       </div>
@@ -273,8 +327,13 @@ export default function ClientPhoneCheckIn() {
         {result.points && result.points.awarded > 0 && (
           <p className="mt-2 text-xs text-emerald-300">+{result.points.awarded} points earned!</p>
         )}
-        {result.consecutiveOffer && (
-          <ConsecutiveOfferCard offer={result.consecutiveOffer} date={date} />
+        {result.consecutiveOffer && !offerDismissed && (
+          <ConsecutiveOfferOverlay
+            offer={result.consecutiveOffer}
+            date={date}
+            isPackageHolder={!!result.package}
+            onDismiss={() => setOfferDismissed(true)}
+          />
         )}
       </div>
     </div>
