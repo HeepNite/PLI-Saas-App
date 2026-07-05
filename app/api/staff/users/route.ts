@@ -620,11 +620,17 @@ const executeStaffUsersGet = async (req: Request, preflightAuth?: StaffPortalAut
         }
       })
     )
+    const perUserSessionRetryAfterSec = results.reduce<number | undefined>((retryAfterSec, result) => {
+      if (result.status === "fulfilled" || !isClerkRateLimitError(result.reason)) return retryAfterSec
+      const candidateRetryAfterSec = extractRetryAfterSec(result.reason)
+      return retryAfterSec ? Math.max(retryAfterSec, candidateRetryAfterSec) : candidateRetryAfterSec
+    }, undefined)
+
     if (results.some((result) => result.status === "rejected")) {
       markStaffUsersDegraded(
         degradedState,
         "Staff user presence is temporarily unavailable. Showing saved user rows.",
-        { presenceUnavailable: true }
+        { retryAfterSec: perUserSessionRetryAfterSec, presenceUnavailable: true }
       )
     }
   }

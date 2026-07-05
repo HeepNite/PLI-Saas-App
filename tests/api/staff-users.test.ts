@@ -620,6 +620,53 @@ describe("staff users routes", () => {
       expect(res.headers.get("Retry-After")).toBe("5")
     })
 
+    it("GET returns degraded 200 with Retry-After when per-user Clerk session lookup is rate limited", async () => {
+      const now = Date.now()
+      const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429, headers: { "retry-after": "12" } })
+      usersApi.getUserList.mockResolvedValue({
+        data: [
+          {
+            id: "u_presence_rate_limited",
+            firstName: "Presence",
+            lastName: "Limited",
+            emailAddresses: [{ emailAddress: "presence-limited@example.com" }],
+            publicMetadata: { role: "staff" },
+            privateMetadata: { staffPresenceStatus: "online", staffPresenceUpdatedAt: new Date(now).toISOString() },
+            banned: false,
+            locked: false,
+            createdAt: now,
+            lastSignInAt: now,
+            lastActiveAt: now,
+          },
+        ],
+      })
+      sessionsApi.getSessionList.mockResolvedValueOnce({ data: [] }).mockRejectedValueOnce(clerkError)
+      mockPrisma.staffAccount.findMany.mockResolvedValueOnce([
+        {
+          clerkUserId: "u_presence_rate_limited",
+          email: "presence-limited@example.com",
+          role: "staff",
+          category: "teacher",
+          paymentModelId: "model_presence",
+        },
+      ])
+
+      const { GET } = await import("@/app/api/staff/users/route")
+      const res = await GET(new Request("http://localhost/api/staff/users"))
+      expect(res.status).toBe(200)
+      expect(res.headers.get("Retry-After")).toBe("12")
+      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
+      const data = await res.json()
+      expect(data).toMatchObject({ status: "degraded", presenceUnavailable: true, retryAfterSec: 12 })
+      expect(data.items).toHaveLength(1)
+      expect(data.items[0]).toMatchObject({
+        id: "u_presence_rate_limited",
+        email: "presence-limited@example.com",
+        authOnline: false,
+        paymentModelId: "model_presence",
+      })
+    })
+
     it("GET caps per-user session lookups and returns a degraded presence flag", async () => {
       const now = Date.now()
       usersApi.getUserList.mockResolvedValue({
