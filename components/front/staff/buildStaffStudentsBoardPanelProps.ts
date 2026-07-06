@@ -56,7 +56,6 @@ export function buildStaffStudentsBoardPanelProps({
     clerkSyncLoading,
     clerkSyncRepairing,
     clerkSyncError,
-    directoryStatusMessage,
     clerkSyncMessage,
     clerkSyncUserBusyId,
     clerkMismatchByUserId,
@@ -137,7 +136,6 @@ export function buildStaffStudentsBoardPanelProps({
       paymentsLoading,
       onRefreshPaymentsBoard: () => void refreshPaymentsBoard(),
     },
-    staffUserPresenceMessage: directoryStatusMessage,
     clerkSync: {
       canManageClerkSync,
       clerkSyncLoading,

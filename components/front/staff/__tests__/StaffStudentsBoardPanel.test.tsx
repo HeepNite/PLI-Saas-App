@@ -262,7 +262,6 @@ const createProps = (
     paymentsLoading: false,
     onRefreshPaymentsBoard: vi.fn(),
   },
-  staffUserPresenceMessage: null,
   clerkSync: {
     canManageClerkSync: false,
     clerkSyncLoading: false,
@@ -372,7 +371,7 @@ describe("StaffStudentsBoardPanel", () => {
       }),
     )
 
-    expect(props.staffUserPresenceMessage).toBe("Staff user presence is temporarily unavailable. Showing saved user rows.")
+    expect("staffUserPresenceMessage" in props).toBe(false)
     expect(props.clerkSync.clerkSyncError).toBeNull()
   })
 
@@ -469,24 +468,17 @@ describe("StaffStudentsBoardPanel", () => {
     expect(node.textContent).toContain("Sync users")
   })
 
-  it("renders staff presence degradation as non-blocking status without Clerk sync actions", async () => {
+  it("hides staff presence degradation on the empty Student payment board", async () => {
     const node = await renderPanel(
-      createProps({
-        staffUserPresenceMessage: "Staff user presence is temporarily unavailable. Showing saved user rows.",
-        clerkSync: {
-          ...createProps().clerkSync,
-          canManageClerkSync: true,
-        },
-        cards: {
-          ...createProps().cards,
-          displayedStudentCards: [createProfileCard()],
-          filteredStudentCardsCount: 1,
-        },
-      }),
+      buildStaffStudentsBoardPanelProps(
+        createBuildInput({
+          directoryStatusMessage: "Staff user presence is temporarily unavailable. Showing saved user rows.",
+        }),
+      ),
     )
 
-    expect(node.textContent).toContain("Staff user presence is temporarily unavailable. Showing saved user rows.")
-    expect(node.textContent).toContain("Test Student")
+    expect(node.textContent).toContain("No student payments found.")
+    expect(node.textContent).not.toContain("Staff user presence is temporarily unavailable. Showing saved user rows.")
     expect(node.textContent).not.toContain("User sync unavailable")
     expect(node.textContent).not.toContain("Check users")
     expect(node.textContent).not.toContain("Sync users")

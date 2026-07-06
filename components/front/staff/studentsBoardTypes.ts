@@ -133,7 +133,6 @@ export type StudentsBoardCreateStudentProps = ReturnType<typeof useStaffCreateSt
 export type StaffStudentsBoardPanelProps = {
   isStudentsView: boolean
   loadingStatus: StudentsBoardLoadingProps
-  staffUserPresenceMessage: string | null
   clerkSync: StudentsBoardClerkSyncProps
   terminalAlerts: StudentsBoardTerminalAlertsProps
   controls: StaffPaymentsBoardControlsProps
