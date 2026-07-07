@@ -12,7 +12,7 @@ import {
   hasExistingCustomerPrefillContact,
   shouldShowCheckInQrPanel,
 } from "@/lib/checkin/existing-customer-flow"
-import { shouldShowKioskResolvingOverlay } from "@/lib/checkin/kiosk-qr-payment"
+import { shouldShowKioskResolvingOverlay, shouldShowPackageCheckInFailureOverlay } from "@/lib/checkin/kiosk-qr-payment"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import type { BootstrapResponse, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
@@ -338,6 +338,19 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     quickRepeatEligible: Boolean(bootstrap?.quickRepeatEligible),
     hasPackageCheckInFailure,
   })
+  const showPackageCheckInFailureOverlay = shouldShowPackageCheckInFailureOverlay({
+    isKioskTerminalFlow,
+    mode,
+    hasActiveCustomerSession: Boolean(hasActiveClerkSession || hasKioskPinSession),
+    hasPendingPinRotation: false,
+    loadingBootstrap,
+    hasBootstrap: Boolean(bootstrap),
+    hasPackage: Boolean(bootstrap?.package),
+    hasPackageCheckInFailure,
+    hasExistingPurchaseForSession: Boolean(bootstrap?.hasExistingPurchaseForSession),
+    hasPackageOffer: showPackageOfferScreen,
+    quickRepeatEligible: Boolean(bootstrap?.quickRepeatEligible),
+  })
   const showSignedInBootstrapPanel = canShowSignedInBootstrapPanel && !showKioskResolvingOverlay && !isKioskTerminalFlow
   const hideEntrySelection =
     showSignedInBootstrapPanel ||
@@ -494,6 +507,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     showLatePaymentOffer,
     showContextWarning,
     showKioskResolvingOverlay,
+    showPackageCheckInFailureOverlay,
     showPackageOfferScreen,
 
     // Labels / misc

@@ -24,7 +24,7 @@ export type PackageCheckInResult = {
  * stays independently correct, per the optional-with-defaults convention
  * established in PR1.
  */
-const PACKAGE_CHECK_IN_MAX_ATTEMPTS = 3
+export const PACKAGE_CHECK_IN_MAX_ATTEMPTS = 3
 
 type RequestPackageCheckIn = typeof requestPackageCheckInApi
 
@@ -144,13 +144,14 @@ export function useCheckInPackageFlow({
   }, [bootstrap, effectiveCheckInWindowOpen, getToken, hasActiveClerkSession, kioskPinSessionToken, photoFlowContext, requestPackageCheckIn])
 
   // Routes a terminal (non-retryable, or retry-budget-exhausted) failure to
-  // the right surface. Kiosk: records the terminal failure state AND keeps
-  // today's transient inline error as PR2 parity (removed in PR3 once the
-  // failure overlay is the sole kiosk surface). Non-kiosk: transient inline
-  // error only — never touches kiosk-only state.
+  // the right surface. Kiosk: records the terminal failure state —
+  // `KioskPackageCheckInFailureOverlay` is the sole kiosk failure surface
+  // (PR3; the PR2-era transient `setError` parity call was removed here).
+  // Non-kiosk: transient inline error only — never touches kiosk-only state.
   const applyKioskOrNonKioskFailure = React.useCallback((failure: PackageCheckInFailure) => {
     if (isKioskTerminalFlow) {
       setPackageCheckInFailure(failure)
+      return
     }
     setError(failure.message)
   }, [isKioskTerminalFlow, setError])
@@ -209,8 +210,9 @@ export function useCheckInPackageFlow({
 
       // Retry budget exhausted or non-retryable — terminal, no further
       // backoff. Neither setter fires on the backoff-scheduled branch above.
+      // Kiosk-only branch (non-kiosk already returned above) — no `setError`
+      // here: `KioskPackageCheckInFailureOverlay` is the sole kiosk surface.
       setPackageCheckInFailure(outcome)
-      setError(outcome.message)
       return
     }
 

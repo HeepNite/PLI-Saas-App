@@ -222,7 +222,7 @@ describe("useCheckInPackageFlow", () => {
     expect(params.setError).not.toHaveBeenCalledWith(expect.any(String))
   })
 
-  it("kiosk terminal failure calls BOTH setPackageCheckInFailure and the existing transient setError (PR2 parity)", async () => {
+  it("kiosk terminal failure sets packageCheckInFailure WITHOUT calling setError (PR3: failure overlay is the sole kiosk surface)", async () => {
     const params = defaultParams({
       isKioskTerminalFlow: true,
       requestPackageCheckIn: vi.fn().mockResolvedValue(closedWindowFailureResponse()),
@@ -234,7 +234,22 @@ describe("useCheckInPackageFlow", () => {
     expect(getResult().packageCheckInFailure).toEqual(
       expect.objectContaining({ kind: "closed_window" })
     )
-    expect(params.setError).toHaveBeenCalledWith(getResult().packageCheckInFailure!.message)
+    expect(params.setError).not.toHaveBeenCalledWith(expect.any(String))
+  })
+
+  it("kiosk pre-flight precondition failure (no active package) sets packageCheckInFailure WITHOUT calling setError", async () => {
+    const params = defaultParams({
+      isKioskTerminalFlow: true,
+      bootstrap: bootstrap({ package: null }),
+    })
+    const { getResult } = await mount(params)
+
+    await act(async () => getResult().handlePackageCheckIn())
+
+    expect(getResult().packageCheckInFailure).toEqual(
+      expect.objectContaining({ kind: "client_precondition" })
+    )
+    expect(params.setError).not.toHaveBeenCalled()
   })
 
   it("retry-exhaustion boundary: 3rd consecutive retryable failure with maxAttempts=3 sets packageCheckInFailure, schedules no 4th attempt", async () => {

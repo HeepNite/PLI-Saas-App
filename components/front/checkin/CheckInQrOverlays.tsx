@@ -7,19 +7,27 @@ import {
 } from "@/components/front/checkin/ConsecutiveClassOffer"
 import {
   KioskDuplicatePurchaseOverlay,
+  KioskPackageCheckInFailureOverlay,
   KioskPackageSuccessOverlay,
   KioskResolvingOverlay,
 } from "@/components/front/checkin/KioskResolvingOverlay"
 import { PhoneSignInModal } from "@/components/front/checkin/PhoneSignInModal"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
 import { KioskQuickRepeatOverlay } from "@/components/front/checkin/KioskQuickRepeatOverlay"
+import { PACKAGE_CHECK_IN_MAX_ATTEMPTS } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
+import { getPackageCheckInResolvingMessage } from "@/lib/checkin/existing-customer-flow"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
+import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 
 type EnrollModalProps = Parameters<typeof EnrollModal>[0]
 type CheckInContext = NonNullable<EnrollModalProps["checkInContext"]>
 type PackageCheckInResult = { remainingCredits: number | null; points: number }
+
+/** Kiosk failure overlay auto-resets to idle after this delay, matching
+ * `KioskDuplicatePurchaseOverlay`'s existing auto-done pattern. */
+const PACKAGE_CHECK_IN_FAILURE_AUTO_DONE_MS = 10_000
 
 type CheckInQrOverlaysProps = {
   activeCourseHasUsablePackage: boolean
@@ -45,6 +53,13 @@ type CheckInQrOverlaysProps = {
   newBookingCourse: CourseData | null
   openNewBooking: boolean
   packageCheckInResult: PackageCheckInResult | null
+  /** Terminal kiosk package check-in failure, if any. */
+  packageCheckInFailure: PackageCheckInFailure | null
+  /** True when the kiosk failure overlay should render instead of the resolving spinner. */
+  showPackageCheckInFailureOverlay: boolean
+  /** Completed kiosk auto-retry attempts. */
+  packageCheckInAttempts: number
+  onRetryPackageCheckIn: () => void
   photoFlowContext: EnrollModalProps["photoFlowContext"]
   showConsecutiveOverlay: boolean
   showConsecutivePaymentSelection: boolean
@@ -110,6 +125,10 @@ export function CheckInQrOverlays({
   newBookingCourse,
   openNewBooking,
   packageCheckInResult,
+  packageCheckInFailure,
+  showPackageCheckInFailureOverlay,
+  packageCheckInAttempts,
+  onRetryPackageCheckIn,
   photoFlowContext,
   showConsecutiveOverlay,
   showConsecutivePaymentSelection,
@@ -206,9 +225,28 @@ export function CheckInQrOverlays({
         />
       )}
 
-      {showKioskResolvingOverlay && !packageCheckInResult && !showDuplicatePurchasePopup && !bootstrap?.hasExistingPurchaseForSession && (
-        <KioskResolvingOverlay
-          message={bootstrap?.package ? "Checking you in with your package…" : processingPackageCheckIn ? "Checking you in…" : undefined}
+      {showKioskResolvingOverlay &&
+        !packageCheckInResult &&
+        !showDuplicatePurchasePopup &&
+        !bootstrap?.hasExistingPurchaseForSession &&
+        !showPackageCheckInFailureOverlay && (
+          <KioskResolvingOverlay
+            message={
+              getPackageCheckInResolvingMessage({
+                attempt: packageCheckInAttempts + 1,
+                maxAttempts: PACKAGE_CHECK_IN_MAX_ATTEMPTS,
+              }) ??
+              (bootstrap?.package ? "Checking you in with your package…" : processingPackageCheckIn ? "Checking you in…" : undefined)
+            }
+          />
+        )}
+
+      {showPackageCheckInFailureOverlay && packageCheckInFailure && (
+        <KioskPackageCheckInFailureOverlay
+          message={packageCheckInFailure.message}
+          autoDoneMs={PACKAGE_CHECK_IN_FAILURE_AUTO_DONE_MS}
+          onDone={onStationCompletion}
+          onRetry={onRetryPackageCheckIn}
         />
       )}
 

@@ -12,6 +12,7 @@ import type { ComponentProps } from "react"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
+import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 
 type EnrollModalLike = {
   completionMode: ComponentProps<typeof CheckInQrOverlays>["completionMode"]
@@ -151,6 +152,13 @@ export type CheckInQrShellProps = {
   newBookingCourse: CourseData | null
   openNewBooking: boolean
   packageCheckInResult: PackageCheckInResult | null
+  /** Terminal kiosk package check-in failure, if any. */
+  packageCheckInFailure: PackageCheckInFailure | null
+  /** True when the kiosk failure overlay should render instead of the resolving spinner. */
+  showPackageCheckInFailureOverlay: boolean
+  /** Completed kiosk auto-retry attempts. */
+  packageCheckInAttempts: number
+  onRetryPackageCheckIn: () => void
   photoFlowContext: EnrollModalLike["photoFlowContext"]
   showConsecutiveOverlay: boolean
   showConsecutivePaymentSelection: boolean
@@ -305,6 +313,10 @@ export function CheckInQrShell({
   newBookingCourse,
   openNewBooking,
   packageCheckInResult,
+  packageCheckInFailure,
+  showPackageCheckInFailureOverlay,
+  packageCheckInAttempts,
+  onRetryPackageCheckIn,
   photoFlowContext,
   showConsecutiveOverlay,
   showConsecutivePaymentSelection,
@@ -503,6 +515,10 @@ export function CheckInQrShell({
         newBookingCourse={newBookingCourse}
         openNewBooking={openNewBooking}
         packageCheckInResult={packageCheckInResult}
+        packageCheckInFailure={packageCheckInFailure}
+        showPackageCheckInFailureOverlay={showPackageCheckInFailureOverlay}
+        packageCheckInAttempts={packageCheckInAttempts}
+        onRetryPackageCheckIn={onRetryPackageCheckIn}
         photoFlowContext={photoFlowContext}
         showConsecutiveOverlay={showConsecutiveOverlay}
         showConsecutivePaymentSelection={showConsecutivePaymentSelection}

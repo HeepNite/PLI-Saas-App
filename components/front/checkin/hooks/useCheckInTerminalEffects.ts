@@ -358,13 +358,12 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
       return
     }
 
+    // `KioskPackageCheckInFailureOverlay` is the sole kiosk failure surface
+    // (PR3) — the PR2-era transient `setError` parity call was removed here.
     setPackageCheckInFailure({
       kind: "closed_window",
       message: "The check-in window for this class is closed.",
     })
-    // Kept as PR2 parity — today's existing transient inline error.
-    // Removed in PR3 once the failure overlay is the sole kiosk surface.
-    setError("The check-in window for this class is closed.")
   }, [
     bootstrap,
     effectiveCheckInWindowOpen,
@@ -375,7 +374,6 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
     packageCheckInFailure,
     packageCheckInResult,
     processingPackageCheckIn,
-    setError,
     setPackageCheckInFailure,
   ])
 

@@ -122,14 +122,14 @@ describe("useCheckInTerminalEffects — PR2 retry/backoff/failure wiring", () =>
   }
 
   describe("closed-window package error effect", () => {
-    it("calls BOTH setPackageCheckInFailure(closed_window) and the existing transient setError (PR2 parity)", async () => {
+    it("calls setPackageCheckInFailure(closed_window) WITHOUT calling setError (PR3: failure overlay is the sole kiosk surface)", async () => {
       const params = defaultParams({ effectiveCheckInWindowOpen: false })
       await mount(params)
 
       expect(params.setPackageCheckInFailure).toHaveBeenCalledWith(
         expect.objectContaining({ kind: "closed_window" })
       )
-      expect(params.setError).toHaveBeenCalledWith("The check-in window for this class is closed.")
+      expect(params.setError).not.toHaveBeenCalled()
     })
 
     it("is a no-op (race fix) when hasPackageCheckInFailure is already true — does not re-assert while a manual Retry may have just cleared it", async () => {
