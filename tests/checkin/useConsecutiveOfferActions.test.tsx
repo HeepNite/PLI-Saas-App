@@ -155,6 +155,37 @@ describe("useConsecutiveOfferActions", () => {
     expect(params.setConsecutiveSuccess).toHaveBeenCalledWith({ courseTitle: "Bachata" })
   })
 
+  it("accept surfaces a classified error via setConsecutiveError when the pre-checkin package check-in fails (union narrowing)", async () => {
+    const failure = { kind: "server" as const, message: "We couldn't check you in. Please see the front desk." }
+    const { params, getResult } = await mount(defaultParams({
+      packageCheckInResult: null,
+      performPackageCheckInApi: vi.fn().mockResolvedValue(failure),
+    }))
+
+    await act(async () => getResult().handleConsecutiveAccept())
+
+    expect(params.setConsecutiveError).toHaveBeenCalledWith(failure.message)
+    expect(params.setPackageCheckInResult).not.toHaveBeenCalled()
+    expect(params.setAwaitingConsecutivePaymentSelection).not.toHaveBeenCalled()
+    expect(params.setShowConsecutiveOverlay).not.toHaveBeenCalled()
+  })
+
+  it("decline surfaces a classified error via setConsecutiveError when the pre-checkin package check-in fails (union narrowing)", async () => {
+    const failure = { kind: "no_credits" as const, message: "This package has no credits left." }
+    const { params, getResult } = await mount(defaultParams({
+      packageCheckInResult: null,
+      performPackageCheckInApi: vi.fn().mockResolvedValue(failure),
+    }))
+
+    await act(async () => getResult().handleConsecutiveDecline())
+
+    expect(params.setConsecutiveError).toHaveBeenCalledWith(failure.message)
+    expect(params.setPackageCheckInResult).not.toHaveBeenCalled()
+    expect(params.setConsecutiveOffer).not.toHaveBeenCalled()
+    expect(params.setShowConsecutiveOverlay).not.toHaveBeenCalled()
+    expect(params.handleStationCompletion).not.toHaveBeenCalled()
+  })
+
   it("decline checks in class A before closing overlay when package result is missing", async () => {
     const { params, getResult } = await mount(defaultParams({ packageCheckInResult: null }))
 

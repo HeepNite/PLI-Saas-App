@@ -1,7 +1,14 @@
 import React from "react"
 
 import { requestPackageCheckInApi } from "@/lib/checkin/checkin-qr-api"
-import { resolvePackageSuccessDoneAction } from "@/lib/checkin/existing-customer-flow"
+import {
+  backoffDelays,
+  classifyPackageCheckInFailure,
+  isRetryablePackageFailure,
+  resolvePackageSuccessDoneAction,
+  type PackageCheckInFailure,
+  type PackageCheckInOutcome,
+} from "@/lib/checkin/existing-customer-flow"
 import type { BootstrapResponse } from "@/components/front/checkin/checkin.types"
 
 export type PackageCheckInResult = {
@@ -9,6 +16,15 @@ export type PackageCheckInResult = {
   remainingCredits: number | null
   points: number
 }
+
+/**
+ * Kiosk-only auto-retry budget. Matches the default `maxAttempts` used by
+ * `shouldAutoTriggerPackageCheckIn` in `lib/checkin/existing-customer-flow.ts`
+ * — kept as a separate local constant (not exported/shared) so each layer
+ * stays independently correct, per the optional-with-defaults convention
+ * established in PR1.
+ */
+const PACKAGE_CHECK_IN_MAX_ATTEMPTS = 3
 
 type RequestPackageCheckIn = typeof requestPackageCheckInApi
 
@@ -33,6 +49,9 @@ type UseCheckInPackageFlowOptions = {
   requestPackageCheckIn?: RequestPackageCheckIn
 }
 
+const isAbortError = (error: unknown): boolean =>
+  Boolean(error && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError")
+
 export function useCheckInPackageFlow({
   bootstrap,
   getToken,
@@ -54,26 +73,43 @@ export function useCheckInPackageFlow({
   requestPackageCheckIn = requestPackageCheckInApi,
 }: UseCheckInPackageFlowOptions) {
   const [packageCheckInResult, setPackageCheckInResult] = React.useState<PackageCheckInResult | null>(null)
-  const packageCheckInTimeoutRef = React.useRef<number | null>(null)
+  const [packageCheckInFailure, setPackageCheckInFailure] = React.useState<PackageCheckInFailure | null>(null)
+  const [packageCheckInAttempts, setPackageCheckInAttempts] = React.useState(0)
+  const [retryBackoffActive, setRetryBackoffActive] = React.useState(false)
+  const packageCheckInBackoffTimeoutRef = React.useRef<number | null>(null)
 
-  const clearPackageCheckInTimeout = React.useCallback(() => {
-    if (packageCheckInTimeoutRef.current !== null) {
-      window.clearTimeout(packageCheckInTimeoutRef.current)
-      packageCheckInTimeoutRef.current = null
+  const clearPackageCheckInBackoff = React.useCallback(() => {
+    if (packageCheckInBackoffTimeoutRef.current !== null) {
+      window.clearTimeout(packageCheckInBackoffTimeoutRef.current)
+      packageCheckInBackoffTimeoutRef.current = null
     }
+    setRetryBackoffActive(false)
   }, [])
 
   const completeStationPackageFlow = React.useCallback(() => {
-    clearPackageCheckInTimeout()
     void handleStationCompletion()
     setPackageCheckInResult(null)
-  }, [clearPackageCheckInTimeout, handleStationCompletion])
+  }, [handleStationCompletion])
 
-  const performPackageCheckInApi = React.useCallback(async (): Promise<PackageCheckInResult | null> => {
-    if (!bootstrap) return null
-    if (!hasActiveClerkSession && !kioskPinSessionToken) return null
-    if (!bootstrap.package) return null
-    if (!effectiveCheckInWindowOpen) return null
+  // Mirrors handlePackageCheckIn's own pre-flight guards below (bootstrap,
+  // session, package, window). Kept as a SEPARATE set of guards — never
+  // null, always a typed failure — so the other two callers of this
+  // function (useConsecutiveOfferActions.ts's accept/decline pre-checkin
+  // branches) can discriminate the union the same way `handlePackageCheckIn`
+  // does, without relying on handlePackageCheckIn's own early returns.
+  const performPackageCheckInApi = React.useCallback(async (): Promise<PackageCheckInOutcome> => {
+    if (!bootstrap) {
+      return { kind: "client_precondition", message: "Sign in first to complete package check-in." }
+    }
+    if (!hasActiveClerkSession && !kioskPinSessionToken) {
+      return { kind: "client_precondition", message: "Sign in first to complete package check-in." }
+    }
+    if (!bootstrap.package) {
+      return { kind: "client_precondition", message: "No active package available for this class." }
+    }
+    if (!effectiveCheckInWindowOpen) {
+      return { kind: "closed_window", message: "The check-in window for this class is closed." }
+    }
 
     try {
       const token = await getToken({ skipCache: true })
@@ -88,55 +124,142 @@ export function useCheckInPackageFlow({
           ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
         },
       })
-      if (!res.ok) return null
+      if (!res.ok) {
+        return classifyPackageCheckInFailure({
+          kind: "http",
+          status: res.status,
+          body: data,
+          retryAfterHeader: res.headers?.get("Retry-After") ?? null,
+        })
+      }
 
       return {
         remainingCredits: data?.package && typeof data.package.remainingCredits === "number" ? data.package.remainingCredits : null,
         attendanceId: typeof data?.attendance?.id === "string" ? data.attendance.id : null,
         points: typeof data?.points?.awarded === "number" ? data.points.awarded : 0,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return classifyPackageCheckInFailure(isAbortError(error) ? { kind: "timeout" } : { kind: "network" })
     }
   }, [bootstrap, effectiveCheckInWindowOpen, getToken, hasActiveClerkSession, kioskPinSessionToken, photoFlowContext, requestPackageCheckIn])
 
+  // Routes a terminal (non-retryable, or retry-budget-exhausted) failure to
+  // the right surface. Kiosk: records the terminal failure state AND keeps
+  // today's transient inline error as PR2 parity (removed in PR3 once the
+  // failure overlay is the sole kiosk surface). Non-kiosk: transient inline
+  // error only — never touches kiosk-only state.
+  const applyKioskOrNonKioskFailure = React.useCallback((failure: PackageCheckInFailure) => {
+    if (isKioskTerminalFlow) {
+      setPackageCheckInFailure(failure)
+    }
+    setError(failure.message)
+  }, [isKioskTerminalFlow, setError])
+
   const handlePackageCheckIn = React.useCallback(async () => {
-    if (!bootstrap) return
-    if (!hasActiveClerkSession && !kioskPinSessionToken) return setError("Sign in first to complete package check-in.")
-    if (!bootstrap.package) return setError("No active package available for this class.")
-    if (!effectiveCheckInWindowOpen) return setError("The check-in window for this class is closed.")
+    // Defensive re-entrancy guard: the auto-trigger effect's own gate
+    // already blocks firing while a backoff is pending or a terminal
+    // failure was recorded, but this protects direct callers (e.g. a
+    // stale-closure re-invoke) from double-processing on the kiosk path.
+    if (isKioskTerminalFlow && (retryBackoffActive || packageCheckInFailure)) return
+
+    if (!bootstrap) {
+      applyKioskOrNonKioskFailure({ kind: "client_precondition", message: "Sign in first to complete package check-in." })
+      return
+    }
+    if (!hasActiveClerkSession && !kioskPinSessionToken) {
+      applyKioskOrNonKioskFailure({ kind: "client_precondition", message: "Sign in first to complete package check-in." })
+      return
+    }
+    if (!bootstrap.package) {
+      applyKioskOrNonKioskFailure({ kind: "client_precondition", message: "No active package available for this class." })
+      return
+    }
+    if (!effectiveCheckInWindowOpen) {
+      applyKioskOrNonKioskFailure({ kind: "closed_window", message: "The check-in window for this class is closed." })
+      return
+    }
 
     setProcessingPackageCheckIn(true)
     setError(null)
     setSuccess(null)
 
-    const result = await performPackageCheckInApi()
-    if (!result) {
-      setError("Unable to check in with package.")
+    const outcome = await performPackageCheckInApi()
+
+    if ("kind" in outcome) {
       setProcessingPackageCheckIn(false)
+
+      if (!isKioskTerminalFlow) {
+        setError(outcome.message)
+        return
+      }
+
+      const canScheduleRetry =
+        isRetryablePackageFailure(outcome.kind) && packageCheckInAttempts + 1 < PACKAGE_CHECK_IN_MAX_ATTEMPTS
+
+      if (canScheduleRetry) {
+        setRetryBackoffActive(true)
+        const delayMs = outcome.retryAfterMs ?? backoffDelays[packageCheckInAttempts] ?? backoffDelays[backoffDelays.length - 1]
+        packageCheckInBackoffTimeoutRef.current = window.setTimeout(() => {
+          packageCheckInBackoffTimeoutRef.current = null
+          setRetryBackoffActive(false)
+          setPackageCheckInAttempts((prev) => prev + 1)
+        }, delayMs)
+        return
+      }
+
+      // Retry budget exhausted or non-retryable — terminal, no further
+      // backoff. Neither setter fires on the backoff-scheduled branch above.
+      setPackageCheckInFailure(outcome)
+      setError(outcome.message)
       return
     }
 
     if (isKioskTerminalFlow) {
-      clearPackageCheckInTimeout()
-      setPackageCheckInResult(result)
+      setPackageCheckInResult(outcome)
       setProcessingPackageCheckIn(false)
       void checkConsecutiveOfferAfterCheckIn()
       return
     }
 
     const successParts = ["Package check-in completed."]
-    if (result.remainingCredits !== null) successParts.push(`Remaining credits: ${result.remainingCredits}.`)
-    if (result.points > 0) successParts.push(`Points earned: +${result.points}.`)
+    if (outcome.remainingCredits !== null) successParts.push(`Remaining credits: ${outcome.remainingCredits}.`)
+    if (outcome.points > 0) successParts.push(`Points earned: +${outcome.points}.`)
     setSuccess(successParts.join(" "))
     await loadBootstrap()
     setProcessingPackageCheckIn(false)
-  }, [bootstrap, checkConsecutiveOfferAfterCheckIn, clearPackageCheckInTimeout, effectiveCheckInWindowOpen, hasActiveClerkSession, isKioskTerminalFlow, kioskPinSessionToken, loadBootstrap, performPackageCheckInApi, setError, setProcessingPackageCheckIn, setSuccess])
+  }, [
+    applyKioskOrNonKioskFailure,
+    bootstrap,
+    checkConsecutiveOfferAfterCheckIn,
+    effectiveCheckInWindowOpen,
+    hasActiveClerkSession,
+    isKioskTerminalFlow,
+    kioskPinSessionToken,
+    loadBootstrap,
+    packageCheckInAttempts,
+    packageCheckInFailure,
+    performPackageCheckInApi,
+    retryBackoffActive,
+    setError,
+    setProcessingPackageCheckIn,
+    setSuccess,
+  ])
+
+  // Manual Retry only clears state — it does NOT call handlePackageCheckIn
+  // directly. Clearing packageCheckInFailure/packageCheckInAttempts makes
+  // shouldAutoTriggerPackageCheckIn re-evaluate true, and the auto-trigger
+  // EFFECT (not this click handler) performs the actual re-attempt. This
+  // avoids a stale-closure double-invoke race between a direct call here
+  // and the effect firing on the same state change. Kiosk-only.
+  const handleRetryPackageCheckIn = React.useCallback(() => {
+    clearPackageCheckInBackoff()
+    setPackageCheckInFailure(null)
+    setPackageCheckInAttempts(0)
+  }, [clearPackageCheckInBackoff])
 
   const handlePackageSuccessDone = React.useCallback(() => {
     const action = resolvePackageSuccessDoneAction({ awaitingConsecutivePaymentSelection })
     if (action === "open-payment-selection") {
-      clearPackageCheckInTimeout()
       setAwaitingConsecutivePaymentSelection(false)
       setPackageCheckInResult(null)
       setShowConsecutiveOverlay(true)
@@ -144,15 +267,22 @@ export function useCheckInPackageFlow({
       return
     }
     completeStationPackageFlow()
-  }, [awaitingConsecutivePaymentSelection, clearPackageCheckInTimeout, completeStationPackageFlow, setAwaitingConsecutivePaymentSelection, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
+  }, [awaitingConsecutivePaymentSelection, completeStationPackageFlow, setAwaitingConsecutivePaymentSelection, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection])
 
-  React.useEffect(() => clearPackageCheckInTimeout, [clearPackageCheckInTimeout])
+  React.useEffect(() => clearPackageCheckInBackoff, [clearPackageCheckInBackoff])
 
   return {
     packageCheckInResult,
     setPackageCheckInResult,
+    packageCheckInFailure,
+    setPackageCheckInFailure,
+    packageCheckInAttempts,
+    setPackageCheckInAttempts,
+    retryBackoffActive,
+    clearPackageCheckInBackoff,
     performPackageCheckInApi,
     handlePackageCheckIn,
     handlePackageSuccessDone,
+    handleRetryPackageCheckIn,
   }
 }

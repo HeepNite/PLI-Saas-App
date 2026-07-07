@@ -147,4 +147,169 @@ describe("useCheckInPackageFlow", () => {
     expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(true)
     expect(getResult().packageCheckInResult).toBeNull()
   })
+
+  // ─── PR2: failure classification, retry/backoff, kiosk-vs-non-kiosk routing ───
+
+  const retryableFailureResponse = (status = 500, body: Record<string, unknown> = { error: "boom" }) => ({
+    res: { ok: false, status } as unknown as Response,
+    data: body,
+  })
+
+  const closedWindowFailureResponse = () => ({
+    res: { ok: false, status: 409 } as unknown as Response,
+    data: { error: "The check-in window for this class is closed.", opensAt: "2026-06-03T19:00:00.000Z", closesAt: "2026-06-03T20:30:00.000Z" },
+  })
+
+  it("performPackageCheckInApi returns typed pre-flight failures, never null", async () => {
+    const params = defaultParams()
+    const { getResult } = await mount(params)
+    expect(await getResult().performPackageCheckInApi()).toEqual(
+      expect.objectContaining({ remainingCredits: 3 })
+    )
+
+    const noBootstrap = defaultParams({ bootstrap: null })
+    const { getResult: getNoBootstrapResult } = await mount(noBootstrap)
+    expect(await getNoBootstrapResult().performPackageCheckInApi()).toEqual(
+      expect.objectContaining({ kind: "client_precondition" })
+    )
+
+    const noSession = defaultParams({ hasActiveClerkSession: false, kioskPinSessionToken: "" })
+    const { getResult: getNoSessionResult } = await mount(noSession)
+    expect(await getNoSessionResult().performPackageCheckInApi()).toEqual(
+      expect.objectContaining({ kind: "client_precondition" })
+    )
+
+    const noPackage = defaultParams({ bootstrap: bootstrap({ package: null }) })
+    const { getResult: getNoPackageResult } = await mount(noPackage)
+    expect(await getNoPackageResult().performPackageCheckInApi()).toEqual(
+      expect.objectContaining({ kind: "client_precondition" })
+    )
+
+    const closedWindow = defaultParams({ effectiveCheckInWindowOpen: false })
+    const { getResult: getClosedWindowResult } = await mount(closedWindow)
+    expect(await getClosedWindowResult().performPackageCheckInApi()).toEqual(
+      expect.objectContaining({ kind: "closed_window" })
+    )
+  })
+
+  it("non-kiosk failure calls setError only — no attempt counter, backoff, or packageCheckInFailure touched", async () => {
+    const params = defaultParams({
+      isKioskTerminalFlow: false,
+      requestPackageCheckIn: vi.fn().mockResolvedValue(retryableFailureResponse()),
+    })
+    const { getResult } = await mount(params)
+
+    await act(async () => getResult().handlePackageCheckIn())
+
+    expect(params.setError).toHaveBeenCalledWith("We couldn't check you in. Please see the front desk.")
+    expect(getResult().packageCheckInFailure).toBeNull()
+    expect(getResult().packageCheckInAttempts).toBe(0)
+    expect(getResult().retryBackoffActive).toBe(false)
+  })
+
+  it("kiosk backoff-scheduled branch (budget remaining) fires NEITHER setPackageCheckInFailure NOR setError", async () => {
+    vi.useFakeTimers()
+    const params = defaultParams({
+      isKioskTerminalFlow: true,
+      requestPackageCheckIn: vi.fn().mockResolvedValue(retryableFailureResponse()),
+    })
+    const { getResult } = await mount(params)
+
+    await act(async () => getResult().handlePackageCheckIn())
+
+    expect(getResult().retryBackoffActive).toBe(true)
+    expect(getResult().packageCheckInFailure).toBeNull()
+    expect(params.setError).not.toHaveBeenCalledWith(expect.any(String))
+  })
+
+  it("kiosk terminal failure calls BOTH setPackageCheckInFailure and the existing transient setError (PR2 parity)", async () => {
+    const params = defaultParams({
+      isKioskTerminalFlow: true,
+      requestPackageCheckIn: vi.fn().mockResolvedValue(closedWindowFailureResponse()),
+    })
+    const { getResult } = await mount(params)
+
+    await act(async () => getResult().handlePackageCheckIn())
+
+    expect(getResult().packageCheckInFailure).toEqual(
+      expect.objectContaining({ kind: "closed_window" })
+    )
+    expect(params.setError).toHaveBeenCalledWith(getResult().packageCheckInFailure!.message)
+  })
+
+  it("retry-exhaustion boundary: 3rd consecutive retryable failure with maxAttempts=3 sets packageCheckInFailure, schedules no 4th attempt", async () => {
+    vi.useFakeTimers()
+    const params = defaultParams({
+      isKioskTerminalFlow: true,
+      requestPackageCheckIn: vi.fn().mockResolvedValue(retryableFailureResponse()),
+    })
+    const { getResult } = await mount(params)
+
+    // Attempt 1 (packageCheckInAttempts=0): 0+1=1 < 3 → schedules backoff (delay 0ms).
+    await act(async () => getResult().handlePackageCheckIn())
+    expect(getResult().retryBackoffActive).toBe(true)
+    expect(getResult().packageCheckInFailure).toBeNull()
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(getResult().packageCheckInAttempts).toBe(1)
+    expect(getResult().retryBackoffActive).toBe(false)
+
+    // Attempt 2 (packageCheckInAttempts=1): 1+1=2 < 3 → schedules backoff (delay 2000ms).
+    await act(async () => getResult().handlePackageCheckIn())
+    expect(getResult().retryBackoffActive).toBe(true)
+    expect(getResult().packageCheckInFailure).toBeNull()
+    await act(async () => vi.advanceTimersByTimeAsync(2000))
+    expect(getResult().packageCheckInAttempts).toBe(2)
+    expect(getResult().retryBackoffActive).toBe(false)
+
+    // Attempt 3 (packageCheckInAttempts=2): 2+1=3, NOT < 3 → terminal, no 4th schedule.
+    await act(async () => getResult().handlePackageCheckIn())
+    expect(getResult().packageCheckInFailure).toEqual(expect.objectContaining({ kind: "server" }))
+    expect(getResult().retryBackoffActive).toBe(false)
+    expect(getResult().packageCheckInAttempts).toBe(2)
+
+    // No further timer was scheduled — advancing time doesn't change attempts.
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(getResult().packageCheckInAttempts).toBe(2)
+    expect(params.requestPackageCheckIn).toHaveBeenCalledTimes(3)
+  })
+
+  it("handleRetryPackageCheckIn only clears state — does not call the API directly", async () => {
+    const params = defaultParams({
+      isKioskTerminalFlow: true,
+      requestPackageCheckIn: vi.fn().mockResolvedValue(closedWindowFailureResponse()),
+    })
+    const { getResult } = await mount(params)
+
+    await act(async () => getResult().handlePackageCheckIn())
+    expect(getResult().packageCheckInFailure).not.toBeNull()
+    expect(params.requestPackageCheckIn).toHaveBeenCalledTimes(1)
+
+    act(() => getResult().handleRetryPackageCheckIn())
+
+    expect(getResult().packageCheckInFailure).toBeNull()
+    expect(getResult().packageCheckInAttempts).toBe(0)
+    expect(getResult().retryBackoffActive).toBe(false)
+    // Retry does not itself invoke the API — only the auto-trigger effect
+    // (outside this hook) re-enters, once the gate re-evaluates true.
+    expect(params.requestPackageCheckIn).toHaveBeenCalledTimes(1)
+  })
+
+  it("clears the pending backoff timer on unmount", async () => {
+    vi.useFakeTimers()
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout")
+    const params = defaultParams({
+      isKioskTerminalFlow: true,
+      requestPackageCheckIn: vi.fn().mockResolvedValue(retryableFailureResponse()),
+    })
+    const { getResult } = await mount(params)
+
+    await act(async () => getResult().handlePackageCheckIn())
+    expect(getResult().retryBackoffActive).toBe(true)
+    clearTimeoutSpy.mockClear()
+
+    await act(async () => root?.unmount())
+    root = null
+
+    expect(clearTimeoutSpy).toHaveBeenCalled()
+  })
 })
