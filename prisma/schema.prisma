@@ -655,6 +655,7 @@ model StaffTerminal {
   location                    String?
   defaultCourseSlug           String?
   pinHash                     String
+  schoolId                    String?
   active                      Boolean                      @default(true)
   createdByUserId             String?
   lastSeenAt                  DateTime?
@@ -668,6 +669,7 @@ model StaffTerminal {
 
   @@index([active])
   @@index([defaultCourseSlug])
+  @@index([schoolId])
 }
 
 model StaffTerminalSession {
@@ -718,6 +720,36 @@ model KioskTerminalMissCounter {
   blockedUntil DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+
+  @@index([blockedUntil])
+}
+
+// Trusted-device credentials for staff PIN login (harden-staff-pin-auth, PR1 schema).
+// staffUserId is a Clerk user id (staff identity lives in Clerk, not the local User table).
+model StaffTrustedDevice {
+  id          String    @id @default(cuid())
+  staffUserId String
+  tokenHash   String    @unique
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+
+  @@index([staffUserId])
+}
+
+// Persistent per-target PIN attempt counter (harden-staff-pin-auth, PR1 schema).
+// targetKey covers user:{id}, terminal:{slug}, terminal:{slug}:targeted, enroll:{id}.
+model StaffPinAttemptCounter {
+  id                  String    @id @default(cuid())
+  targetKey           String    @unique
+  missCount           Int       @default(0)
+  lifetimeMissCount   Int       @default(0)
+  windowStart         DateTime  @default(now())
+  blockedUntil        DateTime?
+  cooldownLevel       Int       @default(0)
+  lockedPermanentlyAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([blockedUntil])
 }
