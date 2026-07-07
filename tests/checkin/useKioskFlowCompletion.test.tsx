@@ -46,6 +46,9 @@ function createMockParams() {
     setShowConsecutiveOverlay: vi.fn(),
     setShowConsecutivePaymentSelection: vi.fn(),
     setAwaitingConsecutivePaymentSelection: vi.fn(),
+    clearPackageCheckInBackoff: vi.fn(),
+    setPackageCheckInAttempts: vi.fn(),
+    setPackageCheckInFailure: vi.fn(),
   }
 }
 
@@ -146,6 +149,24 @@ describe("useKioskFlowCompletion — reset/cleanup", () => {
     expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
     expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)
     expect(params.setAwaitingConsecutivePaymentSelection).toHaveBeenCalledWith(false)
+    expect(params.clearPackageCheckInBackoff).toHaveBeenCalledTimes(1)
+    expect(params.setPackageCheckInAttempts).toHaveBeenCalledWith(0)
+    expect(params.setPackageCheckInFailure).toHaveBeenCalledWith(null)
+  })
+
+  it("resetCustomerFlowState cancels the backoff BEFORE zeroing attempts/failure (order matters)", async () => {
+    const { params } = await renderHook()
+
+    await act(async () => {
+      captured!.resetCustomerFlowState()
+    })
+
+    const backoffCallOrder = params.clearPackageCheckInBackoff.mock.invocationCallOrder[0]
+    const attemptsCallOrder = params.setPackageCheckInAttempts.mock.invocationCallOrder[0]
+    const failureCallOrder = params.setPackageCheckInFailure.mock.invocationCallOrder[0]
+
+    expect(backoffCallOrder).toBeLessThan(attemptsCallOrder)
+    expect(attemptsCallOrder).toBeLessThan(failureCallOrder)
   })
 
   it("resetCustomerFlowState calls setPackageOfferContext and setPackageOfferSelectedId exactly once each", async () => {
@@ -184,5 +205,58 @@ describe("useKioskFlowCompletion — reset/cleanup", () => {
     expect(returnedParams.setPackageOfferSelectedId).toHaveBeenCalledWith(null)
     expect(returnedParams.setBootstrap).toHaveBeenCalledWith(null)
     expect(returnedParams.setMode).toHaveBeenCalledWith("idle")
+  })
+
+  describe("dismissExistingCustomer — package check-in backoff/attempts/failure defense-in-depth", () => {
+    it("non-kiosk branch clears backoff, attempts, and failure alongside its existing partial reset", async () => {
+      const params = createMockParams()
+      params.isKioskTerminalFlow = false
+      const { getResult } = await renderHook(params)
+
+      await act(async () => {
+        getResult().dismissExistingCustomer()
+      })
+
+      expect(params.clearPackageCheckInBackoff).toHaveBeenCalledTimes(1)
+      expect(params.setPackageCheckInAttempts).toHaveBeenCalledWith(0)
+      expect(params.setPackageCheckInFailure).toHaveBeenCalledWith(null)
+      // Confirms this is still the non-kiosk partial reset, not the full
+      // resetCustomerFlowState (which also touches package offer state).
+      expect(params.setPackageOfferContext).not.toHaveBeenCalled()
+    })
+
+    it("non-kiosk branch cancels the backoff BEFORE zeroing attempts/failure (order matters)", async () => {
+      const params = createMockParams()
+      params.isKioskTerminalFlow = false
+      const { getResult } = await renderHook(params)
+
+      await act(async () => {
+        getResult().dismissExistingCustomer()
+      })
+
+      const backoffCallOrder = params.clearPackageCheckInBackoff.mock.invocationCallOrder[0]
+      const attemptsCallOrder = params.setPackageCheckInAttempts.mock.invocationCallOrder[0]
+      const failureCallOrder = params.setPackageCheckInFailure.mock.invocationCallOrder[0]
+
+      expect(backoffCallOrder).toBeLessThan(attemptsCallOrder)
+      expect(attemptsCallOrder).toBeLessThan(failureCallOrder)
+    })
+
+    it("kiosk branch clears backoff/attempts/failure via handleStationCompletion → resetCustomerFlowState", async () => {
+      const params = createMockParams()
+      params.isKioskTerminalFlow = true
+      const { getResult } = await renderHook(params)
+
+      await act(async () => {
+        getResult().dismissExistingCustomer()
+      })
+
+      expect(params.clearPackageCheckInBackoff).toHaveBeenCalledTimes(1)
+      expect(params.setPackageCheckInAttempts).toHaveBeenCalledWith(0)
+      expect(params.setPackageCheckInFailure).toHaveBeenCalledWith(null)
+      // Kiosk branch goes through the FULL reset, so package offer state is
+      // touched too — unlike the non-kiosk itemized reset.
+      expect(params.setPackageOfferContext).toHaveBeenCalledWith(null)
+    })
   })
 })

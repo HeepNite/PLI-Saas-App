@@ -47,6 +47,8 @@ type UseCheckInDisplayDataArgs = {
   openNewBooking: boolean
   processingPackageCheckIn: boolean
   hasPackageCheckInResult: boolean
+  /** True once a terminal kiosk package check-in failure has been recorded. */
+  hasPackageCheckInFailure: boolean
   packageOfferContext: PackageOfferContext
 }
 
@@ -77,6 +79,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     openNewBooking,
     processingPackageCheckIn,
     hasPackageCheckInResult,
+    hasPackageCheckInFailure,
     packageOfferContext,
   } = args
 
@@ -333,6 +336,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     paymentsStepReady: paymentsModalReady,
     hasExistingPurchaseForSession: Boolean(bootstrap?.hasExistingPurchaseForSession),
     quickRepeatEligible: Boolean(bootstrap?.quickRepeatEligible),
+    hasPackageCheckInFailure,
   })
   const showSignedInBootstrapPanel = canShowSignedInBootstrapPanel && !showKioskResolvingOverlay && !isKioskTerminalFlow
   const hideEntrySelection =

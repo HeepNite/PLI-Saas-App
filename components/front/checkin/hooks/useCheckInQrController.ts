@@ -259,6 +259,12 @@ export function useCheckInQrController({
   const {
     packageCheckInResult,
     setPackageCheckInResult,
+    packageCheckInFailure,
+    packageCheckInAttempts,
+    retryBackoffActive,
+    clearPackageCheckInBackoff,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
     performPackageCheckInApi,
     handlePackageCheckIn,
     handlePackageSuccessDone,
@@ -309,6 +315,7 @@ export function useCheckInQrController({
     openNewBooking,
     processingPackageCheckIn,
     hasPackageCheckInResult: Boolean(packageCheckInResult),
+    hasPackageCheckInFailure: Boolean(packageCheckInFailure),
     packageOfferContext,
   })
 
@@ -399,6 +406,9 @@ export function useCheckInQrController({
     setShowConsecutiveOverlay,
     setShowConsecutivePaymentSelection,
     setAwaitingConsecutivePaymentSelection,
+    clearPackageCheckInBackoff,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
   })
   handleStationCompletionRef.current = handleStationCompletion
 
@@ -792,6 +802,10 @@ export function useCheckInQrController({
     newBookingOverride,
     processingPackageCheckIn,
     packageCheckInResult,
+    packageCheckInAttempts,
+    packageCheckInFailure,
+    retryBackoffActive,
+    setPackageCheckInFailure,
     hasUsablePackageForCurrentClass,
     effectiveCheckInWindowOpen,
     handlePackageCheckIn,
