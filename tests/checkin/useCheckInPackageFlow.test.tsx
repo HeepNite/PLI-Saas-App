@@ -309,6 +309,160 @@ describe("useCheckInPackageFlow", () => {
     expect(params.requestPackageCheckIn).toHaveBeenCalledTimes(1)
   })
 
+  it("performPackageCheckInApi classifies an AbortError as a timeout, not a network failure", async () => {
+    const abortError = Object.assign(new Error("The operation was aborted"), { name: "AbortError" })
+    const params = defaultParams({
+      requestPackageCheckIn: vi.fn().mockRejectedValue(abortError),
+    })
+    const { getResult } = await mount(params)
+
+    expect(await getResult().performPackageCheckInApi()).toEqual(
+      expect.objectContaining({ kind: "timeout" })
+    )
+  })
+
+  it("succeeds on the final retry attempt: packageCheckInResult set, no failure state, no 4th schedule", async () => {
+    vi.useFakeTimers()
+    const requestPackageCheckIn = vi
+      .fn()
+      .mockResolvedValueOnce(retryableFailureResponse())
+      .mockResolvedValueOnce(retryableFailureResponse())
+      .mockResolvedValueOnce({
+        res: { ok: true } as Response,
+        data: { package: { remainingCredits: 1 }, attendance: { id: "att-final" }, points: { awarded: 2 } },
+      })
+    const params = defaultParams({ isKioskTerminalFlow: true, requestPackageCheckIn })
+    const { getResult } = await mount(params)
+
+    // Attempt 1 (packageCheckInAttempts=0): retryable failure, schedules backoff (delay 0ms).
+    await act(async () => getResult().handlePackageCheckIn())
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(getResult().packageCheckInAttempts).toBe(1)
+
+    // Attempt 2 (packageCheckInAttempts=1): retryable failure, schedules backoff (delay 2000ms).
+    await act(async () => getResult().handlePackageCheckIn())
+    await act(async () => vi.advanceTimersByTimeAsync(2000))
+    expect(getResult().packageCheckInAttempts).toBe(2)
+
+    // Attempt 3 (packageCheckInAttempts=2): success.
+    await act(async () => getResult().handlePackageCheckIn())
+
+    expect(getResult().packageCheckInResult).toEqual({ attendanceId: "att-final", remainingCredits: 1, points: 2 })
+    expect(getResult().packageCheckInFailure).toBeNull()
+    expect(getResult().retryBackoffActive).toBe(false)
+    expect(requestPackageCheckIn).toHaveBeenCalledTimes(3)
+
+    // No 4th schedule — advancing time doesn't trigger another attempt.
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(requestPackageCheckIn).toHaveBeenCalledTimes(3)
+  })
+
+  // ─── PR3: stale in-flight request must not leak state across sessions ───
+
+  type DeferredRequest = {
+    promise: Promise<{ res: Response; data: unknown }>
+    resolve: (value: { res: Response; data: unknown }) => void
+  }
+
+  const deferredRequest = (): DeferredRequest => {
+    let resolve: (value: { res: Response; data: unknown }) => void = () => {}
+    const promise = new Promise<{ res: Response; data: unknown }>((res) => {
+      resolve = res
+    })
+    return { promise, resolve }
+  }
+
+  const successOutcome = () => ({
+    res: { ok: true } as Response,
+    data: { package: { remainingCredits: 2 }, attendance: { id: "att-stale" }, points: { awarded: 1 } },
+  })
+
+  const startInFlightRequest = async (getResult: () => HookResult) => {
+    await act(async () => {
+      void getResult().handlePackageCheckIn()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+  }
+
+  const resolveInFlightRequest = async (pending: DeferredRequest, outcome: { res: Response; data: unknown }) => {
+    await act(async () => {
+      pending.resolve(outcome)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+  }
+
+  describe.each([
+    ["success", successOutcome],
+    ["terminal failure", closedWindowFailureResponse],
+    ["retryable failure", retryableFailureResponse],
+  ])("stale in-flight request (%s outcome) after a station reset", (_label, buildOutcome) => {
+    it("discards the continuation — no state writes, no backoff scheduled", async () => {
+      vi.useFakeTimers()
+      const pending = deferredRequest()
+      const params = defaultParams({
+        isKioskTerminalFlow: true,
+        requestPackageCheckIn: vi.fn().mockReturnValue(pending.promise),
+      })
+      const { getResult } = await mount(params)
+
+      await startInFlightRequest(getResult)
+      expect(params.requestPackageCheckIn).toHaveBeenCalledTimes(1)
+
+      const resultBefore = getResult().packageCheckInResult
+      const failureBefore = getResult().packageCheckInFailure
+      const attemptsBefore = getResult().packageCheckInAttempts
+
+      // Station reset (e.g. resetCustomerFlowState) happens while the request
+      // is still in flight — this is the same call resetCustomerFlowState and
+      // dismissExistingCustomer make.
+      act(() => getResult().clearPackageCheckInBackoff())
+
+      await resolveInFlightRequest(pending, buildOutcome())
+
+      expect(getResult().packageCheckInResult).toEqual(resultBefore)
+      expect(getResult().packageCheckInFailure).toEqual(failureBefore)
+      expect(getResult().packageCheckInAttempts).toBe(attemptsBefore)
+      expect(getResult().retryBackoffActive).toBe(false)
+      expect(params.checkConsecutiveOfferAfterCheckIn).not.toHaveBeenCalled()
+
+      // No backoff timer scheduled — advancing time changes nothing.
+      await act(async () => vi.advanceTimersByTimeAsync(10_000))
+      expect(getResult().packageCheckInAttempts).toBe(attemptsBefore)
+    })
+  })
+
+  it("manual Retry during an in-flight request invalidates the old request's continuation", async () => {
+    vi.useFakeTimers()
+    const pending = deferredRequest()
+    const params = defaultParams({
+      isKioskTerminalFlow: true,
+      requestPackageCheckIn: vi.fn().mockReturnValue(pending.promise),
+    })
+    const { getResult } = await mount(params)
+
+    await startInFlightRequest(getResult)
+    expect(params.requestPackageCheckIn).toHaveBeenCalledTimes(1)
+
+    // Manual Retry fires while the first request is still in flight.
+    act(() => getResult().handleRetryPackageCheckIn())
+    expect(getResult().packageCheckInFailure).toBeNull()
+    expect(getResult().packageCheckInAttempts).toBe(0)
+
+    await resolveInFlightRequest(pending, retryableFailureResponse())
+
+    // The stale request's continuation must not resurrect failure/backoff state.
+    expect(getResult().packageCheckInFailure).toBeNull()
+    expect(getResult().retryBackoffActive).toBe(false)
+    expect(getResult().packageCheckInAttempts).toBe(0)
+
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(getResult().packageCheckInAttempts).toBe(0)
+  })
+
   it("clears the pending backoff timer on unmount", async () => {
     vi.useFakeTimers()
     const clearTimeoutSpy = vi.spyOn(window, "clearTimeout")

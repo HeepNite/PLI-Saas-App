@@ -3,7 +3,7 @@ import type { PackageCheckInResult } from "@/components/front/checkin/hooks/useC
 
 const EXISTING_CUSTOMER_INFO_STEP = 2
 
-const PACKAGE_CHECK_IN_MAX_ATTEMPTS = 3
+export const PACKAGE_CHECK_IN_MAX_ATTEMPTS = 3
 const NO_PACKAGE_MESSAGE = "No active package available for this class."
 const NO_CREDITS_MESSAGE = "This package has no credits left."
 const DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE = "We couldn't check you in. Please see the front desk."
@@ -199,7 +199,12 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   // early on unrelated dependency changes.
   if (hasTerminalFailure || retryBackoffActive) return false
   // Retry budget exhausted → the flow must transition to terminal failure
-  // instead of firing another automatic attempt.
+  // instead of firing another automatic attempt. Intentionally redundant
+  // defense-in-depth: the `hasTerminalFailure` check above normally
+  // short-circuits first, since the caller sets a terminal failure the
+  // moment the budget is exhausted. Kept as a backstop in case a caller ever
+  // re-evaluates this gate with a stale `hasTerminalFailure` — not load-bearing
+  // under the current call sites.
   if (attemptCount >= maxAttempts) return false
   // Always check in with package first. Consecutive promotion can only be
   // offered after a successful class-A check-in, so no-credit users go to the

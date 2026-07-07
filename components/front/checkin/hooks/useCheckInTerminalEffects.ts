@@ -5,6 +5,7 @@ import {
   shouldAutoTriggerPackageCheckIn,
   shouldPreserveOfferOnBootstrapClear,
   shouldAutoPromoteExistingMode,
+  PACKAGE_CHECK_IN_MAX_ATTEMPTS,
 } from "@/lib/checkin/existing-customer-flow"
 import { TRANSIENT_MESSAGE_TIMEOUT_MS } from "@/lib/checkin/checkin-helpers"
 import { hasTerminalSensitiveCustomerState } from "@/lib/checkin/terminal-sensitive-state"
@@ -308,6 +309,7 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
         hasConsecutiveOffer: Boolean(consecutiveOffer),
         consecutiveOfferSettled,
         attemptCount: packageCheckInAttempts,
+        maxAttempts: PACKAGE_CHECK_IN_MAX_ATTEMPTS,
         hasTerminalFailure: Boolean(packageCheckInFailure),
         retryBackoffActive,
       })

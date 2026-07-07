@@ -6,6 +6,7 @@ import {
   classifyPackageCheckInFailure,
   isRetryablePackageFailure,
   resolvePackageSuccessDoneAction,
+  PACKAGE_CHECK_IN_MAX_ATTEMPTS,
   type PackageCheckInFailure,
   type PackageCheckInOutcome,
 } from "@/lib/checkin/existing-customer-flow"
@@ -16,15 +17,6 @@ export type PackageCheckInResult = {
   remainingCredits: number | null
   points: number
 }
-
-/**
- * Kiosk-only auto-retry budget. Matches the default `maxAttempts` used by
- * `shouldAutoTriggerPackageCheckIn` in `lib/checkin/existing-customer-flow.ts`
- * — kept as a separate local constant (not exported/shared) so each layer
- * stays independently correct, per the optional-with-defaults convention
- * established in PR1.
- */
-export const PACKAGE_CHECK_IN_MAX_ATTEMPTS = 3
 
 type RequestPackageCheckIn = typeof requestPackageCheckInApi
 
@@ -78,7 +70,16 @@ export function useCheckInPackageFlow({
   const [retryBackoffActive, setRetryBackoffActive] = React.useState(false)
   const packageCheckInBackoffTimeoutRef = React.useRef<number | null>(null)
 
+  // Bumped every time an in-flight (or about-to-schedule) package check-in
+  // request must be invalidated: unmount, station reset, non-kiosk dismiss,
+  // or a manual Retry. `handlePackageCheckIn` captures the generation before
+  // awaiting the API call and re-checks it afterwards (and inside the backoff
+  // timer callback) so a stale request's continuation can never write shared
+  // state for a customer session that has already moved on.
+  const packageCheckInGenerationRef = React.useRef(0)
+
   const clearPackageCheckInBackoff = React.useCallback(() => {
+    packageCheckInGenerationRef.current += 1
     if (packageCheckInBackoffTimeoutRef.current !== null) {
       window.clearTimeout(packageCheckInBackoffTimeoutRef.current)
       packageCheckInBackoffTimeoutRef.current = null
@@ -157,6 +158,12 @@ export function useCheckInPackageFlow({
   }, [isKioskTerminalFlow, setError])
 
   const handlePackageCheckIn = React.useCallback(async () => {
+    // Captured before any `await` so the continuation below can detect a
+    // session reset/dismiss/manual-retry that happened while the request was
+    // in flight (see `packageCheckInGenerationRef` above) and bail out
+    // without writing state that belongs to a customer session that's gone.
+    const generation = packageCheckInGenerationRef.current
+
     // Defensive re-entrancy guard: the auto-trigger effect's own gate
     // already blocks firing while a backoff is pending or a terminal
     // failure was recorded, but this protects direct callers (e.g. a
@@ -186,6 +193,12 @@ export function useCheckInPackageFlow({
 
     const outcome = await performPackageCheckInApi()
 
+    // The customer session that started this request is gone (station
+    // reset, non-kiosk dismiss, unmount, or a manual Retry) — discard the
+    // result silently. Writing state or scheduling a backoff here would leak
+    // this request's outcome into whatever session is active now.
+    if (packageCheckInGenerationRef.current !== generation) return
+
     if ("kind" in outcome) {
       setProcessingPackageCheckIn(false)
 
@@ -202,6 +215,11 @@ export function useCheckInPackageFlow({
         const delayMs = outcome.retryAfterMs ?? backoffDelays[packageCheckInAttempts] ?? backoffDelays[backoffDelays.length - 1]
         packageCheckInBackoffTimeoutRef.current = window.setTimeout(() => {
           packageCheckInBackoffTimeoutRef.current = null
+          // Same staleness guard as above: a reset/dismiss/manual-retry that
+          // happened during the backoff window already bumped the
+          // generation (via `clearPackageCheckInBackoff`), so this callback
+          // must not resurrect retry state for a session that's gone.
+          if (packageCheckInGenerationRef.current !== generation) return
           setRetryBackoffActive(false)
           setPackageCheckInAttempts((prev) => prev + 1)
         }, delayMs)
