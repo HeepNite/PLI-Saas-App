@@ -1,6 +1,7 @@
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import { resolveSchoolIdFromUser } from "@/lib/security/staff-school"
+import { readTrustedDeviceCookie, validateTrustedDeviceToken } from "@/lib/security/staff-trusted-device"
 
 /**
  * TOTAL gate context resolution for the staff PIN routes (login/pin,
@@ -26,14 +27,44 @@ export type StaffPinGateResult =
   | { ok: true; context: StaffPinRequestContext }
   | { ok: false; status: number; error: string }
 
+type PersonalDeviceResolution = StaffPinRequestContext | { rejected: true; error: string } | null
+
 /**
- * PERSONAL-device enrollment (issuing/validating the trusted-device cookie)
- * is Phase 3 work (`lib/security/staff-trusted-device.ts`, tasks.md 3.6).
- * There are no enrolled devices yet in this phase, so this branch is
- * structurally reachable — it participates in the precedence order below —
- * but always yields no context until Phase 3 lands the cookie + DB lookup.
+ * Resolves the PERSONAL-device context from the trusted-device cookie
+ * (`lib/security/staff-trusted-device.ts`, wired in PR3 — replaces the PR2
+ * structural stub that always returned null).
+ *
+ * A missing or invalid/revoked cookie falls through (returns null) so the
+ * gate can try TERMINAL/CLERK_SESSION next. A VALID device whose owner has
+ * no resolvable school context is explicitly REJECTED (never falls
+ * through) — same fail-closed shape as the terminal/Clerk-session branches
+ * (design v5 ADR 14: mandatory expectedSchoolId, no silent unscoped path).
  */
-const resolvePersonalDeviceContext = async (): Promise<StaffPinRequestContext | null> => null
+const resolvePersonalDeviceContext = async (): Promise<PersonalDeviceResolution> => {
+  const token = await readTrustedDeviceCookie()
+  if (!token) return null
+
+  const device = await validateTrustedDeviceToken(token)
+  if (!device) return null
+
+  const client = await clerkClient()
+  let user
+  try {
+    user = await client.users.getUser(device.staffUserId)
+  } catch {
+    return null
+  }
+
+  const expectedSchoolId = resolveSchoolIdFromUser(user)
+  if (!expectedSchoolId) {
+    return {
+      rejected: true,
+      error: "Your account is missing a school context. Contact an admin to configure it.",
+    }
+  }
+
+  return { kind: "PERSONAL", ownerUserId: device.staffUserId, expectedSchoolId }
+}
 
 type TerminalResolution = StaffPinRequestContext | { rejected: true; error: string } | null
 
@@ -89,7 +120,10 @@ export const resolveStaffPinGate = async (): Promise<StaffPinGateResult> => {
   const mode = getStaffDeviceGateMode()
 
   const personal = await resolvePersonalDeviceContext()
-  if (personal) return { ok: true, context: personal }
+  if (personal) {
+    if ("rejected" in personal) return { ok: false, status: 403, error: personal.error }
+    return { ok: true, context: personal }
+  }
 
   const terminal = await resolveTerminalContext()
   if (terminal) {

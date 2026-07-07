@@ -4,6 +4,8 @@ const mockAuthorizeStaffTerminalSession = vi.fn()
 const mockAuth = vi.fn()
 const mockClerkClient = vi.fn()
 const usersApi = { getUser: vi.fn() }
+const mockReadTrustedDeviceCookie = vi.fn()
+const mockValidateTrustedDeviceToken = vi.fn()
 
 vi.mock("@/lib/security/staff-terminal", () => ({
   authorizeStaffTerminalSession: (...args: unknown[]) => mockAuthorizeStaffTerminalSession(...args),
@@ -14,17 +16,26 @@ vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: (...args: unknown[]) => mockClerkClient(...args),
 }))
 
+vi.mock("@/lib/security/staff-trusted-device", () => ({
+  readTrustedDeviceCookie: (...args: unknown[]) => mockReadTrustedDeviceCookie(...args),
+  validateTrustedDeviceToken: (...args: unknown[]) => mockValidateTrustedDeviceToken(...args),
+}))
+
 describe("staff-pin-gate: TOTAL gate context resolution (design v5)", () => {
   beforeEach(() => {
     mockAuthorizeStaffTerminalSession.mockReset()
     mockAuth.mockReset()
     mockClerkClient.mockReset()
     usersApi.getUser.mockReset()
+    mockReadTrustedDeviceCookie.mockReset()
+    mockValidateTrustedDeviceToken.mockReset()
     mockClerkClient.mockResolvedValue({ users: usersApi })
     delete process.env.STAFF_DEVICE_GATE_MODE
 
     mockAuthorizeStaffTerminalSession.mockResolvedValue({ ok: false, reason: "missing" })
     mockAuth.mockResolvedValue({ userId: null })
+    mockReadTrustedDeviceCookie.mockResolvedValue("")
+    mockValidateTrustedDeviceToken.mockResolvedValue(null)
   })
 
   it("NO trusted context (monitor mode, default): rejects with 403 — no scan, no mint", async () => {
@@ -159,5 +170,92 @@ describe("staff-pin-gate: TOTAL gate context resolution (design v5)", () => {
     process.env.STAFF_DEVICE_GATE_MODE = "enforce"
     const { getStaffDeviceGateMode } = await import("@/lib/security/staff-pin-gate")
     expect(getStaffDeviceGateMode()).toBe("enforce")
+  })
+
+  describe("PERSONAL-device context (PR3: staff-trusted-device wiring, replaces the PR2 stub)", () => {
+    it("resolves PERSONAL when a valid trusted-device cookie validates, self-restricted to the device owner's own school", async () => {
+      mockReadTrustedDeviceCookie.mockResolvedValue("device-token-abc")
+      mockValidateTrustedDeviceToken.mockResolvedValue({ id: "device_1", staffUserId: "staff_5" })
+      usersApi.getUser.mockResolvedValue({
+        id: "staff_5",
+        publicMetadata: { role: "staff", schoolId: "school_p" },
+        privateMetadata: {},
+      })
+
+      const { resolveStaffPinGate } = await import("@/lib/security/staff-pin-gate")
+      const result = await resolveStaffPinGate()
+
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.context.kind).toBe("PERSONAL")
+        if (result.context.kind === "PERSONAL") {
+          expect(result.context.ownerUserId).toBe("staff_5")
+        }
+        expect(result.context.expectedSchoolId).toBe("school_p")
+      }
+    })
+
+    it("PERSONAL takes precedence over TERMINAL when both a trusted-device cookie and a terminal session are present", async () => {
+      mockReadTrustedDeviceCookie.mockResolvedValue("device-token-abc")
+      mockValidateTrustedDeviceToken.mockResolvedValue({ id: "device_1", staffUserId: "staff_5" })
+      usersApi.getUser.mockResolvedValue({
+        id: "staff_5",
+        publicMetadata: { role: "staff", schoolId: "school_p" },
+        privateMetadata: {},
+      })
+      mockAuthorizeStaffTerminalSession.mockResolvedValue({
+        ok: true,
+        sessionId: "sess_1",
+        terminal: { id: "term_1", slug: "front-desk", schoolId: "school_a", active: true },
+      })
+
+      const { resolveStaffPinGate } = await import("@/lib/security/staff-pin-gate")
+      const result = await resolveStaffPinGate()
+
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.context.kind).toBe("PERSONAL")
+      // Terminal resolution must not even be attempted once PERSONAL resolves.
+      expect(mockAuthorizeStaffTerminalSession).not.toHaveBeenCalled()
+    })
+
+    it("an INVALID/revoked device cookie falls through to the next context (TERMINAL), not treated as PERSONAL", async () => {
+      mockReadTrustedDeviceCookie.mockResolvedValue("revoked-token")
+      mockValidateTrustedDeviceToken.mockResolvedValue(null)
+      mockAuthorizeStaffTerminalSession.mockResolvedValue({
+        ok: true,
+        sessionId: "sess_1",
+        terminal: { id: "term_1", slug: "front-desk", schoolId: "school_a", active: true },
+      })
+
+      const { resolveStaffPinGate } = await import("@/lib/security/staff-pin-gate")
+      const result = await resolveStaffPinGate()
+
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.context.kind).toBe("TERMINAL")
+    })
+
+    it("a valid device whose owner has an unresolvable school context is REJECTED with 403 (fail-closed, never falls through)", async () => {
+      mockReadTrustedDeviceCookie.mockResolvedValue("device-token-abc")
+      mockValidateTrustedDeviceToken.mockResolvedValue({ id: "device_1", staffUserId: "staff_5" })
+      usersApi.getUser.mockResolvedValue({
+        id: "staff_5",
+        publicMetadata: { role: "staff" },
+        privateMetadata: {},
+      })
+      mockAuthorizeStaffTerminalSession.mockResolvedValue({
+        ok: true,
+        sessionId: "sess_1",
+        terminal: { id: "term_1", slug: "front-desk", schoolId: "school_a", active: true },
+      })
+
+      const { resolveStaffPinGate } = await import("@/lib/security/staff-pin-gate")
+      const result = await resolveStaffPinGate()
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.status).toBe(403)
+      // Fail-closed: does NOT fall through to the terminal context just
+      // because the personal device's school is unresolvable.
+      expect(mockAuthorizeStaffTerminalSession).not.toHaveBeenCalled()
+    })
   })
 })

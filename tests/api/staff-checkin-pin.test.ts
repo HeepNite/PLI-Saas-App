@@ -5,6 +5,10 @@ const mockClerkClient = vi.fn()
 const mockAuth = vi.fn()
 const mockAuthorizeStaffTerminalSession = vi.fn()
 const mockCreateTeacherClockEntryWithSlugs = vi.fn()
+const mockReadTrustedDeviceCookie = vi.fn()
+const mockValidateTrustedDeviceToken = vi.fn()
+const mockEnrollTrustedDevice = vi.fn()
+const mockSetTrustedDeviceCookie = vi.fn()
 
 const usersApi = {
   getUser: vi.fn(),
@@ -25,6 +29,14 @@ vi.mock("@/lib/security/staff-terminal", () => ({
   authorizeStaffTerminalSession: (...args: unknown[]) => mockAuthorizeStaffTerminalSession(...args),
 }))
 
+// PR3: staff-pin-gate's PERSONAL context now depends on this module.
+vi.mock("@/lib/security/staff-trusted-device", () => ({
+  readTrustedDeviceCookie: (...args: unknown[]) => mockReadTrustedDeviceCookie(...args),
+  validateTrustedDeviceToken: (...args: unknown[]) => mockValidateTrustedDeviceToken(...args),
+  enrollTrustedDevice: (...args: unknown[]) => mockEnrollTrustedDevice(...args),
+  setTrustedDeviceCookie: (...args: unknown[]) => mockSetTrustedDeviceCookie(...args),
+}))
+
 vi.mock("@/lib/security/rate-limit", () => ({
   buildRateLimitKey: vi.fn(() => "staff-checkin-pin"),
   consumeRateLimit: vi.fn(() => ({ ok: true })),
@@ -33,6 +45,15 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/clock/teacher-clock", () => ({
   createTeacherClockEntryWithSlugs: (...args: unknown[]) => mockCreateTeacherClockEntryWithSlugs(...args),
+}))
+
+// PR3: terminal:{slug}:targeted aggregate cap is now derived from the REAL
+// roster size (design ADR 15). Default to a large roster (40) so
+// computeTerminalTargetedCap saturates at its 20 clamp, matching the PR2
+// fixed constant, for scenarios that don't test the cap directly.
+const mockListStaffRosterForSchool = vi.fn()
+vi.mock("@/lib/security/staff-roster", () => ({
+  listStaffRosterForSchool: (...args: unknown[]) => mockListStaffRosterForSchool(...args),
 }))
 
 // In-memory fake standing in for the `staffPinAttemptCounter` Postgres table
@@ -157,6 +178,11 @@ describe("staff checkin PIN route (Phase 2: TOTAL gate + throttle + hardened res
     mockAuth.mockReset()
     mockAuthorizeStaffTerminalSession.mockReset()
     mockCreateTeacherClockEntryWithSlugs.mockReset()
+    mockReadTrustedDeviceCookie.mockReset()
+    mockValidateTrustedDeviceToken.mockReset()
+    mockEnrollTrustedDevice.mockReset()
+    mockSetTrustedDeviceCookie.mockReset()
+    mockListStaffRosterForSchool.mockReset()
     counterStore.clear()
     delete process.env.STAFF_DEVICE_GATE_MODE
 
@@ -168,6 +194,12 @@ describe("staff checkin PIN route (Phase 2: TOTAL gate + throttle + hardened res
     })
     mockAuth.mockResolvedValue({ userId: null })
     mockAuthorizeStaffTerminalSession.mockResolvedValue(buildTerminalSession())
+    mockReadTrustedDeviceCookie.mockResolvedValue("")
+    mockValidateTrustedDeviceToken.mockResolvedValue(null)
+    mockEnrollTrustedDevice.mockResolvedValue({ token: "new-device-token" })
+    mockListStaffRosterForSchool.mockResolvedValue(
+      Array.from({ length: 40 }, (_, i) => ({ id: `roster_${i}`, displayName: `Roster ${i}`, role: "staff" }))
+    )
 
     usersApi.getUser.mockResolvedValue({
       id: "staff_1",
@@ -327,6 +359,27 @@ describe("staff checkin PIN route (Phase 2: TOTAL gate + throttle + hardened res
     expect(lastRes!.status).toBe(423)
   })
 
+  it("terminal:{slug}:targeted aggregate cap is derived from the REAL roster size (design ADR 15), not a fixed constant", async () => {
+    mockListStaffRosterForSchool.mockResolvedValue([
+      { id: "r1", displayName: "R1", role: "staff" },
+      { id: "r2", displayName: "R2", role: "staff" },
+      { id: "r3", displayName: "R3", role: "staff" },
+      { id: "r4", displayName: "R4", role: "staff" },
+    ])
+    usersApi.getUser.mockImplementation(async (id: string) => ({
+      id,
+      publicMetadata: { role: "staff", schoolId: "school_a" },
+      privateMetadata: { staffPinHash: hashPin("1234") },
+    }))
+
+    await post({ pin: "0000", userId: "staff_a", skipSession: true })
+    await post({ pin: "0000", userId: "staff_b", skipSession: true })
+    const res = await post({ pin: "0000", userId: "staff_c", skipSession: true })
+
+    expect(res.status).toBe(423)
+    expect(mockListStaffRosterForSchool).toHaveBeenCalledWith("school_a")
+  })
+
   it("school-scope is enforced BEFORE the hash compare for a targeted check-in — 403 even with the CORRECT pin", async () => {
     usersApi.getUser.mockResolvedValue({
       id: "staff_1",
@@ -358,5 +411,60 @@ describe("staff checkin PIN route (Phase 2: TOTAL gate + throttle + hardened res
 
     expect(res.status).toBe(403)
     expect(usersApi.updateUserMetadata).not.toHaveBeenCalled()
+  })
+
+  describe("GRANDFATHER auto-enroll scope (PR3, design v5 ADR 13/1)", () => {
+    it("CLERK_SESSION-context hit auto-enrolls the device and sets the trusted-device cookie", async () => {
+      mockAuthorizeStaffTerminalSession.mockResolvedValue({ ok: false, reason: "missing" })
+      mockAuth.mockResolvedValue({ userId: "staff_1" })
+
+      const res = await post({ pin: "1234", userId: "staff_1", skipSession: true })
+
+      expect(res.status).toBe(200)
+      expect(mockEnrollTrustedDevice).toHaveBeenCalledWith("staff_1")
+      expect(mockSetTrustedDeviceCookie).toHaveBeenCalledOnce()
+    })
+
+    it("TERMINAL-context hit with a stray same-user Clerk session present does NOT auto-enroll", async () => {
+      mockAuth.mockResolvedValue({ userId: "staff_1" })
+
+      const res = await post({ pin: "1234", userId: "staff_1", skipSession: true })
+
+      expect(res.status).toBe(200)
+      expect(mockEnrollTrustedDevice).not.toHaveBeenCalled()
+      expect(mockSetTrustedDeviceCookie).not.toHaveBeenCalled()
+    })
+
+    it("PERSONAL-context hit (already-enrolled device) does NOT re-auto-enroll", async () => {
+      mockAuthorizeStaffTerminalSession.mockResolvedValue({ ok: false, reason: "missing" })
+      mockReadTrustedDeviceCookie.mockResolvedValue("existing-device-token")
+      mockValidateTrustedDeviceToken.mockResolvedValue({ id: "device_1", staffUserId: "staff_1" })
+
+      const res = await post({ pin: "1234", userId: "staff_1", skipSession: true })
+
+      expect(res.status).toBe(200)
+      expect(mockEnrollTrustedDevice).not.toHaveBeenCalled()
+      expect(mockSetTrustedDeviceCookie).not.toHaveBeenCalled()
+    })
+
+    it("TERMINAL scan-all hit (no requestedUserId) does NOT auto-enroll", async () => {
+      usersApi.getUserList.mockResolvedValue({
+        data: [
+          {
+            id: "staff_1",
+            firstName: "Ana",
+            lastName: "Desk",
+            publicMetadata: { role: "staff", staffCategory: "front_desk", schoolId: "school_a" },
+            privateMetadata: { staffPinHash: hashPin("1234") },
+          },
+        ],
+      })
+
+      const res = await post({ pin: "1234", skipSession: true })
+
+      expect(res.status).toBe(200)
+      expect(mockEnrollTrustedDevice).not.toHaveBeenCalled()
+      expect(mockSetTrustedDeviceCookie).not.toHaveBeenCalled()
+    })
   })
 })

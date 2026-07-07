@@ -4,6 +4,10 @@ import { createHash } from "crypto"
 const mockClerkClient = vi.fn()
 const mockAuth = vi.fn()
 const mockAuthorizeStaffTerminalSession = vi.fn()
+const mockReadTrustedDeviceCookie = vi.fn()
+const mockValidateTrustedDeviceToken = vi.fn()
+const mockEnrollTrustedDevice = vi.fn()
+const mockSetTrustedDeviceCookie = vi.fn()
 
 const usersApi = {
   getUser: vi.fn(),
@@ -22,6 +26,29 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 vi.mock("@/lib/security/staff-terminal", () => ({
   authorizeStaffTerminalSession: (...args: unknown[]) => mockAuthorizeStaffTerminalSession(...args),
+}))
+
+// PR3: staff-pin-gate's PERSONAL context now depends on this module.
+// Default (no cookie) so PR2-era TERMINAL/CLERK_SESSION scenarios in this
+// file are unaffected; PR3 grandfather-scoping tests below override the
+// enroll/setCookie mocks explicitly.
+vi.mock("@/lib/security/staff-trusted-device", () => ({
+  readTrustedDeviceCookie: (...args: unknown[]) => mockReadTrustedDeviceCookie(...args),
+  validateTrustedDeviceToken: (...args: unknown[]) => mockValidateTrustedDeviceToken(...args),
+  enrollTrustedDevice: (...args: unknown[]) => mockEnrollTrustedDevice(...args),
+  setTrustedDeviceCookie: (...args: unknown[]) => mockSetTrustedDeviceCookie(...args),
+}))
+
+// PR3: the terminal:{slug}:targeted aggregate cap is now derived from the
+// REAL roster size (design ADR 15) instead of the PR2 fixed
+// TERMINAL_TARGETED_BASE_CAP literal. Default to a large roster (40) so
+// computeTerminalTargetedCap saturates at its 20 clamp — i.e. identical
+// behavior to the PR2-era fixed constant — for every PR2-era scenario in
+// this file that doesn't care about the cap directly. The dedicated
+// "real roster size" test below overrides this with a small roster.
+const mockListStaffRosterForSchool = vi.fn()
+vi.mock("@/lib/security/staff-roster", () => ({
+  listStaffRosterForSchool: (...args: unknown[]) => mockListStaffRosterForSchool(...args),
 }))
 
 vi.mock("@/lib/security/rate-limit", () => ({
@@ -151,6 +178,11 @@ describe("staff login PIN route (Phase 2: TOTAL gate + throttle + hardened resol
     mockClerkClient.mockReset()
     mockAuth.mockReset()
     mockAuthorizeStaffTerminalSession.mockReset()
+    mockReadTrustedDeviceCookie.mockReset()
+    mockValidateTrustedDeviceToken.mockReset()
+    mockEnrollTrustedDevice.mockReset()
+    mockSetTrustedDeviceCookie.mockReset()
+    mockListStaffRosterForSchool.mockReset()
     counterStore.clear()
     delete process.env.STAFF_DEVICE_GATE_MODE
 
@@ -162,6 +194,12 @@ describe("staff login PIN route (Phase 2: TOTAL gate + throttle + hardened resol
     })
     mockAuth.mockResolvedValue({ userId: null })
     mockAuthorizeStaffTerminalSession.mockResolvedValue(buildTerminalSession())
+    mockReadTrustedDeviceCookie.mockResolvedValue("")
+    mockValidateTrustedDeviceToken.mockResolvedValue(null)
+    mockEnrollTrustedDevice.mockResolvedValue({ token: "new-device-token" })
+    mockListStaffRosterForSchool.mockResolvedValue(
+      Array.from({ length: 40 }, (_, i) => ({ id: `roster_${i}`, displayName: `Roster ${i}`, role: "staff" }))
+    )
 
     usersApi.getUser.mockResolvedValue({
       id: "staff_1",
@@ -290,6 +328,32 @@ describe("staff login PIN route (Phase 2: TOTAL gate + throttle + hardened resol
     expect(data.error).toBeTruthy()
   })
 
+  it("terminal:{slug}:targeted aggregate cap is derived from the REAL roster size (design ADR 15), not a fixed constant", async () => {
+    // Small roster (4 staff) -> effectiveCap = min(20, ceil(0.5*4)) = 2 —
+    // trips well before the per-user cooldown threshold (5) could.
+    mockListStaffRosterForSchool.mockResolvedValue([
+      { id: "r1", displayName: "R1", role: "staff" },
+      { id: "r2", displayName: "R2", role: "staff" },
+      { id: "r3", displayName: "R3", role: "staff" },
+      { id: "r4", displayName: "R4", role: "staff" },
+    ])
+    usersApi.getUser.mockImplementation(async (id: string) => ({
+      id,
+      publicMetadata: { role: "staff", schoolId: "school_a" },
+      privateMetadata: { staffPinHash: hashPin("1234") },
+    }))
+
+    // Two DIFFERENT targets, each missed once, cross the small
+    // roster-derived aggregate cap; a third request (any target) then
+    // observes the resulting terminal-wide 423.
+    await post({ pin: "0000", userId: "staff_a" })
+    await post({ pin: "0000", userId: "staff_b" })
+    const res = await post({ pin: "0000", userId: "staff_c" })
+
+    expect(res.status).toBe(423)
+    expect(mockListStaffRosterForSchool).toHaveBeenCalledWith("school_a")
+  })
+
   it("CLERK_SESSION context (monitor mode, no terminal session): self-restricted login succeeds for the caller's own id", async () => {
     mockAuthorizeStaffTerminalSession.mockResolvedValue({ ok: false, reason: "missing" })
     mockAuth.mockResolvedValue({ userId: "staff_1" })
@@ -329,5 +393,44 @@ describe("staff login PIN route (Phase 2: TOTAL gate + throttle + hardened resol
 
     expect(res.status).toBe(403)
     expect(signInTokensApi.createSignInToken).not.toHaveBeenCalled()
+  })
+
+  describe("GRANDFATHER auto-enroll scope (PR3, design v5 ADR 13/1)", () => {
+    it("CLERK_SESSION-context hit auto-enrolls the device and sets the trusted-device cookie", async () => {
+      mockAuthorizeStaffTerminalSession.mockResolvedValue({ ok: false, reason: "missing" })
+      mockAuth.mockResolvedValue({ userId: "staff_1" })
+
+      const res = await post({ pin: "1234", userId: "staff_1" })
+
+      expect(res.status).toBe(200)
+      expect(mockEnrollTrustedDevice).toHaveBeenCalledWith("staff_1")
+      expect(mockSetTrustedDeviceCookie).toHaveBeenCalledOnce()
+    })
+
+    it("TERMINAL-context hit with a stray same-user Clerk session present does NOT auto-enroll", async () => {
+      // Terminal session resolves normally (default mock); a stray Clerk
+      // session for the SAME user is also present on the request, but
+      // TERMINAL context takes precedence over CLERK_SESSION in the gate —
+      // grandfather must NOT fire here (design v5 R4-WARNING fix).
+      mockAuth.mockResolvedValue({ userId: "staff_1" })
+
+      const res = await post({ pin: "1234", userId: "staff_1" })
+
+      expect(res.status).toBe(200)
+      expect(mockEnrollTrustedDevice).not.toHaveBeenCalled()
+      expect(mockSetTrustedDeviceCookie).not.toHaveBeenCalled()
+    })
+
+    it("PERSONAL-context hit (already-enrolled device) does NOT re-auto-enroll", async () => {
+      mockAuthorizeStaffTerminalSession.mockResolvedValue({ ok: false, reason: "missing" })
+      mockReadTrustedDeviceCookie.mockResolvedValue("existing-device-token")
+      mockValidateTrustedDeviceToken.mockResolvedValue({ id: "device_1", staffUserId: "staff_1" })
+
+      const res = await post({ pin: "1234", userId: "staff_1" })
+
+      expect(res.status).toBe(200)
+      expect(mockEnrollTrustedDevice).not.toHaveBeenCalled()
+      expect(mockSetTrustedDeviceCookie).not.toHaveBeenCalled()
+    })
   })
 })

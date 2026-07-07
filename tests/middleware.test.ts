@@ -90,4 +90,56 @@ describe("middleware staff API auth guard", () => {
     expect(authMock).toHaveBeenCalledTimes(1)
     expect(clerkWrappedMiddlewareMock).toHaveBeenCalledTimes(1)
   })
+
+  it("blocks unauthenticated requests to the device enrollment challenge endpoint (Clerk-authed, NOT whitelisted)", async () => {
+    const { default: middleware } = await import("../middleware")
+
+    const response = await middleware(
+      new NextRequest("http://localhost/api/staff/device/enroll/challenge", { method: "POST" }),
+      {} as never,
+    )
+
+    expect(response).toBeDefined()
+    expect(response!.status).toBe(401)
+    expect(authMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks unauthenticated requests to the device enrollment endpoint (Clerk-authed, NOT whitelisted)", async () => {
+    const { default: middleware } = await import("../middleware")
+
+    const response = await middleware(
+      new NextRequest("http://localhost/api/staff/device/enroll", { method: "POST" }),
+      {} as never,
+    )
+
+    expect(response).toBeDefined()
+    expect(response!.status).toBe(401)
+    expect(authMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks unauthenticated requests to the own-devices endpoint (Clerk-authed, NOT whitelisted)", async () => {
+    const { default: middleware } = await import("../middleware")
+
+    const response = await middleware(
+      new NextRequest("http://localhost/api/staff/devices", { method: "GET" }),
+      {} as never,
+    )
+
+    expect(response).toBeDefined()
+    expect(response!.status).toBe(401)
+    expect(authMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("lets the terminal roster request reach the route WITHOUT a Clerk auth check — the route self-authorizes via the terminal session token", async () => {
+    const { default: middleware } = await import("../middleware")
+
+    const response = await middleware(
+      new NextRequest("http://localhost/api/staff/terminal/roster", { method: "GET" }),
+      {} as never,
+    )
+
+    expect(response).toBeDefined()
+    expect(response!.status).not.toBe(401)
+    expect(authMock).not.toHaveBeenCalled()
+  })
 })

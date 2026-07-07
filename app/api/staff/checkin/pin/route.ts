@@ -7,10 +7,12 @@ import { resolveStaffUserByPin } from "@/lib/security/staff-pin-auth"
 import { resolveStaffPinGate } from "@/lib/security/staff-pin-gate"
 import {
   clearPinAttemptWindow,
+  computeTerminalTargetedCap,
   isAnyPinTargetBlocked,
   recordPinAttemptMiss,
-  TERMINAL_TARGETED_BASE_CAP,
 } from "@/lib/security/staff-pin-throttle"
+import { enrollTrustedDevice, setTrustedDeviceCookie } from "@/lib/security/staff-trusted-device"
+import { listStaffRosterForSchool } from "@/lib/security/staff-roster"
 import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
@@ -68,6 +70,7 @@ export async function POST(req: Request) {
   let expectedSchoolId: string
   const throttleKeys: string[] = []
   let terminalAggregateKey: string | null = null
+  let terminalAggregateCap = 0
   let isScanAll = false
 
   if (context.kind === "TERMINAL") {
@@ -75,6 +78,10 @@ export async function POST(req: Request) {
     if (requestedUserId) {
       restrictToUserId = requestedUserId
       terminalAggregateKey = `terminal:${context.terminalSlug}:targeted`
+      // Real roster size (design ADR 15) — replaces the PR2 fixed
+      // TERMINAL_TARGETED_BASE_CAP constant with min(20, ceil(0.5*roster)).
+      const roster = await listStaffRosterForSchool(expectedSchoolId)
+      terminalAggregateCap = computeTerminalTargetedCap(roster.length)
       throttleKeys.push(`user:${restrictToUserId}`, terminalAggregateKey)
     } else {
       // Anonymous scan-all mode: allowed ONLY under a trusted TERMINAL
@@ -113,7 +120,7 @@ export async function POST(req: Request) {
       await recordPinAttemptMiss({
         targetKey: terminalAggregateKey,
         kind: "terminal",
-        effectiveCap: TERMINAL_TARGETED_BASE_CAP,
+        effectiveCap: terminalAggregateCap,
       })
     } else if (resolved.status === 401) {
       await Promise.all(
@@ -121,7 +128,7 @@ export async function POST(req: Request) {
           recordPinAttemptMiss({
             targetKey: key,
             kind: isTerminalKey(key) ? "terminal" : "user",
-            effectiveCap: isTerminalAggregateKey(key) ? TERMINAL_TARGETED_BASE_CAP : undefined,
+            effectiveCap: isTerminalAggregateKey(key) ? terminalAggregateCap : undefined,
           })
         )
       )
@@ -188,9 +195,21 @@ export async function POST(req: Request) {
       }
 
   // Check-in only: return attendance confirmation, never session tokens
-  return NextResponse.json({
+  const response = NextResponse.json({
     ok: true,
     checkedInAt: now,
     staff: staffPayload,
   })
+
+  // GRANDFATHER auto-enroll (design v5 ADR 1/13): scoped to the CLERK_SESSION
+  // context ONLY — see app/api/staff/login/pin/route.ts for the full
+  // rationale (a stray same-user session on a SHARED terminal must never
+  // convert it into a single-user trusted device).
+  if (context.kind === "CLERK_SESSION") {
+    const { token } = await enrollTrustedDevice(matchedUser.id)
+    setTrustedDeviceCookie(response, token)
+    console.warn("staff/checkin/pin GRANDFATHER auto-enroll", { staffUserId: matchedUser.id })
+  }
+
+  return response
 }
