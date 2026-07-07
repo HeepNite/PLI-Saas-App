@@ -2,26 +2,17 @@ import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { resolveStaffUserByPin } from "@/lib/security/staff-pin-auth"
-import { asObject } from "@/lib/shared"
+import { resolveStaffPinGate } from "@/lib/security/staff-pin-gate"
+import {
+  clearPinAttemptWindow,
+  isAnyPinTargetBlocked,
+  recordPinAttemptMiss,
+  TERMINAL_TARGETED_BASE_CAP,
+} from "@/lib/security/staff-pin-throttle"
 
 export const runtime = "nodejs"
 
-const asOptionalString = (value: unknown): string | null => {
-  if (typeof value !== "string") return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-const resolveSchoolIdFromUser = (user: { publicMetadata?: unknown; privateMetadata?: unknown }): string | null => {
-  const publicMeta = asObject(user.publicMetadata)
-  const privateMeta = asObject(user.privateMetadata)
-  return (
-    asOptionalString(publicMeta.schoolId) ||
-    asOptionalString(publicMeta.staffSchoolId) ||
-    asOptionalString(privateMeta.schoolId) ||
-    asOptionalString(privateMeta.staffSchoolId)
-  )
-}
+const isTerminalAggregateKey = (key: string) => key.startsWith("terminal:")
 
 export async function POST(req: Request) {
   const rateLimit = consumeRateLimit({
@@ -46,36 +37,91 @@ export async function POST(req: Request) {
   const payload = body as Record<string, unknown>
   const pin = typeof payload.pin === "string" ? payload.pin.trim() : ""
   const requestedUserId = typeof payload.userId === "string" ? payload.userId.trim() : ""
-  const preferredUserId = typeof payload.preferUserId === "string" ? payload.preferUserId.trim() : ""
-  const expectedSchoolId = asOptionalString(payload.schoolId)
 
-  const resolved = await resolveStaffUserByPin({ pin, requestedUserId, preferredUserId })
-  if (!resolved.ok) {
-    return NextResponse.json({ error: resolved.error }, { status: resolved.status })
+  // TOTAL gate (design v5): resolve a server-derived trusted context BEFORE
+  // any PIN evaluation. No context -> 403 in every gate mode. `payload.schoolId`
+  // is never read — expectedSchoolId always comes from the resolved context.
+  const gate = await resolveStaffPinGate()
+  if (!gate.ok) {
+    return NextResponse.json({ error: gate.error }, { status: gate.status })
+  }
+  const { context } = gate
+
+  // login/pin NEVER scans a roster — it always resolves exactly one target.
+  // No blind scan-all -> signInToken mint, in ANY gate mode.
+  if (!requestedUserId) {
+    return NextResponse.json({ error: "Select a staff member to sign in." }, { status: 400 })
   }
 
-  const { user: matchedUser, role: matchedRole, category } = resolved.staff
+  let restrictToUserId: string
+  let expectedSchoolId: string
+  const throttleKeys: string[] = []
+  let terminalAggregateKey: string | null = null
 
-  // School-context validation: if caller provides a schoolId, ensure the
-  // resolved user belongs to that school. This prevents cross-school login
-  // from shared terminal contexts.
-  if (expectedSchoolId) {
-    const userSchoolId = resolveSchoolIdFromUser(matchedUser)
-    if (userSchoolId && userSchoolId !== expectedSchoolId) {
+  if (context.kind === "TERMINAL") {
+    restrictToUserId = requestedUserId
+    expectedSchoolId = context.expectedSchoolId
+    terminalAggregateKey = `terminal:${context.terminalSlug}:targeted`
+    throttleKeys.push(`user:${restrictToUserId}`, terminalAggregateKey)
+  } else {
+    // PERSONAL / CLERK_SESSION: self-restricted to the owning identity.
+    if (requestedUserId !== context.ownerUserId) {
       return NextResponse.json(
-        { error: "Staff member does not belong to the requested school context." },
+        { error: "You may only sign in as yourself from this device." },
         { status: 403 }
       )
     }
+    restrictToUserId = context.ownerUserId
+    expectedSchoolId = context.expectedSchoolId
+    throttleKeys.push(`user:${restrictToUserId}`)
   }
+
+  const throttleStatus = await isAnyPinTargetBlocked(throttleKeys)
+  if (throttleStatus.blocked) {
+    return NextResponse.json(
+      { error: throttleStatus.reason || "Too many failed attempts. Please try again later." },
+      {
+        status: 423,
+        headers: throttleStatus.retryAfterSec ? { "Retry-After": String(throttleStatus.retryAfterSec) } : undefined,
+      }
+    )
+  }
+
+  const resolved = await resolveStaffUserByPin({ pin, restrictToUserId, expectedSchoolId })
+  if (!resolved.ok) {
+    if (resolved.status === 403 && terminalAggregateKey) {
+      // Pre-attempt school-scope rejection — increments the terminal aggregate
+      // only (not the victim key: the requester never proved they know a PIN
+      // for this school at all).
+      await recordPinAttemptMiss({
+        targetKey: terminalAggregateKey,
+        kind: "terminal",
+        effectiveCap: TERMINAL_TARGETED_BASE_CAP,
+      })
+    } else if (resolved.status === 401) {
+      await Promise.all(
+        throttleKeys.map((key) =>
+          recordPinAttemptMiss({
+            targetKey: key,
+            kind: isTerminalAggregateKey(key) ? "terminal" : "user",
+            effectiveCap: isTerminalAggregateKey(key) ? TERMINAL_TARGETED_BASE_CAP : undefined,
+          })
+        )
+      )
+    }
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status })
+  }
+
+  await Promise.all(throttleKeys.map((key) => clearPinAttemptWindow(key)))
+
+  const { user: matchedUser, role: matchedRole, category } = resolved.staff
 
   console.info("staff/login/pin authenticated user", {
     userId: matchedUser.id,
     role: matchedRole,
     category,
-    requestedUserId: requestedUserId || null,
-    preferredUserId: preferredUserId || null,
-    schoolContext: expectedSchoolId || null,
+    context: context.kind,
+    schoolContext: expectedSchoolId,
   })
 
   const client = await clerkClient()

@@ -1,16 +1,22 @@
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
-import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { createTeacherClockEntryWithSlugs } from "@/lib/clock/teacher-clock"
-import { isValidPinHash } from "@/lib/security/staff-pin-hash"
+import { resolveStaffUserByPin } from "@/lib/security/staff-pin-auth"
+import { resolveStaffPinGate } from "@/lib/security/staff-pin-gate"
+import {
+  clearPinAttemptWindow,
+  isAnyPinTargetBlocked,
+  recordPinAttemptMiss,
+  TERMINAL_TARGETED_BASE_CAP,
+} from "@/lib/security/staff-pin-throttle"
 import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
-const STAFF_SCAN_PAGE_SIZE = 100
-const STAFF_SCAN_MAX_USERS = 5000
+const isTerminalKey = (key: string) => key.startsWith("terminal:")
+const isTerminalAggregateKey = (key: string) => key.startsWith("terminal:") && key.endsWith(":targeted")
 
 export async function POST(req: Request) {
   const rateLimit = consumeRateLimit({
@@ -35,7 +41,6 @@ export async function POST(req: Request) {
   const payload = body as Record<string, unknown>
   const pin = typeof payload.pin === "string" ? payload.pin.trim() : ""
   const requestedUserId = typeof payload.userId === "string" ? payload.userId.trim() : ""
-  const preferredUserId = typeof payload.preferUserId === "string" ? payload.preferUserId.trim() : ""
   const skipSession = payload.skipSession === true
 
   // Check-in endpoint is check-in only. Reject if caller did not explicitly
@@ -51,103 +56,85 @@ export async function POST(req: Request) {
     )
   }
 
-  if (!/^\d{4}$/.test(pin)) {
-    return NextResponse.json({ error: "PIN must be exactly 4 digits." }, { status: 400 })
+  // TOTAL gate (design v5): resolve a server-derived trusted context BEFORE
+  // any PIN evaluation. No context -> 403 in every gate mode.
+  const gate = await resolveStaffPinGate()
+  if (!gate.ok) {
+    return NextResponse.json({ error: gate.error }, { status: gate.status })
   }
+  const { context } = gate
 
-  const client = await clerkClient()
-  let matchedUser: Awaited<ReturnType<typeof client.users.getUser>> | null = null
-  let matchedRole: string | null = null
+  let restrictToUserId = ""
+  let expectedSchoolId: string
+  const throttleKeys: string[] = []
+  let terminalAggregateKey: string | null = null
+  let isScanAll = false
 
-  if (requestedUserId) {
-    let selectedUser: Awaited<ReturnType<typeof client.users.getUser>> | null = null
-    try {
-      selectedUser = await client.users.getUser(requestedUserId)
-    } catch {
-      return NextResponse.json({ error: "Selected staff user was not found." }, { status: 404 })
+  if (context.kind === "TERMINAL") {
+    expectedSchoolId = context.expectedSchoolId
+    if (requestedUserId) {
+      restrictToUserId = requestedUserId
+      terminalAggregateKey = `terminal:${context.terminalSlug}:targeted`
+      throttleKeys.push(`user:${restrictToUserId}`, terminalAggregateKey)
+    } else {
+      // Anonymous scan-all mode: allowed ONLY under a trusted TERMINAL
+      // context, throttled per-terminal (not per-victim — there is no
+      // single victim yet).
+      isScanAll = true
+      throttleKeys.push(`terminal:${context.terminalSlug}`)
     }
-
-    const role = extractStaffRoleFromUserMetadata(selectedUser)
-    if (!role) {
-      return NextResponse.json({ error: "Selected user is not a staff member." }, { status: 400 })
-    }
-
-    const privateMetadata = asObject(selectedUser.privateMetadata)
-    const pinHash = typeof privateMetadata.staffPinHash === "string" ? privateMetadata.staffPinHash : ""
-    if (!pinHash) {
-      return NextResponse.json({ error: "Selected user has no PIN configured." }, { status: 400 })
-    }
-
-    if (!isValidPinHash(pin, pinHash)) {
-      return NextResponse.json({ error: "Invalid PIN." }, { status: 401 })
-    }
-
-    matchedUser = selectedUser
-    matchedRole = role
   } else {
-    if (preferredUserId) {
-      try {
-        const preferredUser = await client.users.getUser(preferredUserId)
-        const preferredRole = extractStaffRoleFromUserMetadata(preferredUser)
-        const privateMetadata = asObject(preferredUser.privateMetadata)
-        const pinHash = typeof privateMetadata.staffPinHash === "string" ? privateMetadata.staffPinHash : ""
-        if (preferredRole && pinHash && isValidPinHash(pin, pinHash)) {
-          matchedUser = preferredUser
-          matchedRole = preferredRole
-        }
-      } catch {
-        // ignore and fall back to global scan
-      }
+    // PERSONAL / CLERK_SESSION: self-restricted to the owning identity.
+    if (requestedUserId && requestedUserId !== context.ownerUserId) {
+      return NextResponse.json(
+        { error: "You may only check in as yourself from this device." },
+        { status: 403 }
+      )
     }
+    restrictToUserId = context.ownerUserId
+    expectedSchoolId = context.expectedSchoolId
+    throttleKeys.push(`user:${restrictToUserId}`)
+  }
 
-    const pinMatches: Array<{
-      user: Awaited<ReturnType<typeof client.users.getUser>>
-      role: string
-    }> = []
+  const throttleStatus = await isAnyPinTargetBlocked(throttleKeys)
+  if (throttleStatus.blocked) {
+    return NextResponse.json(
+      { error: throttleStatus.reason || "Too many failed attempts. Please try again later." },
+      {
+        status: 423,
+        headers: throttleStatus.retryAfterSec ? { "Retry-After": String(throttleStatus.retryAfterSec) } : undefined,
+      }
+    )
+  }
 
-    for (let offset = 0; offset < STAFF_SCAN_MAX_USERS; offset += STAFF_SCAN_PAGE_SIZE) {
-      const page = await client.users.getUserList({
-        limit: STAFF_SCAN_PAGE_SIZE,
-        offset,
+  const resolved = await resolveStaffUserByPin({ pin, restrictToUserId, expectedSchoolId })
+  if (!resolved.ok) {
+    if (resolved.status === 403 && terminalAggregateKey) {
+      await recordPinAttemptMiss({
+        targetKey: terminalAggregateKey,
+        kind: "terminal",
+        effectiveCap: TERMINAL_TARGETED_BASE_CAP,
       })
-
-      for (const user of page.data) {
-        const role = extractStaffRoleFromUserMetadata(user)
-        if (!role) continue
-
-        const privateMetadata = asObject(user.privateMetadata)
-        const pinHash = typeof privateMetadata.staffPinHash === "string" ? privateMetadata.staffPinHash : ""
-        if (!pinHash) continue
-
-        if (!isValidPinHash(pin, pinHash)) continue
-        if (!pinMatches.some((entry) => entry.user.id === user.id)) {
-          pinMatches.push({ user, role })
-        }
-      }
-
-      if (page.data.length < STAFF_SCAN_PAGE_SIZE) break
-    }
-
-    if (!matchedUser) {
-      if (pinMatches.length === 1) {
-        matchedUser = pinMatches[0]!.user
-        matchedRole = pinMatches[0]!.role
-      } else if (pinMatches.length > 1) {
-        return NextResponse.json(
-          {
-            error: "This PIN is assigned to multiple staff users. Set unique PINs before using PIN sign-in.",
-          },
-          { status: 409 }
+    } else if (resolved.status === 401) {
+      await Promise.all(
+        throttleKeys.map((key) =>
+          recordPinAttemptMiss({
+            targetKey: key,
+            kind: isTerminalKey(key) ? "terminal" : "user",
+            effectiveCap: isTerminalAggregateKey(key) ? TERMINAL_TARGETED_BASE_CAP : undefined,
+          })
         )
-      }
+      )
     }
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status })
   }
 
-  if (!matchedUser || !matchedRole) {
-    return NextResponse.json({ error: "Invalid PIN." }, { status: 401 })
-  }
+  await Promise.all(throttleKeys.map((key) => clearPinAttemptWindow(key)))
+
+  const { user: matchedUser, role: matchedRole } = resolved.staff
 
   const now = new Date().toISOString()
+  const client = await clerkClient()
   const privateMetadata = asObject(matchedUser.privateMetadata)
   const currentCount =
     typeof privateMetadata.staffCheckInCount === "number" && Number.isFinite(privateMetadata.staffCheckInCount)
@@ -171,30 +158,39 @@ export async function POST(req: Request) {
     const courseSlugs = Array.isArray(teaching.courseSlugs)
       ? teaching.courseSlugs.filter((s): s is string => typeof s === "string")
       : []
-    
-    createTeacherClockEntryWithSlugs(matchedUser.id, new Date(now), courseSlugs)
-      .catch((err) => console.error("Failed to create teacher clock entry", err))
-  }
 
-  const name = `${matchedUser.firstName || ""} ${matchedUser.lastName || ""}`.trim() || matchedUser.primaryEmailAddress?.emailAddress || matchedUser.id
+    createTeacherClockEntryWithSlugs(matchedUser.id, new Date(now), courseSlugs).catch((err) =>
+      console.error("Failed to create teacher clock entry", err)
+    )
+  }
 
   console.info("staff/checkin/pin matched user", {
     userId: matchedUser.id,
     role: matchedRole,
     category,
-    requestedUserId: requestedUserId || null,
-    preferredUserId: preferredUserId || null,
+    context: context.kind,
+    scanAll: isScanAll,
   })
+
+  // Anonymous scan-all success is PII-trimmed to just the id — name/role/
+  // category are only returned for a deliberately-targeted requestedUserId
+  // (design v5: "Anonymous Scan-All-Users Mode Constrained").
+  const staffPayload = isScanAll
+    ? { id: matchedUser.id }
+    : {
+        id: matchedUser.id,
+        name:
+          `${matchedUser.firstName || ""} ${matchedUser.lastName || ""}`.trim() ||
+          matchedUser.primaryEmailAddress?.emailAddress ||
+          matchedUser.id,
+        role: matchedRole,
+        category,
+      }
 
   // Check-in only: return attendance confirmation, never session tokens
   return NextResponse.json({
     ok: true,
     checkedInAt: now,
-    staff: {
-      id: matchedUser.id,
-      name,
-      role: matchedRole,
-      category,
-    },
+    staff: staffPayload,
   })
 }
