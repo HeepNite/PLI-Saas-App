@@ -429,6 +429,11 @@ describe("useCheckInPackageFlow", () => {
       expect(getResult().retryBackoffActive).toBe(false)
       expect(params.checkConsecutiveOfferAfterCheckIn).not.toHaveBeenCalled()
 
+      // The discarded generation's continuation has no other owner for the
+      // processing flag — it must release it, or every future package
+      // check-in on this persistently-mounted kiosk stays blocked forever.
+      expect(params.setProcessingPackageCheckIn).toHaveBeenLastCalledWith(false)
+
       // No backoff timer scheduled — advancing time changes nothing.
       await act(async () => vi.advanceTimersByTimeAsync(10_000))
       expect(getResult().packageCheckInAttempts).toBe(attemptsBefore)
@@ -458,6 +463,10 @@ describe("useCheckInPackageFlow", () => {
     expect(getResult().packageCheckInFailure).toBeNull()
     expect(getResult().retryBackoffActive).toBe(false)
     expect(getResult().packageCheckInAttempts).toBe(0)
+
+    // Same reasoning as the station-reset case above: the discarded
+    // generation must release the processing flag itself.
+    expect(params.setProcessingPackageCheckIn).toHaveBeenLastCalledWith(false)
 
     await act(async () => vi.advanceTimersByTimeAsync(10_000))
     expect(getResult().packageCheckInAttempts).toBe(0)

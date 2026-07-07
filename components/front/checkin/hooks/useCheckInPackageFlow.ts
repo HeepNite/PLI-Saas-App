@@ -196,8 +196,14 @@ export function useCheckInPackageFlow({
     // The customer session that started this request is gone (station
     // reset, non-kiosk dismiss, unmount, or a manual Retry) — discard the
     // result silently. Writing state or scheduling a backoff here would leak
-    // this request's outcome into whatever session is active now.
-    if (packageCheckInGenerationRef.current !== generation) return
+    // this request's outcome into whatever session is active now. Still
+    // release the processing flag: it has no other owner on this discarded
+    // path, and leaving it `true` would permanently block every future
+    // package check-in on this persistently-mounted kiosk.
+    if (packageCheckInGenerationRef.current !== generation) {
+      setProcessingPackageCheckIn(false)
+      return
+    }
 
     if ("kind" in outcome) {
       setProcessingPackageCheckIn(false)
@@ -218,8 +224,12 @@ export function useCheckInPackageFlow({
           // Same staleness guard as above: a reset/dismiss/manual-retry that
           // happened during the backoff window already bumped the
           // generation (via `clearPackageCheckInBackoff`), so this callback
-          // must not resurrect retry state for a session that's gone.
-          if (packageCheckInGenerationRef.current !== generation) return
+          // must not resurrect retry state for a session that's gone. Still
+          // release the processing flag for the same reason as above.
+          if (packageCheckInGenerationRef.current !== generation) {
+            setProcessingPackageCheckIn(false)
+            return
+          }
           setRetryBackoffActive(false)
           setPackageCheckInAttempts((prev) => prev + 1)
         }, delayMs)
