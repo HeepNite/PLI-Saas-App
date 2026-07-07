@@ -754,6 +754,23 @@ model StaffPinAttemptCounter {
   @@index([blockedUntil])
 }
 
+// Single-use SMS enrollment OTP challenges (harden-staff-pin-auth, PR3 schema;
+// deferred from PR1 task 1.3 — lands with the enrollment endpoints that
+// consume it). codeHash uses the same shared hash module as staff PINs
+// (lib/security/staff-pin-hash.ts) — never a plaintext code at rest.
+model StaffEnrollmentChallenge {
+  id          String    @id @default(cuid())
+  staffUserId String
+  codeHash    String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@index([staffUserId])
+  @@index([expiresAt])
+}
+
 model StudentPinAudit {
   id             String   @id @default(cuid())
   userId         String
