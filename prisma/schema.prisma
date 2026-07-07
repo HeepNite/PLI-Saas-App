@@ -64,6 +64,7 @@ model Purchase {
   addonsCsv               String?
   stripePaymentIntentId   String?           @unique
   stripeCheckoutSessionId String?           @unique
+  parentPurchaseId        String?
   metadata                Json?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
@@ -75,6 +76,7 @@ model Purchase {
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@unique([parentPurchaseId])
 }
 
 model PackagePlan {
@@ -850,13 +852,18 @@ model MonthlyBoundary {
 }
 
 model StripeWebhookEvent {
-  id          String   @id @default(cuid())
-  eventId     String   @unique
+  id          String    @id @default(cuid())
+  eventId     String    @unique
   eventType   String
-  processedAt DateTime @default(now())
+  status      String    @default("legacy")
+  attempts    Int       @default(0)
+  processedAt DateTime  @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
 
   @@index([eventType])
   @@index([processedAt])
+  @@index([status])
 }
 
 model DayOfWeekPurchaseCount {
