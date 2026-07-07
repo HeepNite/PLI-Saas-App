@@ -23,6 +23,12 @@ import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, reso
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { pickStripeMetadata, parseIntSafe, normalize, type StripeMetadata } from "@/lib/stripe-metadata"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
+import {
+  claimStripeWebhookEvent,
+  completeStripeWebhookEvent,
+  markStripeWebhookEventFailed,
+  touchStripeWebhookEventHeartbeat,
+} from "@/lib/stripe/webhook-event-store"
 
 export const runtime = "nodejs"
 
@@ -101,6 +107,20 @@ const getDisplayName = (user: ClerkUser) => {
   return user.username || undefined
 }
 
+// (TODO: tune from measured Clerk API latency if this ever proves too tight —
+// no p99 data exists yet; 5s is a conservative bound chosen to keep the whole
+// webhook well within Stripe's response-time expectations even when Clerk is slow.)
+const CLERK_GET_USER_TIMEOUT_MS = 5000
+
+function timeoutRejectingAfter(ms: number): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    setTimeout(() => reject(new Error(`Clerk getUser timed out after ${ms}ms`)), ms)
+  })
+}
+
+const isP2002 = (error: unknown): error is Prisma.PrismaClientKnownRequestError =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+
 async function resolveUser(params: {
   clerkId?: string
   email?: string
@@ -115,15 +135,26 @@ async function resolveUser(params: {
   if (clerkId) {
     try {
       const client = await clerkClient()
-      const clerkUser = await client.users.getUser(clerkId)
-      email = email || clerkUser.primaryEmailAddress?.emailAddress || undefined
-      const canonicalClerkName = getDisplayName(clerkUser)
-      if (canonicalClerkName) {
-        name = canonicalClerkName
+      // .catch() is attached directly to the getUser() promise (not to the
+      // race result) because @clerk/backend's getUser() takes no
+      // AbortSignal/cancellation token: if the timeout branch wins the race,
+      // getUser() keeps running in the background and can still reject later.
+      // Without a handler attached here, that late rejection would be an
+      // unhandled promise rejection.
+      const clerkUser = await Promise.race([
+        client.users.getUser(clerkId).catch(() => undefined),
+        timeoutRejectingAfter(CLERK_GET_USER_TIMEOUT_MS),
+      ])
+      if (clerkUser) {
+        email = email || clerkUser.primaryEmailAddress?.emailAddress || undefined
+        const canonicalClerkName = getDisplayName(clerkUser)
+        if (canonicalClerkName) {
+          name = canonicalClerkName
+        }
+        phone = phone || clerkUser.primaryPhoneNumber?.phoneNumber || undefined
       }
-      phone = phone || clerkUser.primaryPhoneNumber?.phoneNumber || undefined
     } catch {
-      // ignore and fallback to whatever we already have
+      // ignore and fallback to whatever we already have (timeout path)
     }
   }
 
@@ -146,6 +177,7 @@ type UpsertWhere =
   | { stripePaymentIntentId: string }
 
 interface ProcessPaidEventParams {
+  eventId: string
   upsertWhere: UpsertWhere
   upsertCreateIds: { stripeCheckoutSessionId?: string; stripePaymentIntentId?: string }
   existingMetadata: Prisma.JsonValue | undefined | null
@@ -163,6 +195,7 @@ interface ProcessPaidEventParams {
 
 async function processPaidStripeEvent(params: ProcessPaidEventParams) {
   const {
+    eventId,
     upsertWhere,
     upsertCreateIds,
     existingMetadata,
@@ -234,48 +267,71 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
       } as Prisma.InputJsonValue,
     },
   })
+  await touchStripeWebhookEventHeartbeat(eventId)
 
   let consecutivePurchase: { id: string } | null = null
   if (split.hasConsecutiveSplit) {
-    consecutivePurchase = await prisma.$transaction(async (tx) => {
-      const existingChild = await tx.purchase.findFirst({
-        where: {
-          userId: user.id,
-          metadata: { path: ["parentPurchaseId"], equals: purchase.id },
-        },
-        select: { id: true },
-      })
-
-      if (existingChild) return existingChild
-
-      return tx.purchase.create({
-        data: {
-          userId: user.id,
-          courseSlug: split.consecutiveCourseSlug as string,
-          courseTitle: split.consecutiveCourseTitle,
-          amount: split.consecutiveAmount as number,
-          currency,
-          status,
-          email,
-          name: purchaseName,
-          phone,
-          participants: 1,
-          coupon: null,
-          packageId: null,
-          serviceId: meta.serviceId,
-          addonsCsv: null,
-          metadata: {
-            ...(mergedMetadata as Record<string, unknown>),
-            parentPurchaseId: purchase.id,
-            consecutiveLinkedFrom: courseSlug,
-            courseSlug: split.consecutiveCourseSlug,
-            courseTitle: split.consecutiveCourseTitle || "",
-            time: split.consecutiveCourseTime || meta.time || "",
+    try {
+      consecutivePurchase = await prisma.$transaction(async (tx) => {
+        const existingChild = await tx.purchase.findFirst({
+          where: {
+            userId: user.id,
+            metadata: { path: ["parentPurchaseId"], equals: purchase.id },
           },
-        },
-        select: { id: true },
+          select: { id: true },
+        })
+
+        if (existingChild) return existingChild
+
+        return tx.purchase.create({
+          data: {
+            userId: user.id,
+            courseSlug: split.consecutiveCourseSlug as string,
+            courseTitle: split.consecutiveCourseTitle,
+            amount: split.consecutiveAmount as number,
+            currency,
+            status,
+            email,
+            name: purchaseName,
+            phone,
+            participants: 1,
+            coupon: null,
+            packageId: null,
+            serviceId: meta.serviceId,
+            addonsCsv: null,
+            // Top-level column, purely a DB-level uniqueness guard for the
+            // concurrent-double-write defense (@@unique([parentPurchaseId]),
+            // design §2b). MUST be written IN ADDITION to metadata below — do
+            // NOT remove parentPurchaseId from metadata; payments-loader-purchase.ts
+            // and payments-row.ts, plus this route's own pre-check findFirst above,
+            // still read metadata.parentPurchaseId (design ADR-4b / baked-in
+            // constraint #1).
+            parentPurchaseId: purchase.id,
+            metadata: {
+              ...(mergedMetadata as Record<string, unknown>),
+              parentPurchaseId: purchase.id,
+              consecutiveLinkedFrom: courseSlug,
+              courseSlug: split.consecutiveCourseSlug,
+              courseTitle: split.consecutiveCourseTitle || "",
+              time: split.consecutiveCourseTime || meta.time || "",
+            },
+          },
+          select: { id: true },
+        })
       })
-    })
+    } catch (err) {
+      if (!isP2002(err)) throw err
+      // A concurrent worker won the race on @@unique([parentPurchaseId]) first.
+      // Postgres aborts the ENTIRE transaction on any statement failure inside
+      // it (25P02) — any further query on the same `tx` client would itself
+      // throw. The recovery read MUST happen outside the transaction, on the
+      // top-level `prisma` client, on a fresh connection (design §6/ADR-4d,
+      // baked-in constraint #2).
+      consecutivePurchase = await prisma.purchase.findUnique({
+        where: { parentPurchaseId: purchase.id },
+      })
+    }
+    await touchStripeWebhookEventHeartbeat(eventId)
   }
 
   if (status === "paid") {
@@ -294,6 +350,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
         packageValidDays: meta.packageValidDays,
       },
     })
+    await touchStripeWebhookEventHeartbeat(eventId)
 
     await syncScheduledAttendanceFromPurchase({
       userId: user.id,
@@ -313,6 +370,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
       }),
       source,
     })
+    await touchStripeWebhookEventHeartbeat(eventId)
 
     if (split.hasConsecutiveSplit && consecutivePurchase?.id) {
       await syncScheduledAttendanceFromPurchase({
@@ -332,6 +390,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
         }),
         source,
       })
+      await touchStripeWebhookEventHeartbeat(eventId)
     }
 
     if (packagePurchase?.id) {
@@ -347,6 +406,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
           source,
         },
       })
+      await touchStripeWebhookEventHeartbeat(eventId)
     }
 
     // Increment day-of-week counter for kiosk purchases
@@ -365,7 +425,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
   }
 }
 
-async function handleCheckoutSession(session: Stripe.Checkout.Session) {
+async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: string) {
   const meta = pickStripeMetadata(session.metadata)
   const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
   const email = meta.email || session.customer_details?.email || session.customer_email || undefined
@@ -418,6 +478,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   })
 
   await processPaidStripeEvent({
+    eventId,
     upsertWhere: { stripeCheckoutSessionId: session.id },
     upsertCreateIds: {
       stripeCheckoutSessionId: session.id,
@@ -437,7 +498,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session) {
   })
 }
 
-async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
+async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
   // Skip if this payment intent already has a Purchase record — either created by
   // this handler's upsert or by handleCheckoutSession which sets stripePaymentIntentId.
   const existingByIntent = await prisma.purchase.findUnique({
@@ -479,6 +540,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent) {
   })
 
   await processPaidStripeEvent({
+    eventId,
     upsertWhere: { stripePaymentIntentId: intent.id },
     upsertCreateIds: { stripePaymentIntentId: intent.id },
     existingMetadata: existingPurchase?.metadata,
@@ -553,30 +615,27 @@ export async function POST(req: Request) {
     return new NextResponse(`Webhook error: ${message}`, { status: 400 })
   }
 
-  // Deduplicate webhook events — Stripe may retry on timeout
-  try {
-    await prisma.stripeWebhookEvent.create({
-      data: {
-        eventId: event.id,
-        eventType: event.type,
-      },
-    })
-  } catch (err) {
-    // Unique constraint violation = already processed
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return new NextResponse("Event already processed", { status: 200 })
-    }
-    console.error("Stripe webhook: failed to persist webhook event", err)
-    throw err
+  // Claim-then-process: the eventId unique constraint is the lock (design §3/§4).
+  // No StripeWebhookEvent row is ever written for a signature failure (handled above).
+  const claim = await claimStripeWebhookEvent(event.id, event.type)
+  if (claim === "duplicate") {
+    return new NextResponse("Event already processed", { status: 200 })
+  }
+  if (claim === "in-flight") {
+    // Distinct log tag from the 500/processing-failure path — a healthy system
+    // shows occasional 409s under Stripe's near-duplicate delivery behavior;
+    // a SPIKE in rate is the actionable signal, not any single occurrence.
+    console.warn("stripe_webhook_in_flight", { eventId: event.id, eventType: event.type })
+    return new NextResponse("Event is currently being processed", { status: 409 })
   }
 
   try {
     switch (event.type) {
       case "checkout.session.completed":
-        await handleCheckoutSession(event.data.object as Stripe.Checkout.Session)
+        await handleCheckoutSession(event.data.object as Stripe.Checkout.Session, event.id)
         break
       case "payment_intent.succeeded":
-        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent)
+        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
         break
       case "payment_intent.payment_failed":
         await handlePaymentIntentFailure(event)
@@ -592,8 +651,35 @@ export async function POST(req: Request) {
     }
   } catch (err) {
     console.error("Stripe webhook handler failed", err)
+    await markStripeWebhookEventFailed(event.id)
     return new NextResponse("Webhook handler failed", { status: 500 })
   }
 
+  // Completion write is isolated in its own try/catch, separate from the
+  // processing try/catch above, so a bookkeeping-write failure after real
+  // success is never confused with (or triggers the same remediation as) an
+  // actual processing failure (design §4 step 6, ADR-4).
+  await markEventCompletedWithRetry(event.id, event.type)
+
   return NextResponse.json({ received: true })
+}
+
+const COMPLETION_WRITE_MAX_ATTEMPTS = 3
+
+async function markEventCompletedWithRetry(eventId: string, eventType: string): Promise<void> {
+  for (let attempt = 1; attempt <= COMPLETION_WRITE_MAX_ATTEMPTS; attempt++) {
+    try {
+      await completeStripeWebhookEvent(eventId)
+      return
+    } catch (err) {
+      if (attempt < COMPLETION_WRITE_MAX_ATTEMPTS) continue
+      // Business processing already succeeded — this is purely a bookkeeping
+      // write failure. Do NOT return non-2xx to Stripe: that would cause a
+      // retry of an event whose side effects have already landed, risking the
+      // exact duplicate-side-effect class of bug this fix exists to prevent.
+      // Distinct, pageable tag — remediation is manual reconciliation of this
+      // row's status, not a business-logic fix or a reprocess.
+      console.error("stripe_webhook_completion_write_exhausted", { eventId, eventType, err })
+    }
+  }
 }
