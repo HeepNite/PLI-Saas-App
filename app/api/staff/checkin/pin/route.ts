@@ -1,37 +1,16 @@
-import { createHash, timingSafeEqual } from "crypto"
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { createTeacherClockEntryWithSlugs } from "@/lib/clock/teacher-clock"
+import { isValidPinHash } from "@/lib/security/staff-pin-hash"
 import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
-
-const isValidPinHash = (pin: string, pinHash: string) => {
-  const parts = pinHash.split(":")
-  if (parts.length !== 2) return false
-  const [salt, expectedHash] = parts
-  if (!salt || !expectedHash) return false
-
-  const nextHash = createHash("sha256")
-    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
-    .digest("hex")
-
-  try {
-    const expectedBuffer = Buffer.from(expectedHash, "hex")
-    const nextBuffer = Buffer.from(nextHash, "hex")
-    if (expectedBuffer.length === 0 || nextBuffer.length === 0) return false
-    if (expectedBuffer.length !== nextBuffer.length) return false
-    return timingSafeEqual(expectedBuffer, nextBuffer)
-  } catch {
-    return false
-  }
-}
 
 export async function POST(req: Request) {
   const rateLimit = consumeRateLimit({

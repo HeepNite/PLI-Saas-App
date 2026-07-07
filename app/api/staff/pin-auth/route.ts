@@ -1,35 +1,14 @@
-import { createHash, timingSafeEqual } from "crypto"
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
+import { isValidPinHash } from "@/lib/security/staff-pin-hash"
 
 export const runtime = "nodejs"
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-const isValidPinHash = (pin: string, pinHash: string) => {
-  const parts = pinHash.split(":")
-  if (parts.length !== 2) return false
-  const [salt, expectedHash] = parts
-  if (!salt || !expectedHash) return false
-
-  const nextHash = createHash("sha256")
-    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
-    .digest("hex")
-
-  try {
-    const expectedBuffer = Buffer.from(expectedHash, "hex")
-    const nextBuffer = Buffer.from(nextHash, "hex")
-    if (expectedBuffer.length === 0 || nextBuffer.length === 0) return false
-    if (expectedBuffer.length !== nextBuffer.length) return false
-    return timingSafeEqual(expectedBuffer, nextBuffer)
-  } catch {
-    return false
-  }
-}
 
 export async function POST(req: Request) {
   const guard = await withStaffGuard(req, {
