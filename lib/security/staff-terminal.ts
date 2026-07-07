@@ -109,6 +109,7 @@ export type StaffTerminalSessionAuthResult =
         location: string | null
         defaultCourseSlug: string | null
         active: boolean
+        schoolId: string | null
       }
     }
   | {
@@ -139,6 +140,9 @@ export const authorizeStaffTerminalSession = async (
           location: true,
           defaultCourseSlug: true,
           active: true,
+          // Server-derived school scope for the PIN gate (design v5 ADR 14).
+          // Nullable until the terminal.schoolId backfill (Phase 4) completes.
+          schoolId: true,
         },
       },
     },
