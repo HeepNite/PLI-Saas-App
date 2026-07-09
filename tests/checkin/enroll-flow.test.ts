@@ -30,7 +30,7 @@ describe("enroll flow helpers", () => {
     ).toBe(false)
   })
 
-  it("keeps the photo step when the account still needs a photo", () => {
+  it("never includes the photo step in check-in flows, even when the account still needs a photo", () => {
     expect(
       shouldIncludePhotoStep({
         isCheckInFlow: true,
@@ -38,12 +38,12 @@ describe("enroll flow helpers", () => {
         hasAvatar: false,
         photoSaved: false,
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
   // Kiosk "I'm new" flow now inserts a promo step between info and payments
   // (promo-window feature on develop): info → promo → payments.
-  it("starts kiosk new-customer check-in on info + promo and hides party/datetime", () => {
+  it("starts kiosk new-customer check-in on info, promo, then payments (no photo step)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -54,9 +54,9 @@ describe("enroll flow helpers", () => {
     ).toEqual(["info", "promo", "payments"])
   })
 
-  // Existing-customer kiosk flow keeps a conditional photo step (and packages
-  // when the course has them) before payments.
-  it("keeps a photo step for existing-customer kiosk check-in when a photo is required", () => {
+  // Existing-customer kiosk flow never includes a photo step. Packages and
+  // consecutive offers remain available when the current develop flow has them.
+  it("starts existing-customer kiosk check-in without a photo step", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -64,7 +64,7 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: true,
       })
-    ).toEqual(["info", "photo", "payments"])
+    ).toEqual(["info", "payments"])
   })
 
   it("keeps the standard non-kiosk flow steps unchanged", () => {
@@ -241,7 +241,7 @@ describe("enroll flow helpers", () => {
 
   // New-customer kiosk flow ignores hasPackages/photo — packages are not a
   // separate step; the fixed flow is info → promo → payments.
-  it("uses info/promo/payments in new kiosk flow regardless of hasPackages (packages are not a separate step in kiosk)", () => {
+  it("uses info, promo, and payments in kiosk new-student flow regardless of hasPackages (packages are not a separate step in kiosk)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -253,7 +253,7 @@ describe("enroll flow helpers", () => {
     ).toEqual(["info", "promo", "payments"])
   })
 
-  it("uses info/promo/payments in new kiosk flow even when both photo and packages are requested (both excluded from new kiosk flow)", () => {
+  it("uses info, promo, and payments in kiosk new-student flow even when both photo and packages are requested (both stay out of the new-student flow)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -265,7 +265,7 @@ describe("enroll flow helpers", () => {
     ).toEqual(["info", "promo", "payments"])
   })
 
-  it("uses info/promo/payments in new kiosk flow when hasPackages is false", () => {
+  it("uses info, promo, and payments in kiosk new-student flow when hasPackages is false", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,

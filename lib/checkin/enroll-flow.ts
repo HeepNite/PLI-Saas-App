@@ -41,7 +41,11 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  *
  * For kiosk terminal flows, packages are shown in a dedicated step AFTER
  * user info collection (so we know if they're new/existing for pricing).
- * Kiosk flow: info → [photo] → [packages] → payments
+ * Kiosk flow: info → [packages] → [consecutive] → payments
+ *
+ * Check-in flows (kiosk, QR mobile compact, or the default flow when wired
+ * through a check-in variant) never include the "photo" step — the photo
+ * capability moved to profile self-upload.
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow && input.isCheckInNewFlow) {
@@ -50,10 +54,11 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
   }
 
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
-    // Existing customer declining Quick Repeat: full flow with packages
+    // Existing customer declining Quick Repeat: full flow with packages.
+    // Check-in flows never show the photo step (users upload a photo from
+    // their profile later).
     return [
       "info",
-      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasPackages ? (["packages"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
       "payments",
@@ -63,7 +68,9 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
   if (input.isQrMobileCompactFlow) {
     return [
       ...(input.skipInfoStep ? [] : (["info"] as const)),
-      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+      // Check-in flows never show the photo step, even when wired through
+      // the QR mobile compact experience.
+      ...(!input.isCheckInFlow && input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasPackages ? (["packages"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
       "payments",
@@ -83,7 +90,9 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
     "party",
     "datetime",
     ...(input.skipInfoStep ? [] : (["info"] as const)),
-    ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+    // Check-in flows never show the photo step, even outside the kiosk and
+    // QR mobile compact branches above.
+    ...(!input.isCheckInFlow && input.requiresPhotoStep ? (["photo"] as const) : []),
     ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
     "payments",
     ...(input.isCheckInFlow ? [] : (["review"] as const)),
@@ -95,8 +104,17 @@ export const isCheckInContactGateStep = (input: {
   activeStepKey: EnrollStepKey | ""
 }) => input.isCheckInFlow && input.activeStepKey === "info"
 
-export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) =>
-  input.isCheckInFlow && input.photoPolicyRequired && !(input.hasAvatar || input.photoSaved)
+/**
+ * The photo step is never part of check-in enrollment flows — users upload
+ * a photo from their profile later instead. Kept as a named function (rather
+ * than inlining `false` at call sites) so the photo capability itself stays
+ * intact and callers keep a single, documented decision point to revert if
+ * product ever brings the step back.
+ */
+export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) => {
+  void input
+  return false
+}
 
 export const shouldFetchConsecutiveOffer = (input: {
   isQrMobileCompactFlow: boolean
