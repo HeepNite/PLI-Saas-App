@@ -4,19 +4,7 @@ import Link from "next/link"
 import CalendarPicker from "../ui/CalendarPicker"
 import { demoCourses, type EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
-import {
-  Calendar as CalendarIcon,
-  CalendarRange,
-  CalendarDays,
-  CalendarCheck,
-  Camera,
-  CreditCard,
-  Building2,
-  Tag,
-  User,
-  FileText,
-  CheckCircle2,
-} from "lucide-react"
+import { CreditCard, Building2 } from "lucide-react"
 import { useI18n } from "@/lib/i18n"
 import type { Coupon, EnrollmentContact, PaymentMethod } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
@@ -80,6 +68,9 @@ import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
+import EnrollSidebar from "@/components/front/courses/enroll/steps/EnrollSidebar"
+import EnrollSignInOverlay from "@/components/front/courses/enroll/steps/EnrollSignInOverlay"
+import EnrollFlowPopup from "@/components/front/courses/enroll/steps/EnrollFlowPopup"
 import { nextKioskInfoPhase, initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 import {
@@ -386,17 +377,6 @@ export default function EnrollModal({
       })),
     [stepKeys, t]
   )
-  const stepIcons: Record<string, typeof User> = {
-    party: User,
-    datetime: CalendarIcon,
-    info: FileText,
-    photo: Camera,
-    packages: Building2,
-    promo: Tag,
-    consecutive: CalendarCheck,
-    payments: CreditCard,
-    review: CheckCircle2,
-  }
   const regularServiceId = React.useMemo(
     () =>
       availableServices.find((item) => item.id !== "new-student")?.id ||
@@ -891,16 +871,6 @@ export default function EnrollModal({
   const summaryGridClass = isKioskTerminalFlow ? "grid gap-3" : "grid gap-3 sm:grid-cols-2 sm:gap-4"
   const kioskQrCheckoutPending = isKioskQrPendingPhase(kioskQrCheckout.phase)
   const kioskQrCheckoutLocked = isKioskTerminalFlow && (kioskQrCheckout.phase === "creating" || kioskQrCheckoutPending)
-
-  const renderSummaryItem = React.useCallback(
-    (label: string, value: React.ReactNode) => (
-      <div className="break-words">
-        <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{label}</div>
-        <div className="mt-1 whitespace-normal break-words text-white/85">{value}</div>
-      </div>
-    ),
-    []
-  )
 
   const formatPackageMeta = React.useCallback((option?: EnrollmentOption | null) => {
     if (!option?.meta) return option?.description
@@ -1950,21 +1920,21 @@ export default function EnrollModal({
     setSuccessMessage,
   ])
 
-  const stepValid = (s: number) =>
-    resolveStepValid(s, {
-      steps,
-      participants,
-      availableServices,
-      service,
-      date,
-      time,
-      consecutiveOfferLoading,
-      contact,
-      requiresPhotoStep,
-      photoSaved,
-      consecutiveChoiceMade,
-      paymentMethod,
-    })
+  const stepValidCtx = {
+    steps,
+    participants,
+    availableServices,
+    service,
+    date,
+    time,
+    consecutiveOfferLoading,
+    contact,
+    requiresPhotoStep,
+    photoSaved,
+    consecutiveChoiceMade,
+    paymentMethod,
+  }
+  const stepValid = (s: number) => resolveStepValid(s, stepValidCtx)
 
   const canContinue = stepValid(step)
   const canContinueCurrentStep = usesPhasedInfoForm && activeStepKey === "info"
@@ -2069,234 +2039,33 @@ export default function EnrollModal({
         ].join(" ")}>
           {/* Sidebar: stepper (form) OR calendar panel (success) */}
           {!hideCalendarSidebar && (
-            <aside
-              className={[
-                "bg-neutral-900/90 text-white p-3 sm:p-4 space-y-3 sm:space-y-4",
-                isInline ? "md:col-span-1" : "md:col-span-5",
-              ].join(" ")}
-            >
-              {success ? (
-                <div className="flex flex-col gap-4">
-                  <h4 className="text-sm font-semibold">{t("addToCalendar")}</h4>
-                  {eventDates ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <a
-                        href={googleCalHref}
-                        target="_blank"
-                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                      >
-                        <CalendarIcon className="h-4 w-4" aria-hidden />
-                        Google
-                      </a>
-                      <a
-                        href={icsDataUri}
-                        download={`pli-${course.slug}-${date}-${time}.ics`}
-                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                      >
-                        <CalendarRange className="h-4 w-4" aria-hidden />
-                        Outlook
-                      </a>
-                      <a
-                        href={icsDataUri}
-                        download={`pli-${course.slug}-${date}-${time}.ics`}
-                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                      >
-                        <CalendarDays className="h-4 w-4" aria-hidden />
-                        Yahoo
-                      </a>
-                      <a
-                        href={icsDataUri}
-                        download={`pli-${course.slug}-${date}-${time}.ics`}
-                        className="rounded-md border border-white/15 bg-white/5 px-3 py-3 text-center text-sm hover:bg-white/10 inline-flex items-center justify-center gap-2"
-                      >
-                        <CalendarCheck className="h-4 w-4" aria-hidden />
-                        Apple
-                      </a>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-white/70">{t("calendarsHint")}</p>
-                  )}
-
-                  {/* Collapse menu eliminado por requerimiento */}
-                </div>
-              ) : (
-                <>
-                  <h4 className="text-sm font-semibold">{t("booking")}</h4>
-                {isInline ? (
-                  <nav aria-label="Breadcrumb" className="mt-3">
-                    {(() => {
-                      const start = step <= 2 ? 0 : Math.max(steps.length - 3, 0)
-                      const visible = steps.slice(start, start + 3)
-                      const progressIndex = Math.max(0, Math.min(visible.length - 1, step - start))
-                      const progressPct =
-                        visible.length > 1 ? (progressIndex / (visible.length - 1)) * 100 : 0
-                      const insetPct = 100 / (visible.length * 2)
-                      return (
-                        <div className="relative">
-                          <div
-                            className="absolute top-[18px] h-px bg-white/15"
-                            style={{ left: `${insetPct}%`, right: `${insetPct}%` }}
-                          />
-                          <div
-                            className="absolute top-[18px] h-px bg-[color:var(--brand)] transition-[width] duration-500 ease-out"
-                            style={{
-                              left: `${insetPct}%`,
-                              width: `calc((100% - ${insetPct * 2}%) * ${progressPct / 100})`,
-                            }}
-                          />
-                          <div className="relative z-10 grid grid-cols-3 gap-3">
-                            {visible.map((st, idx) => {
-                              const realIndex = start + idx
-                              const done = realIndex < step && stepValid(realIndex)
-                              const active = realIndex === step
-                              const canJump = realIndex <= step
-                              const Icon = stepIcons[st.key]
-                              return (
-                                <button
-                                  key={st.key}
-                                  type="button"
-                                  onClick={() => {
-                                    if (!canJump) return
-                                    setStep(realIndex)
-                                  }}
-                                  disabled={!canJump}
-                                  className={`flex flex-col items-center gap-2 text-[11px] transition ${
-                                    canJump ? "hover:text-white" : "cursor-not-allowed opacity-60"
-                                  }`}
-                                  aria-label={st.label}
-                                >
-                                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900/95">
-                                    <span
-                                      className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
-                                        done
-                                          ? "border-green-400/70 bg-green-500/20 text-green-200"
-                                          : active
-                                            ? "border-[color:var(--brand)] bg-[color:var(--brand)]/25 text-white"
-                                            : "border-white/15 bg-white/5 text-white/50"
-                                      }`}
-                                    >
-                                      <Icon className="h-4 w-4" aria-hidden />
-                                    </span>
-                                  </span>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })()}
-                  </nav>
-                ) : (
-                  <nav aria-label="Breadcrumb" className="mt-2 text-[11px] text-white/80 overflow-hidden">
-                    {(() => {
-                      // Show max 3 steps at a time, sliding window based on current step
-                      const maxVisible = 3
-                      const start = Math.max(0, Math.min(step - 1, steps.length - maxVisible))
-                      const visible = steps.slice(start, start + maxVisible)
-                      return (
-                        <div 
-                          className="flex items-center gap-1.5 transition-transform duration-300 ease-out"
-                          style={{ transform: `translateX(0)` }}
-                        >
-                          {visible.map((st, idx) => {
-                            const realIndex = start + idx
-                            const done = realIndex < step && stepValid(realIndex)
-                            const active = realIndex === step
-                            const canJump = realIndex <= step
-                            return (
-                              <React.Fragment key={st.key}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (!canJump) return
-                                    setStep(realIndex)
-                                  }}
-                                  disabled={!canJump}
-                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 transition whitespace-nowrap ${
-                                    active ? "border-white/40 bg-white/10" : "border-white/10 bg-transparent"
-                                  } ${canJump ? "hover:bg-white/10" : "opacity-60 cursor-not-allowed"}`}
-                                >
-                                  <span className={`h-1.5 w-1.5 rounded-full ${done ? "bg-green-400" : active ? "bg-white" : "bg-white/30"}`} />
-                                  <span>{st.label}</span>
-                                </button>
-                                {idx < visible.length - 1 && <span className="text-white/30">/</span>}
-                              </React.Fragment>
-                            )
-                          })}
-                        </div>
-                      )
-                    })()}
-                  </nav>
-                )}
-
-                {/* Summary - show booking summary or business info based on step */}
-                {activeStepKey !== "payments" && !isQrMobileCompactFlow ? (
-                  <>
-                    <div className="mt-4 rounded-md border border-white/10 p-3 text-xs hidden sm:block">
-                      <div className="font-semibold mb-2">{t("summary")}</div>
-                        <div className={summaryGridClass}>
-                          <div className="space-y-2">
-                          {isKioskTerminalFlow && renderSummaryItem("Course", course.title)}
-                          {renderSummaryItem(t("service"), course.enrollment.services.find((s)=>s.id===service)?.label || "—")}
-                          {renderSummaryItem(t("package"), course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—")}
-                          {!!addons.length && (
-                            renderSummaryItem(
-                              t("extras"),
-                              addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")
-                            )
-                          )}
-                          {renderSummaryItem(t("people"), participants)}
-                        </div>
-                        <div className="space-y-2">
-                          {renderSummaryItem(isKioskTerminalFlow ? "Date/Time" : t("dateTime"), summaryDateTimeValue)}
-                          {renderSummaryItem(t("email"), contact.email || "—")}
-                          {renderSummaryItem(
-                            t("total"),
-                            <><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-4 sm:hidden">
-                      <details className="rounded-md border border-white/10 p-3 text-xs">
-                        <summary className="cursor-pointer font-semibold list-none">{t("summary")}</summary>
-                        <div className="mt-2 space-y-2">
-                          {isKioskTerminalFlow && renderSummaryItem("Course", course.title)}
-                          {renderSummaryItem(t("service"), course.enrollment.services.find((s)=>s.id===service)?.label || "—")}
-                          {renderSummaryItem(t("package"), course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—")}
-                          {!!addons.length && (
-                            renderSummaryItem(
-                              t("extras"),
-                              addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")
-                            )
-                          )}
-                          {renderSummaryItem(t("people"), participants)}
-                          {renderSummaryItem(isKioskTerminalFlow ? "Date/Time" : t("dateTime"), summaryDateTimeValue)}
-                          {renderSummaryItem(t("email"), contact.email || "—")}
-                          {renderSummaryItem(
-                            t("total"),
-                            <><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></>
-                          )}
-                        </div>
-                      </details>
-                    </div>
-                  </>
-                ) : (
-                  /* Payment helper for payments step */
-                  <div className="mt-4 space-y-4">
-                    {/* Add to Calendar hint — hidden for QR mobile compact flows */}
-                    {!isQrMobileCompactFlow && (
-                      <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-center">
-                        <p className="text-white/60">After completing your booking, you&apos;ll be able to add it to your calendar</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Sin bloque de contacto; el chat vive en el UI global */}
-                </>
-              )}
-            </aside>
+            <EnrollSidebar
+              isInline={isInline}
+              success={success}
+              isQrMobileCompactFlow={isQrMobileCompactFlow}
+              isKioskTerminalFlow={isKioskTerminalFlow}
+              activeStepKey={activeStepKey}
+              step={step}
+              steps={steps}
+              course={course}
+              service={service}
+              pkg={pkg}
+              addons={addons}
+              participants={participants}
+              contact={contact}
+              summaryDateTimeValue={summaryDateTimeValue}
+              summaryGridClass={summaryGridClass}
+              total={total}
+              googleCalHref={googleCalHref}
+              icsDataUri={icsDataUri}
+              eventDates={Boolean(eventDates)}
+              courseSlug={course.slug}
+              date={date}
+              time={time}
+              stepValidCtx={stepValidCtx}
+              onStepClick={setStep}
+              t={t}
+            />
           )}
 
           {/* Main content */}
@@ -3238,25 +3007,14 @@ export default function EnrollModal({
         )}
       </GlassyCard>
       {flowPopup && (
-        <div className="fixed inset-0 z-[10015] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
-            <p className="text-xs uppercase tracking-[0.18em] text-[var(--brand,#c71818)]">Booking update</p>
-            <h3 className="mt-2 text-lg font-semibold text-white">{flowPopup.title}</h3>
-            <p className="mt-3 text-sm leading-relaxed text-white/70">{flowPopup.message}</p>
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setFlowPopup(null)
-                  void advanceFromContactStepRef.current()
-                }}
-                className="rounded-md bg-[var(--brand,#111)] px-4 py-2 text-sm font-semibold text-white"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
+        <EnrollFlowPopup
+          title={flowPopup.title}
+          message={flowPopup.message}
+          onContinue={() => {
+            setFlowPopup(null)
+            void advanceFromContactStepRef.current()
+          }}
+        />
       )}
       {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
@@ -3300,65 +3058,22 @@ export default function EnrollModal({
         </div>
       )}
       {requiresSignIn && (
-        <div
-          className={`fixed inset-0 z-[10020] flex ${
-            signInModalVariant === "compact"
-              ? "items-center justify-center px-4 py-4"
-              : "items-stretch justify-end px-2 py-6 sm:px-4"
-          }`}
-        >
-          <button
-            type="button"
-            aria-label={t("aria_close")}
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={handleSignInDismiss}
-          />
-          <div
-            className={`relative z-10 w-full rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] ${
-              signInModalVariant === "compact" ? "max-w-sm" : "sm:max-w-md"
-            }`}
-          >
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <h3 className="text-lg font-semibold text-white">{signInModalTitle}</h3>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 hover:bg-white/[0.04]"
-                  onClick={handleSignInDismiss}
-                >
-                  {t("cancel")}
-                </button>
-              </div>
-              <p className="text-sm leading-relaxed text-white/68">{signInModalSubtitle}</p>
-            </div>
-            <div className="mt-5">
-              <EmbeddedSignIn
-                redirectUrl={signInReturnTo}
-                phoneNumber={toE164Phone(contact.phone)}
-                useNumericKeypad={isKioskTerminalFlow}
-                bare
-                onSuccessAction={
-                  isCheckInFlow
-                    ? async () => {
-                        setFormError(null)
-                      }
-                    : undefined
-                }
-              />
-            </div>
-            {signInModalVariant === "sheet" && (
-              <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  className="text-sm font-medium text-white/72 underline decoration-white/25 underline-offset-4"
-                  onClick={handleSignInDismiss}
-                >
-                  {t("account_exists_back")}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <EnrollSignInOverlay
+          title={signInModalTitle}
+          subtitle={signInModalSubtitle}
+          variant={signInModalVariant}
+          signInReturnTo={signInReturnTo}
+          phoneE164={toE164Phone(contact.phone)}
+          isKioskTerminalFlow={isKioskTerminalFlow}
+          isCheckInFlow={isCheckInFlow}
+          onDismiss={handleSignInDismiss}
+          onSuccessAction={async () => {
+            setFormError(null)
+          }}
+          cancelLabel={t("cancel")}
+          backLabel={t("account_exists_back")}
+          closeAriaLabel={t("aria_close")}
+        />
       )}
     </div>
   )

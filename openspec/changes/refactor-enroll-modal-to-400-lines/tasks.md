@@ -219,12 +219,12 @@ git revert <PR3-merge-commit>
 > **Target PR**: PR 4a → PR 3 branch.
 > **Note**: Slice 4 split into 4a + 4b to respect 400-line review budget.
 
-- [ ] 4a.1 Create `components/front/courses/enroll/steps/EnrollSidebar.tsx` — extract left aside: step breadcrumb nav (consuming `resolveStepValid` from `enroll-step-valid.ts`), booking summary, calendar links (success state); use explicit flat props per design data flow (~160 lines).
-- [ ] 4a.2 Create `components/front/courses/enroll/steps/EnrollSignInOverlay.tsx` — extract `requiresSignIn` overlay: sign-in copy, `EmbeddedSignIn`, dismiss callback; orchestrator retains sign-in state ownership (~50 lines).
-- [ ] 4a.3 Create `components/front/courses/enroll/steps/EnrollFlowPopup.tsx` — extract `flowPopup` modal: title, message, Continue button; orchestrator retains popup state ownership (~30 lines).
-- [ ] 4a.4 Modify `EnrollModal.tsx` — replace inline JSX for sidebar, sign-in overlay, and flow popup with `<EnrollSidebar ...>`, `<EnrollSignInOverlay ...>`, `<EnrollFlowPopup ...>` calls.
-- [ ] 4a.5 Write RTL snapshot test for `EnrollSidebar` — assert breadcrumb renders correct active/done states for a given `step` value and `stepValid` mock.
-- [ ] 4a.6 Write RTL tests for `EnrollSignInOverlay` and `EnrollFlowPopup` — assert visibility and dismiss callback wiring.
+- [x] 4a.1 Create `components/front/courses/enroll/steps/EnrollSidebar.tsx` — extract left aside: step breadcrumb nav (consuming `resolveStepValid` from `enroll-step-valid.ts`), booking summary, calendar links (success state); use explicit flat props per design data flow (~160 lines).
+- [x] 4a.2 Create `components/front/courses/enroll/steps/EnrollSignInOverlay.tsx` — extract `requiresSignIn` overlay: sign-in copy, `EmbeddedSignIn`, dismiss callback; orchestrator retains sign-in state ownership (~50 lines).
+- [x] 4a.3 Create `components/front/courses/enroll/steps/EnrollFlowPopup.tsx` — extract `flowPopup` modal: title, message, Continue button; orchestrator retains popup state ownership (~30 lines).
+- [x] 4a.4 Modify `EnrollModal.tsx` — replace inline JSX for sidebar, sign-in overlay, and flow popup with `<EnrollSidebar ...>`, `<EnrollSignInOverlay ...>`, `<EnrollFlowPopup ...>` calls.
+- [x] 4a.5 Write RTL snapshot test for `EnrollSidebar` — assert breadcrumb renders correct active/done states for a given `step` value and `stepValid` mock.
+- [x] 4a.6 Write RTL tests for `EnrollSignInOverlay` and `EnrollFlowPopup` — assert visibility and dismiss callback wiring.
 
 ### Acceptance Criteria — Slice 4a
 
