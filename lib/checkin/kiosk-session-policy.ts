@@ -37,6 +37,11 @@ export const resolveSuppressedClerkSessionIdOnCompletion = (
   // Only suppress the customer's kiosk session, never the staff session
   // If there's no kiosk customer session, there's nothing to suppress
   if (input.kioskClerkSessionId) return input.kioskClerkSessionId
+  // The customer completed the flow through an existing Clerk session that
+  // the kiosk never explicitly registered (no kioskClerkSessionId). Fall back
+  // to suppressing whatever session is currently active so the shared
+  // terminal doesn't stay signed in as this customer.
+  if (input.isSignedIn) return CURRENT_CLERK_SESSION_SUPPRESSION
   return null
 }
 
