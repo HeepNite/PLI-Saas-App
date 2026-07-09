@@ -123,13 +123,16 @@ describe("useCheckInBootstrap", () => {
     expect(getResult().loadingBootstrap).toBe(false)
   })
 
-  it("clears consecutive UI when loaded package is not usable", async () => {
+  it("clears consecutive overlay UI but keeps the prefetched offer when loaded package is not usable", async () => {
     const params = defaultParams({ requestBootstrap: vi.fn().mockResolvedValue({ res: { ok: true } as Response, data: bootstrapData({ package: { ...activePackage, remainingCredits: 0, packageLabel: "empty" } }) }) })
     const { getResult } = await mount(params)
 
     await act(async () => getResult().loadBootstrap())
 
-    expect(params.setConsecutiveOffer).toHaveBeenCalledWith(null)
+    // The terminal prefetch offer must remain available for the EnrollModal
+    // purchase/drop-in flow, so setConsecutiveOffer is intentionally not
+    // reset to null — only the overlay/payment-selection UI is cleared.
+    expect(params.setConsecutiveOffer).not.toHaveBeenCalled()
     expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
     expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)
   })
