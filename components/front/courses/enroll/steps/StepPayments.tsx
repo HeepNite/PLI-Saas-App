@@ -6,14 +6,11 @@ import type { CourseEnrollmentData } from "@/components/front/courses/types"
 import type { EnrollmentOption } from "@/constants/courses"
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import type { I18nKey } from "@/lib/i18n-dict"
-import { formatEnrollmentOptionPrice } from "@/components/front/courses/utils/package-pricing"
 
 type StepPaymentsProps = {
   isCheckInFlow: boolean
-  isKioskTerminalFlow: boolean
   course: CourseEnrollmentData
   pkg: string
-  setPkg: (value: React.SetStateAction<string>) => void
   service: string
   date: string
   time: string
@@ -21,8 +18,6 @@ type StepPaymentsProps = {
   contact: EnrollmentContact
   addons: string[]
   to12h: (value: string) => string
-  stepKeys: string[]
-  setStep: (value: React.SetStateAction<number>) => void
   consecutiveAccepted: boolean
   consecutiveAddedCents: number
   effectiveConsecutiveOffer: ConsecutiveOfferData | null | undefined
@@ -43,10 +38,8 @@ type StepPaymentsProps = {
 
 export default function StepPayments({
   isCheckInFlow,
-  isKioskTerminalFlow,
   course,
   pkg,
-  setPkg,
   service,
   date,
   time,
@@ -54,8 +47,6 @@ export default function StepPayments({
   contact,
   addons,
   to12h,
-  stepKeys,
-  setStep,
   consecutiveAccepted,
   consecutiveAddedCents,
   effectiveConsecutiveOffer,
@@ -75,43 +66,6 @@ export default function StepPayments({
 }: StepPaymentsProps) {
   return (
     <div className="space-y-4">
-      {isCheckInFlow && pkg && (
-        <div className="rounded-xl border border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.08)] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1">
-              <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Selected Package</p>
-              <p className="text-base font-semibold">{course.enrollment.packages.find((p) => p.id === pkg)?.label}</p>
-              {course.enrollment.packages.find((p) => p.id === pkg)?.price != null && (
-                <p className="mt-1 text-sm font-medium">{formatEnrollmentOptionPrice(course.enrollment.packages.find((p) => p.id === pkg)?.price)}</p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setStep(stepKeys.indexOf("packages"))}
-              className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
-            >
-              Change
-            </button>
-          </div>
-        </div>
-      )}
-      {isCheckInFlow && !pkg && isKioskTerminalFlow && course.enrollment.packages.length > 0 && (
-        <div className="rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Package</p>
-              <p className="text-sm text-neutral-600 dark:text-white/70">Single class (no package)</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setStep(stepKeys.indexOf("packages"))}
-              className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
-            >
-              Add Package
-            </button>
-          </div>
-        </div>
-      )}
       <div className="relative overflow-hidden rounded-[1.15rem] border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_30%),linear-gradient(145deg,rgba(44,45,55,0.96),rgba(19,20,27,0.99))] p-4 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
         <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
         <div className="relative space-y-4">

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { EnrollmentContact } from "@/components/front/courses/types"
 import type { CourseEnrollmentData } from "@/components/front/courses/types"
+import type { I18nKey } from "@/lib/i18n-dict"
 
 type Props = {
   course: CourseEnrollmentData
@@ -21,7 +22,7 @@ type Props = {
   onCompletedAction?: () => void | Promise<void>
   handleClose: () => void
   to12h: (value: string) => string
-  t: (key: string, params?: Record<string, unknown>) => string
+  t: (key: I18nKey) => string
 }
 
 export default function EnrollSuccessView({

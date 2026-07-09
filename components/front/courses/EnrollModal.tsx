@@ -1,10 +1,7 @@
 "use client"
 import React from "react"
-import Link from "next/link"
-import CalendarPicker from "../ui/CalendarPicker"
 import { demoCourses, type EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
-import { CreditCard, Building2 } from "lucide-react"
 import { useI18n } from "@/lib/i18n"
 import type { Coupon, EnrollmentContact, PaymentMethod } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
@@ -20,8 +17,6 @@ import {
 import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { useNewStudentVerification } from "./hooks/useNewStudentVerification"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
-import { formatEnrollmentOptionPrice } from "@/components/front/courses/utils/package-pricing"
-import ProfilePhotoCapture from "@/components/front/checkin/ProfilePhotoCapture"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
 import {
   getPhotoPolicy,
@@ -36,7 +31,6 @@ import {
   isCheckInContactGateStep,
   resolveStationTimeoutAction,
   resolveEnrollInitialStep,
-  resolveEnrollStepKeys,
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
@@ -67,10 +61,12 @@ import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/mo
 import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/enroll-pricing"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
-import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
 import EnrollSidebar from "@/components/front/courses/enroll/steps/EnrollSidebar"
 import EnrollSignInOverlay from "@/components/front/courses/enroll/steps/EnrollSignInOverlay"
 import EnrollFlowPopup from "@/components/front/courses/enroll/steps/EnrollFlowPopup"
+import EnrollStepRouter from "@/components/front/courses/enroll/steps/EnrollStepRouter"
+import EnrollFormFooter from "@/components/front/courses/enroll/steps/EnrollFormFooter"
+import EnrollSuccessView from "@/components/front/courses/enroll/steps/EnrollSuccessView"
 import { nextKioskInfoPhase, initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 import {
@@ -988,10 +984,6 @@ export default function EnrollModal({
   const eventDates = calendarLinks.eventDates
   const googleCalHref = calendarLinks.googleCalHref
   const icsDataUri = calendarLinks.icsDataUri
-
-  const toggleAddon = (id: string) => {
-    setAddons((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-  }
 
   const validateBeforeSubmit = () => {
     return validateEnrollBeforeSubmit({
@@ -2107,97 +2099,24 @@ export default function EnrollModal({
               )}
 
             {success ? (
-              <div className="mt-2">
-                <div>
-                {/* Success header */}
-                <div className="flex flex-col items-center py-4">
-                  <div className="mb-2" aria-hidden>
-                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">🎉</span>
-                  </div>
-                  <h3 className="text-xl font-semibold">{t("congratulations")}</h3>
-                  <p className="text-xs text-neutral-500">{t("appointmentId")} {Math.abs((date+time).split("").reduce((a,c)=>a+c.charCodeAt(0),0)%1000) || 56}</p>
-                  {successMessage && (
-                    <p className="mt-3 max-w-md text-center text-sm text-neutral-600 dark:text-neutral-300">
-                      {successMessage}
-                    </p>
-                  )}
-                </div>
-
-                {/* Details table */}
-                <div className="divide-y divide-black/10 dark:divide-white/10">
-                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
-                    <div className="text-neutral-500">{t("date")}</div>
-                    <div className="text-right">{date}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
-                    <div className="text-neutral-500">{t("localTime")}</div>
-                    <div className="text-right">{to12h(time)}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
-                    <div className="text-neutral-500">{t("classWord")}:</div>
-                    <div className="text-right">{course.title} — {course.enrollment.services.find((s)=>s.id===service)?.label}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
-                    <div className="text-neutral-500">{t("teacher")}</div>
-                    <div className="text-right">{course.instructors?.[0]?.name || "—"}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
-                    <div className="text-neutral-500">{t("location")}</div>
-                    <div className="text-right">{course.location?.address}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 py-3 text-sm">
-                    <div className="text-neutral-500">{t("payment")}</div>
-                    <div className="text-right">${total.toFixed(2)} — {paymentMethodLabel}</div>
-                  </div>
-                </div>
-
-                <hr className="my-3 border-black/10 dark:border-white/10" />
-
-                <div className="space-y-2 text-sm">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="text-neutral-500">{t("name")}:</div>
-                    <div className="text-right">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="text-neutral-500">{t("email")}</div>
-                    <div className="text-right">{contact.email}</div>
-                  </div>
-                </div>
-
-                {/* Bottom bar actions */}
-                <div className={`mt-6 border-t border-black/10 dark:border-white/10 px-3 py-3 flex items-center ${(allowPanelAccess || isPersonalCompletion) ? "justify-between" : "justify-end"}`}>
-                  {allowPanelAccess && (
-                    <Link href="/client-profile" className="text-sm font-medium">{t("customerPanel")}</Link>
-                  )}
-                  {isPersonalCompletion && (
-                    <button
-                      type="button"
-                      onClick={() => router.push("/client-profile")}
-                      className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10"
-                    >
-                      Go to my account
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isStationCompletion && onCompletedAction) {
-                        if (stationCompletionTimeoutRef.current !== null) {
-                          window.clearTimeout(stationCompletionTimeoutRef.current)
-                          stationCompletionTimeoutRef.current = null
-                        }
-                        void onCompletedAction()
-                        return
-                      }
-                      handleClose()
-                    }}
-                    className="px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white"
-                  >
-                    {isStationCompletion ? t("finish") : isPersonalCompletion ? "Close" : t("finish")}
-                  </button>
-                </div>
-                </div>
-              </div>
+              <EnrollSuccessView
+                course={course}
+                date={date}
+                time={time}
+                service={service}
+                contact={contact}
+                successMessage={successMessage}
+                total={total}
+                paymentMethodLabel={paymentMethodLabel}
+                allowPanelAccess={allowPanelAccess}
+                isPersonalCompletion={isPersonalCompletion}
+                isStationCompletion={isStationCompletion}
+                stationCompletionTimeoutRef={stationCompletionTimeoutRef}
+                onCompletedAction={onCompletedAction}
+                handleClose={handleClose}
+                to12h={to12h}
+                t={t}
+              />
             ) : (
               <form
                 onSubmit={async (e) => {
@@ -2207,741 +2126,119 @@ export default function EnrollModal({
                 className="space-y-4"
               >
                 {/* Step contents */}
-                {activeStepKey === "party" && (
-                  <div className="space-y-5">
-                    <div className={`grid gap-3 ${isInline ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
-                      <fieldset className="space-y-2">
-                        <label className="text-sm font-medium">{t("label_service")}</label>
-                        <select
-                          id="booking-service"
-                          name="booking-service"
-                          value={service}
-                          onChange={(e) => {
-                            if (isCheckInNewFlow && hasNewStudentService) return
-                            setService(e.target.value)
-                          }}
-                          disabled={isCheckInNewFlow && hasNewStudentService}
-                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 disabled:opacity-70"
-                        >
-                          {availableServices.map((s) => (
-                            <option key={s.id} value={s.id}>{s.label}{s.price ? ` — $${s.price}` : ""}</option>
-                          ))}
-                        </select>
-                        {isCheckInNewFlow && hasNewStudentService && (
-                          <p className="text-xs text-neutral-500">Service preselected for new students.</p>
-                        )}
-                      </fieldset>
-                      <fieldset className="space-y-2">
-                        <label className="text-sm font-medium">{t("label_companion")}</label>
-                        <select
-                          value={participants}
-                          onChange={(e)=>setParticipants(parseInt(e.target.value)||1)}
-                          disabled={isNewStudent}
-                          className="w-full rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 disabled:opacity-60"
-                        >
-                          {[1,2,3,4].map(n=> <option key={n} value={n}>{n} {n===1?t("onePerson"):t("manyPeople")}</option>)}
-                        </select>
-                        {isNewStudent && (
-                          <p className="text-xs text-neutral-500">{t("new_student_single_notice")}</p>
-                        )}
-                      </fieldset>
-                    </div>
+                <EnrollStepRouter
+                  activeStepKey={activeStepKey}
+                  isInline={isInline}
+                  isCheckInFlow={isCheckInFlow}
+                  isCheckInNewFlow={isCheckInNewFlow}
+                  isQrMobileCompactFlow={isQrMobileCompactFlow}
+                  isKioskTerminalFlow={isKioskTerminalFlow}
+                  isNewStudent={isNewStudent}
+                  isCheckInExistingFlow={isCheckInExistingFlow}
+                  isProfileBookingFlow={isProfileBookingFlow}
+                  skipContactStep={skipContactStep}
+                  availableServices={availableServices}
+                  hasNewStudentService={hasNewStudentService}
+                  course={course}
+                  courseAvailableWeekdays={courseAvailableWeekdays}
+                  service={service}
+                  setService={setService}
+                  participants={participants}
+                  setParticipants={setParticipants}
+                  pkg={pkg}
+                  setPkg={setPkg}
+                  addons={addons}
+                  setAddons={setAddons}
+                  contact={contact}
+                  setContact={setContact}
+                  date={date}
+                  setDate={setDate}
+                  time={time}
+                  setTime={setTime}
+                  initialLoading={initialLoading}
+                  timeLoading={timeLoading}
+                  setTimeLoading={setTimeLoading}
+                  checkInScheduleNotice={checkInScheduleNotice}
+                  setCheckInScheduleNotice={setCheckInScheduleNotice}
+                  visibleTimeSlots={visibleTimeSlots}
+                  isSlotExpiredForCheckIn={isSlotExpiredForCheckIn}
+                  to12h={to12h}
+                  getCurrentCourseTimesForDate={getCurrentCourseTimesForDate}
+                  photoPolicy={photoPolicy}
+                  preparedAccount={preparedAccount}
+                  setPreparedAccount={setPreparedAccount}
+                  setPhotoSaved={setPhotoSaved}
+                  setFormError={setFormError}
+                  requiresPhotoStep={requiresPhotoStep}
+                  step={step}
+                  steps={steps}
+                  stepKeys={stepKeys}
+                  setStep={setStep}
+                  photoStepIndex={photoStepIndex}
+                  effectiveConsecutiveOffer={effectiveConsecutiveOffer}
+                  effectiveIsPackageHolder={effectiveIsPackageHolder}
+                  consecutiveAccepted={consecutiveAccepted}
+                  setConsecutiveAccepted={setConsecutiveAccepted}
+                  consecutiveChoiceMade={consecutiveChoiceMade}
+                  setConsecutiveChoiceMade={setConsecutiveChoiceMade}
+                  consecutiveAddedCents={consecutiveAddedCents}
+                  setConsecutiveAddedCents={setConsecutiveAddedCents}
+                  kioskQrCheckoutLocked={kioskQrCheckoutLocked}
+                  couponInput={couponInput}
+                  setCouponInput={setCouponInput}
+                  appliedCoupon={appliedCoupon}
+                  setAppliedCoupon={setAppliedCoupon}
+                  subtotal={subtotal}
+                  total={total}
+                  serviceOpt={serviceOpt}
+                  pkgOpt={pkgOpt}
+                  addonsOpts={addonsOpts}
+                  paymentMethod={paymentMethod}
+                  setPaymentMethod={setPaymentMethod}
+                  paymentMethodLabel={paymentMethodLabel}
+                  formatPackageMeta={formatPackageMeta}
+                  activeNumericField={activeNumericField}
+                  handleNumpadBackspace={handleNumpadBackspace}
+                  handleNumpadClear={handleNumpadClear}
+                  handleNumpadDigit={handleNumpadDigit}
+                  kioskInfoPhase={kioskInfoPhase}
+                  phoneTouched={phoneTouched}
+                  setActiveNumericField={setActiveNumericField}
+                  setExistingAccountDetected={setExistingAccountDetected}
+                  setPendingAutoPay={setPendingAutoPay}
+                  setPhoneTouched={setPhoneTouched}
+                  setRequiresSignIn={setRequiresSignIn}
+                  setResumeAfterSignInStep={setResumeAfterSignInStep}
+                  setKioskInfoPhase={setKioskInfoPhase}
+                  shouldMaskKioskInfoContent={shouldMaskKioskInfoContent}
+                  usesPhasedInfoForm={usesPhasedInfoForm}
+                  t={t}
+                />
 
-                    {/* Ofertas de paquetes (OPCIONAL) */}
-                    {!!course.enrollment.packages.length && (
-                      <div className="rounded-md border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-medium">{t("optionalPackages")}</h4>
-                          {pkg && (
-                            <button type="button" onClick={()=>setPkg("")} className="text-xs underline">
-                              {t("removeSelection")}
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">{t("packagesHint")}</p>
-                        <div className={`mt-3 grid gap-2 ${isInline ? "grid-cols-2 auto-rows-fr" : "grid-cols-1 sm:grid-cols-2"}`}>
-                          {course.enrollment.packages.map((p) => {
-                            const selected = pkg === p.id
-                            const metaLine = formatPackageMeta(p)
-                            return (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => setPkg(p.id)}
-                                className={`h-full rounded-md border px-3 py-3 text-left transition ${
-                                  selected
-                                    ? "border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.12)] text-white"
-                                    : "border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 text-neutral-700 dark:text-white/80 hover:border-white/30"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-sm font-medium">{p.label}</span>
-                                  {p.price != null && <span className="text-sm font-semibold">{formatEnrollmentOptionPrice(p.price)}</span>}
-                                </div>
-                                {metaLine && (
-                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{metaLine}</p>
-                                )}
-                                {p.description && (
-                                  <p className="mt-1 text-xs text-neutral-500 dark:text-white/60">{p.description}</p>
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {!!course.enrollment.addons?.length && (
-                      <fieldset className="space-y-2">
-                        <label className="text-sm font-medium">{t("label_extras")}</label>
-                        <div className="grid grid-cols-1 gap-2">
-                          {course.enrollment.addons!.map((a) => (
-                            <label
-                              key={a.id}
-                              className="flex w-full items-center justify-between gap-3 rounded-md border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm"
-                            >
-                              <span>{a.label}{a.price ? ` — $${a.price}` : ""}</span>
-                              <input type="checkbox" checked={addons.includes(a.id)} onChange={() => toggleAddon(a.id)} className="h-4 w-4 shrink-0" />
-                            </label>
-                          ))}
-                        </div>
-                      </fieldset>
-                    )}
-                  </div>
-                )}
-
-                {activeStepKey === "datetime" && (
-                  <div className="grid grid-cols-1 gap-4">
-                    <fieldset className="space-y-2">
-                      <label className="text-sm font-medium">{t("step_datetime")}</label>
-                      {initialLoading ? (
-                        <div className="space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
-                          <div className="h-4 w-24 rounded-full shimmer" />
-                          <div className="grid grid-cols-7 gap-1">
-                            {Array.from({ length: 21 }).map((_, idx) => (
-                              <div key={idx} className="h-8 rounded-md shimmer" />
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <CalendarPicker
-                          value={date}
-                          onChange={(d) => {
-                            if (isCheckInFlow) return
-                            setDate(d)
-                            if (!d) {
-                              setTime("")
-                              setTimeLoading(false)
-                              setCheckInScheduleNotice(null)
-                              return
-                            }
-                            const nextSlots = getCurrentCourseTimesForDate(d)
-                            setTime(nextSlots[0] || "")
-                            setCheckInScheduleNotice(null)
-                            setTimeLoading(true)
-                            window.setTimeout(() => setTimeLoading(false), 350)
-                          }}
-                          compact={isInline}
-                          className="w-full"
-                          timezone={isCheckInFlow ? CHECKIN_TIME_ZONE : undefined}
-                          availableWeekdays={courseAvailableWeekdays}
-                          allowClear={!isCheckInFlow}
-                          locked={isCheckInFlow}
-                        />
-                      )}
-                    </fieldset>
-                    <fieldset className="space-y-2">
-                      <label className="text-sm font-medium">{t("label_selectTime")}</label>
-                      {date ? (
-                        <div className="flex flex-wrap gap-2">
-                          {timeLoading ? (
-                            <>
-                              <div className="h-9 w-24 rounded-md shimmer" />
-                              <div className="h-9 w-24 rounded-md shimmer" />
-                              <div className="h-9 w-24 rounded-md shimmer" />
-                            </>
-                          ) : (
-                            <>
-                              {visibleTimeSlots.map((tSlot) => {
-                                const slotExpired = isSlotExpiredForCheckIn(tSlot)
-                                const isLocked = isCheckInFlow
-                                return (
-                                  <button
-                                    type="button"
-                                    key={tSlot}
-                                    onClick={() => {
-                                      if (isLocked) return
-                                      setTime(tSlot)
-                                    }}
-                                    disabled={slotExpired}
-                                    className={`px-3 py-1.5 rounded-md border text-sm ${
-                                      time === tSlot
-                                        ? "bg-[var(--brand,#111)] text-white border-transparent"
-                                        : "border-black/10 dark:border-white/10"
-                                    } ${
-                                      slotExpired
-                                        ? "opacity-40 cursor-not-allowed"
-                                        : isLocked
-                                          ? "cursor-default"
-                                          : ""
-                                    }`}
-                                  >
-                                    {to12h(tSlot)}
-                                  </button>
-                                )
-                              })}
-                              {visibleTimeSlots.length === 0 && (
-                                <p className="text-xs text-muted-foreground">No time slots available for this day.</p>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-2">
-                          <p className="text-xs text-muted-foreground">Select a date to view available times.</p>
-                          <div className="h-3 w-32 rounded-full shimmer" />
-                          <div className="h-3 w-24 rounded-full shimmer" />
-                        </div>
-                      )}
-                      {isCheckInFlow && checkInScheduleNotice && (
-                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                          {checkInScheduleNotice}
-                        </div>
-                      )}
-                    </fieldset>
-                  </div>
-                )}
-
-                {activeStepKey === "info" && (
-                  <EnrollInfoStep
-                    activeNumericField={activeNumericField}
-                    contact={contact}
-                    handleNumpadBackspace={handleNumpadBackspace}
-                    handleNumpadClear={handleNumpadClear}
-                    handleNumpadDigit={handleNumpadDigit}
-                    isCheckInFlow={isCheckInFlow}
-                    isKioskTerminalFlow={isKioskTerminalFlow}
-                    kioskInfoPhase={kioskInfoPhase}
-                    phoneTouched={phoneTouched}
-                    service={service}
-                    setActiveNumericField={setActiveNumericField}
-                    setContact={setContact}
-                    setExistingAccountDetected={setExistingAccountDetected}
-                    setPendingAutoPay={setPendingAutoPay}
-                    setPhoneTouched={setPhoneTouched}
-                    setRequiresSignIn={setRequiresSignIn}
-                    setResumeAfterSignInStep={setResumeAfterSignInStep}
-                    setKioskInfoPhase={setKioskInfoPhase}
-                    shouldMaskKioskInfoContent={shouldMaskKioskInfoContent}
-                    t={t}
-                    usesPhasedInfoForm={usesPhasedInfoForm}
-                  />
-                )}
-
-                {activeStepKey === "photo" && (
-                  <div className="space-y-4">
-                    <ProfilePhotoCapture
-                      policy={photoPolicy}
-                      targetUserId={preparedAccount?.clerkUserId}
-                      onSaved={() => {
-                        setPhotoSaved(true)
-                        setPreparedAccount((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                hasAvatar: true,
-                              }
-                            : prev
-                        )
-                        setFormError(null)
-                      }}
-                      onSkipped={() => {
-                        // Pre-compute target index using the step array that will exist AFTER
-                        // photoSaved=true removes the photo step (avoids stale-closure index shift)
-                        const postSkipKeys = resolveEnrollStepKeys({
-                          isCheckInFlow,
-                          isQrMobileCompactFlow,
-                          isCheckInNewFlow,
-                          isKioskTerminalFlow,
-                          requiresPhotoStep: false,
-                          skipInfoStep: skipContactStep,
-                          hasPackages: (course?.enrollment?.packages?.length ?? 0) > 0,
-                          hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
-                        })
-                        const promoIdx = postSkipKeys.indexOf("promo")
-                        const packagesIdx = postSkipKeys.indexOf("packages")
-                        const consecutiveIdx = postSkipKeys.indexOf("consecutive")
-                        const paymentsIdx = postSkipKeys.indexOf("payments")
-                        const targetStep = promoIdx >= 0
-                          ? promoIdx
-                          : packagesIdx >= 0
-                            ? packagesIdx
-                            : consecutiveIdx >= 0
-                              ? consecutiveIdx
-                              : paymentsIdx >= 0
-                                ? paymentsIdx
-                                : postSkipKeys.length - 1
-
-                        setPhotoSaved(true)
-                        setStep(targetStep)
-                      }}
-                    />
-                  </div>
-                )}
-
-                {/* Packages step (kiosk only, after user info) */}
-                {activeStepKey === "packages" && (
-                  <div className="space-y-4">
-                    {/* Grid: 2 cols to match info step layout */}
-                    <div className={`grid gap-2.5 ${course.enrollment.packages.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-                      {course.enrollment.packages.map((p, index) => {
-                        const selected = pkg === p.id
-                        const metaLine = formatPackageMeta(p)
-                        const descriptionLine = p.description || metaLine
-                        const shouldShowMetaLine = Boolean(p.description && metaLine && metaLine !== p.description)
-                        const packageCardBackgrounds = [
-                          "bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.28),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_34%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))]",
-                          "bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(182,22,22,0.18),transparent_36%),linear-gradient(145deg,rgba(48,49,55,0.94),rgba(20,21,28,0.98))]",
-                          "bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.22),transparent_34%),radial-gradient(circle_at_center_right,rgba(255,255,255,0.09),transparent_38%),linear-gradient(145deg,rgba(50,48,54,0.95),rgba(19,18,25,0.99))]",
-                        ]
-                        const packageCardBackground = packageCardBackgrounds[index % packageCardBackgrounds.length]
-                        const isLastOddPackage = course.enrollment.packages.length > 1 &&
-                          course.enrollment.packages.length % 2 === 1 &&
-                          index === course.enrollment.packages.length - 1
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setPkg(selected ? "" : p.id)}
-                            className={`relative min-h-[7rem] w-full overflow-hidden rounded-[1.1rem] border px-3.5 py-3.5 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition ${isLastOddPackage ? "col-span-2" : ""} ${packageCardBackground} ${
-                              selected
-                                ? "border-[rgba(220,38,38,0.72)] ring-2 ring-[rgba(182,22,22,0.38)]"
-                                : "border-white/14 hover:border-white/24 hover:brightness-110"
-                            }`}
-                          >
-                            <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
-                            <div className="relative flex h-full flex-col gap-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="min-w-0 text-sm font-semibold uppercase tracking-[-0.01em] text-white leading-tight">{p.label}</p>
-                                {p.price != null && (
-                                  <p className="shrink-0 text-right text-lg font-semibold text-white">{formatEnrollmentOptionPrice(p.price)}</p>
-                                )}
-                              </div>
-                              {descriptionLine && (
-                                <p className="w-full text-xs leading-snug text-white/68 line-clamp-2">{descriptionLine}</p>
-                              )}
-                              {shouldShowMetaLine && (
-                                <p className="mt-auto w-full text-[11px] text-white/48">{metaLine}</p>
-                              )}
-                            </div>
-                          </button>
-                        )
-                      })}
-                      <button
-                        type="button"
-                        onClick={() => setPkg("")}
-                        className={`relative min-h-[7rem] w-full overflow-hidden rounded-[1.1rem] border px-3.5 py-3.5 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition ${course.enrollment.packages.length > 1 ? "col-span-2" : ""} bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(182,22,22,0.22),transparent_36%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))] ${
-                          !pkg
-                            ? "border-[rgba(220,38,38,0.72)] ring-2 ring-[rgba(182,22,22,0.38)]"
-                            : "border-white/14 hover:border-white/24 hover:brightness-110"
-                        }`}
-                      >
-                        <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
-                        <div className="relative flex h-full flex-col gap-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold uppercase tracking-[-0.01em] text-white">Drop-in</p>
-                              <p className="mt-0.5 text-[11px] text-white/50">{course.title} / {to12h(time)}</p>
-                            </div>
-                            <p className="shrink-0 text-right text-lg font-semibold text-white">${(isCheckInNewFlow || isQrMobileCompactFlow) ? "15" : "20"}</p>
-                          </div>
-                          <p className="w-full text-xs leading-snug text-white/68">
-                            {isCheckInNewFlow ? "First-time student single class." : "Single class without a package."}
-                          </p>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Kiosk promo step: consecutive class offer only */}
-                {activeStepKey === "promo" && (
-                  <div className="space-y-4">
-                    {effectiveConsecutiveOffer && (() => {
-                      const consecutivePriceCents = effectiveIsPackageHolder
-                        ? (effectiveConsecutiveOffer.packageHolderConsecutiveCents ?? 0)
-                        : (effectiveConsecutiveOffer.dropInConsecutiveCents ?? 0)
-                      const regularPriceCents = effectiveConsecutiveOffer.regularDropInCents ?? 0
-                      return (
-                        <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4">
-                          <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-white/48">Add Second Class Promotion</p>
-                          <div className="flex items-start justify-between gap-3 mb-3">
-                            <div className="min-w-0">
-                              <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200 mb-1">
-                                Promo
-                              </span>
-                              <p className="text-sm font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
-                              {effectiveConsecutiveOffer.linkedCourseTime && (
-                                <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
-                              )}
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <p className="text-lg font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
-                              {regularPriceCents > 0 && (
-                                <p className="text-xs font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setConsecutiveAccepted(true)
-                                setConsecutiveChoiceMade(true)
-                                setConsecutiveAddedCents(consecutivePriceCents)
-                              }}
-                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-                                consecutiveAccepted && consecutiveChoiceMade
-                                  ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-400/25"
-                                  : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300 hover:border-emerald-400/50"
-                              }`}
-                            >
-                              Add +${(consecutivePriceCents / 100).toFixed(2)}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setConsecutiveAccepted(false)
-                                setConsecutiveChoiceMade(true)
-                                setConsecutiveAddedCents(0)
-                              }}
-                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-                                consecutiveChoiceMade && !consecutiveAccepted
-                                  ? "border-red-500/60 bg-red-500/10 text-red-300 ring-2 ring-red-500/25"
-                                  : "border-red-500/25 bg-red-500/5 text-red-300/70 hover:border-red-500/40 hover:text-red-300"
-                              }`}
-                            >
-                              No thanks
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })()}
-                  </div>
-                )}
-
-                {/* Consecutive class offer step before payments */}
-                {activeStepKey === "consecutive" && effectiveConsecutiveOffer && (
-                  <div className="space-y-4">
-                    {(() => {
-                      const consecutivePriceCents = effectiveIsPackageHolder
-                        ? (effectiveConsecutiveOffer.packageHolderConsecutiveCents ?? 0)
-                        : (effectiveConsecutiveOffer.dropInConsecutiveCents ?? 0)
-                      const regularPriceCents = effectiveConsecutiveOffer.regularDropInCents ?? 0
-                      const selectPromo = () => {
-                        setConsecutiveAccepted(true)
-                        setConsecutiveChoiceMade(true)
-                        setConsecutiveAddedCents(consecutivePriceCents)
-                      }
-                      const declinePromo = () => {
-                        setConsecutiveAccepted(false)
-                        setConsecutiveChoiceMade(true)
-                        setConsecutiveAddedCents(0)
-                      }
-                      return (
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                          <p className="text-[10px] uppercase tracking-widest text-white/55">Add second class promotion</p>
-                          <div className="mt-2 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                                  PROMO
-                                </span>
-                              </div>
-                              <p className="mt-1.5 font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
-                              {effectiveConsecutiveOffer.linkedCourseTime && (
-                                <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
-                              )}
-                            </div>
-                            <div className="flex-shrink-0 text-right">
-                              {regularPriceCents > consecutivePriceCents && (
-                                <p className="text-xs text-red-400 line-through leading-none">${(regularPriceCents / 100).toFixed(2)}</p>
-                              )}
-                              <p className="text-base font-bold text-white leading-snug">${(consecutivePriceCents / 100).toFixed(2)}</p>
-                            </div>
-                          </div>
-                          <div className="mt-3 flex gap-2">
-                            <button
-                              type="button"
-                              onClick={selectPromo}
-                              className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition ${
-                                consecutiveAccepted && consecutiveChoiceMade
-                                  ? "bg-emerald-600 text-white ring-2 ring-emerald-400/25"
-                                  : "bg-emerald-500 text-white hover:bg-emerald-400"
-                              }`}
-                            >
-                              Add +${(consecutivePriceCents / 100).toFixed(2)}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={declinePromo}
-                              className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition ${
-                                consecutiveChoiceMade && !consecutiveAccepted
-                                  ? "border-red-400/40 bg-red-500/10 text-red-400 ring-2 ring-red-400/25"
-                                  : "border-red-400/30 bg-transparent text-red-400 hover:bg-red-500/10"
-                              }`}
-                            >
-                              No thanks
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })()}
-                  </div>
-                )}
-
-                {activeStepKey === "payments" && (
-                  <div className="space-y-4">
-                    {/* Payments step */}
-                    <div className="relative overflow-hidden rounded-[1.15rem] border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_30%),linear-gradient(145deg,rgba(44,45,55,0.96),rgba(19,20,27,0.99))] p-4 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
-                      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
-                      <div className="relative space-y-4">
-                        {isCheckInFlow && (
-                          <>
-                            <div>
-                              <div className="text-sm font-semibold text-white">{t("reviewAndConfirm")}</div>
-                              <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-white/68 sm:grid-cols-2">
-                                <div>{t("course")}: <span className="text-white">{course.title}</span></div>
-                                <div>{t("service")}: <span className="text-white">{course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (included in package)" : ""}</span></div>
-                                <div>{t("dateTime")}: <span className="text-white">{date} {to12h(time)}</span></div>
-                                <div>{t("people")}: <span className="text-white">{participants}</span></div>
-                                <div>{t("name")}: <span className="text-white">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</span></div>
-                                <div>{t("email")}: <span className="text-white">{contact.email || "—"}</span></div>
-                                <div>Phone: <span className="text-white">{contact.phone || "—"}</span></div>
-                                {!!addons.length && (
-                                  <div>{t("extras")}: <span className="text-white">{addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</span></div>
-                                )}
-                                {pkg && (
-                                  <div>{t("package")}: <span className="text-white">{course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</span></div>
-                                )}
-                                {contact.note && <div className="sm:col-span-2">{t("notes")}: <span className="text-white">{contact.note}</span></div>}
-                              </div>
-                            </div>
-                            <div className="h-px bg-white/12" aria-hidden />
-                          </>
-                        )}
-
-                        <div>
-                          <div className="text-[11px] uppercase tracking-[0.14em] text-white/48">{t("payments_classes")}</div>
-                          <div className="mt-1 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold leading-snug text-white">
-                                {course.title}{time ? ` · ${to12h(time)}` : ""} — {course.enrollment.services.find((s)=>s.id===service)?.label}
-                              </div>
-                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
-                                {date && <span>Date: {date}{time ? ` · ${to12h(time)}` : ""}</span>}
-                                {course.location?.address && <span>Address: {course.location.address}</span>}
-                              </div>
-                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
-                                <span>{participants} {participants===1?t("onePerson"):t("manyPeople")}</span>
-                                <span>Service: {serviceOpt?.label || "—"}{pkgOpt ? " (included)" : ""}</span>
-                                {pkgOpt && <span>Package: {pkgOpt.label}</span>}
-                                {!!addonsOpts.length && <span>Extras: {addonsOpts.map((a)=>a.label).join(", ")}</span>}
-                              </div>
-                            </div>
-                            <span className="shrink-0 text-sm font-semibold text-white">${subtotal.toFixed(2)}</span>
-                          </div>
-                          {consecutiveAccepted && effectiveConsecutiveOffer && (
-                            <div className="mt-2 flex items-start justify-between gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
-                              <div className="min-w-0">
-                                <div className="text-sm font-semibold leading-snug text-white">
-                                  + {effectiveConsecutiveOffer.linkedCourseTitle}{effectiveConsecutiveOffer.linkedCourseTime ? ` · ${to12h(effectiveConsecutiveOffer.linkedCourseTime)}` : ""}
-                                </div>
-                                <div className="mt-0.5 text-[11px] text-emerald-300/70">
-                                  Second class promotion
-                                </div>
-                              </div>
-                              <span className="shrink-0 text-sm font-semibold text-emerald-300">${(consecutiveAddedCents / 100).toFixed(2)}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3 pt-1">
-                          <label className="text-sm font-medium shrink-0" htmlFor="coupon">{t("payments_coupon")}</label>
-                          <input
-                            id="coupon"
-                            value={couponInput}
-                            onChange={(e)=>setCouponInput(e.target.value)}
-                            placeholder={t("payments_coupon_placeholder")}
-                            disabled={kioskQrCheckoutLocked}
-                            className="min-w-0 flex-1 rounded-md border border-black/10 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 py-2 text-sm"
-                          />
-                          {appliedCoupon ? (
-                            <button
-                              type="button"
-                              disabled={kioskQrCheckoutLocked}
-                              onClick={()=>{ setAppliedCoupon(null); setCouponInput("") }}
-                              className="shrink-0 rounded-md border border-black/10 dark:border-white/10 px-3 py-2 text-sm"
-                            >
-                              {t("payments_remove")}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={kioskQrCheckoutLocked}
-                              onClick={()=>{
-                                const code = couponInput.trim().toUpperCase()
-                                if (code === "PLI10") setAppliedCoupon({ code, type: "percent", value: 10 })
-                                else if (code === "PLI20") setAppliedCoupon({ code, type: "percent", value: 20 })
-                                else if (!code) return
-                                else alert(t("payments_invalidCoupon"))
-                              }}
-                              className="shrink-0 rounded-md bg-[var(--brand,#111)] text-white px-3 py-2 text-sm"
-                            >
-                              {t("payments_add")}
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm">
-                          <span className="font-medium">{t("payments_totalAmount")}</span>
-                          <span className="font-semibold">${total.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="text-sm font-semibold mb-2">{t("payments_method")}</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          disabled={kioskQrCheckoutLocked}
-                          onClick={()=>setPaymentMethod("onsite")}
-                          className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod==="onsite"?"border-[var(--brand,#111)] bg-[var(--brand,#111)]/5":"border-black/10 dark:border-white/10"}`}
-                        >
-                          <div className="flex items-center gap-2 font-medium">
-                            <Building2 className="h-4 w-4" aria-hidden />
-                            {t("payments_onSite")}
-                          </div>
-                          <div className="mt-1 text-xs text-neutral-500">{t("payments_onSite_desc")}</div>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={kioskQrCheckoutLocked}
-                          onClick={()=>setPaymentMethod("stripe")}
-                          className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod==="stripe"?"border-[var(--brand,#111)] bg-[var(--brand,#111)]/5":"border-black/10 dark:border-white/10"}`}
-                        >
-                          <div className="flex items-center gap-2 font-medium">
-                            <CreditCard className="h-4 w-4" aria-hidden />
-                            {t("payments_stripe")}
-                          </div>
-                          <div className="mt-1 text-xs text-neutral-500">{t("payments_stripe_desc")}</div>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {!isCheckInFlow && activeStepKey === "review" && (
-                  <div className="space-y-4">
-                    <GlassyCard className="p-4">
-                      <div className="text-sm space-y-1">
-                        <div className="font-medium">{t("reviewAndConfirm")}</div>
-                        <div>{t("course")}: {course.title}</div>
-                        <div>{t("service")}: {course.enrollment.services.find((s)=>s.id===service)?.label}{pkgOpt ? " (included in package)" : ""}</div>
-                        <div>{t("package")}: {course.enrollment.packages.find((p)=>p.id===pkg)?.label || "—"}</div>
-                        {!!addons.length && <div>{t("extras")}: {addons.map((a)=>course.enrollment.addons?.find(x=>x.id===a)?.label).filter(Boolean).join(", ")}</div>}
-                        <div>{t("people")}: {participants}</div>
-                        <div>{t("dateTime")}: {date} {to12h(time)}</div>
-                        <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
-                        <div>{t("email")}: {contact.email || "—"}</div>
-                        <div>Phone: {contact.phone || "—"}</div>
-                        <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
-                        {contact.note && <div>{t("notes")}: {contact.note}</div>}
-                        <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
-                      </div>
-                    </GlassyCard>
-
-                  </div>
-                )}
-
-                {/* Footer actions */}
-                <div className={isInline ? "flex flex-col gap-2 pt-2" : "flex items-center justify-between pt-2"}>
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    className={isInline ? "w-full px-4 py-2 rounded-md border border-black/10 dark:border-white/10" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10"}
-                  >
-                    {t("cancel")}
-                  </button>
-                  <div className={isInline ? `grid w-full ${allowPanelAccess ? "grid-cols-3" : "grid-cols-2"} gap-2` : "flex gap-2"}>
-                    {allowPanelAccess && (
-                      <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
-                    )}
-                    {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (kioskQrCheckoutLocked) {
-                            resetKioskQrCheckout()
-                            return
-                          }
-                          if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })) {
-                            // Go back to the initial phase of the info form
-                            setKioskInfoPhase(initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow }))
-                            if (isKioskTerminalFlow) setActiveNumericField("phone")
-                            else setActiveNumericField(null)
-                            return
-                          }
-                          if (step === 0) {
-                            handleClose()
-                            return
-                          }
-                          setStep((s) => s - 1)
-                        }}
-                        className={isInline ? "px-3 py-2 rounded-md border border-black/10 dark:border-white/10 text-sm" : "px-4 py-2 rounded-md border border-black/10 dark:border-white/10"}
-                      >
-                        {kioskQrCheckoutLocked
-                          ? "Cancel QR"
-                          : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
-                            ? "Back"
-                            : step === 0
-                              ? t("cancel")
-                              : t("back")}
-                      </button>
-                    )}
-                    {step < steps.length - 1 ? (
-                      <button
-                        type="submit"
-                        disabled={!canContinueCurrentStep || identityCheckBusy}
-                        className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
-                      >
-                        {identityCheckBusy
-                          ? t("verifyingAccount")
-                          : consecutiveOfferLoading && (activeStepKey === "datetime" || activeStepKey === "payments")
-                            ? "Checking promotions..."
-                            : t("continue")}
-                      </button>
-                    ) : (
-                        <button
-                          type="button"
-                          onClick={() => void handleSubmit()}
-                          disabled={!canContinueCurrentStep || processing || identityCheckBusy || kioskQrCheckoutLocked}
-                          className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
-                        >
-                          {processing
-                            ? "Processing..."
-                            : consecutiveOfferLoading && activeStepKey === "payments"
-                              ? "Checking promotions..."
-                            : isKioskTerminalFlow && paymentMethod === "stripe"
-                              ? kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
-                                ? "Create new QR"
-                                : "Show QR"
-                              : t("confirm")}
-                        </button>
-                    )}
-                  </div>
-                </div>
+                <EnrollFormFooter
+                  step={step}
+                  steps={steps}
+                  activeStepKey={activeStepKey}
+                  isInline={isInline}
+                  allowPanelAccess={allowPanelAccess}
+                  usesPhasedInfoForm={usesPhasedInfoForm}
+                  kioskInfoPhase={kioskInfoPhase}
+                  kioskQrCheckoutLocked={kioskQrCheckoutLocked}
+                  kioskQrCheckout={kioskQrCheckout}
+                  isKioskTerminalFlow={isKioskTerminalFlow}
+                  paymentMethod={paymentMethod}
+                  processing={processing}
+                  identityCheckBusy={identityCheckBusy}
+                  consecutiveOfferLoading={consecutiveOfferLoading}
+                  canContinueCurrentStep={canContinueCurrentStep}
+                  handleClose={handleClose}
+                  handleSubmit={handleSubmit}
+                  resetKioskQrCheckout={resetKioskQrCheckout}
+                  setStep={setStep}
+                  setKioskInfoPhase={setKioskInfoPhase}
+                  setActiveNumericField={setActiveNumericField}
+                  t={t}
+                />
                 {formError && <p className="text-sm text-red-600 mt-2" role="alert" aria-live="polite">{formError}</p>}
               </form>
             )}
