@@ -8,14 +8,15 @@ import {
   Camera,
   CreditCard,
   Building2,
+  Tag,
   User,
   FileText,
   CheckCircle2,
 } from "lucide-react"
-import type { EnrollmentOption } from "@/constants/courses"
 import type { EnrollmentContact } from "@/components/front/courses/types"
 import { resolveStepValid, type StepValidContext } from "@/components/front/courses/enroll/model/enroll-step-valid"
 import type { EnrollStepKey } from "@/lib/checkin/enroll-flow"
+import type { I18nKey } from "@/lib/i18n-dict"
 
 type Step = { key: EnrollStepKey; label: string }
 
@@ -52,7 +53,7 @@ export type EnrollSidebarProps = {
   time: string
   stepValidCtx: StepValidContext
   onStepClick: (index: number) => void
-  t: (key: string) => string
+  t: (key: I18nKey) => string
 }
 
 const stepIconMap: Record<string, React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>> = {
@@ -61,6 +62,7 @@ const stepIconMap: Record<string, React.ComponentType<{ className?: string; "ari
   info: FileText,
   photo: Camera,
   packages: Building2,
+  promo: Tag,
   consecutive: CalendarCheck,
   payments: CreditCard,
   review: CheckCircle2,
