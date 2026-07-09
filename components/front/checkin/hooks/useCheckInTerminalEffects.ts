@@ -5,6 +5,7 @@ import {
   shouldAutoTriggerPackageCheckIn,
   shouldPreserveOfferOnBootstrapClear,
   shouldAutoPromoteExistingMode,
+  PACKAGE_CHECK_IN_MAX_ATTEMPTS,
 } from "@/lib/checkin/existing-customer-flow"
 import { TRANSIENT_MESSAGE_TIMEOUT_MS } from "@/lib/checkin/checkin-helpers"
 import { hasTerminalSensitiveCustomerState } from "@/lib/checkin/terminal-sensitive-state"
@@ -12,6 +13,7 @@ import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import type { EntryMode, BootstrapResponse, PackageOfferContext, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { PackageCheckInResult } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
+import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 
 // ─── Input type ──────────────────────────────────────────────
 
@@ -53,6 +55,13 @@ export type UseCheckInTerminalEffectsInput = {
   // Package check-in
   processingPackageCheckIn: boolean
   packageCheckInResult: PackageCheckInResult | null
+  /** Completed kiosk auto-retry attempts. */
+  packageCheckInAttempts: number
+  /** Terminal kiosk package check-in failure, if any. */
+  packageCheckInFailure: PackageCheckInFailure | null
+  /** True while a backoff delay is pending before the next automatic attempt. */
+  retryBackoffActive: boolean
+  setPackageCheckInFailure: (failure: PackageCheckInFailure | null) => void
   hasUsablePackageForCurrentClass: boolean
   effectiveCheckInWindowOpen: boolean
   handlePackageCheckIn: () => Promise<void>
@@ -116,6 +125,10 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
     newBookingOverride,
     processingPackageCheckIn,
     packageCheckInResult,
+    packageCheckInAttempts,
+    packageCheckInFailure,
+    retryBackoffActive,
+    setPackageCheckInFailure,
     hasUsablePackageForCurrentClass,
     effectiveCheckInWindowOpen,
     handlePackageCheckIn,
@@ -295,6 +308,10 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
         hasActiveSession: hasActiveClerkSession || hasKioskPinSession,
         hasConsecutiveOffer: Boolean(consecutiveOffer),
         consecutiveOfferSettled,
+        attemptCount: packageCheckInAttempts,
+        maxAttempts: PACKAGE_CHECK_IN_MAX_ATTEMPTS,
+        hasTerminalFailure: Boolean(packageCheckInFailure),
+        retryBackoffActive,
       })
     ) {
       return
@@ -314,8 +331,11 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
     isKioskTerminalFlow,
     mode,
     awaitingConsecutivePaymentSelection,
+    packageCheckInAttempts,
+    packageCheckInFailure,
     packageCheckInResult,
     processingPackageCheckIn,
+    retryBackoffActive,
     setShowConsecutiveOverlay,
     setShowConsecutivePaymentSelection,
     showConsecutivePaymentSelection,
@@ -334,12 +354,18 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
         processingPackageCheckIn,
         hasPackageCheckInResult: Boolean(packageCheckInResult),
         hasExistingRegularBookingOverride: Boolean(existingRegularBookingOverride),
+        hasPackageCheckInFailure: Boolean(packageCheckInFailure),
       })
     ) {
       return
     }
 
-    setError("The check-in window for this class is closed.")
+    // `KioskPackageCheckInFailureOverlay` is the sole kiosk failure surface
+    // (PR3) — the PR2-era transient `setError` parity call was removed here.
+    setPackageCheckInFailure({
+      kind: "closed_window",
+      message: "The check-in window for this class is closed.",
+    })
   }, [
     bootstrap,
     effectiveCheckInWindowOpen,
@@ -347,9 +373,10 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
     hasUsablePackageForCurrentClass,
     isKioskTerminalFlow,
     mode,
+    packageCheckInFailure,
     packageCheckInResult,
     processingPackageCheckIn,
-    setError,
+    setPackageCheckInFailure,
   ])
 
   // ── Transient feedback timeout ───────────────────────────────

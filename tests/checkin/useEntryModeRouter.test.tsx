@@ -130,4 +130,67 @@ describe("useEntryModeRouter", () => {
     expect(params.refreshConsecutiveOffer).toHaveBeenCalled()
     expect(params.handleStationCompletion).toHaveBeenCalled()
   })
+
+  // ─── PR3: non-kiosk handleBootstrapAction regression — shared handlePackageCheckIn,
+  // single explicit attempt, no kiosk-only overlay/retry state (this hook never
+  // receives packageCheckInFailure/packageCheckInAttempts/retryBackoffActive at all) ───
+
+  describe("handleBootstrapAction (non-kiosk)", () => {
+    it("routes a single explicit tap through the shared handlePackageCheckIn for a package holder", async () => {
+      const { params, getResult } = await mount(
+        defaultParams({
+          isKioskTerminalFlow: false,
+          bootstrap: {
+            context: { courseSlug: "salsa", date: "2026-06-04", time: "20:00" },
+            package: { id: "pkg-1" },
+          } as HookParams["bootstrap"],
+        })
+      )
+
+      act(() => getResult().handleBootstrapAction())
+
+      expect(params.handlePackageCheckIn).toHaveBeenCalledTimes(1)
+      expect(params.openExistingPurchaseFlow).not.toHaveBeenCalled()
+
+      // A second explicit tap is a second single attempt — never an automatic
+      // retry loop; this hook has no attempt counter or backoff state to gate it.
+      act(() => getResult().handleBootstrapAction())
+      expect(params.handlePackageCheckIn).toHaveBeenCalledTimes(2)
+    })
+
+    it("surfaces a closed check-in window via setError — never calls handlePackageCheckIn or a kiosk overlay", async () => {
+      const { params, getResult } = await mount(
+        defaultParams({
+          isKioskTerminalFlow: false,
+          effectiveCheckInWindowOpen: false,
+        })
+      )
+
+      act(() => getResult().handleBootstrapAction())
+
+      expect(params.setError).toHaveBeenCalledWith("The check-in window for this class is closed.")
+      expect(params.handlePackageCheckIn).not.toHaveBeenCalled()
+    })
+
+    it("opens the existing-purchase flow (not handlePackageCheckIn) when the customer has no package", async () => {
+      const { params, getResult } = await mount(
+        defaultParams({
+          isKioskTerminalFlow: false,
+          bootstrap: {
+            context: { courseSlug: "salsa", date: "2026-06-04", time: "20:00" },
+            package: null,
+          } as HookParams["bootstrap"],
+        })
+      )
+
+      act(() => getResult().handleBootstrapAction())
+
+      expect(params.openExistingPurchaseFlow).toHaveBeenCalledWith({
+        courseSlug: "salsa",
+        date: "2026-06-04",
+        time: "20:00",
+      })
+      expect(params.handlePackageCheckIn).not.toHaveBeenCalled()
+    })
+  })
 })

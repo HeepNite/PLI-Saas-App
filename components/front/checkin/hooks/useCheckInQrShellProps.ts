@@ -1,6 +1,7 @@
 import { toEsDateTime } from "@/lib/checkin/checkin-helpers"
 import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrShell"
 import type { EntryMode, BootstrapResponse, ConsecutiveOffer, TerminalPastClass } from "@/components/front/checkin/checkin.types"
+import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { ComponentProps } from "react"
@@ -140,6 +141,13 @@ export type UseCheckInQrShellPropsInput = {
   newBookingCourse: CourseData | null
   openNewBooking: boolean
   packageCheckInResult: PackageCheckInResult | null
+  /** Terminal kiosk package check-in failure, if any. */
+  packageCheckInFailure: PackageCheckInFailure | null
+  /** True when the kiosk failure overlay should render instead of the resolving spinner. */
+  showPackageCheckInFailureOverlay: boolean
+  /** Completed kiosk auto-retry attempts. */
+  packageCheckInAttempts: number
+  onRetryPackageCheckIn: () => void
   photoFlowContext: EnrollModalLike["photoFlowContext"]
   showConsecutiveOverlay: boolean
   showConsecutivePaymentSelection: boolean

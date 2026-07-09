@@ -259,9 +259,16 @@ export function useCheckInQrController({
   const {
     packageCheckInResult,
     setPackageCheckInResult,
+    packageCheckInFailure,
+    packageCheckInAttempts,
+    retryBackoffActive,
+    clearPackageCheckInBackoff,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
     performPackageCheckInApi,
     handlePackageCheckIn,
     handlePackageSuccessDone,
+    handleRetryPackageCheckIn,
   } = useCheckInPackageFlow({
     bootstrap,
     getToken,
@@ -309,6 +316,7 @@ export function useCheckInQrController({
     openNewBooking,
     processingPackageCheckIn,
     hasPackageCheckInResult: Boolean(packageCheckInResult),
+    hasPackageCheckInFailure: Boolean(packageCheckInFailure),
     packageOfferContext,
   })
 
@@ -331,6 +339,7 @@ export function useCheckInQrController({
     showLatePaymentOffer,
     showContextWarning,
     showKioskResolvingOverlay,
+    showPackageCheckInFailureOverlay,
     welcomeLabel,
     shellEyebrow,
     mainSpacingClass,
@@ -399,6 +408,9 @@ export function useCheckInQrController({
     setShowConsecutiveOverlay,
     setShowConsecutivePaymentSelection,
     setAwaitingConsecutivePaymentSelection,
+    clearPackageCheckInBackoff,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
   })
   handleStationCompletionRef.current = handleStationCompletion
 
@@ -792,6 +804,10 @@ export function useCheckInQrController({
     newBookingOverride,
     processingPackageCheckIn,
     packageCheckInResult,
+    packageCheckInAttempts,
+    packageCheckInFailure,
+    retryBackoffActive,
+    setPackageCheckInFailure,
     hasUsablePackageForCurrentClass,
     effectiveCheckInWindowOpen,
     handlePackageCheckIn,
@@ -913,6 +929,10 @@ export function useCheckInQrController({
     newBookingCourse,
     openNewBooking,
     packageCheckInResult,
+    packageCheckInFailure,
+    showPackageCheckInFailureOverlay,
+    packageCheckInAttempts,
+    onRetryPackageCheckIn: handleRetryPackageCheckIn,
     photoFlowContext,
     showConsecutiveOverlay,
     showConsecutivePaymentSelection,

@@ -190,6 +190,12 @@ type KioskResolvingOverlayInput = {
   hasExistingPurchaseForSession?: boolean
   /** True when quick repeat overlay will handle the flow — hide resolving overlay */
   quickRepeatEligible?: boolean
+  /**
+   * True once a terminal package check-in failure has been recorded. When
+   * true, the resolving spinner must exit — the failure overlay takes over.
+   * Defaults to false.
+   */
+  hasPackageCheckInFailure?: boolean
 }
 
 /**
@@ -217,13 +223,57 @@ export const shouldShowKioskResolvingOverlay = (input: KioskResolvingOverlayInpu
   if (!input.hasBootstrap) return false
   // Package flow: cover both the API call and the one-render-cycle gap between
   // bootstrap arrival and the auto-trigger effect starting package check-in.
-  if (input.hasPackage) return !input.hasPackageCheckInResult
+  if (input.hasPackage) return !input.hasPackageCheckInResult && !input.hasPackageCheckInFailure
   // Keep the overlay until the EnrollModal is actually open (override set).
   if (!input.hasExistingRegularBookingOverride) return true
   // EnrollModal is open but hasn't reached target step yet — keep covering the
   // transition (info skip → packages/payments render).
   if (!input.paymentsStepReady) return true
   return false
+}
+
+type PackageCheckInFailureOverlayInput = {
+  isKioskTerminalFlow: boolean
+  mode: string
+  hasActiveCustomerSession: boolean
+  hasPendingPinRotation: boolean
+  loadingBootstrap: boolean
+  hasBootstrap: boolean
+  hasPackage: boolean
+  hasPackageCheckInFailure: boolean
+  hasExistingPurchaseForSession?: boolean
+  hasPackageOffer: boolean
+  quickRepeatEligible?: boolean
+}
+
+/**
+ * Returns true when the kiosk terminal failure overlay (Retry + see-staff)
+ * should render instead of the resolving spinner.
+ *
+ * Duplicates the SAME front-guards, in the SAME order, as
+ * `shouldShowKioskResolvingOverlay` through `hasPackageOffer` — so
+ * `quickRepeatEligible: true` deterministically yields `false` from BOTH
+ * gates. `hasPackageCheckInFailure` occupies the same structural position
+ * `hasPackageCheckInResult` occupies in the resolving overlay's `hasPackage`
+ * branch.
+ *
+ * `hasVisibleError` is intentionally NOT mirrored: once a terminal package
+ * check-in failure is recorded, the customer must always get Retry/see-staff
+ * guidance rather than a bare inline-error state on an unattended kiosk.
+ */
+export const shouldShowPackageCheckInFailureOverlay = (input: PackageCheckInFailureOverlayInput): boolean => {
+  if (!input.isKioskTerminalFlow || input.mode !== "existing" || !input.hasActiveCustomerSession) {
+    return false
+  }
+  if (input.hasPendingPinRotation) return false
+  // Same precedence as the resolving overlay: Quick Repeat wins.
+  if (input.quickRepeatEligible) return false
+  if (input.hasExistingPurchaseForSession) return false
+  if (input.hasPackageOffer) return false
+  if (input.loadingBootstrap) return false // nothing failed yet
+  if (!input.hasBootstrap) return false
+  if (!input.hasPackage) return false // package-specific gate
+  return input.hasPackageCheckInFailure
 }
 
 export const resolveKioskQrPhaseFromStatus = (status: string | null | undefined): KioskQrCheckoutPhase => {

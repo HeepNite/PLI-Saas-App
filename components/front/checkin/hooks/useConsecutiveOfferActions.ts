@@ -14,6 +14,7 @@ import {
   createEmptyKioskQrCheckoutState,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
+import type { PackageCheckInOutcome } from "@/lib/checkin/existing-customer-flow"
 import type { BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
 
@@ -32,7 +33,7 @@ type UseConsecutiveOfferActionsOptions = {
   packageCheckInResult: PackageCheckInResult | null
   currentCheckInCourseSlug: string
   sourceCourses: CourseData[]
-  performPackageCheckInApi: () => Promise<PackageCheckInResult | null>
+  performPackageCheckInApi: () => Promise<PackageCheckInOutcome>
   openExistingPurchaseFlow: (context: { courseSlug: string; date: string; time: string }) => void
   handleStationCompletion: () => void | Promise<void>
   hasUsablePackageForCurrentClass: boolean
@@ -121,8 +122,8 @@ export function useConsecutiveOfferActions({
         setConsecutiveProcessingAction("accept")
         setConsecutiveError(null)
         const checkInResult = await performPackageCheckInApi()
-        if (!checkInResult) {
-          setConsecutiveError("Unable to check in with package.")
+        if ("kind" in checkInResult) {
+          setConsecutiveError(checkInResult.message)
           setConsecutiveProcessing(false)
           setConsecutiveProcessingAction(null)
           return
@@ -228,8 +229,8 @@ export function useConsecutiveOfferActions({
       const checkInResult = await performPackageCheckInApi()
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
-      if (!checkInResult) {
-        setConsecutiveError("Unable to check in with package.")
+      if ("kind" in checkInResult) {
+        setConsecutiveError(checkInResult.message)
         return
       }
       setPackageCheckInResult(checkInResult)

@@ -10,6 +10,19 @@ type GetRequestOptions = {
   signal?: AbortSignal
 }
 
+/**
+ * `timeoutMs` and `signal` are mutually exclusive: when `timeoutMs` is set,
+ * `postJson` owns its own `AbortController` and any passed `signal` is
+ * ignored. Today only `requestPackageCheckInApi` passes `timeoutMs`; no
+ * caller passes both.
+ */
+type PostJsonOptions = JsonRequestOptions & {
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+const PACKAGE_CHECK_IN_TIMEOUT_MS = 12_000
+
 const resolveFetch = (fetchImpl?: FetchImpl) => fetchImpl ?? fetch
 
 const readJsonOrNull = async (res: Response) => res.json().catch(() => null)
@@ -19,15 +32,23 @@ const buildJsonHeaders = (token?: string | null) => ({
   ...(token ? { Authorization: `Bearer ${token}` } : {}),
 })
 
-const postJson = async (url: string, payload: Record<string, unknown>, options: JsonRequestOptions = {}) => {
-  const res = await resolveFetch(options.fetchImpl)(url, {
-    method: "POST",
-    headers: buildJsonHeaders(options.token),
-    credentials: "include",
-    body: JSON.stringify(payload),
-  })
-  const data = await readJsonOrNull(res)
-  return { res, data }
+const postJson = async (url: string, payload: Record<string, unknown>, options: PostJsonOptions = {}) => {
+  const controller = options.timeoutMs !== undefined ? new AbortController() : null
+  const timeout = controller ? setTimeout(() => controller.abort(), options.timeoutMs) : null
+
+  try {
+    const res = await resolveFetch(options.fetchImpl)(url, {
+      method: "POST",
+      headers: buildJsonHeaders(options.token),
+      credentials: "include",
+      body: JSON.stringify(payload),
+      signal: controller ? controller.signal : options.signal,
+    })
+    const data = await readJsonOrNull(res)
+    return { res, data }
+  } finally {
+    if (timeout !== null) clearTimeout(timeout)
+  }
 }
 
 export const requestCheckInBootstrapApi = async ({
@@ -44,7 +65,7 @@ export const requestPackageCheckInApi = async ({
   fetchImpl,
 }: JsonRequestOptions & {
   payload: Record<string, unknown>
-}) => postJson("/api/checkin/qr/package", payload, { token, fetchImpl })
+}) => postJson("/api/checkin/qr/package", payload, { token, fetchImpl, timeoutMs: PACKAGE_CHECK_IN_TIMEOUT_MS })
 
 export const requestDropInCheckInApi = async ({
   payload,

@@ -23,6 +23,7 @@ const renderDisplay = async ({
   bootstrap = null,
   processingPackageCheckIn = false,
   hasPackageCheckInResult = false,
+  hasPackageCheckInFailure = false,
   packageOfferContext = null,
   sourceCourses = demoCourses,
   nowTick = new Date("2026-04-02T18:00:00.000Z"),
@@ -36,6 +37,7 @@ const renderDisplay = async ({
   bootstrap?: BootstrapResponse | null
   processingPackageCheckIn?: boolean
   hasPackageCheckInResult?: boolean
+  hasPackageCheckInFailure?: boolean
   packageOfferContext?: PackageOfferContext
   sourceCourses?: CourseData[]
   nowTick?: Date
@@ -70,6 +72,7 @@ const renderDisplay = async ({
       openNewBooking: false,
       processingPackageCheckIn,
       hasPackageCheckInResult,
+      hasPackageCheckInFailure,
       packageOfferContext,
     })
 
@@ -373,6 +376,104 @@ describe("useCheckInDisplayData", () => {
 
     expect(rendered.getSnapshot().showKioskResolvingOverlay).toBe(false)
     expect(rendered.getSnapshot().showSignedInBootstrapPanel).toBe(false)
+  })
+
+  it("exits the resolving overlay deterministically once a package check-in failure is recorded (PR2 wiring, independent of setError/hasVisibleError)", async () => {
+    // This proves the CALL SITE forwards hasPackageCheckInFailure into
+    // shouldShowKioskResolvingOverlay — the pure gate itself was already
+    // covered in PR1's kiosk-qr-payment.test.ts. visibleError is left null
+    // here (not passed by this test harness) to prove the spinner-exit does
+    // NOT depend on setError/hasVisibleError, only on the failure flag.
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasKioskPinSession: true,
+      bootstrap: createBootstrap({ package: createActivePackage() }),
+      hasPackageCheckInResult: false,
+      hasPackageCheckInFailure: true,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showKioskResolvingOverlay).toBe(false)
+  })
+
+  it("keeps the resolving overlay up while hasPackageCheckInFailure is false and no result yet (default-preserves-behavior)", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasKioskPinSession: true,
+      bootstrap: createBootstrap({ package: createActivePackage() }),
+      hasPackageCheckInResult: false,
+      hasPackageCheckInFailure: false,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showKioskResolvingOverlay).toBe(true)
+  })
+
+  // ─── PR3: showPackageCheckInFailureOverlay ─────────────────────────────
+
+  it("shows the package check-in failure overlay once a terminal failure is recorded", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasKioskPinSession: true,
+      bootstrap: createBootstrap({ package: createActivePackage() }),
+      hasPackageCheckInResult: false,
+      hasPackageCheckInFailure: true,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showPackageCheckInFailureOverlay).toBe(true)
+    expect(rendered.getSnapshot().showKioskResolvingOverlay).toBe(false)
+  })
+
+  it("keeps the package check-in failure overlay hidden while no failure has been recorded", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasKioskPinSession: true,
+      bootstrap: createBootstrap({ package: createActivePackage() }),
+      hasPackageCheckInResult: false,
+      hasPackageCheckInFailure: false,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showPackageCheckInFailureOverlay).toBe(false)
+  })
+
+  it("hides the package check-in failure overlay for a Quick-Repeat-eligible customer (same precedence as the resolving overlay)", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      mode: "existing",
+      hasKioskPinSession: true,
+      bootstrap: createBootstrap({ package: createActivePackage(), quickRepeatEligible: true }),
+      hasPackageCheckInResult: false,
+      hasPackageCheckInFailure: true,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showPackageCheckInFailureOverlay).toBe(false)
+  })
+
+  it("keeps the package check-in failure overlay hidden outside kiosk terminal flow", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "qr",
+      mode: "existing",
+      hasActiveClerkSession: true,
+      bootstrap: createBootstrap({ package: createActivePackage() }),
+      hasPackageCheckInResult: false,
+      hasPackageCheckInFailure: true,
+    })
+    root = rendered.root
+    container = rendered.container
+
+    expect(rendered.getSnapshot().showPackageCheckInFailureOverlay).toBe(false)
   })
 
   it("shows the kiosk PIN panel when there is no kiosk pin session in existing mode", async () => {
