@@ -30,7 +30,7 @@ describe("enroll flow helpers", () => {
     ).toBe(false)
   })
 
-  it("keeps the photo step when the account still needs a photo", () => {
+  it("never includes the photo step in check-in flows, even when the account still needs a photo", () => {
     expect(
       shouldIncludePhotoStep({
         isCheckInFlow: true,
@@ -38,10 +38,10 @@ describe("enroll flow helpers", () => {
         hasAvatar: false,
         photoSaved: false,
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
-  it("starts kiosk new-customer check-in on info and hides party/datetime", () => {
+  it("starts kiosk new-customer check-in on info, promo, then payments (no photo step)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -49,7 +49,7 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: false,
       })
-    ).toEqual(["info", "payments"])
+    ).toEqual(["info", "promo", "payments"])
   })
 
   it("starts kiosk existing-customer check-in on info only (photo step removed from kiosk flow)", () => {
@@ -235,7 +235,7 @@ describe("enroll flow helpers", () => {
     expect(shouldRedirectPersonalCompletion({ success: true, isPersonalCompletion: false })).toBe(false)
   })
 
-  it("uses only info and payments in kiosk flow regardless of hasPackages (packages are not a separate step in kiosk)", () => {
+  it("uses info, promo, and payments in kiosk new-student flow regardless of hasPackages (packages are not a separate step in kiosk)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -244,10 +244,10 @@ describe("enroll flow helpers", () => {
         requiresPhotoStep: false,
         hasPackages: true,
       })
-    ).toEqual(["info", "payments"])
+    ).toEqual(["info", "promo", "payments"])
   })
 
-  it("uses only info and payments in kiosk flow even when both photo and packages are requested (both removed from kiosk)", () => {
+  it("uses info, promo, and payments in kiosk new-student flow even when both photo and packages are requested (both stay out of the new-student flow)", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -256,10 +256,10 @@ describe("enroll flow helpers", () => {
         requiresPhotoStep: true,
         hasPackages: true,
       })
-    ).toEqual(["info", "payments"])
+    ).toEqual(["info", "promo", "payments"])
   })
 
-  it("uses only info and payments in kiosk flow when hasPackages is false", () => {
+  it("uses info, promo, and payments in kiosk new-student flow when hasPackages is false", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -268,7 +268,7 @@ describe("enroll flow helpers", () => {
         requiresPhotoStep: false,
         hasPackages: false,
       })
-    ).toEqual(["info", "payments"])
+    ).toEqual(["info", "promo", "payments"])
   })
 
   it("routes photo skip to packages before payments when packages are available", () => {

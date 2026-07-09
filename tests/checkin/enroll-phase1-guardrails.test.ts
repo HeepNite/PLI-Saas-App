@@ -133,9 +133,9 @@ describe("phase 1 guardrails", () => {
     ).toBe(true)
   })
 
-  it("keeps photo requirement contract by context", () => {
+  it("keeps photo requirement contract by context (check-in flows never require a photo step)", () => {
     const terminalPolicy = getPhotoPolicy("kiosk_terminal")
-    expect(isPhotoRequiredForAccount(terminalPolicy, false)).toBe(true)
+    expect(isPhotoRequiredForAccount(terminalPolicy, false)).toBe(false)
 
     const webPolicy = getPhotoPolicy("external_web")
     expect(isPhotoRequiredForAccount(webPolicy, false)).toBe(false)
