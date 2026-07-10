@@ -341,6 +341,27 @@ git revert <PR5-merge-commit>
 
 ---
 
+## Phase 6 (unplanned, not in original design.md scope) — Remaining Action/Effect Hooks
+
+> Discovered during Slice 5's apply: the worktree contains 6 pre-existing,
+> never-wired, largely untested hooks not tracked anywhere in the original
+> `design.md` target architecture or this `tasks.md`: `useEnrollFlowSetters.ts`,
+> `useEnrollDerivedState.ts`, `useEnrollActions.ts` (composite wrapping
+> `useEnrollNavigationActions.ts`, `useEnrollPaymentActions.ts`,
+> `useEnrollSubmitActions.ts`), and `useEnrollEffects.ts`. This phase tracks
+> their wiring as follow-up slices, each requiring the same test-first +
+> line-by-line drift reconciliation performed on Slices 4b/5/6/7.
+
+- [x] 6.1 Wire `useEnrollFlowSetters.ts` (Slice 5) — replaced 17 inline `useCallback`-wrapped `dispatchFlow` setters. Fixed a `dispatchFlow` type-drift bug (loose structural type → `React.Dispatch<EnrollFlowAction>`).
+- [x] 6.2 Test-first wire `useEnrollDerivedState.ts` (Slice 6, branch `refactor/enroll-modal-slice-6`) — 19 new characterization tests (`tests/checkin/use-enroll-derived-state.test.tsx`); replaced ~15 scattered inline `useMemo`/`useCallback` derived-state blocks. Fixed a `signInModalVariant` literal-type-widening bug (explicit `useMemo<SignInModalVariant>` generic). Solved (not forced) the suspected `useReducer`-init ordering blocker: only `availableServices` needs to exist pre-reducer; kept a small standalone pre-reducer memo for that one value, hook recomputes its own value-equal copy internally. EnrollModal.tsx: 2275 → 2117.
+- [x] 6.3 Test-first wire `useEnrollNavigationActions.ts` (Slice 7, branch `refactor/enroll-modal-slice-7`) — 36 new characterization tests (`tests/checkin/use-enroll-navigation-actions.test.tsx`); replaced `handleNumpadDigit`/`handleNumpadBackspace`/`handleNumpadClear`/`advanceFromContactStep`/`handleFormStepSubmit`. Fixed 2 drift bugs found via the RED/pin step: (a) hook was missing the `promoStepIndex` post-account-prep routing branch present in live code (would have broken the kiosk new-student 3-step promo flow); (b) hook was missing the `{ phoneFirst: isKioskTerminalFlow }` option on `nextKioskInfoPhase`, always using the standard (non-phone-first) phase-transition direction (would have broken the kiosk-terminal phone-first info-collection UX). Solved a declaration-order constraint (`handleSubmit`/`activeStepKey` needed as eager hook-call arguments but declared later in the component) by relocating the hook call to right after `handleSubmit`'s definition and relocating the pure `activeStepKey` derivation earlier — same "relocate pure derivations, verify no mid-render mutation" pattern as Slice 6. EnrollModal.tsx: 2117 → 1985.
+- [ ] 6.4 Test-first wire `useEnrollPaymentActions.ts` and/or `useEnrollSubmitActions.ts` — payment-critical (Stripe intent, cash checkout, kiosk QR checkout, drop-in check-in). Recommend one slice per hook, not combined, given payment risk.
+- [ ] 6.5 Test-first wire `useEnrollEffects.ts` — likely covers pendingAutoPay/resumeAfterSignIn/kiosk-fast-path/step-bounds/payments-ready/kiosk-payment-transition effects still inline in `EnrollModal.tsx`.
+- [ ] 6.6 Retire or simplify the `useEnrollActions.ts` composite once its constituent hooks (6.3, 6.4, 6.5) are each individually wired and verified — decide whether the composite itself should also be wired as a single call, or superseded by direct calls to its constituents.
+- [ ] 6.7 Update `design.md`'s "Target Module Architecture" to formally include all Phase 6 hooks.
+
+---
+
 ## Global Gates (apply to all slices)
 
 | Gate | Check |
