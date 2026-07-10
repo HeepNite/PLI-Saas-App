@@ -10,7 +10,7 @@ import {
   FileText,
   CheckCircle2,
 } from "lucide-react"
-import type { CourseData, EnrollmentOption } from "@/constants/courses"
+import type { CourseData } from "@/constants/courses"
 import type { Coupon, EnrollmentContact, PaymentMethod, CourseEnrollmentData } from "@/components/front/courses/types"
 import { useI18n } from "@/lib/i18n"
 import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
@@ -179,9 +179,11 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
                 ? t("step_info")
                 : key === "packages"
                   ? "Packages"
-                  : key === "consecutive"
-                    ? "Promo"
-                    : key === "payments"
+                  : key === "promo"
+                    ? "Deals"
+                    : key === "consecutive"
+                      ? "Promo"
+                      : key === "payments"
                       ? t("step_payments")
                       : key === "review"
                         ? t("step_review")
@@ -218,6 +220,11 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
 
   const packagesStepIndex = React.useMemo(
     () => steps.findIndex((item) => item.key === "packages"),
+    [steps]
+  )
+
+  const promoStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "promo"),
     [steps]
   )
 
@@ -372,6 +379,7 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     infoStepIndex,
     photoStepIndex,
     packagesStepIndex,
+    promoStepIndex,
     regularServicePrice,
     regularFallbackLocked,
     effectiveInitialStep,

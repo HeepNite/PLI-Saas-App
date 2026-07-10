@@ -3,7 +3,7 @@ import React from "react"
 import { demoCourses, type EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
 import { useI18n } from "@/lib/i18n"
-import type { Coupon, EnrollmentContact, PaymentMethod } from "./types"
+import type { Coupon, EnrollmentContact } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
 import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
 import { useAuth, useClerk, useUser } from "@clerk/nextjs"
@@ -22,14 +22,12 @@ import {
   getPhotoPolicy,
   isPhotoRequiredForAccount,
 } from "@/lib/checkin/photo-context-policy"
-import { createKioskInactivityController } from "@/lib/checkin/kiosk-inactivity"
 import {
   createKioskSessionCheckoutPayloadFields,
   getCheckInSignInModalVariant,
   handleEmbeddedSignInSessionCreated,
   handleExistingUserDetected,
   isCheckInContactGateStep,
-  resolveStationTimeoutAction,
   resolveEnrollInitialStep,
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
@@ -45,8 +43,6 @@ import {
   isKioskQrPendingPhase,
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
-  shouldPauseKioskInactivityForQrPhase,
-  type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
 import {
   isRegularFallbackLocked,
@@ -55,7 +51,6 @@ import {
 } from "@/lib/checkin/new-student-flow"
 import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
 import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
-import type { EnrollFlowState } from "@/components/front/courses/enroll/model/enroll-flow.types"
 import { buildEnrollCalendarLinks } from "@/components/front/courses/enroll/model/enroll-calendar"
 import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/model/checkout-payload"
 import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/enroll-pricing"
@@ -77,10 +72,12 @@ import {
   requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
-import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
 import { resolveStepValid } from "@/components/front/courses/enroll/model/enroll-step-valid"
 import { useConsecutiveOffer } from "@/components/front/courses/enroll/hooks/useConsecutiveOffer"
 import { useEnrollInit } from "@/components/front/courses/enroll/hooks/useEnrollInit"
+import { useKioskInactivity } from "@/components/front/courses/enroll/hooks/useKioskInactivity"
+import { useKioskQrPoller } from "@/components/front/courses/enroll/hooks/useKioskQrPoller"
+import { useEnrollFlowSetters } from "@/components/front/courses/enroll/hooks/useEnrollFlowSetters"
 import type {
   EnrollModalProps,
   FlowPopupState,
@@ -455,57 +452,25 @@ export default function EnrollModal({
   }, [course.slug, steps.length, step, isQrMobileCompactFlow, checkInContextDate, checkInContextTime])
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
-  const setService = React.useCallback((value: React.SetStateAction<string>) => {
-    dispatchFlow({ type: "field/set-service", value })
-  }, [])
-  const setPkg = React.useCallback((value: React.SetStateAction<string>) => {
-    dispatchFlow({ type: "field/set-package", value })
-  }, [])
-  const setAddons: React.Dispatch<React.SetStateAction<string[]>> = React.useCallback((value) => {
-    dispatchFlow({ type: "field/set-addons", value })
-  }, [])
-  const setParticipants = React.useCallback((value: React.SetStateAction<number>) => {
-    dispatchFlow({ type: "field/set-participants", value })
-  }, [])
-  const setContact: React.Dispatch<React.SetStateAction<EnrollmentContact>> = React.useCallback((value) => {
-    dispatchFlow({ type: "field/set-contact", value })
-  }, [])
-  const setPaymentMethod = React.useCallback((value: React.SetStateAction<PaymentMethod>) => {
-    dispatchFlow({ type: "field/set-payment-method", value })
-  }, [])
-  const setStep = React.useCallback((value: React.SetStateAction<number>) => {
-    dispatchFlow({ type: "field/set-step", value, maxStep: Math.max(0, steps.length - 1) })
-  }, [steps.length])
-  const setSuccess = React.useCallback((value: React.SetStateAction<boolean>) => {
-    dispatchFlow({ type: "field/set-success", value })
-  }, [])
-  const setSuccessMessage = React.useCallback((value: React.SetStateAction<string | null>) => {
-    dispatchFlow({ type: "field/set-success-message", value })
-  }, [])
-  const setProcessing = React.useCallback((value: React.SetStateAction<boolean>) => {
-    dispatchFlow({ type: "field/set-processing", value })
-  }, [])
-  const setFormError = React.useCallback((value: React.SetStateAction<string | null>) => {
-    dispatchFlow({ type: "field/set-form-error", value })
-  }, [])
-  const setRequiresSignIn = React.useCallback((value: React.SetStateAction<boolean>) => {
-    dispatchFlow({ type: "field/set-sign-in-required", value })
-  }, [])
-  const setExistingAccountDetected = React.useCallback((value: React.SetStateAction<boolean>) => {
-    dispatchFlow({ type: "field/set-existing-account-detected", value })
-  }, [])
-  const setResumeAfterSignInStep = React.useCallback((value: React.SetStateAction<number | null>) => {
-    dispatchFlow({ type: "field/set-resume-after-sign-in-step", value })
-  }, [])
-  const setResumeContactFlowAfterSignIn = React.useCallback((value: React.SetStateAction<boolean>) => {
-    dispatchFlow({ type: "field/set-resume-contact-flow", value })
-  }, [])
-  const setKioskQrCheckout: React.Dispatch<React.SetStateAction<KioskQrCheckoutState>> = React.useCallback((value) => {
-    dispatchFlow({ type: "field/set-kiosk-qr-checkout", value })
-  }, [])
-  const setSignInPurpose = React.useCallback((value: React.SetStateAction<EnrollFlowState["signInPurpose"]>) => {
-    dispatchFlow({ type: "field/set-sign-in-purpose", value })
-  }, [])
+  const {
+    setService,
+    setPkg,
+    setAddons,
+    setParticipants,
+    setContact,
+    setPaymentMethod,
+    setStep,
+    setSuccess,
+    setSuccessMessage,
+    setProcessing,
+    setFormError,
+    setRequiresSignIn,
+    setExistingAccountDetected,
+    setResumeAfterSignInStep,
+    setResumeContactFlowAfterSignIn,
+    setKioskQrCheckout,
+    setSignInPurpose,
+  } = useEnrollFlowSetters(dispatchFlow, steps.length)
 
   const initialServiceId = React.useMemo(() => {
     if (isCheckInNewFlow) return forcedNewStudentServiceId
@@ -721,38 +686,14 @@ export default function EnrollModal({
     }
   }, [isPersonalCompletion, router, setActive, success])
 
-  React.useEffect(() => {
-    if (
-      !open ||
-      !isStationCompletion ||
-      (!onCompletedAction && !onTimeoutAction) ||
-      success ||
-      shouldPauseKioskInactivityForQrPhase(kioskQrCheckout.phase)
-    ) {
-      return
-    }
-
-    const timeoutAction = resolveStationTimeoutAction(onTimeoutAction, onCompletedAction)
-    const controller = createKioskInactivityController({
-      onTimeout: () => {
-        void timeoutAction?.()
-      },
-    })
-    const handleActivity = () => controller.arm()
-    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart"]
-
-    controller.arm()
-    for (const eventName of activityEvents) {
-      window.addEventListener(eventName, handleActivity, { passive: true })
-    }
-
-    return () => {
-      for (const eventName of activityEvents) {
-        window.removeEventListener(eventName, handleActivity)
-      }
-      controller.dispose()
-    }
-  }, [isStationCompletion, kioskQrCheckout.phase, onCompletedAction, onTimeoutAction, open, success])
+  useKioskInactivity({
+    open,
+    isStationCompletion,
+    success,
+    qrPhase: kioskQrCheckout.phase,
+    onCompletedAction,
+    onTimeoutAction,
+  })
 
   React.useEffect(() => {
     if (isInline) return
@@ -1854,63 +1795,20 @@ export default function EnrollModal({
     showKioskPaymentTransition,
   ])
 
-  React.useEffect(() => {
-    if (!open || !isKioskTerminalFlow || !kioskQrCheckout.sessionId || !kioskQrCheckoutPending) {
-      return
-    }
-
-    return createKioskQrPoller({
-      sessionId: kioskQrCheckout.sessionId,
-      onOutcome: async (outcome) => {
-        if (outcome.type === "complete") {
-          const completionMessage = await completeDropInCheckInAfterCardPayment({
-            purchaseId: outcome.purchaseId,
-          })
-          setSuccessMessage(
-            completionMessage ||
-              (outcome.paymentStatus
-                ? `Payment recorded successfully (${outcome.paymentStatus}).`
-                : "Payment recorded successfully.")
-          )
-          setSuccess(true)
-          setRequiresSignIn(false)
-          setExistingAccountDetected(false)
-          setResumeAfterSignInStep(null)
-          setPendingAutoPay(false)
-          setKioskQrCheckout(createEmptyKioskQrCheckoutState())
-          return
-        }
-
-        if (outcome.type === "error") {
-          console.warn("Unable to poll hosted checkout session status", outcome.error)
-          setKioskQrCheckout((prev) => ({
-            ...prev,
-            phase: "error",
-            awaitingWebhook: false,
-            error: outcome.message,
-          }))
-          return
-        }
-
-        setKioskQrCheckout((prev) => ({
-          ...prev,
-          ...outcome.state,
-        }))
-      },
-    })
-  }, [
-    completeDropInCheckInAfterCardPayment,
-    isKioskTerminalFlow,
-    kioskQrCheckout.sessionId,
-    kioskQrCheckoutPending,
+  useKioskQrPoller({
     open,
-    setExistingAccountDetected,
-    setKioskQrCheckout,
-    setRequiresSignIn,
-    setResumeAfterSignInStep,
-    setSuccess,
+    isKioskTerminalFlow,
+    sessionId: kioskQrCheckout.sessionId,
+    kioskQrCheckoutPending,
+    completeDropInCheckInAfterCardPayment,
     setSuccessMessage,
-  ])
+    setSuccess,
+    setRequiresSignIn,
+    setExistingAccountDetected,
+    setResumeAfterSignInStep,
+    setPendingAutoPay,
+    setKioskQrCheckout,
+  })
 
   const stepValidCtx = {
     steps,
