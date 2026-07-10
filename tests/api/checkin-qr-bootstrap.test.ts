@@ -8,6 +8,7 @@ const mockGetCatalogCourseBySlug = vi.fn()
 const mockPackageFindMany = vi.fn()
 const mockPurchaseFindMany = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
+const mockPurchaseCount = vi.fn().mockResolvedValue(0)
 const mockUpsertUserByIdentifiers = vi.fn()
 const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
@@ -26,6 +27,7 @@ vi.mock("@/lib/prisma", () => ({
     purchase: {
       findMany: (...args: unknown[]) => mockPurchaseFindMany(...args),
       findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
+      count: (...args: unknown[]) => mockPurchaseCount(...args),
     },
     dayOfWeekPurchaseCount: {
       findUnique: (...args: unknown[]) => mockDayOfWeekFindUnique(...args),
@@ -118,6 +120,8 @@ describe("qr check-in bootstrap route", () => {
     mockPackageFindMany.mockResolvedValue([])
     mockPurchaseFindMany.mockResolvedValue([])
     mockPurchaseFindFirst.mockResolvedValue(null)
+    mockPurchaseCount.mockReset()
+    mockPurchaseCount.mockResolvedValue(0)
     mockUpsertUserByIdentifiers.mockResolvedValue({
       id: "db_user_1",
       name: "Jane Student",
@@ -583,9 +587,15 @@ describe("qr check-in bootstrap route", () => {
 
   it("logs PIN-ready latency within the terminal target", async () => {
     const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {})
-    const dateNow = vi.spyOn(Date, "now")
-      .mockReturnValueOnce(1_000)
-      .mockReturnValueOnce(2_800)
+    // The route calls Date.now() for startedAt and again when it logs latency,
+    // with an unspecified number of intermediate calls. Pin the first call
+    // (startedAt) to 1000 and every later call to 2800 so the measured
+    // durationMs is a deterministic 1800 regardless of intermediate calls.
+    let dateNowCall = 0
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => {
+      dateNowCall += 1
+      return dateNowCall === 1 ? 1_000 : 2_800
+    })
 
     mockAuth.mockResolvedValue({ userId: null })
     mockResolveTerminalKioskSession.mockResolvedValue({

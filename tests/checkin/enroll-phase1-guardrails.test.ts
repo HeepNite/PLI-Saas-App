@@ -134,8 +134,14 @@ describe("phase 1 guardrails", () => {
   })
 
   it("keeps photo requirement contract by context", () => {
+    // Photo capture was removed from the kiosk terminal flow; only the
+    // qr_phone (self-service) context still requires a photo.
     const terminalPolicy = getPhotoPolicy("kiosk_terminal")
-    expect(isPhotoRequiredForAccount(terminalPolicy, false)).toBe(true)
+    expect(isPhotoRequiredForAccount(terminalPolicy, false)).toBe(false)
+
+    const qrPolicy = getPhotoPolicy("qr_phone")
+    expect(isPhotoRequiredForAccount(qrPolicy, false)).toBe(true)
+    expect(isPhotoRequiredForAccount(qrPolicy, true)).toBe(false)
 
     const webPolicy = getPhotoPolicy("external_web")
     expect(isPhotoRequiredForAccount(webPolicy, false)).toBe(false)

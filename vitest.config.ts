@@ -3,6 +3,11 @@ import tsconfigPaths from "vite-tsconfig-paths"
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
+  // Match Next.js: transform JSX with the automatic runtime so components that
+  // rely on it (no explicit `import React`) render under the test runner.
+  esbuild: {
+    jsx: "automatic",
+  },
   test: {
     environment: "node",
     allowOnly: false,

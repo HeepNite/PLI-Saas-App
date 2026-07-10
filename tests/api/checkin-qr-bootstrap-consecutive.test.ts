@@ -14,6 +14,9 @@ const mockCreatePreparedCheckoutContext = vi.fn()
 const mockCourseLinkFindMany = vi.fn()
 const mockAttendanceFindFirst = vi.fn()
 const mockPurchaseFindFirstConsecutive = vi.fn()
+const mockPurchaseCount = vi.fn()
+const mockDayOfWeekPurchaseCountFindUnique = vi.fn()
+const mockClassSessionFindUnique = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -23,12 +26,19 @@ vi.mock("@/lib/prisma", () => ({
     purchase: {
       findMany: (...args: unknown[]) => mockPurchaseFindMany(...args),
       findFirst: (...args: unknown[]) => mockPurchaseFindFirstConsecutive(...args),
+      count: (...args: unknown[]) => mockPurchaseCount(...args),
     },
     courseLink: {
       findMany: (...args: unknown[]) => mockCourseLinkFindMany(...args),
     },
     attendance: {
       findFirst: (...args: unknown[]) => mockAttendanceFindFirst(...args),
+    },
+    dayOfWeekPurchaseCount: {
+      findUnique: (...args: unknown[]) => mockDayOfWeekPurchaseCountFindUnique(...args),
+    },
+    classSession: {
+      findUnique: (...args: unknown[]) => mockClassSessionFindUnique(...args),
     },
   },
 }))
@@ -112,6 +122,9 @@ describe("bootstrap consecutive offer", () => {
     mockPackageFindMany.mockResolvedValue([])
     mockPurchaseFindMany.mockResolvedValue([])
     mockPurchaseFindFirstConsecutive.mockResolvedValue(null)
+    mockPurchaseCount.mockResolvedValue(0)
+    mockDayOfWeekPurchaseCountFindUnique.mockResolvedValue(null)
+    mockClassSessionFindUnique.mockResolvedValue(null)
   })
 
   const setupKioskSession = () => {
@@ -246,7 +259,10 @@ describe("bootstrap consecutive offer", () => {
     expect(data.consecutiveOffer).toBeNull()
   })
 
-  it("returns no offer when student hasn't attended Class A today", async () => {
+  // Contract updated by acd5f62 / PR #145: in the kiosk terminal flow the
+  // consecutive promo is always surfaced regardless of attendance state, and
+  // hasAttendedFirstClass simply reflects whether Class A was attended today.
+  it("still returns the offer in terminal flow when student hasn't attended Class A today (hasAttendedFirstClass=false)", async () => {
     setupKioskSession()
     mockGetCatalogCourseBySlug.mockImplementation(async (slug: string) => {
       if (slug === "salsa") {
@@ -305,7 +321,9 @@ describe("bootstrap consecutive offer", () => {
 
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.consecutiveOffer).toBeNull()
+    expect(data.consecutiveOffer).not.toBeNull()
+    expect(data.consecutiveOffer.linkedCourseSlug).toBe("bachata")
+    expect(data.consecutiveOffer.hasAttendedFirstClass).toBe(false)
   })
 
   it("returns no offer when student already purchased Class B today", async () => {
