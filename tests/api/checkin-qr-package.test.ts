@@ -9,6 +9,7 @@ const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
 const mockIsQrCheckInWindowAllowed = vi.fn()
+const mockIsConsecutiveAddOnPurchaseAllowed = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockGetAttendanceMilestoneClasses = vi.fn()
@@ -61,6 +62,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
   isQrCheckInWindowAllowed: (...args: unknown[]) => mockIsQrCheckInWindowAllowed(...args),
+  isConsecutiveAddOnPurchaseAllowed: (...args: unknown[]) => mockIsConsecutiveAddOnPurchaseAllowed(...args),
 }))
 
 vi.mock("@/lib/packages", () => ({
@@ -91,6 +93,7 @@ describe("qr check-in package route", () => {
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
     mockIsQrCheckInWindowAllowed.mockReset()
+    mockIsConsecutiveAddOnPurchaseAllowed.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockAwardPointsFromRule.mockReset()
     mockGetAttendanceMilestoneClasses.mockReset()
@@ -115,10 +118,12 @@ describe("qr check-in package route", () => {
       time: "11:00",
       durationMinutes: 60,
       startsAt: new Date("2026-03-31T15:00:00.000Z"),
+      endsAt: new Date("2026-03-31T16:00:00.000Z"),
       opensAt: new Date("2026-03-31T13:00:00.000Z"),
       closesAt: new Date("2026-03-31T18:00:00.000Z"),
     })
     mockIsQrCheckInWindowAllowed.mockReturnValue(true)
+    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Salsa femenina matutina" })
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
       {
@@ -175,6 +180,24 @@ describe("qr check-in package route", () => {
     })
     const res = await POST(req)
     expect(res.status).toBe(401)
+  })
+
+  it("returns 409 when regular (non-add-on) check-in is outside its window — unchanged behavior", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockIsQrCheckInWindowAllowed.mockReturnValue(false)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courseSlug: "salsa-femenina-matutina", date: "2026-03-31", time: "11:00" }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(409)
+    const data = await res.json()
+    expect(data.error).toBe("Check-in is closed for this class.")
+    expect(mockIsConsecutiveAddOnPurchaseAllowed).not.toHaveBeenCalled()
   })
 
   it("returns 400 for invalid payload", async () => {
