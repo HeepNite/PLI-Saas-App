@@ -24,8 +24,6 @@ import {
 import {
   createKioskSessionCheckoutPayloadFields,
   handleEmbeddedSignInSessionCreated,
-  handleExistingUserDetected,
-  isCheckInContactGateStep,
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
@@ -54,8 +52,8 @@ import EnrollFlowPopup from "@/components/front/courses/enroll/steps/EnrollFlowP
 import EnrollStepRouter from "@/components/front/courses/enroll/steps/EnrollStepRouter"
 import EnrollFormFooter from "@/components/front/courses/enroll/steps/EnrollFormFooter"
 import EnrollSuccessView from "@/components/front/courses/enroll/steps/EnrollSuccessView"
-import { nextKioskInfoPhase, initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
-import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
+import { initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
+import { useEnrollNavigationActions } from "@/components/front/courses/enroll/hooks/useEnrollNavigationActions"
 import {
   requestCheckoutCashApi,
   requestCheckoutFinalizeApi,
@@ -903,160 +901,6 @@ export default function EnrollModal({
     [contact.phone, regularServiceId, regularServicePrice, service, setService]
   )
 
-  const handleNumpadDigit = React.useCallback((digit: string) => {
-    if (activeNumericField === "phone") {
-      setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
-      setPhoneTouched(true)
-    }
-  }, [activeNumericField, setContact])
-
-  const handleNumpadBackspace = React.useCallback(() => {
-    if (activeNumericField === "phone") {
-      setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
-    }
-  }, [activeNumericField, setContact])
-
-  const handleNumpadClear = React.useCallback(() => {
-    if (activeNumericField === "phone") {
-      setContact((c) => ({ ...c, phone: "+1 " }))
-    }
-  }, [activeNumericField, setContact])
-
-  const advanceFromContactStep = React.useCallback(async () => {
-    if (!isCheckInFlow) {
-      setStep(step + 1)
-      return
-    }
-
-    setIdentityCheckBusy(true)
-    setFormError(null)
-    try {
-      if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
-        // Kiosk & QR mobile new-student flow: verify phone via SMS.
-        const result = await verifyNewStudent(contact.phone, contact.email)
-        if (handleExistingUserDetected({
-          isKioskTerminalFlow,
-          service,
-          verifyResult: result,
-          onExistingUserDetected,
-        })) {
-          return
-        }
-        if (result === "sms_pending") {
-          const account = await requestAccountPreparation()
-          if (!account) return
-          // EmbeddedSignIn will render via JSX conditional on verification.state
-          return
-        }
-      } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
-        // Web new-student flow: use requestNewStudentOutcome + sign-in modal
-        const verifyResult = await requestNewStudentOutcome()
-        if (!verifyResult) return
-
-        if (verifyResult.shouldFallbackToRegular || verifyResult.outcome === "fallback_regular") {
-          showRegularFallbackPopup(verifyResult.message)
-          return
-        }
-
-        if (verifyResult.requiresSmsVerification || verifyResult.outcome === "requires_sms_verification") {
-          const account = await requestAccountPreparation()
-          if (!account) return
-
-          if (!isSignedIn || account.requiresSignIn) {
-            setSignInPurpose("sms_verification")
-            setRequiresSignIn(true)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setResumeContactFlowAfterSignIn(true)
-            return
-          }
-
-          const verifiedAgain = await requestNewStudentOutcome()
-          if (!verifiedAgain || !(verifiedAgain.eligibleForNewStudent || verifiedAgain.outcome === "eligible")) {
-            showRegularFallbackPopup(verifiedAgain?.message)
-            return
-          }
-        }
-      }
-
-      // PIN check was already done at the beginning of this function
-
-      const account = preparedAccount || (await requestAccountPreparation())
-      if (!account) return
-
-      // For QR mobile new-student flow, skip sign-in gate for photo upload.
-      // The Clerk account was just created — forcing immediate sign-in causes
-      // "Couldn't find your account" errors due to Clerk propagation delay.
-      // The photo step will handle upload using the prepared account's clerkUserId.
-      if (
-        photoPolicy.uploadMode === "customer_self" &&
-        account.requiresSignIn &&
-        !isSignedIn &&
-        !isQrMobileCompactFlow
-      ) {
-        setSignInPurpose("account_preparation")
-        setRequiresSignIn(true)
-        setExistingAccountDetected(false)
-        setResumeAfterSignInStep(null)
-        setPendingAutoPay(false)
-        setResumeContactFlowAfterSignIn(true)
-        return
-      }
-
-      const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
-      if (needsPhoto && photoStepIndex >= 0) {
-        setStep(photoStepIndex)
-        return
-      }
-
-      // Go to promo step if it exists, then packages, then payments
-      if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
-        return
-      }
-      if (packagesStepIndex >= 0) {
-        setStep(packagesStepIndex)
-        return
-      }
-      if (paymentsStepIndex >= 0) {
-        setStep(paymentsStepIndex)
-        return
-      }
-    } finally {
-      setIdentityCheckBusy(false)
-    }
-  }, [
-    contact.email,
-    contact.phone,
-    isCheckInFlow,
-    isKioskTerminalFlow,
-    isQrMobileCompactFlow,
-    isSignedIn,
-    onExistingUserDetected,
-    packagesStepIndex,
-    paymentsStepIndex,
-    promoStepIndex,
-    photoPolicy,
-    photoSaved,
-    photoStepIndex,
-    preparedAccount,
-    requestAccountPreparation,
-    requestNewStudentOutcome,
-    resetVerification,
-    setExistingAccountDetected,
-    setFormError,
-    setRequiresSignIn,
-    setResumeAfterSignInStep,
-    setResumeContactFlowAfterSignIn,
-    setSignInPurpose,
-    setStep,
-    service,
-    showRegularFallbackPopup,
-    step,
-    verifyNewStudent,
-  ])
-
   const requestStripeIntent = async (token?: string | null) => {
     const { res, data } = await requestCheckoutIntentApi({
       token,
@@ -1183,6 +1027,8 @@ export default function EnrollModal({
     })
     return true
   }, [getToken, isSignedIn, requestKioskCheckoutSession, setFormError, setKioskQrCheckout])
+
+  const activeStepKey = steps[step]?.key || ""
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
@@ -1394,30 +1240,53 @@ export default function EnrollModal({
     }
   }
 
-  const handleFormStepSubmit = async () => {
-    if (usesPhasedInfoForm && activeStepKey === "info") {
-      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service, { phoneFirst: isKioskTerminalFlow })
-      if (nextPhase !== "done") {
-        setKioskInfoPhase(nextPhase)
-        // For phone-first kiosk, after phone → name-email (activate text input, not numpad)
-        // For standard flow, after name-email → phone (activate numpad)
-        if (isKioskTerminalFlow && nextPhase === "phone") setActiveNumericField("phone")
-        else if (isKioskTerminalFlow && nextPhase === "name-email") setActiveNumericField(null)
-        else if (isKioskTerminalFlow) setActiveNumericField("phone")
-        return
-      }
-    }
-
-    if (step < steps.length - 1) {
-      if (isCheckInContactGateStep({ isCheckInFlow, activeStepKey })) {
-        await advanceFromContactStep()
-        return
-      }
-      setStep(step + 1)
-      return
-    }
-    await handleSubmit()
-  }
+  const {
+    handleNumpadDigit,
+    handleNumpadBackspace,
+    handleNumpadClear,
+    advanceFromContactStep,
+    handleFormStepSubmit,
+  } = useEnrollNavigationActions({
+    service,
+    contact,
+    isCheckInFlow,
+    isKioskTerminalFlow,
+    isQrMobileCompactFlow,
+    isSignedIn,
+    step,
+    steps,
+    photoPolicy,
+    photoSaved,
+    photoStepIndex,
+    promoStepIndex,
+    packagesStepIndex,
+    paymentsStepIndex,
+    usesPhasedInfoForm,
+    activeStepKey,
+    kioskInfoPhase,
+    activeNumericField,
+    preparedAccount,
+    onExistingUserDetected,
+    verifyNewStudent,
+    setContact,
+    setStep,
+    setFormError,
+    setRequiresSignIn,
+    setExistingAccountDetected,
+    setResumeAfterSignInStep,
+    setResumeContactFlowAfterSignIn,
+    setPendingAutoPay,
+    setSignInPurpose,
+    setIdentityCheckBusy,
+    setPhoneTouched,
+    setActiveNumericField,
+    setKioskInfoPhase,
+    setAddons,
+    requestAccountPreparation,
+    requestNewStudentOutcome,
+    showRegularFallbackPopup,
+    handleSubmit,
+  })
 
   const handleSubmitRef = React.useRef(handleSubmit)
   handleSubmitRef.current = handleSubmit
@@ -1520,7 +1389,6 @@ export default function EnrollModal({
     return () => { cancelled = true }
   }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
 
-  const activeStepKey = steps[step]?.key || ""
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
     isKioskTerminalFlow,
     isCheckInExistingFlow,
