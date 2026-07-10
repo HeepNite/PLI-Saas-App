@@ -197,4 +197,56 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
       linkedCourseTime: "21:10",
     })
   })
+
+  it("excludes a linked class (later than A) whose end time has already passed relative to now", async () => {
+    // Friday 2026-05-22 (NY weekday 5). Rueda is 21:10 + 55min => ends 22:05 NY.
+    // Set "now" to 22:10 NY (past the Rueda class's end).
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T02:10:00.000Z")) // 22:10 NY Fri
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-22" }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toBeNull()
+  })
+
+  it("still offers a linked class (later than A) that has not yet ended (unchanged)", async () => {
+    // Friday 2026-05-22 (NY weekday 5). Rueda is 21:10 + 55min => ends 22:05 NY.
+    // Set "now" to 21:30 NY (class in progress, not yet ended).
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T01:30:00.000Z")) // 21:30 NY Fri
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-22" }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data).toMatchObject({
+      linkedCourseSlug: "salsa-night-advance-beginner-rueda",
+      linkedCourseTime: "21:10",
+    })
+  })
 })
