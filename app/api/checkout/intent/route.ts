@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
+import * as Sentry from "@sentry/nextjs"
 import {
   clearPreparedCheckoutAfterSuccess,
   enforceNewStudentRules,
@@ -180,6 +181,7 @@ export async function POST(req: Request) {
     })
   } catch (err) {
     console.error("Stripe intent error", err)
+    Sentry.captureException(err)
     return NextResponse.json({ error: "Unable to create payment intent" }, { status: 500 })
   }
 }
