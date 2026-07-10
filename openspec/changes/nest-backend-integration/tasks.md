@@ -42,9 +42,9 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Low-Risk Gateway Proof
 
-- [ ] 2.1 RED: add `tests/api/checkin-terminal-today-classes.test.ts` cases for unchanged response/status with Nest on, off, and unavailable.
-- [ ] 2.2 GREEN: create `apps/backend/src/checkin/today-classes.controller.ts` + service, then gate `app/api/checkin/terminal/today-classes/route.ts` through `lib/nest-gateway/client.ts`.
-- [ ] 2.3 REFACTOR: add shared DTO/error mapping in `lib/nest-gateway/contracts/checkin-today-classes.ts`.
+- [x] 2.1 RED: add `tests/api/checkin-terminal-today-classes.test.ts` cases for unchanged response/status with Nest on, off, and unavailable.
+- [x] 2.2 GREEN: create `apps/backend/src/checkin/today-classes.controller.ts` + service, then gate `app/api/checkin/terminal/today-classes/route.ts` through `lib/nest-gateway/client.ts`.
+- [x] 2.3 REFACTOR: add shared DTO/error mapping in `lib/nest-gateway/contracts/checkin-today-classes.ts`.
 
 ## Phase 3: Customer QR Identity (No Authoritative Writes Yet)
 

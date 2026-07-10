@@ -2,16 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 describe("nest gateway health client", () => {
   const env = {} as NodeJS.ProcessEnv
+  let consoleInfoSpy: ReturnType<typeof vi.spyOn>
   let consoleWarnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     vi.resetModules()
     vi.useRealTimers()
+    consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined)
     consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     for (const key of Object.keys(env)) delete env[key]
   })
 
   afterEach(() => {
+    consoleInfoSpy.mockRestore()
     consoleWarnSpy.mockRestore()
   })
 
@@ -225,6 +228,8 @@ describe("nest gateway health client", () => {
       reason: "upstream_error",
       requestId: "req-malformed",
       route: "internal-health",
+      status: 200,
+      statusClass: "2xx",
       timeoutMs: 1500,
     })
   })
@@ -264,5 +269,30 @@ describe("nest gateway health client", () => {
 
     env.NEST_GATEWAY_ENABLED = "false"
     expect(isNestGatewayRouteEnabled(getNestGatewayConfig(env), "today-classes")).toBe(false)
+  })
+
+  it("logs expected fallbacks at info level and unexpected ones at warn level", async () => {
+    const { createConsoleNestGatewayFallbackReporter } = await import("@/lib/nest-gateway/observability")
+
+    const reporter = createConsoleNestGatewayFallbackReporter({
+      info: consoleInfoSpy,
+      warn: consoleWarnSpy,
+    })
+
+    reporter({ expected: true, reason: "disabled", route: "today-classes", timeoutMs: 1500 })
+    reporter({ expected: false, reason: "timeout", route: "today-classes", timeoutMs: 1500 })
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith("[nest-gateway:fallback]", {
+      expected: true,
+      reason: "disabled",
+      route: "today-classes",
+      timeoutMs: 1500,
+    })
+    expect(consoleWarnSpy).toHaveBeenCalledWith("[nest-gateway:fallback]", {
+      expected: false,
+      reason: "timeout",
+      route: "today-classes",
+      timeoutMs: 1500,
+    })
   })
 })

@@ -1,27 +1,72 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import { AppModule } from "@/apps/backend/src/app.module"
+import { TodayClassesController } from "@/apps/backend/src/checkin/today-classes.controller"
 import { bootstrapBackendApp, createBackendRequestHandler } from "@/apps/backend/src/main"
 import { HealthController } from "@/apps/backend/src/health/health.controller"
+import { INTERNAL_AUTH_HEADER } from "@/lib/nest-gateway/auth"
+
+const setInternalSecret = (value: string | undefined) => {
+  if (value === undefined) {
+    delete process.env.NEST_GATEWAY_SHARED_SECRET
+    return
+  }
+
+  process.env.NEST_GATEWAY_SHARED_SECRET = value
+}
 
 describe("backend internal health contract", () => {
+  afterEach(() => {
+    delete process.env.NEST_GATEWAY_SHARED_SECRET
+  })
+
   it("serves GET /internal/health with the readiness payload", async () => {
+    setInternalSecret("shared-secret")
     const handleRequest = createBackendRequestHandler()
-    const response = await handleRequest(new Request("http://backend.internal/internal/health"))
+    const response = await handleRequest(
+      new Request("http://backend.internal/internal/health", {
+        headers: { [INTERNAL_AUTH_HEADER]: "shared-secret" },
+      })
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true, service: "nest" })
   })
 
-  it("boots the backend skeleton with the health controller wired", () => {
+  it("rejects GET /internal/health when the shared secret is missing", async () => {
+    setInternalSecret("shared-secret")
+    const handleRequest = createBackendRequestHandler()
+    const response = await handleRequest(new Request("http://backend.internal/internal/health"))
+
+    expect(response.status).toBe(401)
+  })
+
+  it("rejects GET /internal/health when the shared secret is invalid", async () => {
+    setInternalSecret("shared-secret")
+    const handleRequest = createBackendRequestHandler()
+    const response = await handleRequest(
+      new Request("http://backend.internal/internal/health", {
+        headers: { [INTERNAL_AUTH_HEADER]: "wrong-secret" },
+      })
+    )
+
+    expect(response.status).toBe(401)
+  })
+
+  it("boots the backend skeleton with the internal controllers wired", () => {
     const app = bootstrapBackendApp()
 
     expect(app.module).toBe(AppModule)
-    expect(app.controllers).toEqual([HealthController])
+    expect(app.controllers).toEqual([HealthController, TodayClassesController])
   })
 
   it("rejects unregistered internal routes", async () => {
+    setInternalSecret("shared-secret")
     const handleRequest = createBackendRequestHandler()
-    const response = await handleRequest(new Request("http://backend.internal/internal/healthz"))
+    const response = await handleRequest(
+      new Request("http://backend.internal/internal/healthz", {
+        headers: { [INTERNAL_AUTH_HEADER]: "shared-secret" },
+      })
+    )
 
     expect(response.status).toBe(404)
   })
