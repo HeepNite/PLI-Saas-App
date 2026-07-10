@@ -7,7 +7,7 @@ export const KIOSK_DEPLOY_MIN_RELOAD_INTERVAL_MS = 10 * 60_000
  * this also protects an unattended kiosk from a reload loop if the server
  * ever flaps back to the fallback while the client holds a real sha.
  */
-const UNKNOWN_BUILD_ID = "dev"
+export const UNKNOWN_BUILD_ID = "dev"
 
 export type KioskDeployRefreshInput = {
   runningBuildId: string | null

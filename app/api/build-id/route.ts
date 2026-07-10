@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 
+import { UNKNOWN_BUILD_ID } from "@/lib/checkin/kiosk-deploy-refresh"
+
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
@@ -15,7 +17,7 @@ export function GET() {
   const buildId =
     process.env.VERCEL_GIT_COMMIT_SHA ||
     process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ||
-    "dev"
+    UNKNOWN_BUILD_ID
 
   return NextResponse.json(
     { buildId },
