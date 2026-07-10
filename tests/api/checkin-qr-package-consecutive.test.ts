@@ -658,6 +658,11 @@ describe("package consecutive add-on", () => {
     expect(res.status).toBe(409)
     const data = await res.json()
     expect(data.error).toContain("already ended")
+    // The add-on rejection reflects the real add-on cutoff (endsAt), not the
+    // regular window's opensAt/closesAt.
+    expect(data.endsAt).toBe("2026-04-01T01:00:00.000Z")
+    expect(data.opensAt).toBeUndefined()
+    expect(data.closesAt).toBeUndefined()
     expect(mockCourseLinkFindUnique).not.toHaveBeenCalled()
     expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
     expect(mockPrisma.purchase.create).not.toHaveBeenCalled()

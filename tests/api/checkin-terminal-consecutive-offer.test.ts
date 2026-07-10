@@ -249,4 +249,68 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
       linkedCourseTime: "21:10",
     })
   })
+
+  it("still offers a linked class with null durationMinutes until its start + default duration passes", async () => {
+    // Friday 2026-05-22 (NY weekday 5). Rueda starts 21:10 with durationMinutes
+    // missing (null), so it must fall back to the default duration (60min)
+    // rather than being treated as ending the instant it starts (durationMinutes ?? 0).
+    // Default-duration end => 22:10 NY. Set "now" to 21:45 NY (after start, before
+    // the default-duration end) — the class must still be offered.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T01:45:00.000Z")) // 21:45 NY Fri
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([{ ...ruedaCourse, durationMinutes: null }])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-22" }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data).toMatchObject({
+      linkedCourseSlug: "salsa-night-advance-beginner-rueda",
+      linkedCourseTime: "21:10",
+    })
+  })
+
+  it("does not over-filter a future-dated selectedDate regardless of server TZ", async () => {
+    // Server clock set to a real "now" far in the past relative to the
+    // requested future date. If resolvedDateIsToday were computed via a
+    // locally-parsed Date under a non-UTC server TZ, this could misbehave;
+    // comparing the raw selectedDate string against today's NY calendar date
+    // keeps this deterministic. Rueda (later than Beginner) on a future
+    // Friday must still be offered, unfiltered by "now".
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-01T12:00:00.000Z")) // real now: long before the future date below
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    // 2026-05-29 is a future Friday (NY weekday 5) relative to the stubbed "now".
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-29" }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data).toMatchObject({
+      linkedCourseSlug: "salsa-night-advance-beginner-rueda",
+      linkedCourseTime: "21:10",
+    })
+  })
 })

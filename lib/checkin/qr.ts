@@ -4,7 +4,7 @@ import { SLUG_REGEX } from "@/lib/shared"
 export const QR_CHECKIN_OPEN_BEFORE_MS = 2 * 60 * 60 * 1000
 export const QR_CHECKIN_CLOSE_AFTER_END_MS = 2 * 60 * 60 * 1000
 
-const DEFAULT_DURATION_MINUTES = 60
+export const DEFAULT_DURATION_MINUTES = 60
 const MIN_DURATION_MINUTES = 15
 const MAX_DURATION_MINUTES = 240
 const isDevCheckInBypassEnabled = () => process.env.NODE_ENV !== "production"

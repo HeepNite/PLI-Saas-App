@@ -123,13 +123,16 @@ export async function POST(req: Request) {
       : isQrCheckInWindowAllowed(context, now)
     if (!windowAllowed) {
       return NextResponse.json(
-        {
-          error: consecutiveAddOn
-            ? "This class has already ended. Consecutive add-on purchase is no longer available."
-            : "Check-in is closed for this class.",
-          opensAt: context.opensAt.toISOString(),
-          closesAt: context.closesAt.toISOString(),
-        },
+        consecutiveAddOn
+          ? {
+              error: "This class has already ended. Consecutive add-on purchase is no longer available.",
+              endsAt: context.endsAt.toISOString(),
+            }
+          : {
+              error: "Check-in is closed for this class.",
+              opensAt: context.opensAt.toISOString(),
+              closesAt: context.closesAt.toISOString(),
+            },
         { status: 409 }
       )
     }

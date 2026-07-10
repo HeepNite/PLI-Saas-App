@@ -197,6 +197,9 @@ describe("qr check-in package route", () => {
     expect(res.status).toBe(409)
     const data = await res.json()
     expect(data.error).toBe("Check-in is closed for this class.")
+    expect(data.opensAt).toBe("2026-03-31T13:00:00.000Z")
+    expect(data.closesAt).toBe("2026-03-31T18:00:00.000Z")
+    expect(data.endsAt).toBeUndefined()
     expect(mockIsConsecutiveAddOnPurchaseAllowed).not.toHaveBeenCalled()
   })
 

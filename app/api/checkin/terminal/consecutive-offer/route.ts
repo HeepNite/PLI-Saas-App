@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { computeDiscountPercent } from "@/lib/course-links"
+import { DEFAULT_DURATION_MINUTES } from "@/lib/checkin/qr"
 
 export const runtime = "nodejs"
 
@@ -128,9 +129,14 @@ export async function GET(req: NextRequest) {
     // resolved date is actually today — a future-dated selection must never
     // be past-filtered against the current moment.
     const actualNow = new Date()
-    const resolvedCalendarDate = formatDateInTimeZone(now, CHECKIN_TIME_ZONE)
     const actualCalendarDate = formatDateInTimeZone(actualNow, CHECKIN_TIME_ZONE)
-    const resolvedDateIsToday = resolvedCalendarDate === actualCalendarDate
+    // Compare the raw selectedDate string (already YYYY-MM-DD in NY-intended
+    // form) directly against today's NY calendar date, so this check is
+    // independent of the server's local TZ. Round-tripping through a
+    // locally-parsed Date (as `now` above does, for weekday/schedule
+    // resolution) would make "is this today" sensitive to the server's TZ
+    // offset. When selectedDate is absent (legacy callers), treat as today.
+    const resolvedDateIsToday = selectedDate ? selectedDate === actualCalendarDate : true
     const nowMinutes = resolvedDateIsToday ? getMinutesInTimeZone(actualNow, CHECKIN_TIME_ZONE) : null
 
     const courseATimesForToday = courseA
@@ -146,7 +152,7 @@ export async function GET(req: NextRequest) {
           .map((time) => {
             const minutes = toMinutes(time)
             if (courseAStartMinutes === null || minutes === null || minutes <= courseAStartMinutes) return null
-            const candidateEndMinutes = minutes + (candidate.durationMinutes ?? 0)
+            const candidateEndMinutes = minutes + (candidate.durationMinutes ?? DEFAULT_DURATION_MINUTES)
             if (nowMinutes !== null && candidateEndMinutes <= nowMinutes) return null
             const link = links.find((item) =>
               (item.courseSlugA === courseSlug && item.courseSlugB === candidate.slug) ||
