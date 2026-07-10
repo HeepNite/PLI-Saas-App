@@ -30,6 +30,13 @@ const clerkProtectedMiddleware = clerkMiddleware(async (auth, req: NextRequest) 
     return NextResponse.next()
   }
 
+  // Course media is public marketing content: the public catalog API embeds
+  // these URLs, so reads must work for anonymous and terminal surfaces.
+  // Uploads/mutations live under /api/staff/school/courses/upload and stay guarded.
+  if (req.method === "GET" && pathname.startsWith("/api/staff/school/courses/media/")) {
+    return NextResponse.next()
+  }
+
   // Defense-in-depth: reject unauthenticated requests to staff API routes.
   // Individual routes still run their own authorizeStaffPortalRequest() checks,
   // but this catches any route that forgets to add one.
