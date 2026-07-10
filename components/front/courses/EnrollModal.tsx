@@ -62,6 +62,13 @@ import { useKioskQrPoller } from "@/components/front/courses/enroll/hooks/useKio
 import { useEnrollFlowSetters } from "@/components/front/courses/enroll/hooks/useEnrollFlowSetters"
 import { useEnrollDerivedState } from "@/components/front/courses/enroll/hooks/useEnrollDerivedState"
 import { useEnrollSubmitActions } from "@/components/front/courses/enroll/hooks/useEnrollSubmitActions"
+import {
+  useEnrollEffectsPreInit,
+  useEnrollEffectsEarly,
+  useEnrollEffectsMid,
+  useEnrollEffectsCheckInAutofill,
+  useEnrollEffectsLate,
+} from "@/components/front/courses/enroll/hooks/useEnrollEffects"
 import type {
   EnrollModalProps,
   FlowPopupState,
@@ -354,12 +361,7 @@ export default function EnrollModal({
     ? "new-student"
     : (availableServices[0]?.id ?? "")
 
-  React.useEffect(() => {
-    if (!isCheckInFlow || !open) return
-    setCheckInNow(new Date())
-    const intervalId = window.setInterval(() => setCheckInNow(new Date()), 30_000)
-    return () => window.clearInterval(intervalId)
-  }, [isCheckInFlow, open])
+  useEnrollEffectsPreInit({ isCheckInFlow, open, setCheckInNow })
 
   const signInReturnTo = React.useMemo(() => {
     const base = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
@@ -478,65 +480,22 @@ export default function EnrollModal({
     },
   })
 
-  React.useEffect(() => {
-    if (isCheckInNewFlow) return
-    if (!open || !prefillContact) return
-    setContact((prev) => ({
-      ...prev,
-      ...prefillContact,
-      phone:
-        typeof prefillContact.phone === "string"
-          ? normalizeEnrollPhonePrefill(prefillContact.phone)
-          : prev.phone,
-    }))
-  }, [isCheckInNewFlow, open, prefillContact, setContact])
-
-  React.useEffect(() => {
-    const id = window.setTimeout(() => setInitialLoading(false), 400)
-    return () => window.clearTimeout(id)
-  }, [])
-
-  React.useEffect(() => {
-    return () => {
-      if (stationCompletionTimeoutRef.current !== null) {
-        window.clearTimeout(stationCompletionTimeoutRef.current)
-        stationCompletionTimeoutRef.current = null
-      }
-      if (kioskPaymentTransitionTimeoutRef.current !== null) {
-        window.clearTimeout(kioskPaymentTransitionTimeoutRef.current)
-        kioskPaymentTransitionTimeoutRef.current = null
-      }
-    }
-  }, [])
-
-  React.useEffect(() => {
-    if (!success || !isStationCompletion || !onCompletedAction) return
-    if (stationCompletionTimeoutRef.current !== null) {
-      window.clearTimeout(stationCompletionTimeoutRef.current)
-    }
-    stationCompletionTimeoutRef.current = window.setTimeout(() => {
-      stationCompletionTimeoutRef.current = null
-      void onCompletedAction()
-    }, 10_000)
-    return () => {
-      if (stationCompletionTimeoutRef.current !== null) {
-        window.clearTimeout(stationCompletionTimeoutRef.current)
-        stationCompletionTimeoutRef.current = null
-      }
-    }
-  }, [isStationCompletion, onCompletedAction, success])
-
-  React.useEffect(() => {
-    if (!shouldRedirectPersonalCompletion({ success, isPersonalCompletion })) return
-    const sessionId = pendingClerkSessionRef.current
-    if (sessionId) {
-      setActive({ session: sessionId }).then(() => {
-        router.replace("/client-profile")
-      })
-    } else {
-      router.replace("/client-profile")
-    }
-  }, [isPersonalCompletion, router, setActive, success])
+  useEnrollEffectsEarly({
+    isCheckInNewFlow,
+    open,
+    prefillContact,
+    setContact,
+    setInitialLoading,
+    stationCompletionTimeoutRef,
+    kioskPaymentTransitionTimeoutRef,
+    success,
+    isStationCompletion,
+    onCompletedAction,
+    isPersonalCompletion,
+    router,
+    setActive,
+    pendingClerkSessionRef,
+  })
 
   useKioskInactivity({
     open,
@@ -547,84 +506,30 @@ export default function EnrollModal({
     onTimeoutAction,
   })
 
-  React.useEffect(() => {
-    if (isInline) return
-    if (!open) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [open, isInline])
-
-
-  React.useEffect(() => {
-    const serviceIds = availableServices.map((s) => s.id)
-    setService((prev) => {
-      return resolveCheckInServiceSelection({
-        previousService: prev,
-        availableServiceIds: serviceIds,
-        isCheckInNewFlow,
-        hasNewStudentService,
-        regularFallbackLocked,
-      })
-    })
-    setPkg((prev) => (course.enrollment.packages.some((p) => p.id === prev) ? prev : ""))
-    setAddons((prev) => prev.filter((id) => course.enrollment.addons?.some((a) => a.id === id)))
-  }, [
-    course.slug,
+  useEnrollEffectsMid({
+    isInline,
+    open,
     availableServices,
-    course.enrollment.packages,
-    course.enrollment.addons,
+    setService,
     isCheckInNewFlow,
     hasNewStudentService,
     regularFallbackLocked,
-    setAddons,
+    course,
     setPkg,
-    setService,
-  ])
-
-  React.useEffect(() => {
-    if (isNewStudent && participants !== 1) {
-      setParticipants(1)
-    }
-  }, [isNewStudent, participants, setParticipants])
-
-  React.useEffect(() => {
-    if (!isCheckInFlow) return
-    setPreparedAccount(null)
-    setPhotoSaved(false)
-  }, [
-    contact.email,
-    contact.firstName,
-    contact.lastName,
-    contact.phone,
+    setAddons,
+    isNewStudent,
+    participants,
+    setParticipants,
     isCheckInFlow,
+    contact,
     service,
-  ])
-
-  React.useEffect(() => {
-    if (!isCheckInNewFlow || !open || !hasNewStudentService) return
-    if (regularFallbackLocked) return
-    if (service !== "new-student") {
-      setService("new-student")
-    }
-  }, [hasNewStudentService, isCheckInNewFlow, open, regularFallbackLocked, service, setService])
-
-  React.useEffect(() => {
-    if (isCheckInNewFlow) return
-    if (!isLoaded || !isSignedIn || !user) return
-    if (!open && !isInline) return
-    const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
-    const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
-    setContact((prev) => ({
-      ...prev,
-      firstName: prev.firstName || user.firstName || "",
-      lastName: prev.lastName || user.lastName || "",
-      email: prev.email || user.primaryEmailAddress?.emailAddress || "",
-      phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
-    }))
-  }, [isCheckInNewFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
+    setPreparedAccount,
+    setPhotoSaved,
+    isLoaded,
+    isSignedIn,
+    user,
+    setContact,
+  })
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
@@ -664,39 +569,23 @@ export default function EnrollModal({
     ? formattedSummaryDateTime
     : <>{date || "—"} {to12h(time) || ""}</>
 
-  React.useEffect(() => {
-    if (!isCheckInFlow || !open) return
-    const recommended = computeCheckInAutofill(
-      course.slug,
-      sourceCourses,
-      {
-        date: checkInContextDate,
-        time: checkInContextTime,
-      },
-      checkInNow,
-      isKioskTerminalFlow || isQrMobileCompactFlow,
-    )
-    if (recommended.date && recommended.date !== date) {
-      setDate(recommended.date)
-    }
-    if (recommended.time !== time) {
-      setTime(recommended.time)
-    }
-    if (recommended.notice !== checkInScheduleNotice) {
-      setCheckInScheduleNotice(recommended.notice)
-    }
-  }, [
+  useEnrollEffectsCheckInAutofill({
     isCheckInFlow,
     open,
-    course.slug,
+    course,
+    sourceCourses,
     checkInContextDate,
     checkInContextTime,
     checkInNow,
     date,
     time,
     checkInScheduleNotice,
-    sourceCourses,
-  ])
+    isKioskTerminalFlow,
+    isQrMobileCompactFlow,
+    setDate,
+    setTime,
+    setCheckInScheduleNotice,
+  })
 
   // Calendar helpers (Google URL + ICS data URI)
   const eventDates = calendarLinks.eventDates
@@ -892,101 +781,42 @@ export default function EnrollModal({
   const advanceFromContactStepRef = React.useRef(advanceFromContactStep)
   advanceFromContactStepRef.current = advanceFromContactStep
 
-  React.useEffect(() => {
-    if (!pendingAutoPay || !isSignedIn || processing) return
-    let cancelled = false
-    let attempts = 0
-    const run = async () => {
-      const token = await getToken({ skipCache: true })
-      if (cancelled) return
-      if (!token) {
-        attempts += 1
-        if (attempts < 6) {
-          window.setTimeout(run, 350)
-        }
-        return
-      }
-      setRequiresSignIn(false)
-      setPendingAutoPay(false)
-      void handleSubmitRef.current()
-    }
-    const timeout = window.setTimeout(run, 250)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timeout)
-    }
-  }, [pendingAutoPay, isSignedIn, processing, getToken, setRequiresSignIn])
-
-  React.useEffect(() => {
-    if (!isSignedIn) return
-
-    if (requiresSignIn) {
-      setRequiresSignIn(false)
-    }
-
-    if (existingAccountDetected) {
-      setExistingAccountDetected(false)
-    }
-
-    if (resumeAfterSignInStep !== null) {
-      if (service === "new-student" && regularServiceId && regularServiceId !== service && !isQrMobileCompactFlow) {
-        setService(regularServiceId)
-      }
-      const safeStep = Math.max(0, Math.min(steps.length - 1, resumeAfterSignInStep))
-      setStep(safeStep)
-      setResumeAfterSignInStep(null)
-      setFormError(null)
-    }
-
-    if (resumeContactFlowAfterSignIn) {
-      setResumeContactFlowAfterSignIn(false)
-      void advanceFromContactStepRef.current()
-    }
-  }, [
-    existingAccountDetected,
-    isQrMobileCompactFlow,
+  useEnrollEffectsLate({
+    pendingAutoPay,
     isSignedIn,
-    regularServiceId,
-    requiresSignIn,
-    resumeContactFlowAfterSignIn,
-    resumeAfterSignInStep,
-    setExistingAccountDetected,
-    setFormError,
+    processing,
+    getToken,
     setRequiresSignIn,
-    setResumeAfterSignInStep,
-    setResumeContactFlowAfterSignIn,
-    setService,
-    setStep,
+    setPendingAutoPay,
+    handleSubmitRef,
+    requiresSignIn,
+    existingAccountDetected,
+    resumeAfterSignInStep,
     service,
-    steps.length,
-  ])
-
-  React.useEffect(() => {
-    if (!open) return
-    setStep((prev) => Math.max(0, Math.min(prev, steps.length - 1)))
-  }, [open, steps.length, setStep])
-
-  // Kiosk & QR mobile new-student: after SMS verification succeeds, continue to account prep
-  React.useEffect(() => {
-    if (verificationState !== "verified" || !(isKioskTerminalFlow || isQrMobileCompactFlow)) return
-    let cancelled = false
-    void (async () => {
-      const account = preparedAccount || (await requestAccountPreparation())
-      if (cancelled || !account) return
-      const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
-      if (needsPhoto && photoStepIndex >= 0) {
-        setStep(photoStepIndex)
-      } else if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
-      } else if (packagesStepIndex >= 0) {
-        setStep(packagesStepIndex)
-      } else if (paymentsStepIndex >= 0) {
-        setStep(paymentsStepIndex)
-      }
-      resetVerification()
-    })()
-    return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
+    regularServiceId,
+    isQrMobileCompactFlow,
+    setService,
+    steps,
+    setStep,
+    setResumeAfterSignInStep,
+    setFormError,
+    resumeContactFlowAfterSignIn,
+    setExistingAccountDetected,
+    setResumeContactFlowAfterSignIn,
+    advanceFromContactStepRef,
+    open,
+    verificationState,
+    isKioskTerminalFlow,
+    preparedAccount,
+    requestAccountPreparation,
+    photoPolicy,
+    photoSaved,
+    photoStepIndex,
+    promoStepIndex,
+    packagesStepIndex,
+    paymentsStepIndex,
+    resetVerification,
+  })
 
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
     isKioskTerminalFlow,

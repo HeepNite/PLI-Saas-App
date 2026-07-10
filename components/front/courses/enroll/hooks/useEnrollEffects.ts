@@ -106,41 +106,15 @@ function normalizeEnrollPhonePrefill(value?: string): string {
   return formatUSPhone(value)
 }
 
-export function useEnrollEffects(input: UseEnrollEffectsInput) {
-  const {
-    open, isInline, isCheckInFlow, isCheckInNewFlow, isCheckInExistingFlow, isKioskTerminalFlow,
-    isQrMobileCompactFlow, isNewStudent, isPersonalCompletion, isStationCompletion, success,
-    prefillContact, course, sourceCourses, availableServices, contact, service, participants,
-    date, time, checkInContextDate, checkInContextTime, checkInNow, checkInScheduleNotice,
-    requiresSignIn, existingAccountDetected, resumeAfterSignInStep, resumeContactFlowAfterSignIn,
-    pendingAutoPay, isSignedIn, isLoaded, processing, hasNewStudentService, regularFallbackLocked,
-    regularServiceId, steps, preparedAccount, photoSaved, photoPolicy, photoStepIndex,
-    promoStepIndex, packagesStepIndex, paymentsStepIndex, user, verificationState, pendingClerkSessionRef,
-    stationCompletionTimeoutRef, kioskPaymentTransitionTimeoutRef, kioskPaymentTransitionStartedAtRef,
-    getToken, router, setActive, onCompletedAction, requestAccountPreparation, resetVerification,
-    advanceFromContactStepRef, handleSubmitRef,
-    setService, setPkg, setAddons, setParticipants, setDate, setTime, setContact, setStep,
-    setCheckInNow, setCheckInScheduleNotice, setRequiresSignIn, setExistingAccountDetected,
-    setResumeAfterSignInStep, setResumeContactFlowAfterSignIn, setPendingAutoPay, setFormError,
-    setPreparedAccount, setPhotoSaved, setShowKioskPaymentTransition, setInitialLoading,
-  } = input
-
-  // Initial loading delay
-  React.useEffect(() => {
-    const id = window.setTimeout(() => setInitialLoading(false), 400)
-    return () => window.clearTimeout(id)
-  }, [setInitialLoading])
-
-  // Body scroll lock when modal is open
-  React.useEffect(() => {
-    if (isInline) return
-    if (!open) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [open, isInline])
+/**
+ * Pre-init cluster: the single effect that today fires BEFORE `useEnrollInit`
+ * / `useEnrollDraft` in EnrollModal (check-in-clock, live line ~357). Kept as
+ * its own call so its position relative to those two hooks never changes.
+ */
+export function useEnrollEffectsPreInit(
+  input: Pick<UseEnrollEffectsInput, "isCheckInFlow" | "open" | "setCheckInNow">
+) {
+  const { isCheckInFlow, open, setCheckInNow } = input
 
   // Check-in clock
   React.useEffect(() => {
@@ -148,7 +122,38 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     setCheckInNow(new Date())
     const intervalId = window.setInterval(() => setCheckInNow(new Date()), 30_000)
     return () => window.clearInterval(intervalId)
-  }, [isCheckInFlow, open, setCheckInNow])
+  }, [isCheckInFlow, open])
+}
+
+/**
+ * Early cluster: the effects that today fire AFTER `useEnrollInit` /
+ * `useEnrollDraft` but BEFORE `useKioskInactivity` (live lines ~481-539).
+ */
+export function useEnrollEffectsEarly(
+  input: Pick<
+    UseEnrollEffectsInput,
+    | "isCheckInNewFlow"
+    | "open"
+    | "prefillContact"
+    | "setContact"
+    | "setInitialLoading"
+    | "stationCompletionTimeoutRef"
+    | "kioskPaymentTransitionTimeoutRef"
+    | "success"
+    | "isStationCompletion"
+    | "onCompletedAction"
+    | "isPersonalCompletion"
+    | "router"
+    | "setActive"
+    | "pendingClerkSessionRef"
+  >
+) {
+  const {
+    isCheckInNewFlow, open, prefillContact, setContact, setInitialLoading,
+    stationCompletionTimeoutRef, kioskPaymentTransitionTimeoutRef,
+    success, isStationCompletion, onCompletedAction,
+    isPersonalCompletion, router, setActive, pendingClerkSessionRef,
+  } = input
 
   // Prefill contact (non-check-in flows)
   React.useEffect(() => {
@@ -164,6 +169,12 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     }))
   }, [isCheckInNewFlow, open, prefillContact, setContact])
 
+  // Initial loading delay
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setInitialLoading(false), 400)
+    return () => window.clearTimeout(id)
+  }, [])
+
   // Cleanup timeouts on unmount
   React.useEffect(() => {
     return () => {
@@ -176,7 +187,7 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
         kioskPaymentTransitionTimeoutRef.current = null
       }
     }
-  }, [stationCompletionTimeoutRef, kioskPaymentTransitionTimeoutRef])
+  }, [])
 
   // Station completion auto-close timer
   React.useEffect(() => {
@@ -194,7 +205,7 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
         stationCompletionTimeoutRef.current = null
       }
     }
-  }, [isStationCompletion, onCompletedAction, success, stationCompletionTimeoutRef])
+  }, [isStationCompletion, onCompletedAction, success])
 
   // Personal completion redirect
   React.useEffect(() => {
@@ -207,7 +218,59 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     } else {
       router.replace("/client-profile")
     }
-  }, [isPersonalCompletion, router, setActive, success, pendingClerkSessionRef])
+  }, [isPersonalCompletion, router, setActive, success])
+}
+
+/**
+ * Mid cluster: the effects that today fire AFTER `useKioskInactivity` but
+ * BEFORE the `formatPackageMeta` `useCallback` (live lines ~550-579).
+ */
+export function useEnrollEffectsMid(
+  input: Pick<
+    UseEnrollEffectsInput,
+    | "isInline"
+    | "open"
+    | "availableServices"
+    | "setService"
+    | "isCheckInNewFlow"
+    | "hasNewStudentService"
+    | "regularFallbackLocked"
+    | "course"
+    | "setPkg"
+    | "setAddons"
+    | "isNewStudent"
+    | "participants"
+    | "setParticipants"
+    | "isCheckInFlow"
+    | "contact"
+    | "service"
+    | "setPreparedAccount"
+    | "setPhotoSaved"
+    | "isLoaded"
+    | "isSignedIn"
+    | "user"
+    | "setContact"
+  >
+) {
+  const {
+    isInline, open,
+    availableServices, setService, isCheckInNewFlow, hasNewStudentService, regularFallbackLocked,
+    course, setPkg, setAddons,
+    isNewStudent, participants, setParticipants,
+    isCheckInFlow, contact, service, setPreparedAccount, setPhotoSaved,
+    isLoaded, isSignedIn, user, setContact,
+  } = input
+
+  // Body scroll lock when modal is open
+  React.useEffect(() => {
+    if (isInline) return
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open, isInline])
 
   // Service / package / addon reset when course changes
   React.useEffect(() => {
@@ -255,8 +318,6 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     contact.phone,
     isCheckInFlow,
     service,
-    setPreparedAccount,
-    setPhotoSaved,
   ])
 
   // Force new-student service for checkin-new
@@ -283,6 +344,39 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
       phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
     }))
   }, [isCheckInNewFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
+}
+
+/**
+ * Check-in autofill date/time: today fires AFTER the `formatPackageMeta`
+ * `useCallback` (live lines ~577-609), still before `useEnrollPaymentActions`.
+ * Kept as its own call so this effect's position relative to that
+ * `useCallback` never changes.
+ */
+export function useEnrollEffectsCheckInAutofill(
+  input: Pick<
+    UseEnrollEffectsInput,
+    | "isCheckInFlow"
+    | "open"
+    | "course"
+    | "sourceCourses"
+    | "checkInContextDate"
+    | "checkInContextTime"
+    | "checkInNow"
+    | "date"
+    | "time"
+    | "checkInScheduleNotice"
+    | "isKioskTerminalFlow"
+    | "isQrMobileCompactFlow"
+    | "setDate"
+    | "setTime"
+    | "setCheckInScheduleNotice"
+  >
+) {
+  const {
+    isCheckInFlow, open, course, sourceCourses, checkInContextDate, checkInContextTime, checkInNow,
+    date, time, checkInScheduleNotice, isKioskTerminalFlow, isQrMobileCompactFlow, setDate, setTime,
+    setCheckInScheduleNotice,
+  } = input
 
   // Check-in autofill date/time
   React.useEffect(() => {
@@ -303,11 +397,72 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     if (recommended.notice !== checkInScheduleNotice) {
       setCheckInScheduleNotice(recommended.notice)
     }
+    // NOTE: `isKioskTerminalFlow`/`isQrMobileCompactFlow` are read above (in the
+    // `computeCheckInAutofill` call) but intentionally NOT added to this deps
+    // array, matching live EnrollModal's exact (pre-existing, buggy)
+    // `react-hooks/exhaustive-deps` array so this wiring slice introduces zero
+    // behavior change. This is a known, previously-documented correctness gap in
+    // live code — fixing it is out of scope for a behavior-preserving wiring slice.
   }, [
     isCheckInFlow, open, course.slug, checkInContextDate, checkInContextTime, checkInNow,
-    date, time, checkInScheduleNotice, sourceCourses, isKioskTerminalFlow, isQrMobileCompactFlow,
-    setDate, setTime, setCheckInScheduleNotice,
+    date, time, checkInScheduleNotice, sourceCourses,
   ])
+}
+
+/**
+ * Late cluster: the effects that need `handleSubmitRef` / `advanceFromContactStepRef`
+ * / `requestAccountPreparation`, only available after those refs/callbacks are
+ * constructed in EnrollModal (today at live lines ~895-989, right after the
+ * `handleSubmitRef`/`advanceFromContactStepRef` refs are assigned).
+ */
+export function useEnrollEffectsLate(
+  input: Pick<
+    UseEnrollEffectsInput,
+    | "pendingAutoPay"
+    | "isSignedIn"
+    | "processing"
+    | "getToken"
+    | "setRequiresSignIn"
+    | "setPendingAutoPay"
+    | "handleSubmitRef"
+    | "requiresSignIn"
+    | "existingAccountDetected"
+    | "resumeAfterSignInStep"
+    | "service"
+    | "regularServiceId"
+    | "isQrMobileCompactFlow"
+    | "setService"
+    | "steps"
+    | "setStep"
+    | "setResumeAfterSignInStep"
+    | "setFormError"
+    | "resumeContactFlowAfterSignIn"
+    | "setExistingAccountDetected"
+    | "setResumeContactFlowAfterSignIn"
+    | "advanceFromContactStepRef"
+    | "open"
+    | "verificationState"
+    | "isKioskTerminalFlow"
+    | "preparedAccount"
+    | "requestAccountPreparation"
+    | "photoPolicy"
+    | "photoSaved"
+    | "photoStepIndex"
+    | "promoStepIndex"
+    | "packagesStepIndex"
+    | "paymentsStepIndex"
+    | "resetVerification"
+  >
+) {
+  const {
+    pendingAutoPay, isSignedIn, processing, getToken, setRequiresSignIn, setPendingAutoPay, handleSubmitRef,
+    requiresSignIn, existingAccountDetected, resumeAfterSignInStep, service, regularServiceId,
+    isQrMobileCompactFlow, setService, steps, setStep, setResumeAfterSignInStep, setFormError,
+    resumeContactFlowAfterSignIn, setExistingAccountDetected, setResumeContactFlowAfterSignIn,
+    advanceFromContactStepRef, open, verificationState, isKioskTerminalFlow, preparedAccount,
+    requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex,
+    packagesStepIndex, paymentsStepIndex, resetVerification,
+  } = input
 
   // Auto-pay after sign-in
   React.useEffect(() => {
@@ -333,7 +488,7 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [pendingAutoPay, isSignedIn, processing, getToken, setRequiresSignIn, setPendingAutoPay, handleSubmitRef])
+  }, [pendingAutoPay, isSignedIn, processing, getToken, setRequiresSignIn])
 
   // Resume flow after sign-in
   React.useEffect(() => {
@@ -358,7 +513,6 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     resumeContactFlowAfterSignIn, resumeAfterSignInStep,
     setExistingAccountDetected, setFormError, setRequiresSignIn, setResumeAfterSignInStep,
     setResumeContactFlowAfterSignIn, setService, setStep, service, steps.length,
-    advanceFromContactStepRef,
   ])
 
   // Clamp step when steps array changes

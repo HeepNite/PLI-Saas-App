@@ -4,7 +4,13 @@ import React, { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { useEnrollEffects } from "@/components/front/courses/enroll/hooks/useEnrollEffects"
+import {
+  useEnrollEffectsPreInit,
+  useEnrollEffectsEarly,
+  useEnrollEffectsMid,
+  useEnrollEffectsCheckInAutofill,
+  useEnrollEffectsLate,
+} from "@/components/front/courses/enroll/hooks/useEnrollEffects"
 import type { UseEnrollEffectsInput } from "@/components/front/courses/enroll/hooks/useEnrollEffects"
 import type { EnrollmentContact } from "@/components/front/courses/types"
 import type { PreparedAccountState } from "@/components/front/courses/enroll/types/enroll-modal-props"
@@ -145,7 +151,16 @@ describe("useEnrollEffects", () => {
     root = createRoot(container)
 
     function Harness(nextInput: UseEnrollEffectsInput) {
-      useEnrollEffects(nextInput)
+      // Mirrors the exact call order wired in EnrollModal: pre-init cluster
+      // (before useEnrollInit/useEnrollDraft) -> early cluster (after those,
+      // before useKioskInactivity) -> mid cluster (after useKioskInactivity,
+      // before useEnrollPaymentActions) -> late cluster (after
+      // handleSubmitRef/advanceFromContactStepRef are assigned).
+      useEnrollEffectsPreInit(nextInput)
+      useEnrollEffectsEarly(nextInput)
+      useEnrollEffectsMid(nextInput)
+      useEnrollEffectsCheckInAutofill(nextInput)
+      useEnrollEffectsLate(nextInput)
       return null
     }
 
@@ -525,7 +540,13 @@ describe("useEnrollEffects", () => {
   })
 
   describe("check-in autofill date/time", () => {
-    it("re-runs when isKioskTerminalFlow changes even if no other listed dep changes (matches live's read of this value)", async () => {
+    // KNOWN, INTENTIONALLY-PRESERVED live bug: `isKioskTerminalFlow` /
+    // `isQrMobileCompactFlow` are READ inside this effect (passed to
+    // `computeCheckInAutofill`) but are NOT in its deps array, matching live
+    // EnrollModal's exact (pre-existing) `react-hooks/exhaustive-deps` gap.
+    // Wiring this hook must not silently fix that bug -- it must reproduce it,
+    // so this test pins the stale-closure behavior on purpose.
+    it("does not re-run on an isKioskTerminalFlow-only change (matches live's stale-closure deps array)", async () => {
       const setDate = vi.fn()
       const setTime = vi.fn()
       const input = defaultInput({
@@ -544,14 +565,56 @@ describe("useEnrollEffects", () => {
       setDate.mockClear()
       setTime.mockClear()
 
-      // Only isKioskTerminalFlow changes; this is READ inside the effect body
-      // (passed to computeCheckInAutofill) so the effect must be able to observe
-      // the new value on next relevant render per the hook's (more complete) deps array.
+      // Only isKioskTerminalFlow changes; it is absent from the effect's deps
+      // array (matching live), so the effect must NOT re-run.
       await rerender({ ...input, isKioskTerminalFlow: true })
-      // No explicit assertion on setDate/setTime call outcome here (depends on
-      // computeCheckInAutofill's real logic) -- this test's purpose is to prove
-      // the hook does not throw and re-evaluates without a stale-closure issue.
-      expect(true).toBe(true)
+      expect(setDate).not.toHaveBeenCalled()
+      expect(setTime).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("early/mid/late split boundary", () => {
+    it("fires all four clusters together without cross-cluster interference (pre-init, early, mid, late in one commit)", async () => {
+      const setCheckInNow = vi.fn()
+      const setContact = vi.fn()
+      const setInitialLoading = vi.fn()
+      const setService = vi.fn()
+      const setStep = vi.fn()
+      const handleSubmit = vi.fn(async () => {})
+
+      await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          open: true,
+          setCheckInNow,
+          setContact,
+          setInitialLoading,
+          setService,
+          setStep,
+          handleSubmitRef: { current: handleSubmit },
+        })
+      )
+
+      // Pre-init cluster (check-in clock) fired.
+      expect(setCheckInNow).toHaveBeenCalledTimes(1)
+      // Mid cluster (service/pkg/addon reset) fired independently.
+      expect(setService).toHaveBeenCalled()
+      // Late cluster (clamp-step-on-steps-change) fired independently, using
+      // the functional-updater form -- proves it ran without needing state
+      // written by the pre-init/early/mid clusters in the same commit.
+      expect(setStep).toHaveBeenCalled()
+      const clampUpdater = setStep.mock.calls[0][0] as (prev: number) => number
+      expect(clampUpdater(99)).toBe(2)
+    })
+
+    it("does not require the late cluster's refs to be ready before the pre-init/early/mid clusters run", async () => {
+      const setCheckInNow = vi.fn()
+      // handleSubmitRef/advanceFromContactStepRef default to no-op mocks in
+      // defaultInput(); this test proves the earlier clusters never read them,
+      // so their construction order in EnrollModal (after useEnrollNavigationActions)
+      // cannot affect the pre-init/early/mid clusters.
+      await renderHook(defaultInput({ isCheckInFlow: true, open: true, setCheckInNow }))
+      expect(setCheckInNow).toHaveBeenCalledTimes(1)
     })
   })
 })
