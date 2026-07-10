@@ -29,7 +29,6 @@ import {
   shouldRedirectPersonalCompletion,
 } from "@/lib/checkin/enroll-flow"
 import {
-  createEmptyKioskQrCheckoutState,
   getKioskPaymentTransitionRemainingMs,
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
@@ -62,6 +61,7 @@ import { useKioskInactivity } from "@/components/front/courses/enroll/hooks/useK
 import { useKioskQrPoller } from "@/components/front/courses/enroll/hooks/useKioskQrPoller"
 import { useEnrollFlowSetters } from "@/components/front/courses/enroll/hooks/useEnrollFlowSetters"
 import { useEnrollDerivedState } from "@/components/front/courses/enroll/hooks/useEnrollDerivedState"
+import { useEnrollSubmitActions } from "@/components/front/courses/enroll/hooks/useEnrollSubmitActions"
 import type {
   EnrollModalProps,
   FlowPopupState,
@@ -496,68 +496,6 @@ export default function EnrollModal({
     return () => window.clearTimeout(id)
   }, [])
 
-  const resetForm = React.useCallback(() => {
-    if (kioskPaymentTransitionTimeoutRef.current !== null) {
-      window.clearTimeout(kioskPaymentTransitionTimeoutRef.current)
-      kioskPaymentTransitionTimeoutRef.current = null
-    }
-    setSuccess(false)
-    setSuccessMessage(null)
-    setAddons([])
-    setParticipants(1)
-    setDate("")
-    setTime("")
-    setContact({ firstName: "", lastName: "", email: "", phone: "+1 ", note: "" })
-    setStep(0)
-    setCheckInScheduleNotice(null)
-    setRequiresSignIn(false)
-    setExistingAccountDetected(false)
-    setResumeAfterSignInStep(null)
-    setPendingAutoPay(false)
-    setResumeContactFlowAfterSignIn(false)
-    setIdentityCheckBusy(false)
-    setPhoneTouched(false)
-    setActiveNumericField(isKioskTerminalFlow ? "phone" : null)
-    setKioskInfoPhase(initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow }))
-    setStripeClientSecret("")
-    setShowStripeModal(false)
-    setKioskQrCheckout(createEmptyKioskQrCheckoutState())
-    setPreparedAccount(null)
-    setPhotoSaved(false)
-    setNewStudentFallbackPhoneKey(null)
-    setFlowPopup(null)
-    setSignInPurpose("existing")
-    setFormError(null)
-    setProcessing(false)
-    setShowKioskPaymentTransition(false)
-    setConsecutiveAccepted(false)
-    setConsecutiveAddedCents(0)
-    setConsecutiveChoiceMade(false)
-    kioskPaymentTransitionStartedAtRef.current = null
-    kioskFastPathAdvanceTriggeredRef.current = false
-    kioskFastPathSubmitTriggeredRef.current = false
-  }, [
-    setAddons,
-    setContact,
-    setExistingAccountDetected,
-    setFormError,
-    setKioskQrCheckout,
-    setParticipants,
-    setProcessing,
-    setRequiresSignIn,
-    setResumeAfterSignInStep,
-    setResumeContactFlowAfterSignIn,
-    setSignInPurpose,
-    setStep,
-    setSuccess,
-    setSuccessMessage,
-  ])
-
-  const handleClose = React.useCallback(() => {
-    resetForm()
-    onCloseAction()
-  }, [onCloseAction, resetForm])
-
   React.useEffect(() => {
     return () => {
       if (stationCompletionTimeoutRef.current !== null) {
@@ -570,13 +508,6 @@ export default function EnrollModal({
       }
     }
   }, [])
-
-  React.useEffect(() => {
-    if (!open && !isInline) {
-      resetForm()
-      resetVerification()
-    }
-  }, [open, isInline, resetForm, resetVerification])
 
   React.useEffect(() => {
     if (!success || !isStationCompletion || !onCompletedAction) return
@@ -856,6 +787,57 @@ export default function EnrollModal({
   const handleSubmit = async (e?: React.FormEvent) => {
     await handleSubmitInternal(e, { validateBeforeSubmit })
   }
+
+  const { resetForm, handleClose, handleSignInDismiss } = useEnrollSubmitActions({
+    isKioskTerminalFlow,
+    regularServicePrice,
+    signInPurpose,
+    onCloseAction,
+    kioskPaymentTransitionTimeoutRef,
+    kioskPaymentTransitionStartedAtRef,
+    kioskFastPathAdvanceTriggeredRef,
+    kioskFastPathSubmitTriggeredRef,
+    setSuccess,
+    setSuccessMessage,
+    setAddons,
+    setParticipants,
+    setDate,
+    setTime,
+    setContact,
+    setStep,
+    setCheckInScheduleNotice,
+    setRequiresSignIn,
+    setExistingAccountDetected,
+    setResumeAfterSignInStep,
+    setPendingAutoPay,
+    setResumeContactFlowAfterSignIn,
+    setIdentityCheckBusy,
+    setPhoneTouched,
+    setActiveNumericField,
+    setKioskInfoPhase,
+    setStripeClientSecret,
+    setShowStripeModal,
+    setKioskQrCheckout,
+    setPreparedAccount,
+    setPhotoSaved,
+    setNewStudentFallbackPhoneKey,
+    setFlowPopup,
+    setSignInPurpose,
+    setFormError,
+    setProcessing,
+    setShowKioskPaymentTransition,
+    setConsecutiveAccepted,
+    setConsecutiveAddedCents,
+    setConsecutiveChoiceMade,
+    showRegularFallbackPopup,
+  })
+
+  React.useEffect(() => {
+    if (!open && !isInline) {
+      resetForm()
+      resetVerification()
+    }
+  }, [open, isInline, resetForm, resetVerification])
 
   const {
     handleNumpadDigit,
@@ -1176,30 +1158,6 @@ export default function EnrollModal({
         : showAccountExistsSignInCopy
           ? t("existing_customer_signin_required")
           : t("sign_in_modal_subtitle")
-
-  const handleSignInDismiss = React.useCallback(() => {
-    setRequiresSignIn(false)
-    setExistingAccountDetected(false)
-    setResumeAfterSignInStep(null)
-    setPendingAutoPay(false)
-    setResumeContactFlowAfterSignIn(false)
-    setSignInPurpose("existing")
-
-    if (signInPurpose === "sms_verification") {
-      showRegularFallbackPopup(
-        `Phone verification was not completed. We switched this booking to the regular $${regularServicePrice.toFixed(0)} price.`
-      )
-    }
-  }, [
-    regularServicePrice,
-    setExistingAccountDetected,
-    setRequiresSignIn,
-    setResumeAfterSignInStep,
-    setResumeContactFlowAfterSignIn,
-    setSignInPurpose,
-    showRegularFallbackPopup,
-    signInPurpose,
-  ])
 
   if (!open && !isInline) return null
 
