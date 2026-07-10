@@ -92,3 +92,13 @@ export const isQrCheckInWindowAllowed = (context: QrCheckInContext, now = new Da
   if (isDevCheckInBypassEnabled()) return true
   return isQrCheckInWindowOpen(context, now)
 }
+
+// Consecutive add-on purchase has no lower bound (can be bought any time
+// before the linked class starts or is in progress) and is rejected only
+// once the class has ended (`endsAt`). This intentionally does NOT reuse
+// `closesAt` (endsAt + 2h grace) — the add-on upper bound is the class's
+// natural end, not the normal check-in path's post-class grace window.
+export const isConsecutiveAddOnPurchaseAllowed = (context: QrCheckInContext, now = new Date()) => {
+  if (isDevCheckInBypassEnabled()) return true
+  return now.getTime() <= context.endsAt.getTime()
+}
