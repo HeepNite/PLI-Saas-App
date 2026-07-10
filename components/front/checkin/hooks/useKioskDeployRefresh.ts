@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   KIOSK_DEPLOY_POLL_INTERVAL_MS,
@@ -10,11 +10,34 @@ import {
 const BUILD_ID_ENDPOINT = "/api/build-id"
 
 /**
+ * sessionStorage key for the last reload attempt timestamp. Reload wipes all
+ * in-memory JS state, so the throttle must be persisted somewhere that
+ * survives a same-tab reload — sessionStorage does, and is scoped to the
+ * kiosk's single home-app session (a full app restart clears it, which is
+ * acceptable).
+ */
+const LAST_RELOAD_ATTEMPT_STORAGE_KEY = "kiosk-deploy-refresh:last-reload-attempt-at"
+
+/** Guarded so a misconfigured build id only warns once per session, not per poll. */
+let hasWarnedAboutMissingBuildId = false
+
+/**
  * Build id baked into the client bundle by Vercel at build time.
  * Empty in local dev, which makes the whole feature a no-op there.
  */
 const getRunningBuildId = (): string | null =>
   process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || null
+
+const warnIfBuildIdMissingInProduction = (runningBuildId: string | null) => {
+  if (runningBuildId) return
+  if (process.env.NODE_ENV !== "production") return
+  if (hasWarnedAboutMissingBuildId) return
+  hasWarnedAboutMissingBuildId = true
+  console.warn(
+    "[useKioskDeployRefresh] NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA is empty in production — " +
+      "the kiosk auto-reload watchdog is disabled. Check that the build id env var is inlined at build time."
+  )
+}
 
 const fetchServerBuildId = async (): Promise<string | null> => {
   const res = await fetch(BUILD_ID_ENDPOINT, { cache: "no-store" })
@@ -22,6 +45,31 @@ const fetchServerBuildId = async (): Promise<string | null> => {
   const payload: unknown = await res.json()
   const buildId = (payload as { buildId?: unknown } | null)?.buildId
   return typeof buildId === "string" ? buildId : null
+}
+
+/**
+ * Reads the persisted last-reload-attempt timestamp. sessionStorage access is
+ * try/caught because Safari private mode (and storage-disabled environments)
+ * throws on access — the feature must never crash the kiosk over this.
+ */
+const readPersistedLastReloadAttemptAt = (): number | null => {
+  try {
+    const raw = window.sessionStorage.getItem(LAST_RELOAD_ATTEMPT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** Best-effort persist. Silently no-ops when sessionStorage throws or is unavailable. */
+const persistLastReloadAttemptAt = (timestamp: number): void => {
+  try {
+    window.sessionStorage.setItem(LAST_RELOAD_ATTEMPT_STORAGE_KEY, String(timestamp))
+  } catch {
+    // Ignore — the in-memory ref still throttles for the lifetime of this mount.
+  }
 }
 
 export type UseKioskDeployRefreshInput = {
@@ -46,40 +94,60 @@ export function useKioskDeployRefresh({
   isFlowActive,
   reloadPage,
 }: UseKioskDeployRefreshInput) {
-  const lastReloadAttemptAtRef = useRef<number | null>(null)
+  // Seeded from sessionStorage exactly once (first render) so the throttle
+  // survives a same-tab reload (window.location.reload() wipes all in-memory
+  // state). useState's lazy initializer form guarantees this runs only once,
+  // unlike a plain useRef(readPersistedLastReloadAttemptAt()) call, which
+  // would re-invoke the initializer expression on every render.
+  const lastReloadAttemptAtRef = useRef<number | null>(
+    useState(readPersistedLastReloadAttemptAt)[0]
+  )
   const reloadPageRef = useRef(reloadPage)
   reloadPageRef.current = reloadPage
+  // Prevents two concurrent checkForNewDeploy runs (interval tick racing a
+  // visibilitychange) from both passing the gate before either awaited fetch
+  // resolves and updates the throttle timestamp.
+  const checkInFlightRef = useRef(false)
 
   useEffect(() => {
     if (!enabled) return
 
     const runningBuildId = getRunningBuildId()
+    warnIfBuildIdMissingInProduction(runningBuildId)
     if (!runningBuildId) return
 
     let cancelled = false
 
     const checkForNewDeploy = async () => {
-      let serverBuildId: string | null = null
+      if (checkInFlightRef.current) return
+      checkInFlightRef.current = true
+
       try {
-        serverBuildId = await fetchServerBuildId()
-      } catch {
-        return
+        let serverBuildId: string | null = null
+        try {
+          serverBuildId = await fetchServerBuildId()
+        } catch {
+          return
+        }
+        if (cancelled) return
+
+        const now = Date.now()
+        const reload = shouldReloadForNewDeploy({
+          runningBuildId,
+          serverBuildId,
+          hasSensitiveCustomerState: isFlowActive(),
+          lastReloadAttemptAt: lastReloadAttemptAtRef.current,
+          now,
+        })
+        if (!reload) return
+
+        lastReloadAttemptAtRef.current = now
+        persistLastReloadAttemptAt(now)
+        const reloadPageFn = reloadPageRef.current ?? (() => window.location.reload())
+        reloadPageFn()
+      } finally {
+        checkInFlightRef.current = false
       }
-      if (cancelled) return
-
-      const now = Date.now()
-      const reload = shouldReloadForNewDeploy({
-        runningBuildId,
-        serverBuildId,
-        hasSensitiveCustomerState: isFlowActive(),
-        lastReloadAttemptAt: lastReloadAttemptAtRef.current,
-        now,
-      })
-      if (!reload) return
-
-      lastReloadAttemptAtRef.current = now
-      const reloadPageFn = reloadPageRef.current ?? (() => window.location.reload())
-      reloadPageFn()
     }
 
     const interval = setInterval(() => {

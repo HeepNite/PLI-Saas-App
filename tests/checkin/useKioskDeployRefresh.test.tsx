@@ -28,6 +28,7 @@ describe("useKioskDeployRefresh", () => {
     fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
     reloadPage = vi.fn<() => void>()
+    window.sessionStorage.clear()
   })
 
   afterEach(async () => {
@@ -151,5 +152,78 @@ describe("useKioskDeployRefresh", () => {
 
     await advanceOnePollTick()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps throttling a fresh mount after a reload, because the throttle is persisted in sessionStorage", async () => {
+    fetchMock.mockResolvedValue(buildIdResponse("sha-new"))
+
+    // First mount reloads once, "persisting" the throttle timestamp.
+    await mount()
+    await advanceOnePollTick()
+    expect(reloadPage).toHaveBeenCalledTimes(1)
+
+    // Simulate what a real reload does: wipe all in-memory JS state by
+    // unmounting the tree and mounting a brand new component instance.
+    // sessionStorage — unlike the old in-memory ref — survives this.
+    await act(async () => root?.unmount())
+    root = null
+    await mount()
+
+    // Still within the min reload interval (10 min): only 5 min elapsed
+    // since the first reload attempt, so the fresh mount must NOT reload
+    // again even though the running/server build ids still differ.
+    await advanceOnePollTick()
+    expect(reloadPage).toHaveBeenCalledTimes(1)
+  })
+
+  it("falls back to the in-memory throttle without crashing when sessionStorage throws", async () => {
+    fetchMock.mockResolvedValue(buildIdResponse("sha-new"))
+    const getItemSpy = vi
+      .spyOn(window.sessionStorage.__proto__, "getItem")
+      .mockImplementation(() => {
+        throw new Error("SecurityError: storage disabled")
+      })
+    const setItemSpy = vi
+      .spyOn(window.sessionStorage.__proto__, "setItem")
+      .mockImplementation(() => {
+        throw new Error("SecurityError: storage disabled")
+      })
+
+    await expect(mount()).resolves.not.toThrow()
+    await expect(advanceOnePollTick()).resolves.not.toThrow()
+
+    expect(reloadPage).toHaveBeenCalledTimes(1)
+
+    getItemSpy.mockRestore()
+    setItemSpy.mockRestore()
+  })
+
+  it("reloads at most once when the interval tick and a visibilitychange race each other", async () => {
+    const pendingResolvers: Array<(response: Response) => void> = []
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          pendingResolvers.push(resolve)
+        })
+    )
+
+    await mount()
+
+    await act(async () => {
+      // Trigger the interval tick and a visibilitychange in the same tick,
+      // before the first fetch has resolved. Without the in-flight guard,
+      // both checks would call fetch and both would independently pass the
+      // (still-null) throttle gate once their fetch resolves.
+      await vi.advanceTimersByTimeAsync(KIOSK_DEPLOY_POLL_INTERVAL_MS)
+      document.dispatchEvent(new Event("visibilitychange"))
+
+      // Resolve every fetch that was actually issued while racing.
+      pendingResolvers.forEach((resolve) => resolve(buildIdResponse("sha-new")))
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // The in-flight guard means only the first check reaches fetch.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(reloadPage).toHaveBeenCalledTimes(1)
   })
 })
