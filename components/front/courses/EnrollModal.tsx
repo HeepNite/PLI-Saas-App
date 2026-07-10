@@ -9,7 +9,6 @@ import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from ".
 import { useAuth, useClerk, useUser } from "@clerk/nextjs"
 import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
-import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import {
   computeCheckInAutofill as computeCheckInAutofillModel,
   formatCheckInSummaryDateTime as formatCheckInSummaryDateTimeModel,
@@ -24,11 +23,9 @@ import {
 } from "@/lib/checkin/photo-context-policy"
 import {
   createKioskSessionCheckoutPayloadFields,
-  getCheckInSignInModalVariant,
   handleEmbeddedSignInSessionCreated,
   handleExistingUserDetected,
   isCheckInContactGateStep,
-  resolveEnrollInitialStep,
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
@@ -37,7 +34,6 @@ import {
 import {
   createEmptyKioskQrCheckoutState,
   getKioskPaymentTransitionRemainingMs,
-  getKioskPaymentTransitionMessage,
   isKioskCardFastPathEligible,
   isKioskInfoFastPathEligible,
   isKioskQrPendingPhase,
@@ -45,15 +41,11 @@ import {
   shouldMaskKioskInfoStep,
 } from "@/lib/checkin/kiosk-qr-payment"
 import {
-  isRegularFallbackLocked,
   normalizePhoneKey,
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
 import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
-import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
-import { buildEnrollCalendarLinks } from "@/components/front/courses/enroll/model/enroll-calendar"
 import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/model/checkout-payload"
-import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/enroll-pricing"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollSidebar from "@/components/front/courses/enroll/steps/EnrollSidebar"
@@ -78,6 +70,7 @@ import { useEnrollInit } from "@/components/front/courses/enroll/hooks/useEnroll
 import { useKioskInactivity } from "@/components/front/courses/enroll/hooks/useKioskInactivity"
 import { useKioskQrPoller } from "@/components/front/courses/enroll/hooks/useKioskQrPoller"
 import { useEnrollFlowSetters } from "@/components/front/courses/enroll/hooks/useEnrollFlowSetters"
+import { useEnrollDerivedState } from "@/components/front/courses/enroll/hooks/useEnrollDerivedState"
 import type {
   EnrollModalProps,
   FlowPopupState,
@@ -91,8 +84,6 @@ import type {
 //   call when you are ready.
 // - All inputs are controlled in the local state for simplicity.
 
-const CHECKIN_TIME_ZONE = "America/New_York"
-const CHECKIN_LATE_GRACE_MINUTES = 20
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_24_REGEX = /^\d{2}:\d{2}$/
 
@@ -137,9 +128,6 @@ const to12hLabel = (time24: string) => {
 
 export const formatCheckInSummaryDateTime = formatCheckInSummaryDateTimeModel
 export const computeCheckInAutofill = computeCheckInAutofillModel
-
-const sortTime24 = (values: string[]) =>
-  [...new Set(values.filter((value) => TIME_24_REGEX.test(value)))].sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0))
 
 const normalizeEnrollPhonePrefill = (value?: string) => {
   if (typeof value !== "string" || value.trim().length === 0) return "+1 "
@@ -214,19 +202,6 @@ export default function EnrollModal({
       }),
     [course.enrollment.services, isCheckInExistingFlow, skipContactStep]
   )
-  const hasNewStudentService = React.useMemo(
-    () => course.enrollment.services.some((item) => item.id === "new-student"),
-    [course.enrollment.services]
-  )
-  const courseAvailableWeekdays = React.useMemo(
-    () =>
-      course.schedule?.availableWeekdays ||
-      sourceCourses.find((item) => item.slug === course.slug)?.schedule.availableWeekdays,
-    [course.schedule?.availableWeekdays, course.slug, sourceCourses]
-  )
-  const forcedNewStudentServiceId = hasNewStudentService
-    ? "new-student"
-    : (availableServices[0]?.id ?? "")
   const initialContact = React.useMemo<EnrollmentContact>(
     () => ({
       firstName: "",
@@ -329,110 +304,66 @@ export default function EnrollModal({
       }),
     [accountHasAvatar, isCheckInFlow, photoPolicy.photoRequired, photoSaved]
   )
-  const stepKeys = React.useMemo(
-    () => {
-      return resolveFlowStepKeys({
-        isCheckInFlow,
-        isQrMobileCompactFlow,
-        isCheckInNewFlow,
-        isKioskTerminalFlow,
-        requiresPhotoStep,
-        skipInfoStep: skipContactStep,
-        hasPackages: course.enrollment.packages.length > 0,
-        hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
-        isProfileBookingFlow,
-      })
-    },
-    [isCheckInFlow, isQrMobileCompactFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, skipContactStep, course.enrollment.packages.length, effectiveConsecutiveOffer, isProfileBookingFlow]
-  )
-  const steps = React.useMemo(
-    () =>
-      stepKeys.map((key) => ({
-        key,
-        label:
-          key === "party"
-            ? t("step_party")
-            : key === "datetime"
-              ? t("step_datetime")
-              : key === "info"
-                ? t("step_info")
-                : key === "packages"
-                  ? "Packages"
-                  : key === "promo"
-                    ? "Deals"
-                    : key === "consecutive"
-                      ? "Promo"
-                      : key === "payments"
-                      ? t("step_payments")
-                      : key === "review"
-                        ? t("step_review")
-                        : "Photo",
-      })),
-    [stepKeys, t]
-  )
-  const regularServiceId = React.useMemo(
-    () =>
-      availableServices.find((item) => item.id !== "new-student")?.id ||
-      availableServices[0]?.id ||
-      "",
-    [availableServices]
-  )
-  const paymentsStepIndex = React.useMemo(
-    () => steps.findIndex((item) => item.key === "payments"),
-    [steps]
-  )
-  const infoStepIndex = React.useMemo(
-    () => steps.findIndex((item) => item.key === "info"),
-    [steps]
-  )
-  const photoStepIndex = React.useMemo(
-    () => steps.findIndex((item) => item.key === "photo"),
-    [steps]
-  )
-  const packagesStepIndex = React.useMemo(
-    () => steps.findIndex((item) => item.key === "packages"),
-    [steps]
-  )
-  const promoStepIndex = React.useMemo(
-    () => steps.findIndex((item) => item.key === "promo"),
-    [steps]
-  )
-  const regularServicePrice = React.useMemo(
-    () => availableServices.find((item) => item.id === regularServiceId)?.price || 20,
-    [availableServices, regularServiceId]
-  )
-  const regularFallbackLocked = React.useMemo(
-    () => isRegularFallbackLocked(newStudentFallbackPhoneKey, contact.phone),
-    [contact.phone, newStudentFallbackPhoneKey]
-  )
-  const effectiveInitialStep = React.useMemo(
-    () => resolveEnrollInitialStep({ initialStep, stepsLength: steps.length }),
-    [initialStep, steps.length]
-  )
-  const signInModalVariant = React.useMemo(
-    () => getCheckInSignInModalVariant(isCheckInFlow),
-    [isCheckInFlow]
-  )
-  const kioskPaymentTransitionMessage = React.useMemo(
-    () => getKioskPaymentTransitionMessage(contact.firstName),
-    [contact.firstName]
-  )
-  const currentUserContact = React.useMemo<Partial<EnrollmentContact>>(() => {
-    const userPhone = user?.primaryPhoneNumber?.phoneNumber || user?.phoneNumbers?.[0]?.phoneNumber
-    return {
-      firstName: user?.firstName ?? "",
-      lastName: user?.lastName ?? "",
-      email: user?.primaryEmailAddress?.emailAddress ?? "",
-      phone: userPhone ? formatUSPhone(userPhone) : "+1 ",
-      note: "",
-    }
-  }, [
-    user?.firstName,
-    user?.lastName,
-    user?.phoneNumbers,
-    user?.primaryEmailAddress?.emailAddress,
-    user?.primaryPhoneNumber?.phoneNumber,
-  ])
+  const {
+    hasNewStudentService,
+    courseAvailableWeekdays,
+    regularServiceId,
+    stepKeys,
+    steps,
+    paymentsStepIndex,
+    infoStepIndex,
+    photoStepIndex,
+    packagesStepIndex,
+    promoStepIndex,
+    regularServicePrice,
+    regularFallbackLocked,
+    effectiveInitialStep,
+    signInModalVariant,
+    kioskPaymentTransitionMessage,
+    currentUserContact,
+    pricing,
+    calendarLinks,
+    getCurrentCourseTimesForDate,
+    visibleTimeSlots,
+    isSlotExpiredForCheckIn,
+    formattedSummaryDateTime,
+    stepValidCtx,
+  } = useEnrollDerivedState({
+    course,
+    sourceCourses,
+    isCheckInFlow,
+    isCheckInNewFlow,
+    isCheckInExistingFlow,
+    isKioskTerminalFlow,
+    isQrMobileCompactFlow,
+    isProfileBookingFlow,
+    skipContactStep,
+    initialStep,
+    newStudentFallbackPhoneKey,
+    contact,
+    service,
+    pkg,
+    addons,
+    participants,
+    date,
+    time,
+    appliedCoupon,
+    consecutiveAccepted,
+    consecutiveAddedCents,
+    effectiveConsecutiveOffer,
+    requiresPhotoStep,
+    photoSaved,
+    consecutiveChoiceMade,
+    consecutiveOfferLoading,
+    paymentMethod,
+    checkInNow,
+    user,
+  })
+
+  const forcedNewStudentServiceId = hasNewStudentService
+    ? "new-student"
+    : (availableServices[0]?.id ?? "")
+
   React.useEffect(() => {
     if (!isCheckInFlow || !open) return
     setCheckInNow(new Date())
@@ -776,18 +707,6 @@ export default function EnrollModal({
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
-  const pricing = calculateEnrollPricing({
-    services: availableServices,
-    packages: course.enrollment.packages,
-    addons: course.enrollment.addons,
-    serviceId: service,
-    packageId: pkg,
-    addonIds: addons,
-    participants,
-    appliedCoupon,
-    consecutiveAccepted,
-    consecutiveAddedCents,
-  })
   const serviceOpt = pricing.serviceOpt
   const pkgOpt = pricing.packageOpt
   const addonsOpts = pricing.addonOptions
@@ -818,59 +737,11 @@ export default function EnrollModal({
     return parts.join(" • ") || option.description
   }, [])
 
-  const getCurrentCourseTimesForDate = React.useCallback((dateIso: string) => {
-    if (course.slug === "salsa-nocturno") {
-      return sortTime24(getAvailableTimesForCourseDate(course.slug, dateIso, sourceCourses))
-    }
-    const dateValue = normalizeIsoDate(dateIso)
-    if (!dateValue) return [] as string[]
-    const parsedDate = new Date(`${dateValue}T00:00:00`)
-    if (Number.isNaN(parsedDate.getTime())) return [] as string[]
-    const weekdayMon = (parsedDate.getDay() + 6) % 7
-    const weekdays = Array.isArray(course.schedule?.availableWeekdays) ? course.schedule.availableWeekdays : []
-    const times = Array.isArray(course.schedule?.availableTimes) ? course.schedule.availableTimes : []
-    if (!weekdays.length || !times.length) {
-      return sortTime24(getAvailableTimesForCourseDate(course.slug, dateValue, sourceCourses))
-    }
-    if (!weekdays.includes(weekdayMon)) return [] as string[]
-    return sortTime24(times)
-  }, [course.schedule?.availableTimes, course.schedule?.availableWeekdays, course.slug, sourceCourses])
-
   // Helpers
   const to12h = (value: string) => to12hLabel(value)
-  const formattedSummaryDateTime = React.useMemo(
-    () => formatCheckInSummaryDateTime(date, time),
-    [date, time]
-  )
   const summaryDateTimeValue = isKioskTerminalFlow
     ? formattedSummaryDateTime
     : <>{date || "—"} {to12h(time) || ""}</>
-  const checkInTodayIso = React.useMemo(
-    () => getDateKeyInTimeZone(checkInNow, CHECKIN_TIME_ZONE),
-    [checkInNow]
-  )
-  const checkInNowMinutes = React.useMemo(
-    () => toMinutes(getTimeKeyInTimeZone(checkInNow, CHECKIN_TIME_ZONE)),
-    [checkInNow]
-  )
-  const TIME_SLOTS_24 = React.useMemo(() => {
-    if (!date) return [] as readonly string[]
-    return getCurrentCourseTimesForDate(date)
-  }, [date, getCurrentCourseTimesForDate])
-  const visibleTimeSlots = React.useMemo(() => {
-    if (!isCheckInFlow) return TIME_SLOTS_24 as readonly string[]
-    if (time) return [time] as const
-    if (TIME_SLOTS_24.length > 0) return [TIME_SLOTS_24[0]] as const
-    return [] as const
-  }, [isCheckInFlow, time, TIME_SLOTS_24])
-
-  const isSlotExpiredForCheckIn = React.useCallback((slot: string) => {
-    if (!isCheckInFlow || !date || date !== checkInTodayIso) return false
-    if (checkInNowMinutes === null) return false
-    const slotMinutes = toMinutes(slot)
-    if (slotMinutes === null) return false
-    return checkInNowMinutes > slotMinutes + CHECKIN_LATE_GRACE_MINUTES
-  }, [isCheckInFlow, date, checkInTodayIso, checkInNowMinutes])
 
   React.useEffect(() => {
     if (!isCheckInFlow || !open) return
@@ -907,21 +778,6 @@ export default function EnrollModal({
   ])
 
   // Calendar helpers (Google URL + ICS data URI)
-  const calendarLinks = React.useMemo(
-    () =>
-      buildEnrollCalendarLinks({
-        course,
-        serviceLabel: course.enrollment.services.find((s) => s.id === service)?.label || "",
-        participants,
-        total,
-        date,
-        time,
-        classWord: t("classWord"),
-        googleDetails: t("googleCal_details", { participants, total: total.toFixed(2) }),
-        icsDescription: t("ics_description", { participants, total: total.toFixed(2) }),
-      }),
-    [course, date, participants, service, t, time, total]
-  )
   const eventDates = calendarLinks.eventDates
   const googleCalHref = calendarLinks.googleCalHref
   const icsDataUri = calendarLinks.icsDataUri
@@ -1810,20 +1666,6 @@ export default function EnrollModal({
     setKioskQrCheckout,
   })
 
-  const stepValidCtx = {
-    steps,
-    participants,
-    availableServices,
-    service,
-    date,
-    time,
-    consecutiveOfferLoading,
-    contact,
-    requiresPhotoStep,
-    photoSaved,
-    consecutiveChoiceMade,
-    paymentMethod,
-  }
   const stepValid = (s: number) => resolveStepValid(s, stepValidCtx)
 
   const canContinue = stepValid(step)
