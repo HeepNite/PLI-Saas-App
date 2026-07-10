@@ -72,7 +72,11 @@ export type UseEnrollPaymentActionsInput = {
   setNewStudentFallbackPhoneKey: SetState<string | null>
   setFlowPopup: SetState<{ title: string; message: string } | null>
   setResumeContactFlowAfterSignIn: SetState<boolean>
-  t: (key: string, params?: Record<string, unknown>) => string
+  // Narrowed to the exact keys this hook calls, with no vars/params (matches the actual
+  // call sites below), so the live useI18n().t-typed by a strict key union and an
+  // I18nVars-shaped second argument-remains assignable here without widening the real
+  // translator's parameter type project-wide.
+  t: (key: "account_exists_signed_in" | "account_exists_error") => string
 }
 
 export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {

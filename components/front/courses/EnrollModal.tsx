@@ -22,7 +22,6 @@ import {
   isPhotoRequiredForAccount,
 } from "@/lib/checkin/photo-context-policy"
 import {
-  createKioskSessionCheckoutPayloadFields,
   handleEmbeddedSignInSessionCreated,
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
@@ -39,11 +38,9 @@ import {
   shouldMaskKioskInfoStep,
 } from "@/lib/checkin/kiosk-qr-payment"
 import {
-  normalizePhoneKey,
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
 import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
-import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/model/checkout-payload"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollSidebar from "@/components/front/courses/enroll/steps/EnrollSidebar"
@@ -54,13 +51,9 @@ import EnrollFormFooter from "@/components/front/courses/enroll/steps/EnrollForm
 import EnrollSuccessView from "@/components/front/courses/enroll/steps/EnrollSuccessView"
 import { initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { useEnrollNavigationActions } from "@/components/front/courses/enroll/hooks/useEnrollNavigationActions"
+import { useEnrollPaymentActions } from "@/components/front/courses/enroll/hooks/useEnrollPaymentActions"
 import {
-  requestCheckoutCashApi,
   requestCheckoutFinalizeApi,
-  requestCheckoutIntentApi,
-  requestCheckoutSessionApi,
-  requestDropInCheckInApi,
-  requestNewStudentOutcomeApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
 import { resolveStepValid } from "@/components/front/courses/enroll/model/enroll-step-valid"
 import { useConsecutiveOffer } from "@/components/front/courses/enroll/hooks/useConsecutiveOffer"
@@ -72,7 +65,6 @@ import { useEnrollDerivedState } from "@/components/front/courses/enroll/hooks/u
 import type {
   EnrollModalProps,
   FlowPopupState,
-  NewStudentVerifyResponse,
   PreparedAccountState,
 } from "@/components/front/courses/enroll/types/enroll-modal-props"
 
@@ -800,444 +792,69 @@ export default function EnrollModal({
     })
   }
 
-  const buildCheckoutPayload = React.useCallback(
-    (extra: Record<string, unknown> = {}) =>
-      buildEnrollCheckoutPayload({
-        course,
-        total,
-        date,
-        time,
-        contact,
-        participants,
-        addonIds: addons,
-        appliedCoupon,
-        packageId: pkg,
-        serviceId: service,
-        photoFlowContext,
-        kioskSessionFields: createKioskSessionCheckoutPayloadFields(kioskSessionToken),
-        checkInContextDate,
-        checkInContextTime,
-        consecutiveAccepted,
-        consecutiveAddedCents,
-        consecutiveOffer: effectiveConsecutiveOffer ?? undefined,
-        extra,
-      }),
-    [
-      addons,
-      appliedCoupon?.code,
-      contact.email,
-      contact.firstName,
-      contact.lastName,
-      contact.phone,
-      consecutiveAccepted,
-      consecutiveAddedCents,
-      effectiveConsecutiveOffer,
-      course.slug,
-      course.title,
-      date,
-      participants,
-      photoFlowContext,
-      checkInContextDate,
-      checkInContextTime,
-      infoStepIndex,
-      pkg,
-      kioskSessionToken,
-      service,
-      time,
-      total,
-    ]
-  )
-
-  const requestNewStudentOutcome = React.useCallback(async () => {
-    const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
-
-    if (!res.ok || !data || typeof data.outcome !== "string") {
-      setFormError(
-        typeof data?.error === "string" && data.error.trim().length > 0
-          ? data.error
-          : "We couldn't verify the customer's phone."
-      )
-      return null
-    }
-
-    return data as NewStudentVerifyResponse
-  }, [contact.phone, setFormError])
-
-  const requestAccountPreparation = React.useCallback(async () => {
-    const { res, data } = await requestCheckoutIntentApi({
-      payload: buildCheckoutPayload({ prepareOnly: true }),
-    })
-    const account = data?.account as PreparedAccountState | undefined
-
-    if (!res.ok || !account || typeof account.hasAvatar !== "boolean") {
-      setFormError(
-        typeof data?.error === "string" && data.error.trim().length > 0
-          ? data.error
-          : "We couldn't prepare the customer account."
-      )
-      return null
-    }
-
-    setPreparedAccount(account)
-    return account
-  }, [buildCheckoutPayload, setFormError])
-
-  const showRegularFallbackPopup = React.useCallback(
-    (message?: string) => {
-      const nextFallbackPhoneKey = normalizePhoneKey(contact.phone)
-      if (nextFallbackPhoneKey) {
-        setNewStudentFallbackPhoneKey(nextFallbackPhoneKey)
-      }
-      if (regularServiceId && regularServiceId !== service) {
-        setService(regularServiceId)
-      }
-      setFlowPopup({
-        title: "Regular price applied",
-        message:
-          message ||
-          `We switched this booking to the regular $${regularServicePrice.toFixed(0)} price. Continue without restarting the flow.`,
-      })
-    },
-    [contact.phone, regularServiceId, regularServicePrice, service, setService]
-  )
-
-  const requestStripeIntent = async (token?: string | null) => {
-    const { res, data } = await requestCheckoutIntentApi({
-      token,
-      payload: buildCheckoutPayload(),
-    })
-    return { res, data }
-  }
-
-  const requestKioskCheckoutSession = React.useCallback(async (token?: string | null) => {
-    const { res, data } = await requestCheckoutSessionApi({
-      token,
-      payload: buildCheckoutPayload(),
-    })
-    return { res, data }
-  }, [buildCheckoutPayload])
-
-  const requestCashCheckout = async (token?: string | null) => {
-    const { res, data } = await requestCheckoutCashApi({
-      token,
-      payload: buildCheckoutPayload({ cashNote: contact.note || undefined }),
-    })
-    return { res, data }
-  }
-
-  const resetKioskQrCheckout = React.useCallback(() => {
-    setKioskQrCheckout(createEmptyKioskQrCheckoutState())
-  }, [setKioskQrCheckout])
-
-  const completeDropInCheckInAfterCardPayment = React.useCallback(
-    async ({ paymentIntentId, purchaseId }: { paymentIntentId?: string | null; purchaseId?: string | null }) => {
-      if (!isCheckInFlow) return null
-      if (pkg || !date || !time) {
-        return "Purchase recorded successfully."
-      }
-
-      const resolvedPaymentIntentId = typeof paymentIntentId === "string" && paymentIntentId.trim().length > 0
-        ? paymentIntentId
-        : null
-      const resolvedPurchaseId = typeof purchaseId === "string" && purchaseId.trim().length > 0 ? purchaseId : null
-
-      if (!resolvedPaymentIntentId && !resolvedPurchaseId) {
-        return "Payment was completed, but check-in sync is still pending."
-      }
-
-      try {
-        const { res: dropInRes, data: dropInData } = await requestDropInCheckInApi({
-          payload: {
-            ...(resolvedPaymentIntentId ? { paymentIntentId: resolvedPaymentIntentId } : {}),
-            ...(resolvedPurchaseId ? { purchaseId: resolvedPurchaseId } : {}),
-            courseSlug: course.slug,
-            date,
-            time,
-            durationMinutes: checkInContextDuration,
-          },
-        })
-        return dropInRes.ok
-          ? "Purchase and check-in recorded successfully."
-          : typeof dropInData?.error === "string"
-            ? `Purchase recorded. Automatic check-in could not be completed: ${dropInData.error}`
-            : "Purchase recorded. Automatic check-in could not be completed."
-      } catch (error) {
-        console.warn("Unable to complete automatic drop-in check-in", error)
-        return "Payment was completed, but we couldn't confirm automatic check-in."
-      }
-    },
-    [checkInContextDuration, course.slug, date, isCheckInFlow, pkg, time]
-  )
-
-  const startKioskQrCheckout = React.useCallback(async () => {
-    setKioskQrCheckout((prev) => ({
-      ...createEmptyKioskQrCheckoutState(),
-      phase: "creating",
-      error: prev.error,
-    }))
-
-    let token = isSignedIn ? await getToken({ skipCache: true }) : null
-    let result = await requestKioskCheckoutSession(token)
-    const code = typeof result.data?.code === "string" ? result.data.code : undefined
-
-    if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-      await new Promise((resolve) => window.setTimeout(resolve, 350))
-      const refreshed = await getToken({ skipCache: true })
-      if (refreshed) {
-        token = refreshed
-        result = await requestKioskCheckoutSession(token)
-      }
-    }
-
-    if (!result.res.ok) {
-      const message =
-        typeof result.data?.error === "string" && result.data.error.trim().length > 0
-          ? result.data.error
-          : "Error starting QR checkout."
-      setKioskQrCheckout({
-        ...createEmptyKioskQrCheckoutState(),
-        phase: "error",
-        error: message,
-      })
-      setFormError(message)
-      return false
-    }
-
-    if (typeof result.data?.url !== "string" || typeof result.data?.sessionId !== "string") {
-      const message = "Checkout session is missing required data."
-      setKioskQrCheckout({
-        ...createEmptyKioskQrCheckoutState(),
-        phase: "error",
-        error: message,
-      })
-      setFormError(message)
-      return false
-    }
-
-    setFormError(null)
-    setKioskQrCheckout({
-      phase: "qr_ready",
-      sessionId: result.data.sessionId,
-      url: result.data.url,
-      expiresAt: typeof result.data?.expiresAt === "string" ? result.data.expiresAt : null,
-      awaitingWebhook: false,
-      purchaseId: null,
-      paymentStatus: null,
-      error: null,
-    })
-    return true
-  }, [getToken, isSignedIn, requestKioskCheckoutSession, setFormError, setKioskQrCheckout])
-
   const activeStepKey = steps[step]?.key || ""
 
+  const {
+    requestNewStudentOutcome,
+    requestAccountPreparation,
+    showRegularFallbackPopup,
+    completeDropInCheckInAfterCardPayment,
+    handleSubmit: handleSubmitInternal,
+    resetKioskQrCheckout,
+  } = useEnrollPaymentActions({
+    course,
+    service,
+    pkg,
+    addons,
+    participants,
+    date,
+    time,
+    contact,
+    appliedCoupon,
+    paymentMethod,
+    total,
+    photoFlowContext,
+    kioskSessionToken,
+    checkInContextDate,
+    checkInContextTime,
+    checkInContextDuration,
+    consecutiveAccepted,
+    consecutiveAddedCents,
+    effectiveConsecutiveOffer,
+    isCheckInFlow,
+    isKioskTerminalFlow,
+    isSignedIn,
+    processing,
+    step,
+    paymentsStepIndex,
+    infoStepIndex,
+    regularServiceId,
+    regularServicePrice,
+    pendingAutoPay,
+    getToken,
+    setService,
+    setStep,
+    setSuccess,
+    setSuccessMessage,
+    setProcessing,
+    setFormError,
+    setRequiresSignIn,
+    setExistingAccountDetected,
+    setResumeAfterSignInStep,
+    setPendingAutoPay,
+    setKioskQrCheckout,
+    setSignInPurpose,
+    setStripeClientSecret,
+    setShowStripeModal,
+    setPreparedAccount,
+    setNewStudentFallbackPhoneKey,
+    setFlowPopup,
+    setResumeContactFlowAfterSignIn,
+    t,
+  })
+
   const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-    if (processing) return
-    setFormError(null)
-    const validationIssue = validateBeforeSubmit()
-    if (validationIssue) {
-      setFormError(validationIssue.message)
-      setStep(validationIssue.step)
-      return
-    }
-    setProcessing(true)
-    if (paymentMethod === "stripe" && isKioskTerminalFlow) {
-      try {
-        await startKioskQrCheckout()
-      } catch (err) {
-        console.error(err)
-        setKioskQrCheckout({
-          ...createEmptyKioskQrCheckoutState(),
-          phase: "error",
-          error: "We couldn't start the QR payment. Please try again.",
-        })
-        alert("We couldn't start the QR payment. Please try again.")
-      } finally {
-        setProcessing(false)
-      }
-      return
-    }
-
-    if (paymentMethod === "stripe") {
-      try {
-        let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestStripeIntent(token)
-
-        const code = typeof result.data?.code === "string" ? result.data.code : undefined
-        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-          await new Promise((resolve) => window.setTimeout(resolve, 350))
-          const refreshed = await getToken({ skipCache: true })
-          if (refreshed) {
-            token = refreshed
-            result = await requestStripeIntent(token)
-          }
-        }
-
-        if (!result.res.ok) {
-          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
-          const needsSignIn = !isCheckInFlow && finalCode === "ACCOUNT_EXISTS"
-          const isNewStudentBlocked =
-            finalCode === "NEW_STUDENT_ALREADY" ||
-            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-          const needsPhoneFallback =
-            isCheckInFlow &&
-            typeof result.data?.error === "string" &&
-            result.data.error.toLowerCase().includes("phone verification")
-          if (needsSignIn && isSignedIn) {
-            setFormError(t("account_exists_signed_in"))
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            return
-          }
-          if (isNewStudentBlocked) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-            )
-            return
-          }
-          if (needsPhoneFallback) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-            )
-            return
-          }
-          const message =
-            needsSignIn
-              ? t("account_exists_error")
-              : typeof result.data?.error === "string"
-                ? result.data.error
-                : "Error starting card payment."
-          setFormError(needsSignIn ? null : message)
-          setRequiresSignIn(needsSignIn)
-          setExistingAccountDetected(needsSignIn)
-          setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-          setPendingAutoPay(needsSignIn)
-          setProcessing(false)
-          return
-        }
-        if (!result.data.clientSecret) throw new Error("Missing client secret")
-        setStripeClientSecret(result.data.clientSecret)
-        setShowStripeModal(true)
-        setRequiresSignIn(false)
-        setExistingAccountDetected(false)
-        setResumeAfterSignInStep(null)
-        setPendingAutoPay(false)
-      } catch (err) {
-        console.error(err)
-        alert("We couldn't start the payment. Please try again.")
-      } finally {
-        setProcessing(false)
-      }
-      return
-    }
-
-    try {
-      let token = isSignedIn ? await getToken({ skipCache: true }) : null
-      let result = await requestCashCheckout(token)
-      const code = typeof result.data?.code === "string" ? result.data.code : undefined
-
-      if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-        await new Promise((resolve) => window.setTimeout(resolve, 350))
-        const refreshed = await getToken({ skipCache: true })
-        if (refreshed) {
-          token = refreshed
-          result = await requestCashCheckout(token)
-        }
-      }
-
-      if (!result.res.ok) {
-        const isNewStudentBlocked =
-          code === "NEW_STUDENT_ALREADY" ||
-          (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-        const message =
-          typeof result.data?.error === "string" && result.data.error.trim().length > 0
-            ? result.data.error
-            : "Unable to register cash payment."
-        const needsPhoneFallback = isCheckInFlow && message.toLowerCase().includes("phone verification")
-        const needsSignIn = !isCheckInFlow && code === "ACCOUNT_EXISTS"
-        if (isNewStudentBlocked || needsPhoneFallback) {
-          setRequiresSignIn(false)
-          setExistingAccountDetected(false)
-          setResumeAfterSignInStep(null)
-          setPendingAutoPay(false)
-          setProcessing(false)
-          showRegularFallbackPopup(
-            isNewStudentBlocked
-              ? `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-              : `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-          )
-          return
-        }
-        setFormError(needsSignIn ? null : message)
-        setRequiresSignIn(needsSignIn)
-        setExistingAccountDetected(needsSignIn)
-        setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-        setPendingAutoPay(needsSignIn)
-        setProcessing(false)
-        return
-      }
-
-      let completionMessage =
-        typeof result.data?.migration?.message === "string" && result.data.migration.message.trim().length > 0
-          ? result.data.migration.message
-          : "Cash request saved as pending confirmation."
-
-      // Only auto-check-in if payment is confirmed (not pending cash)
-      if (isCheckInFlow && !pkg && date && time && typeof result.data?.purchaseId === "string" && result.data?.paymentStatus !== "pending") {
-        try {
-          const { res: dropInRes, data: dropInData } = await requestDropInCheckInApi({
-            token,
-            payload: {
-              purchaseId: result.data.purchaseId,
-              courseSlug: course.slug,
-              date,
-              time,
-              durationMinutes: checkInContextDuration,
-            },
-          })
-          completionMessage = dropInRes.ok
-            ? "Cash payment recorded and check-in completed successfully."
-            : typeof dropInData?.error === "string"
-              ? `Cash payment recorded. Automatic check-in could not be completed: ${dropInData.error}`
-              : "Cash payment recorded. Automatic check-in could not be completed."
-        } catch (error) {
-          console.warn("Unable to complete automatic check-in for cash", error)
-          completionMessage = "Cash payment recorded, but automatic check-in could not be completed."
-        }
-      }
-
-      if (!isCheckInFlow && !isSignedIn && result.data?.account?.requiresSignIn) {
-        completionMessage =
-          "Cash request saved as pending confirmation. Sign in later to save your card and speed up future checkouts."
-      } else if (!isCheckInFlow && result.data?.paymentStatus === "pending") {
-        completionMessage = "Cash request saved. Staff must confirm the payment in admin before class access."
-      }
-
-      setSuccessMessage(completionMessage)
-      setSuccess(true)
-      setRequiresSignIn(false)
-      setExistingAccountDetected(false)
-      setResumeAfterSignInStep(null)
-      setPendingAutoPay(false)
-    } catch (err) {
-      console.error(err)
-      alert("We couldn't register the cash payment. Please try again.")
-    } finally {
-      setProcessing(false)
-    }
+    await handleSubmitInternal(e, { validateBeforeSubmit })
   }
 
   const {
