@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
+import { useKioskDeployRefresh } from "@/components/front/checkin/hooks/useKioskDeployRefresh"
 import { getEtHourMinute } from "@/lib/checkin/et-time"
 import { areAllClassesEnded } from "@/components/front/staff/CompletedClassesSelector"
 
@@ -239,6 +240,12 @@ export default function StaffTerminalShell({
       pendingSlugRef.current = null
     }
   }, [])
+
+  // Auto-reload on new deploy: the 24/7 kiosk otherwise keeps a stale bundle.
+  // flowActiveRef mirrors hasTerminalSensitiveCustomerState (via
+  // onFlowActiveChange), so the reload only happens while the kiosk is idle.
+  const isFlowActive = React.useCallback(() => flowActiveRef.current, [])
+  useKioskDeployRefresh({ enabled: true, isFlowActive })
 
   const [selectedCompletedClass, setSelectedCompletedClass] = React.useState<CompletedClassSelection | null>(null)
   const allClassesEnded = useMemo(
