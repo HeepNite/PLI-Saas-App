@@ -11,7 +11,7 @@ const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
-const mockIsQrCheckInWindowAllowed = vi.fn()
+const mockIsTerminalCheckInAllowed = vi.fn()
 
 const mockPrisma = {
   purchase: {
@@ -55,7 +55,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
-  isQrCheckInWindowAllowed: (...args: unknown[]) => mockIsQrCheckInWindowAllowed(...args),
+  isTerminalCheckInAllowed: (...args: unknown[]) => mockIsTerminalCheckInAllowed(...args),
 }))
 
 vi.mock("@/lib/catalog-courses", () => ({
@@ -84,7 +84,7 @@ describe("qr check-in drop-in route", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
-    mockIsQrCheckInWindowAllowed.mockReset()
+    mockIsTerminalCheckInAllowed.mockReset()
     mockPrisma.purchase.findMany.mockReset()
     mockPrisma.purchase.findUnique.mockReset()
     mockPrisma.classSession.upsert.mockReset()
@@ -106,7 +106,7 @@ describe("qr check-in drop-in route", () => {
       opensAt: new Date("2026-03-24T13:00:00.000Z"),
       closesAt: new Date("2026-03-24T18:00:00.000Z"),
     })
-    mockIsQrCheckInWindowAllowed.mockReturnValue(true)
+    mockIsTerminalCheckInAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Salsa femenina matutina" })
     mockClerkClient.mockResolvedValue({
       users: {
@@ -167,6 +167,58 @@ describe("qr check-in drop-in route", () => {
 
     const res = await POST(req)
     expect(res.status).toBe(400)
+  })
+
+  it("returns 409 when check-in is truly past closesAt", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockIsTerminalCheckInAllowed.mockReturnValue(false)
+
+    const { POST } = await import("@/app/api/checkin/qr/dropin/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courseSlug: "salsa-femenina-matutina", date: "2026-03-24", time: "11:00" }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(409)
+    const data = await res.json()
+    expect(data.error).toBe("Check-in is closed for this class.")
+  })
+
+  it("succeeds far before startsAt (pre-window, previously blocked by opensAt)", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_user_1" })
+    mockIsTerminalCheckInAllowed.mockReturnValue(true)
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      {
+        id: "purchase_card_1",
+        userId: "db_user_1",
+        status: "succeeded",
+        courseSlug: "salsa-femenina-matutina",
+        stripePaymentIntentId: "pi_123",
+        metadata: {
+          date: "2026-03-24",
+          time: "11:00",
+          packageId: "",
+        },
+      },
+    ])
+
+    const { POST } = await import("@/app/api/checkin/qr/dropin/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paymentIntentId: "pi_123",
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-24",
+        time: "11:00",
+      }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    expect(mockIsTerminalCheckInAllowed).toHaveBeenCalled()
   })
 
   it("keeps the authenticated customer flow intact for non-kiosk payments", async () => {

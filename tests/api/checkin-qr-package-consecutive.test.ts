@@ -8,7 +8,7 @@ const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
-const mockIsQrCheckInWindowAllowed = vi.fn()
+const mockIsTerminalCheckInAllowed = vi.fn()
 const mockIsConsecutiveAddOnPurchaseAllowed = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
@@ -67,7 +67,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
-  isQrCheckInWindowAllowed: (...args: unknown[]) => mockIsQrCheckInWindowAllowed(...args),
+  isTerminalCheckInAllowed: (...args: unknown[]) => mockIsTerminalCheckInAllowed(...args),
   isConsecutiveAddOnPurchaseAllowed: (...args: unknown[]) => mockIsConsecutiveAddOnPurchaseAllowed(...args),
 }))
 
@@ -116,7 +116,7 @@ describe("package consecutive add-on", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
-    mockIsQrCheckInWindowAllowed.mockReset()
+    mockIsTerminalCheckInAllowed.mockReset()
     mockIsConsecutiveAddOnPurchaseAllowed.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockAwardPointsFromRule.mockReset()
@@ -161,7 +161,7 @@ describe("package consecutive add-on", () => {
       opensAt: new Date("2026-03-31T22:00:00.000Z"),
       closesAt: new Date("2026-04-01T03:00:00.000Z"),
     })
-    mockIsQrCheckInWindowAllowed.mockReturnValue(true)
+    mockIsTerminalCheckInAllowed.mockReturnValue(true)
     mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Bachata Basics" })
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
@@ -608,7 +608,7 @@ describe("package consecutive add-on", () => {
     // now (2026-03-31T15:00:00Z, set in beforeEach) is well before opensAt
     // (2026-03-31T22:00:00Z) — the regular window would reject this.
     mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
-    mockIsQrCheckInWindowAllowed.mockReturnValue(false)
+    mockIsTerminalCheckInAllowed.mockReturnValue(false)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const res = await POST(
@@ -713,7 +713,7 @@ describe("package consecutive add-on", () => {
     })
     mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
     mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
-    mockIsQrCheckInWindowAllowed.mockReturnValue(false)
+    mockIsTerminalCheckInAllowed.mockReturnValue(false)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const res = await POST(

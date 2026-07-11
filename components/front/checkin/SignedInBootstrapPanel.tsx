@@ -110,7 +110,7 @@ export function SignedInBootstrapPanel({
                   </p>
                   <p className="mt-4 text-sm leading-relaxed text-white/76">{cardDescription}</p>
                   <p className="mt-4 text-xs text-white/65">
-                    Check-in window: {checkInWindowLabel}
+                    Check-in {checkInWindowLabel}
                   </p>
                   {bootstrap.quickCheckout && (
                     <div className="mt-3 space-y-1 text-xs text-white/65">
