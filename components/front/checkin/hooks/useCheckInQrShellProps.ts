@@ -213,8 +213,11 @@ export function useCheckInQrShellProps(input: UseCheckInQrShellPropsInput): Chec
       : `Please wait until ${toEsDateTime(kioskPinBlockedUntil)} before trying this PIN again.`
     : null
 
+  // Terminal check-in has no lower bound (see isTerminalCheckInAllowed), so
+  // only the closing time is presented — showing an "opens at" time would
+  // wrongly imply check-in is unavailable before it.
   const checkInWindowLabel: string = bootstrap
-    ? `Check-in window: ${toEsDateTime(bootstrap.context.checkInWindow.opensAt)} to ${toEsDateTime(bootstrap.context.checkInWindow.closesAt)}`
+    ? `open until ${toEsDateTime(bootstrap.context.checkInWindow.closesAt)}`
     : ""
 
   const packageExpiresLabel: string | undefined = bootstrap?.package?.expiresAt

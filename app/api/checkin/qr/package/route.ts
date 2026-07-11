@@ -130,6 +130,9 @@ export async function POST(req: Request) {
             }
           : {
               error: "Check-in is closed for this class.",
+              // opensAt is retained only for the client's structural
+              // closed_window discriminator (isClosedWindowFailureBody),
+              // not for gating — terminal check-in has no lower bound.
               opensAt: context.opensAt.toISOString(),
               closesAt: context.closesAt.toISOString(),
             },
