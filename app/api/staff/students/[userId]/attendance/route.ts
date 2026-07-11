@@ -18,7 +18,7 @@ const MAX_SESSION_IDS = 20
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
-type SessionInfo = { id: string; title: string | null; courseSlug: string }
+type SessionInfo = { id: string; title: string | null; courseSlug: string; startsAt: Date }
 
 /**
  * Fetch all sessions by IDs in one query. Returns a map id → session info.
@@ -26,7 +26,7 @@ type SessionInfo = { id: string; title: string | null; courseSlug: string }
 async function fetchSessions(tx: Tx, ids: string[]): Promise<Map<string, SessionInfo>> {
   const rows = await tx.classSession.findMany({
     where: { id: { in: ids } },
-    select: { id: true, title: true, courseSlug: true },
+    select: { id: true, title: true, courseSlug: true, startsAt: true },
   })
   const map = new Map<string, SessionInfo>()
   for (const r of rows) map.set(r.id, r)
@@ -44,7 +44,8 @@ async function applyAdd(
   status: string,
   reason: string,
   authResult: { userId: string; staffName: string | null },
-  req: Request
+  req: Request,
+  session: SessionInfo
 ): Promise<{ ok: true; attendanceId: string } | { error: string; status: number }> {
   const existing = await tx.attendance.findUnique({
     where: { userId_sessionId: { userId, sessionId } },
@@ -58,7 +59,7 @@ async function applyAdd(
       userId,
       sessionId,
       status,
-      checkedInAt: new Date(),
+      checkedInAt: session.startsAt,
       metadata: { source: "staff_override" },
     },
   })
@@ -392,7 +393,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
 
       for (const sid of sessionIds) {
         if (action === "add") {
-          const r = await applyAdd(tx, userId, sid, status, reason, authResult, req)
+          const r = await applyAdd(tx, userId, sid, status, reason, authResult, req, sessionMap.get(sid)!)
           if ("error" in r) return { error: r.error, status: r.status } as const
           results.push({ sessionId: sid, ok: true })
         } else if (action === "remove") {
