@@ -102,3 +102,13 @@ export const isConsecutiveAddOnPurchaseAllowed = (context: QrCheckInContext, now
   if (isDevCheckInBypassEnabled()) return true
   return now.getTime() <= context.endsAt.getTime()
 }
+
+// Terminal (kiosk) check-in has no lower bound: the kiosk is physically
+// located at the owner's premises with cash/physical purchases only, so
+// pre-class check-in cannot be abused remotely. Only the existing
+// late-arrival grace (`closesAt` = endsAt + QR_CHECKIN_CLOSE_AFTER_END_MS)
+// still applies.
+export const isTerminalCheckInAllowed = (context: QrCheckInContext, now = new Date()) => {
+  if (isDevCheckInBypassEnabled()) return true
+  return now.getTime() <= context.closesAt.getTime()
+}
