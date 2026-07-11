@@ -371,17 +371,15 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
     // best-effort shortcut — the `Purchase.idempotencyKey` unique DB constraint (see
     // prisma/schema.prisma) is the actual concurrency guard for two racing requests, handled
     // via the P2002 catch below.
-    if (idempotencyKey) {
-      const since = new Date(Date.now() - IDEMPOTENCY_WINDOW_MS)
-      const existingByIdempotencyKey = await prisma.purchase.findFirst({
-        where: { userId, idempotencyKey, createdAt: { gte: since } },
+    const since = new Date(Date.now() - IDEMPOTENCY_WINDOW_MS)
+    const existingByIdempotencyKey = await prisma.purchase.findFirst({
+      where: { userId, idempotencyKey, createdAt: { gte: since } },
+    })
+    if (existingByIdempotencyKey) {
+      return NextResponse.json({
+        ok: true,
+        data: { purchaseId: existingByIdempotencyKey.id, settlementStatus: SETTLEMENT_STATUS.PENDING },
       })
-      if (existingByIdempotencyKey) {
-        return NextResponse.json({
-          ok: true,
-          data: { purchaseId: existingByIdempotencyKey.id, settlementStatus: SETTLEMENT_STATUS.PENDING },
-        })
-      }
     }
 
     // LOAD-BEARING: syncPackagePurchaseFromPaidPurchase only reads metadata.packageValidDays

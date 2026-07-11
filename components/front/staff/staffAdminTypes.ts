@@ -85,7 +85,7 @@ export type PaymentRow = {
   packageId: string | null
   serviceId: string | null
   paymentChannel: "cash" | "card" | "unknown" | "package_credit"
-  purchaseSource?: "web" | "kiosk" | "front_desk" | "unknown"
+  purchaseSource?: "web" | "kiosk" | "front_desk" | "admin" | "unknown"
   purchaseCategory: "package" | "dropin" | "other"
   amount: number
   currency: string
