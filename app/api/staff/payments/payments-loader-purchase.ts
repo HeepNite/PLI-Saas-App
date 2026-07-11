@@ -163,7 +163,9 @@ export const buildHistoryClassOptions = <TItem extends { purchase: { courseSlug:
   Array.from(
     new Map(
       items
-        .filter((item) => item.purchase.courseSlug)
+        // Skip sentinel slugs like _staff_registration / _staff_package_grant (non-class
+        // purchases) so they never surface as bogus classes in the payments-board filter.
+        .filter((item) => item.purchase.courseSlug && !item.purchase.courseSlug.startsWith("_"))
         .map((item) => [
           item.purchase.courseSlug,
           {
