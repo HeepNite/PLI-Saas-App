@@ -21,6 +21,7 @@ export const PURCHASE_SOURCE = {
   WEB: "web",
   KIOSK: "kiosk",
   FRONT_DESK: "front_desk",
+  ADMIN: "admin",
   UNKNOWN: "unknown",
 } as const
 

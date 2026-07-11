@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Prisma } from "@prisma/client"
 import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+
+const makeUniqueConstraintError = (target: string) =>
+  new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+    code: "P2002",
+    clientVersion: "test",
+    meta: { target: [target] },
+  })
 
 const mockAuthorizeStudentOperational = vi.fn()
 const mockWriteAudit = vi.fn()
@@ -9,6 +17,7 @@ type MockPurchase = {
   userId: string
   status: string
   packageId: string | null
+  idempotencyKey: string | null
   metadata: Record<string, unknown>
   createdAt: Date
 }
@@ -75,11 +84,13 @@ const buildPlan = (overrides: Partial<{
   courseSlugs: overrides.courseSlugs ?? [],
 })
 
-const makePostRequest = (userId: string, body: unknown) =>
+// Every request needs an idempotencyKey (now required — see the DB-backed concurrency guard).
+// Tests that specifically exercise idempotency pass their own key explicitly via `body`.
+const makePostRequest = (userId: string, body: Record<string, unknown>) =>
   new Request(`http://localhost/api/staff/students/${userId}/packages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ idempotencyKey: `idem-${Math.random().toString(36).slice(2)}`, ...body }),
   })
 
 const makeContext = (userId: string) => ({ params: Promise.resolve({ userId }) })
@@ -112,16 +123,25 @@ describe("POST /api/staff/students/[userId]/packages", () => {
     mockPrisma.user.findUnique.mockResolvedValue({ id: USER_ID })
     mockPrisma.packagePlan.findFirst.mockResolvedValue(buildPlan())
     mockPrisma.packagePurchase.findFirst.mockResolvedValue(null)
-    mockPrisma.purchase.findFirst.mockResolvedValue(null)
+    // Default: look up by idempotencyKey against whatever has been created so far, mirroring
+    // the real unique-column lookup used both for the pre-check and the P2002-recovery path.
+    mockPrisma.purchase.findFirst.mockImplementation(async ({ where }: { where: { idempotencyKey?: string } }) =>
+      createdPurchases.find((p) => p.idempotencyKey === where.idempotencyKey) ?? null
+    )
 
     let purchaseCounter = 0
     mockPrisma.purchase.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      const key = (data.idempotencyKey as string | null) ?? null
+      if (key && createdPurchases.some((p) => p.idempotencyKey === key)) {
+        throw makeUniqueConstraintError("Purchase_idempotencyKey_key")
+      }
       purchaseCounter += 1
       const purchase: MockPurchase = {
         id: `purchase_${purchaseCounter}`,
         userId: data.userId as string,
         status: data.status as string,
         packageId: (data.packageId as string) ?? null,
+        idempotencyKey: key,
         metadata: data.metadata as Record<string, unknown>,
         createdAt: new Date("2026-07-11T12:00:00.000Z"),
       }
@@ -328,7 +348,21 @@ describe("POST /api/staff/students/[userId]/packages", () => {
   })
 
   describe("idempotency", () => {
-    it("returns the same purchase for a repeated idempotencyKey within the window", async () => {
+    it("returns 400 when idempotencyKey is missing", async () => {
+      const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+      const res = await POST(
+        new Request(`http://localhost/api/staff/students/${USER_ID}/packages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packagePlanId: PLAN_ID, reason: "Cash sale" }),
+        }),
+        makeContext(USER_ID)
+      )
+      expect(res.status).toBe(400)
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    })
+
+    it("returns the same purchase for a repeated idempotencyKey within the window (pre-check fast path)", async () => {
       const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
 
       const firstRes = await POST(
@@ -337,9 +371,6 @@ describe("POST /api/staff/students/[userId]/packages", () => {
       )
       expect(firstRes.status).toBe(201)
       const firstData = await firstRes.json()
-
-      // Simulate the created pending purchase now being findable by idempotency key.
-      mockPrisma.purchase.findFirst.mockResolvedValue(createdPurchases[0])
 
       const secondRes = await POST(
         makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale", idempotencyKey: "idem-key-1" }),
@@ -350,6 +381,42 @@ describe("POST /api/staff/students/[userId]/packages", () => {
 
       expect(secondData.data.purchaseId).toBe(firstData.data.purchaseId)
       expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
+    it("two concurrent POSTs with the same idempotencyKey create exactly one Purchase (DB unique-constraint / P2002 path)", async () => {
+      // Simulate a double-click race: the pre-check (which scopes by createdAt window) returns
+      // null for both requests because neither purchase exists yet when they read — but the
+      // P2002-recovery lookup (no createdAt filter) still finds the winning row, exactly like
+      // querying by the real unique idempotencyKey column post-race.
+      mockPrisma.purchase.findFirst.mockImplementation(
+        async ({ where }: { where: { idempotencyKey?: string; createdAt?: unknown } }) =>
+          where.createdAt ? null : createdPurchases.find((p) => p.idempotencyKey === where.idempotencyKey) ?? null
+      )
+
+      const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+
+      const firstRes = await POST(
+        makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale", idempotencyKey: "race-key-1" }),
+        makeContext(USER_ID)
+      )
+      expect(firstRes.status).toBe(201)
+
+      // Second racer's create() throws P2002 because the first racer already committed the
+      // same idempotencyKey — this is enforced by the mock purchase.create implementation
+      // (see beforeEach) mirroring the real Purchase.idempotencyKey unique DB constraint.
+      const secondRes = await POST(
+        makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale", idempotencyKey: "race-key-1" }),
+        makeContext(USER_ID)
+      )
+
+      expect(secondRes.status).toBe(200)
+      const secondData = await secondRes.json()
+      expect(secondData.ok).toBe(true)
+      expect(secondData.data.purchaseId).toBe(createdPurchases[0].id)
+
+      // Exactly one Purchase row was actually created despite two POSTs.
+      expect(createdPurchases).toHaveLength(1)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -446,6 +513,76 @@ describe("POST /api/staff/students/[userId]/packages", () => {
       await POST(makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale" }), makeContext(USER_ID))
 
       expect(createdPurchases[0].metadata.packageValidDays).toBe("90")
+    })
+
+    it("returns 400 when expiresAt is in the past instead of silently clamping to 1 day", async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-07-11T12:00:00.000Z"))
+
+      const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+      const res = await POST(
+        makePostRequest(USER_ID, {
+          packagePlanId: PLAN_ID,
+          reason: "Cash sale",
+          expiresAt: "2026-07-10T12:00:00.000Z", // 1 day in the past
+        }),
+        makeContext(USER_ID)
+      )
+
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({ error: "expiresAt must be in the future." })
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+
+      vi.useRealTimers()
+    })
+
+    it("returns 400 when expiresAt equals now", async () => {
+      const now = new Date("2026-07-11T12:00:00.000Z")
+      vi.useFakeTimers()
+      vi.setSystemTime(now)
+
+      const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+      const res = await POST(
+        makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale", expiresAt: now.toISOString() }),
+        makeContext(USER_ID)
+      )
+
+      expect(res.status).toBe(400)
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+
+      vi.useRealTimers()
+    })
+  })
+
+  describe("purchaseSource by caller role", () => {
+    it("uses PURCHASE_SOURCE.ADMIN for owner", async () => {
+      mockAuthorizeStudentOperational.mockResolvedValue({ ok: true, userId: "owner_1", role: "owner", category: null, staffName: "Owner" })
+      const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+      await POST(makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale" }), makeContext(USER_ID))
+
+      expect(createdPurchases[0].metadata.purchaseSource).toBe(PURCHASE_SOURCE.ADMIN)
+    })
+
+    it("uses PURCHASE_SOURCE.ADMIN for admin", async () => {
+      mockAuthorizeStudentOperational.mockResolvedValue({ ok: true, userId: "admin_1", role: "admin", category: null, staffName: "Admin" })
+      const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+      await POST(makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale" }), makeContext(USER_ID))
+
+      expect(createdPurchases[0].metadata.purchaseSource).toBe(PURCHASE_SOURCE.ADMIN)
+    })
+
+    it("uses PURCHASE_SOURCE.FRONT_DESK for front-desk staff", async () => {
+      mockAuthorizeStudentOperational.mockResolvedValue({
+        ok: true,
+        userId: "fd_1",
+        role: "staff",
+        category: "front_desk",
+        staffName: "Front Desk Staff",
+      })
+      const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+      await POST(makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale" }), makeContext(USER_ID))
+
+      expect(createdPurchases[0].metadata.purchaseSource).toBe(PURCHASE_SOURCE.FRONT_DESK)
     })
   })
 })

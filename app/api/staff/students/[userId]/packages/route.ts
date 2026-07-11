@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest, authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
@@ -12,6 +13,17 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 // Pending idempotency lookups only need to cover the double-submit window.
 const IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000
+
+const isUniqueConstraintError = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+
+// Thrown inside the $transaction to abort the write and surface a 409 to the caller once the
+// duplicate-active-plan check (now transaction-scoped, see issue #1 fix) finds a match.
+class DuplicateActivePackageError extends Error {
+  constructor(public readonly existing: { id: string; packageLabel: string | null; expiresAt: Date | null }) {
+    super("Duplicate active package")
+  }
+}
 
 export async function GET(req: Request, context: { params: Promise<{ userId: string }> }) {
   const guard = await withStaffGuard(req, {
@@ -316,6 +328,10 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
   const confirmDuplicate = payload.confirmDuplicate === true
   const idempotencyKey = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey.trim() : ""
 
+  if (!idempotencyKey) {
+    return NextResponse.json({ error: "idempotencyKey is required." }, { status: 400 })
+  }
+
   let expiresAtDate: Date | null = null
   if ("expiresAt" in payload && payload.expiresAt !== undefined && payload.expiresAt !== null && payload.expiresAt !== "") {
     if (typeof payload.expiresAt !== "string") {
@@ -325,8 +341,15 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
     if (isNaN(parsed.getTime())) {
       return NextResponse.json({ error: "expiresAt must be a valid ISO date string." }, { status: 400 })
     }
+    if (parsed.getTime() <= Date.now()) {
+      return NextResponse.json({ error: "expiresAt must be in the future." }, { status: 400 })
+    }
     expiresAtDate = parsed
   }
+
+  const purchaseSource = authResult.role === "owner" || authResult.role === "admin"
+    ? PURCHASE_SOURCE.ADMIN
+    : PURCHASE_SOURCE.FRONT_DESK
 
   try {
     const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
@@ -344,16 +367,14 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
       return NextResponse.json({ error: "Package plan is not available for purchase." }, { status: 400 })
     }
 
-    // Idempotency guard: return the existing pending purchase for a recent double-submit.
+    // Idempotency pre-check: fast-path return for a recent double-submit. This is only a
+    // best-effort shortcut — the `Purchase.idempotencyKey` unique DB constraint (see
+    // prisma/schema.prisma) is the actual concurrency guard for two racing requests, handled
+    // via the P2002 catch below.
     if (idempotencyKey) {
       const since = new Date(Date.now() - IDEMPOTENCY_WINDOW_MS)
       const existingByIdempotencyKey = await prisma.purchase.findFirst({
-        where: {
-          userId,
-          status: "pending",
-          metadata: { path: ["idempotencyKey"], equals: idempotencyKey },
-          createdAt: { gte: since },
-        },
+        where: { userId, idempotencyKey, createdAt: { gte: since } },
       })
       if (existingByIdempotencyKey) {
         return NextResponse.json({
@@ -361,30 +382,6 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
           data: { purchaseId: existingByIdempotencyKey.id, settlementStatus: SETTLEMENT_STATUS.PENDING },
         })
       }
-    }
-
-    // Duplicate-active-plan check: warn unless the caller explicitly confirms.
-    const existingActivePackage = await prisma.packagePurchase.findFirst({
-      where: {
-        userId,
-        status: "active",
-        OR: [{ packagePlanId: plan.id }, { packageId: plan.key }],
-      },
-      select: { id: true, packageLabel: true, expiresAt: true },
-    })
-    if (existingActivePackage && !confirmDuplicate) {
-      return NextResponse.json(
-        {
-          error: "Student already has an active package for this plan.",
-          code: "DUPLICATE_ACTIVE_PACKAGE",
-          existing: {
-            id: existingActivePackage.id,
-            label: existingActivePackage.packageLabel,
-            expiresAt: existingActivePackage.expiresAt,
-          },
-        },
-        { status: 409 }
-      )
     }
 
     // LOAD-BEARING: syncPackagePurchaseFromPaidPurchase only reads metadata.packageValidDays
@@ -397,63 +394,111 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
 
     const courseSlug = plan.courseSlug ?? plan.courseSlugs[0] ?? null
 
-    const result = await prisma.$transaction(async (tx) => {
-      const purchase = await tx.purchase.create({
-        data: {
-          userId,
-          courseSlug: courseSlug || "_staff_package_grant",
-          courseTitle: plan.label,
-          amount: plan.priceCents!,
-          currency: "usd",
-          status: "pending",
-          participants: 1,
-          packageId: plan.key,
-          metadata: {
-            source: "cash_checkout",
-            purchaseSource: PURCHASE_SOURCE.FRONT_DESK,
-            paymentMethod: "onsite",
-            paymentChannel: PAYMENT_CHANNEL.CASH,
-            settlementStatus: SETTLEMENT_STATUS.PENDING,
-            settledAt: null,
-            courseSlug,
-            packageId: plan.key,
-            packageLabel: plan.label || "",
-            packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
-            packageIsUnlimited: String(plan.isUnlimited),
-            packageCadence: plan.cadence || "",
-            packageMakeUps: String(plan.makeUps),
-            packageValidDays,
+    let result: Awaited<ReturnType<typeof prisma.purchase.create>>
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        // Duplicate-active-plan check runs inside the transaction so the read-then-decide
+        // is consistent with the write that follows it.
+        const existingActivePackage = await tx.packagePurchase.findFirst({
+          where: {
             userId,
-            participants: "1",
-            requiresCardMigration: true,
-            idempotencyKey: idempotencyKey || null,
+            status: "active",
+            OR: [{ packagePlanId: plan.id }, { packageId: plan.key }],
           },
-        },
+          select: { id: true, packageLabel: true, expiresAt: true },
+        })
+        if (existingActivePackage && !confirmDuplicate) {
+          throw new DuplicateActivePackageError(existingActivePackage)
+        }
+
+        const purchase = await tx.purchase.create({
+          data: {
+            userId,
+            courseSlug: courseSlug || "_staff_package_grant",
+            courseTitle: plan.label,
+            amount: plan.priceCents!,
+            currency: "usd",
+            status: "pending",
+            participants: 1,
+            packageId: plan.key,
+            idempotencyKey,
+            metadata: {
+              source: "cash_checkout",
+              purchaseSource,
+              paymentMethod: "onsite",
+              paymentChannel: PAYMENT_CHANNEL.CASH,
+              settlementStatus: SETTLEMENT_STATUS.PENDING,
+              settledAt: null,
+              courseSlug,
+              packageId: plan.key,
+              packageLabel: plan.label || "",
+              packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
+              packageIsUnlimited: String(plan.isUnlimited),
+              packageCadence: plan.cadence || "",
+              packageMakeUps: String(plan.makeUps),
+              packageValidDays,
+              userId,
+              participants: "1",
+              requiresCardMigration: true,
+              idempotencyKey,
+            },
+          },
+        })
+
+        await writeStudentDataAudit(
+          {
+            targetUserId: userId,
+            staffClerkId: authResult.userId,
+            staffName: authResult.staffName,
+            entity: "package",
+            entityId: purchase.id,
+            field: "created",
+            valueBefore: null,
+            valueAfter: {
+              packagePlanId: plan.id,
+              packageKey: plan.key,
+              packageLabel: plan.label,
+              paymentChannel: PAYMENT_CHANNEL.CASH,
+            },
+            reason,
+            ipAddress: getClientIp(req),
+          },
+          tx
+        )
+
+        return purchase
       })
-
-      await writeStudentDataAudit(
-        {
-          targetUserId: userId,
-          staffClerkId: authResult.userId,
-          staffName: authResult.staffName,
-          entity: "package",
-          entityId: purchase.id,
-          field: "created",
-          valueBefore: null,
-          valueAfter: {
-            packagePlanId: plan.id,
-            packageKey: plan.key,
-            packageLabel: plan.label,
-            paymentChannel: PAYMENT_CHANNEL.CASH,
+    } catch (transactionError) {
+      if (transactionError instanceof DuplicateActivePackageError) {
+        return NextResponse.json(
+          {
+            error: "Student already has an active package for this plan.",
+            code: "DUPLICATE_ACTIVE_PACKAGE",
+            existing: {
+              id: transactionError.existing.id,
+              label: transactionError.existing.packageLabel,
+              expiresAt: transactionError.existing.expiresAt,
+            },
           },
-          reason,
-          ipAddress: getClientIp(req),
-        },
-        tx
-      )
+          { status: 409 }
+        )
+      }
 
-      return purchase
-    })
+      // Two concurrent/double-click requests can both pass the pre-check above; the DB-level
+      // unique constraint on Purchase.idempotencyKey is the real guard. On a unique violation,
+      // treat it as the idempotent duplicate and return the winning row instead of a 500.
+      if (isUniqueConstraintError(transactionError)) {
+        const winningPurchase = await prisma.purchase.findFirst({ where: { userId, idempotencyKey } })
+        if (winningPurchase) {
+          return NextResponse.json({
+            ok: true,
+            data: { purchaseId: winningPurchase.id, settlementStatus: SETTLEMENT_STATUS.PENDING },
+          })
+        }
+      }
+
+      throw transactionError
+    }
 
     return NextResponse.json(
       { ok: true, data: { purchaseId: result.id, settlementStatus: SETTLEMENT_STATUS.PENDING } },

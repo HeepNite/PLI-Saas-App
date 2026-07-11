@@ -45,13 +45,13 @@ const USER_ID = "user_student_1"
 const PLAN_ID = "plan_10class"
 const STAFF_USER_ID = "staff_front_desk_1"
 
-const buildPlan = (overrides: Partial<{ validDays: number }> = {}) => ({
+const buildPlan = (overrides: Partial<{ validDays: number; isUnlimited: boolean; totalCredits: number | null }> = {}) => ({
   id: PLAN_ID,
   key: "pkg_10class",
   label: "10 Class Pack",
   priceCents: 15000,
-  totalCredits: 10,
-  isUnlimited: false,
+  totalCredits: overrides.isUnlimited ? null : (overrides.totalCredits ?? 10),
+  isUnlimited: overrides.isUnlimited ?? false,
   validDays: overrides.validDays ?? 90,
   cadence: "weekly",
   makeUps: 1,
@@ -60,11 +60,12 @@ const buildPlan = (overrides: Partial<{ validDays: number }> = {}) => ({
   courseSlugs: [] as string[],
 })
 
-const makePostRequest = (userId: string, body: unknown) =>
+// Every request needs an idempotencyKey (now required — see the DB-backed concurrency guard).
+const makePostRequest = (userId: string, body: Record<string, unknown>) =>
   new Request(`http://localhost/api/staff/students/${userId}/packages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ idempotencyKey: `idem-${Math.random().toString(36).slice(2)}`, ...body }),
   })
 
 const makeContext = (userId: string) => ({ params: Promise.resolve({ userId }) })
@@ -215,5 +216,29 @@ describe("admin cash package grant -> mark-paid materialization (end to end)", (
 
     expect(createdPackagePurchases).toHaveLength(1)
     expect(secondSync).toEqual(createdPackagePurchases[0])
+  })
+
+  it("materializes an unlimited plan with isUnlimited true and null totalCredits/remainingCredits", async () => {
+    mockPrisma.packagePlan.findFirst.mockResolvedValue(buildPlan({ isUnlimited: true, totalCredits: null }))
+
+    const { POST } = await import("@/app/api/staff/students/[userId]/packages/route")
+    const res = await POST(
+      makePostRequest(USER_ID, { packagePlanId: PLAN_ID, reason: "Cash sale" }),
+      makeContext(USER_ID)
+    )
+    expect(res.status).toBe(201)
+
+    const synced = await markPaidWithRealSync(createdPurchases[0])
+    expect(synced).toBeTruthy()
+    expect(createdPackagePurchases).toHaveLength(1)
+
+    const materialized = createdPackagePurchases[0] as {
+      isUnlimited: boolean
+      totalCredits: number | null
+      remainingCredits: number | null
+    }
+    expect(materialized.isUnlimited).toBe(true)
+    expect(materialized.totalCredits).toBeNull()
+    expect(materialized.remainingCredits).toBeNull()
   })
 })
