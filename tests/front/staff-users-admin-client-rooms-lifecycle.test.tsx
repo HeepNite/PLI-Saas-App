@@ -47,6 +47,23 @@ const ROOMS_HOOK_SOURCE_PATH = join(
   "components/front/staff/useStaffRoomsAdmin.ts"
 )
 
+// Room modal markup was extracted from StaffAdminModalOverlays into dedicated
+// modal sub-components; assert their labels against those files.
+const ROOM_SAFE_DELETE_MODAL_SOURCE_PATH = join(
+  process.cwd(),
+  "components/front/staff/modals/RoomSafeDeleteModal.tsx"
+)
+
+const ROOM_REASSIGN_MODAL_SOURCE_PATH = join(
+  process.cwd(),
+  "components/front/staff/modals/RoomReassignModal.tsx"
+)
+
+const ROOM_RESERVATION_CANCEL_MODAL_SOURCE_PATH = join(
+  process.cwd(),
+  "components/front/staff/modals/RoomReservationCancelModal.tsx"
+)
+
 const roomsPanelSource = readFileSync(ROOMS_PANEL_SOURCE_PATH, "utf8")
 const roomModalOverlaysSource = readFileSync(ROOM_MODAL_OVERLAYS_SOURCE_PATH, "utf8")
 const schoolWorkspaceSource = readFileSync(SCHOOL_WORKSPACE_SOURCE_PATH, "utf8")
@@ -56,6 +73,9 @@ const reservationListSource = readFileSync(RESERVATION_LIST_SOURCE_PATH, "utf8")
 const formattersSource = readFileSync(FORMATTERS_SOURCE_PATH, "utf8")
 const roomHelpersSource = readFileSync(ROOM_HELPERS_SOURCE_PATH, "utf8")
 const roomsHookSource = readFileSync(ROOMS_HOOK_SOURCE_PATH, "utf8")
+const roomSafeDeleteModalSource = readFileSync(ROOM_SAFE_DELETE_MODAL_SOURCE_PATH, "utf8")
+const roomReassignModalSource = readFileSync(ROOM_REASSIGN_MODAL_SOURCE_PATH, "utf8")
+const roomReservationCancelModalSource = readFileSync(ROOM_RESERVATION_CANCEL_MODAL_SOURCE_PATH, "utf8")
 
 describe("StaffUsersAdminClient rooms lifecycle actions", () => {
   it("includes activate action for inactive rooms", () => {
@@ -63,9 +83,17 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
     expect(roomsPanelSource).toContain('"Activate"')
   })
 
+  it("wires the extracted room modal sub-components through the overlays container", () => {
+    expect(roomModalOverlaysSource).toContain("RoomSafeDeleteModal")
+    expect(roomModalOverlaysSource).toContain("RoomReassignModal")
+    expect(roomModalOverlaysSource).toContain("RoomReservationCancelModal")
+  })
+
   it("includes safe-delete action bound to modal and safe-delete endpoint", () => {
     expect(roomsPanelSource).toContain('onClick={() => actions.openRoomSafeDeleteModal(room)}')
-    expect(roomsHookSource).toContain("const [roomSafeDeleteModal, setRoomSafeDeleteModal]")
+    // Modal state is now managed by a reducer (roomState) rather than useState.
+    expect(roomsHookSource).toContain("roomSafeDeleteModal: RoomSafeDeleteModalState | null")
+    expect(roomsHookSource).toContain("const openRoomSafeDeleteModal = React.useCallback")
     expect(roomsHookSource).toContain("const confirmRoomSafeDelete = React.useCallback(async () => {")
     expect(roomsHookSource).toContain('`/api/staff/rooms/${room.id}/safe-delete`')
   })
@@ -74,7 +102,8 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
     const roomsLifecycleSection = roomsHookSource.slice(roomsHookSource.indexOf("const disableRoom = React.useCallback"))
     expect(roomsLifecycleSection).not.toContain("window.prompt")
     expect(roomsLifecycleSection).not.toContain("window.confirm")
-    expect(roomModalOverlaysSource).toContain("Deletion reason (required)")
+    // Deletion reason label lives in the extracted RoomSafeDeleteModal.
+    expect(roomSafeDeleteModalSource).toContain("Deletion reason (required)")
   })
 
   it("formats disable errors using blocker-aware resolver", () => {
@@ -83,16 +112,17 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
   })
 
   it("includes room reassignment modal wired to reassign endpoint", () => {
-    expect(roomsHookSource).toContain("const [roomReassignModal, setRoomReassignModal]")
+    expect(roomsHookSource).toContain("roomReassignModal: RoomReassignModalState | null")
     expect(roomsHookSource).toContain("const confirmRoomReassign = React.useCallback(async () => {")
     expect(roomsHookSource).toContain('`/api/staff/rooms/${room.id}/reassign`')
     expect(roomsHookSource).toContain("courseIds: selectedCourseIds")
-    expect(roomModalOverlaysSource).toContain("Also move future sessions (all-or-nothing if any conflict exists)")
-    expect(roomModalOverlaysSource).toContain("Affected courses in source room")
+    // Reassign modal markup lives in the extracted RoomReassignModal.
+    expect(roomReassignModalSource).toContain("Also move future sessions (all-or-nothing if any conflict exists)")
+    expect(roomReassignModalSource).toContain("Affected courses in source room")
     expect(roomsHookSource).toContain("scheduleLabel: buildAssignmentCourseScheduleLabel(course)")
-    expect(roomModalOverlaysSource).toContain("Schedule not configured")
-    expect(roomModalOverlaysSource).toContain("selectedCourseIds")
-    expect(roomModalOverlaysSource).toContain("Confirm reassignment")
+    expect(roomReassignModalSource).toContain("Schedule not configured")
+    expect(roomReassignModalSource).toContain("selectedCourseIds")
+    expect(roomReassignModalSource).toContain("Confirm reassignment")
   })
 
   it("does not use native prompt/confirm for room reassignment", () => {
@@ -108,7 +138,7 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
     expect(roomsHookSource).toContain("const saveRoomReservation = React.useCallback(async (event: React.FormEvent) => {")
     expect(roomsHookSource).toContain('fetch("/api/staff/room-reservations", {')
     expect(roomsHookSource).toContain('`/api/staff/room-reservations/${reservation.id}/cancel`')
-    expect(roomModalOverlaysSource).toContain("Confirm cancel")
+    expect(roomReservationCancelModalSource).toContain("Confirm cancel")
     expect(reservationFormSource).toContain("Create reservation")
     expect(reservationFormSource).toContain("Reservation date range")
     expect(reservationFormSource).toContain("rangeMode={true}")
@@ -147,6 +177,6 @@ describe("StaffUsersAdminClient rooms lifecycle actions", () => {
     expect(reservationSection).not.toContain("window.prompt")
     expect(reservationSection).not.toContain("window.confirm")
     expect(reservationSection).not.toContain("window.alert")
-    expect(roomModalOverlaysSource).toContain("Cancellation reason (optional)")
+    expect(roomReservationCancelModalSource).toContain("Cancellation reason (optional)")
   })
 })

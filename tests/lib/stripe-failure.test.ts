@@ -220,22 +220,24 @@ describe("clearFailureFromMetadata", () => {
     expect(result).not.toHaveProperty("stripeFailure")
   })
 
-  it("returns undefined when metadata becomes empty", () => {
+  // Contract updated (commit f40c41f): returns an empty object rather than
+  // null/undefined for Prisma JSON compatibility.
+  it("returns an empty object when metadata becomes empty", () => {
     const existing = {
       stripeFailure: { eventType: "payment_intent.payment_failed" },
     }
 
     const result = clearFailureFromMetadata(existing)
 
-    expect(result).toBeUndefined()
+    expect(result).toEqual({})
   })
 
-  it("returns undefined when input is null", () => {
-    expect(clearFailureFromMetadata(null)).toBeUndefined()
+  it("returns an empty object when input is null", () => {
+    expect(clearFailureFromMetadata(null)).toEqual({})
   })
 
-  it("returns undefined when input is undefined", () => {
-    expect(clearFailureFromMetadata(undefined)).toBeUndefined()
+  it("returns an empty object when input is undefined", () => {
+    expect(clearFailureFromMetadata(undefined)).toEqual({})
   })
 
   it("preserves other keys when stripeFailure is absent", () => {
