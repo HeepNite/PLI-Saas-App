@@ -3,7 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isQrCheckInWindowAllowed } from "@/lib/checkin/qr"
+import { parseQrCheckInContext, isQrCheckInWindowAllowed, isConsecutiveAddOnPurchaseAllowed } from "@/lib/checkin/qr"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
@@ -117,13 +117,22 @@ export async function POST(req: Request) {
     }
 
     const now = new Date()
-    if (!isQrCheckInWindowAllowed(context, now)) {
+    const consecutiveAddOn = payload?.consecutiveAddOn === true
+    const windowAllowed = consecutiveAddOn
+      ? isConsecutiveAddOnPurchaseAllowed(context, now)
+      : isQrCheckInWindowAllowed(context, now)
+    if (!windowAllowed) {
       return NextResponse.json(
-        {
-          error: "Check-in is closed for this class.",
-          opensAt: context.opensAt.toISOString(),
-          closesAt: context.closesAt.toISOString(),
-        },
+        consecutiveAddOn
+          ? {
+              error: "This class has already ended. Consecutive add-on purchase is no longer available.",
+              endsAt: context.endsAt.toISOString(),
+            }
+          : {
+              error: "Check-in is closed for this class.",
+              opensAt: context.opensAt.toISOString(),
+              closesAt: context.closesAt.toISOString(),
+            },
         { status: 409 }
       )
     }
@@ -164,7 +173,8 @@ export async function POST(req: Request) {
     }
 
     // ─── Consecutive package-holder add-on ───────────────────
-    const consecutiveAddOn = payload?.consecutiveAddOn === true
+    // `consecutiveAddOn` is derived earlier (above the window guard) so the
+    // correct time predicate can be selected before this block runs.
     const consecutiveCashPayment = payload?.consecutiveCashPayment === true
     const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
     const linkedFromAttendanceId = asText(payload?.linkedFromAttendanceId)

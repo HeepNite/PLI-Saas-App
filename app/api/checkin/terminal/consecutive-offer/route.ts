@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { computeDiscountPercent } from "@/lib/course-links"
+import { DEFAULT_DURATION_MINUTES } from "@/lib/checkin/qr"
 
 export const runtime = "nodejs"
 
@@ -12,6 +13,21 @@ const WEEKDAY_LABELS_JS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as c
 const getJsWeekdayInTimeZone = (date: Date, timeZone: string) => {
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date)
   return WEEKDAY_LABELS_JS.findIndex((label) => label === weekday)
+}
+
+const formatDateInTimeZone = (date: Date, timeZone: string) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone }).format(date) // YYYY-MM-DD
+
+const getMinutesInTimeZone = (date: Date, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date)
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0")
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0")
+  return hour * 60 + minute
 }
 
 const toMinutes = (time: string | null | undefined) => {
@@ -108,6 +124,21 @@ export async function GET(req: NextRequest) {
     const now = parsedSelectedDate && !Number.isNaN(parsedSelectedDate.getTime()) ? parsedSelectedDate : new Date()
     const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE) // 0=Sun, 1=Mon, ... in NY time
 
+    // Real wall-clock "now", independent of the resolved/selected date above.
+    // Used ONLY to filter out already-passed candidates, and ONLY when the
+    // resolved date is actually today — a future-dated selection must never
+    // be past-filtered against the current moment.
+    const actualNow = new Date()
+    const actualCalendarDate = formatDateInTimeZone(actualNow, CHECKIN_TIME_ZONE)
+    // Compare the raw selectedDate string (already YYYY-MM-DD in NY-intended
+    // form) directly against today's NY calendar date, so this check is
+    // independent of the server's local TZ. Round-tripping through a
+    // locally-parsed Date (as `now` above does, for weekday/schedule
+    // resolution) would make "is this today" sensitive to the server's TZ
+    // offset. When selectedDate is absent (legacy callers), treat as today.
+    const resolvedDateIsToday = selectedDate ? selectedDate === actualCalendarDate : true
+    const nowMinutes = resolvedDateIsToday ? getMinutesInTimeZone(actualNow, CHECKIN_TIME_ZONE) : null
+
     const courseATimesForToday = courseA
       ? resolveTimesForWeekday(courseA.scheduleRules, courseA.availableTimes, todayJsWeekday).times
       : []
@@ -121,6 +152,8 @@ export async function GET(req: NextRequest) {
           .map((time) => {
             const minutes = toMinutes(time)
             if (courseAStartMinutes === null || minutes === null || minutes <= courseAStartMinutes) return null
+            const candidateEndMinutes = minutes + (candidate.durationMinutes ?? DEFAULT_DURATION_MINUTES)
+            if (nowMinutes !== null && candidateEndMinutes <= nowMinutes) return null
             const link = links.find((item) =>
               (item.courseSlugA === courseSlug && item.courseSlugB === candidate.slug) ||
               (item.courseSlugB === courseSlug && item.courseSlugA === candidate.slug)
