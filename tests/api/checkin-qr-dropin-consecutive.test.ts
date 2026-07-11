@@ -11,7 +11,7 @@ const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
-const mockIsQrCheckInWindowAllowed = vi.fn()
+const mockIsTerminalCheckInAllowed = vi.fn()
 const mockCourseLinkFindUnique = vi.fn()
 const mockAttendanceFindFirst = vi.fn()
 
@@ -60,7 +60,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
-  isQrCheckInWindowAllowed: (...args: unknown[]) => mockIsQrCheckInWindowAllowed(...args),
+  isTerminalCheckInAllowed: (...args: unknown[]) => mockIsTerminalCheckInAllowed(...args),
 }))
 
 vi.mock("@/lib/catalog-courses", () => ({
@@ -98,7 +98,7 @@ describe("drop-in consecutive purchase", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
-    mockIsQrCheckInWindowAllowed.mockReset()
+    mockIsTerminalCheckInAllowed.mockReset()
     mockCourseLinkFindUnique.mockReset()
     mockAttendanceFindFirst.mockReset()
     mockPrisma.purchase.findMany.mockReset()
@@ -122,7 +122,7 @@ describe("drop-in consecutive purchase", () => {
       opensAt: new Date("2026-03-24T22:00:00.000Z"),
       closesAt: new Date("2026-03-25T03:00:00.000Z"),
     })
-    mockIsQrCheckInWindowAllowed.mockReturnValue(true)
+    mockIsTerminalCheckInAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Bachata Basics" })
     mockClerkClient.mockResolvedValue({
       users: {
