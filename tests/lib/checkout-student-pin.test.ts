@@ -4,6 +4,7 @@ const mockTransaction = vi.fn()
 const mockReplacePermanentStudentPin = vi.fn()
 const mockWriteStudentPinAudit = vi.fn()
 const mockUpsertUserByIdentifiers = vi.fn()
+const mockStudentPinCredentialFindFirst = vi.fn()
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
@@ -32,6 +33,11 @@ vi.mock("@/lib/clerk-users", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: (...args: unknown[]) => mockTransaction(...args),
+    // Pre-check uniqueness gate runs against the top-level client before the
+    // transaction; return no conflict so the transaction path is exercised.
+    studentPinCredential: {
+      findFirst: (...args: unknown[]) => mockStudentPinCredentialFindFirst(...args),
+    },
   },
 }))
 
@@ -64,6 +70,8 @@ describe("enrollStudentPinForCheckout", () => {
     mockUpsertUserByIdentifiers.mockReset()
 
     mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user" })
+    mockStudentPinCredentialFindFirst.mockReset()
+    mockStudentPinCredentialFindFirst.mockResolvedValue(null)
     mockTransaction.mockImplementation(async (callback: (tx: object) => Promise<unknown>) => callback({}))
   })
 

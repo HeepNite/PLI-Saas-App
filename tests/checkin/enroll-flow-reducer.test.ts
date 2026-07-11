@@ -148,7 +148,9 @@ describe("enroll selectors", () => {
       hasConsecutiveOffer: true,
     })
 
-    expect(stepKeys).toEqual(["info", "payments"])
+    // Existing-customer kiosk flow includes conditional photo/packages/
+    // consecutive steps between info and payments.
+    expect(stepKeys).toEqual(["info", "photo", "packages", "consecutive", "payments"])
   })
 
   it("can skip the contact info step for trusted profile booking flows", () => {

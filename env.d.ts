@@ -11,5 +11,9 @@ declare namespace NodeJS {
     DATABASE_URL?: string
     STAFF_CHECKIN_TOKEN?: string
     STAFF_TERMINAL_SECRET?: string
+    NEXT_PUBLIC_SENTRY_DSN?: string
+    SENTRY_AUTH_TOKEN?: string
+    SENTRY_ORG?: string
+    SENTRY_PROJECT?: string
   }
 }

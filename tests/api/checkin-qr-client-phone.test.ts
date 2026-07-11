@@ -11,8 +11,17 @@ const mockAttendanceUpdate = vi.fn()
 const mockPurchaseFindMany = vi.fn()
 const mockPackagePurchaseFindMany = vi.fn()
 const mockPackagePurchaseFindUnique = vi.fn()
+const mockPackagePurchaseFindFirst = vi.fn()
+const mockCourseCatalogFindUnique = vi.fn()
+const mockCourseCatalogFindMany = vi.fn()
+const mockCourseLinkFindMany = vi.fn()
 const mockPackagePurchaseUpdate = vi.fn()
+const mockPackagePurchaseUpdateMany = vi.fn()
 const mockPackageUsageLedgerCreate = vi.fn()
+const mockPackageUsageLedgerFindUnique = vi.fn()
+const mockPurchaseFindFirst = vi.fn()
+const mockPurchaseCreate = vi.fn()
+const mockTxExecuteRaw = vi.fn()
 const mockAttendanceCount = vi.fn()
 const mockTransaction = vi.fn()
 const mockAwardPoints = vi.fn()
@@ -26,6 +35,11 @@ vi.mock("@clerk/nextjs/server", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     classSession: { upsert: (...args: unknown[]) => mockSessionUpsert(...args) },
+    courseCatalog: {
+      findUnique: (...args: unknown[]) => mockCourseCatalogFindUnique(...args),
+      findMany: (...args: unknown[]) => mockCourseCatalogFindMany(...args),
+    },
+    courseLink: { findMany: (...args: unknown[]) => mockCourseLinkFindMany(...args) },
     attendance: {
       findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
       create: (...args: unknown[]) => mockAttendanceCreate(...args),
@@ -36,6 +50,7 @@ vi.mock("@/lib/prisma", () => ({
     packagePurchase: {
       findMany: (...args: unknown[]) => mockPackagePurchaseFindMany(...args),
       findUnique: (...args: unknown[]) => mockPackagePurchaseFindUnique(...args),
+      findFirst: (...args: unknown[]) => mockPackagePurchaseFindFirst(...args),
       update: (...args: unknown[]) => mockPackagePurchaseUpdate(...args),
     },
     packageUsageLedger: { create: (...args: unknown[]) => mockPackageUsageLedgerCreate(...args) },
@@ -90,11 +105,51 @@ function setupDefaults() {
   mockUpsertUser.mockResolvedValue(dbUser)
   mockSessionUpsert.mockResolvedValue(session)
   mockAttendanceFindUnique.mockResolvedValue(null)
+  mockCourseCatalogFindUnique.mockResolvedValue(null)
+  mockCourseCatalogFindMany.mockResolvedValue([])
+  mockCourseLinkFindMany.mockResolvedValue([])
+  mockPackagePurchaseFindFirst.mockResolvedValue(null)
+  mockPackagePurchaseUpdateMany.mockResolvedValue({ count: 1 })
+  mockPackageUsageLedgerFindUnique.mockResolvedValue(null)
+  mockPackageUsageLedgerCreate.mockResolvedValue({ id: "ledger_1" })
+  mockPackagePurchaseUpdate.mockResolvedValue({ id: "pkg_1", remainingCredits: 4 })
+  mockPurchaseFindFirst.mockResolvedValue(null)
+  mockPurchaseCreate.mockResolvedValue({ id: "purchase_pkg_1" })
+  mockTxExecuteRaw.mockResolvedValue(1)
   mockPurchaseFindMany.mockResolvedValue([])
   mockPackagePurchaseFindMany.mockResolvedValue([])
   mockAttendanceCount.mockResolvedValue(1)
   mockGetMilestoneClasses.mockResolvedValue(5)
   mockAwardPoints.mockResolvedValue({ awarded: false, points: 0 })
+  // Default $transaction executes the callback with a tx stub so routes that
+  // create/update attendance inside a transaction resolve. Tests that need
+  // specific transaction data override mockTransaction.
+  mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+    const tx = {
+      attendance: {
+        create: (...args: unknown[]) => mockAttendanceCreate(...args),
+        update: (...args: unknown[]) => mockAttendanceUpdate(...args),
+      },
+      packagePurchase: {
+        update: (...args: unknown[]) => mockPackagePurchaseUpdate(...args),
+        updateMany: (...args: unknown[]) => mockPackagePurchaseUpdateMany(...args),
+        findUnique: (...args: unknown[]) => mockPackagePurchaseFindUnique(...args),
+        findFirst: (...args: unknown[]) => mockPackagePurchaseFindFirst(...args),
+      },
+      packageUsageLedger: {
+        create: (...args: unknown[]) => mockPackageUsageLedgerCreate(...args),
+        findUnique: (...args: unknown[]) => mockPackageUsageLedgerFindUnique(...args),
+      },
+      purchase: {
+        findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
+        create: (...args: unknown[]) => mockPurchaseCreate(...args),
+      },
+      $executeRaw: (...args: unknown[]) => mockTxExecuteRaw(...args),
+    }
+    return fn(tx)
+  })
+  mockAttendanceCreate.mockResolvedValue({ id: "att_default", status: "checked_in", checkedInAt: NOW, metadata: {} })
+  mockAttendanceUpdate.mockResolvedValue({ id: "att_default", status: "checked_in", checkedInAt: NOW, metadata: {} })
   vi.useFakeTimers({ now: NOW })
 }
 
@@ -155,14 +210,12 @@ describe("POST /api/checkin/qr/client-phone", () => {
       { id: "pkg_1", packageId: "plan_1", packageLabel: "Salsa 8-pack", courseSlug: "salsa-night", isUnlimited: false, remainingCredits: 5, expiresAt: null, status: "active", packagePlan: null },
     ])
     const createdAttendance = { id: "att_3", status: "checked_in", checkedInAt: NOW, metadata: {} }
-    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
-      const tx = {
-        packagePurchase: { update: mockPackagePurchaseUpdate },
-        attendance: { create: () => createdAttendance },
-        packageUsageLedger: { create: mockPackageUsageLedgerCreate },
-      }
-      return fn(tx)
+    mockAttendanceCreate.mockResolvedValue(createdAttendance)
+    // A usable package is selected inside the reservation transaction.
+    mockPackagePurchaseFindFirst.mockResolvedValue({
+      id: "pkg_1", packageId: "plan_1", packageLabel: "Salsa 8-pack", isUnlimited: false, remainingCredits: 5, status: "active",
     })
+    mockPackagePurchaseUpdateMany.mockResolvedValue({ count: 1 })
     mockPackagePurchaseFindUnique.mockResolvedValue({
       id: "pkg_1", packageId: "plan_1", packageLabel: "Salsa 8-pack", isUnlimited: false, remainingCredits: 4, status: "active",
     })
@@ -201,7 +254,10 @@ describe("POST /api/checkin/qr/client-phone", () => {
     expect(data.status).toBe("already_checked_in")
   })
 
-  it("returns window_closed when outside check-in window in production", async () => {
+  // The QR time gate was intentionally removed (commit 19c0c1f). A valid
+  // booking now checks in regardless of how far the current time is from the
+  // class start, including in production — there is no "window_closed" status.
+  it("checks in a valid purchase far from class time (QR time gate removed) in production", async () => {
     const origEnv = process.env.NODE_ENV
     try {
       // @ts-expect-error -- override for test
@@ -212,12 +268,15 @@ describe("POST /api/checkin/qr/client-phone", () => {
       // Re-import to pick up production env
       vi.resetModules()
       setupDefaults()
+      mockPurchaseFindMany.mockResolvedValue([
+        { id: "purchase_1", status: "paid", amount: 2000, courseSlug: "salsa-night", metadata: { date: "2026-06-11", paymentChannel: "card" } },
+      ])
       const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
       const res = await POST(buildRequest(defaultBody))
       const data = await res.json()
 
       expect(res.status).toBe(200)
-      expect(data.status).toBe("window_closed")
+      expect(data.status).toBe("checked_in")
     } finally {
       // @ts-expect-error -- restore
       process.env.NODE_ENV = origEnv
