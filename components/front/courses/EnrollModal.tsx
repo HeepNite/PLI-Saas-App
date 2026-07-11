@@ -5,7 +5,7 @@ import GlassyCard from "./GlassyCard"
 import { useI18n } from "@/lib/i18n"
 import type { Coupon, EnrollmentContact } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
-import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
+import { isCompleteUSPhone, toE164Phone } from "./utils/phone"
 import { useAuth, useClerk, useUser } from "@clerk/nextjs"
 import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
@@ -13,20 +13,14 @@ import {
   computeCheckInAutofill as computeCheckInAutofillModel,
   formatCheckInSummaryDateTime as formatCheckInSummaryDateTimeModel,
 } from "@/components/front/courses/enroll/model/checkin-autofill"
-import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { useNewStudentVerification } from "./hooks/useNewStudentVerification"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
+import { getPhotoPolicy } from "@/lib/checkin/photo-context-policy"
 import {
-  getPhotoPolicy,
-  isPhotoRequiredForAccount,
-} from "@/lib/checkin/photo-context-policy"
-import {
-  handleEmbeddedSignInSessionCreated,
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
-  shouldRedirectPersonalCompletion,
 } from "@/lib/checkin/enroll-flow"
 import {
   getKioskPaymentTransitionRemainingMs,
@@ -36,9 +30,6 @@ import {
   shouldAutoAdvanceKioskInfoStep,
   shouldMaskKioskInfoStep,
 } from "@/lib/checkin/kiosk-qr-payment"
-import {
-  resolveCheckInServiceSelection,
-} from "@/lib/checkin/new-student-flow"
 import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
@@ -48,6 +39,7 @@ import EnrollFlowPopup from "@/components/front/courses/enroll/steps/EnrollFlowP
 import EnrollStepRouter from "@/components/front/courses/enroll/steps/EnrollStepRouter"
 import EnrollFormFooter from "@/components/front/courses/enroll/steps/EnrollFormFooter"
 import EnrollSuccessView from "@/components/front/courses/enroll/steps/EnrollSuccessView"
+import EnrollSmsVerificationOverlay from "@/components/front/courses/enroll/steps/EnrollSmsVerificationOverlay"
 import { initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { useEnrollNavigationActions } from "@/components/front/courses/enroll/hooks/useEnrollNavigationActions"
 import { useEnrollPaymentActions } from "@/components/front/courses/enroll/hooks/useEnrollPaymentActions"
@@ -125,11 +117,6 @@ const to12hLabel = (time24: string) => {
 
 export const formatCheckInSummaryDateTime = formatCheckInSummaryDateTimeModel
 export const computeCheckInAutofill = computeCheckInAutofillModel
-
-const normalizeEnrollPhonePrefill = (value?: string) => {
-  if (typeof value !== "string" || value.trim().length === 0) return "+1 "
-  return formatUSPhone(value)
-}
 
 export default function EnrollModal({
   course,
@@ -1327,45 +1314,22 @@ export default function EnrollModal({
         />
       )}
       {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
-        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label={t("aria_close")}
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => {
-              resetVerification()
-            }}
-          />
-          <div className="relative z-10 w-full max-w-[22rem] rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-4 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] sm:p-5">
-            <button
-              type="button"
-              className="absolute right-5 top-5 z-10 shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 transition hover:bg-white/[0.04]"
-              onClick={() => {
-                resetVerification()
-              }}
-            >
-              {t("cancel")}
-            </button>
-            {/* Code input + numpad */}
-            <EmbeddedSignIn
-              redirectUrl={signInReturnTo}
-              phoneNumber={toE164Phone(contact.phone)}
-              useNumericKeypad={isKioskTerminalFlow}
-              activateSessionOnSuccess={false}
-              bare
-              onCodeSent={() => {
-                verification.onSmsSent()
-              }}
-              onSessionCreated={(sessionId) => {
-                pendingClerkSessionRef.current = sessionId
-                handleEmbeddedSignInSessionCreated({ onKioskSessionCreated, sessionId })
-              }}
-              onSuccessAction={async () => {
-                markSmsVerified()
-              }}
-            />
-          </div>
-        </div>
+        <EnrollSmsVerificationOverlay
+          signInReturnTo={signInReturnTo}
+          phoneE164={toE164Phone(contact.phone)}
+          isKioskTerminalFlow={isKioskTerminalFlow}
+          pendingClerkSessionRef={pendingClerkSessionRef}
+          onKioskSessionCreated={onKioskSessionCreated}
+          onCodeSent={() => {
+            verification.onSmsSent()
+          }}
+          onSmsVerified={markSmsVerified}
+          onDismiss={() => {
+            resetVerification()
+          }}
+          cancelLabel={t("cancel")}
+          closeAriaLabel={t("aria_close")}
+        />
       )}
       {requiresSignIn && (
         <EnrollSignInOverlay
