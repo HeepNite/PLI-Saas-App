@@ -18,7 +18,7 @@ const resolveMasonryColumnCount = () => {
 }
 
 const isFrontDeskPurchaseSource = (source: string | undefined) =>
-  source === "kiosk" || source === "front_desk"
+  source === "kiosk" || source === "front_desk" || source === "admin"
 
 export function StudentCardsGrid(props: StudentCardsGridProps) {
   const {
