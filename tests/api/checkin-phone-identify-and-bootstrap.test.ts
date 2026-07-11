@@ -403,6 +403,55 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(mockAuthorizeStaffTerminalSession).toHaveBeenCalledTimes(1)
   })
 
+  // Scenario: window state — far before startsAt now allowed (pre-window)
+  it("reports isWindowOpen=true far before startsAt (pre-window, previously blocked by opensAt)", async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+      mockAttendanceFindUnique.mockResolvedValue(null)
+      mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
+
+      const { POST } = await import(
+        "@/app/api/checkin/phone/identify-and-bootstrap/route"
+      )
+      // Far-future date/time keeps "now" (real Date.now()) well before
+      // startsAt, i.e. before the old opensAt lower bound.
+      const res = await POST(makeRequest({ ...BASE_BODY, date: "2099-01-01" }))
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(data.context.checkInWindow.isOpen).toBe(true)
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
+  // Scenario: window state — truly past closesAt is closed
+  it("reports isWindowOpen=false once truly past closesAt", async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+      mockAttendanceFindUnique.mockResolvedValue(null)
+      mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
+
+      const { POST } = await import(
+        "@/app/api/checkin/phone/identify-and-bootstrap/route"
+      )
+      // Far-past date/time keeps "now" (real Date.now()) well after closesAt.
+      const res = await POST(makeRequest({ ...BASE_BODY, date: "2020-01-01" }))
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(data.context.checkInWindow.isOpen).toBe(false)
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
   // Scenario: full path hydrates customer with Clerk data
   it("includes Clerk user data in full path response", async () => {
     mockPackagePurchaseFindFirst.mockResolvedValue(null)

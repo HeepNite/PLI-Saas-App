@@ -3,7 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
+import { parseQrCheckInContext, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled, snapshotPreparedCheckoutVerification } from "@/lib/checkout/prepared-context"
 import type { CourseData } from "@/constants/courses"
@@ -208,7 +208,7 @@ export async function POST(req: Request) {
     }
 
     const now = new Date()
-    const isWindowOpen = isQrCheckInWindowOpen(context, now)
+    const isWindowOpen = isTerminalCheckInAllowed(context, now)
     const course = await getCatalogCourseBySlug(context.courseSlug)
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 })

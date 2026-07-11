@@ -524,6 +524,87 @@ describe("qr check-in bootstrap route", () => {
     expect(data.customer).toMatchObject({ userId: "db_user_1" })
   })
 
+  it("reports checkInWindow.isOpen=true far before startsAt (pre-window, previously blocked by opensAt)", async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      mockAuth.mockResolvedValue({ userId: null })
+      mockResolveTerminalKioskSession.mockResolvedValue({
+        ok: true,
+        session: {
+          user: {
+            id: "db_user_1",
+            clerkId: "clerk_user_1",
+            email: "student@example.com",
+            name: "Jane Student",
+            phone: "15551112222",
+          },
+        },
+      })
+
+      const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+      const req = new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "salsa-femenina-matutina",
+          // Far-future date/time keeps "now" (real Date.now()) well before
+          // startsAt, i.e. before the old opensAt lower bound.
+          date: "2099-01-01",
+          time: "11:00",
+          kioskSessionToken: "session_1",
+        }),
+      })
+      const res = await POST(req)
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(data.context.checkInWindow.isOpen).toBe(true)
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
+  it("reports checkInWindow.isOpen=false once truly past closesAt", async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      mockAuth.mockResolvedValue({ userId: null })
+      mockResolveTerminalKioskSession.mockResolvedValue({
+        ok: true,
+        session: {
+          user: {
+            id: "db_user_1",
+            clerkId: "clerk_user_1",
+            email: "student@example.com",
+            name: "Jane Student",
+            phone: "15551112222",
+          },
+        },
+      })
+
+      const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+      const req = new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "salsa-femenina-matutina",
+          // Far-past date/time keeps "now" (real Date.now()) well after closesAt.
+          date: "2020-01-01",
+          time: "11:00",
+          kioskSessionToken: "session_1",
+        }),
+      })
+      const res = await POST(req)
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(data.context.checkInWindow.isOpen).toBe(false)
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
   it("logs PIN-ready latency within the terminal target", async () => {
     const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {})
     // The route calls Date.now() for startedAt and again when it logs latency,

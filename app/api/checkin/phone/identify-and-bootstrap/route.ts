@@ -10,7 +10,7 @@ import {
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { resolveKioskPinThrottleSeverity, getKioskPinThrottleMessage } from "@/lib/security/kiosk-pin-throttle"
 import { normalizePhone, normalizePhoneDigits } from "@/lib/shared"
-import { parseQrCheckInContext, isQrCheckInWindowOpen } from "@/lib/checkin/qr"
+import { parseQrCheckInContext, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
@@ -319,7 +319,7 @@ export async function POST(req: Request) {
   })
 
   const now = new Date()
-  const isWindowOpen = isQrCheckInWindowOpen(context, now)
+  const isWindowOpen = isTerminalCheckInAllowed(context, now)
 
   // ─── Fast-path detection ─────────────────────────────────────
   const courseSlug = context.courseSlug

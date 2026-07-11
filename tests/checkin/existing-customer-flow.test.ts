@@ -310,6 +310,41 @@ describe("existing customer kiosk helpers", () => {
     ).toBe(true)
   })
 
+  // Terminal check-in early-window removal: bootstrap now feeds
+  // effectiveCheckInWindowOpen=true pre-window (now before the old opensAt
+  // but before closesAt). These gates must not surface a closed-window state
+  // or block auto-trigger in that case — only when now > closesAt.
+  it("auto-triggers pre-window (effectiveCheckInWindowOpen=true because now < closesAt, before old opensAt)", () => {
+    expect(
+      shouldAutoTriggerPackageCheckIn({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasPackage: true,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: false,
+        effectiveCheckInWindowOpen: true,
+        hasActiveSession: true,
+        hasConsecutiveOffer: false,
+        consecutiveOfferSettled: true,
+      })
+    ).toBe(true)
+  })
+
+  it("does not surface the closed-window error pre-window (effectiveCheckInWindowOpen=true because now < closesAt, before old opensAt)", () => {
+    expect(
+      shouldSurfaceClosedWindowPackageError({
+        isKioskTerminalFlow: true,
+        mode: "existing",
+        hasBootstrap: true,
+        hasPackage: true,
+        effectiveCheckInWindowOpen: true,
+        processingPackageCheckIn: false,
+        hasPackageCheckInResult: false,
+        hasExistingRegularBookingOverride: false,
+      })
+    ).toBe(false)
+  })
+
   describe("shouldAutoTriggerPackageCheckIn — retry gating", () => {
     const baseTriggerInput = {
       isKioskTerminalFlow: true,
