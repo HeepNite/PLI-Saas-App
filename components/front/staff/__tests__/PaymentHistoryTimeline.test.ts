@@ -33,6 +33,12 @@ describe("formatDate", () => {
     const result = formatDate(date)
     expect(result).toMatch(/\d{1,2}:\d{2}\s*[AP]M/)
   })
+
+  it("returns the em-dash fallback for an Invalid Date without throwing", () => {
+    const invalid = new Date("not-a-date")
+    expect(() => formatDate(invalid)).not.toThrow()
+    expect(formatDate(invalid)).toBe("—")
+  })
 })
 
 describe("computePopoverPositionFromRect", () => {

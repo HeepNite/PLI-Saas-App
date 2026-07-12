@@ -106,6 +106,7 @@ const STATUS_CONFIG = {
 } as const
 
 export function formatDate(date: Date): string {
+  if (Number.isNaN(date.getTime())) return "—"
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "short",
