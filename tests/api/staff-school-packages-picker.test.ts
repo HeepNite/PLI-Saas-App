@@ -88,12 +88,12 @@ describe("GET /api/staff/school/packages/picker", () => {
     expect(res.status).toBe(403)
   })
 
-  it("only queries active plans", async () => {
+  it("only queries active, purchasable (priced) plans", async () => {
     const { GET } = await import("@/app/api/staff/school/packages/picker/route")
     await GET(new Request("http://localhost/api/staff/school/packages/picker", { method: "GET" }))
 
     expect(mockPrisma.packagePlan.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { active: true } })
+      expect.objectContaining({ where: { active: true, priceCents: { not: null } } })
     )
   })
 
