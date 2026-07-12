@@ -159,4 +159,20 @@ describe("AddPackageForm", () => {
     const node = await render(createProps({ state: "error", errorMessage: "Package plan is not available for purchase." }))
     expect(node.textContent).toContain("Package plan is not available for purchase.")
   })
+
+  it("sets the expires-at min to today's LOCAL date, not the UTC-shifted date, for a late-evening America/New_York time", async () => {
+    // 11:30 PM America/New_York on 2026-07-12 is 03:30 AM UTC on 2026-07-13.
+    // A UTC-based `min` (e.g. `new Date().toISOString().slice(0, 10)`) would
+    // incorrectly yield "2026-07-13", rejecting the valid local "today"
+    // (2026-07-12) in the date picker.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-13T03:30:00.000Z"))
+
+    const node = await render(createProps({ selectedPlanId: "plan-1", reason: "Front desk cash sale" }))
+    const dateInput = node.querySelector('input[type="date"]') as HTMLInputElement
+
+    expect(dateInput.min).toBe("2026-07-12")
+
+    vi.useRealTimers()
+  })
 })

@@ -30,6 +30,30 @@ const formatPlanSummary = (plan: PackagePlanOption): string => {
 }
 
 /**
+ * Formats a `Date` as a `YYYY-MM-DD` date-only string using its LOCAL
+ * calendar fields (year/month/day) instead of going through `toISOString()`,
+ * which converts to UTC first. For studios west of UTC (e.g.
+ * America/New_York), a UTC conversion can shift the calendar date backward
+ * by one day.
+ */
+const toLocalDateOnly = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * Today's date-only string in the staff member's LOCAL time zone.
+ *
+ * Deliberately avoids `new Date().toISOString().slice(0, 10)`, which
+ * converts "now" to UTC before slicing: for studios west of UTC (e.g.
+ * America/New_York) in the evening, that yields TOMORROW's date, so a
+ * `min` attribute built from it would reject TODAY as too early.
+ */
+const todayLocalDateOnly = (): string => toLocalDateOnly(new Date())
+
+/**
  * Default expiry input value: today + plan.validDays, formatted for
  * `<input type="date">`.
  *
@@ -44,10 +68,7 @@ const defaultExpiryFor = (plan: PackagePlanOption | undefined): string => {
   if (!plan) return ""
   const date = new Date()
   date.setDate(date.getDate() + plan.validDays)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
+  return toLocalDateOnly(date)
 }
 
 export function AddPackageForm({
@@ -184,7 +205,7 @@ export function AddPackageForm({
           value={expiresAt}
           onChange={(e) => onExpiresAtChange(e.target.value)}
           disabled={!selectedPlan || isSubmitting}
-          min={new Date().toISOString().slice(0, 10)}
+          min={todayLocalDateOnly()}
           className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
         />
         <span className="text-[11px] text-black/45 dark:text-white/45">
