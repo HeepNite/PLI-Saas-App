@@ -58,7 +58,19 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
 
   const resetAttempt = React.useCallback(() => {
     idempotencyKeyRef.current = null
-    isSubmittingRef.current = false
+    // Deliberately do NOT touch `isSubmittingRef` here. It is the single
+    // source of truth for "a request is currently in flight" and is only
+    // ever written by `submit` itself (set on send, cleared in `finally`
+    // once that request settles). If a field setter
+    // (updateSelectedPlanId/updateExpiresAt/updateReason) cleared it via
+    // this function while a PREVIOUS submit's fetch was still running, a
+    // subsequent `submit()` could fire a SECOND in-flight fetch with a
+    // DIFFERENT idempotency key before the first settles — the server can't
+    // dedup two different keys, so that's a potential double purchase.
+    // Reading React `state` here instead would work too, but would make
+    // this callback's identity change on every state transition, which
+    // cascades into every effect that depends on `reset`/`resetAttempt`
+    // (e.g. remounting on studentId/open) re-firing on every keystroke.
     setState("idle")
     setErrorMessage(null)
     setDuplicate(null)
@@ -127,8 +139,8 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
         // idempotency key was regenerated) while this request was in
         // flight, this response belongs to an abandoned attempt. Bail out
         // without touching state so it can't clobber fresher UI state.
-        // (isSubmittingRef was already reset by the newer attempt's own
-        // submit call, so it is intentionally left untouched here.)
+        // `isSubmittingRef` is still released for this attempt in `finally`
+        // below (see comment there) so a fresh submit isn't locked out.
         if (idempotencyKeyRef.current !== idempotencyKey) return
 
         if (res.status === 409 && data?.code === "DUPLICATE_ACTIVE_PACKAGE") {
@@ -159,9 +171,13 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
         setErrorMessage(err instanceof Error ? err.message : "Network error. Please try again.")
         setState("error")
       } finally {
-        if (idempotencyKeyRef.current === idempotencyKey) {
-          isSubmittingRef.current = false
-        }
+        // Always release the ref for THIS attempt once its request settles,
+        // even if it was abandoned (idempotencyKeyRef.current no longer
+        // matches, because `resetAttempt` intentionally leaves the ref
+        // untouched while a request is in flight — see `resetAttempt`).
+        // Without this, an abandoned attempt would permanently lock out
+        // all future submits.
+        isSubmittingRef.current = false
       }
     },
     [selectedPlanId, reason, expiresAt, studentId, ensureIdempotencyKey, onGranted]

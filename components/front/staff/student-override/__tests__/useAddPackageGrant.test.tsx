@@ -285,7 +285,7 @@ describe("useAddPackageGrant", () => {
     })
   })
 
-  it("stale-response guard: an in-flight response for an abandoned attempt does not clobber fresher state", async () => {
+  it("cross-attempt guard: editing a field while a submit is in flight does not let a second submit fire a second fetch", async () => {
     let resolveFirst: ((value: unknown) => void) | null = null
     const fetchMock = vi
       .fn()
@@ -313,31 +313,38 @@ describe("useAddPackageGrant", () => {
     })
     expect(captured!.state).toBe("submitting")
 
-    // Field change while in flight regenerates the idempotency key,
-    // abandoning the first attempt, then a fresh submit fires.
+    // Editing a field while attempt A is still in flight regenerates the
+    // idempotency key (abandoning A's key), but must NOT clear the in-flight
+    // guard: A's request is still running against the server.
     await act(async () => {
       captured!.setReason("Second attempt, different reason")
     })
     await act(async () => {
       captured!.submit()
     })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(captured!.state).toBe("success")
-    expect(captured!.grantedPurchaseId).toBe("purchase-2")
 
-    // The abandoned first request now resolves — it must NOT clobber the
-    // already-successful fresher state.
+    // The second submit must be blocked while A is unresolved — firing it
+    // would send a request with a DIFFERENT idempotency key while A's
+    // request (with A's key) is still in flight, and the server can't dedup
+    // two different keys, risking a double purchase.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Once A resolves, the in-flight guard is released and a fresh submit
+    // for the edited fields is allowed to fire.
     await act(async () => {
       resolveFirst?.({
-        ok: false,
-        status: 400,
-        json: () => Promise.resolve({ error: "expiresAt must be in the future." }),
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ ok: true, data: { purchaseId: "purchase-1", settlementStatus: "pending" } }),
       })
     })
 
+    await act(async () => {
+      captured!.submit()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(captured!.state).toBe("success")
     expect(captured!.grantedPurchaseId).toBe("purchase-2")
-    expect(captured!.errorMessage).toBeNull()
   })
 
   it("reset clears all fields and the idempotency key", async () => {
