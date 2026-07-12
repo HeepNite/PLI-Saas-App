@@ -46,6 +46,26 @@ export type PurchaseOption = {
   createdAt: string
 }
 
+export type PackagePlanOption = {
+  id: string
+  key: string
+  label: string
+  priceCents: number | null
+  totalCredits: number | null
+  validDays: number
+  isUnlimited: boolean
+  courseSlug: string | null
+  courseSlugs: string[]
+}
+
+export type DuplicateActivePackage = {
+  id: string
+  label: string | null
+  expiresAt: string | null
+}
+
+export type AddPackageState = "idle" | "submitting" | "duplicate" | "success" | "error"
+
 export type FormState = {
   entity: EntityType
   reason: string
