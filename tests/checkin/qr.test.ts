@@ -38,16 +38,19 @@ describe("isTerminalCheckInAllowed", () => {
     expect(isTerminalCheckInAllowed(context, now)).toBe(true)
   })
 
-  it("rejects check-in 1ms after closesAt", () => {
+  it("rejects check-in once the NY day is over (next day)", () => {
     const context = buildContext()
-    const now = new Date(context.closesAt.getTime() + 1)
+    // 2026-04-01T05:00:00Z = 01:00 America/New_York on 2026-04-01 (next NY day)
+    const now = new Date("2026-04-01T05:00:00.000Z")
 
     expect(isTerminalCheckInAllowed(context, now)).toBe(false)
   })
 
-  it("allows check-in during the late-arrival grace window (endsAt < now <= closesAt)", () => {
+  it("allows check-in late the same NY day, hours after the class ended (previously blocked)", () => {
     const context = buildContext()
-    const now = new Date(context.endsAt.getTime() + 30 * 60 * 1000)
+    // 2026-04-01T02:30:00Z = 22:30 America/New_York on 2026-03-31 (still the class day,
+    // past the old closesAt +2h grace) — the only window is the day.
+    const now = new Date("2026-04-01T02:30:00.000Z")
 
     expect(isTerminalCheckInAllowed(context, now)).toBe(true)
   })

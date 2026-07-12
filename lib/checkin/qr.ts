@@ -1,4 +1,4 @@
-import { buildSessionStartsAt, getCourseBySlug } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getCourseBySlug, getDateKeyInTimeZone } from "@/lib/class-schedule"
 import { SLUG_REGEX } from "@/lib/shared"
 
 export const QR_CHECKIN_OPEN_BEFORE_MS = 2 * 60 * 60 * 1000
@@ -93,22 +93,20 @@ export const isQrCheckInWindowAllowed = (context: QrCheckInContext, now = new Da
   return isQrCheckInWindowOpen(context, now)
 }
 
-// Consecutive add-on purchase has no lower bound (can be bought any time
-// before the linked class starts or is in progress) and is rejected only
-// once the class has ended (`endsAt`). This intentionally does NOT reuse
-// `closesAt` (endsAt + 2h grace) — the add-on upper bound is the class's
-// natural end, not the normal check-in path's post-class grace window.
+// The ONLY window is the class DAY (America/New_York). The consecutive add-on
+// stays available the whole day of the class and closes only when the NY day
+// ends (midnight) — no lower bound, no end-of-class (`endsAt`) or grace
+// (`closesAt`) cutoff. `context.date` is the class's NY calendar day (YYYY-MM-DD).
 export const isConsecutiveAddOnPurchaseAllowed = (context: QrCheckInContext, now = new Date()) => {
   if (isDevCheckInBypassEnabled()) return true
-  return now.getTime() <= context.endsAt.getTime()
+  return getDateKeyInTimeZone(now) === context.date
 }
 
-// Terminal (kiosk) check-in has no lower bound: the kiosk is physically
-// located at the owner's premises with cash/physical purchases only, so
-// pre-class check-in cannot be abused remotely. Only the existing
-// late-arrival grace (`closesAt` = endsAt + QR_CHECKIN_CLOSE_AFTER_END_MS)
-// still applies.
+// The ONLY window is the class DAY (America/New_York): terminal check-in is
+// open the whole day of the class and closes only when the NY day ends. No
+// pre-class lower bound and no post-class grace cutoff — the kiosk is on the
+// owner's premises with cash/physical purchases only, so there is no abuse risk.
 export const isTerminalCheckInAllowed = (context: QrCheckInContext, now = new Date()) => {
   if (isDevCheckInBypassEnabled()) return true
-  return now.getTime() <= context.closesAt.getTime()
+  return getDateKeyInTimeZone(now) === context.date
 }
