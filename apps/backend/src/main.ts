@@ -1,21 +1,29 @@
 import { AppModule, appControllers } from "./app.module"
+import { QrDecisionController } from "./checkin/qr-decision.controller"
 import { TodayClassesController } from "./checkin/today-classes.controller"
 import { HealthController } from "./health/health.controller"
 import { INTERNAL_AUTH_HEADER } from "@/lib/nest-gateway/auth"
+import type { CheckinQrDecisionGatewayRequest } from "@/lib/nest-gateway/contracts/checkin-qr-decision"
 
 const NOT_FOUND_STATUS = 404
 const OK_STATUS = 200
+const BAD_REQUEST_STATUS = 400
 const UNAUTHORIZED_STATUS = 401
 
 export type BackendRequestHandler = (request: Request) => Promise<Response>
 
 type BackendControllers = {
   healthController?: Pick<HealthController, "getHealth">
+  qrDecisionController?: Pick<QrDecisionController, "getQrDecision">
   todayClassesController?: Pick<TodayClassesController, "getTodayClasses">
 }
 
 export const createBackendRequestHandler = (
-  { healthController = new HealthController(), todayClassesController = new TodayClassesController() }: BackendControllers = {}
+  {
+    healthController = new HealthController(),
+    qrDecisionController = new QrDecisionController(),
+    todayClassesController = new TodayClassesController(),
+  }: BackendControllers = {}
 ): BackendRequestHandler => {
   return async (request) => {
     const { pathname } = new URL(request.url)
@@ -35,6 +43,17 @@ export const createBackendRequestHandler = (
 
     if (request.method === "GET" && pathname === "/internal/checkin/today-classes") {
       return Response.json(await todayClassesController.getTodayClasses(), { status: OK_STATUS })
+    }
+
+    if (request.method === "POST" && pathname === "/internal/checkin/qr/decision") {
+      let payload: CheckinQrDecisionGatewayRequest
+      try {
+        payload = (await request.json()) as CheckinQrDecisionGatewayRequest
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: BAD_REQUEST_STATUS })
+      }
+
+      return Response.json(await qrDecisionController.getQrDecision(payload), { status: OK_STATUS })
     }
 
     return new Response(null, { status: NOT_FOUND_STATUS })

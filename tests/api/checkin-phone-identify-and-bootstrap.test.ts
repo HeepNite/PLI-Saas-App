@@ -17,7 +17,6 @@ const mockClassSessionFindUnique = vi.fn()
 const mockAttendanceFindUnique = vi.fn()
 const mockCourseLinkFindMany = vi.fn()
 const mockCourseCatalogFindMany = vi.fn()
-const mockPurchaseFindMany2 = vi.fn()
 const mockGetCatalogCourseBySlug = vi.fn()
 const mockFindClerkUserByIdentifiers = vi.fn()
 const mockResolveAvatarState = vi.fn()
@@ -162,6 +161,7 @@ const BASE_BODY = {
 describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
   beforeEach(() => {
     vi.resetModules()
+    vi.useRealTimers()
 
     mockAuthorizeStaffTerminalSession.mockReset()
     mockConsumeRateLimit.mockReset()
@@ -416,9 +416,9 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
       const { POST } = await import(
         "@/app/api/checkin/phone/identify-and-bootstrap/route"
       )
-      // Far-future date/time keeps "now" (real Date.now()) well before
+      // Far-future date/time keeps any realistic runner clock well before
       // startsAt, i.e. before the old opensAt lower bound.
-      const res = await POST(makeRequest({ ...BASE_BODY, date: "2099-01-01" }))
+      const res = await POST(makeRequest({ ...BASE_BODY, date: "9999-01-01" }))
       const data = await res.json()
 
       expect(res.status).toBe(200)
@@ -432,6 +432,8 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
   it("reports isWindowOpen=false once truly past closesAt", async () => {
     const originalNodeEnv = process.env.NODE_ENV
     vi.stubEnv("NODE_ENV", "production")
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-01T12:00:00.000Z"))
     try {
       mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
       mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
@@ -448,6 +450,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
       expect(res.status).toBe(200)
       expect(data.context.checkInWindow.isOpen).toBe(false)
     } finally {
+      vi.useRealTimers()
       vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
     }
   })

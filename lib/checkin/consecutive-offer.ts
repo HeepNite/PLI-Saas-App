@@ -3,7 +3,7 @@ import "server-only"
 import { prisma } from "@/lib/prisma"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { computeDiscountPercent } from "@/lib/course-links"
-import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
+import { hasAttendedCourseToday, hasPurchaseForCourseToday, hasPurchasesForCoursesToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 
 export type ConsecutiveOfferResult = {
@@ -39,6 +39,8 @@ export const resolveConsecutiveOffer = async ({
   courseTimeMinutes,
   now = new Date(),
 }: ResolveConsecutiveOfferInput): Promise<ConsecutiveOfferResult> => {
+  const courseCatalogDelegate = (prisma as { courseCatalog?: { findMany?: typeof prisma.courseCatalog.findMany } }).courseCatalog
+
   // Always derive weekday from ET timezone — server may run in UTC where
   // getDay() returns the wrong day (e.g. Sunday in UTC while still Saturday in ET)
   const ET_DAY_MAP: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
@@ -63,19 +65,45 @@ export const resolveConsecutiveOffer = async ({
       : link.courseSlugA
   )
 
-  const linkedCatalogRows = await prisma.courseCatalog.findMany({
-    where: { slug: { in: linkedSlugs } },
-    select: {
-      slug: true,
-      title: true,
-      active: true,
-      availableTimes: true,
-      scheduleRules: true,
-      dropInPriceCents: true,
-    },
-  })
+  const linkedCatalogRows = courseCatalogDelegate?.findMany
+    ? await courseCatalogDelegate.findMany({
+        where: { slug: { in: linkedSlugs } },
+        select: {
+          slug: true,
+          title: true,
+          active: true,
+          availableTimes: true,
+          scheduleRules: true,
+          dropInPriceCents: true,
+        },
+      })
+    : (
+        await Promise.all(
+          linkedSlugs.map(async (slug) => {
+            const course = await getCatalogCourseBySlug(slug)
+            if (!course) return null
+            return {
+              slug: course.slug,
+              title: course.title,
+              active: true,
+              availableTimes: course.schedule?.availableTimes ?? [],
+              scheduleRules: course.scheduleRules ?? null,
+              dropInPriceCents: null,
+            }
+          })
+        )
+      ).filter((row): row is NonNullable<typeof row> => row !== null)
 
   const hasAttendedA = await hasAttendedCourseToday(userId, linkedFromCourseSlug, now)
+  const purchasedLinkedSlugs = courseCatalogDelegate?.findMany
+    ? await hasPurchasesForCoursesToday(userId, linkedSlugs, now)
+    : new Set(
+        (
+          await Promise.all(
+            linkedSlugs.map(async (slug) => (await hasPurchaseForCourseToday(userId, slug, now)) ? slug : null)
+          )
+        ).filter((slug): slug is string => slug !== null)
+      )
 
   const candidates = links
     .map((link) => {
@@ -86,7 +114,7 @@ export const resolveConsecutiveOffer = async ({
       const linkedCatalog = linkedCatalogRows.find((row) => row.slug === linkedCourseSlug)
       return { link, linkedCourseSlug, linkedCatalog }
     })
-    .filter((c) => c.linkedCatalog)
+    .filter((candidate) => candidate.linkedCatalog && !purchasedLinkedSlugs.has(candidate.linkedCourseSlug))
 
   const withSchedule = candidates.map((candidate) => {
     const parsedRules = parseScheduleRules(candidate.linkedCatalog?.scheduleRules)

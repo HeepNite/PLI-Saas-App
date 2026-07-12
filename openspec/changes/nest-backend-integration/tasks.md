@@ -48,9 +48,9 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Customer QR Identity (No Authoritative Writes Yet)
 
-- [ ] 3.1 RED: extend `tests/api/checkin-qr-bootstrap.test.ts` for stale QR, authenticated identity, package-vs-drop-in decision, and fallback parity.
-- [ ] 3.2 GREEN: create `apps/backend/src/checkin/qr-decision.controller.ts` + service; delegate decision-only logic from `app/api/checkin/qr/bootstrap/route.ts`.
-- [ ] 3.3 REFACTOR: update `components/front/checkin/hooks/useCheckInBootstrap.ts` only if response parity requires client normalization.
+- [x] 3.1 RED: extend `tests/api/checkin-qr-bootstrap.test.ts` for stale QR, authenticated identity, package-vs-drop-in decision, and fallback parity.
+- [x] 3.2 GREEN: create `apps/backend/src/checkin/qr-decision.controller.ts` + service; delegate decision-only logic from `app/api/checkin/qr/bootstrap/route.ts`.
+- [x] 3.3 REFACTOR: update `components/front/checkin/hooks/useCheckInBootstrap.ts` only if response parity requires client normalization.
 
 ## Phase 4: Kiosk Payment Pre-Cutover
 

@@ -424,6 +424,45 @@ describe("bootstrap consecutive offer", () => {
     expect(mockCourseLinkFindMany).not.toHaveBeenCalled()
   })
 
+  it("degrades consecutiveOffer to null when the optional promo lookup throws", async () => {
+    setupKioskSession()
+    mockGetCatalogCourseBySlug.mockResolvedValue({
+      slug: "bachata",
+      title: "Bachata Basics",
+      enrollment: {
+        services: [{ id: "dropin", label: "Drop-in", price: 15 }],
+        packages: [],
+        addons: [],
+      },
+    })
+    mockCourseLinkFindMany.mockRejectedValue(new Error("promo lookup failed"))
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseSlug: "bachata",
+          date: "2026-03-24",
+          time: "20:00",
+          durationMinutes: 60,
+          flowContext: "kiosk_terminal",
+          kioskSessionToken: "kiosk_session_1",
+          linkedFromCourseSlug: "salsa",
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      context: {
+        courseSlug: "bachata",
+      },
+      consecutiveOffer: null,
+    })
+  })
+
   it("returns no offer when course B has day-specific rules and is NOT scheduled today (Mon Beginner → Fri-only Rueda)", async () => {
     // Force Monday 2026-05-18 NY (weekday 1)
     vi.setSystemTime(new Date("2026-05-18T22:00:00.000Z"))
