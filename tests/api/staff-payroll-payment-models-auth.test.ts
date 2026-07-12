@@ -27,9 +27,13 @@ vi.mock("@/lib/payroll/audit", () => ({
   writePayrollAudit: (...args: unknown[]) => mockWritePayrollAudit(...args),
 }))
 
-vi.mock("@/lib/payroll/types", () => ({
-  AUDIT_ENTRY_TYPES: { MODEL_ASSIGNED: "MODEL_ASSIGNED" },
-}))
+vi.mock("@/lib/payroll/types", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/payroll/types")>()
+  return {
+    ...actual,
+    AUDIT_ENTRY_TYPES: { MODEL_ASSIGNED: "MODEL_ASSIGNED" },
+  }
+})
 
 vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
@@ -86,6 +90,39 @@ describe("payment models auth gates", () => {
       expect(res.status).toBe(200)
     })
 
+    it("owner receives only masked configJson, never plaintext, on the bank_transfer default method", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "owner_1", role: "owner", category: "manager" })
+      mockPrisma.staffPaymentModel.findMany.mockResolvedValueOnce([
+        {
+          id: "model_1",
+          name: "Default ARS",
+          defaultPaymentMethodId: "pm_1",
+          defaultPaymentMethod: {
+            id: "pm_1",
+            schoolId: "school_1",
+            name: "Bank Transfer",
+            adapterType: "bank_transfer",
+            currency: "ARS",
+            active: true,
+            configJson: { accountAlias: "pli", stripeLikeSecret: "sk_live_LEAKED" },
+          },
+          isDefault: true,
+        },
+      ])
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+      const data = await res.json()
+      const raw = JSON.stringify(data)
+
+      expect(res.status).toBe(200)
+      expect(raw).not.toContain("sk_live_LEAKED")
+      expect(data.items[0].defaultPaymentMethod.configJson).toEqual({
+        accountAlias: "pli",
+        stripeLikeSecret: { configured: true, preview: "••••" },
+      })
+    })
+
     it("resolves school context from the local staff mirror without calling Clerk", async () => {
       mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "owner_1", role: "owner", category: "manager" })
 
@@ -108,6 +145,34 @@ describe("payment models auth gates", () => {
       const res = await GET()
 
       expect(res.status).toBe(200)
+    })
+
+    it("admin+manager receives only masked configJson, never plaintext secrets", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "admin_1", role: "admin", category: "manager" })
+      mockPrisma.staffPaymentModel.findMany.mockResolvedValueOnce([
+        {
+          id: "model_1",
+          name: "Default ARS",
+          defaultPaymentMethodId: "pm_1",
+          defaultPaymentMethod: {
+            id: "pm_1",
+            schoolId: "school_1",
+            name: "Direct Deposit",
+            adapterType: "direct_deposit",
+            currency: "ARS",
+            active: true,
+            configJson: { accountNumber: "123456789", bankName: "Chase" },
+          },
+          isDefault: true,
+        },
+      ])
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+      const raw = JSON.stringify(await res.json())
+
+      expect(res.status).toBe(200)
+      expect(raw).not.toContain("123456789")
     })
 
     it("regular staff cannot view payment models", async () => {

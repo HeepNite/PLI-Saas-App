@@ -1,8 +1,29 @@
 import { prisma } from "@/lib/prisma"
+import { maskPaymentMethod } from "@/lib/payroll/mask-payment-method-config"
+
+type PaymentMethodRow = { adapterType: string; configJson: unknown }
 
 type PaymentModelWithDefaultMethod = {
   defaultPaymentMethodId: string | null
-  defaultPaymentMethod: unknown | null
+  defaultPaymentMethod: PaymentMethodRow | null
+}
+
+/**
+ * Masks `model.defaultPaymentMethod` if present, otherwise returns it as-is
+ * (`null`). Applied unconditionally to both hydrate branches below so
+ * masking is effective regardless of how the method was populated —
+ * see design decision "Hydrate functions must mask defaultPaymentMethod
+ * unconditionally".
+ */
+const maskDefaultMethod = <T extends PaymentModelWithDefaultMethod>(model: T): T => {
+  if (!model.defaultPaymentMethod) {
+    return model
+  }
+
+  return {
+    ...model,
+    defaultPaymentMethod: maskPaymentMethod(model.defaultPaymentMethod),
+  }
 }
 
 export async function hydratePaymentModelsDefaultMethod<T extends PaymentModelWithDefaultMethod>(
@@ -16,7 +37,7 @@ export async function hydratePaymentModelsDefaultMethod<T extends PaymentModelWi
   })))
 
   if (missingMethodIds.length === 0) {
-    return models
+    return models.map(maskDefaultMethod)
   }
 
   const methods = await prisma.staffPaymentMethod.findMany({
@@ -30,13 +51,13 @@ export async function hydratePaymentModelsDefaultMethod<T extends PaymentModelWi
 
   return models.map((model) => {
     if (!model.defaultPaymentMethodId || model.defaultPaymentMethod) {
-      return model
+      return maskDefaultMethod(model)
     }
 
-    return {
+    return maskDefaultMethod({
       ...model,
-      defaultPaymentMethod: methodsById.get(model.defaultPaymentMethodId) ?? null,
-    }
+      defaultPaymentMethod: (methodsById.get(model.defaultPaymentMethodId) ?? null) as PaymentMethodRow | null,
+    })
   })
 }
 
