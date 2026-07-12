@@ -29,12 +29,25 @@ const formatPlanSummary = (plan: PackagePlanOption): string => {
   return `${plan.label} · ${priceLabel} · ${creditsLabel} · ${plan.validDays}d`
 }
 
-/** Default expiry input value: today + plan.validDays, formatted for <input type="date">. */
+/**
+ * Default expiry input value: today + plan.validDays, formatted for
+ * `<input type="date">`.
+ *
+ * Reads the LOCAL calendar fields (year/month/day) directly instead of
+ * going through `toISOString()`, which converts to UTC first. For studios
+ * west of UTC (e.g. America/New_York), a UTC conversion can shift the
+ * calendar date backward by one day, so a "today + validDays" default could
+ * land a day earlier than intended (and, at the boundary, even in the past
+ * once combined with the end-of-day expiry conversion on submit).
+ */
 const defaultExpiryFor = (plan: PackagePlanOption | undefined): string => {
   if (!plan) return ""
   const date = new Date()
   date.setDate(date.getDate() + plan.validDays)
-  return date.toISOString().slice(0, 10)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
 export function AddPackageForm({
@@ -151,7 +164,8 @@ export function AddPackageForm({
               const plan = plans.find((p) => p.id === planId)
               onExpiresAtChange(defaultExpiryFor(plan))
             }}
-            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
+            disabled={isSubmitting}
+            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
           >
             <option value="">Select package plan</option>
             {plans.map((plan) => (
@@ -169,7 +183,8 @@ export function AddPackageForm({
           type="date"
           value={expiresAt}
           onChange={(e) => onExpiresAtChange(e.target.value)}
-          disabled={!selectedPlan}
+          disabled={!selectedPlan || isSubmitting}
+          min={new Date().toISOString().slice(0, 10)}
           className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
         />
         <span className="text-[11px] text-black/45 dark:text-white/45">
@@ -186,8 +201,9 @@ export function AddPackageForm({
           onChange={(e) => onReasonChange(e.target.value)}
           maxLength={500}
           rows={2}
+          disabled={isSubmitting}
           placeholder="Explain why this cash package grant is needed..."
-          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white dark:placeholder-white/30"
+          className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white dark:placeholder-white/30"
         />
         <span className="text-xs text-black/40 dark:text-white/40">{reason.length}/500</span>
       </label>

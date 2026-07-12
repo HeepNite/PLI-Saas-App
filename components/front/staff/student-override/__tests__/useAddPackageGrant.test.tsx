@@ -219,6 +219,127 @@ describe("useAddPackageGrant", () => {
     expect(captured!.errorMessage).toBe("expiresAt must be in the future.")
   })
 
+  it("converts a date-only expiresAt to end-of-local-day so a today/near-future date never becomes a past UTC instant", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () => Promise.resolve({ ok: true, data: { purchaseId: "purchase-1", settlementStatus: "pending" } }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await renderHook()
+
+    const today = new Date()
+    const todayDateOnly = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+
+    await act(async () => {
+      captured!.setSelectedPlanId("plan-1")
+      captured!.setReason("Renewal today")
+      captured!.setExpiresAt(todayDateOnly)
+    })
+    await act(async () => {
+      captured!.submit()
+    })
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    // Sent as end-of-LOCAL-day, not UTC midnight, so it must be strictly
+    // in the future relative to "now" even for negative-UTC-offset zones
+    // (e.g. America/New_York).
+    expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now())
+    // Local-time parse of "T23:59:59" (no explicit UTC "Z"/offset in the
+    // literal we build) must resolve to the same calendar day, hour 23.
+    expect(new Date(`${todayDateOnly}T23:59:59`).toISOString()).toBe(body.expiresAt)
+  })
+
+  it("guards against re-entrancy: a second submit call while already submitting does not fire a second request", async () => {
+    let resolveFetch: ((value: unknown) => void) | null = null
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve
+        })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await renderHook()
+
+    await act(async () => {
+      captured!.setSelectedPlanId("plan-1")
+      captured!.setReason("Front desk cash sale")
+    })
+
+    await act(async () => {
+      captured!.submit()
+      captured!.submit()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(captured!.state).toBe("submitting")
+
+    await act(async () => {
+      resolveFetch?.({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ ok: true, data: { purchaseId: "purchase-1", settlementStatus: "pending" } }),
+      })
+    })
+  })
+
+  it("stale-response guard: an in-flight response for an abandoned attempt does not clobber fresher state", async () => {
+    let resolveFirst: ((value: unknown) => void) | null = null
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ ok: true, data: { purchaseId: "purchase-2", settlementStatus: "pending" } }),
+      })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await renderHook()
+
+    await act(async () => {
+      captured!.setSelectedPlanId("plan-1")
+      captured!.setReason("First attempt")
+    })
+    await act(async () => {
+      captured!.submit()
+    })
+    expect(captured!.state).toBe("submitting")
+
+    // Field change while in flight regenerates the idempotency key,
+    // abandoning the first attempt, then a fresh submit fires.
+    await act(async () => {
+      captured!.setReason("Second attempt, different reason")
+    })
+    await act(async () => {
+      captured!.submit()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(captured!.state).toBe("success")
+    expect(captured!.grantedPurchaseId).toBe("purchase-2")
+
+    // The abandoned first request now resolves — it must NOT clobber the
+    // already-successful fresher state.
+    await act(async () => {
+      resolveFirst?.({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ error: "expiresAt must be in the future." }),
+      })
+    })
+
+    expect(captured!.state).toBe("success")
+    expect(captured!.grantedPurchaseId).toBe("purchase-2")
+    expect(captured!.errorMessage).toBeNull()
+  })
+
   it("reset clears all fields and the idempotency key", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

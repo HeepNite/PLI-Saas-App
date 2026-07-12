@@ -127,11 +127,13 @@ export default function StudentDataOverrideModal({
   )
   const availablePlans = plansData ?? []
 
+  const handlePackageGranted = React.useCallback(() => {
+    onSuccess?.()
+  }, [onSuccess])
+
   const addPackageGrant = useAddPackageGrant({
     studentId,
-    onGranted: () => {
-      onSuccess?.()
-    },
+    onGranted: handlePackageGranted,
   })
 
   const updateField = React.useCallback(
@@ -193,6 +195,47 @@ export default function StudentDataOverrideModal({
     const shortId = p.id.length > 8 ? `${p.id.slice(0, 8)}…` : p.id
     return `${p.label} · ${amountLabel} · ${statusLabel} · ${dateLabel} · ${shortId}`
   }, [])
+
+  // Memoized so PackageTabForm (and its child AddPackageForm) don't re-render
+  // on every parent render from a freshly-allocated object literal.
+  const addPackageProps = React.useMemo(
+    () => ({
+      plans: availablePlans,
+      plansLoading,
+      plansError,
+      selectedPlanId: addPackageGrant.selectedPlanId,
+      expiresAt: addPackageGrant.expiresAt,
+      reason: addPackageGrant.reason,
+      state: addPackageGrant.state,
+      errorMessage: addPackageGrant.errorMessage,
+      duplicate: addPackageGrant.duplicate,
+      grantedPurchaseId: addPackageGrant.grantedPurchaseId,
+      onSelectPlan: addPackageGrant.setSelectedPlanId,
+      onExpiresAtChange: addPackageGrant.setExpiresAt,
+      onReasonChange: addPackageGrant.setReason,
+      onSubmit: addPackageGrant.submit,
+      onConfirmDuplicate: addPackageGrant.confirmDuplicateAndResubmit,
+      onStartAnother: addPackageGrant.reset,
+    }),
+    [
+      availablePlans,
+      plansLoading,
+      plansError,
+      addPackageGrant.selectedPlanId,
+      addPackageGrant.expiresAt,
+      addPackageGrant.reason,
+      addPackageGrant.state,
+      addPackageGrant.errorMessage,
+      addPackageGrant.duplicate,
+      addPackageGrant.grantedPurchaseId,
+      addPackageGrant.setSelectedPlanId,
+      addPackageGrant.setExpiresAt,
+      addPackageGrant.setReason,
+      addPackageGrant.submit,
+      addPackageGrant.confirmDuplicateAndResubmit,
+      addPackageGrant.reset,
+    ]
+  )
 
   const handleClose = React.useCallback(() => {
     if (submitState === "submitting") return
@@ -440,12 +483,14 @@ export default function StudentDataOverrideModal({
     setConfirmOpen(true)
   }, [validate])
 
-  // Reset state when modal opens
+  // Reset state when the modal opens, and again if it switches to a
+  // different student while already open (e.g. staff clicking from one
+  // student's row to another without closing the modal in between).
   React.useEffect(() => {
     if (open) {
       resetForm()
     }
-  }, [open, resetForm])
+  }, [open, studentId, resetForm])
 
   if (!open) return null
 
@@ -621,24 +666,7 @@ export default function StudentDataOverrideModal({
                     onToggleManualPackageId={() => setShowManualPackageId((prev) => !prev)}
                     onFieldChange={updateField}
                     formatPackageSummary={formatPackageSummary}
-                    addPackage={{
-                      plans: availablePlans,
-                      plansLoading,
-                      plansError,
-                      selectedPlanId: addPackageGrant.selectedPlanId,
-                      expiresAt: addPackageGrant.expiresAt,
-                      reason: addPackageGrant.reason,
-                      state: addPackageGrant.state,
-                      errorMessage: addPackageGrant.errorMessage,
-                      duplicate: addPackageGrant.duplicate,
-                      grantedPurchaseId: addPackageGrant.grantedPurchaseId,
-                      onSelectPlan: addPackageGrant.setSelectedPlanId,
-                      onExpiresAtChange: addPackageGrant.setExpiresAt,
-                      onReasonChange: addPackageGrant.setReason,
-                      onSubmit: addPackageGrant.submit,
-                      onConfirmDuplicate: addPackageGrant.confirmDuplicateAndResubmit,
-                      onStartAnother: addPackageGrant.reset,
-                    }}
+                    addPackage={addPackageProps}
                   />
                 )}
 

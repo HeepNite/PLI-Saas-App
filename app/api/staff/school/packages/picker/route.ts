@@ -22,7 +22,9 @@ export async function GET(req: Request) {
 
   try {
     const items = await prisma.packagePlan.findMany({
-      where: { active: true },
+      // Only purchasable plans: a null priceCents plan can't be granted as
+      // a cash purchase and would guarantee a 400 from the grant endpoint.
+      where: { active: true, priceCents: { not: null } },
       orderBy: [{ label: "asc" }],
       select: {
         id: true,

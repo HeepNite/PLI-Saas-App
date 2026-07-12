@@ -226,6 +226,53 @@ describe("StudentDataOverrideModal — Add package (cash grant)", () => {
     expect(node.textContent).toContain("pending settlement")
   })
 
+  it("clears the grant form's plan, reason, and expiry when the modal switches to a different student while open", async () => {
+    const fetchMock = routedFetchMock({
+      "/packages/picker": () => ({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            data: { items: [{ id: "plan-1", key: "unlimited-monthly", label: "Unlimited Monthly", priceCents: 12000, totalCredits: null, validDays: 30, isUnlimited: true, courseSlug: "salsa", courseSlugs: ["salsa"] }] },
+          }),
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const props = createProps({ studentId: "student-1" })
+    const node = await render(props)
+    await clickTab(node, "Package")
+
+    const select = node.querySelector("select") as HTMLSelectElement
+    await act(async () => {
+      setNativeValue(select, "plan-1")
+    })
+    const reasonField = Array.from(node.querySelectorAll("textarea")).find((t) =>
+      t.getAttribute("placeholder")?.includes("cash package grant")
+    ) as HTMLTextAreaElement
+    await act(async () => {
+      setNativeValue(reasonField, "Front desk cash sale")
+    })
+
+    expect((node.querySelector("select") as HTMLSelectElement).value).toBe("plan-1")
+
+    // Simulate staff navigating from student-1 to student-2 without closing
+    // the modal in between (same `open`, new `studentId`).
+    await act(async () => {
+      root!.render(<StudentDataOverrideModal {...props} studentId="student-2" />)
+    })
+    await clickTab(node, "Package")
+
+    const selectAfter = node.querySelector("select") as HTMLSelectElement
+    const reasonAfter = Array.from(node.querySelectorAll("textarea")).find((t) =>
+      t.getAttribute("placeholder")?.includes("cash package grant")
+    ) as HTMLTextAreaElement
+
+    expect(selectAfter.value).toBe("")
+    expect(reasonAfter.value).toBe("")
+  })
+
   it("shows a clear error message for role rejection (403)", async () => {
     const fetchMock = routedFetchMock({
       "/packages/picker": () => ({

@@ -11,6 +11,19 @@ type SubmitOverrides = {
 }
 
 /**
+ * Converts a date-only string (e.g. "2026-07-12" from `<input type="date">`)
+ * into an ISO timestamp at the END of that day in the STAFF MEMBER'S LOCAL
+ * TIME ZONE. Appending "T23:59:59" makes `new Date(...)` parse it as local
+ * time instead of UTC midnight — critical for studios west of UTC (e.g.
+ * America/New_York), where a same-day date parsed as UTC midnight can
+ * already be in the past by the time it reaches the server, tripping the
+ * `expiresAt must be in the future` validation for a genuinely future date.
+ */
+function endOfLocalDayIso(dateOnly: string): string {
+  return new Date(`${dateOnly}T23:59:59`).toISOString()
+}
+
+/**
  * Owns the "grant a cash package" flow: plan/expiry/reason selection, the
  * per-attempt idempotency key, submit, and the duplicate-active-package
  * warn-and-confirm round trip against `POST /api/staff/students/[userId]/packages`.
@@ -29,6 +42,13 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
   // staff member starts a fresh attempt (field change after success/reset).
   const idempotencyKeyRef = React.useRef<string | null>(null)
 
+  // Ref-based in-flight guard: `state` is only committed via React's async
+  // state update, so a synchronous double-invoke of `submit` (double-click,
+  // duplicate effect fire) within the same tick would still see the stale
+  // "idle" state and both branches would proceed. A ref is written
+  // synchronously and immediately visible to the second call.
+  const isSubmittingRef = React.useRef(false)
+
   const ensureIdempotencyKey = React.useCallback(() => {
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID()
@@ -38,6 +58,7 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
 
   const resetAttempt = React.useCallback(() => {
     idempotencyKeyRef.current = null
+    isSubmittingRef.current = false
     setState("idle")
     setErrorMessage(null)
     setDuplicate(null)
@@ -68,6 +89,10 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
 
   const submit = React.useCallback(
     async (overrides: SubmitOverrides = {}) => {
+      // Re-entrancy guard: a fast double-invoke (double-click, duplicate
+      // effect fire, etc.) must not fire two overlapping requests.
+      if (isSubmittingRef.current) return
+
       if (!selectedPlanId) {
         setErrorMessage("Select a package plan.")
         return
@@ -79,6 +104,7 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
 
       const idempotencyKey = ensureIdempotencyKey()
 
+      isSubmittingRef.current = true
       setState("submitting")
       setErrorMessage(null)
 
@@ -89,13 +115,21 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
           body: JSON.stringify({
             packagePlanId: selectedPlanId,
             reason: reason.trim(),
-            ...(expiresAt ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
+            ...(expiresAt ? { expiresAt: endOfLocalDayIso(expiresAt) } : {}),
             idempotencyKey,
             confirmDuplicate: overrides.confirmDuplicate === true,
           }),
         })
 
         const data = await res.json().catch(() => ({ error: "Unknown error" }))
+
+        // Stale-response guard: if the field changed (and thus the
+        // idempotency key was regenerated) while this request was in
+        // flight, this response belongs to an abandoned attempt. Bail out
+        // without touching state so it can't clobber fresher UI state.
+        // (isSubmittingRef was already reset by the newer attempt's own
+        // submit call, so it is intentionally left untouched here.)
+        if (idempotencyKeyRef.current !== idempotencyKey) return
 
         if (res.status === 409 && data?.code === "DUPLICATE_ACTIVE_PACKAGE") {
           setDuplicate(data.existing ?? null)
@@ -121,8 +155,13 @@ export function useAddPackageGrant({ studentId, onGranted }: UseAddPackageGrantA
         setState("success")
         onGranted?.()
       } catch (err) {
+        if (idempotencyKeyRef.current !== idempotencyKey) return
         setErrorMessage(err instanceof Error ? err.message : "Network error. Please try again.")
         setState("error")
+      } finally {
+        if (idempotencyKeyRef.current === idempotencyKey) {
+          isSubmittingRef.current = false
+        }
       }
     },
     [selectedPlanId, reason, expiresAt, studentId, ensureIdempotencyKey, onGranted]
