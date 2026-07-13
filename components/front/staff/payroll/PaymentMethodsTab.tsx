@@ -26,7 +26,10 @@ const CONFIG_FIELD_LABELS: Record<string, string> = {
 }
 
 const isMaskedSecret = (value: unknown): value is MaskedSecret =>
-  typeof value === "object" && value !== null && "configured" in value && "preview" in value
+  typeof value === "object" &&
+  value !== null &&
+  Object.hasOwn(value, "configured") &&
+  Object.hasOwn(value, "preview")
 
 type MethodFormState = ReturnType<typeof createEmptyMethodForm>
 
@@ -212,7 +215,9 @@ export function PaymentMethodsTab({
                         ? value.configured
                           ? value.preview
                           : "Not configured"
-                        : String(value)
+                        : value === null || value === undefined
+                          ? "—"
+                          : String(value)
 
                       return (
                         <div
