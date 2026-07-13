@@ -13,7 +13,7 @@ const LAST_4_LENGTH = 4
 
 export type MaskedSecret = { configured: boolean; preview: string | null }
 
-export type MaskedConfig = Record<string, MaskedSecret | string>
+export type MaskedConfig = Record<string, MaskedSecret | string | number | boolean | null>
 
 type ResolvedSchema = { entries: ConfigFieldSchema[]; isKnownAdapterType: boolean }
 
@@ -26,7 +26,7 @@ const findFieldSchema = (entries: ConfigFieldSchema[], key: string): ConfigField
   entries.find((entry) => entry.key === key)
 
 const buildPreview = (value: string, previewTail?: number): string => {
-  if (previewTail && value.length > previewTail) {
+  if (previewTail !== undefined && value.length > previewTail) {
     return `…${value.slice(-previewTail)}`
   }
   return FIXED_PLACEHOLDER
@@ -56,7 +56,7 @@ export function maskPaymentMethodConfig(adapterType: AdapterType, configJson: un
     const fieldSchema = isKnownAdapterType ? findFieldSchema(entries, key) : undefined
 
     if (fieldSchema && !fieldSchema.secret) {
-      result[key] = stored[key] as string
+      result[key] = stored[key] as string | number | boolean | null
       continue
     }
 
@@ -75,7 +75,11 @@ export function maskPaymentMethodConfig(adapterType: AdapterType, configJson: un
 }
 
 const isMaskedShapeObject = (value: unknown): value is MaskedSecret =>
-  typeof value === "object" && value !== null && !Array.isArray(value) && "configured" in value && "preview" in value
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.hasOwn(value, "configured") &&
+  Object.hasOwn(value, "preview")
 
 const ELLIPSIS_PREVIEW_REGEX = new RegExp(`^….{${LAST_4_LENGTH}}$`)
 
@@ -94,7 +98,7 @@ const isValidIncomingSecretValue = (value: unknown): value is string => {
 }
 
 const isValidIncomingNonSecretValue = (value: unknown): value is string | number | boolean =>
-  value !== undefined && value !== null && value !== ""
+  (typeof value === "string" && value !== "") || typeof value === "number" || typeof value === "boolean"
 
 /**
  * Merges an incoming write payload over a stored `configJson`, honoring
@@ -102,11 +106,11 @@ const isValidIncomingNonSecretValue = (value: unknown): value is string | number
  * non-empty, non-sentinel value; otherwise the stored value survives.
  * Non-secret declared keys overwrite when a valid value is supplied.
  *
- * Both incoming keys not declared in the resolved adapter schema (dropped,
- * fail-closed write) and stored keys with no destination under the resolved
- * schema (pruned — covers a genuine adapterType change, where old-schema
- * keys no longer apply) are excluded from the result: the resolved schema
- * is the sole source of truth for what the merged config may contain.
+ * Incoming keys not declared in the resolved adapter schema are always
+ * dropped (fail-closed write). Stored keys with no destination under the
+ * resolved schema are PRESERVED as-is, UNLESS `previousAdapterType` is
+ * supplied and differs from `adapterType` — a genuine adapterType change —
+ * in which case old-schema stored keys are pruned.
  *
  * Pure function. Always returns a plain object, never `null`.
  */
@@ -114,6 +118,7 @@ export function mergePaymentMethodConfig(
   adapterType: AdapterType,
   stored: unknown,
   incoming: unknown,
+  previousAdapterType?: AdapterType,
 ): Prisma.InputJsonValue {
   const storedConfig = asObject(stored)
   const incomingConfig = asObject(incoming)
@@ -136,16 +141,18 @@ export function mergePaymentMethodConfig(
     }
   }
 
-  // Prune any stored key that has no destination under the resolved
-  // (effective) adapter schema. This covers both a genuine adapterType
-  // change (old-schema keys no longer apply) and free-form/legacy keys —
-  // the resolved schema is the single source of truth for what a config
-  // object may legitimately contain going forward.
-  const declaredKeys = new Set(entries.map((entry) => entry.key))
+  // Prune stored keys that have no destination under the resolved
+  // (effective) adapter schema, but ONLY when the adapterType actually
+  // changed. Stored undeclared/legacy keys are otherwise preserved as-is —
+  // the merge never deletes data on disk merely because it doesn't match
+  // the current schema.
+  if (previousAdapterType !== undefined && previousAdapterType !== adapterType) {
+    const declaredKeys = new Set(entries.map((entry) => entry.key))
 
-  for (const key of Object.keys(merged)) {
-    if (!declaredKeys.has(key)) {
-      delete merged[key]
+    for (const key of Object.keys(merged)) {
+      if (!declaredKeys.has(key)) {
+        delete merged[key]
+      }
     }
   }
 
