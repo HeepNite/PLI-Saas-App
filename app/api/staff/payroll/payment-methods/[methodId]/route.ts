@@ -102,7 +102,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ methodId:
 
   if (hasOwn(parsedBody.body, "adapterType") || hasOwn(parsedBody.body, "config")) {
     const effectiveAdapterType = (data.adapterType ?? existing.adapterType) as AdapterType
-    data.configJson = mergePaymentMethodConfig(effectiveAdapterType, existing.configJson, parsedBody.body.config)
+    data.configJson = mergePaymentMethodConfig(
+      effectiveAdapterType,
+      existing.configJson,
+      parsedBody.body.config,
+      existing.adapterType as AdapterType,
+    )
   }
 
   if (hasOwn(parsedBody.body, "active")) {

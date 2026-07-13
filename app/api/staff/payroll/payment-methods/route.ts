@@ -90,7 +90,11 @@ export async function POST(req: Request) {
       name,
       adapterType,
       currency,
-      configJson: mergePaymentMethodConfig(adapterType as AdapterType, undefined, parsedBody.body.config),
+      configJson: mergePaymentMethodConfig(
+        adapterType as AdapterType,
+        undefined,
+        parsedBody.body.config,
+      ),
       active: true,
     },
   })

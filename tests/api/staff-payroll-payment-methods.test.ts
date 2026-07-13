@@ -439,6 +439,38 @@ describe("staff payroll payment methods routes", () => {
     })
   })
 
+  it("preserves a stored undeclared/legacy key when PATCH updates only a declared key without changing adapterType", async () => {
+    mockPrisma.staffPaymentMethod.findUnique.mockResolvedValueOnce({
+      id: "pm_1",
+      schoolId: "school_1",
+      active: true,
+      adapterType: "bank_transfer",
+      configJson: { accountAlias: "pli", legacyFreeFormKey: "old" },
+    })
+    mockPrisma.staffPaymentMethod.update.mockResolvedValueOnce({
+      id: "pm_1",
+      adapterType: "bank_transfer",
+      configJson: { accountAlias: "new", legacyFreeFormKey: "old" },
+    })
+
+    const { PATCH } = await import("@/app/api/staff/payroll/payment-methods/[methodId]/route")
+    await PATCH(
+      new Request("http://localhost/api/staff/payroll/payment-methods/pm_1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: { accountAlias: "new" } }),
+      }),
+      { params: Promise.resolve({ methodId: "pm_1" }) }
+    )
+
+    expect(mockPrisma.staffPaymentMethod.update).toHaveBeenCalledWith({
+      where: { id: "pm_1" },
+      data: {
+        configJson: { accountAlias: "new", legacyFreeFormKey: "old" },
+      },
+    })
+  })
+
   it("drops incoming config keys not declared in the resolved adapter schema on PATCH", async () => {
     mockPrisma.staffPaymentMethod.findUnique.mockResolvedValueOnce({
       id: "pm_1",
