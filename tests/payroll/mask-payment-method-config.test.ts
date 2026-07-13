@@ -229,6 +229,37 @@ describe("mergePaymentMethodConfig", () => {
     expect(merged).toEqual({ accountAlias: "pli" })
   })
 
+  it("rejects an incoming object value for a non-secret declared key, preserving the stored value", () => {
+    const merged = mergePaymentMethodConfig(
+      ADAPTER_TYPES.BANK_TRANSFER,
+      { accountAlias: "pli" },
+      { accountAlias: { nested: "x" } },
+    )
+
+    expect(merged).toEqual({ accountAlias: "pli" })
+  })
+
+  it("rejects an incoming array value for a non-secret declared key, preserving the stored value", () => {
+    const merged = mergePaymentMethodConfig(
+      ADAPTER_TYPES.BANK_TRANSFER,
+      { accountAlias: "pli" },
+      { accountAlias: ["x", "y"] },
+    )
+
+    expect(merged).toEqual({ accountAlias: "pli" })
+  })
+
+  it("preserves a stored undeclared/legacy key on a same-adapterType merge that updates only a declared key", () => {
+    const merged = mergePaymentMethodConfig(
+      ADAPTER_TYPES.BANK_TRANSFER,
+      { accountAlias: "pli", legacyFreeFormKey: "old" },
+      { accountAlias: "new" },
+      ADAPTER_TYPES.BANK_TRANSFER,
+    )
+
+    expect(merged).toEqual({ accountAlias: "new", legacyFreeFormKey: "old" })
+  })
+
   describe("incoming undeclared keys are dropped at write time", () => {
     it("drops an undeclared incoming key under zelle while still processing declared keys", () => {
       const merged = mergePaymentMethodConfig(
@@ -283,6 +314,7 @@ describe("mergePaymentMethodConfig", () => {
         ADAPTER_TYPES.ZELLE,
         { routingNumber: "021000021", accountNumber: "000123456789" },
         {},
+        ADAPTER_TYPES.DIRECT_DEPOSIT,
       )
 
       expect(merged).toEqual({})
@@ -293,9 +325,23 @@ describe("mergePaymentMethodConfig", () => {
         ADAPTER_TYPES.ZELLE,
         { routingNumber: "021000021", accountNumber: "000123456789" },
         { zelleId: "owner@example.com" },
+        ADAPTER_TYPES.DIRECT_DEPOSIT,
       )
 
       expect(merged).toEqual({ zelleId: "owner@example.com" })
+    })
+
+    it("preserves stored undeclared keys when adapterType is unchanged (no previousAdapterType supplied)", () => {
+      const merged = mergePaymentMethodConfig(
+        ADAPTER_TYPES.ZELLE,
+        { routingNumber: "021000021", accountNumber: "000123456789" },
+        {},
+      )
+
+      expect(merged).toEqual({
+        routingNumber: "021000021",
+        accountNumber: "000123456789",
+      })
     })
 
     it("returns an empty object (never null) when there is no stored config and no incoming config", () => {
