@@ -1,3 +1,5 @@
+import type { MaskedConfig } from "@/lib/payroll/mask-payment-method-config"
+
 export type CurrencyRecord = {
   id: string
   code: string
@@ -12,7 +14,7 @@ export type StaffPaymentMethodRecord = {
   adapterType: string
   currency: string
   active: boolean
-  configJson: unknown
+  configJson: MaskedConfig
 }
 
 export type StaffPaymentModelRecord = {

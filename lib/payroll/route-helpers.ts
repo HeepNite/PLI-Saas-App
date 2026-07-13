@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { getCachedClerkUser } from "@/lib/clerk-users"
 import { asObject } from "@/lib/shared"
@@ -68,9 +67,4 @@ export async function currencyExists(code: string): Promise<boolean> {
   })
 
   return Boolean(currency)
-}
-
-export const toNullableJsonInput = (value: unknown): Prisma.InputJsonValue | Prisma.NullTypes.JsonNull => {
-  if (value === null) return Prisma.JsonNull
-  return value as Prisma.InputJsonValue
 }
