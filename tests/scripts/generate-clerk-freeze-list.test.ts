@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { formatFreezeChecklist, generateFreezeList, type GrepRunner } from "@/scripts/generate-clerk-freeze-list"
+import {
+  findServerPageCallSites,
+  findUnresolvedCallSites,
+  formatFreezeChecklist,
+  generateFreezeList,
+  type GrepRunner,
+} from "@/scripts/generate-clerk-freeze-list"
 
 const makeFakeGrep = (overrides: Partial<GrepRunner> = {}): GrepRunner => ({
   grepLines: () => [],
@@ -85,7 +91,7 @@ describe("generateFreezeList — one-hop resolution through lib/*.ts", () => {
     ])
   })
 
-  it("does not resolve non-lib, non-route call sites (e.g. app pages) — out of scope for the one-hop rule", () => {
+  it("does not fold an app/**/page.tsx call site into the app/api/** route findings — out of scope for the one-hop rule", () => {
     const grep = makeFakeGrep({
       grepLines: (needle) => {
         if (needle === "syncStaffAccountFromClerkUser") {
@@ -98,6 +104,89 @@ describe("generateFreezeList — one-hop resolution through lib/*.ts", () => {
     const findings = generateFreezeList(grep)
 
     expect(findings).toEqual([])
+  })
+
+  it("does not silently drop a lib/*.ts call site that resolves to zero route importers — surfaces it as unresolved instead", () => {
+    const grep = makeFakeGrep({
+      grepLines: (needle) => {
+        if (needle === "ensureClerkUser") {
+          return ["lib/some-orphaned-helper.ts:12:    const ensuredClerkUser = await ensureClerkUser({"]
+        }
+        return []
+      },
+      // No app/api/** importer found for this lib file — zero route
+      // importers is the scenario under test.
+      grepFiles: () => [],
+    })
+
+    const findings = generateFreezeList(grep)
+    const unresolved = findUnresolvedCallSites(grep)
+
+    expect(findings).toEqual([])
+    expect(unresolved).toEqual([{ symbol: "ensureClerkUser", sourceFile: "lib/some-orphaned-helper.ts" }])
+  })
+})
+
+describe("findServerPageCallSites — app/**/page.tsx and layout.tsx call sites", () => {
+  it("classifies an app/**/page.tsx call site of a freeze symbol as a server page finding, not silently dropped", () => {
+    const grep = makeFakeGrep({
+      grepLines: (needle) => {
+        if (needle === "syncStaffAccountFromClerkUser") {
+          return ["app/staff/resolve/page.tsx:67:      await syncStaffAccountFromClerkUser(currentUser, { source: \"staff_resolve\" })"]
+        }
+        return []
+      },
+    })
+
+    const serverPages = findServerPageCallSites(grep)
+
+    expect(serverPages).toEqual([{ symbol: "syncStaffAccountFromClerkUser", file: "app/staff/resolve/page.tsx" }])
+  })
+
+  it("also classifies an app/**/layout.tsx call site", () => {
+    const grep = makeFakeGrep({
+      grepLines: (needle) => {
+        if (needle === "ensureClerkUser") {
+          return ["app/staff/layout.tsx:22:  await ensureClerkUser({ source: \"staff_layout\" })"]
+        }
+        return []
+      },
+    })
+
+    const serverPages = findServerPageCallSites(grep)
+
+    expect(serverPages).toEqual([{ symbol: "ensureClerkUser", file: "app/staff/layout.tsx" }])
+  })
+
+  it("does not classify an app/api/** route.ts call site as a server page (already covered by generateFreezeList)", () => {
+    const grep = makeFakeGrep({
+      grepLines: (needle) => {
+        if (needle === "syncStaffAccountFromClerkUser") {
+          return ["app/api/staff/sync/route.ts:36:      const account = await syncStaffAccountFromClerkUser(user, { source: \"staff_sync_backfill\" })"]
+        }
+        return []
+      },
+    })
+
+    const serverPages = findServerPageCallSites(grep)
+
+    expect(serverPages).toEqual([])
+  })
+
+  it("does not classify a lib/*.ts call site as a server page (already covered by the one-hop resolution)", () => {
+    const grep = makeFakeGrep({
+      grepLines: (needle) => {
+        if (needle === "ensureClerkUser") {
+          return ["lib/checkout.ts:162:    const ensuredClerkUser = await ensureClerkUser({"]
+        }
+        return []
+      },
+      grepFiles: () => [],
+    })
+
+    const serverPages = findServerPageCallSites(grep)
+
+    expect(serverPages).toEqual([])
   })
 })
 
@@ -167,5 +256,51 @@ describe("formatFreezeChecklist", () => {
     )
 
     expect(output).toContain("- ensureClerkUser (via lib/checkout.ts)")
+  })
+
+  it("emits an UNRESOLVED — manual review required section for call sites with zero route importers, instead of silently dropping them", () => {
+    const output = formatFreezeChecklist(
+      [],
+      new Date("2026-07-17T12:00:00.000Z"),
+      [{ symbol: "ensureClerkUser", sourceFile: "lib/some-orphaned-helper.ts" }]
+    )
+
+    expect(output).toContain("UNRESOLVED — manual review required")
+    expect(output).toContain("ensureClerkUser")
+    expect(output).toContain("lib/some-orphaned-helper.ts")
+  })
+
+  it("omits the UNRESOLVED section entirely when there are no unresolved call sites", () => {
+    const output = formatFreezeChecklist(
+      [{ routeFile: "app/api/staff/sync/route.ts", via: [{ symbol: "syncStaffAccountFromClerkUser", sourceFile: "app/api/staff/sync/route.ts" }] }],
+      new Date("2026-07-17T12:00:00.000Z"),
+      []
+    )
+
+    expect(output).not.toContain("UNRESOLVED")
+  })
+
+  it("emits a Server pages section for app/**/page.tsx and layout.tsx call sites, instead of silently dropping them", () => {
+    const output = formatFreezeChecklist(
+      [],
+      new Date("2026-07-17T12:00:00.000Z"),
+      [],
+      [{ symbol: "syncStaffAccountFromClerkUser", file: "app/staff/resolve/page.tsx" }]
+    )
+
+    expect(output).toContain("Server pages")
+    expect(output).toContain("- [ ] app/staff/resolve/page.tsx")
+    expect(output).toContain("syncStaffAccountFromClerkUser")
+  })
+
+  it("omits the Server pages section entirely when there are no server-page call sites", () => {
+    const output = formatFreezeChecklist(
+      [{ routeFile: "app/api/staff/sync/route.ts", via: [{ symbol: "syncStaffAccountFromClerkUser", sourceFile: "app/api/staff/sync/route.ts" }] }],
+      new Date("2026-07-17T12:00:00.000Z"),
+      [],
+      []
+    )
+
+    expect(output).not.toContain("Server pages")
   })
 })

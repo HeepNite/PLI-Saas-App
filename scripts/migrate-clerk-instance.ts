@@ -103,6 +103,7 @@ type ClerkIdMigrationCreateInput = {
   phone: string | null
   email: string | null
   phase: ClerkIdMigrationPhase
+  appliedAt?: Date
 }
 
 type ClerkIdMigrationUpdateInput = Partial<{
@@ -128,7 +129,7 @@ export type PerUserResult = {
   appId: string
   oldClerkId: string
   newClerkId?: string
-  phase: ClerkIdMigrationPhase | "reused" | "failed"
+  phase: ClerkIdMigrationPhase | "reused" | "failed" | "invalid_phone"
   reason?: string
 }
 
@@ -140,6 +141,7 @@ export type MigrateResult = {
   reused: number
   skippedDeleted: number
   failed: number
+  invalidPhone: number
   results: PerUserResult[]
 }
 
@@ -202,6 +204,10 @@ export const parseMigrateArgs = (argv: string[]): MigrateArgs => {
       rollback = true
       continue
     }
+  }
+
+  if (remap && rollback) {
+    throw new Error("--remap and --rollback cannot both be passed")
   }
 
   return { mode, limit, delta, userId, remap, rollback }
@@ -327,6 +333,13 @@ type MigrationCandidate = {
   firstName: string | null
   lastName: string | null
   staffMetadata: unknown
+  // Additional (entity, appId) pairs sharing this SAME oldClerkId — i.e. the
+  // same person in Clerk represented by both a User row and a StaffAccount
+  // row. Merged into a single Clerk migration (one createUser/attachPhone
+  // sequence) with a map row written for every linked appId, all pointing
+  // at the same newClerkId. Empty for a candidate with no same-oldClerkId
+  // sibling.
+  linkedAppIds: Array<{ entity: "user" | "staff"; appId: string }>
 }
 
 const candidateFromUserRow = (row: MigratePrismaUserRow): MigrationCandidate => {
@@ -340,6 +353,7 @@ const candidateFromUserRow = (row: MigratePrismaUserRow): MigrationCandidate => 
     firstName: nameParts[0] ?? null,
     lastName: nameParts.length > 1 ? nameParts.slice(1).join(" ") : null,
     staffMetadata: undefined,
+    linkedAppIds: [],
   }
 }
 
@@ -352,7 +366,45 @@ const candidateFromStaffRow = (row: MigratePrismaStaffRow): MigrationCandidate =
   firstName: row.firstName,
   lastName: row.lastName,
   staffMetadata: row.metadata,
+  linkedAppIds: [],
 })
+
+/**
+ * Merges candidates that share the SAME oldClerkId (the same person in
+ * Clerk, represented by both a User row and a StaffAccount row) into a
+ * single migration candidate. The User entity is preferred as the primary
+ * (it carries no staff-only metadata risk); the staff candidate's
+ * (entity, appId) is recorded in linkedAppIds so a map row is still
+ * written for it, pointing at the same newClerkId.
+ */
+const mergeCandidatesByOldClerkId = (candidates: MigrationCandidate[]): MigrationCandidate[] => {
+  const byOldClerkId = new Map<string, MigrationCandidate[]>()
+  for (const candidate of candidates) {
+    const group = byOldClerkId.get(candidate.oldClerkId)
+    if (group) group.push(candidate)
+    else byOldClerkId.set(candidate.oldClerkId, [candidate])
+  }
+
+  const merged: MigrationCandidate[] = []
+  for (const group of byOldClerkId.values()) {
+    if (group.length === 1) {
+      merged.push(group[0])
+      continue
+    }
+
+    const primary = group.find((candidate) => candidate.entity === "user") ?? group[0]
+    const secondaries = group.filter((candidate) => candidate !== primary)
+    merged.push({
+      ...primary,
+      linkedAppIds: [
+        ...primary.linkedAppIds,
+        ...secondaries.map((candidate) => ({ entity: candidate.entity, appId: candidate.appId })),
+      ],
+    })
+  }
+
+  return merged
+}
 
 const enumerateCandidates = async (
   prismaClient: MigratePrismaClient,
@@ -362,7 +414,11 @@ const enumerateCandidates = async (
   const userWhere: { clerkId: { not: null }; updatedAt?: { gt: Date } } = { clerkId: { not: null } }
   const staffWhere: { updatedAt?: { gt: Date } } = {}
 
-  if (args.delta && sinceUpdatedAt) {
+  // A --userId canary run must always find its target row, even when a row
+  // predating the --delta watermark would otherwise be filtered out of
+  // enumeration before the userId filter below ever runs. The explicit
+  // --userId request takes priority over the delta watermark.
+  if (args.delta && sinceUpdatedAt && !args.userId) {
     userWhere.updatedAt = { gt: sinceUpdatedAt }
     staffWhere.updatedAt = { gt: sinceUpdatedAt }
   }
@@ -372,7 +428,10 @@ const enumerateCandidates = async (
     prismaClient.staffAccount.findMany({ where: staffWhere, orderBy: { id: "asc" } }),
   ])
 
-  const candidates = [...userRows.map(candidateFromUserRow), ...staffRows.map(candidateFromStaffRow)]
+  const candidates = mergeCandidatesByOldClerkId([
+    ...userRows.map(candidateFromUserRow),
+    ...staffRows.map(candidateFromStaffRow),
+  ])
 
   if (args.userId) {
     return candidates.filter((candidate) => candidate.oldClerkId === args.userId)
@@ -409,6 +468,42 @@ const findExistingTargetUser = async (
   return null
 }
 
+/**
+ * Writes a ClerkIdMigration map row for the primary candidate AND every
+ * entity linked to it via mergeCandidatesByOldClerkId (same person, same
+ * oldClerkId shared across a User row and a StaffAccount row) — all rows
+ * point at the SAME newClerkId, since they represent one prod Clerk user.
+ */
+const writeMapRowForCandidateAndLinked = async (
+  prismaClient: MigratePrismaClient,
+  candidate: MigrationCandidate,
+  newClerkId: string,
+  phase: ClerkIdMigrationPhase,
+  appliedAt: Date | undefined
+): Promise<void> => {
+  const targets = [
+    { entity: candidate.entity, appId: candidate.appId },
+    ...candidate.linkedAppIds,
+  ]
+
+  for (const target of targets) {
+    await prismaClient.clerkIdMigration.upsert({
+      where: { entity_appId: { entity: target.entity, appId: target.appId } },
+      create: {
+        entity: target.entity,
+        appId: target.appId,
+        oldClerkId: candidate.oldClerkId,
+        newClerkId,
+        phone: candidate.phone,
+        email: candidate.email,
+        phase,
+        ...(appliedAt ? { appliedAt } : {}),
+      },
+      update: { newClerkId, phase, ...(appliedAt ? { appliedAt } : {}) },
+    })
+  }
+}
+
 // ── Per-user migration sequence ───────────────────────────────────
 
 const migrateCandidate = async (
@@ -433,19 +528,7 @@ const migrateCandidate = async (
     await source.users.getUser(candidate.oldClerkId)
   } catch {
     if (!isDryRun) {
-      await prismaClient.clerkIdMigration.upsert({
-        where: { entity_appId: { entity: candidate.entity, appId: candidate.appId } },
-        create: {
-          entity: candidate.entity,
-          appId: candidate.appId,
-          oldClerkId: candidate.oldClerkId,
-          newClerkId: "",
-          phone: candidate.phone,
-          email: candidate.email,
-          phase: "skipped_deleted",
-        },
-        update: { phase: "skipped_deleted" },
-      })
+      await writeMapRowForCandidateAndLinked(prismaClient, candidate, "", "skipped_deleted", undefined)
     }
     return { entity: candidate.entity, appId: candidate.appId, oldClerkId: candidate.oldClerkId, phase: "skipped_deleted" }
   }
@@ -456,19 +539,13 @@ const migrateCandidate = async (
   const existingTargetUser = await findExistingTargetUser(target, candidate)
   if (existingTargetUser) {
     if (!isDryRun) {
-      await prismaClient.clerkIdMigration.upsert({
-        where: { entity_appId: { entity: candidate.entity, appId: candidate.appId } },
-        create: {
-          entity: candidate.entity,
-          appId: candidate.appId,
-          oldClerkId: candidate.oldClerkId,
-          newClerkId: existingTargetUser.id,
-          phone: candidate.phone,
-          email: candidate.email,
-          phase: "phone_attached",
-        },
-        update: { newClerkId: existingTargetUser.id, phase: "phone_attached" },
-      })
+      await writeMapRowForCandidateAndLinked(
+        prismaClient,
+        candidate,
+        existingTargetUser.id,
+        "phone_attached",
+        new Date()
+      )
     }
     return {
       entity: candidate.entity,
@@ -508,19 +585,7 @@ const migrateCandidate = async (
     return { entity: candidate.entity, appId: candidate.appId, oldClerkId: candidate.oldClerkId, phase: "failed", reason }
   }
 
-  await prismaClient.clerkIdMigration.upsert({
-    where: { entity_appId: { entity: candidate.entity, appId: candidate.appId } },
-    create: {
-      entity: candidate.entity,
-      appId: candidate.appId,
-      oldClerkId: candidate.oldClerkId,
-      newClerkId: createdUser.id,
-      phone: candidate.phone,
-      email: candidate.email,
-      phase: "user_created",
-    },
-    update: { newClerkId: createdUser.id, phase: "user_created" },
-  })
+  await writeMapRowForCandidateAndLinked(prismaClient, candidate, createdUser.id, "user_created", undefined)
 
   return attachPhone(candidate, createdUser.id, args, deps)
 }
@@ -565,7 +630,18 @@ const attachPhone = async (
       appId: candidate.appId,
       oldClerkId: candidate.oldClerkId,
       newClerkId: targetUserId,
-      phase: "user_created",
+      phase: "invalid_phone",
+    }
+  }
+
+  if (args.mode === "dry-run") {
+    // Simulated "would attach phone" outcome — zero Clerk/DB writes.
+    return {
+      entity: candidate.entity,
+      appId: candidate.appId,
+      oldClerkId: candidate.oldClerkId,
+      newClerkId: targetUserId,
+      phase: "phone_attached",
     }
   }
 
@@ -595,19 +671,15 @@ const attachPhone = async (
     }
   }
 
-  await prismaClient.clerkIdMigration.upsert({
-    where: { entity_appId: { entity: candidate.entity, appId: candidate.appId } },
-    create: {
-      entity: candidate.entity,
-      appId: candidate.appId,
-      oldClerkId: candidate.oldClerkId,
-      newClerkId: targetUserId,
-      phone: candidate.phone,
-      email: candidate.email,
-      phase: "phone_attached",
-    },
-    update: { newClerkId: targetUserId, phase: "phone_attached" },
-  })
+  await writeMapRowForCandidateAndLinked(prismaClient, candidate, targetUserId, "phone_attached", new Date())
+
+  // Canary run (--userId set, write mode): log the observed phone
+  // verification.status as a recorded finding (D6 SDK note). Not run for
+  // bulk migrations — one extra Clerk call per user would be wasteful at
+  // scale and canary is the intended validation point for this assumption.
+  if (args.userId) {
+    await logCanaryPhoneVerificationStatus(target, targetUserId, logger)
+  }
 
   return {
     entity: candidate.entity,
@@ -657,6 +729,7 @@ export async function runMigration(args: MigrateArgs, deps: MigrateDeps): Promis
     reused: 0,
     skippedDeleted: 0,
     failed: 0,
+    invalidPhone: 0,
     results: [],
   }
 
@@ -671,6 +744,7 @@ export async function runMigration(args: MigrateArgs, deps: MigrateDeps): Promis
     else if (perUserResult.phase === "reused") result.reused += 1
     else if (perUserResult.phase === "skipped_deleted") result.skippedDeleted += 1
     else if (perUserResult.phase === "failed") result.failed += 1
+    else if (perUserResult.phase === "invalid_phone") result.invalidPhone += 1
   }
 
   logger.table(
@@ -685,7 +759,10 @@ export async function runMigration(args: MigrateArgs, deps: MigrateDeps): Promis
   )
 
   logger.log(
-    `[migrate-clerk-instance] mode=${result.mode} processed=${result.processed} created=${result.created} phoneAttached=${result.phoneAttached} reused=${result.reused} skippedDeleted=${result.skippedDeleted} failed=${result.failed}`
+    `[migrate-clerk-instance] mode=${result.mode} processed=${result.processed} created=${result.created} phoneAttached=${result.phoneAttached} reused=${result.reused} skippedDeleted=${result.skippedDeleted} failed=${result.failed} invalidPhone=${result.invalidPhone}`
+  )
+  logger.log(
+    `[migrate-clerk-instance] note: processed counts unique Clerk identities (User+StaffAccount rows sharing the same oldClerkId are merged into one identity) — it may be lower than the coverage gate's totalMapped when merges occurred, since totalMapped counts one row per linked entity.`
   )
 
   return result
@@ -696,10 +773,32 @@ export async function runMigration(args: MigrateArgs, deps: MigrateDeps): Promis
 export async function runRemap(prismaClient: MigratePrismaClient, logger: MigrateLogger): Promise<RemapResult> {
   const mapRows = await prismaClient.clerkIdMigration.findMany({ where: { phase: "phone_attached" } })
 
-  const newClerkIds = mapRows.map((row) => row.newClerkId)
-  const duplicateNewClerkIds = newClerkIds.filter((id, index) => newClerkIds.indexOf(id) !== index)
-  if (duplicateNewClerkIds.length > 0) {
-    throw new Error(`[migrate-clerk-instance] remap aborted: duplicate newClerkId values in map: ${duplicateNewClerkIds.join(", ")}`)
+  // A newClerkId may legitimately be shared across MULTIPLE map rows only
+  // when every row sharing it also shares the SAME oldClerkId — that is
+  // exactly the merged User+StaffAccount pair mergeCandidatesByOldClerkId
+  // produces for one real Clerk person (see writeMapRowForCandidateAndLinked).
+  // A newClerkId shared across DIFFERENT oldClerkId values is a genuine
+  // collision (two unrelated people would end up pointing at the same prod
+  // Clerk user) and must still abort. A newClerkId duplicated within the
+  // SAME (entity, oldClerkId) group is also invalid data and must abort.
+  const rowsByNewClerkId = new Map<string, ClerkIdMigrationRow[]>()
+  for (const row of mapRows) {
+    const group = rowsByNewClerkId.get(row.newClerkId)
+    if (group) group.push(row)
+    else rowsByNewClerkId.set(row.newClerkId, [row])
+  }
+
+  const illegitimateDuplicates: string[] = []
+  for (const [newClerkId, rows] of rowsByNewClerkId) {
+    if (rows.length <= 1) continue
+    const distinctOldClerkIds = new Set(rows.map((row) => row.oldClerkId))
+    const distinctEntities = new Set(rows.map((row) => `${row.entity}:${row.appId}`))
+    const isLegitimateMerge = distinctOldClerkIds.size === 1 && distinctEntities.size === rows.length
+    if (!isLegitimateMerge) illegitimateDuplicates.push(newClerkId)
+  }
+
+  if (illegitimateDuplicates.length > 0) {
+    throw new Error(`[migrate-clerk-instance] remap aborted: duplicate newClerkId values in map: ${illegitimateDuplicates.join(", ")}`)
   }
 
   return prismaClient.$transaction(async (tx) => {
@@ -771,6 +870,7 @@ export type CoverageReport = {
   totalMapped: number
   missingInTarget: number
   mismatched: number
+  incomplete: number
   gatePassed: boolean
 }
 
@@ -805,6 +905,10 @@ export async function runCoverageDiff(
   logger: MigrateLogger
 ): Promise<CoverageReport> {
   const mapRows = await prismaClient.clerkIdMigration.findMany({ where: { phase: "phone_attached" } })
+  // Rows stuck at a non-terminal phase (e.g. user_created — invalid phone,
+  // or an interrupted run) must not be silently excluded from the gate: an
+  // empty phone_attached set would otherwise report a false 0/0 pass.
+  const incompleteRows = await prismaClient.clerkIdMigration.findMany({ where: { phase: "user_created" } })
 
   let missingInTarget = 0
   let mismatched = 0
@@ -822,17 +926,51 @@ export async function runCoverageDiff(
     else if (dbDiff === "mismatched") mismatched += 1
   }
 
+  const incomplete = incompleteRows.length
+  const totalMapped = mapRows.length
+
+  // A zero totalMapped with zero incomplete rows means there is nothing to
+  // check at all (e.g. --remap invoked before any migration run populated
+  // ClerkIdMigration) — missingInTarget/mismatched/incomplete are
+  // vacuously 0/0/0, which must NOT read as a passing gate.
   const report: CoverageReport = {
-    totalMapped: mapRows.length,
+    totalMapped,
     missingInTarget,
     mismatched,
-    gatePassed: missingInTarget === 0 && mismatched === 0,
+    incomplete,
+    gatePassed: totalMapped > 0 && missingInTarget === 0 && mismatched === 0 && incomplete === 0,
   }
 
   logger.log(
-    `[migrate-clerk-instance] coverage gate: totalMapped=${report.totalMapped} missingInTarget=${report.missingInTarget} mismatched=${report.mismatched} gatePassed=${report.gatePassed}`
+    `[migrate-clerk-instance] coverage gate: totalMapped=${report.totalMapped} missingInTarget=${report.missingInTarget} mismatched=${report.mismatched} incomplete=${report.incomplete} gatePassed=${report.gatePassed}`
   )
+  if (totalMapped === 0) {
+    logger.warn(
+      "[migrate-clerk-instance] coverage gate: totalMapped=0 — nothing was mapped, this is likely --remap run before any migration; treating as a gate failure"
+    )
+  }
 
+  return report
+}
+
+/**
+ * Runs the remap then the coverage gate, and reflects a failed gate in the
+ * process exit code — the gate's whole purpose is to block a silent "cutover
+ * looked fine" false pass, so a nonzero missingInTarget/mismatched/incomplete
+ * count must not exit 0. Does not throw: the run already completed and its
+ * summary was logged, so the caller (main) should still print it and only
+ * fail the exit status.
+ */
+export async function runRemapAndGate(
+  prismaClient: MigratePrismaClient,
+  target: MigrateTargetClient,
+  logger: MigrateLogger
+): Promise<CoverageReport> {
+  await runRemap(prismaClient, logger)
+  const report = await runCoverageDiff(prismaClient, target, logger)
+  if (!report.gatePassed) {
+    process.exitCode = 1
+  }
   return report
 }
 
@@ -866,8 +1004,7 @@ async function main() {
   }
 
   if (args.remap) {
-    await runRemap(deps.prismaClient, deps.logger)
-    await runCoverageDiff(deps.prismaClient, deps.target, deps.logger)
+    await runRemapAndGate(deps.prismaClient, deps.target, deps.logger)
     return
   }
 

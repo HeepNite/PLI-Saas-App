@@ -11,6 +11,7 @@ import {
   type MigratePrismaClient,
   type MigratePrismaStaffRow,
   type MigratePrismaUserRow,
+  type MigrateTargetClient,
 } from "@/scripts/migrate-clerk-instance"
 
 const logger = {
@@ -173,6 +174,77 @@ describe("runMigration — canary via --userId", () => {
       expect.stringContaining("canary observed phone verification.status=unverified for userId=clerk_prod_1")
     )
   })
+
+  it("calls logCanaryPhoneVerificationStatus after attachPhone in write mode when --userId is set (canary run)", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow({ clerkId: "clerk_dev_1" })]), findUnique: vi.fn() },
+    })
+    const target = {
+      users: {
+        getUserList: vi.fn().mockResolvedValue(emptyUserList),
+        createUser: vi.fn().mockResolvedValue({ id: "clerk_prod_1" }),
+        getUser: vi.fn().mockResolvedValue({
+          id: "clerk_prod_1",
+          primaryPhoneNumberId: "phone_1",
+          phoneNumbers: [{ id: "phone_1", verification: { status: "verified" } }],
+        }),
+      },
+      phoneNumbers: { createPhoneNumber: vi.fn().mockResolvedValue({ id: "phone_1" }) },
+    } as unknown as MigrateTargetClient
+    const deps = createDeps({ prismaClient, target })
+
+    await runMigration({ mode: "write", userId: "clerk_dev_1" }, deps)
+
+    expect(target.users.getUser).toHaveBeenCalledWith("clerk_prod_1")
+    expect(logger.log).toHaveBeenCalledWith(
+      expect.stringContaining("canary observed phone verification.status=verified for userId=clerk_prod_1")
+    )
+  })
+
+  it("does not call logCanaryPhoneVerificationStatus in a bulk run (no --userId)", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow({ clerkId: "clerk_dev_1" })]), findUnique: vi.fn() },
+    })
+    const deps = createDeps({ prismaClient })
+
+    await runMigration({ mode: "write" }, deps)
+
+    expect(deps.target.users.getUser).not.toHaveBeenCalled()
+  })
+
+  it("still processes the target user when --userId is combined with --delta, even if the row's updatedAt predates the delta watermark", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
+    })
+    const deps = createDeps({ prismaClient })
+
+    // First run: bulk write, populates the map with an appliedAt timestamp
+    // that becomes the --delta watermark for the next run.
+    await runMigration({ mode: "write" }, deps)
+    vi.clearAllMocks()
+
+    // Second run: the canary target row's updatedAt PREDATES the watermark
+    // (it was not touched since the first run). A real Prisma `findMany`
+    // applies the `updatedAt: { gt: watermark }` filter server-side, so the
+    // stale row would never even be returned by the query — the fake below
+    // mirrors that by honoring the where clause, unlike the default fake.
+    const staleUserRow = makeUserRow({
+      id: "user_db_2",
+      clerkId: "clerk_dev_2",
+      email: "beto@example.com",
+      phone: "2125550001",
+      updatedAt: new Date("2020-01-01T00:00:00.000Z"),
+    })
+    prismaClient.user.findMany = vi.fn(async ({ where }: { where?: { updatedAt?: { gt: Date } } } = {}) => {
+      if (where?.updatedAt && staleUserRow.updatedAt <= where.updatedAt.gt) return []
+      return [staleUserRow]
+    })
+
+    const result = await runMigration({ mode: "write", userId: "clerk_dev_2", delta: true }, deps)
+
+    expect(result.processed).toBe(1)
+    expect(result.results[0]).toMatchObject({ appId: "user_db_2", oldClerkId: "clerk_dev_2" })
+  })
 })
 
 describe("runMigration — idempotent re-run", () => {
@@ -215,6 +287,116 @@ describe("runMigration — delta pass phone-changed reconcile", () => {
   })
 })
 
+describe("runMigration — delta pass sinceUpdatedAt derived from appliedAt", () => {
+  it("passes updatedAt: { gt: <appliedAt of the last phone_attached row> } into user.findMany/staffAccount.findMany on the second --delta run", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
+    })
+    const deps = createDeps({ prismaClient })
+
+    // First run: bulk write, populates the map with an appliedAt timestamp.
+    await runMigration({ mode: "write" }, deps)
+    vi.clearAllMocks()
+
+    // Second run: --delta must derive sinceUpdatedAt from the persisted
+    // appliedAt and pass it through to both enumeration queries.
+    await runMigration({ mode: "write", delta: true }, deps)
+
+    const userFindManyCalls = (prismaClient.user.findMany as ReturnType<typeof vi.fn>).mock.calls
+    const staffFindManyCalls = (prismaClient.staffAccount.findMany as ReturnType<typeof vi.fn>).mock.calls
+    expect(userFindManyCalls[0][0].where.updatedAt).toEqual({ gt: expect.any(Date) })
+    expect(staffFindManyCalls[0][0].where.updatedAt).toEqual({ gt: expect.any(Date) })
+  })
+})
+
+describe("runMigration — User+StaffAccount same-person dedupe", () => {
+  it("merges a User and a StaffAccount row sharing the same oldClerkId into exactly one createUser call, with two map rows pointing at the same newClerkId", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([makeUserRow({ id: "user_db_1", clerkId: "clerk_dev_shared" })]),
+        findUnique: vi.fn(),
+      },
+      staffAccount: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([makeStaffRow({ id: "staff_db_1", clerkUserId: "clerk_dev_shared" })]),
+        findUnique: vi.fn(),
+      },
+    })
+    const deps = createDeps({ prismaClient })
+
+    const result = await runMigration({ mode: "write" }, deps)
+
+    expect(deps.target.users.createUser).toHaveBeenCalledTimes(1)
+    expect(result.processed).toBe(1)
+
+    const mapRowCalls = (prismaClient.clerkIdMigration.upsert as ReturnType<typeof vi.fn>).mock.calls
+    const newClerkIds = new Set(mapRowCalls.map(([args]) => args.create.newClerkId ?? args.update.newClerkId))
+    expect(newClerkIds.size).toBe(1)
+
+    const mapRows = await prismaClient.clerkIdMigration.findMany()
+    expect(mapRows).toHaveLength(2)
+    expect(mapRows.map((row) => row.entity).sort()).toEqual(["staff", "user"])
+    expect(new Set(mapRows.map((row) => row.newClerkId)).size).toBe(1)
+  })
+})
+
+describe("runMigration — different oldClerkId, matching phone (existing idempotency reuse)", () => {
+  it("reuses the existing target user found by phone lookup instead of creating a duplicate, even when oldClerkId differs (e.g. a User row and a StaffAccount row that were never linked in Clerk)", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([makeUserRow({ id: "user_db_1", clerkId: "clerk_dev_user_only", phone: "2125551234" })]),
+        findUnique: vi.fn(),
+      },
+      staffAccount: {
+        findMany: vi.fn().mockResolvedValue([
+          makeStaffRow({ id: "staff_db_1", clerkUserId: "clerk_dev_staff_only", phone: "2125551234" }),
+        ]),
+        findUnique: vi.fn(),
+      },
+    })
+    const target = {
+      users: {
+        getUserList: vi.fn().mockResolvedValue({ data: [{ id: "clerk_prod_existing" }] }),
+        createUser: vi.fn().mockResolvedValue({ id: "clerk_prod_should_not_be_used" }),
+        getUser: vi.fn(),
+      },
+      phoneNumbers: { createPhoneNumber: vi.fn() },
+    } as never
+    const deps = createDeps({ prismaClient, target })
+
+    const result = await runMigration({ mode: "write" }, deps)
+
+    expect(deps.target.users.createUser).not.toHaveBeenCalled()
+    expect(result.results.every((row) => row.phase === "reused" && row.newClerkId === "clerk_prod_existing")).toBe(true)
+  })
+})
+
+describe("runMigration — invalid phone counted distinctly from created", () => {
+  it("reports an invalid-phone outcome under invalidPhone, not under created", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: {
+        // digitsToE164 rejects a 9-digit bare number.
+        findMany: vi.fn().mockResolvedValue([makeUserRow({ phone: "212555123" })]),
+        findUnique: vi.fn(),
+      },
+    })
+    const deps = createDeps({ prismaClient })
+
+    const result = await runMigration({ mode: "write" }, deps)
+
+    expect(deps.target.users.createUser).toHaveBeenCalled()
+    expect(deps.target.phoneNumbers.createPhoneNumber).not.toHaveBeenCalled()
+    expect(result.results[0].phase).toBe("invalid_phone")
+    expect(result.created).toBe(0)
+    expect(result.invalidPhone).toBe(1)
+  })
+})
+
 describe("runMigration — skipped_deleted", () => {
   it("marks the map row skipped_deleted and leaves the DB row untouched when the source getUser returns 404", async () => {
     const prismaClient = createPrismaClientFake({
@@ -228,6 +410,32 @@ describe("runMigration — skipped_deleted", () => {
     expect(deps.target.users.createUser).not.toHaveBeenCalled()
     expect(result.results[0].phase).toBe("skipped_deleted")
     expect(result.skippedDeleted).toBe(1)
+  })
+
+  it("writes a skipped_deleted map row for BOTH linked entities of a merged User+StaffAccount candidate when the source getUser returns 404", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: {
+        findMany: vi.fn().mockResolvedValue([makeUserRow({ id: "user_db_1", clerkId: "clerk_dev_shared" })]),
+        findUnique: vi.fn(),
+      },
+      staffAccount: {
+        findMany: vi.fn().mockResolvedValue([makeStaffRow({ id: "staff_db_1", clerkUserId: "clerk_dev_shared" })]),
+        findUnique: vi.fn(),
+      },
+    })
+    const source = { users: { getUser: vi.fn().mockRejectedValue({ status: 404 }) } } as never
+    const deps = createDeps({ prismaClient, source })
+
+    const result = await runMigration({ mode: "write" }, deps)
+
+    expect(deps.target.users.createUser).not.toHaveBeenCalled()
+    expect(result.processed).toBe(1)
+    expect(result.results[0].phase).toBe("skipped_deleted")
+
+    const mapRows = await prismaClient.clerkIdMigration.findMany()
+    expect(mapRows).toHaveLength(2)
+    expect(mapRows.map((row) => row.entity).sort()).toEqual(["staff", "user"])
+    expect(mapRows.every((row) => row.phase === "skipped_deleted")).toBe(true)
   })
 })
 
@@ -332,6 +540,25 @@ describe("runMigration — resume from user_created", () => {
     expect(deps.target.phoneNumbers.createPhoneNumber).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "clerk_prod_partial", verified: true, primary: true })
     )
+    expect(result.results[0]).toMatchObject({ newClerkId: "clerk_prod_partial", phase: "phone_attached" })
+  })
+
+  it("performs zero Clerk/DB writes when resuming a user_created row under --mode=dry-run", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
+    })
+    const seeded: ClerkIdMigrationRow = makeMapRow({ phase: "user_created", newClerkId: "clerk_prod_partial" })
+    prismaClient.clerkIdMigration.findUnique = vi.fn().mockResolvedValue(seeded)
+
+    const deps = createDeps({ prismaClient })
+
+    const result = await runMigration({ mode: "dry-run" }, deps)
+
+    expect(deps.target.users.createUser).not.toHaveBeenCalled()
+    expect(deps.target.phoneNumbers.createPhoneNumber).not.toHaveBeenCalled()
+    expect(prismaClient.clerkIdMigration.upsert).not.toHaveBeenCalled()
+    // A simulated "would attach phone" outcome — the row is reported as
+    // phone_attached for dry-run reporting purposes, without any real write.
     expect(result.results[0]).toMatchObject({ newClerkId: "clerk_prod_partial", phase: "phone_attached" })
   })
 })

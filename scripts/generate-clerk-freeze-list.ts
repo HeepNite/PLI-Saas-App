@@ -67,6 +67,11 @@ export const createRealGrepRunner = (repoRoot: string): GrepRunner => ({
 
 const isApiRoute = (file: string): boolean => file.startsWith("app/api/") && (file.endsWith("/route.ts") || file.endsWith("/route.tsx"))
 
+const isServerPage = (file: string): boolean =>
+  file.startsWith("app/") &&
+  !isApiRoute(file) &&
+  (file.endsWith("/page.tsx") || file.endsWith("/page.ts") || file.endsWith("/layout.tsx") || file.endsWith("/layout.ts"))
+
 const parseGrepLine = (symbol: FreezeSymbol, line: string): CallSite | null => {
   const match = line.match(/^([^:]+):(\d+):(.*)$/)
   if (!match) return null
@@ -112,6 +117,56 @@ const findRouteImportersOf = (grep: GrepRunner, libFile: string): string[] => {
   return grep.grepFiles(specifier, "app/api").filter(isApiRoute)
 }
 
+export type UnresolvedCallSite = { symbol: string; sourceFile: string }
+
+/**
+ * A lib/*.ts call site that resolves to ZERO app/api/** route importers is
+ * a silent gap in the generated freeze list — it is neither a direct route
+ * finding nor covered by the one-hop resolution. Surfacing it explicitly
+ * forces a manual review instead of the operator trusting an
+ * under-reported list.
+ */
+export const findUnresolvedCallSites = (grep: GrepRunner): UnresolvedCallSite[] => {
+  const allCallSites = FREEZE_SYMBOLS.flatMap((symbol) => findCallSites(grep, symbol))
+
+  const unresolved: UnresolvedCallSite[] = []
+  for (const callSite of allCallSites) {
+    if (isApiRoute(callSite.file)) continue
+    if (!callSite.file.startsWith("lib/")) continue
+
+    const routeImporters = findRouteImportersOf(grep, callSite.file)
+    if (routeImporters.length === 0) {
+      unresolved.push({ symbol: callSite.symbol, sourceFile: callSite.file })
+    }
+  }
+
+  return unresolved
+}
+
+export type ServerPageCallSite = { symbol: string; file: string }
+
+/**
+ * A server component call site (app/**\/page.tsx or app/**\/layout.tsx) of a
+ * freeze symbol — e.g. app/staff/resolve/page.tsx calling
+ * syncStaffAccountFromClerkUser. Neither an app/api/** route nor a lib/*.ts
+ * helper, so it is invisible to both generateFreezeList's direct/one-hop
+ * resolution AND findUnresolvedCallSites (which only looks at lib/*.ts).
+ * Classified into its own "Server pages" output section instead of being
+ * silently dropped.
+ */
+export const findServerPageCallSites = (grep: GrepRunner): ServerPageCallSite[] => {
+  const allCallSites = FREEZE_SYMBOLS.flatMap((symbol) => findCallSites(grep, symbol))
+
+  const serverPages: ServerPageCallSite[] = []
+  for (const callSite of allCallSites) {
+    if (!isServerPage(callSite.file)) continue
+    if (serverPages.some((entry) => entry.symbol === callSite.symbol && entry.file === callSite.file)) continue
+    serverPages.push({ symbol: callSite.symbol, file: callSite.file })
+  }
+
+  return serverPages.sort((a, b) => a.file.localeCompare(b.file))
+}
+
 export const generateFreezeList = (grep: GrepRunner): RouteFinding[] => {
   const allCallSites = FREEZE_SYMBOLS.flatMap((symbol) => findCallSites(grep, symbol))
 
@@ -147,7 +202,12 @@ export const generateFreezeList = (grep: GrepRunner): RouteFinding[] => {
   return Array.from(routeFindings.values()).sort((a, b) => a.routeFile.localeCompare(b.routeFile))
 }
 
-export const formatFreezeChecklist = (findings: RouteFinding[], generatedAt: Date): string => {
+export const formatFreezeChecklist = (
+  findings: RouteFinding[],
+  generatedAt: Date,
+  unresolved: UnresolvedCallSite[] = [],
+  serverPages: ServerPageCallSite[] = []
+): string => {
   const today = generatedAt.toISOString().slice(0, 10)
   const lines: string[] = []
   lines.push(`# Clerk migration freeze checklist — generated ${today}`)
@@ -168,6 +228,25 @@ export const formatFreezeChecklist = (findings: RouteFinding[], generatedAt: Dat
   lines.push("")
   lines.push(`Total routes to freeze: ${findings.length}`)
 
+  if (serverPages.length > 0) {
+    lines.push("")
+    lines.push(`## Server pages`)
+    lines.push(`The following server components call a create-capable Clerk function directly — they are neither an app/api/** route nor a lib/*.ts helper, so freeze them explicitly alongside the routes above.`)
+    for (const page of serverPages) {
+      lines.push(`- [ ] ${page.file}`)
+      lines.push(`      - ${page.symbol}`)
+    }
+  }
+
+  if (unresolved.length > 0) {
+    lines.push("")
+    lines.push(`## UNRESOLVED — manual review required`)
+    lines.push(`The following call sites could not be resolved to any app/api/** route importer. They are NOT included in the freeze count above — investigate manually before trusting this list as complete.`)
+    for (const item of unresolved) {
+      lines.push(`- [ ] ${item.sourceFile} — ${item.symbol}`)
+    }
+  }
+
   return lines.join("\n")
 }
 
@@ -180,5 +259,7 @@ if (isDirectExecution) {
   const repoRoot = path.resolve(import.meta.dirname, "..")
   const grep = createRealGrepRunner(repoRoot)
   const findings = generateFreezeList(grep)
-  console.log(formatFreezeChecklist(findings, new Date()))
+  const unresolved = findUnresolvedCallSites(grep)
+  const serverPages = findServerPageCallSites(grep)
+  console.log(formatFreezeChecklist(findings, new Date(), unresolved, serverPages))
 }

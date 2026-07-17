@@ -36,6 +36,11 @@ describe("parseMigrateArgs", () => {
   it("rejects a non-positive --limit value", () => {
     expect(() => parseMigrateArgs(["--limit=0"])).toThrow("Invalid --limit value: 0. Expected a positive integer.")
   })
+
+  it("rejects passing both --remap and --rollback", () => {
+    expect(() => parseMigrateArgs(["--remap", "--rollback"])).toThrow("--remap and --rollback cannot both be passed")
+    expect(() => parseMigrateArgs(["--rollback", "--remap"])).toThrow("--remap and --rollback cannot both be passed")
+  })
 })
 
 describe("isPlaceholderEmail", () => {
