@@ -97,6 +97,11 @@ const createOptions = (overrides: Partial<HookOptions> = {}): HookOptions => ({
   updateSettlementBulk: vi.fn().mockResolvedValue(undefined),
   refreshPaymentsBoard: vi.fn().mockResolvedValue(undefined),
   handleStaffAuthFailure: vi.fn().mockReturnValue(false),
+  // Default: transparent passthrough to `fetch`, matching `staffAuthedFetch`'s
+  // contract for any non-401 response. Tests that exercise the 401
+  // refresh-and-retry behavior live in useStaffAuthedFetch.test.tsx; these
+  // poller tests only need the plumbing wired through.
+  staffAuthedFetch: (...args: Parameters<typeof fetch>) => fetch(...args),
   ...overrides,
 })
 

@@ -169,6 +169,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     activeNavLabel,
     ensureMinimumLoadingTime,
     handleStaffAuthFailure,
+    staffAuthedFetch,
   } = portalShellAdmin
   const assistantAdmin = useStaffAssistantAdmin(activeNavLabel)
   expandAssistantRailRef.current = assistantAdmin.expandRail
@@ -510,6 +511,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     updateSettlementBulk,
     refreshPaymentsBoard,
     handleStaffAuthFailure,
+    staffAuthedFetch,
   })
 
   const createStudentAdmin = useStaffCreateStudentAdmin({
