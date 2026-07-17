@@ -127,10 +127,14 @@ export function useStaffPortalShellAdmin({
   const handleStaffAuthFailure = React.useCallback((status: number) => {
     if (typeof window === "undefined") return false
     const navParam = new URL(window.location.href).searchParams.get("nav")
-    const navSuffix = navParam ? `?nav=${encodeURIComponent(navParam)}` : ""
+    const navQuery = navParam ? `&nav=${encodeURIComponent(navParam)}` : ""
     if (status === 401) {
       setError("Staff session expired. Please validate your PIN again.")
-      window.location.href = `/staff/checkin${navSuffix}`
+      // Send an expired session to the actual staff LOGIN screen (mode="login",
+      // which creates a session), NOT /staff/checkin (attendance-only — it does
+      // not re-authenticate). The `error` param also prevents the log-in page's
+      // authenticated-redirect loop when a stale Clerk cookie is still present.
+      window.location.href = `/staff/log-in?error=session_expired${navQuery}`
       return true
     }
     // 403 from data endpoints means the user lacks permission for that
