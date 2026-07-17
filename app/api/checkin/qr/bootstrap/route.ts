@@ -120,8 +120,19 @@ export async function POST(req: Request) {
     const kioskSessionResult = shouldResolveKioskSession
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
+    // The Clerk lookup for the authenticated kiosk customer failed (stale/
+    // cross-instance clerkId) rather than there being no authenticated
+    // customer at all. Without a kiosk session to fall back to, retry
+    // resolution below via getCachedClerkUser/findClerkUserByIdentifiers
+    // using the original id instead of short-circuiting to 401 — this is
+    // scoped to this route only and does not change
+    // resolveKioskCustomerClerkAuth's public `userId: null` contract relied
+    // on by lib/checkout.ts.
+    const shouldRetryLookupFailure =
+      !shouldPreferKioskSession && !customerClerkUserId && kioskCustomerAuth.lookupFailed && !kioskSessionResult?.ok
+    const effectiveCustomerClerkUserId = shouldRetryLookupFailure ? authResult.userId : customerClerkUserId
 
-    if (!customerClerkUserId && !kioskSessionResult?.ok) {
+    if (!effectiveCustomerClerkUserId && !kioskSessionResult?.ok) {
       return NextResponse.json(
         {
           error:
@@ -156,14 +167,18 @@ export async function POST(req: Request) {
     let lastName = ""
     let name = kioskUser?.name || ""
 
-    if (customerClerkUserId || kioskUser?.clerkId) {
-      clerkUser = customerClerkUserId ? kioskCustomerAuth.clerkUser : null
+    if (effectiveCustomerClerkUserId || kioskUser?.clerkId) {
+      clerkUser = effectiveCustomerClerkUserId ? kioskCustomerAuth.clerkUser : null
       if (!clerkUser) {
         // A stale/cross-instance clerkId (e.g. during the dev→prod Clerk
-        // instance migration window) must never surface a 500 to the QR
-        // check-in client — fall back to identifier-based lookup.
+        // instance migration window) must not surface an uncaught/unexpected
+        // 500 from a thrown lookup error — fall back to identifier-based
+        // lookup when email/phone identifiers are available. If neither the
+        // id retry nor the identifier fallback resolves anyone, dbUser stays
+        // null below and the route returns a controlled 500 ("Unable to
+        // resolve user") instead of writing a stale identity.
         try {
-          clerkUser = await getCachedClerkUser((customerClerkUserId || kioskUser?.clerkId) as string)
+          clerkUser = await getCachedClerkUser((effectiveCustomerClerkUserId || kioskUser?.clerkId) as string)
         } catch {
           clerkUser = await findClerkUserByIdentifiers({
             email,
@@ -207,10 +222,10 @@ export async function POST(req: Request) {
           email: kioskUser!.email,
           phone: kioskUser!.phone,
         }
-      : customerClerkUserId
+      : effectiveCustomerClerkUserId
       ? await (async () => {
           return upsertUserByIdentifiers({
-            clerkId: customerClerkUserId,
+            clerkId: effectiveCustomerClerkUserId,
             email,
             phone,
             name,
@@ -239,7 +254,7 @@ export async function POST(req: Request) {
       linkedFromCourseSlug: asText(payload?.linkedFromCourseSlug) || undefined,
       customer: {
         userId: dbUser.id,
-        clerkUserId: customerClerkUserId || kioskUser?.clerkId || "",
+        clerkUserId: effectiveCustomerClerkUserId || kioskUser?.clerkId || "",
         firstName,
         lastName,
         name: dbUser.name || name,
@@ -282,14 +297,14 @@ export async function POST(req: Request) {
         preparedAccount: {
           userId: dbUser.id,
           clerkUser: null,
-          resolvedUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+          resolvedUserId: effectiveCustomerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
           identity: {
             resolvedEmail: email || dbUser.email || "",
             phoneRaw: kioskPhoneRaw || clerkUser?.primaryPhoneNumber?.phoneNumber || dbUser.phone || "",
             phoneNormalized: phone || "",
           },
           account: {
-            clerkUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+            clerkUserId: effectiveCustomerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
             created: false,
             requiresSignIn: false,
             hasAvatar: bootstrap.customer.hasAvatar,

@@ -91,8 +91,18 @@ export async function POST(req: Request) {
     const kioskSessionResult = shouldResolveKioskSession
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
+    // The Clerk lookup for the authenticated kiosk customer failed (stale/
+    // cross-instance clerkId) rather than there being no authenticated
+    // customer at all. Without a kiosk session to fall back to, retry
+    // resolution below via client.users.getUser using the original id
+    // instead of short-circuiting to 401 — this is scoped to this route
+    // only and does not change resolveKioskCustomerClerkAuth's public
+    // `userId: null` contract relied on by lib/checkout.ts.
+    const shouldRetryLookupFailure =
+      !shouldPreferKioskSession && !customerClerkUserId && kioskCustomerAuth.lookupFailed && !kioskSessionResult?.ok
+    const effectiveCustomerClerkUserId = shouldRetryLookupFailure ? authResult.userId : customerClerkUserId
 
-    if (!customerClerkUserId && !kioskSessionResult?.ok) {
+    if (!effectiveCustomerClerkUserId && !kioskSessionResult?.ok) {
       return NextResponse.json(
         {
           error:
@@ -152,18 +162,33 @@ export async function POST(req: Request) {
 
     const dbUser = kioskSessionResult?.ok
       ? { id: kioskSessionResult.session.user.id }
-      : customerClerkUserId
+      : effectiveCustomerClerkUserId
       ? await (async () => {
-          const clerkUser = kioskCustomerAuth.clerkUser || await (async () => {
-            const client = await clerkClient()
-            return client.users.getUser(customerClerkUserId)
-          })()
-          email = clerkUser.primaryEmailAddress?.emailAddress || ""
-          const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-          phone = normalizePhoneDigits(phoneRaw)
-          name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+          // A stale/cross-instance clerkId (e.g. during the dev→prod Clerk
+          // instance migration window) must not surface an uncaught/unexpected
+          // 500 from a thrown lookup error — degrade to an unresolved
+          // clerkUser so the upsert below still runs on whatever email/phone
+          // identifiers are available. If no identifiers are available
+          // either, upsertUserByIdentifiers returns null and the route
+          // returns a controlled 500 ("Unable to resolve user") instead of
+          // writing a stale identity.
+          let clerkUser = kioskCustomerAuth.clerkUser
+          if (!clerkUser) {
+            try {
+              const client = await clerkClient()
+              clerkUser = await client.users.getUser(effectiveCustomerClerkUserId)
+            } catch {
+              clerkUser = null
+            }
+          }
+          if (clerkUser) {
+            email = clerkUser.primaryEmailAddress?.emailAddress || ""
+            const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+            phone = normalizePhoneDigits(phoneRaw)
+            name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+          }
           return upsertUserByIdentifiers({
-            clerkId: customerClerkUserId,
+            clerkId: effectiveCustomerClerkUserId,
             email,
             phone,
             name,

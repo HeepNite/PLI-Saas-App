@@ -239,6 +239,78 @@ describe("qr check-in bootstrap route — Clerk lookup guards", () => {
     expect(data.customer.phone).toBe("15551112222")
   })
 
+  // Scenario: resolveKioskCustomerClerkAuth's own getUser lookup throws
+  // (kiosk_terminal flowContext, authResult.userId is non-null — a stale/
+  // cross-instance clerkId on the AUTHENTICATED kiosk customer session
+  // itself, not the kioskUser record). The route must degrade to its
+  // phone/email fallback path instead of surfacing a 500.
+  it("falls back to the phone/email path when resolveKioskCustomerClerkAuth's getUser throws for a non-null authResult.userId", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_customer_authenticated" })
+    mockGetUser.mockRejectedValue(new Error("Clerk 404: not found on this instance"))
+    mockFindClerkUserByIdentifiers.mockResolvedValue(FALLBACK_CLERK_USER)
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: {
+        id: "kiosk_session_1",
+        user: {
+          id: "db_user_1",
+          clerkId: null,
+          email: "student@example.com",
+          name: "Jane Student",
+          phone: "+1 555 111 2222",
+        },
+      },
+      terminalAuth: { terminal: { id: "terminal_1" } },
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(
+      createRequest({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-02-24",
+        time: "11:00",
+        kioskSessionToken: "session_1",
+        flowContext: "kiosk_terminal",
+      })
+    )
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.customer.firstName).toBe("Jane")
+  })
+
+  // Scenario: resolveKioskCustomerClerkAuth's own getUser lookup throws AND
+  // no kioskSessionToken is supplied (kiosk_terminal flowContext,
+  // authResult.userId is non-null). shouldPreferKioskSession is false and
+  // shouldResolveKioskSession is false (no token), so kioskSessionResult
+  // stays null. Previously the guard's `!customerClerkUserId &&
+  // !kioskSessionResult?.ok` short-circuited to 401 here because
+  // resolveKioskCustomerClerkAuth degraded to userId: null on a lookup
+  // failure — before the route's own getCachedClerkUser/
+  // findClerkUserByIdentifiers fallback block ever ran. The route must
+  // reach that fallback and resolve 200 instead.
+  it("falls back to the phone/email path when resolveKioskCustomerClerkAuth's getUser throws and no kioskSessionToken is supplied", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_customer_authenticated" })
+    mockGetUser.mockRejectedValue(new Error("Clerk 404: not found on this instance"))
+    mockFindClerkUserByIdentifiers.mockResolvedValue(FALLBACK_CLERK_USER)
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(
+      createRequest({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-02-24",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      })
+    )
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.customer.firstName).toBe("Jane")
+    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
+  })
+
   // Scenario: avatar-refresh guard — customerClerkUserId/kioskUser?.clerkId branch
   // (first avatar-refresh call site). clerkUser is kept, refresh skipped, no re-lookup.
   it("keeps the resolved clerkUser and skips the refresh when the avatar-refresh getCachedClerkUser call throws (customerClerkUserId/kioskUser branch)", async () => {
@@ -334,5 +406,44 @@ describe("qr check-in bootstrap route — Clerk lookup guards", () => {
     // re-invoked as a recovery for the avatar-refresh failure.
     expect(mockFindClerkUserByIdentifiers).toHaveBeenCalledTimes(1)
     expect(mockGetUser).toHaveBeenCalledTimes(1)
+  })
+
+  // Scenario: double-miss — kiosk_terminal flowContext, no kioskSessionToken,
+  // authResult.userId is set, both the id retry (getCachedClerkUser/getUser)
+  // and the identifier fallback (findClerkUserByIdentifiers) fail to resolve
+  // anyone. There is no kioskUser and no clerkUser, so email/phone stay
+  // empty and upsertUserByIdentifiers would receive no identifiers. The
+  // route must degrade to a controlled 500 ("Unable to resolve user")
+  // instead of throwing or writing a stale identity.
+  it("returns a controlled 500 with 'Unable to resolve user' when both the id retry and the identifier fallback miss", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_customer_authenticated" })
+    mockGetUser.mockRejectedValue(new Error("Clerk 404: not found on this instance"))
+    mockFindClerkUserByIdentifiers.mockResolvedValue(null)
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    // No clerkUser was resolved and no kioskUser/email/phone identifiers are
+    // available, so the real upsertUserByIdentifiers would reject the
+    // empty-identifier upsert and return null — mirror that here.
+    mockUpsertUserByIdentifiers.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(
+      createRequest({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-02-24",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      })
+    )
+
+    expect(res.status).toBe(500)
+    const data = await res.json()
+    expect(data.error).toBe("Unable to resolve user")
+    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
+    // The upsert was attempted with no email/phone identifiers (no clerkUser
+    // resolved, no kioskUser) and returned null, matching the real
+    // upsertUserByIdentifiers empty-identifier guard — no stale row created.
+    expect(mockUpsertUserByIdentifiers).toHaveBeenCalledWith(
+      expect.objectContaining({ clerkId: "clerk_customer_authenticated", email: "", phone: "" })
+    )
   })
 })
