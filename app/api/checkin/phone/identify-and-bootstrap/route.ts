@@ -12,7 +12,7 @@ import { resolveKioskPinThrottleSeverity, getKioskPinThrottleMessage } from "@/l
 import { normalizePhone, normalizePhoneDigits } from "@/lib/shared"
 import { parseQrCheckInContext, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
-import { findClerkUserByIdentifiers, resolveAvatarState } from "@/lib/clerk-users"
+import { findClerkUserByIdentifiers, resolveAvatarState, type ClerkUser } from "@/lib/clerk-users"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
 import type { CourseData } from "@/constants/courses"
@@ -183,6 +183,38 @@ const serializePackage = (pkg: {
   expiresAt: pkg.expiresAt ? pkg.expiresAt.toISOString() : null,
   status: pkg.status,
 })
+
+/**
+ * Resolves the Clerk user for a DB user during kiosk bootstrap.
+ *
+ * A stale/cross-instance `dbUser.clerkId` (e.g. during the dev→prod Clerk
+ * instance migration window) must never surface a 500 to the kiosk client.
+ * If the direct getUser-by-id lookup fails, fall back to the same
+ * identifier-based lookup already used when no clerkId is stored at all.
+ */
+const resolveClerkUserForBootstrap = async (dbUser: {
+  clerkId: string | null
+  email: string | null
+  phone: string | null
+}): Promise<ClerkUser | null> => {
+  if (dbUser.clerkId) {
+    try {
+      const { clerkClient } = await import("@clerk/nextjs/server")
+      const client = await clerkClient()
+      return await client.users.getUser(dbUser.clerkId)
+    } catch {
+      return findClerkUserByIdentifiers({
+        email: dbUser.email ?? undefined,
+        phone: dbUser.phone ?? undefined,
+      })
+    }
+  }
+
+  return findClerkUserByIdentifiers({
+    email: dbUser.email ?? undefined,
+    phone: dbUser.phone ?? undefined,
+  })
+}
 
 const buildBootstrapContext = (
   context: ReturnType<typeof parseQrCheckInContext> & { courseTitle?: string },
@@ -504,32 +536,33 @@ export async function POST(req: Request) {
         })
       : Promise.resolve(null),
     getCatalogCourseBySlug(courseSlug),
-    dbUser.clerkId
-      ? (async () => {
-          const { clerkClient } = await import("@clerk/nextjs/server")
-          const client = await clerkClient()
-          return client.users.getUser(dbUser.clerkId as string)
-        })()
-      : findClerkUserByIdentifiers({
-          email: dbUser.email ?? undefined,
-          phone: dbUser.phone ?? undefined,
-        }),
+    resolveClerkUserForBootstrap(dbUser),
   ])
 
   const classSession = classSessionResult
   let clerkUser = clerkUserResult
 
-  // Resolve avatar state — refresh once if needed
+  // Resolve avatar state — refresh once if needed. A refresh failure is
+  // treated as transient (the id being refreshed was already resolved by
+  // the guarded lookup above): keep the current clerkUser, skip the
+  // refresh, and fall back to the pre-refresh avatar state. Do NOT
+  // re-invoke findClerkUserByIdentifiers here — that would be a redundant
+  // re-lookup, not a recovery.
   let hasAvatar = false
   if (clerkUser) {
-    let avatarState = resolveAvatarState(clerkUser)
+    const avatarState = resolveAvatarState(clerkUser)
     if (avatarState.needsRefresh && clerkUser.id) {
-      const { clerkClient } = await import("@clerk/nextjs/server")
-      const client = await clerkClient()
-      clerkUser = await client.users.getUser(clerkUser.id)
-      avatarState = resolveAvatarState(clerkUser)
+      try {
+        const { clerkClient } = await import("@clerk/nextjs/server")
+        const client = await clerkClient()
+        clerkUser = await client.users.getUser(clerkUser.id)
+        hasAvatar = Boolean(resolveAvatarState(clerkUser).hasAvatar)
+      } catch {
+        hasAvatar = Boolean(avatarState.hasAvatar)
+      }
+    } else {
+      hasAvatar = Boolean(avatarState.hasAvatar)
     }
-    hasAvatar = Boolean(avatarState.hasAvatar)
   }
 
   const email = clerkUser?.primaryEmailAddress?.emailAddress || dbUser.email || ""

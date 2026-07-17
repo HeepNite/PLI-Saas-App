@@ -881,3 +881,26 @@ model DayOfWeekPurchaseCount {
   @@unique([userId, dayOfWeek])
   @@index([userId])
 }
+
+// Durable old→new clerkId map for the dev→prod Clerk instance migration
+// (scripts/migrate-clerk-instance.ts, non-deployed, local-only). One row per
+// migrated User or StaffAccount; `phase` tracks per-user pipeline progress so
+// a partial failure (e.g. createUser succeeded, createPhoneNumber failed) is
+// detectable and resumable without re-listing prod on every run. Also the
+// rollback lever for the DB remap transaction — see design D2/D3.
+model ClerkIdMigration {
+  id         String    @id @default(cuid())
+  entity     String // "user" | "staff"
+  appId      String // User.id or StaffAccount.id
+  oldClerkId String
+  newClerkId String
+  phone      String?
+  email      String?
+  phase      String // "user_created" | "phone_attached" | "skipped_deleted"
+  createdAt  DateTime  @default(now())
+  appliedAt  DateTime?
+
+  @@unique([entity, appId])
+  @@index([newClerkId])
+  @@index([phase])
+}

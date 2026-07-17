@@ -60,6 +60,29 @@ const createTerminalSafeBootstrapResponse = (bootstrap: BootstrapResponse): Term
   consecutiveOffer: bootstrap.consecutiveOffer,
 })
 
+/**
+ * Refreshes a resolved Clerk user's avatar state when needed. A refresh
+ * failure is treated as transient (the id being refreshed was already
+ * resolved) — the caller keeps its current `clerkUser` and falls back to
+ * the pre-refresh avatar state. Never re-invokes findClerkUserByIdentifiers
+ * as part of this recovery.
+ */
+const refreshClerkUserAvatar = async (
+  clerkUser: ClerkUser
+): Promise<{ clerkUser: ClerkUser; hasAvatar: boolean }> => {
+  const avatarState = resolveAvatarState(clerkUser)
+  if (!avatarState.needsRefresh || !clerkUser.id) {
+    return { clerkUser, hasAvatar: Boolean(avatarState.hasAvatar) }
+  }
+
+  try {
+    const refreshedUser = await getCachedClerkUser(clerkUser.id)
+    return { clerkUser: refreshedUser, hasAvatar: Boolean(resolveAvatarState(refreshedUser).hasAvatar) }
+  } catch {
+    return { clerkUser, hasAvatar: Boolean(avatarState.hasAvatar) }
+  }
+}
+
 
 export async function POST(req: Request) {
   try {
@@ -136,32 +159,38 @@ export async function POST(req: Request) {
     if (customerClerkUserId || kioskUser?.clerkId) {
       clerkUser = customerClerkUserId ? kioskCustomerAuth.clerkUser : null
       if (!clerkUser) {
-        clerkUser = await getCachedClerkUser((customerClerkUserId || kioskUser?.clerkId) as string)
+        // A stale/cross-instance clerkId (e.g. during the dev→prod Clerk
+        // instance migration window) must never surface a 500 to the QR
+        // check-in client — fall back to identifier-based lookup.
+        try {
+          clerkUser = await getCachedClerkUser((customerClerkUserId || kioskUser?.clerkId) as string)
+        } catch {
+          clerkUser = await findClerkUserByIdentifiers({
+            email,
+            phone: kioskPhoneRaw,
+          })
+        }
       }
-      let avatarState = resolveAvatarState(clerkUser)
-      if (avatarState.needsRefresh && clerkUser?.id) {
-        clerkUser = await getCachedClerkUser(clerkUser.id)
-        avatarState = resolveAvatarState(clerkUser)
+      if (clerkUser) {
+        const refreshed = await refreshClerkUserAvatar(clerkUser)
+        clerkUser = refreshed.clerkUser
+        hasAvatar = refreshed.hasAvatar
+        email = clerkUser.primaryEmailAddress?.emailAddress || email
+        const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+        phone = normalizePhoneDigits(phoneRaw) || phone
+        firstName = clerkUser.firstName?.trim() || firstName
+        lastName = clerkUser.lastName?.trim() || lastName
+        name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
       }
-      hasAvatar = Boolean(avatarState.hasAvatar)
-      email = clerkUser.primaryEmailAddress?.emailAddress || email
-      const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-      phone = normalizePhoneDigits(phoneRaw) || phone
-      firstName = clerkUser.firstName?.trim() || firstName
-      lastName = clerkUser.lastName?.trim() || lastName
-      name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
     } else if (email || kioskPhoneRaw) {
       clerkUser = await findClerkUserByIdentifiers({
         email,
         phone: kioskPhoneRaw,
       })
       if (clerkUser) {
-        let avatarState = resolveAvatarState(clerkUser)
-        if (avatarState.needsRefresh && clerkUser.id) {
-          clerkUser = await getCachedClerkUser(clerkUser.id)
-          avatarState = resolveAvatarState(clerkUser)
-        }
-        hasAvatar = Boolean(avatarState.hasAvatar)
+        const refreshed = await refreshClerkUserAvatar(clerkUser)
+        clerkUser = refreshed.clerkUser
+        hasAvatar = refreshed.hasAvatar
         email = clerkUser.primaryEmailAddress?.emailAddress || email
         const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
         phone = normalizePhoneDigits(phoneRaw) || phone
