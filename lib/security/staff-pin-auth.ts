@@ -7,6 +7,15 @@ import { asObject } from "@/lib/shared"
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 
+/**
+ * Resolves the pepper used to hash/verify staff PIN codes.
+ * STAFF_PIN_PEPPER is the dedicated, decoupled secret (preferred so PIN
+ * hashes survive a Clerk instance/key swap); CLERK_SECRET_KEY remains as a
+ * compat fallback for deployments that have not seeded STAFF_PIN_PEPPER yet.
+ */
+export const getStaffPinPepper = (): string =>
+  process.env.STAFF_PIN_PEPPER || process.env.CLERK_SECRET_KEY || "staff-pin"
+
 export const isValidPinHash = (pin: string, pinHash: string): boolean => {
   const parts = pinHash.split(":")
   if (parts.length !== 2) return false
@@ -14,7 +23,7 @@ export const isValidPinHash = (pin: string, pinHash: string): boolean => {
   if (!salt || !expectedHash) return false
 
   const nextHash = createHash("sha256")
-    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
+    .update(`${pin}:${salt}:${getStaffPinPepper()}`)
     .digest("hex")
 
   try {

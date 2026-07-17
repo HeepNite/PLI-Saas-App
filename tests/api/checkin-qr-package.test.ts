@@ -182,6 +182,87 @@ describe("qr check-in package route", () => {
     expect(res.status).toBe(401)
   })
 
+  // Scenario: kiosk_terminal flowContext, no kioskSessionToken,
+  // authResult.userId is set but resolveKioskCustomerClerkAuth's own
+  // getUser lookup throws (stale/cross-instance clerkId). Previously the
+  // guard's `!customerClerkUserId && !kioskSessionResult?.ok` short-
+  // circuited to 401 before the route's own getUser retry ever ran. The
+  // route must retry resolution using the original id and respond 200
+  // (NOT 401, NOT 500).
+  it("falls back to a retried getUser lookup when resolveKioskCustomerClerkAuth's getUser throws and no kioskSessionToken is supplied", async () => {
+    const getUser = vi.fn().mockRejectedValueOnce(new Error("Clerk 404: not found on this instance")).mockResolvedValueOnce({
+      id: "customer_clerk_1",
+      firstName: "Jane",
+      lastName: "Student",
+      primaryEmailAddress: { emailAddress: "student@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+    })
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
+    expect(getUser).toHaveBeenCalledTimes(2)
+    expect(getUser).toHaveBeenNthCalledWith(2, "customer_clerk_1")
+  })
+
+  // Scenario: double-miss — kiosk_terminal flowContext, no kioskSessionToken,
+  // authResult.userId is set, both the resolveKioskCustomerClerkAuth lookup
+  // and the retried client.users.getUser lookup reject, and no email/phone
+  // identifiers are available (no kioskUser, no resolved clerkUser). The
+  // route must degrade to a controlled 500 ("Unable to resolve user")
+  // instead of throwing or writing a stale identity.
+  it("returns a controlled 500 with 'Unable to resolve user' when both getUser attempts reject and no identifiers are available", async () => {
+    const getUser = vi.fn().mockRejectedValue(new Error("Clerk 404: not found on this instance"))
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    // No clerkUser was resolved and no kioskUser/email/phone identifiers are
+    // available, so the real upsertUserByIdentifiers would reject the
+    // empty-identifier upsert and return null — mirror that here.
+    mockUpsertUserByIdentifiers.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(500)
+    const data = await res.json()
+    expect(data.error).toBe("Unable to resolve user")
+    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
+    expect(getUser).toHaveBeenCalledTimes(2)
+    // The upsert was attempted with no email/phone identifiers and returned
+    // null, matching the real upsertUserByIdentifiers empty-identifier
+    // guard — no stale row created.
+    expect(mockUpsertUserByIdentifiers).toHaveBeenCalledWith(
+      expect.objectContaining({ clerkId: "customer_clerk_1", email: "", phone: "" })
+    )
+  })
+
   it("returns 409 when regular (non-add-on) check-in is truly past closesAt", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     mockIsTerminalCheckInAllowed.mockReturnValue(false)
