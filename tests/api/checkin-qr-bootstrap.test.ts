@@ -712,9 +712,11 @@ describe("qr check-in bootstrap route", () => {
     await expect(res.json()).resolves.toEqual({ error: "Course not found" })
   })
 
-  it("reports checkInWindow.isOpen=true far before startsAt (pre-window, previously blocked by opensAt)", async () => {
+  it("reports checkInWindow.isOpen=true earlier on the same class day before startsAt", async () => {
     const originalNodeEnv = process.env.NODE_ENV
     vi.stubEnv("NODE_ENV", "production")
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-02-24T10:00:00.000Z"))
     try {
       mockAuth.mockResolvedValue({ userId: null })
       mockResolveTerminalKioskSession.mockResolvedValue({
@@ -736,9 +738,9 @@ describe("qr check-in bootstrap route", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseSlug: "salsa-femenina-matutina",
-          // Far-future date/time keeps any realistic runner clock well before
-          // startsAt, i.e. before the old opensAt lower bound.
-          date: "9999-01-01",
+          // 2026-02-24T10:00:00Z is 05:00 in New York, so terminal/QR check-in
+          // remains open earlier on the class day even before the class starts.
+          date: "2026-02-24",
           time: "11:00",
           kioskSessionToken: "session_1",
         }),
@@ -749,6 +751,7 @@ describe("qr check-in bootstrap route", () => {
       expect(res.status).toBe(200)
       expect(data.context.checkInWindow.isOpen).toBe(true)
     } finally {
+      vi.useRealTimers()
       vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
     }
   })
