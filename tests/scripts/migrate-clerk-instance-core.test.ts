@@ -209,7 +209,12 @@ describe("runMigration — canary via --userId", () => {
 
     await runMigration({ mode: "write" }, deps)
 
-    expect(deps.target.users.getUser).not.toHaveBeenCalled()
+    // getUser is now called for every user (to verify the created phone), so the
+    // bulk-vs-canary distinction is that the canary verification.status line is
+    // only logged when --userId is set.
+    expect(logger.log).not.toHaveBeenCalledWith(
+      expect.stringContaining("canary observed phone verification.status")
+    )
   })
 
   it("still processes the target user when --userId is combined with --delta, even if the row's updatedAt predates the delta watermark", async () => {
@@ -389,11 +394,52 @@ describe("runMigration — invalid phone counted distinctly from created", () =>
 
     const result = await runMigration({ mode: "write" }, deps)
 
-    expect(deps.target.users.createUser).toHaveBeenCalled()
+    // The instance requires a phone at creation, so an invalid phone means the
+    // user is NOT created at all — bailed before createUser.
+    expect(deps.target.users.createUser).not.toHaveBeenCalled()
     expect(deps.target.phoneNumbers.createPhoneNumber).not.toHaveBeenCalled()
     expect(result.results[0].phase).toBe("invalid_phone")
     expect(result.created).toBe(0)
     expect(result.invalidPhone).toBe(1)
+  })
+})
+
+describe("runMigration — phone supplied at creation and verified", () => {
+  it("passes the E.164 phone to createUser and verifies an existing unverified phone", async () => {
+    const prismaClient = createPrismaClientFake({
+      user: {
+        findMany: vi.fn().mockResolvedValue([makeUserRow({ clerkId: "clerk_dev_1", phone: "2125551234" })]),
+        findUnique: vi.fn(),
+      },
+    })
+    const target = {
+      users: {
+        getUserList: vi.fn().mockResolvedValue(emptyUserList),
+        createUser: vi.fn().mockResolvedValue({ id: "clerk_prod_1" }),
+        getUser: vi.fn().mockResolvedValue({
+          id: "clerk_prod_1",
+          phoneNumbers: [{ id: "phone_1", phoneNumber: "+12125551234", verification: { status: "unverified" } }],
+        }),
+      },
+      phoneNumbers: {
+        createPhoneNumber: vi.fn(),
+        updatePhoneNumber: vi.fn().mockResolvedValue({ id: "phone_1" }),
+      },
+    } as unknown as MigrateTargetClient
+    const deps = createDeps({ prismaClient, target })
+
+    const result = await runMigration({ mode: "write" }, deps)
+
+    expect(target.users.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ phoneNumber: ["+12125551234"] })
+    )
+    expect(target.phoneNumbers.updatePhoneNumber).toHaveBeenCalledWith("phone_1", {
+      verified: true,
+      primary: true,
+    })
+    expect(target.phoneNumbers.createPhoneNumber).not.toHaveBeenCalled()
+    expect(result.results[0].phase).toBe("phone_attached")
+    expect(result.phoneAttached).toBe(1)
   })
 })
 

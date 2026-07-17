@@ -561,8 +561,17 @@ const migrateCandidate = async (
   }
 
   // 4. createUser — metadata verbatim per bucket, skipPasswordRequirement.
+  // The production instance requires a phone number at creation time, so the
+  // phone MUST be supplied to createUser (it is created UNVERIFIED); attachPhone
+  // then marks it verified. A candidate without a valid phone cannot be created.
   const metadataBuckets = extractMetadataBucketsFromStaffMetadata(candidate.staffMetadata)
   const emailAddress = candidate.email && !isPlaceholderEmail(candidate.email) ? [candidate.email] : undefined
+  const createE164Phone = digitsToE164(candidate.phone)
+
+  if (!createE164Phone) {
+    logger.warn(`[migrate-clerk-instance] no valid phone to create user for ${candidate.entity}:${candidate.appId}`)
+    return { entity: candidate.entity, appId: candidate.appId, oldClerkId: candidate.oldClerkId, phase: "invalid_phone" }
+  }
 
   let createdUser: { id: string }
   try {
@@ -572,6 +581,7 @@ const migrateCandidate = async (
           firstName: candidate.firstName ?? undefined,
           lastName: candidate.lastName ?? undefined,
           emailAddress,
+          phoneNumber: [createE164Phone],
           publicMetadata: metadataBuckets.publicMetadata,
           privateMetadata: metadataBuckets.privateMetadata,
           unsafeMetadata: metadataBuckets.unsafeMetadata,
@@ -648,16 +658,29 @@ const attachPhone = async (
   await sleep(RATE_LIMIT_SLEEP_MS)
 
   try {
-    await withRateLimitRetry(
-      () =>
-        target.phoneNumbers.createPhoneNumber({
-          userId: targetUserId,
-          phoneNumber: e164Phone,
-          verified: true,
-          primary: true,
-        }),
-      logger
-    )
+    // createUser already created the phone (the instance requires one), but
+    // UNVERIFIED. Find it and mark it verified+primary. If for any reason it is
+    // absent (e.g. a resume path), create it verified instead.
+    const targetUser = await withRateLimitRetry(() => target.users.getUser(targetUserId), logger)
+    const existingPhone = targetUser.phoneNumbers.find((entry) => entry.phoneNumber === e164Phone)
+
+    if (!existingPhone) {
+      await withRateLimitRetry(
+        () =>
+          target.phoneNumbers.createPhoneNumber({
+            userId: targetUserId,
+            phoneNumber: e164Phone,
+            verified: true,
+            primary: true,
+          }),
+        logger
+      )
+    } else if (existingPhone.verification?.status !== "verified") {
+      await withRateLimitRetry(
+        () => target.phoneNumbers.updatePhoneNumber(existingPhone.id, { verified: true, primary: true }),
+        logger
+      )
+    }
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Unknown error"
     logger.error(`[migrate-clerk-instance] createPhoneNumber failed for ${candidate.entity}:${candidate.appId}`, error)
