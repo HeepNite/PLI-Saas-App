@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { AppModule } from "@/apps/backend/src/app.module"
+import { QrDecisionController } from "@/apps/backend/src/checkin/qr-decision.controller"
 import { TodayClassesController } from "@/apps/backend/src/checkin/today-classes.controller"
 import { bootstrapBackendApp, createBackendRequestHandler } from "@/apps/backend/src/main"
 import { HealthController } from "@/apps/backend/src/health/health.controller"
@@ -56,7 +57,7 @@ describe("backend internal health contract", () => {
     const app = bootstrapBackendApp()
 
     expect(app.module).toBe(AppModule)
-    expect(app.controllers).toEqual([HealthController, TodayClassesController])
+    expect(app.controllers).toEqual([HealthController, TodayClassesController, QrDecisionController])
   })
 
   it("rejects unregistered internal routes", async () => {

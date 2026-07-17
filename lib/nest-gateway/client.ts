@@ -1,5 +1,5 @@
 import { createNestGatewayHeaders } from "./auth"
-import { getNestGatewayConfig, isNestGatewayRouteEnabled } from "./config"
+import { getNestGatewayConfig, isNestGatewayRouteEnabled, type NestGatewayRoute } from "./config"
 import {
   classifyNestGatewayFailure,
   createNestGatewayFallback,
@@ -10,6 +10,11 @@ import {
   parseCheckinTodayClassesResponse,
   type CheckinTodayClassesResponse,
 } from "./contracts/checkin-today-classes"
+import {
+  parseCheckinQrDecisionGatewayResponse,
+  type CheckinQrDecisionGatewayRequest,
+  type CheckinQrDecisionGatewayResponse,
+} from "./contracts/checkin-qr-decision"
 import {
   defaultNestGatewayFallbackReporter,
   getNestGatewayStatusClass,
@@ -28,6 +33,7 @@ type NestHealthSuccess = NestHealthPayload & {
 
 export type NestGatewayHealthResult = NestHealthSuccess | NestGatewayFallbackResult
 export type NestGatewayTodayClassesResult = CheckinTodayClassesResponse | NestGatewayFallbackResult
+export type NestGatewayQrDecisionResult = CheckinQrDecisionGatewayResponse | NestGatewayFallbackResult
 
 type NestGatewayHealthOptions = {
   env?: NodeJS.ProcessEnv
@@ -37,13 +43,16 @@ type NestGatewayHealthOptions = {
 }
 
 type NestGatewayRequestOptions<TSuccess> = NestGatewayHealthOptions & {
+  body?: unknown
+  method?: "GET" | "POST"
   parseSuccess: (payload: unknown) => TSuccess | null
   path: string
-  route: "internal-health" | "today-classes"
+  route: NestGatewayRoute
 }
 
 const HEALTH_ROUTE = "internal-health"
 const TODAY_CLASSES_ROUTE = "today-classes"
+const QR_DECISION_ROUTE = "qr-decision"
 
 const reportFallback = ({
   reporter,
@@ -56,7 +65,7 @@ const reportFallback = ({
   reporter: NestGatewayFallbackReporter
   reason: NestGatewayFallbackReason
   requestId?: string
-  route: "internal-health" | "today-classes"
+  route: NestGatewayRoute
   status?: number
   timeoutMs: number
 }) => {
@@ -75,7 +84,9 @@ const executeNestGatewayRequest = async <TSuccess>({
   env = process.env,
   fetchImpl = fetch,
   parseSuccess,
-  path,
+    body,
+    method = "GET",
+    path,
   reporter = defaultNestGatewayFallbackReporter,
   requestId,
   route,
@@ -98,8 +109,12 @@ const executeNestGatewayRequest = async <TSuccess>({
 
   try {
     const response = await fetchImpl(`${config.baseUrl}${path}`, {
-      method: "GET",
-      headers: createNestGatewayHeaders(config, requestId),
+      method,
+      headers: {
+        ...createNestGatewayHeaders(config, requestId),
+        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
       cache: "no-store",
     })
@@ -170,5 +185,27 @@ export const getNestGatewayTodayClasses = async ({
     reporter,
     requestId,
     route: TODAY_CLASSES_ROUTE,
+  })
+}
+
+export const getNestGatewayQrDecision = async ({
+  env = process.env,
+  fetchImpl = fetch,
+  payload,
+  requestId,
+  reporter = defaultNestGatewayFallbackReporter,
+}: NestGatewayHealthOptions & {
+  payload: CheckinQrDecisionGatewayRequest
+}): Promise<NestGatewayQrDecisionResult> => {
+  return executeNestGatewayRequest({
+    env,
+    fetchImpl,
+    body: payload,
+    method: "POST",
+    parseSuccess: (responsePayload) => parseCheckinQrDecisionGatewayResponse(responsePayload, payload),
+    path: "/internal/checkin/qr/decision",
+    reporter,
+    requestId,
+    route: QR_DECISION_ROUTE,
   })
 }

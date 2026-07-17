@@ -4,7 +4,7 @@
 
 - Delivery mode: force-chained
 - Chain strategy: feature-branch-chain
-- Current slice: PR 2 / Low-Risk Gateway Proof
+- Current slice: PR 3 / Customer QR Identity Decision
 
 ## Completed Tasks
 
@@ -15,6 +15,9 @@
 - [x] 2.1 Extended `tests/api/checkin-terminal-today-classes.test.ts` with Nest-on, route-flag-off, and Nest-unavailable parity coverage.
 - [x] 2.2 Added backend `today-classes` controller/service wiring and delegated the existing Next route through the Nest gateway client.
 - [x] 2.3 Extracted shared `today-classes` DTO and error mapping contract helpers for both Next and backend paths.
+- [x] 3.1 Extended `tests/api/checkin-qr-bootstrap.test.ts` with stale QR, authenticated identity delegation, package-vs-drop-in, and fallback parity coverage.
+- [x] 3.2 Added backend `qr-decision` controller/service wiring and delegated the existing Next QR bootstrap route through the Nest gateway client.
+- [x] 3.3 Kept `useCheckInBootstrap` unchanged because the Nest response matched the existing public payload without client normalization.
 
 ## TDD Cycle Evidence
 
@@ -122,7 +125,171 @@
 - The backend still uses the lightweight request-handler seam rather than a real Nest HTTP runtime, so later slices should continue reusing this seam or replace it in one bounded step instead of partially mixing both models.
 - `today-classes` success responses now validate the upstream DTO shape before returning it publicly; malformed upstream payloads intentionally fall back to Next instead of leaking backend mistakes to clients.
 
+## PR3 — TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1 | `tests/api/checkin-qr-bootstrap.test.ts`, `tests/backend/qr-decision.contract.test.ts` | Integration | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/backend/internal-health.contract.test.ts tests/backend/today-classes.contract.test.ts` (19/19 baseline) | ✅ Added route-level delegation/fallback assertions and backend contract coverage before creating QR gateway code | ✅ `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap.test.ts` (16/16) | ✅ Covered authenticated identity delegation, stale-window parity, package-present vs drop-in decisions, sanitized success, and upstream fallback parity | ✅ Extracted decision reads into a shared helper while keeping prepared checkout writes in Next |
+| 3.2 | `tests/backend/qr-decision.contract.test.ts`, `tests/api/checkin-qr-bootstrap.test.ts` | Integration | ✅ 19/19 baseline included the existing QR route behavior before backend delegation | ✅ Backend POST contract and public-route Nest delegation tests were written first | ✅ `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap.test.ts` (16/16) | ✅ Proved internal shared-secret path plus public success/fallback behavior across distinct route outcomes | ✅ Added a route-specific flag, POST gateway support, and a sanitized QR contract parser without changing the public DTO |
+| 3.3 | `tests/api/checkin-qr-bootstrap.test.ts` | Integration | ✅ 16/16 PR3 green suite baseline | ✅ Existing response-parity assertions proved whether client normalization was needed before touching the hook | ✅ `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap.test.ts` (16/16) | ✅ Terminal and non-terminal payload assertions exercised both branches, proving the client shape stayed stable | ➖ No hook change needed — response parity held |
+
+## PR3 Notes
+
+- The Nest slice owns only the QR decision reads. Prepared checkout context creation remains in the Next route after the decision response returns.
+- Added route-specific flag `NEST_GATEWAY_ROUTE_QR_DECISION_ENABLED` defaulting to off, preserving the global kill switch and shared fallback observability seam.
+- The public QR bootstrap route now sanitizes Nest success payloads through a dedicated QR contract parser before returning them to clients.
+- Terminal-safe QR bootstrap responses now use an explicit whitelist so `hasPreviousPurchase` is not exposed on the public kiosk terminal payload while package/history data remain hidden.
+- `lib/checkin/qr-decision.ts` now uses named business-rule constants for participant clamp bounds, query limits, quick-repeat threshold, and cents conversion without changing behavior.
+- QR gateway contract names now reflect the internal Nest gateway boundary (`CheckinQrDecisionGatewayRequest/Response`) instead of reading like direct frontend public DTO ownership.
+- `components/front/checkin/hooks/useCheckInBootstrap.ts` did not need a code change because the public response stayed shape-compatible.
+
+## PR3 Test Summary
+
+- **Total tests written**: 6
+- **Total tests passing**: 16 in the focused PR3 suite
+- **Layers used**: Integration (2 files)
+- **Approval tests**: None — this slice changes behavior intentionally through a new internal gateway path
+- **Read-only decision helpers created**: 1 (`buildQrBootstrapDecisionResponse`)
+
+## PR3 Tests Run
+
+- `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/backend/internal-health.contract.test.ts tests/backend/today-classes.contract.test.ts` (safety net baseline: 19/19)
+- `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap.test.ts` (RED → GREEN: 16/16)
+- `npm run typecheck` *(passes after dependency refresh; the earlier blocked note is stale)*
+- `npm run lint -- app/api/checkin/qr/bootstrap/route.ts apps/backend/src/app.module.ts apps/backend/src/main.ts apps/backend/src/checkin/qr-decision.controller.ts apps/backend/src/checkin/qr-decision.service.ts lib/checkin/qr-decision.ts lib/nest-gateway/client.ts lib/nest-gateway/config.ts lib/nest-gateway/contracts/checkin-qr-decision.ts tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts`
+
+## PR3 Risks
+
+- PR3 touches the large QR bootstrap route, so the implementation diff exceeded the ideal 400-line review target even though the functional scope stayed bounded to QR decision reads.
+
+## PR3 Review Follow-Up — TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| PR3-Security-Regression | `tests/api/checkin-qr-bootstrap.test.ts` | Integration | ✅ Existing PR3 terminal bootstrap coverage baseline | ✅ Added terminal-flow assertions that `hasPreviousPurchase` stays out of the public slim payload before changing the route | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts` (15/15) | ✅ Covered both local fallback/bootstrap and Nest-backed terminal responses so the public route preserves terminal-safe parity | ✅ Replaced spread-based terminal shaping with an explicit response whitelist |
+| PR3-Type-Naming | `tests/backend/qr-decision.contract.test.ts`, `tests/api/checkin-qr-bootstrap.test.ts` | Integration | ✅ PR3 route/backend contract suite already green | ✅ Renamed gateway request/response types only after the route/backend contract tests existed | ✅ `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap.test.ts` (17/17) | ✅ Proved the internal contract rename did not change request handling or public response parsing | ✅ Narrowed internal contract naming without introducing a larger DTO split |
+
+## PR3 Review Follow-Up
+
+- Fixed the terminal QR bootstrap leak by removing `hasPreviousPurchase` from the terminal-safe public response instead of forwarding the full bootstrap object.
+- Refreshed the stale progress note: `npm run typecheck` now passes in this worktree.
+- Extracted named constants in `lib/checkin/qr-decision.ts` for participant clamping, active/recent query limits, quick-repeat eligibility, and cents conversion.
+- Clarified the Nest gateway contract intent with request/response type names scoped to the internal QR decision boundary.
+
+## PR3 Review Follow-Up — Tests Run
+
+- `npm test -- tests/api/checkin-qr-bootstrap.test.ts`
+- `npm test -- tests/backend/qr-decision.contract.test.ts`
+- `npm run typecheck`
+- `npm run lint -- app/api/checkin/qr/bootstrap/route.ts apps/backend/src/main.ts apps/backend/src/checkin/qr-decision.controller.ts apps/backend/src/checkin/qr-decision.service.ts lib/checkin/qr-decision.ts lib/nest-gateway/client.ts lib/nest-gateway/contracts/checkin-qr-decision.ts tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts`
+
+## PR3 Blocking Review Fix — TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| PR3-Terminal-Safe-Purchase-State | `tests/api/checkin-qr-bootstrap.test.ts` | Integration | ✅ Existing PR3 terminal-safe coverage already exercised local and Nest-backed terminal responses | ✅ Tightened both terminal-safe assertions first so `hasAnyCompletedPurchase` had to be `undefined` alongside `hasPreviousPurchase`, `packages`, and `purchaseHistory` | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts` (16/16) | ✅ Covered local fallback/bootstrap and Nest-backed terminal responses to prove the boolean no longer leaks in either path | ✅ Removed the field from the explicit terminal-safe whitelist instead of layering another response mutation |
+| PR3-Unknown-Course-404-Parity | `tests/api/checkin-qr-bootstrap.test.ts` | Integration | ✅ Existing QR fallback suite already covered Nest-unavailable fallback behavior | ✅ Added a focused unknown-course fallback assertion first, requiring legacy `{ error: "Course not found" }` with status `404` | ✅ `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap.test.ts` (18/18) | ✅ Proved Nest fallback still delegates to the local QR decision path while preserving the legacy not-found response contract | ✅ Introduced a typed QR decision error so known route errors map cleanly without broad catch-all branching |
+
+## PR3 Blocking Review Fix
+
+- Removed `hasAnyCompletedPurchase` from the public terminal-safe QR bootstrap payload so terminal responses now hide it together with `hasPreviousPurchase`, `packages`, and `purchaseHistory`.
+- Restored the legacy unknown-course fallback contract by returning `{ error: "Course not found" }` with status `404` when the local QR decision builder detects an unknown course.
+- Kept the change scoped to PR3 QR decision extraction: no payment/check-in writes, no Prisma changes, and no PR4 work mixed in.
+
+## PR3 Blocking Review Fix — Tests Run
+
+- `npm test -- tests/api/checkin-qr-bootstrap.test.ts`
+- `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap.test.ts`
+- `npm run typecheck`
+- `npm run lint -- app/api/checkin/qr/bootstrap/route.ts lib/checkin/qr-decision.ts tests/api/checkin-qr-bootstrap.test.ts`
+
+## PR3 Terminal-Safe Risk Follow-Up
+
+- Tightened the terminal-safe QR bootstrap whitelist again so terminal responses now return only `context`, `customer`, and `consecutiveOffer`, removing package, purchase, session-purchase, active-package, quick-checkout, and quick-repeat-derived fields from both legacy and Nest-backed terminal paths.
+- Removed the terminal-only quick-repeat debug log so purchase-derived state is no longer emitted to application logs during kiosk bootstrap.
+- Added regression assertions for both the legacy/local terminal path and the Nest-backed terminal path to prove the stripped fields stay absent.
+
+## PR3 Terminal-Safe Risk Follow-Up — Tests Run
+
+- `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts`
+- `npm run typecheck`
+- `npm run lint -- app/api/checkin/qr/bootstrap/route.ts tests/api/checkin-qr-bootstrap.test.ts`
+
+## PR3 Final Blocker Fix — TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| PR3-Log-Sanitization | `tests/api/checkin-qr-bootstrap.test.ts` | Integration | ✅ Focused QR bootstrap suite baseline exposed the current latency log payload | ✅ Tightened the latency assertion first so the bootstrap log must no longer include `hasQuickCheckout` | ✅ `npx vitest run tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts` (24/24) | ✅ Existing terminal and non-terminal bootstrap assertions still exercised both sanitized and standard response paths | ✅ Removed the purchase-derived log field without changing the surrounding latency event shape |
+| PR3-Consecutive-Compatibility | `tests/api/checkin-qr-bootstrap-consecutive.test.ts` | Integration | ✅ Consecutive bootstrap suite started red (4/6) with `courseCatalog.findMany` undefined in the extracted QR decision path | ✅ Kept the failing consecutive route assertions as the RED proof before touching the helper | ✅ `npx vitest run tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts` (24/24) | ✅ Covered offer-present, purchased-class suppression, missing-link, missing-source, and day-specific scheduling paths in the legacy terminal bootstrap flow | ✅ Added a compatibility fallback in `resolveConsecutiveOffer` so extracted QR decisions preserve legacy behavior across older Prisma mock shapes |
+
+## PR3 Final Blocker Fix
+
+- Removed the purchase-derived `hasQuickCheckout` field from the staff terminal bootstrap latency log while keeping the existing operational timing event.
+- Restored legacy consecutive-offer bootstrap compatibility by letting `resolveConsecutiveOffer` fall back when `prisma.courseCatalog.findMany` is unavailable and by preserving the "already purchased Class B today" suppression path.
+- Kept the scope inside PR3 QR decision extraction only: no payment/check-in writes, no schema work, and no PR4 slice leakage.
+
+## PR3 Final Blocker Fix — Tests Run
+
+- `npm run typecheck`
+- `npx vitest run tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts`
+- `npm run lint -- app/api/checkin/qr/bootstrap/route.ts lib/checkin/consecutive-offer.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts`
+
+## PR3 Hardening Pass — TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| PR3-Missing-Secret-Coverage | `tests/backend/qr-decision.contract.test.ts` | Integration | ✅ Existing QR backend contract suite already proved success and invalid-secret behavior | ✅ Added direct missing-secret coverage for `/internal/checkin/qr/decision` before touching supporting tests | ✅ `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/nest-gateway-qr-decision.test.ts` (7/7) | ✅ Covered success, missing secret, invalid secret, service delegation, controller delegation, and direct gateway POST request wiring | ✅ Kept production scope unchanged; hardening stayed test-only |
+
+## PR3 Hardening Pass
+
+- Added direct missing-secret coverage for `/internal/checkin/qr/decision`.
+- Added focused QR gateway client coverage for route-flag defaults plus POST auth/body wiring.
+- Added thin-file delegation coverage for `QrDecisionController` and `QrDecisionService` without expanding production scope.
+
+## PR3 Hardening Pass — Tests Run
+
+- `npm test -- tests/backend/qr-decision.contract.test.ts tests/api/nest-gateway-qr-decision.test.ts`
+- `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts tests/api/nest-gateway-qr-decision.test.ts`
+- `npm run typecheck`
+- `npm run lint -- tests/backend/qr-decision.contract.test.ts tests/api/nest-gateway-qr-decision.test.ts tests/api/checkin-qr-bootstrap.test.ts apps/backend/src/checkin/qr-decision.controller.ts apps/backend/src/checkin/qr-decision.service.ts lib/checkin/qr-decision.ts lib/nest-gateway/client.ts`
+- `npx vitest run tests/api/checkin-qr-bootstrap.test.ts tests/backend/qr-decision.contract.test.ts tests/api/nest-gateway-qr-decision.test.ts --coverage`
+
+## PR3 Resilience Follow-Up — TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| PR3-Consecutive-Optional-Failure | `tests/api/checkin-qr-bootstrap-consecutive.test.ts` | Integration | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts tests/api/nest-gateway-qr-decision.test.ts tests/backend/qr-decision.contract.test.ts` (29/29 baseline) | ✅ Added a failing terminal bootstrap assertion for a thrown promo lookup before touching QR decision code | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts tests/api/nest-gateway-qr-decision.test.ts tests/backend/qr-decision.contract.test.ts` (33/33) | ✅ Kept existing offer-present and offer-absent cases alongside the new thrown-lookup case so both success and degraded paths execute | ✅ Wrapped only the optional consecutive-offer read so core bootstrap data still fails loudly when required reads break |
+| PR3-Gateway-Response-Correlation | `tests/api/nest-gateway-qr-decision.test.ts`, `tests/api/checkin-qr-bootstrap.test.ts` | Unit + Integration | ✅ Same 29/29 baseline suite before gateway/parser changes | ✅ Added mismatched success-payload tests first at the gateway layer and public-route layer | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts tests/api/nest-gateway-qr-decision.test.ts tests/backend/qr-decision.contract.test.ts` (33/33) | ✅ Covered both direct gateway rejection and public-route legacy fallback when course slot or customer identity do not match the request | ✅ Kept the validation at the shared QR gateway contract seam so later callers inherit it automatically |
+| PR3-Backend-Malformed-Body | `tests/backend/qr-decision.contract.test.ts` | Integration | ✅ Same 29/29 baseline suite before backend handler changes | ✅ Added malformed JSON coverage for `/internal/checkin/qr/decision` before changing the request handler | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts tests/api/nest-gateway-qr-decision.test.ts tests/backend/qr-decision.contract.test.ts` (33/33) | ✅ Complements existing success/missing-secret/invalid-secret coverage with a bad-body path | ✅ Kept the backend handler response small and local: invalid JSON now returns a bounded 400 instead of bubbling a parser exception |
+
+## PR3 Resilience Follow-Up
+
+- Optional consecutive-offer lookups now degrade to `consecutiveOffer: null` instead of aborting the entire QR bootstrap flow.
+- The shared QR gateway parser now rejects Nest 200 responses whose `context.courseSlug`, `context.date`, `context.time`, or `customer.userId` do not match the original request, forcing the public route back to the legacy Next decision path.
+- `/internal/checkin/qr/decision` now returns a bounded `400 { error: "Invalid JSON body" }` response for malformed JSON instead of leaking a raw parser failure.
+
+## PR3 Resilience Follow-Up — Tests Run
+
+- `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-bootstrap-consecutive.test.ts tests/api/nest-gateway-qr-decision.test.ts tests/backend/qr-decision.contract.test.ts` (baseline 29/29, green 33/33)
+
+## PR3 Final Risk Warning Follow-Up — TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| PR3-Duration-Correlation | `tests/api/nest-gateway-qr-decision.test.ts`, `tests/api/checkin-qr-bootstrap.test.ts` | Unit + Integration | ✅ `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/api/nest-gateway-qr-decision.test.ts` (20/20 baseline) | ✅ Added duration-mismatch rejection tests first at the gateway layer and public fallback layer | ✅ `npm test -- tests/api/nest-gateway-qr-decision.test.ts tests/api/checkin-qr-bootstrap.test.ts` (22/22) | ✅ Existing matching-duration success coverage plus new mismatched-duration fallback coverage now exercise both branches | ✅ Kept the fix in the shared QR correlation matcher so all callers inherit it automatically |
+
+## PR3 Final Risk Warning Follow-Up
+
+- The shared QR gateway correlation matcher now rejects Nest 200 responses when `context.durationMinutes` disagrees with the original request, even if `courseSlug`, `date`, `time`, and `customer.userId` still match.
+- Added focused regression coverage at both the shared gateway client layer and the public QR bootstrap fallback layer so mismatched duration responses fall back to the legacy Next decision path.
+
+## PR3 Final Risk Warning Follow-Up — Tests Run
+
+- `npm test -- tests/api/checkin-qr-bootstrap.test.ts tests/api/nest-gateway-qr-decision.test.ts` (baseline 20/20, RED: 20/22, GREEN: 22/22)
+- `npm run typecheck`
+- `npm run lint -- lib/nest-gateway/contracts/checkin-qr-decision.ts tests/api/nest-gateway-qr-decision.test.ts tests/api/checkin-qr-bootstrap.test.ts`
+
 ## Next Slice
 
-- Phase 3 / PR 3: extract QR bootstrap decision logic behind the same Next-as-BFF delegation pattern while keeping authoritative writes in Next.
-- Reuse the shared gateway fallback + DTO pattern for QR responses instead of duplicating route-specific contract mapping.
+- Phase 4 / PR 4: implement the kiosk platform gate and terminal connection-token slice without mixing PaymentIntent orchestration or authoritative purchase/attendance writes.
+- Reuse the shared QR/today-classes fallback seams and route-specific flag pattern for the connection-token route.
