@@ -36,6 +36,7 @@ import type {
   PaymentRow,
   PaymentsApiSummary,
 } from "./staffAdminTypes"
+import type { StaffAuthedFetch } from "./useStaffPortalShellAdmin"
 
 const PAGE_SIZE = 9
 const STAFF_BOARD_POLL_BACKOFF_MAX_MS = 60_000
@@ -88,6 +89,7 @@ type UseStaffStudentsBoardAdminOptions = {
   updateSettlementBulk: UpdateSettlementBulk
   refreshPaymentsBoard: () => Promise<void>
   handleStaffAuthFailure: (status: number) => boolean
+  staffAuthedFetch: StaffAuthedFetch
 }
 
 export function useStaffStudentsBoardAdmin({
@@ -114,6 +116,7 @@ export function useStaffStudentsBoardAdmin({
   updateSettlementBulk,
   refreshPaymentsBoard,
   handleStaffAuthFailure,
+  staffAuthedFetch,
 }: UseStaffStudentsBoardAdminOptions) {
   const [currentPage, setCurrentPage] = React.useState(1)
 
@@ -391,7 +394,7 @@ export function useStaffStudentsBoardAdmin({
       if (webCashInFlightRef.current || Date.now() < webCashBackoffUntilRef.current) return
       webCashInFlightRef.current = true
       try {
-        const res = await fetch(`/api/staff/checkin/web-cash-arrivals?since=${encodeURIComponent(webCashLastPolledRef.current)}`)
+        const res = await staffAuthedFetch(`/api/staff/checkin/web-cash-arrivals?since=${encodeURIComponent(webCashLastPolledRef.current)}`)
         if (!res.ok) {
           if (handleStaffAuthFailure(res.status)) return
           backOffStaffBoardPoll(res, webCashFailuresRef, webCashBackoffUntilRef)
@@ -429,7 +432,7 @@ export function useStaffStudentsBoardAdmin({
     void poll()
     const interval = window.setInterval(poll, 10_000)
     return () => window.clearInterval(interval)
-  }, [handleStaffAuthFailure, isHistoryMode, refreshPaymentsBoard])
+  }, [handleStaffAuthFailure, isHistoryMode, refreshPaymentsBoard, staffAuthedFetch])
 
   const dismissWebCashArrival = React.useCallback((attendanceId: string) => {
     setWebCashArrivals((prev) => prev.filter((item) => item.attendanceId !== attendanceId))
@@ -447,7 +450,7 @@ export function useStaffStudentsBoardAdmin({
       if (pulseInFlightRef.current || Date.now() < pulseBackoffUntilRef.current) return
       pulseInFlightRef.current = true
       try {
-        const res = await fetch("/api/staff/payments/pulse")
+        const res = await staffAuthedFetch("/api/staff/payments/pulse")
         if (!res.ok) {
           if (handleStaffAuthFailure(res.status)) return
           backOffStaffBoardPoll(res, pulseFailuresRef, pulseBackoffUntilRef)
@@ -481,7 +484,7 @@ export function useStaffStudentsBoardAdmin({
     void poll()
     const interval = window.setInterval(poll, 15_000)
     return () => window.clearInterval(interval)
-  }, [handleStaffAuthFailure, isHistoryMode, refreshPaymentsBoard])
+  }, [handleStaffAuthFailure, isHistoryMode, refreshPaymentsBoard, staffAuthedFetch])
 
   return {
     currentPage,
