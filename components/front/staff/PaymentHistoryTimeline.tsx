@@ -123,6 +123,7 @@ export function formatCurrency(amount: number): string {
 }
 
 export function formatDate(date: Date): string {
+  if (Number.isNaN(date.getTime())) return "—"
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",

@@ -175,6 +175,10 @@ describe("staff payments shared helpers", () => {
     expect(normalizePurchaseSource({ source: "staff_created_student" })).toBe("front_desk")
   })
 
+  it("normalizes explicit admin purchaseSource metadata as admin source", () => {
+    expect(normalizePurchaseSource({ purchaseSource: "admin", source: "cash_checkout" })).toBe("admin")
+  })
+
   it("prefers active today check-ins over later lower-priority rows", () => {
     const selected = selectTodayCheckInByUser([
       {

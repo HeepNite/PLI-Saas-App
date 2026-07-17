@@ -65,6 +65,7 @@ model Purchase {
   stripePaymentIntentId   String?           @unique
   stripeCheckoutSessionId String?           @unique
   parentPurchaseId        String?
+  idempotencyKey          String?           @unique
   metadata                Json?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt

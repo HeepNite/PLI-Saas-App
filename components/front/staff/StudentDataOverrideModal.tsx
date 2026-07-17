@@ -10,6 +10,7 @@ import {
   CourseOption,
   SessionItem,
   PackageOption,
+  PackagePlanOption,
   PurchaseOption,
   hasFormValue,
   createEmptyFormState,
@@ -19,6 +20,7 @@ import { PaymentTabForm } from "./student-override/PaymentTabForm"
 import { PackageTabForm } from "./student-override/PackageTabForm"
 import { StatsTabForm } from "./student-override/StatsTabForm"
 import { ConfirmDialog } from "./student-override/ConfirmDialog"
+import { useAddPackageGrant } from "./student-override/useAddPackageGrant"
 
 // ============================================================
 // Types
@@ -115,6 +117,25 @@ export default function StudentDataOverrideModal({
   )
   const availablePurchases = (purchasesData ?? []).filter((p) => !deletedPurchaseIds.has(p.id))
 
+  const { data: plansData, loading: plansLoading, error: plansError } = useAsyncFetch<PackagePlanOption[]>(
+    "/api/staff/school/packages/picker",
+    isPackageTab,
+    (json) => {
+      const raw = json as { data?: { items?: PackagePlanOption[] } }
+      return (raw.data?.items ?? []) as PackagePlanOption[]
+    },
+  )
+  const availablePlans = plansData ?? []
+
+  const handlePackageGranted = React.useCallback(() => {
+    onSuccess?.()
+  }, [onSuccess])
+
+  const addPackageGrant = useAddPackageGrant({
+    studentId,
+    onGranted: handlePackageGranted,
+  })
+
   const updateField = React.useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
       setForm((prev) => ({ ...prev, [key]: value }))
@@ -138,6 +159,8 @@ export default function StudentDataOverrideModal({
     []
   )
 
+  const resetAddPackageGrant = addPackageGrant.reset
+
   const resetForm = React.useCallback(() => {
     setForm(createEmptyFormState())
     setSubmitState("idle")
@@ -147,7 +170,8 @@ export default function StudentDataOverrideModal({
     setSelectedCourseSlug("")
     setShowManualPackageId(false)
     setDeletedPurchaseIds(new Set())
-  }, [])
+    resetAddPackageGrant()
+  }, [resetAddPackageGrant])
 
   const formatPackageSummary = React.useCallback((pkg: PackageOption): string => {
     const statusLabel = pkg.status ? pkg.status.charAt(0).toUpperCase() + pkg.status.slice(1) : "Unknown"
@@ -171,6 +195,47 @@ export default function StudentDataOverrideModal({
     const shortId = p.id.length > 8 ? `${p.id.slice(0, 8)}…` : p.id
     return `${p.label} · ${amountLabel} · ${statusLabel} · ${dateLabel} · ${shortId}`
   }, [])
+
+  // Memoized so PackageTabForm (and its child AddPackageForm) don't re-render
+  // on every parent render from a freshly-allocated object literal.
+  const addPackageProps = React.useMemo(
+    () => ({
+      plans: availablePlans,
+      plansLoading,
+      plansError,
+      selectedPlanId: addPackageGrant.selectedPlanId,
+      expiresAt: addPackageGrant.expiresAt,
+      reason: addPackageGrant.reason,
+      state: addPackageGrant.state,
+      errorMessage: addPackageGrant.errorMessage,
+      duplicate: addPackageGrant.duplicate,
+      grantedPurchaseId: addPackageGrant.grantedPurchaseId,
+      onSelectPlan: addPackageGrant.setSelectedPlanId,
+      onExpiresAtChange: addPackageGrant.setExpiresAt,
+      onReasonChange: addPackageGrant.setReason,
+      onSubmit: addPackageGrant.submit,
+      onConfirmDuplicate: addPackageGrant.confirmDuplicateAndResubmit,
+      onStartAnother: addPackageGrant.reset,
+    }),
+    [
+      availablePlans,
+      plansLoading,
+      plansError,
+      addPackageGrant.selectedPlanId,
+      addPackageGrant.expiresAt,
+      addPackageGrant.reason,
+      addPackageGrant.state,
+      addPackageGrant.errorMessage,
+      addPackageGrant.duplicate,
+      addPackageGrant.grantedPurchaseId,
+      addPackageGrant.setSelectedPlanId,
+      addPackageGrant.setExpiresAt,
+      addPackageGrant.setReason,
+      addPackageGrant.submit,
+      addPackageGrant.confirmDuplicateAndResubmit,
+      addPackageGrant.reset,
+    ]
+  )
 
   const handleClose = React.useCallback(() => {
     if (submitState === "submitting") return
@@ -418,12 +483,14 @@ export default function StudentDataOverrideModal({
     setConfirmOpen(true)
   }, [validate])
 
-  // Reset state when modal opens
+  // Reset state when the modal opens, and again if it switches to a
+  // different student while already open (e.g. staff clicking from one
+  // student's row to another without closing the modal in between).
   React.useEffect(() => {
     if (open) {
       resetForm()
     }
-  }, [open, resetForm])
+  }, [open, studentId, resetForm])
 
   if (!open) return null
 
@@ -599,6 +666,7 @@ export default function StudentDataOverrideModal({
                     onToggleManualPackageId={() => setShowManualPackageId((prev) => !prev)}
                     onFieldChange={updateField}
                     formatPackageSummary={formatPackageSummary}
+                    addPackage={addPackageProps}
                   />
                 )}
 

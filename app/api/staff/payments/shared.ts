@@ -57,6 +57,7 @@ export const normalizePurchaseSource = (metadata: unknown): PurchaseSource => {
   if (explicit === PURCHASE_SOURCE.WEB) return PURCHASE_SOURCE.WEB
   if (explicit === PURCHASE_SOURCE.KIOSK) return PURCHASE_SOURCE.KIOSK
   if (explicit === PURCHASE_SOURCE.FRONT_DESK) return PURCHASE_SOURCE.FRONT_DESK
+  if (explicit === PURCHASE_SOURCE.ADMIN) return PURCHASE_SOURCE.ADMIN
 
   const source = asText(meta.source).toLowerCase()
   if (source.includes("kiosk") || source.includes("terminal")) return PURCHASE_SOURCE.KIOSK

@@ -152,7 +152,7 @@ export function transformPaymentRowsToAttendance(
     else if (status === "no-show") noShows++
 
     let eventDate: Date
-    if (row.classDate) {
+    if (row.classDate && /^\d{4}-\d{2}-\d{2}$/.test(row.classDate)) {
       const [year, month, day] = row.classDate.split("-").map(Number)
       eventDate = new Date(year, month - 1, day)
     } else {
