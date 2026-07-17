@@ -26,7 +26,8 @@
     "spec:resolve": "node scripts/codex-spec.mjs resolve",
     "spec:plan": "node scripts/codex-spec.mjs plan",
     "spec:implement": "node scripts/codex-spec.mjs implement",
-    "spec:validate": "node scripts/codex-spec.mjs validate"
+    "spec:validate": "node scripts/codex-spec.mjs validate",
+    "migrate:clerk": "tsx scripts/migrate-clerk-instance.ts"
   },
   "prisma": {
     "seed": "node --require ./prisma/register-ts.js prisma/seed.ts"
@@ -70,6 +71,7 @@
     "jsdom": "^29.0.1",
     "prisma": "^6.19.2",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5",
     "vite-tsconfig-paths": "^4.3.2",
