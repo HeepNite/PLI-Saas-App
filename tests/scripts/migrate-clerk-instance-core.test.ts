@@ -68,9 +68,11 @@ const createPrismaClientFake = (overrides: Partial<MigratePrismaClient> = {}): M
   return {
     user: {
       findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     staffAccount: {
       findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     clerkIdMigration: {
       findUnique: vi.fn(async ({ where }) => clerkIdMigrationRows.get(`${where.entity_appId.entity}:${where.entity_appId.appId}`) ?? null),
@@ -118,7 +120,7 @@ beforeEach(() => {
 describe("runMigration — dry-run makes zero writes", () => {
   it("does not call createUser, createPhoneNumber, or persist a map row", async () => {
     const prismaClient = createPrismaClientFake({
-      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]) },
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
     })
     const deps = createDeps({ prismaClient })
 
@@ -139,6 +141,7 @@ describe("runMigration — canary via --userId", () => {
           makeUserRow({ id: "user_db_1", clerkId: "clerk_dev_1" }),
           makeUserRow({ id: "user_db_2", clerkId: "clerk_dev_2", email: "beto@example.com", phone: "2125550001" }),
         ]),
+        findUnique: vi.fn(),
       },
     })
     const deps = createDeps({ prismaClient })
@@ -175,7 +178,7 @@ describe("runMigration — canary via --userId", () => {
 describe("runMigration — idempotent re-run", () => {
   it("does not create a duplicate prod user when a map row already has phase phone_attached", async () => {
     const prismaClient = createPrismaClientFake({
-      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]) },
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
     })
     // Pre-seed the map row via a first run.
     const deps = createDeps({ prismaClient })
@@ -195,6 +198,7 @@ describe("runMigration — delta pass phone-changed reconcile", () => {
     const prismaClient = createPrismaClientFake({
       user: {
         findMany: vi.fn().mockResolvedValue([makeUserRow({ phone: "2125559000" })]),
+        findUnique: vi.fn(),
       },
     })
     // Seed an existing map row referencing a DIFFERENT (old) phone.
@@ -214,7 +218,7 @@ describe("runMigration — delta pass phone-changed reconcile", () => {
 describe("runMigration — skipped_deleted", () => {
   it("marks the map row skipped_deleted and leaves the DB row untouched when the source getUser returns 404", async () => {
     const prismaClient = createPrismaClientFake({
-      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]) },
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
     })
     const source = { users: { getUser: vi.fn().mockRejectedValue({ status: 404 }) } } as never
     const deps = createDeps({ prismaClient, source })
@@ -234,6 +238,7 @@ describe("runMigration — placeholder email excluded", () => {
         findMany: vi.fn().mockResolvedValue([
           makeUserRow({ email: "phone-2125551234-1700000000000@placeholder.pli.local" }),
         ]),
+        findUnique: vi.fn(),
       },
     })
     const deps = createDeps({ prismaClient })
@@ -254,7 +259,7 @@ describe("runMigration — placeholder email excluded", () => {
 describe("runMigration — metadata verbatim buckets", () => {
   it("copies publicMetadata, privateMetadata, and unsafeMetadata verbatim without consolidation", async () => {
     const prismaClient = createPrismaClientFake({
-      staffAccount: { findMany: vi.fn().mockResolvedValue([makeStaffRow()]) },
+      staffAccount: { findMany: vi.fn().mockResolvedValue([makeStaffRow()]), findUnique: vi.fn() },
     })
     const deps = createDeps({ prismaClient })
 
@@ -273,7 +278,7 @@ describe("runMigration — metadata verbatim buckets", () => {
 describe("runMigration — skipPasswordRequirement present", () => {
   it("includes skipPasswordRequirement: true on every createUser call", async () => {
     const prismaClient = createPrismaClientFake({
-      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]) },
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
     })
     const deps = createDeps({ prismaClient })
 
@@ -314,7 +319,7 @@ describe("withRateLimitRetry — 429 backoff", () => {
 describe("runMigration — resume from user_created", () => {
   it("does not call createUser again and only retries the phone-attachment call", async () => {
     const prismaClient = createPrismaClientFake({
-      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]) },
+      user: { findMany: vi.fn().mockResolvedValue([makeUserRow()]), findUnique: vi.fn() },
     })
     const seeded: ClerkIdMigrationRow = makeMapRow({ phase: "user_created", newClerkId: "clerk_prod_partial" })
     prismaClient.clerkIdMigration.findUnique = vi.fn().mockResolvedValue(seeded)

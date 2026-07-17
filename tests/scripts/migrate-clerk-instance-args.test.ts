@@ -4,7 +4,14 @@ import { isPlaceholderEmail, parseMigrateArgs } from "@/scripts/migrate-clerk-in
 
 describe("parseMigrateArgs", () => {
   it("defaults to dry-run mode with no flags", () => {
-    expect(parseMigrateArgs([])).toEqual({ mode: "dry-run", limit: undefined, delta: false, userId: undefined, remap: false })
+    expect(parseMigrateArgs([])).toEqual({
+      mode: "dry-run",
+      limit: undefined,
+      delta: false,
+      userId: undefined,
+      remap: false,
+      rollback: false,
+    })
   })
 
   it("parses explicit --mode=write, --limit, --userId, --delta, --remap", () => {
@@ -14,7 +21,12 @@ describe("parseMigrateArgs", () => {
       delta: true,
       userId: "user_123",
       remap: true,
+      rollback: false,
     })
+  })
+
+  it("parses --rollback", () => {
+    expect(parseMigrateArgs(["--rollback"])).toMatchObject({ rollback: true })
   })
 
   it("rejects an invalid --mode value", () => {

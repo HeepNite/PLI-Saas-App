@@ -27,7 +27,8 @@
     "spec:plan": "node scripts/codex-spec.mjs plan",
     "spec:implement": "node scripts/codex-spec.mjs implement",
     "spec:validate": "node scripts/codex-spec.mjs validate",
-    "migrate:clerk": "tsx scripts/migrate-clerk-instance.ts"
+    "migrate:clerk": "tsx scripts/migrate-clerk-instance.ts",
+    "migrate:clerk:freeze-list": "tsx scripts/generate-clerk-freeze-list.ts"
   },
   "prisma": {
     "seed": "node --require ./prisma/register-ts.js prisma/seed.ts"

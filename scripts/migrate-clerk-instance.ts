@@ -15,6 +15,7 @@ export type MigrateArgs = {
   delta?: boolean
   userId?: string
   remap?: boolean
+  rollback?: boolean
 }
 
 type MigrateLogger = Pick<Console, "log" | "warn" | "error" | "table">
@@ -45,12 +46,14 @@ export type MigratePrismaClient = {
       where: { clerkId: { not: null }; updatedAt?: { gt: Date } }
       orderBy: { id: "asc" }
     }): Promise<MigratePrismaUserRow[]>
+    findUnique(args: { where: { id: string } }): Promise<{ id: string; clerkId: string | null } | null>
   }
   staffAccount: {
     findMany(args: {
       where?: { updatedAt?: { gt: Date } }
       orderBy: { id: "asc" }
     }): Promise<MigratePrismaStaffRow[]>
+    findUnique(args: { where: { id: string } }): Promise<{ id: string; clerkUserId: string | null } | null>
   }
   clerkIdMigration: {
     findUnique(args: {
@@ -158,6 +161,7 @@ export const parseMigrateArgs = (argv: string[]): MigrateArgs => {
   let delta = false
   let userId: string | undefined
   let remap = false
+  let rollback = false
 
   for (const arg of argv) {
     if (arg.startsWith("--mode=")) {
@@ -193,9 +197,14 @@ export const parseMigrateArgs = (argv: string[]): MigrateArgs => {
       remap = true
       continue
     }
+
+    if (arg === "--rollback") {
+      rollback = true
+      continue
+    }
   }
 
-  return { mode, limit, delta, userId, remap }
+  return { mode, limit, delta, userId, remap, rollback }
 }
 
 // ── E.164 normalization (design D7) ──────────────────────────────────
@@ -765,6 +774,31 @@ export type CoverageReport = {
   gatePassed: boolean
 }
 
+/**
+ * Compares a mapped row's CURRENT DB value (post-remap expectation) against
+ * the map's newClerkId. Returns "mismatched" when the DB row still exists
+ * but its current clerkId/clerkUserId does NOT equal newClerkId (it diverged
+ * post-cutover — e.g. re-synced by a webhook, or manually relinked — see
+ * design's Rollback "WHERE guard" semantics, applied here to the forward
+ * coverage gate rather than rollback). Returns "missing" when the DB row no
+ * longer exists at all — there is nothing to compare against, so it is
+ * counted alongside target-side misses rather than as a mismatch.
+ */
+const diffRowAgainstDb = async (
+  prismaClient: MigratePrismaClient,
+  row: ClerkIdMigrationRow
+): Promise<"ok" | "mismatched" | "missing"> => {
+  if (row.entity === "user") {
+    const current = await prismaClient.user.findUnique({ where: { id: row.appId } })
+    if (!current) return "missing"
+    return current.clerkId === row.newClerkId ? "ok" : "mismatched"
+  }
+
+  const current = await prismaClient.staffAccount.findUnique({ where: { id: row.appId } })
+  if (!current) return "missing"
+  return current.clerkUserId === row.newClerkId ? "ok" : "mismatched"
+}
+
 export async function runCoverageDiff(
   prismaClient: MigratePrismaClient,
   target: MigrateTargetClient,
@@ -773,23 +807,30 @@ export async function runCoverageDiff(
   const mapRows = await prismaClient.clerkIdMigration.findMany({ where: { phase: "phone_attached" } })
 
   let missingInTarget = 0
+  let mismatched = 0
+
   for (const row of mapRows) {
     try {
       await target.users.getUser(row.newClerkId)
     } catch {
       missingInTarget += 1
+      continue
     }
+
+    const dbDiff = await diffRowAgainstDb(prismaClient, row)
+    if (dbDiff === "missing") missingInTarget += 1
+    else if (dbDiff === "mismatched") mismatched += 1
   }
 
   const report: CoverageReport = {
     totalMapped: mapRows.length,
     missingInTarget,
-    mismatched: 0,
-    gatePassed: missingInTarget === 0,
+    mismatched,
+    gatePassed: missingInTarget === 0 && mismatched === 0,
   }
 
   logger.log(
-    `[migrate-clerk-instance] coverage gate: totalMapped=${report.totalMapped} missingInTarget=${report.missingInTarget} gatePassed=${report.gatePassed}`
+    `[migrate-clerk-instance] coverage gate: totalMapped=${report.totalMapped} missingInTarget=${report.missingInTarget} mismatched=${report.mismatched} gatePassed=${report.gatePassed}`
   )
 
   return report
@@ -818,6 +859,11 @@ const createDefaultDeps = (): MigrateDeps => {
 async function main() {
   const args = parseMigrateArgs(process.argv.slice(2))
   const deps = createDefaultDeps()
+
+  if (args.rollback) {
+    await runRollback(deps.prismaClient, deps.logger)
+    return
+  }
 
   if (args.remap) {
     await runRemap(deps.prismaClient, deps.logger)

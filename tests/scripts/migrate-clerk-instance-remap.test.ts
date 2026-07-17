@@ -55,8 +55,8 @@ describe("runRemap — single transaction", () => {
     }
 
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: { findMany: vi.fn(), findUnique: vi.fn() },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -82,8 +82,8 @@ describe("runRemap — single transaction", () => {
     ]
 
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: { findMany: vi.fn(), findUnique: vi.fn() },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -111,8 +111,8 @@ describe("runRemap — pre-remap assertion (design step 9)", () => {
     }
 
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: { findMany: vi.fn(), findUnique: vi.fn() },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -138,8 +138,8 @@ describe("runRemap — pre-remap assertion (design step 9)", () => {
     }
 
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: { findMany: vi.fn(), findUnique: vi.fn() },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -179,8 +179,8 @@ describe("runRollback — guarded WHERE current === newClerkId", () => {
     }
 
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: { findMany: vi.fn(), findUnique: vi.fn() },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -214,8 +214,8 @@ describe("runRollback — guarded WHERE current === newClerkId", () => {
     }
 
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: { findMany: vi.fn(), findUnique: vi.fn() },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -234,10 +234,13 @@ describe("runRollback — guarded WHERE current === newClerkId", () => {
 
 describe("runCoverageDiff — script-local coverage gate", () => {
   it("reports zero missing when every mapped newClerkId resolves against the target client", async () => {
-    const mapRows = [makeMapRow({ newClerkId: "clerk_prod_1" })]
+    const mapRows = [makeMapRow({ entity: "user", appId: "user_db_1", newClerkId: "clerk_prod_1" })]
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: {
+        findMany: vi.fn(),
+        findUnique: vi.fn().mockResolvedValue({ id: "user_db_1", clerkId: "clerk_prod_1" }),
+      },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -249,14 +252,17 @@ describe("runCoverageDiff — script-local coverage gate", () => {
 
     const report = await runCoverageDiff(prismaClient, target, logger)
 
-    expect(report).toMatchObject({ totalMapped: 1, missingInTarget: 0, gatePassed: true })
+    expect(report).toMatchObject({ totalMapped: 1, missingInTarget: 0, mismatched: 0, gatePassed: true })
   })
 
   it("flags a gate failure when a mapped user is missing on the target instance", async () => {
-    const mapRows = [makeMapRow({ newClerkId: "clerk_prod_missing" })]
+    const mapRows = [makeMapRow({ entity: "user", appId: "user_db_1", newClerkId: "clerk_prod_missing" })]
     const prismaClient: MigratePrismaClient = {
-      user: { findMany: vi.fn() },
-      staffAccount: { findMany: vi.fn() },
+      user: {
+        findMany: vi.fn(),
+        findUnique: vi.fn().mockResolvedValue({ id: "user_db_1", clerkId: "clerk_prod_missing" }),
+      },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
       clerkIdMigration: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -268,6 +274,73 @@ describe("runCoverageDiff — script-local coverage gate", () => {
 
     const report = await runCoverageDiff(prismaClient, target, logger)
 
-    expect(report).toMatchObject({ totalMapped: 1, missingInTarget: 1, gatePassed: false })
+    expect(report).toMatchObject({ totalMapped: 1, missingInTarget: 1, mismatched: 0, gatePassed: false })
+  })
+
+  it("flags a mismatch (not a miss) when the target user resolves but the DB row's current clerkId diverged from the map's newClerkId", async () => {
+    const mapRows = [makeMapRow({ entity: "user", appId: "user_db_1", newClerkId: "clerk_prod_1" })]
+    const prismaClient: MigratePrismaClient = {
+      user: {
+        findMany: vi.fn(),
+        // Row was re-synced post-remap (e.g. via webhook) to a different clerkId.
+        findUnique: vi.fn().mockResolvedValue({ id: "user_db_1", clerkId: "clerk_prod_DIFFERENT" }),
+      },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
+      clerkIdMigration: {
+        findUnique: vi.fn(),
+        upsert: vi.fn(),
+        findMany: vi.fn().mockResolvedValue(mapRows),
+      },
+      $transaction: vi.fn(),
+    }
+    const target = { users: { getUser: vi.fn().mockResolvedValue({ id: "clerk_prod_1" }) } } as never
+
+    const report = await runCoverageDiff(prismaClient, target, logger)
+
+    expect(report).toMatchObject({ totalMapped: 1, missingInTarget: 0, mismatched: 1, gatePassed: false })
+  })
+
+  it("flags a mismatch for a StaffAccount row whose current clerkUserId diverged from the map's newClerkId", async () => {
+    const mapRows = [makeMapRow({ entity: "staff", appId: "staff_db_1", newClerkId: "clerk_prod_staff_1" })]
+    const prismaClient: MigratePrismaClient = {
+      user: { findMany: vi.fn(), findUnique: vi.fn() },
+      staffAccount: {
+        findMany: vi.fn(),
+        findUnique: vi.fn().mockResolvedValue({ id: "staff_db_1", clerkUserId: "clerk_prod_DIFFERENT" }),
+      },
+      clerkIdMigration: {
+        findUnique: vi.fn(),
+        upsert: vi.fn(),
+        findMany: vi.fn().mockResolvedValue(mapRows),
+      },
+      $transaction: vi.fn(),
+    }
+    const target = { users: { getUser: vi.fn().mockResolvedValue({ id: "clerk_prod_staff_1" }) } } as never
+
+    const report = await runCoverageDiff(prismaClient, target, logger)
+
+    expect(report).toMatchObject({ totalMapped: 1, missingInTarget: 0, mismatched: 1, gatePassed: false })
+  })
+
+  it("treats a DB row that no longer exists at all as missing, not mismatched", async () => {
+    const mapRows = [makeMapRow({ entity: "user", appId: "user_db_1", newClerkId: "clerk_prod_1" })]
+    const prismaClient: MigratePrismaClient = {
+      user: {
+        findMany: vi.fn(),
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      staffAccount: { findMany: vi.fn(), findUnique: vi.fn() },
+      clerkIdMigration: {
+        findUnique: vi.fn(),
+        upsert: vi.fn(),
+        findMany: vi.fn().mockResolvedValue(mapRows),
+      },
+      $transaction: vi.fn(),
+    }
+    const target = { users: { getUser: vi.fn().mockResolvedValue({ id: "clerk_prod_1" }) } } as never
+
+    const report = await runCoverageDiff(prismaClient, target, logger)
+
+    expect(report).toMatchObject({ totalMapped: 1, missingInTarget: 1, mismatched: 0, gatePassed: false })
   })
 })
