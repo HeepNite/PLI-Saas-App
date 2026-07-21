@@ -4,6 +4,7 @@ const ROUTE_FLAG_ENV_NAMES = {
   "internal-health": "NEST_GATEWAY_ROUTE_INTERNAL_HEALTH_ENABLED",
   "today-classes": "NEST_GATEWAY_ROUTE_TODAY_CLASSES_ENABLED",
   "qr-decision": "NEST_GATEWAY_ROUTE_QR_DECISION_ENABLED",
+  "terminal-connection-token": "NEST_GATEWAY_ROUTE_TERMINAL_CONNECTION_TOKEN_ENABLED",
 } as const
 
 const asEnabledFlag = (value: string | undefined) => value?.trim().toLowerCase() === "true"
@@ -29,6 +30,7 @@ const DEFAULT_ROUTE_FLAGS: Record<NestGatewayRoute, boolean> = {
   "internal-health": true,
   "today-classes": false,
   "qr-decision": false,
+  "terminal-connection-token": false,
 }
 
 const resolveRouteFlags = (env: NodeJS.ProcessEnv, enabled: boolean): Record<NestGatewayRoute, boolean> => {
