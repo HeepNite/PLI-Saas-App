@@ -75,6 +75,12 @@ describe("runRemap — single transaction", () => {
       data: { clerkUserId: "clerk_prod_staff_1" },
     })
     expect(result.remapped).toBe(2)
+    // The bulk transaction must carry a generous timeout — the default 5s is too
+    // tight for ~100 guarded row updates over a remote proxied connection.
+    expect(prismaClient.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ timeout: expect.any(Number) })
+    )
   })
 
   it("aborts before opening the transaction when the SAME newClerkId is shared across DIFFERENT oldClerkId values (genuine collision)", async () => {

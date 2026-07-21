@@ -66,7 +66,10 @@ export type MigratePrismaClient = {
     }): Promise<ClerkIdMigrationRow>
     findMany(args?: { where?: { phase?: string } }): Promise<ClerkIdMigrationRow[]>
   }
-  $transaction<T>(fn: (tx: MigrateTransactionClient) => Promise<T>): Promise<T>
+  $transaction<T>(
+    fn: (tx: MigrateTransactionClient) => Promise<T>,
+    options?: { timeout?: number; maxWait?: number }
+  ): Promise<T>
 }
 
 export type MigrateTransactionClient = {
@@ -286,6 +289,10 @@ const extractMetadataBucketsFromStaffMetadata = (metadata: unknown): MetadataBuc
 
 const RATE_LIMIT_SLEEP_MS = 120
 const MAX_RETRY_ATTEMPTS = 5
+// Bulk remap/rollback update ~103 rows (with per-row guard reads) over a remote
+// proxied connection; the Prisma default 5s interactive-transaction timeout is
+// too tight for that round-trip volume. Allow generous headroom.
+const BULK_TRANSACTION_OPTIONS = { timeout: 120_000, maxWait: 15_000 } as const
 const INITIAL_BACKOFF_MS = 250
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -849,7 +856,7 @@ export async function runRemap(prismaClient: MigratePrismaClient, logger: Migrat
 
     logger.log(`[migrate-clerk-instance] remap complete: ${results.length} rows updated`)
     return { remapped: results.length, results }
-  })
+  }, BULK_TRANSACTION_OPTIONS)
 }
 
 // ── Rollback: restore oldClerkId, guarded WHERE current === newClerkId ──
@@ -884,7 +891,7 @@ export async function runRollback(prismaClient: MigratePrismaClient, logger: Mig
 
     logger.log(`[migrate-clerk-instance] rollback complete: restored=${restored} skipped=${skipped.length}`)
     return { restored, skipped }
-  })
+  }, BULK_TRANSACTION_OPTIONS)
 }
 
 // ── Coverage diff (script-local, NOT the app's getClerkCoverage) ─────
