@@ -13,8 +13,12 @@ export const isValidPinHash = (pin: string, pinHash: string): boolean => {
   const [salt, expectedHash] = parts
   if (!salt || !expectedHash) return false
 
+  // STAFF_PIN_PEPPER decouples staff PIN hashing from CLERK_SECRET_KEY so hashes
+  // survive a Clerk key swap. Falls back to CLERK_SECRET_KEY when unset, keeping
+  // existing hashes valid until the pepper is seeded with the current value.
+  const pepper = process.env.STAFF_PIN_PEPPER || process.env.CLERK_SECRET_KEY || "staff-pin"
   const nextHash = createHash("sha256")
-    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
+    .update(`${pin}:${salt}:${pepper}`)
     .digest("hex")
 
   try {

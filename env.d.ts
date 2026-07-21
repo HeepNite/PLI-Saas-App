@@ -11,5 +11,6 @@ declare namespace NodeJS {
     DATABASE_URL?: string
     STAFF_CHECKIN_TOKEN?: string
     STAFF_TERMINAL_SECRET?: string
+    STAFF_PIN_PEPPER?: string
   }
 }
