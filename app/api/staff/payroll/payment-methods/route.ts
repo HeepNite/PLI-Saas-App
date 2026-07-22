@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { VALID_ADAPTER_TYPES } from "@/lib/payroll/adapters/registry"
+import { maskPaymentMethod, mergePaymentMethodConfig } from "@/lib/payroll/mask-payment-method-config"
+import type { AdapterType } from "@/lib/payroll/types"
 import {
   asOptionalString,
   currencyExists,
   jsonError,
   readJsonBody,
   resolveSchoolIdForClerkUser,
-  toNullableJsonInput,
 } from "@/lib/payroll/route-helpers"
 import { authorizeOwnerRequest, type StaffPortalAuthResult } from "@/lib/security/staff-portal-auth"
 
@@ -43,7 +44,7 @@ export async function GET() {
     orderBy: [{ active: "desc" }, { name: "asc" }],
   })
 
-  return NextResponse.json({ items })
+  return NextResponse.json({ items: items.map(maskPaymentMethod) })
 }
 
 export async function POST(req: Request) {
@@ -89,11 +90,14 @@ export async function POST(req: Request) {
       name,
       adapterType,
       currency,
-      configJson:
-        parsedBody.body.config === undefined ? undefined : toNullableJsonInput(parsedBody.body.config),
+      configJson: mergePaymentMethodConfig(
+        adapterType as AdapterType,
+        undefined,
+        parsedBody.body.config,
+      ),
       active: true,
     },
   })
 
-  return NextResponse.json(created, { status: 201 })
+  return NextResponse.json(maskPaymentMethod(created), { status: 201 })
 }

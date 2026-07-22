@@ -8,8 +8,28 @@ import {
   PAYMENT_METHOD_OPTIONS,
   type PaymentAdapterType,
 } from "./types"
+import type { MaskedSecret } from "@/lib/payroll/mask-payment-method-config"
 import { createEmptyMethodForm } from "./payrollUtils"
 import { useFormSubmit } from "./useFormSubmit"
+
+const CONFIG_FIELD_LABELS: Record<string, string> = {
+  bankName: "Bank Name",
+  routingNumber: "Routing Number",
+  accountNumber: "Account Number",
+  accountType: "Account Type",
+  secretKey: "Secret Key",
+  accountId: "Account ID",
+  zelleId: "Zelle ID",
+  venmoUser: "Venmo Username",
+  publicKey: "Public Key",
+  accessToken: "Access Token",
+}
+
+const isMaskedSecret = (value: unknown): value is MaskedSecret =>
+  typeof value === "object" &&
+  value !== null &&
+  Object.hasOwn(value, "configured") &&
+  Object.hasOwn(value, "preview")
 
 type MethodFormState = ReturnType<typeof createEmptyMethodForm>
 
@@ -82,6 +102,13 @@ export function PaymentMethodsTab({
           return
         }
       }
+
+      // Payload cleanliness: an empty-string field is a no-op server-side
+      // (the write-only merge treats it identically to an absent key), but
+      // omitting it here keeps the POST body free of noise fields.
+      finalConfig = Object.fromEntries(
+        Object.entries(finalConfig).filter(([, value]) => value !== ""),
+      )
 
       await submitMethodForm(
         event,
@@ -181,48 +208,32 @@ export function PaymentMethodsTab({
               {method.adapterType !== "cash" &&
               method.adapterType !== "credits" ? (
                 <div className="mt-3 grid gap-2 rounded-lg border border-black/10 bg-black/[0.03] p-3 text-[11px] text-black/70 dark:border-white/10 dark:bg-black/20 dark:text-white/70">
-                  {Object.entries(
-                    (method.configJson as Record<string, string>) ?? {},
-                  ).map(([key, value]) => {
-                    const label =
-                      {
-                        bankName: "Bank Name",
-                        routingNumber: "Routing Number",
-                        accountNumber: "Account Number",
-                        accountType: "Account Type",
-                        secretKey: "Secret Key",
-                        accountId: "Account ID",
-                        zelleId: "Zelle ID",
-                        venmoUser: "Venmo Username",
-                        publicKey: "Public Key",
-                        accessToken: "Access Token",
-                      }[key] || key
+                  {Object.entries(method.configJson ?? {}).map(
+                    ([key, value]) => {
+                      const label = CONFIG_FIELD_LABELS[key] || key
+                      const displayValue = isMaskedSecret(value)
+                        ? value.configured
+                          ? value.preview
+                          : "Not configured"
+                        : value === null || value === undefined
+                          ? "—"
+                          : String(value)
 
-                    const lowKey = key.toLowerCase()
-                    let displayValue = String(value)
-
-                    if (lowKey.includes("secret") || lowKey.includes("token")) {
-                      displayValue = "••••••••••••••••"
-                    } else if (lowKey.includes("number") || lowKey === "cbu") {
-                      const str = String(value)
-                      displayValue =
-                        str.length > 3 ? `•••• ${str.slice(-3)}` : str
-                    }
-
-                    return (
-                      <div
-                        key={key}
-                        className="flex min-w-0 items-start justify-between gap-3 border-b border-black/5 pb-1 last:border-0 last:pb-0 dark:border-white/5"
-                      >
-                        <span className="shrink-0 font-bold uppercase tracking-wider text-black/40 dark:text-white/40">
-                          {label}
-                        </span>
-                        <span className="min-w-0 break-all text-right font-mono">
-                          {displayValue}
-                        </span>
-                      </div>
-                    )
-                  })}
+                      return (
+                        <div
+                          key={key}
+                          className="flex min-w-0 items-start justify-between gap-3 border-b border-black/5 pb-1 last:border-0 last:pb-0 dark:border-white/5"
+                        >
+                          <span className="shrink-0 font-bold uppercase tracking-wider text-black/40 dark:text-white/40">
+                            {label}
+                          </span>
+                          <span className="min-w-0 break-all text-right font-mono">
+                            {displayValue}
+                          </span>
+                        </div>
+                      )
+                    },
+                  )}
                 </div>
               ) : (
                 <p className="mt-3 text-xs italic text-black/40 dark:text-white/40">

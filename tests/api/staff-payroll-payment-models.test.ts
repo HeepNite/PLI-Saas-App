@@ -151,7 +151,7 @@ describe("staff payroll payment models routes", () => {
     })
   })
 
-  it("allows managers to list payment models for the assignment dropdown", async () => {
+  it("allows managers to list payment models for the assignment dropdown with a masked default method", async () => {
     mockPrisma.staffPaymentModel.findMany.mockResolvedValueOnce([
       {
         id: "model_1",
@@ -167,7 +167,7 @@ describe("staff payroll payment models routes", () => {
           adapterType: "direct_deposit",
           currency: "ARS",
           active: true,
-          configJson: { accountAlias: "pli" },
+          configJson: { accountNumber: "000123456789", bankName: "Chase" },
         },
         isDefault: true,
         active: true,
@@ -203,13 +203,43 @@ describe("staff payroll payment models routes", () => {
             adapterType: "direct_deposit",
             currency: "ARS",
             active: true,
-            configJson: { accountAlias: "pli" },
+            configJson: {
+              accountNumber: { configured: true, preview: "…6789" },
+              bankName: "Chase",
+              routingNumber: { configured: false, preview: null },
+            },
           },
           isDefault: true,
           active: true,
         },
       ],
     })
+  })
+
+  it("never leaks the plaintext default-method secret when the relation arrives via Prisma include", async () => {
+    mockPrisma.staffPaymentModel.findMany.mockResolvedValueOnce([
+      {
+        id: "model_1",
+        name: "Default ARS",
+        defaultPaymentMethodId: "pm_1",
+        defaultPaymentMethod: {
+          id: "pm_1",
+          name: "Bank Transfer",
+          adapterType: "direct_deposit",
+          currency: "ARS",
+          active: true,
+          configJson: { accountNumber: "000123456789", bankName: "Chase" },
+        },
+        isDefault: true,
+        active: true,
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+    const res = await GET()
+    const raw = JSON.stringify(await res.json())
+
+    expect(raw).not.toContain("000123456789")
   })
 
   it("hydrates defaultPaymentMethod in list responses when the relation comes back null", async () => {
@@ -241,9 +271,43 @@ describe("staff payroll payment models routes", () => {
           defaultPaymentMethod: expect.objectContaining({
             id: "pm_1",
             name: "Bank Transfer",
+            configJson: { accountAlias: "pli" },
           }),
         }),
       ],
+    })
+  })
+
+  it("masks the default method's secrets when hydrated via the fallback-fetch branch", async () => {
+    mockPrisma.staffPaymentModel.findMany.mockResolvedValueOnce([
+      {
+        id: "model_1",
+        name: "Teachers ARS",
+        defaultPaymentMethodId: "pm_1",
+        defaultPaymentMethod: null,
+        isDefault: true,
+      },
+    ])
+    mockPrisma.staffPaymentMethod.findMany.mockResolvedValueOnce([
+      {
+        id: "pm_1",
+        schoolId: "school_1",
+        name: "Zelle",
+        adapterType: "zelle",
+        active: true,
+        configJson: { zelleId: "real@value.com" },
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+    const res = await GET()
+    const data = await res.json()
+    const raw = JSON.stringify(data)
+
+    expect(raw).not.toContain("real@value.com")
+    expect(data.items[0].defaultPaymentMethod.configJson).toEqual({
+      zelleId: { configured: true, preview: "••••" },
+      venmoUser: { configured: false, preview: null },
     })
   })
 
@@ -326,8 +390,45 @@ describe("staff payroll payment models routes", () => {
       defaultPaymentMethod: expect.objectContaining({
         id: "pm_1",
         name: "Bank Transfer",
+        configJson: { accountAlias: "pli" },
       }),
     }))
+  })
+
+  it("masks the default method's secrets on PATCH when the relation arrives via Prisma include (regression guard)", async () => {
+    mockPrisma.staffPaymentModel.update.mockResolvedValueOnce({
+      id: "model_1",
+      name: "Teachers ARS",
+      defaultPaymentMethodId: "pm_1",
+      defaultPaymentMethod: {
+        id: "pm_1",
+        name: "Zelle",
+        adapterType: "zelle",
+        active: true,
+        configJson: { zelleId: "real@value.com" },
+      },
+      isDefault: true,
+    })
+
+    const { PATCH } = await import("@/app/api/staff/payroll/payment-models/[modelId]/route")
+    const res = await PATCH(
+      new Request("http://localhost/api/staff/payroll/payment-models/model_1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Teachers ARS" }),
+      }),
+      { params: Promise.resolve({ modelId: "model_1" }) }
+    )
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    const raw = JSON.stringify(data)
+
+    expect(raw).not.toContain("real@value.com")
+    expect(data.defaultPaymentMethod.configJson).toEqual({
+      zelleId: { configured: true, preview: "••••" },
+      venmoUser: { configured: false, preview: null },
+    })
   })
 
   it("assigns a payroll model to a staff account and writes an audit entry", async () => {
