@@ -5,6 +5,7 @@ import { TodayClassesController } from "@/apps/backend/src/checkin/today-classes
 import { bootstrapBackendApp, createBackendRequestHandler } from "@/apps/backend/src/main"
 import { HealthController } from "@/apps/backend/src/health/health.controller"
 import { ConnectionTokenController } from "@/apps/backend/src/terminal/connection-token.controller"
+import { PaymentIntentsController } from "@/apps/backend/src/terminal/payment-intents.controller"
 import { INTERNAL_AUTH_HEADER } from "@/lib/nest-gateway/auth"
 
 const setInternalSecret = (value: string | undefined) => {
@@ -63,6 +64,7 @@ describe("backend internal health contract", () => {
       TodayClassesController,
       QrDecisionController,
       ConnectionTokenController,
+      PaymentIntentsController,
     ])
   })
 
