@@ -1,4 +1,4 @@
-import { buildSessionStartsAt, getCourseBySlug } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getCourseBySlug, getDateKeyInTimeZone } from "@/lib/class-schedule"
 import { SLUG_REGEX } from "@/lib/shared"
 
 export const QR_CHECKIN_OPEN_BEFORE_MS = 2 * 60 * 60 * 1000
@@ -91,4 +91,13 @@ export const isQrCheckInWindowOpen = (context: QrCheckInContext, now = new Date(
 export const isQrCheckInWindowAllowed = (context: QrCheckInContext, now = new Date()) => {
   if (isDevCheckInBypassEnabled()) return true
   return isQrCheckInWindowOpen(context, now)
+}
+
+// The ONLY window is the class DAY (America/New_York): terminal check-in is
+// open the whole day of the class and closes only when the NY day ends. No
+// pre-class lower bound and no post-class grace cutoff — the kiosk is on the
+// owner's premises with cash/physical purchases only, so there is no abuse risk.
+export const isTerminalCheckInAllowed = (context: QrCheckInContext, now = new Date()) => {
+  if (isDevCheckInBypassEnabled()) return true
+  return getDateKeyInTimeZone(now) === context.date
 }

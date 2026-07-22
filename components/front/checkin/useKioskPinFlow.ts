@@ -17,16 +17,16 @@ import {
   resolveActiveKioskPinField,
   resolveKioskPinRotationMode,
 } from "@/lib/checkin/kiosk-pin-policy"
+import type {
+  FastPathResponse,
+  FullPathResponse,
+} from "@/lib/checkin/types/identify-and-bootstrap"
 
-// Shape returned by POST /api/checkin/phone/identify (same envelope as pin/identify)
-type KioskPhoneIdentifySuccess = {
-  identified: true
-  userId?: string
-  credentialKind: string
-  requiresPinRotation: false
-  sessionToken: string
-  sessionExpiresAt: string
-}
+// Shapes returned by POST /api/checkin/phone/identify-and-bootstrap — a
+// discriminated union on `path`. See lib/checkin/types/identify-and-bootstrap.ts
+// for the canonical server-side types; these are re-declared here (rather than
+// imported directly) so the failure/error envelopes below stay local to the hook.
+type KioskPhoneIdentifySuccess = FastPathResponse | FullPathResponse
 
 type KioskPhoneIdentifyFailure = {
   identified: false
@@ -49,6 +49,20 @@ type UseKioskPinFlowParams<TBootstrap> = {
   setError: React.Dispatch<React.SetStateAction<string | null>>
   setSuccess: React.Dispatch<React.SetStateAction<string | null>>
   pinLastDigitRevealMs?: number
+  /**
+   * Class context (courseSlug/date/time/durationMinutes/linkedFromCourseSlug)
+   * sent alongside the phone number to `/api/checkin/phone/identify-and-bootstrap`.
+   * Same shape `useCheckInBootstrap` sends to the QR bootstrap endpoint — see
+   * `resolveCheckInBootstrapContextPayload`.
+   */
+  contextPayload?: Record<string, unknown>
+  /**
+   * Adapts the fast/full identify-and-bootstrap response into the caller's
+   * `TBootstrap` shape before it is pushed into `setBootstrap`. Required to
+   * actually populate bootstrap state — omit only when the caller does not
+   * want phone identify to feed the check-in bootstrap UI at all.
+   */
+  adaptIdentifyAndBootstrapResponse?: (data: FastPathResponse | FullPathResponse) => TBootstrap
 }
 
 export const useKioskPinFlow = <TBootstrap,>({
@@ -57,6 +71,8 @@ export const useKioskPinFlow = <TBootstrap,>({
   setError,
   setSuccess,
   pinLastDigitRevealMs = PIN_LAST_DIGIT_REVEAL_MS,
+  contextPayload,
+  adaptIdentifyAndBootstrapResponse,
 }: UseKioskPinFlowParams<TBootstrap>) => {
   const [kioskPhone, setKioskPhone] = React.useState("")
   const [kioskPhoneLoading, setKioskPhoneLoading] = React.useState(false)
@@ -293,13 +309,13 @@ export const useKioskPinFlow = <TBootstrap,>({
     setSuccess(null)
 
     try {
-      const res = await fetch("/api/checkin/phone/identify", {
+      const res = await fetch("/api/checkin/phone/identify-and-bootstrap", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({ phone: kioskPhone }),
+        body: JSON.stringify({ phone: kioskPhone, ...contextPayload }),
       })
       const data = (await res.json().catch(() => null)) as
         | KioskPhoneIdentifyFailure
@@ -336,13 +352,18 @@ export const useKioskPinFlow = <TBootstrap,>({
       setKioskPinBlockedUntil(null)
       setKioskPinThrottleSeverity(null)
       setKioskPhone("")
+
+      if (adaptIdentifyAndBootstrapResponse) {
+        setBootstrap(adaptIdentifyAndBootstrapResponse(successData))
+      }
+
       setSuccess("Phone number verified. Loading your purchase options...")
     } catch {
       setError("Unable to identify this phone number.")
     } finally {
       setKioskPhoneLoading(false)
     }
-  }, [isKioskTerminalFlow, kioskPhone, setBootstrap, setError, setSuccess])
+  }, [adaptIdentifyAndBootstrapResponse, contextPayload, isKioskTerminalFlow, kioskPhone, setBootstrap, setError, setSuccess])
 
   const handleKioskPinRotate = React.useCallback(async () => {
     if (!kioskPinSessionToken) return

@@ -29,6 +29,7 @@ import {
   resolveCheckInBootstrapContextPayload,
 } from "@/lib/checkin/checkin-bootstrap-context"
 import { useCheckInTerminalEffects } from "@/components/front/checkin/hooks/useCheckInTerminalEffects"
+import { adaptIdentifyAndBootstrapResponse } from "@/lib/checkin/identify-and-bootstrap-adapter"
 import type {
   EntryMode,
   BootstrapResponse,
@@ -246,6 +247,8 @@ export function useCheckInQrController({
     setBootstrap: setBootstrapFromRef,
     setError,
     setSuccess,
+    contextPayload,
+    adaptIdentifyAndBootstrapResponse,
   })
 
   const {
