@@ -75,6 +75,7 @@ export type CheckoutVerification = {
 export type CheckoutPreparationResolution = {
   source: "prepared" | "fallback"
   preparedAccount: PreparedCheckoutAccount
+  preparedContextId?: string
   verification: CheckoutVerification
   terminalAuth: Extract<StaffTerminalSessionAuthResult, { ok: true }> | null
   fallbackReason?: string
@@ -715,6 +716,7 @@ export const resolveCheckoutPreparation = async (
     return {
       source: "prepared",
       preparedAccount: preparedContext.preparedAccount,
+      preparedContextId: preparedContext.rowId,
       verification: preparedContext.verification,
       terminalAuth,
     }
