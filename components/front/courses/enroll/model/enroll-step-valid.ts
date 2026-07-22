@@ -12,8 +12,6 @@ export type StepValidContext = {
   time: string
   consecutiveOfferLoading: boolean
   contact: EnrollmentContact
-  studentPin: string
-  studentPinConfirm: string
   requiresPhotoStep: boolean
   photoSaved: boolean
   consecutiveChoiceMade: boolean
@@ -29,20 +27,18 @@ export const resolveStepValid = (stepIndex: number, ctx: StepValidContext): bool
     case "datetime":
       return Boolean(ctx.date) && Boolean(ctx.time) && !ctx.consecutiveOfferLoading
     case "info": {
-      const baseValid =
+      return (
         ctx.contact.firstName.trim().length > 1 &&
         ctx.contact.email.trim().length > 5 &&
         isCompleteUSPhone(ctx.contact.phone)
-      if (!baseValid) return false
-      if (ctx.service === "new-student") {
-        return /^\d{4}$/.test(ctx.studentPin) && ctx.studentPin === ctx.studentPinConfirm
-      }
-      return true
+      )
     }
     case "photo":
       return !ctx.requiresPhotoStep || ctx.photoSaved
     case "packages":
       return true
+    case "promo":
+      return ctx.consecutiveChoiceMade
     case "consecutive":
       return ctx.consecutiveChoiceMade
     case "payments":

@@ -16,8 +16,6 @@ type CheckoutPayloadInput = {
   kioskSessionFields: Record<string, unknown>
   checkInContextDate: string
   checkInContextTime: string
-  studentPin: string
-  studentPinConfirm: string
   consecutiveAccepted: boolean
   consecutiveAddedCents: number
   consecutiveOffer?: ConsecutiveOfferData
@@ -39,8 +37,6 @@ export const buildEnrollCheckoutPayload = ({
   kioskSessionFields,
   checkInContextDate,
   checkInContextTime,
-  studentPin,
-  studentPinConfirm,
   consecutiveAccepted,
   consecutiveAddedCents,
   consecutiveOffer,
@@ -67,8 +63,6 @@ export const buildEnrollCheckoutPayload = ({
   ...kioskSessionFields,
   kioskCurrentCourseDate: checkInContextDate || undefined,
   kioskCurrentCourseTime: checkInContextTime || undefined,
-  studentPin: serviceId === "new-student" ? studentPin : undefined,
-  studentPinConfirm: serviceId === "new-student" ? studentPinConfirm : undefined,
   ...(consecutiveAccepted && consecutiveOffer
     ? {
         consecutivePriceCents: consecutiveAddedCents,

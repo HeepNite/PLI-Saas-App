@@ -12,6 +12,7 @@ import {
   Camera,
   CreditCard,
   Building2,
+  Tag,
   User,
   FileText,
   CheckCircle2,
@@ -20,7 +21,7 @@ import { useI18n } from "@/lib/i18n"
 import type { Coupon, EnrollmentContact, PaymentMethod } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
 import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
-import { useAuth, useUser } from "@clerk/nextjs"
+import { useAuth, useClerk, useUser } from "@clerk/nextjs"
 import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
 import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
@@ -79,7 +80,7 @@ import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
 import EnrollInfoStep from "@/components/front/courses/enroll/steps/EnrollInfoStep"
-import { nextKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
+import { nextKioskInfoPhase, initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
 import {
   requestCheckoutCashApi,
@@ -88,7 +89,6 @@ import {
   requestCheckoutSessionApi,
   requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
-  requestPinAvailabilityApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
 import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
 import { resolveStepValid } from "@/components/front/courses/enroll/model/enroll-step-valid"
@@ -197,6 +197,8 @@ export default function EnrollModal({
   const router = useRouter()
   const { isLoaded, isSignedIn, user } = useUser()
   const { getToken } = useAuth()
+  const { setActive } = useClerk()
+  const pendingClerkSessionRef = React.useRef<string | null>(null)
   const verification = useNewStudentVerification()
   const verificationState = verification.state
   const verifyNewStudent = verification.verify
@@ -270,12 +272,12 @@ export default function EnrollModal({
   const [couponInput, setCouponInput] = React.useState<string>("")
   const [appliedCoupon, setAppliedCoupon] = React.useState<Coupon>(null)
   const paymentMethod = flowState.paymentMethod
-  const [studentPin, setStudentPin] = React.useState("")
-  const [studentPinConfirm, setStudentPinConfirm] = React.useState("")
-  const [pinAvailabilityError, setPinAvailabilityError] = React.useState<string | null>(null)
-  const [checkingPinAvailability, setCheckingPinAvailability] = React.useState(false)
-  const [activeNumericField, setActiveNumericField] = React.useState<"phone" | "pin" | "pin-confirm" | null>(null)
-  const [kioskInfoPhase, setKioskInfoPhase] = React.useState<KioskInfoPhase>("name-email")
+  const [activeNumericField, setActiveNumericField] = React.useState<"phone" | null>(() =>
+    isKioskTerminalFlow ? "phone" : null
+  )
+  const [kioskInfoPhase, setKioskInfoPhase] = React.useState<KioskInfoPhase>(() =>
+    initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
+  )
   // Paso 2: datos de contacto (modular, sin teléfono)
   const contact = flowState.contact
   // Flujo multi‑paso + éxito
@@ -372,9 +374,11 @@ export default function EnrollModal({
                 ? t("step_info")
                 : key === "packages"
                   ? "Packages"
-                  : key === "consecutive"
-                    ? "Promo"
-                    : key === "payments"
+                  : key === "promo"
+                    ? "Deals"
+                    : key === "consecutive"
+                      ? "Promo"
+                      : key === "payments"
                       ? t("step_payments")
                       : key === "review"
                         ? t("step_review")
@@ -388,6 +392,7 @@ export default function EnrollModal({
     info: FileText,
     photo: Camera,
     packages: Building2,
+    promo: Tag,
     consecutive: CalendarCheck,
     payments: CreditCard,
     review: CheckCircle2,
@@ -413,6 +418,10 @@ export default function EnrollModal({
   )
   const packagesStepIndex = React.useMemo(
     () => steps.findIndex((item) => item.key === "packages"),
+    [steps]
+  )
+  const promoStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "promo"),
     [steps]
   )
   const regularServicePrice = React.useMemo(
@@ -451,13 +460,6 @@ export default function EnrollModal({
     user?.primaryEmailAddress?.emailAddress,
     user?.primaryPhoneNumber?.phoneNumber,
   ])
-  const { openInitializationRef, prefillContactRef, prefillSelectionRef, userContactRef } = useEnrollInit({
-    open,
-    prefillContact,
-    prefillSelection,
-    userContact: currentUserContact,
-    setKioskStepHydrating,
-  })
   React.useEffect(() => {
     if (!isCheckInFlow || !open) return
     setCheckInNow(new Date())
@@ -465,7 +467,16 @@ export default function EnrollModal({
     return () => window.clearInterval(intervalId)
   }, [isCheckInFlow, open])
 
-  const signInReturnTo = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
+  const signInReturnTo = React.useMemo(() => {
+    const base = `/courses/${course.slug}?enroll=1&step=${Math.max(0, Math.min(steps.length - 1, step))}`
+    if (!isQrMobileCompactFlow) return base
+    const extras = [
+      "qrBooking=1",
+      checkInContextDate && `date=${checkInContextDate}`,
+      checkInContextTime && `time=${checkInContextTime}`,
+    ].filter(Boolean).join("&")
+    return extras ? `${base}&${extras}` : base
+  }, [course.slug, steps.length, step, isQrMobileCompactFlow, checkInContextDate, checkInContextTime])
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
   const setService = React.useCallback((value: React.SetStateAction<string>) => {
@@ -519,6 +530,58 @@ export default function EnrollModal({
   const setSignInPurpose = React.useCallback((value: React.SetStateAction<EnrollFlowState["signInPurpose"]>) => {
     dispatchFlow({ type: "field/set-sign-in-purpose", value })
   }, [])
+
+  const initialServiceId = React.useMemo(() => {
+    if (isCheckInNewFlow) return forcedNewStudentServiceId
+    if (isCheckInExistingFlow) return regularServiceId
+    return availableServices[0]?.id ?? ""
+  }, [availableServices, forcedNewStudentServiceId, isCheckInExistingFlow, isCheckInNewFlow, regularServiceId])
+
+  const { openInitializationRef, prefillContactRef, prefillSelectionRef, userContactRef } = useEnrollInit({
+    open,
+    prefillContact,
+    prefillSelection,
+    userContact: currentUserContact,
+    course,
+    sourceCourses,
+    availableServices,
+    draftKey,
+    initialServiceId,
+    useDraft,
+    isCheckInNewFlow,
+    isCheckInFlow,
+    isCheckInExistingFlow,
+    isKioskTerminalFlow,
+    isQrMobileCompactFlow,
+    checkInContextDate,
+    checkInContextTime,
+    effectiveInitialStep,
+    kioskFastPathAdvanceTriggeredRef,
+    kioskFastPathSubmitTriggeredRef,
+    setService,
+    setPkg,
+    setAddons,
+    setParticipants,
+    setDate,
+    setTime,
+    setContact,
+    setCouponInput,
+    setAppliedCoupon,
+    setPaymentMethod,
+    setStep,
+    setCheckInScheduleNotice,
+    setRequiresSignIn,
+    setExistingAccountDetected,
+    setResumeAfterSignInStep,
+    setPendingAutoPay,
+    setIdentityCheckBusy,
+    setPhoneTouched,
+    setStripeClientSecret,
+    setShowStripeModal,
+    setKioskQrCheckout,
+    setFormError,
+    setKioskStepHydrating,
+  })
 
   useEnrollDraft({
     open: useDraft ? open : false,
@@ -592,17 +655,13 @@ export default function EnrollModal({
     setResumeContactFlowAfterSignIn(false)
     setIdentityCheckBusy(false)
     setPhoneTouched(false)
-    setActiveNumericField(null)
-    setKioskInfoPhase("name-email")
+    setActiveNumericField(isKioskTerminalFlow ? "phone" : null)
+    setKioskInfoPhase(initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow }))
     setStripeClientSecret("")
     setShowStripeModal(false)
     setKioskQrCheckout(createEmptyKioskQrCheckoutState())
     setPreparedAccount(null)
     setPhotoSaved(false)
-    setStudentPin("")
-    setStudentPinConfirm("")
-    setPinAvailabilityError(null)
-    setCheckingPinAvailability(false)
     setNewStudentFallbackPhoneKey(null)
     setFlowPopup(null)
     setSignInPurpose("existing")
@@ -676,8 +735,15 @@ export default function EnrollModal({
 
   React.useEffect(() => {
     if (!shouldRedirectPersonalCompletion({ success, isPersonalCompletion })) return
-    router.replace("/client-profile")
-  }, [isPersonalCompletion, router, success])
+    const sessionId = pendingClerkSessionRef.current
+    if (sessionId) {
+      setActive({ session: sessionId }).then(() => {
+        router.replace("/client-profile")
+      })
+    } else {
+      router.replace("/client-profile")
+    }
+  }, [isPersonalCompletion, router, setActive, success])
 
   React.useEffect(() => {
     if (
@@ -790,130 +856,6 @@ export default function EnrollModal({
       phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
     }))
   }, [isCheckInNewFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
-
-  const initialServiceId = React.useMemo(() => {
-    if (isCheckInNewFlow) return forcedNewStudentServiceId
-    if (isCheckInExistingFlow) return regularServiceId
-    return availableServices[0]?.id ?? ""
-  }, [availableServices, forcedNewStudentServiceId, isCheckInExistingFlow, isCheckInNewFlow, regularServiceId])
-
-  React.useEffect(() => {
-    if (!open) return
-    if (typeof window === "undefined") return
-    if (openInitializationRef.current) return
-    const hasDraft = useDraft ? sessionStorage.getItem(draftKey) : null
-    if (useDraft && hasDraft) {
-      openInitializationRef.current = true
-      setKioskStepHydrating(false)
-      return
-    }
-    setKioskStepHydrating(isKioskTerminalFlow && isCheckInExistingFlow)
-    if (!useDraft) {
-      sessionStorage.removeItem(draftKey)
-    }
-    openInitializationRef.current = true
-    const userContact = userContactRef.current
-    const initialContact: EnrollmentContact = isCheckInNewFlow
-      ? {
-          firstName: "",
-          lastName: "",
-          email: "",
-          phone: "+1 ",
-          note: "",
-        }
-        : {
-            firstName: prefillContactRef.current?.firstName ?? userContact.firstName ?? "",
-            lastName: prefillContactRef.current?.lastName ?? userContact.lastName ?? "",
-            email: prefillContactRef.current?.email ?? userContact.email ?? "",
-            phone: normalizeEnrollPhonePrefill(prefillContactRef.current?.phone ?? userContact.phone),
-            note: prefillContactRef.current?.note ?? "",
-          }
-    const shouldAutofillDateTime = isCheckInFlow || Boolean(checkInContextDate || checkInContextTime)
-    const todayOnlyAutofill = isKioskTerminalFlow || isQrMobileCompactFlow
-    const checkInAutofill = shouldAutofillDateTime
-      ? computeCheckInAutofill(course.slug, sourceCourses, {
-          date: checkInContextDate,
-          time: checkInContextTime,
-        }, undefined, todayOnlyAutofill)
-      : { date: "", time: "", notice: null as string | null }
-    const nextService =
-      prefillSelectionRef.current?.service &&
-      availableServices.some((item) => item.id === prefillSelectionRef.current?.service)
-        ? prefillSelectionRef.current.service
-        : initialServiceId
-    const nextPackage =
-      prefillSelectionRef.current?.packageId &&
-      course.enrollment.packages.some((item) => item.id === prefillSelectionRef.current?.packageId)
-        ? prefillSelectionRef.current.packageId
-        : ""
-    const nextAddons = (prefillSelectionRef.current?.addons || []).filter((id) =>
-      course.enrollment.addons?.some((item) => item.id === id)
-    )
-    const nextParticipants =
-      typeof prefillSelectionRef.current?.participants === "number" &&
-      Number.isFinite(prefillSelectionRef.current.participants)
-        ? Math.max(1, Math.min(10, Math.round(prefillSelectionRef.current.participants)))
-        : 1
-    setService(nextService)
-    setPkg(nextPackage)
-    setAddons(nextAddons)
-    setParticipants(nextParticipants)
-    setDate(checkInAutofill.date)
-    setTime(checkInAutofill.time)
-    setContact(initialContact)
-    setCouponInput("")
-    setAppliedCoupon(null)
-    setPaymentMethod(prefillSelectionRef.current?.paymentMethod || "")
-    setStep(effectiveInitialStep)
-    setCheckInScheduleNotice(checkInAutofill.notice)
-    setRequiresSignIn(false)
-    setExistingAccountDetected(false)
-    setResumeAfterSignInStep(null)
-    setPendingAutoPay(false)
-    setIdentityCheckBusy(false)
-    setPhoneTouched(false)
-    setStripeClientSecret("")
-    setShowStripeModal(false)
-    setKioskQrCheckout(createEmptyKioskQrCheckoutState())
-    setFormError(null)
-    kioskFastPathAdvanceTriggeredRef.current = false
-    kioskFastPathSubmitTriggeredRef.current = false
-    setKioskStepHydrating(false)
-  }, [
-    open,
-    course.slug,
-    draftKey,
-    useDraft,
-    initialServiceId,
-    availableServices,
-    course.enrollment.addons,
-    course.enrollment.packages,
-    isCheckInNewFlow,
-    isCheckInFlow,
-    isCheckInExistingFlow,
-    isKioskTerminalFlow,
-    isQrMobileCompactFlow,
-    checkInContextDate,
-    checkInContextTime,
-    effectiveInitialStep,
-    openInitializationRef,
-    prefillContactRef,
-    prefillSelectionRef,
-    userContactRef,
-    setAddons,
-    setContact,
-    setExistingAccountDetected,
-    setFormError,
-    setKioskQrCheckout,
-    setParticipants,
-    setPaymentMethod,
-    setPkg,
-    setRequiresSignIn,
-    setResumeAfterSignInStep,
-    setService,
-    setStep,
-    sourceCourses,
-  ])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
@@ -1094,8 +1036,6 @@ export default function EnrollModal({
       time,
       contact,
       skipContactValidation: skipContactStep,
-      studentPin,
-      studentPinConfirm,
       contactStepIndex: infoStepIndex,
       paymentMethod,
       paymentsStepIndex,
@@ -1120,8 +1060,6 @@ export default function EnrollModal({
         kioskSessionFields: createKioskSessionCheckoutPayloadFields(kioskSessionToken),
         checkInContextDate,
         checkInContextTime,
-        studentPin,
-        studentPinConfirm,
         consecutiveAccepted,
         consecutiveAddedCents,
         consecutiveOffer: effectiveConsecutiveOffer ?? undefined,
@@ -1148,8 +1086,6 @@ export default function EnrollModal({
       pkg,
       kioskSessionToken,
       service,
-      studentPin,
-      studentPinConfirm,
       time,
       total,
     ]
@@ -1208,62 +1144,22 @@ export default function EnrollModal({
     [contact.phone, regularServiceId, regularServicePrice, service, setService]
   )
 
-  const checkPinAvailability = React.useCallback(async (pin: string): Promise<boolean> => {
-    try {
-      setCheckingPinAvailability(true)
-      const { data } = await requestPinAvailabilityApi({ pin })
-      if (!data.available) {
-        setPinAvailabilityError(data.message || "This PIN is already in use. Please choose a different one.")
-        setStudentPin("")
-        setStudentPinConfirm("")
-        if (isKioskTerminalFlow) setActiveNumericField("pin")
-        return false
-      }
-      setPinAvailabilityError(null)
-      return true
-    } catch {
-      // Network error — proceed anyway, don't block on availability check failure
-      setPinAvailabilityError(null)
-      return true
-    } finally {
-      setCheckingPinAvailability(false)
-    }
-  }, [isKioskTerminalFlow])
-
   const handleNumpadDigit = React.useCallback((digit: string) => {
     if (activeNumericField === "phone") {
       setContact((c) => ({ ...c, phone: appendPhoneDigit(c.phone, digit) }))
       setPhoneTouched(true)
-    } else if (activeNumericField === "pin") {
-      setStudentPin((prev) => {
-        const next = (prev + digit).slice(0, 4)
-        if (next.length === 4) setActiveNumericField("pin-confirm")
-        return next
-      })
-      setPinAvailabilityError(null)
-    } else if (activeNumericField === "pin-confirm") {
-      setStudentPinConfirm((prev) => (prev + digit).slice(0, 4))
-      setPinAvailabilityError(null)
     }
   }, [activeNumericField, setContact])
 
   const handleNumpadBackspace = React.useCallback(() => {
     if (activeNumericField === "phone") {
       setContact((c) => ({ ...c, phone: removePhoneDigit(c.phone) }))
-    } else if (activeNumericField === "pin") {
-      setStudentPin((prev) => prev.slice(0, -1))
-    } else if (activeNumericField === "pin-confirm") {
-      setStudentPinConfirm((prev) => prev.slice(0, -1))
     }
   }, [activeNumericField, setContact])
 
   const handleNumpadClear = React.useCallback(() => {
     if (activeNumericField === "phone") {
       setContact((c) => ({ ...c, phone: "+1 " }))
-    } else if (activeNumericField === "pin") {
-      setStudentPin("")
-    } else if (activeNumericField === "pin-confirm") {
-      setStudentPinConfirm("")
     }
   }, [activeNumericField, setContact])
 
@@ -1276,18 +1172,8 @@ export default function EnrollModal({
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      // PIN availability check FIRST for new students - before any SMS verification
-      // This prevents wasting the user's time verifying SMS only to find the PIN is taken
-      if (service === "new-student" && /^\d{4}$/.test(studentPin) && studentPin === studentPinConfirm) {
-        const pinAvailable = await checkPinAvailability(studentPin)
-        if (!pinAvailable) return
-      }
-
       if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
-        // Kiosk & QR mobile new-student flow: use the verification state machine.
-        // This avoids the requiresSignIn sign-in modal which fails for newly created
-        // Clerk accounts due to propagation delay. Instead, EmbeddedSignIn renders
-        // via JSX conditional with activateSessionOnSuccess={false}.
+        // Kiosk & QR mobile new-student flow: verify phone via SMS.
         const result = await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({
           isKioskTerminalFlow,
@@ -1295,19 +1181,14 @@ export default function EnrollModal({
           verifyResult: result,
           onExistingUserDetected,
         })) {
-          // Parent handles transition to PIN flow
           return
         }
         if (result === "sms_pending") {
-          // Create the Clerk user via backend BEFORE showing EmbeddedSignIn.
-          // This ensures signIn.create() works (user must exist in Clerk first).
           const account = await requestAccountPreparation()
           if (!account) return
           // EmbeddedSignIn will render via JSX conditional on verification.state
-          // Flow continues after SMS verification via the verified effect below
           return
         }
-        // If somehow already verified, continue to account prep below
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
         // Web new-student flow: use requestNewStudentOutcome + sign-in modal
         const verifyResult = await requestNewStudentOutcome()
@@ -1370,12 +1251,15 @@ export default function EnrollModal({
         return
       }
 
-      // Go to packages step if it exists, otherwise payments
+      // Go to promo step if it exists, then packages, then payments
+      if (promoStepIndex >= 0) {
+        setStep(promoStepIndex)
+        return
+      }
       if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
         return
       }
-
       if (paymentsStepIndex >= 0) {
         setStep(paymentsStepIndex)
         return
@@ -1384,7 +1268,6 @@ export default function EnrollModal({
       setIdentityCheckBusy(false)
     }
   }, [
-    checkPinAvailability,
     contact.email,
     contact.phone,
     isCheckInFlow,
@@ -1394,12 +1277,14 @@ export default function EnrollModal({
     onExistingUserDetected,
     packagesStepIndex,
     paymentsStepIndex,
+    promoStepIndex,
     photoPolicy,
     photoSaved,
     photoStepIndex,
     preparedAccount,
     requestAccountPreparation,
     requestNewStudentOutcome,
+    resetVerification,
     setExistingAccountDetected,
     setFormError,
     setRequiresSignIn,
@@ -1410,8 +1295,6 @@ export default function EnrollModal({
     service,
     showRegularFallbackPopup,
     step,
-    studentPin,
-    studentPinConfirm,
     verifyNewStudent,
   ])
 
@@ -1754,10 +1637,14 @@ export default function EnrollModal({
 
   const handleFormStepSubmit = async () => {
     if (usesPhasedInfoForm && activeStepKey === "info") {
-      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service)
+      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service, { phoneFirst: isKioskTerminalFlow })
       if (nextPhase !== "done") {
         setKioskInfoPhase(nextPhase)
-        if (isKioskTerminalFlow) setActiveNumericField(nextPhase === "phone" ? "phone" : "pin")
+        // For phone-first kiosk, after phone → name-email (activate text input, not numpad)
+        // For standard flow, after name-email → phone (activate numpad)
+        if (isKioskTerminalFlow && nextPhase === "phone") setActiveNumericField("phone")
+        else if (isKioskTerminalFlow && nextPhase === "name-email") setActiveNumericField(null)
+        else if (isKioskTerminalFlow) setActiveNumericField("phone")
         return
       }
     }
@@ -1862,6 +1749,8 @@ export default function EnrollModal({
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
+      } else if (promoStepIndex >= 0) {
+        setStep(promoStepIndex)
       } else if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
       } else if (paymentsStepIndex >= 0) {
@@ -1870,7 +1759,7 @@ export default function EnrollModal({
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
+  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
 
   const activeStepKey = steps[step]?.key || ""
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
@@ -2071,8 +1960,6 @@ export default function EnrollModal({
       time,
       consecutiveOfferLoading,
       contact,
-      studentPin,
-      studentPinConfirm,
       requiresPhotoStep,
       photoSaved,
       consecutiveChoiceMade,
@@ -2083,9 +1970,7 @@ export default function EnrollModal({
   const canContinueCurrentStep = usesPhasedInfoForm && activeStepKey === "info"
     ? kioskInfoPhase === "name-email"
       ? contact.firstName.trim().length > 1 && contact.email.trim().length > 5
-      : kioskInfoPhase === "phone"
-        ? isCompleteUSPhone(contact.phone)
-        : canContinue
+      : isCompleteUSPhone(contact.phone)
     : canContinue
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
   const signInModalTitle =
@@ -2441,17 +2326,20 @@ export default function EnrollModal({
                   <h3 className={`${isInline ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} font-semibold leading-tight`}>
                     {activeStepKey === "packages"
                       ? course.title
-                      : activeStepKey === "consecutive"
-                        ? "Promotion for the Second Class"
-                        : activeStepKey === "payments"
-                          ? "Payment for Salsa Class"
-                        : `${steps[step]?.label} • ${course.title}`}
+                      : activeStepKey === "promo"
+                        ? "Deals & Promotions"
+                        : activeStepKey === "consecutive"
+                          ? "Promotion for the Second Class"
+                          : activeStepKey === "payments"
+                            ? `Payment for ${course.title}`
+                            : `${steps[step]?.label} • ${course.title}`}
                   </h3>
                 </div>
               )}
 
             {success ? (
               <div className="mt-2">
+                <div>
                 {/* Success header */}
                 <div className="flex flex-col items-center py-4">
                   <div className="mb-2" aria-hidden>
@@ -2538,6 +2426,7 @@ export default function EnrollModal({
                   >
                     {isStationCompletion ? t("finish") : isPersonalCompletion ? "Close" : t("finish")}
                   </button>
+                </div>
                 </div>
               </div>
             ) : (
@@ -2757,7 +2646,6 @@ export default function EnrollModal({
                 {activeStepKey === "info" && (
                   <EnrollInfoStep
                     activeNumericField={activeNumericField}
-                    checkPinAvailability={checkPinAvailability}
                     contact={contact}
                     handleNumpadBackspace={handleNumpadBackspace}
                     handleNumpadClear={handleNumpadClear}
@@ -2766,22 +2654,16 @@ export default function EnrollModal({
                     isKioskTerminalFlow={isKioskTerminalFlow}
                     kioskInfoPhase={kioskInfoPhase}
                     phoneTouched={phoneTouched}
-                    pinAvailabilityError={pinAvailabilityError}
                     service={service}
                     setActiveNumericField={setActiveNumericField}
                     setContact={setContact}
                     setExistingAccountDetected={setExistingAccountDetected}
                     setPendingAutoPay={setPendingAutoPay}
                     setPhoneTouched={setPhoneTouched}
-                    setPinAvailabilityError={setPinAvailabilityError}
                     setRequiresSignIn={setRequiresSignIn}
                     setResumeAfterSignInStep={setResumeAfterSignInStep}
                     setKioskInfoPhase={setKioskInfoPhase}
-                    setStudentPin={setStudentPin}
-                    setStudentPinConfirm={setStudentPinConfirm}
                     shouldMaskKioskInfoContent={shouldMaskKioskInfoContent}
-                    studentPin={studentPin}
-                    studentPinConfirm={studentPinConfirm}
                     t={t}
                     usesPhasedInfoForm={usesPhasedInfoForm}
                   />
@@ -2817,16 +2699,19 @@ export default function EnrollModal({
                           hasPackages: (course?.enrollment?.packages?.length ?? 0) > 0,
                           hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
                         })
+                        const promoIdx = postSkipKeys.indexOf("promo")
                         const packagesIdx = postSkipKeys.indexOf("packages")
                         const consecutiveIdx = postSkipKeys.indexOf("consecutive")
                         const paymentsIdx = postSkipKeys.indexOf("payments")
-                        const targetStep = packagesIdx >= 0
-                          ? packagesIdx
-                          : consecutiveIdx >= 0
-                            ? consecutiveIdx
-                            : paymentsIdx >= 0
-                              ? paymentsIdx
-                              : postSkipKeys.length - 1
+                        const targetStep = promoIdx >= 0
+                          ? promoIdx
+                          : packagesIdx >= 0
+                            ? packagesIdx
+                            : consecutiveIdx >= 0
+                              ? consecutiveIdx
+                              : paymentsIdx >= 0
+                                ? paymentsIdx
+                                : postSkipKeys.length - 1
 
                         setPhotoSaved(true)
                         setStep(targetStep)
@@ -2910,6 +2795,72 @@ export default function EnrollModal({
                   </div>
                 )}
 
+                {/* Kiosk promo step: consecutive class offer only */}
+                {activeStepKey === "promo" && (
+                  <div className="space-y-4">
+                    {effectiveConsecutiveOffer && (() => {
+                      const consecutivePriceCents = effectiveIsPackageHolder
+                        ? (effectiveConsecutiveOffer.packageHolderConsecutiveCents ?? 0)
+                        : (effectiveConsecutiveOffer.dropInConsecutiveCents ?? 0)
+                      const regularPriceCents = effectiveConsecutiveOffer.regularDropInCents ?? 0
+                      return (
+                        <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4">
+                          <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-white/48">Add Second Class Promotion</p>
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="min-w-0">
+                              <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200 mb-1">
+                                Promo
+                              </span>
+                              <p className="text-sm font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
+                              {effectiveConsecutiveOffer.linkedCourseTime && (
+                                <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
+                              )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-lg font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
+                              {regularPriceCents > 0 && (
+                                <p className="text-xs font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConsecutiveAccepted(true)
+                                setConsecutiveChoiceMade(true)
+                                setConsecutiveAddedCents(consecutivePriceCents)
+                              }}
+                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                                consecutiveAccepted && consecutiveChoiceMade
+                                  ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-400/25"
+                                  : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300 hover:border-emerald-400/50"
+                              }`}
+                            >
+                              Add +${(consecutivePriceCents / 100).toFixed(2)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConsecutiveAccepted(false)
+                                setConsecutiveChoiceMade(true)
+                                setConsecutiveAddedCents(0)
+                              }}
+                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                                consecutiveChoiceMade && !consecutiveAccepted
+                                  ? "border-red-500/60 bg-red-500/10 text-red-300 ring-2 ring-red-500/25"
+                                  : "border-red-500/25 bg-red-500/5 text-red-300/70 hover:border-red-500/40 hover:text-red-300"
+                              }`}
+                            >
+                              No thanks
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+
                 {/* Consecutive class offer step before payments */}
                 {activeStepKey === "consecutive" && effectiveConsecutiveOffer && (
                   <div className="space-y-4">
@@ -2929,52 +2880,52 @@ export default function EnrollModal({
                         setConsecutiveAddedCents(0)
                       }
                       return (
-                        <>
-                          <button
-                            type="button"
-                            onClick={selectPromo}
-                            className={`relative w-full overflow-hidden rounded-[1.35rem] border px-5 py-5 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.20),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(182,22,22,0.22),transparent_36%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))] ${
-                              consecutiveAccepted && consecutiveChoiceMade
-                                ? "border-emerald-400/70 ring-2 ring-emerald-400/25"
-                                : "border-white/14 hover:border-white/24 hover:brightness-110"
-                            }`}
-                          >
-                            <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
-                            <div className="relative flex flex-col gap-4">
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="min-w-0">
-                                  <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">
-                                    Promo
-                                  </span>
-                                  <h3 className="mt-3 text-lg font-semibold text-white">{effectiveConsecutiveOffer.linkedCourseTitle}</h3>
-                                  {effectiveConsecutiveOffer.linkedCourseTime && (
-                                    <p className="mt-1 text-sm text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
-                                  )}
-                                </div>
-                                <div className="shrink-0 text-right">
-                                  <p className="text-2xl font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
-                                  {regularPriceCents > 0 && (
-                                    <p className="mt-1 text-sm font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
-                                  )}
-                                </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                          <p className="text-[10px] uppercase tracking-widest text-white/55">Add second class promotion</p>
+                          <div className="mt-2 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                                  PROMO
+                                </span>
                               </div>
-                              <p className="text-sm leading-relaxed text-white/68">
-                                Add your second class at a special price. This will be added to your payment.
-                              </p>
+                              <p className="mt-1.5 font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
+                              {effectiveConsecutiveOffer.linkedCourseTime && (
+                                <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
+                              )}
                             </div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={declinePromo}
-                            className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-                              consecutiveChoiceMade && !consecutiveAccepted
-                                ? "border-white/35 bg-white/[0.08] text-white ring-2 ring-white/10"
-                                : "border-white/12 bg-white/[0.03] text-white/72 hover:border-white/22 hover:text-white"
-                            }`}
-                          >
-                            Continue without promotion
-                          </button>
-                        </>
+                            <div className="flex-shrink-0 text-right">
+                              {regularPriceCents > consecutivePriceCents && (
+                                <p className="text-xs text-red-400 line-through leading-none">${(regularPriceCents / 100).toFixed(2)}</p>
+                              )}
+                              <p className="text-base font-bold text-white leading-snug">${(consecutivePriceCents / 100).toFixed(2)}</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={selectPromo}
+                              className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition ${
+                                consecutiveAccepted && consecutiveChoiceMade
+                                  ? "bg-emerald-600 text-white ring-2 ring-emerald-400/25"
+                                  : "bg-emerald-500 text-white hover:bg-emerald-400"
+                              }`}
+                            >
+                              Add +${(consecutivePriceCents / 100).toFixed(2)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={declinePromo}
+                              className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition ${
+                                consecutiveChoiceMade && !consecutiveAccepted
+                                  ? "border-red-400/40 bg-red-500/10 text-red-400 ring-2 ring-red-400/25"
+                                  : "border-red-400/30 bg-transparent text-red-400 hover:bg-red-500/10"
+                              }`}
+                            >
+                              No thanks
+                            </button>
+                          </div>
+                        </div>
                       )
                     })()}
                   </div>
@@ -2982,45 +2933,6 @@ export default function EnrollModal({
 
                 {activeStepKey === "payments" && (
                   <div className="space-y-4">
-                    {/* Selected package card with remove action (kiosk flows) */}
-                    {isCheckInFlow && pkg && (
-                      <div className="rounded-xl border border-[var(--brand,#b61616)] bg-[rgba(182,22,22,0.08)] p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Selected Package</p>
-                            <p className="text-base font-semibold">{course.enrollment.packages.find((p) => p.id === pkg)?.label}</p>
-                            {course.enrollment.packages.find((p) => p.id === pkg)?.price != null && (
-                              <p className="mt-1 text-sm font-medium">{formatEnrollmentOptionPrice(course.enrollment.packages.find((p) => p.id === pkg)?.price)}</p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setStep(stepKeys.indexOf("packages"))}
-                            className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
-                          >
-                            Change
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {/* No package selected info (kiosk flows) */}
-                    {isCheckInFlow && !pkg && isKioskTerminalFlow && course.enrollment.packages.length > 0 && (
-                      <div className="rounded-xl border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs text-neutral-500 dark:text-white/60 uppercase tracking-wide mb-1">Package</p>
-                            <p className="text-sm text-neutral-600 dark:text-white/70">Single class (no package)</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setStep(stepKeys.indexOf("packages"))}
-                            className="rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-white/10 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-white/70 hover:bg-white/80 dark:hover:bg-white/20 transition"
-                          >
-                            Add Package
-                          </button>
-                        </div>
-                      </div>
-                    )}
                     {/* Payments step */}
                     <div className="relative overflow-hidden rounded-[1.15rem] border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_30%),linear-gradient(145deg,rgba(44,45,55,0.96),rgba(19,20,27,0.99))] p-4 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
                       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
@@ -3175,7 +3087,6 @@ export default function EnrollModal({
                         <div>{t("name")}: {`${contact.firstName} ${contact.lastName}`.trim() || "—"}</div>
                         <div>{t("email")}: {contact.email || "—"}</div>
                         <div>Phone: {contact.phone || "—"}</div>
-                        {service === "new-student" && <div>Student PIN: {studentPin ? "Configured" : "Required"}</div>}
                         <div>{t("paymentMethod")}: {paymentMethodLabel}</div>
                         {contact.note && <div>{t("notes")}: {contact.note}</div>}
                         <div className="pt-2">{t("estimatedTotal")}: <span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
@@ -3198,7 +3109,7 @@ export default function EnrollModal({
                     {allowPanelAccess && (
                       <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
                     )}
-                    {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === "name-email") && (
+                    {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -3206,15 +3117,11 @@ export default function EnrollModal({
                             resetKioskQrCheckout()
                             return
                           }
-                          if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email") {
-                            if (kioskInfoPhase === "pin") {
-                              setKioskInfoPhase("phone")
-                              if (isKioskTerminalFlow) setActiveNumericField("phone")
-                              return
-                            }
-
-                            setKioskInfoPhase("name-email")
-                            setActiveNumericField(null)
+                          if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })) {
+                            // Go back to the initial phase of the info form
+                            setKioskInfoPhase(initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow }))
+                            if (isKioskTerminalFlow) setActiveNumericField("phone")
+                            else setActiveNumericField(null)
                             return
                           }
                           if (step === 0) {
@@ -3227,7 +3134,7 @@ export default function EnrollModal({
                       >
                         {kioskQrCheckoutLocked
                           ? "Cancel QR"
-                          : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email"
+                          : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
                             ? "Back"
                             : step === 0
                               ? t("cancel")
@@ -3240,13 +3147,11 @@ export default function EnrollModal({
                         disabled={!canContinueCurrentStep || identityCheckBusy}
                         className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
                       >
-                        {checkingPinAvailability
-                          ? "Checking PIN..."
-                          : identityCheckBusy
-                            ? t("verifyingAccount")
-                            : consecutiveOfferLoading && (activeStepKey === "datetime" || activeStepKey === "payments")
-                              ? "Checking promotions..."
-                              : t("continue")}
+                        {identityCheckBusy
+                          ? t("verifyingAccount")
+                          : consecutiveOfferLoading && (activeStepKey === "datetime" || activeStepKey === "payments")
+                            ? "Checking promotions..."
+                            : t("continue")}
                       </button>
                     ) : (
                         <button
@@ -3363,7 +3268,7 @@ export default function EnrollModal({
               resetVerification()
             }}
           />
-          <div className="relative z-10 w-full max-w-[20rem] max-h-[85vh] overflow-y-auto rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+          <div className="relative z-10 w-full max-w-[22rem] rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-4 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] sm:p-5">
             <button
               type="button"
               className="absolute right-5 top-5 z-10 shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 transition hover:bg-white/[0.04]"
@@ -3384,6 +3289,7 @@ export default function EnrollModal({
                 verification.onSmsSent()
               }}
               onSessionCreated={(sessionId) => {
+                pendingClerkSessionRef.current = sessionId
                 handleEmbeddedSignInSessionCreated({ onKioskSessionCreated, sessionId })
               }}
               onSuccessAction={async () => {
