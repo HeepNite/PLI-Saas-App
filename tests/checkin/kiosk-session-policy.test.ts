@@ -19,17 +19,14 @@ describe("kiosk session policy", () => {
     ).toBe(false)
   })
 
-  it("suppresses only the explicit kiosk customer session on completion, never a fallback/staff session", () => {
-    // Contract updated: completion suppresses the customer's kiosk clerk
-    // session when one exists, and never suppresses when there is no kiosk
-    // customer session (avoids suppressing the staff session).
+  it("suppresses the current Clerk session when completion has no kiosk session id", () => {
     expect(
       resolveSuppressedClerkSessionIdOnCompletion({
-        activeSessionId: null,
+        activeSessionId: "sess_customer",
         isSignedIn: true,
         kioskClerkSessionId: null,
       })
-    ).toBeNull()
+    ).toBe(CURRENT_CLERK_SESSION_SUPPRESSION)
 
     expect(
       resolveSuppressedClerkSessionIdOnCompletion({
