@@ -5,6 +5,8 @@ import {
   createNestGatewayFallback,
   type NestGatewayFallbackResult,
   type NestGatewayFallbackReason,
+  createNestGatewayUnknownState,
+  type NestGatewayUnknownStateResult,
 } from "./fallback"
 import {
   parseCheckinTodayClassesResponse,
@@ -20,6 +22,11 @@ import {
   type TerminalConnectionTokenGatewayRequest,
   type TerminalConnectionTokenGatewayResponse,
 } from "./contracts/terminal-precutover"
+import {
+  parseTerminalPaymentIntentGatewayResponse,
+  type TerminalPaymentIntentGatewayRequest,
+  type TerminalPaymentIntentGatewayResponse,
+} from "./contracts/terminal-payment-intents"
 import {
   defaultNestGatewayFallbackReporter,
   getNestGatewayStatusClass,
@@ -40,6 +47,10 @@ export type NestGatewayHealthResult = NestHealthSuccess | NestGatewayFallbackRes
 export type NestGatewayTodayClassesResult = CheckinTodayClassesResponse | NestGatewayFallbackResult
 export type NestGatewayQrDecisionResult = CheckinQrDecisionGatewayResponse | NestGatewayFallbackResult
 export type NestGatewayTerminalConnectionTokenResult = TerminalConnectionTokenGatewayResponse | NestGatewayFallbackResult
+export type NestGatewayTerminalPaymentIntentResult =
+  | TerminalPaymentIntentGatewayResponse
+  | NestGatewayFallbackResult
+  | NestGatewayUnknownStateResult
 
 type NestGatewayHealthOptions = {
   env?: NodeJS.ProcessEnv
@@ -60,6 +71,7 @@ const HEALTH_ROUTE = "internal-health"
 const TODAY_CLASSES_ROUTE = "today-classes"
 const QR_DECISION_ROUTE = "qr-decision"
 const TERMINAL_CONNECTION_TOKEN_ROUTE = "terminal-connection-token"
+const TERMINAL_PAYMENT_INTENTS_ROUTE = "terminal-payment-intents"
 
 const reportFallback = ({
   reporter,
@@ -237,4 +249,72 @@ export const getNestGatewayTerminalConnectionToken = async ({
     requestId,
     route: TERMINAL_CONNECTION_TOKEN_ROUTE,
   })
+}
+
+export const createNestGatewayTerminalPaymentIntent = async ({
+  env = process.env,
+  fetchImpl = fetch,
+  payload,
+  requestId,
+  reporter = defaultNestGatewayFallbackReporter,
+}: NestGatewayHealthOptions & {
+  payload: TerminalPaymentIntentGatewayRequest
+}): Promise<NestGatewayTerminalPaymentIntentResult> => {
+  const config = getNestGatewayConfig(env)
+  if (!config.enabled || !isNestGatewayRouteEnabled(config, TERMINAL_PAYMENT_INTENTS_ROUTE)) {
+    const reason = "disabled"
+    reportFallback({ reporter, reason, requestId, route: TERMINAL_PAYMENT_INTENTS_ROUTE, timeoutMs: config.timeoutMs })
+    return createNestGatewayFallback(reason)
+  }
+
+  if (!config.baseUrl || !config.sharedSecret) {
+    const reason = "missing_config"
+    reportFallback({ reporter, reason, requestId, route: TERMINAL_PAYMENT_INTENTS_ROUTE, timeoutMs: config.timeoutMs })
+    return createNestGatewayFallback(reason)
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
+
+  try {
+    const response = await fetchImpl(`${config.baseUrl}/internal/terminal/payment-intents`, {
+      method: "POST",
+      headers: {
+        ...createNestGatewayHeaders(config, requestId),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+      cache: "no-store",
+    })
+
+    if (response.status === 401 || response.status === 403) {
+      const reason = "unauthorized"
+      reportFallback({ reporter, reason, requestId, route: TERMINAL_PAYMENT_INTENTS_ROUTE, status: response.status, timeoutMs: config.timeoutMs })
+      return createNestGatewayUnknownState(reason)
+    }
+
+    if (!response.ok) {
+      const reason = "upstream_error"
+      reportFallback({ reporter, reason, requestId, route: TERMINAL_PAYMENT_INTENTS_ROUTE, status: response.status, timeoutMs: config.timeoutMs })
+      return createNestGatewayUnknownState(reason)
+    }
+
+    const responsePayload = await response.json()
+    const parsedPayload = parseTerminalPaymentIntentGatewayResponse(responsePayload)
+    if (parsedPayload) {
+      return parsedPayload
+    }
+
+    const reason = "upstream_error"
+    reportFallback({ reporter, reason, requestId, route: TERMINAL_PAYMENT_INTENTS_ROUTE, status: response.status, timeoutMs: config.timeoutMs })
+    return createNestGatewayUnknownState(reason)
+  } catch (error) {
+    const classifiedReason = classifyNestGatewayFailure(error)
+    const reason = classifiedReason === "timeout" ? classifiedReason : "upstream_error"
+    reportFallback({ reporter, reason, requestId, route: TERMINAL_PAYMENT_INTENTS_ROUTE, timeoutMs: config.timeoutMs })
+    return createNestGatewayUnknownState(reason)
+  } finally {
+    clearTimeout(timeout)
+  }
 }
