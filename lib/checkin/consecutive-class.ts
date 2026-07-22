@@ -69,3 +69,41 @@ export const hasPurchaseForCourseToday = async (
 
   return purchase !== null
 }
+
+/**
+ * Batch check whether a user has purchases for any of the given courses today.
+ *
+ * Returns a Set of course slugs for which a qualifying purchase exists.
+ * Issues a single DB query instead of one per course slug (eliminates N+1).
+ */
+export const hasPurchasesForCoursesToday = async (
+  userId: string,
+  courseSlugs: string[],
+  now = new Date()
+): Promise<Set<string>> => {
+  if (courseSlugs.length === 0) return new Set()
+
+  const todayKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(now)
+
+  const dayStart = getStartOfDayNY(todayKey)
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+
+  const normalizedSlugs = courseSlugs.map((slug) => slug.trim().toLowerCase())
+
+  const purchases = await prisma.purchase.findMany({
+    where: {
+      userId,
+      courseSlug: { in: normalizedSlugs },
+      status: { in: ["paid", "succeeded", "completed"] },
+      createdAt: {
+        gte: dayStart,
+        lt: dayEnd,
+      },
+    },
+    select: { courseSlug: true },
+  })
+
+  return new Set(purchases.map((p) => p.courseSlug))
+}

@@ -3,7 +3,7 @@ import "server-only"
 import { prisma } from "@/lib/prisma"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { computeDiscountPercent } from "@/lib/course-links"
-import { hasAttendedCourseToday, hasPurchaseForCourseToday } from "@/lib/checkin/consecutive-class"
+import { hasAttendedCourseToday, hasPurchaseForCourseToday, hasPurchasesForCoursesToday } from "@/lib/checkin/consecutive-class"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 
 export type ConsecutiveOfferResult = {
@@ -28,13 +28,9 @@ type ResolveConsecutiveOfferInput = {
 /**
  * Resolve a consecutive offer for a student after they identify at the kiosk.
  *
- * Uses batched DB queries when the optional `courseCatalog` prisma delegate
- * is available:
+ * Uses batched DB queries:
  * - Single `courseCatalog.findMany` for all linked course slugs (instead of N×getCatalogCourseBySlug)
  * - Single `hasPurchasesForCoursesToday` (instead of N×hasPurchaseForCourseToday)
- *
- * When those are absent (main does not have a `courseCatalog` delegate or the
- * batched purchase-lookup helper), this falls back to per-slug lookups.
  */
 export const resolveConsecutiveOffer = async ({
   userId,
@@ -99,13 +95,15 @@ export const resolveConsecutiveOffer = async ({
       ).filter((row): row is NonNullable<typeof row> => row !== null)
 
   const hasAttendedA = await hasAttendedCourseToday(userId, linkedFromCourseSlug, now)
-  const purchasedLinkedSlugs = new Set(
-    (
-      await Promise.all(
-        linkedSlugs.map(async (slug) => (await hasPurchaseForCourseToday(userId, slug, now)) ? slug : null)
+  const purchasedLinkedSlugs = courseCatalogDelegate?.findMany
+    ? await hasPurchasesForCoursesToday(userId, linkedSlugs, now)
+    : new Set(
+        (
+          await Promise.all(
+            linkedSlugs.map(async (slug) => (await hasPurchaseForCourseToday(userId, slug, now)) ? slug : null)
+          )
+        ).filter((slug): slug is string => slug !== null)
       )
-    ).filter((slug): slug is string => slug !== null)
-  )
 
   const candidates = links
     .map((link) => {

@@ -1,9 +1,9 @@
 import { toEsDateTime } from "@/lib/checkin/checkin-helpers"
 import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrShell"
 import type { EntryMode, BootstrapResponse, ConsecutiveOffer, TerminalPastClass } from "@/components/front/checkin/checkin.types"
+import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
-import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 import type { ComponentProps } from "react"
 import type { CheckInQrOverlays } from "@/components/front/checkin/CheckInQrOverlays"
 
@@ -83,7 +83,7 @@ export type UseCheckInQrShellPropsInput = {
   onExistingClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   onNewClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
 
-  // Kiosk PIN
+  // Kiosk PIN (phone-only)
   showKioskPinPanel: boolean
   returnedFromNewStudentFlow: boolean
   kioskPinPanelCopy: { title: string; description: string }
@@ -91,25 +91,9 @@ export type UseCheckInQrShellPropsInput = {
   kioskPhone: string
   kioskPhoneLoading: boolean
   onKioskPhoneIdentify: () => void
-  kioskPin: string
-  entryRevealedIndex: number | null
-  entryActiveSlot: number
-  activePinField: "entry" | "next" | "confirm" | null
   kioskPinAttemptsRemaining: number | null
-  kioskPinThrottleSeverity: KioskPinThrottleSeverity | null
+  kioskPinThrottleSeverity: "normal" | "warning" | "cooldown" | "emergency" | null
   kioskPinBlockedUntil: string | null
-  canIdentify: boolean
-  kioskPinLoading: boolean
-  kioskPinNext: string
-  nextRevealedIndex: number | null
-  nextActiveSlot: number
-  kioskPinConfirm: string
-  confirmRevealedIndex: number | null
-  confirmActiveSlot: number
-  canRotate: boolean
-  kioskPinRotating: boolean
-  onKioskPinIdentify: () => void
-  onKioskPinRotate: () => void
   onPinDigitInput: (digit: string) => void
   onPinBackspace: () => void
   onPinClear: () => void
@@ -157,6 +141,13 @@ export type UseCheckInQrShellPropsInput = {
   newBookingCourse: CourseData | null
   openNewBooking: boolean
   packageCheckInResult: PackageCheckInResult | null
+  /** Terminal kiosk package check-in failure, if any. */
+  packageCheckInFailure: PackageCheckInFailure | null
+  /** True when the kiosk failure overlay should render instead of the resolving spinner. */
+  showPackageCheckInFailureOverlay: boolean
+  /** Completed kiosk auto-retry attempts. */
+  packageCheckInAttempts: number
+  onRetryPackageCheckIn: () => void
   photoFlowContext: EnrollModalLike["photoFlowContext"]
   showConsecutiveOverlay: boolean
   showConsecutivePaymentSelection: boolean
@@ -187,6 +178,14 @@ export type UseCheckInQrShellPropsInput = {
   onPhoneSignInSession: (sessionId: string) => Promise<void>
   onPhoneSignInSuccess: () => Promise<void>
   onStationCompletion: () => void | Promise<void>
+  // Quick repeat overlay
+  showQuickRepeat: boolean
+  quickRepeatQrCheckout: KioskQrCheckoutState
+  quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
+  onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
+  onQuickRepeatDecline: () => void
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -214,8 +213,11 @@ export function useCheckInQrShellProps(input: UseCheckInQrShellPropsInput): Chec
       : `Please wait until ${toEsDateTime(kioskPinBlockedUntil)} before trying this PIN again.`
     : null
 
+  // Terminal check-in has no lower bound (see isTerminalCheckInAllowed), so
+  // only the closing time is presented — showing an "opens at" time would
+  // wrongly imply check-in is unavailable before it.
   const checkInWindowLabel: string = bootstrap
-    ? `Check-in window: ${toEsDateTime(bootstrap.context.checkInWindow.opensAt)} to ${toEsDateTime(bootstrap.context.checkInWindow.closesAt)}`
+    ? `open until ${toEsDateTime(bootstrap.context.checkInWindow.closesAt)}`
     : ""
 
   const packageExpiresLabel: string | undefined = bootstrap?.package?.expiresAt

@@ -353,23 +353,9 @@ export async function POST(req: Request) {
   const now = new Date()
   const isWindowOpen = isTerminalCheckInAllowed(context, now)
 
-  // ─── Shared context (used by both the fast and full paths) ──
+  // ─── Fast-path detection ─────────────────────────────────────
   const courseSlug = context.courseSlug
-  const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
 
-  const todayJsWeekday = (() => {
-    const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
-    const weekday = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      weekday: "short",
-    }).format(now)
-    return weekdayLabels.findIndex((label) => label === weekday)
-  })()
-
-  const aTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
-  const aMinutes = aTimeMatch ? Number(aTimeMatch[1]) * 60 + Number(aTimeMatch[2]) : null
-
-  // ─── Fast-path detection (package holder) ────────────────────
   const [activePackageForCourse, existingSessionResult] = await Promise.all([
     prisma.packagePurchase.findFirst({
       where: {
@@ -415,12 +401,9 @@ export async function POST(req: Request) {
     }),
   ])
 
-  // ADR-5 precedence: an active package for this course ALWAYS wins over
-  // quick-repeat. Quick-repeat (R2) is only evaluated when there is no
-  // active package for the course.
-  const isPackageFastPath = Boolean(activePackageForCourse) && Boolean(existingSessionResult)
+  const isFastPath = Boolean(activePackageForCourse) && Boolean(existingSessionResult)
 
-  if (isPackageFastPath && activePackageForCourse && existingSessionResult) {
+  if (isFastPath && activePackageForCourse && existingSessionResult) {
     // Check for existing attendance (already checked in)
     const existingAttendance = await prisma.attendance.findUnique({
       where: {
@@ -443,19 +426,6 @@ export async function POST(req: Request) {
     const courseTitle = courseData?.title ?? courseSlug
     bootstrapContext.courseTitle = courseTitle
 
-    // R1: resolve the consecutive-class promo the same way the full path
-    // does, so a package holder checking in to a class with a linked
-    // same-day class sees the later-class offer (payable by card or cash).
-    const consecutiveOffer = linkedFromCourseSlug
-      ? await resolveConsecutiveOffer({
-          userId: dbUser.id,
-          linkedFromCourseSlug,
-          todayJsWeekday,
-          courseTimeMinutes: aMinutes,
-          now,
-        })
-      : null
-
     const fastResponse: FastPathResponse = {
       identified: true,
       path: "fast",
@@ -471,7 +441,7 @@ export async function POST(req: Request) {
       context: bootstrapContext,
       hasExistingPurchaseForSession: Boolean(existingAttendance),
       hasAnyActivePackage: true,
-      consecutiveOffer,
+      consecutiveOffer: null,
       quickCheckout: null,
     }
 
@@ -485,98 +455,21 @@ export async function POST(req: Request) {
     return NextResponse.json(fastResponse)
   }
 
-  // ─── Fast-path detection (quick-repeat, no active package) ───
-  // R2: a customer with no active package for this course but with >= 3
-  // successful purchases gets a "pay like last time" quick-repeat fast
-  // path instead of the full packages screen. ADR-7: if the reused
-  // template can't be built (e.g. the service is no longer offered), fall
-  // back to the full path rather than surface a stale template.
-  if (!activePackageForCourse) {
-    const successfulPurchases = await prisma.purchase.findMany({
-      where: {
-        userId: dbUser.id,
-        courseSlug: courseSlug,
-        status: { in: SUCCESSFUL_PURCHASE_STATUSES },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 8,
-    })
-
-    if (successfulPurchases.length >= 3) {
-      const lastSuccessfulPurchase = successfulPurchases[0]
-      const courseDataForQuickRepeat = await getCatalogCourseBySlug(courseSlug)
-      const purchaseMetadata = toRecord(lastSuccessfulPurchase.metadata)
-      const quickTemplate =
-        courseDataForQuickRepeat
-          ? buildPricingTemplate({
-              course: courseDataForQuickRepeat,
-              lastPurchaseMetadata: purchaseMetadata,
-              lastPurchaseAddonsCsv: lastSuccessfulPurchase.addonsCsv,
-              lastPurchaseParticipants: lastSuccessfulPurchase.participants,
-              lastPurchaseCoupon: lastSuccessfulPurchase.coupon,
-            })
-          : null
-
-      if (quickTemplate) {
-        const bootstrapContext = buildBootstrapContext(
-          context,
-          courseDataForQuickRepeat?.title ?? courseSlug,
-          isWindowOpen
-        )
-
-        const quickRepeatResponse: FastPathResponse = {
-          identified: true,
-          path: "fast",
-          sessionToken: kioskSession.id,
-          sessionExpiresAt: kioskSession.expiresAt.toISOString(),
-          customer: {
-            userId: dbUser.id,
-            name: dbUser.name ?? "",
-            email: dbUser.email ?? "",
-            phone: normalizePhoneDigits(dbUser.phone ?? ""),
-          },
-          package: null,
-          context: bootstrapContext,
-          hasExistingPurchaseForSession: existingSessionResult
-            ? Boolean(
-                await prisma.attendance.findUnique({
-                  where: {
-                    userId_sessionId: {
-                      userId: dbUser.id,
-                      sessionId: existingSessionResult.id,
-                    },
-                  },
-                  select: { id: true },
-                })
-              )
-            : false,
-          hasAnyActivePackage: false,
-          consecutiveOffer: null,
-          quickCheckout: {
-            ...quickTemplate,
-            currency: "usd",
-            sourcePurchaseId: lastSuccessfulPurchase.id,
-            sourcePurchaseAt: lastSuccessfulPurchase.createdAt?.toISOString() || null,
-          },
-        }
-
-        console.info("[kiosk-phone-identify-bootstrap] response", {
-          path: "fast",
-          quickRepeat: true,
-          durationMs: Date.now() - startedAt,
-          userId: dbUser.id,
-          courseSlug,
-        })
-
-        return NextResponse.json(quickRepeatResponse)
-      }
-      // Stale-template fallback (ADR-7): the last successful purchase's
-      // service is no longer offered — fall through to the full path
-      // instead of surfacing a broken/stale quick-repeat template.
-    }
-  }
-
   // ─── Full path ──────────────────────────────────────────────
+  const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+
+  const todayJsWeekday = (() => {
+    const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+    const weekday = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+    }).format(now)
+    return weekdayLabels.findIndex((label) => label === weekday)
+  })()
+
+  const aTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
+  const aMinutes = aTimeMatch ? Number(aTimeMatch[1]) * 60 + Number(aTimeMatch[2]) : null
+
   const [
     allActivePackagesResult,
     recentPurchasesResult,

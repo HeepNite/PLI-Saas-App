@@ -52,17 +52,11 @@ export type CustomerInfo = {
 }
 
 /**
- * Fast-path response — returned when either:
- * - the student has an active package for the terminal's current course AND a
- *   class session exists at the current time ("package" fast path), or
- * - the student has no active package but has >= 3 successful purchases,
- *   surfacing a reused "pay like last time" quick-repeat template
- *   ("quick-repeat" fast path).
+ * Fast-path response — returned when the student has an active package for the
+ * terminal's current course AND a class session exists at the current time.
  *
- * Clerk is NOT called. Catalog lookup and prepared checkout context are
- * skipped to minimize latency. `package`/`hasAnyActivePackage` are nullable
- * to represent the no-package quick-repeat case; `consecutiveOffer` and
- * `quickCheckout` carry real payloads instead of always being null.
+ * Clerk is NOT called. Consecutive offers, catalog lookup, and prepared
+ * checkout context are all skipped to minimize latency.
  */
 export type FastPathResponse = {
   identified: true
@@ -70,12 +64,12 @@ export type FastPathResponse = {
   sessionToken: string
   sessionExpiresAt: string
   customer: CustomerInfo
-  package: PackageInfo | null
+  package: PackageInfo
   context: BootstrapContext
   hasExistingPurchaseForSession: boolean
-  hasAnyActivePackage: boolean
-  consecutiveOffer: ConsecutiveOfferPayload | null
-  quickCheckout: QuickCheckoutTemplate | null
+  hasAnyActivePackage: true
+  consecutiveOffer: null
+  quickCheckout: null
 }
 
 export type ConsecutiveOfferPayload = {

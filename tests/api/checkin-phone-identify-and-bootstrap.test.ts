@@ -15,11 +15,12 @@ const mockPackagePurchaseFindMany = vi.fn()
 const mockPurchaseFindMany = vi.fn()
 const mockClassSessionFindUnique = vi.fn()
 const mockAttendanceFindUnique = vi.fn()
+const mockCourseLinkFindMany = vi.fn()
+const mockCourseCatalogFindMany = vi.fn()
 const mockGetCatalogCourseBySlug = vi.fn()
 const mockFindClerkUserByIdentifiers = vi.fn()
 const mockResolveAvatarState = vi.fn()
 const mockClerkClient = vi.fn()
-const mockResolveConsecutiveOffer = vi.fn()
 
 vi.mock("@/lib/security/staff-terminal", () => ({
   authorizeStaffTerminalSession: (...args: unknown[]) =>
@@ -61,6 +62,12 @@ vi.mock("@/lib/prisma", () => ({
     attendance: {
       findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
     },
+    courseLink: {
+      findMany: (...args: unknown[]) => mockCourseLinkFindMany(...args),
+    },
+    courseCatalog: {
+      findMany: (...args: unknown[]) => mockCourseCatalogFindMany(...args),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({})),
   },
 }))
@@ -79,7 +86,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 }))
 
 vi.mock("@/lib/checkin/consecutive-offer", () => ({
-  resolveConsecutiveOffer: (...args: unknown[]) => mockResolveConsecutiveOffer(...args),
+  resolveConsecutiveOffer: vi.fn().mockResolvedValue(null),
 }))
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -170,11 +177,12 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockPurchaseFindMany.mockReset()
     mockClassSessionFindUnique.mockReset()
     mockAttendanceFindUnique.mockReset()
+    mockCourseLinkFindMany.mockReset()
+    mockCourseCatalogFindMany.mockReset()
     mockGetCatalogCourseBySlug.mockReset()
     mockFindClerkUserByIdentifiers.mockReset()
     mockResolveAvatarState.mockReset()
     mockClerkClient.mockReset()
-    mockResolveConsecutiveOffer.mockReset()
 
     // Happy defaults
     mockAuthorizeStaffTerminalSession.mockResolvedValue(TERMINAL_AUTH_OK)
@@ -190,10 +198,11 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockPurchaseFindMany.mockResolvedValue([])
     mockClassSessionFindUnique.mockResolvedValue(null)
     mockAttendanceFindUnique.mockResolvedValue(null)
+    mockCourseLinkFindMany.mockResolvedValue([])
+    mockCourseCatalogFindMany.mockResolvedValue([])
     mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockResolveAvatarState.mockReturnValue({ hasAvatar: false, needsRefresh: false })
-    mockResolveConsecutiveOffer.mockResolvedValue(null)
   })
 
   // Scenario: invalid terminal token → 401
@@ -210,7 +219,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.error).toMatch(/terminal session/i)
   })
 
-  // Scenario: blocked terminal → 423
+  // Scenario: blocked terminal → 403 / 429
   it("returns 423 when terminal is user-blocked", async () => {
     mockIsTerminalBlocked.mockResolvedValue({
       blocked: true,
@@ -230,8 +239,8 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.identified).toBe(false)
   })
 
-  // Scenario: unknown phone → 404 (new-user flow, unaffected by the port)
-  it("returns 404 when phone number is not found — routes to new-user flow", async () => {
+  // Scenario: unknown phone → 404
+  it("returns 404 when phone number is not found", async () => {
     mockUserFindFirst.mockResolvedValue(null)
     mockRecordTerminalMiss.mockResolvedValue({
       terminalBlocked: false,
@@ -251,7 +260,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.identified).toBe(false)
   })
 
-  // Scenario: valid phone + active package + class session, no linked class → fast path
+  // Scenario: valid phone + active package + class session → fast path
   it("returns fast path when student has active package and class session exists", async () => {
     mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
     mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
@@ -268,80 +277,19 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.path).toBe("fast")
     expect(data.identified).toBe(true)
     expect(data.sessionToken).toBe("kiosk_session_abc")
-    // No linkedFromCourseSlug in the request → no consecutive offer resolution.
     expect(data.consecutiveOffer).toBeNull()
     expect(data.quickCheckout).toBeNull()
     expect(data.hasAnyActivePackage).toBe(true)
     expect(data.package.id).toBe("pkg_purchase_1")
     // On fast path, Clerk should NOT be called
     expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
-    // No linkedFromCourseSlug means resolveConsecutiveOffer should not run.
-    expect(mockResolveConsecutiveOffer).not.toHaveBeenCalled()
-  })
-
-  // Scenario (spec R1): linked consecutive class exists → promo populated in fast path.
-  it("R1: populates consecutiveOffer in fast path when a linked consecutive class exists", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
-    mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
-    mockAttendanceFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    const CONSECUTIVE_OFFER = {
-      linkedCourseSlug: "bachata",
-      linkedCourseTitle: "Bachata",
-      linkedCourseTime: "12:00",
-      dropInConsecutiveCents: 1000,
-      packageHolderConsecutiveCents: 500,
-      regularDropInCents: 2000,
-      discountPercent: 50,
-      hasAttendedFirstClass: false,
-    }
-    mockResolveConsecutiveOffer.mockResolvedValue(CONSECUTIVE_OFFER)
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(
-      makeRequest({ ...BASE_BODY, linkedFromCourseSlug: "salsa" })
-    )
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("fast")
-    expect(data.consecutiveOffer).toEqual(CONSECUTIVE_OFFER)
-    expect(mockResolveConsecutiveOffer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: DB_USER.id,
-        linkedFromCourseSlug: "salsa",
-      })
-    )
-  })
-
-  // Scenario (spec R1): no linked consecutive class → no promo, package check-in completes normally.
-  it("R1: consecutiveOffer stays null in fast path when there is no linked consecutive class", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
-    mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
-    mockAttendanceFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    mockResolveConsecutiveOffer.mockResolvedValue(null)
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(
-      makeRequest({ ...BASE_BODY, linkedFromCourseSlug: "salsa" })
-    )
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("fast")
-    expect(data.consecutiveOffer).toBeNull()
-    expect(data.hasAnyActivePackage).toBe(true)
-    expect(data.package.id).toBe("pkg_purchase_1")
   })
 
   // Scenario: active package for different course → full path
   it("returns full path when active package is for a different course", async () => {
+    // packagePurchaseFindFirst returns null (no package for this specific course)
     mockPackagePurchaseFindFirst.mockResolvedValue(null)
+    // But findMany returns a package for another course
     mockPackagePurchaseFindMany.mockResolvedValue([
       {
         ...ACTIVE_PACKAGE,
@@ -361,30 +309,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.path).toBe("full")
     expect(data.identified).toBe(true)
     expect(data.hasAnyActivePackage).toBe(true)
-    expect(data.package).toBeNull()
-  })
-
-  // Scenario: package holder with no linked class → parity baseline (spec 1.12)
-  it("returns full path with consecutiveOffer null when no active package and no linked class", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    mockResolveConsecutiveOffer.mockResolvedValue(null)
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(
-      makeRequest({ ...BASE_BODY, linkedFromCourseSlug: "salsa" })
-    )
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("full")
-    expect(data.hasAnyActivePackage).toBe(false)
-    expect(data.package).toBeNull()
-    expect(data.consecutiveOffer).toBeNull()
+    expect(data.package).toBeNull() // no package for current course
   })
 
   // Scenario: no active package at all → full path
@@ -409,6 +334,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
   // Scenario: active package but no class session → full path
   it("returns full path when there is no class session at current time", async () => {
     mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
+    // No class session found
     mockClassSessionFindUnique.mockResolvedValue(null)
     mockPackagePurchaseFindMany.mockResolvedValue([ACTIVE_PACKAGE])
     mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
@@ -448,6 +374,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
       id: "pkg_purchase_early",
       expiresAt: new Date("2026-07-01T00:00:00.000Z"),
     }
+    // findFirst returns the earliest by our query ordering
     mockPackagePurchaseFindFirst.mockResolvedValue(earlierPackage)
     mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
     mockAttendanceFindUnique.mockResolvedValue(null)
@@ -476,7 +403,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(mockAuthorizeStaffTerminalSession).toHaveBeenCalledTimes(1)
   })
 
-  // Scenario: window state — terminal check-in stays open for the whole class day (rule #170).
+  // Scenario: window state — terminal check-in stays open for the whole class day.
   it("reports isWindowOpen=true earlier on the same class day before startsAt", async () => {
     const originalNodeEnv = process.env.NODE_ENV
     vi.stubEnv("NODE_ENV", "production")
@@ -504,8 +431,8 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     }
   })
 
-  // Scenario: window state — truly past the class's NY day is closed
-  it("reports isWindowOpen=false once the class's NY day has passed", async () => {
+  // Scenario: window state — truly past closesAt is closed
+  it("reports isWindowOpen=false once truly past closesAt", async () => {
     const originalNodeEnv = process.env.NODE_ENV
     vi.stubEnv("NODE_ENV", "production")
     vi.useFakeTimers()
@@ -519,6 +446,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
       const { POST } = await import(
         "@/app/api/checkin/phone/identify-and-bootstrap/route"
       )
+      // Far-past date/time keeps "now" (real Date.now()) well after closesAt.
       const res = await POST(makeRequest({ ...BASE_BODY, date: "2020-01-01" }))
       const data = await res.json()
 
@@ -558,207 +486,5 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.customer.lastName).toBe("Student")
     expect(data.customer.hasAvatar).toBe(true)
     expect(data.customer.clerkUserId).toBe("clerk_user_1")
-  })
-
-  // ─── R2: quick-repeat fast path (no active package) ────────────────────
-
-  const SUCCESSFUL_PURCHASE = (overrides: Partial<Record<string, unknown>> = {}) => ({
-    id: "purchase_1",
-    createdAt: new Date("2026-05-01T00:00:00.000Z"),
-    status: "paid",
-    courseSlug: "salsa",
-    metadata: { serviceId: "dropin" },
-    addonsCsv: null,
-    participants: 1,
-    coupon: null,
-    ...overrides,
-  })
-
-  // Scenario (spec): exactly 3 successful purchases, no package → quick-repeat fast path.
-  it("R2: offers quick-repeat fast path at exactly 3 successful purchases", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    mockPurchaseFindMany.mockResolvedValue([
-      SUCCESSFUL_PURCHASE({ id: "p3" }),
-      SUCCESSFUL_PURCHASE({ id: "p2" }),
-      SUCCESSFUL_PURCHASE({ id: "p1" }),
-    ])
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(makeRequest(BASE_BODY))
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("fast")
-    expect(data.hasAnyActivePackage).toBe(false)
-    expect(data.package).toBeNull()
-    expect(data.quickCheckout).not.toBeNull()
-    expect(data.quickCheckout.sourcePurchaseId).toBe("p3")
-    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
-  })
-
-  // Scenario (spec): below threshold (2 successful purchases) → full path.
-  it("R2: routes to full path with 2 successful purchases (below threshold)", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    mockPurchaseFindMany.mockResolvedValue([
-      SUCCESSFUL_PURCHASE({ id: "p2" }),
-      SUCCESSFUL_PURCHASE({ id: "p1" }),
-    ])
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(makeRequest(BASE_BODY))
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("full")
-  })
-
-  // Scenario (spec): above threshold (4 successful purchases) → quick-repeat fast path.
-  it("R2: offers quick-repeat fast path with 4 successful purchases (above threshold)", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    mockPurchaseFindMany.mockResolvedValue([
-      SUCCESSFUL_PURCHASE({ id: "p4" }),
-      SUCCESSFUL_PURCHASE({ id: "p3" }),
-      SUCCESSFUL_PURCHASE({ id: "p2" }),
-      SUCCESSFUL_PURCHASE({ id: "p1" }),
-    ])
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(makeRequest(BASE_BODY))
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("fast")
-    expect(data.quickCheckout).not.toBeNull()
-  })
-
-  // Scenario (spec): purchase count excludes non-successful statuses (pending/refunded).
-  it("R2: excludes pending/refunded purchases from the quick-repeat threshold", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    // The route's DB query for R2 filters by status in SUCCESSFUL_PURCHASE_STATUSES,
-    // so only the 2 "paid" rows would ever be returned by Prisma in production —
-    // simulate that filtering here (pending/refunded rows never reach the app).
-    mockPurchaseFindMany.mockImplementation(async () => [
-      SUCCESSFUL_PURCHASE({ id: "p2" }),
-      SUCCESSFUL_PURCHASE({ id: "p1" }),
-    ])
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(makeRequest(BASE_BODY))
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("full")
-    expect(mockPurchaseFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          status: { in: ["paid", "succeeded", "completed"] },
-        }),
-      })
-    )
-  })
-
-  // Scenario (spec): stale-template fallback → routes to full path, no stale quick-repeat.
-  it("R2: falls back to full path when the last purchase's service is no longer offered", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    // Course catalog no longer has any matching service/package for the stale purchase.
-    mockGetCatalogCourseBySlug.mockResolvedValue({
-      slug: "salsa",
-      title: "Salsa",
-      enrollment: { services: [], packages: [], addons: [] },
-    })
-    mockPurchaseFindMany.mockResolvedValue([
-      SUCCESSFUL_PURCHASE({ id: "p3", metadata: { serviceId: "discontinued-service" } }),
-      SUCCESSFUL_PURCHASE({ id: "p2" }),
-      SUCCESSFUL_PURCHASE({ id: "p1" }),
-    ])
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(makeRequest(BASE_BODY))
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("full")
-    expect(data.quickCheckout).toBeNull()
-  })
-
-  // Scenario (spec): package-vs-quick-repeat precedence → PACKAGE fast path wins.
-  it("Precedence: package fast path wins over quick-repeat when both are eligible", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
-    mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
-    mockAttendanceFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    // Even though this customer also has >= 3 successful purchases, the
-    // findMany for R2 purchases must never be reached because the package
-    // branch returns first.
-    mockPurchaseFindMany.mockResolvedValue([
-      SUCCESSFUL_PURCHASE({ id: "p3" }),
-      SUCCESSFUL_PURCHASE({ id: "p2" }),
-      SUCCESSFUL_PURCHASE({ id: "p1" }),
-    ])
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(makeRequest(BASE_BODY))
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.path).toBe("fast")
-    expect(data.hasAnyActivePackage).toBe(true)
-    expect(data.package.id).toBe("pkg_purchase_1")
-    expect(data.quickCheckout).toBeNull()
-    expect(mockPurchaseFindMany).not.toHaveBeenCalled()
-  })
-
-  // Scenario: SMS verification is never bypassed by fast/full path logic (spec 1.11).
-  // Neither response envelope (fast, full, or the unknown-phone new-user
-  // envelope) carries any field that could let a client skip SMS
-  // verification — this endpoint never touches Clerk phone verification at
-  // all, it only reads the already-verified DB `user.phone` column.
-  it("never exposes an SMS-verification bypass in fast or full path envelopes", async () => {
-    mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
-    mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
-    mockAttendanceFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const fastRes = await POST(makeRequest(BASE_BODY))
-    const fastData = await fastRes.json()
-    expect(fastData).not.toHaveProperty("skipSmsVerification")
-    expect(fastData).not.toHaveProperty("smsVerified")
-
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    const fullRes = await POST(makeRequest(BASE_BODY))
-    const fullData = await fullRes.json()
-    expect(fullData).not.toHaveProperty("skipSmsVerification")
-    expect(fullData).not.toHaveProperty("smsVerified")
   })
 })

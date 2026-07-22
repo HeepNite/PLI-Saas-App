@@ -4,7 +4,7 @@ import { SLUG_REGEX } from "@/lib/shared"
 export const QR_CHECKIN_OPEN_BEFORE_MS = 2 * 60 * 60 * 1000
 export const QR_CHECKIN_CLOSE_AFTER_END_MS = 2 * 60 * 60 * 1000
 
-const DEFAULT_DURATION_MINUTES = 60
+export const DEFAULT_DURATION_MINUTES = 60
 const MIN_DURATION_MINUTES = 15
 const MAX_DURATION_MINUTES = 240
 const isDevCheckInBypassEnabled = () => process.env.NODE_ENV !== "production"
@@ -91,6 +91,15 @@ export const isQrCheckInWindowOpen = (context: QrCheckInContext, now = new Date(
 export const isQrCheckInWindowAllowed = (context: QrCheckInContext, now = new Date()) => {
   if (isDevCheckInBypassEnabled()) return true
   return isQrCheckInWindowOpen(context, now)
+}
+
+// The ONLY window is the class DAY (America/New_York). The consecutive add-on
+// stays available the whole day of the class and closes only when the NY day
+// ends (midnight) — no lower bound, no end-of-class (`endsAt`) or grace
+// (`closesAt`) cutoff. `context.date` is the class's NY calendar day (YYYY-MM-DD).
+export const isConsecutiveAddOnPurchaseAllowed = (context: QrCheckInContext, now = new Date()) => {
+  if (isDevCheckInBypassEnabled()) return true
+  return getDateKeyInTimeZone(now) === context.date
 }
 
 // The ONLY window is the class DAY (America/New_York): terminal check-in is

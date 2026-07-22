@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { useAuth, useClerk, useUser } from "@clerk/nextjs"
 import { demoCourses } from "@/constants/courses"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
@@ -13,7 +13,9 @@ import {
   createEmptyKioskQrCheckoutState,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
+import { requestCheckoutSessionApi } from "@/lib/checkin/checkin-qr-api"
 import { useConsecutiveOfferUiHandlers } from "@/components/front/checkin/hooks/useConsecutiveOfferUiHandlers"
+import { useKioskQrCheckoutPoller } from "@/components/front/checkin/hooks/useKioskQrCheckoutPoller"
 import { useCheckInPackageFlow } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
 import { useCheckInBootstrap } from "@/components/front/checkin/hooks/useCheckInBootstrap"
 import { useConsecutiveOfferLookup } from "@/components/front/checkin/hooks/useConsecutiveOfferLookup"
@@ -21,20 +23,12 @@ import { useConsecutiveOfferState } from "@/components/front/checkin/hooks/useCo
 import { useConsecutiveOfferActions } from "@/components/front/checkin/hooks/useConsecutiveOfferActions"
 import { useEntryModeRouter } from "@/components/front/checkin/hooks/useEntryModeRouter"
 import { useCheckInBookingModalFlow } from "@/components/front/checkin/hooks/useCheckInBookingModalFlow"
-import { parseDuration } from "@/lib/checkin/checkin-helpers"
-import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
-import {
-  resolveCheckInActiveContext,
-  resolveCheckInBootstrapContextPayload,
-} from "@/lib/checkin/checkin-bootstrap-context"
 import { useCheckInTerminalEffects } from "@/components/front/checkin/hooks/useCheckInTerminalEffects"
-import { adaptIdentifyAndBootstrapResponse } from "@/lib/checkin/identify-and-bootstrap-adapter"
+import { useCheckInQrCoreState } from "@/components/front/checkin/hooks/useCheckInQrCoreState"
 import type {
-  EntryMode,
   BootstrapResponse,
   CheckInQrClientProps,
-  PackageOfferContext,
 } from "@/components/front/checkin/checkin.types"
 import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrShell"
 
@@ -69,52 +63,72 @@ export function useCheckInQrController({
     [catalogCourses]
   )
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const { isLoaded, isSignedIn, user } = useUser()
   const { getToken, sessionId: activeSessionId } = useAuth()
   const clerk = useClerk()
-  const [internalNowTick, setInternalNowTick] = React.useState<Date>(() => new Date())
-  const nowTick = simulatedNowTick ?? internalNowTick
-  const [origin, setOrigin] = React.useState("")
-  const [isCompactViewport, setIsCompactViewport] = React.useState(false)
-  const durationMinutes = parseDuration(searchParams.get("durationMinutes"))
 
-  // ─── State ──────────────────────────────────────────────────
-  const [mode, setMode] = React.useState<EntryMode>("idle")
-  const [openNewBooking, setOpenNewBooking] = React.useState(false)
-  const [newBookingOverride, setNewBookingOverride] = React.useState<{
-    courseSlug: string
-    date: string
-    time: string
-  } | null>(null)
-  const [latePaymentEntryOverride, setLatePaymentEntryOverride] = React.useState<{
-    courseSlug: string
-    date: string
-    time: string
-  } | null>(null)
-  const [showPhoneSignIn, setShowPhoneSignIn] = React.useState(false)
-  const [pendingLoginPhone, setPendingLoginPhone] = React.useState("")
-  const [existingRegularBookingOverride, setExistingRegularBookingOverride] = React.useState<{
-    courseSlug: string
-    date: string
-    time: string
-  } | null>(null)
-  const [existingRegularBookingKey, setExistingRegularBookingKey] = React.useState(0)
-  // When the user accepts a consecutive offer pre-check-in with a positive
-  // price, we first show the package success overlay (credit consumed,
-  // remaining credits) and wait for the operator/student to press "Done"
-  // before opening the Cash/Card payment selection for class B. This flag
-  // tells the Done handler to advance to payment selection instead of
-  // resetting the station.
-  const [awaitingConsecutivePaymentSelection, setAwaitingConsecutivePaymentSelection] = React.useState(false)
-  const [paymentsModalReady, setPaymentsModalReady] = React.useState(false)
-  const [processingPackageCheckIn, setProcessingPackageCheckIn] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-  const [success, setSuccess] = React.useState<string | null>(null)
-  const [showDuplicatePurchasePopup, setShowDuplicatePurchasePopup] = React.useState(false)
-  const [packageOfferContext, setPackageOfferContext] = React.useState<PackageOfferContext>(null)
-  const [packageOfferSelectedId, setPackageOfferSelectedId] = React.useState<string | null>(null)
-  const [returnedFromNewStudentFlow, setReturnedFromNewStudentFlow] = React.useState(false)
+  // ─── Core state (primitive state + derived context) ──────────
+  const {
+    searchParams,
+    internalNowTick: _internalNowTick,
+    setInternalNowTick,
+    nowTick,
+    origin,
+    setOrigin,
+    isCompactViewport,
+    setIsCompactViewport,
+    durationMinutes,
+    mode,
+    setMode,
+    openNewBooking,
+    setOpenNewBooking,
+    newBookingOverride,
+    setNewBookingOverride,
+    latePaymentEntryOverride,
+    setLatePaymentEntryOverride,
+    showPhoneSignIn,
+    setShowPhoneSignIn,
+    pendingLoginPhone,
+    setPendingLoginPhone,
+    existingRegularBookingOverride,
+    setExistingRegularBookingOverride,
+    existingRegularBookingKey,
+    setExistingRegularBookingKey,
+    awaitingConsecutivePaymentSelection,
+    setAwaitingConsecutivePaymentSelection,
+    paymentsModalReady,
+    setPaymentsModalReady,
+    processingPackageCheckIn,
+    setProcessingPackageCheckIn,
+    error,
+    setError,
+    success,
+    setSuccess,
+    showDuplicatePurchasePopup,
+    setShowDuplicatePurchasePopup,
+    packageOfferContext,
+    setPackageOfferContext,
+    packageOfferSelectedId,
+    setPackageOfferSelectedId,
+    returnedFromNewStudentFlow,
+    setReturnedFromNewStudentFlow,
+    consecutiveQrCheckout,
+    setConsecutiveQrCheckout,
+    preDisplayActiveContext,
+    contextPayload,
+    visibleError,
+    photoFlowContext,
+    isKioskTerminalFlow,
+  } = useCheckInQrCoreState({
+    sourceCourses,
+    shellVariant,
+    forcedCourseSlug,
+    forcedClassContext,
+    selectedCourseSlug,
+    terminalTodayOnly,
+    simulatedNowTick,
+  })
+
   const setBootstrapRef = React.useRef<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(() => {})
   const setBootstrapFromRef = React.useCallback<React.Dispatch<React.SetStateAction<BootstrapResponse | null>>>(
     (value) => setBootstrapRef.current(value),
@@ -123,57 +137,14 @@ export function useCheckInQrController({
   const handleStationCompletionRef = React.useRef<() => void | Promise<void>>(() => {})
   const checkConsecutiveOfferAfterCheckInRef = React.useRef<() => Promise<boolean>>(async () => false)
 
-  // ─── Consecutive card QR checkout state ─────────────────────
-  const [consecutiveQrCheckout, setConsecutiveQrCheckout] = React.useState<KioskQrCheckoutState>(
+  // ─── Quick repeat overlay state ──────────────────────────────
+  const [showQuickRepeat, setShowQuickRepeat] = React.useState(false)
+  const [quickRepeatProcessing, setQuickRepeatProcessing] = React.useState(false)
+  const [quickRepeatSuccess, setQuickRepeatSuccess] = React.useState(false)
+  const [quickRepeatSuccessChannel, setQuickRepeatSuccessChannel] = React.useState<"cash" | "card" | null>(null)
+  const [quickRepeatQrCheckout, setQuickRepeatQrCheckout] = React.useState<KioskQrCheckoutState>(
     createEmptyKioskQrCheckoutState()
   )
-
-  const preDisplayActiveContext = React.useMemo(
-    () => resolveCheckInActiveContext({
-      sourceCourses,
-      shellVariant,
-      searchParams,
-      forcedCourseSlug,
-      forcedClassContext,
-      selectedCourseSlug,
-      nowTick,
-      terminalTodayOnly,
-    }),
-    [forcedClassContext, forcedCourseSlug, nowTick, searchParams, selectedCourseSlug, shellVariant, sourceCourses, terminalTodayOnly]
-  )
-  const contextPayload = React.useMemo(
-    () => resolveCheckInBootstrapContextPayload({
-      activeCourseSlug: preDisplayActiveContext.activeCourseSlug,
-      activeDate: preDisplayActiveContext.activeDate,
-      activeTime: preDisplayActiveContext.activeTime,
-      durationMinutes,
-      latePaymentEntryOverride,
-    }),
-    [durationMinutes, latePaymentEntryOverride, preDisplayActiveContext.activeCourseSlug, preDisplayActiveContext.activeDate, preDisplayActiveContext.activeTime]
-  )
-
-  // ─── Derived error ──────────────────────────────────────────
-  const visibleError = React.useMemo(() => {
-    if (!error) return null
-    const normalized = error.trim().toLowerCase()
-    if (
-      normalized.includes("we couldn't prepare the fast flow") ||
-      normalized.includes("we couldn't load the fast flow")
-    ) {
-      return null
-    }
-    return error
-  }, [error])
-
-  const isQrEntry = React.useMemo(() => {
-    const qrView = (searchParams.get("fromQr") || searchParams.get("scan") || "").trim().toLowerCase()
-    return qrView === "1" || qrView === "true"
-  }, [searchParams])
-  const photoFlowContext = React.useMemo(
-    () => resolvePhotoFlowContext({ shellVariant, isQrEntry }),
-    [isQrEntry, shellVariant]
-  )
-  const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
 
   const {
     consecutiveOffer,
@@ -203,53 +174,41 @@ export function useCheckInQrController({
 
   // ─── Kiosk hooks ────────────────────────────────────────────
   const {
-    activePinField,
-    canIdentify,
-    canRotate,
-    confirmActiveSlot,
-    confirmRevealedIndex,
-    entryActiveSlot,
-    entryRevealedIndex,
-    handleKioskPhoneIdentify,
-    handleKioskPinIdentify,
-    handleKioskPinRotate,
-    handlePinBackspace,
-    handlePinClear,
-    handlePinDigitInput,
-    hasKioskPinSession,
     kioskPhone,
     kioskPhoneLoading,
-    kioskPin,
-    kioskPinAttemptsRemaining,
-    kioskPinBlockedUntil,
-    kioskPinThrottleSeverity,
-    kioskPinConfirm,
-    kioskPinLoading,
-    kioskPinNext,
-    kioskPinPanelCopy,
-    kioskPinRotating,
-    kioskPinRotationRequired,
-    kioskPinSessionToken,
-    nextActiveSlot,
-    nextRevealedIndex,
-    resetKioskPinFlow,
     setKioskPhone,
-    setKioskPin,
-    setKioskPinAttemptsRemaining,
-    setKioskPinBlockedUntil,
-    setKioskPinConfirm,
-    setKioskPinNext,
-    setKioskPinRotationMode,
-    setKioskPinRotationRequired,
+    handleKioskPhoneIdentify,
+    handlePinDigitInput,
+    handlePinBackspace,
+    handlePinClear,
+    hasKioskPinSession,
+    kioskPinSessionToken,
     setKioskPinSessionToken,
+    kioskPinAttemptsRemaining,
+    setKioskPinAttemptsRemaining,
+    kioskPinBlockedUntil,
+    setKioskPinBlockedUntil,
+    kioskPinThrottleSeverity,
+    setKioskPinThrottleSeverity,
+    resetKioskPinFlow,
   } = useKioskPinFlow<BootstrapResponse>({
     isKioskTerminalFlow,
+    contextPayload,
     setBootstrap: setBootstrapFromRef,
+    setConsecutiveOffer,
+    setShowConsecutiveOverlay,
+    setShowConsecutivePaymentSelection,
     setError,
     setSuccess,
-    contextPayload,
-    adaptIdentifyAndBootstrapResponse,
   })
+
+  // PIN rotation is removed — these stubs satisfy hooks that still reference them
+  const kioskPinRotationRequired = false
+  const setKioskPin = React.useCallback((_v: string | ((_: string) => string)) => {}, [])
+  const setKioskPinConfirm = React.useCallback((_v: string | ((_: string) => string)) => {}, [])
+  const setKioskPinNext = React.useCallback((_v: string | ((_: string) => string)) => {}, [])
+  const setKioskPinRotationMode = React.useCallback((_v: unknown) => {}, [])
+  const setKioskPinRotationRequired = React.useCallback((_v: boolean | ((_: boolean) => boolean)) => {}, [])
 
   const {
     clearSuppressedClerkSessionId,
@@ -273,7 +232,6 @@ export function useCheckInQrController({
     contextPayload,
     getToken,
     hasActiveClerkSession,
-    kioskPinRotationRequired,
     kioskPinSessionToken,
     photoFlowContext,
     setError,
@@ -282,6 +240,14 @@ export function useCheckInQrController({
     setShowConsecutivePaymentSelection,
   })
   setBootstrapRef.current = setBootstrap
+
+  // Activate quick repeat overlay when bootstrap signals eligibility
+  React.useEffect(() => {
+    if (bootstrap?.quickRepeatEligible && isKioskTerminalFlow) {
+      setShowQuickRepeat(true)
+      setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+    }
+  }, [bootstrap?.quickRepeatEligible, isKioskTerminalFlow])
 
   const checkConsecutiveOfferAfterCheckInFromRef = React.useCallback(
     () => checkConsecutiveOfferAfterCheckInRef.current(),
@@ -293,9 +259,16 @@ export function useCheckInQrController({
   const {
     packageCheckInResult,
     setPackageCheckInResult,
+    packageCheckInFailure,
+    packageCheckInAttempts,
+    retryBackoffActive,
+    clearPackageCheckInBackoff,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
     performPackageCheckInApi,
     handlePackageCheckIn,
     handlePackageSuccessDone,
+    handleRetryPackageCheckIn,
   } = useCheckInPackageFlow({
     bootstrap,
     getToken,
@@ -323,7 +296,7 @@ export function useCheckInQrController({
     hideQrPanel,
     qrPathOverride,
     pathname,
-    searchParams,
+    searchParams: searchParams as URLSearchParams,
     forcedDeviceMode,
     forcedCourseSlug,
     forcedClassContext,
@@ -335,7 +308,6 @@ export function useCheckInQrController({
     mode,
     hasActiveClerkSession,
     hasKioskPinSession,
-    kioskPinRotationRequired,
     loadingBootstrap,
     bootstrap,
     visibleError,
@@ -344,6 +316,7 @@ export function useCheckInQrController({
     openNewBooking,
     processingPackageCheckIn,
     hasPackageCheckInResult: Boolean(packageCheckInResult),
+    hasPackageCheckInFailure: Boolean(packageCheckInFailure),
     packageOfferContext,
   })
 
@@ -366,6 +339,7 @@ export function useCheckInQrController({
     showLatePaymentOffer,
     showContextWarning,
     showKioskResolvingOverlay,
+    showPackageCheckInFailureOverlay,
     welcomeLabel,
     shellEyebrow,
     mainSpacingClass,
@@ -434,8 +408,197 @@ export function useCheckInQrController({
     setShowConsecutiveOverlay,
     setShowConsecutivePaymentSelection,
     setAwaitingConsecutivePaymentSelection,
+    clearPackageCheckInBackoff,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
   })
   handleStationCompletionRef.current = handleStationCompletion
+
+  // ─── Quick repeat handlers ───────────────────────────────────
+  const handleQuickRepeatDecline = React.useCallback(() => {
+    setShowQuickRepeat(false)
+    setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+    // Fall through to the existing student flow — openExistingPurchaseFlow is
+    // called reactively by the bootstrap effect when existingRegularBookingOverride
+    // is set. We just clear the overlay gate here; the existing terminal flow
+    // already handles the rest.
+  }, [])
+
+  const handleQuickRepeatConfirm = React.useCallback(async (
+    paymentChannel: "cash" | "card",
+    consecutiveAccepted: boolean,
+  ) => {
+    if (!bootstrap) return
+    const { context, customer, consecutiveOffer: bsConsecutiveOffer, lastPurchasePattern } = bootstrap
+
+    setQuickRepeatProcessing(true)
+
+    if (paymentChannel === "cash") {
+      try {
+        const baseAmountCents = lastPurchasePattern?.amount ?? 0
+        const consecutiveOffer = consecutiveAccepted ? bsConsecutiveOffer ?? null : null
+        const consecutivePriceCents = consecutiveAccepted && consecutiveOffer
+          ? (consecutiveOffer.dropInConsecutiveCents ?? null)
+          : null
+        const amountCents = baseAmountCents + (consecutivePriceCents ?? 0)
+
+        const payload: Record<string, unknown> = {
+          courseSlug: context.courseSlug,
+          courseTitle: context.courseTitle,
+          amount: amountCents,
+          currency: "usd",
+          date: context.date,
+          time: context.time,
+          firstName: customer.firstName,
+          lastName: customer.lastName,
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          participants: 1,
+          addons: [],
+          serviceId: lastPurchasePattern?.paymentChannel === "package" ? "package" : "dropin",
+          photoContext: "kiosk_terminal",
+          flowContext: "kiosk_terminal",
+          ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+          ...(consecutiveOffer && consecutivePriceCents != null
+            ? {
+                consecutivePriceCents,
+                consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
+                consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
+                consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime ?? context.time,
+              }
+            : {}),
+        }
+
+        const res = await fetch("/api/checkout/cash", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        })
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => null)
+          const errorMsg = typeof data?.error === "string" ? data.error : "Quick check-in failed. Please try again."
+          console.error("[QuickRepeat] Cash checkout failed:", errorMsg)
+          setError(errorMsg)
+          setShowQuickRepeat(false)
+          setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+          return
+        }
+
+        // Show success screen inside the overlay, then complete after delay
+        setQuickRepeatSuccessChannel("cash")
+        setQuickRepeatSuccess(true)
+        setTimeout(() => {
+          setShowQuickRepeat(false)
+          setQuickRepeatSuccess(false)
+          setQuickRepeatSuccessChannel(null)
+          setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+          void handleStationCompletionFromRef()
+        }, 3000)
+      } catch {
+        setError("Quick check-in failed. Please try again.")
+        setShowQuickRepeat(false)
+        setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+      } finally {
+        setQuickRepeatProcessing(false)
+      }
+      return
+    }
+
+    // Card path — create a Stripe session and show QR within the overlay
+    const baseAmountCentsCard = lastPurchasePattern?.amount ?? 0
+    if (baseAmountCentsCard <= 0) {
+      setError("Unable to determine amount for card payment.")
+      setQuickRepeatProcessing(false)
+      return
+    }
+
+    setQuickRepeatQrCheckout({ ...createEmptyKioskQrCheckoutState(), phase: "creating" })
+
+    try {
+      const consecutiveOfferForCard = consecutiveAccepted ? (bootstrap.consecutiveOffer ?? null) : null
+      const consecutivePriceCents = consecutiveOfferForCard
+        ? (consecutiveOfferForCard.dropInConsecutiveCents ?? null)
+        : null
+      const totalAmountCents = baseAmountCentsCard + (consecutivePriceCents ?? 0)
+
+      const sessionPayload: Record<string, unknown> = {
+        courseSlug: context.courseSlug,
+        courseTitle: context.courseTitle,
+        amount: totalAmountCents,
+        currency: "usd",
+        date: context.date,
+        time: context.time,
+        serviceId: lastPurchasePattern?.paymentChannel === "package" ? "package" : "dropin",
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+        participants: 1,
+        photoContext: "kiosk_terminal",
+        ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+        ...(consecutiveOfferForCard && consecutivePriceCents != null
+          ? {
+              consecutivePriceCents,
+              consecutiveLinkedCourseSlug: consecutiveOfferForCard.linkedCourseSlug,
+              consecutiveCourseTitle: consecutiveOfferForCard.linkedCourseTitle,
+              consecutiveLinkedCourseTime: consecutiveOfferForCard.linkedCourseTime ?? context.time,
+            }
+          : {}),
+      }
+
+      const { res, data } = await requestCheckoutSessionApi({ payload: sessionPayload })
+
+      if (!res.ok || typeof data?.url !== "string" || typeof data?.sessionId !== "string") {
+        const message = typeof data?.error === "string" && data.error.trim().length > 0
+          ? data.error
+          : "Error starting card checkout."
+        setQuickRepeatQrCheckout({ ...createEmptyKioskQrCheckoutState(), phase: "error", error: message })
+        setQuickRepeatProcessing(false)
+        return
+      }
+
+      setQuickRepeatQrCheckout({
+        phase: "qr_ready",
+        sessionId: data.sessionId,
+        url: data.url,
+        expiresAt: data.expiresAt ?? null,
+        awaitingWebhook: false,
+        purchaseId: null,
+        paymentStatus: null,
+        error: null,
+      })
+    } catch {
+      setQuickRepeatQrCheckout({
+        ...createEmptyKioskQrCheckoutState(),
+        phase: "error",
+        error: "Unable to start card checkout.",
+      })
+    } finally {
+      setQuickRepeatProcessing(false)
+    }
+  }, [bootstrap, kioskPinSessionToken, handleStationCompletionFromRef, setError])
+
+  // ─── Poll quick-repeat QR checkout status ──────────────────
+  const handleQuickRepeatQrComplete = React.useCallback(() => {
+    setQuickRepeatSuccessChannel("card")
+    setQuickRepeatSuccess(true)
+    setTimeout(() => {
+      setShowQuickRepeat(false)
+      setQuickRepeatSuccess(false)
+      setQuickRepeatSuccessChannel(null)
+      setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+      void handleStationCompletionFromRef()
+    }, 3000)
+  }, [handleStationCompletionFromRef])
+
+  useKioskQrCheckoutPoller({
+    checkoutState: quickRepeatQrCheckout,
+    setCheckoutState: setQuickRepeatQrCheckout,
+    onComplete: handleQuickRepeatQrComplete,
+  })
 
   // ─── Booking modal orchestration ────────────────────────────
   const {
@@ -641,6 +804,10 @@ export function useCheckInQrController({
     newBookingOverride,
     processingPackageCheckIn,
     packageCheckInResult,
+    packageCheckInAttempts,
+    packageCheckInFailure,
+    retryBackoffActive,
+    setPackageCheckInFailure,
     hasUsablePackageForCurrentClass,
     effectiveCheckInWindowOpen,
     handlePackageCheckIn,
@@ -711,30 +878,14 @@ export function useCheckInQrController({
     onNewClick: handleNewClick,
     showKioskPinPanel,
     returnedFromNewStudentFlow,
-    kioskPinPanelCopy,
+    kioskPinPanelCopy: { title: "Enter your phone number", description: "Enter your 10-digit US phone number to continue." },
     hasKioskPinSession,
-    kioskPin,
-    entryRevealedIndex,
-    entryActiveSlot,
-    activePinField,
     kioskPinAttemptsRemaining,
     kioskPinThrottleSeverity,
     kioskPinBlockedUntil,
-    canIdentify,
-    kioskPinLoading,
-    kioskPinNext,
-    nextRevealedIndex,
-    nextActiveSlot,
-    kioskPinConfirm,
-    confirmRevealedIndex,
-    confirmActiveSlot,
-    canRotate,
-    kioskPinRotating,
     kioskPhone,
     kioskPhoneLoading,
     onKioskPhoneIdentify: handleKioskPhoneIdentify,
-    onKioskPinIdentify: handleKioskPinIdentify,
-    onKioskPinRotate: handleKioskPinRotate,
     onPinDigitInput: handlePinDigitInput,
     onPinBackspace: handlePinBackspace,
     onPinClear: handlePinClear,
@@ -778,6 +929,10 @@ export function useCheckInQrController({
     newBookingCourse,
     openNewBooking,
     packageCheckInResult,
+    packageCheckInFailure,
+    showPackageCheckInFailureOverlay,
+    packageCheckInAttempts,
+    onRetryPackageCheckIn: handleRetryPackageCheckIn,
     photoFlowContext,
     showConsecutiveOverlay,
     showConsecutivePaymentSelection,
@@ -808,5 +963,12 @@ export function useCheckInQrController({
     onPhoneSignInSession: handlePhoneSignInSession,
     onPhoneSignInSuccess: handlePhoneSignInSuccess,
     onStationCompletion: handleStationCompletion,
+    showQuickRepeat,
+    quickRepeatQrCheckout,
+    quickRepeatProcessing,
+    quickRepeatSuccess,
+    quickRepeatSuccessChannel,
+    onQuickRepeatConfirm: handleQuickRepeatConfirm,
+    onQuickRepeatDecline: handleQuickRepeatDecline,
   })
 }
