@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import * as Sentry from "@sentry/nextjs"
+import { createNestGatewayTerminalPaymentIntent } from "@/lib/nest-gateway/client"
 import {
   clearPreparedCheckoutAfterSuccess,
   enforceNewStudentRules,
   resolveCheckoutPreparation,
   type ApiError,
 } from "@/lib/checkout"
-import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
+import { validateCheckoutPayload, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -24,6 +25,105 @@ const isApiError = (value: unknown): value is ApiError =>
   Boolean(value && typeof value === "object" && "status" in value && "error" in value)
 const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
+
+const UNKNOWN_PAYMENT_INTENT_ERROR = "Payment intent status is unknown. Verify the terminal payment before retrying."
+
+type EffectiveSession = {
+  date: string | null
+  time: string | null
+}
+
+type CheckoutIntentMetadata = Record<string, string>
+
+const omitEmptyMetadataFields = (metadata: CheckoutIntentMetadata): CheckoutIntentMetadata =>
+  Object.fromEntries(Object.entries(metadata).filter(([, value]) => value.trim().length > 0))
+
+const hasUsableClientSecret = (payload: unknown): payload is { clientSecret: string } =>
+  Boolean(
+    payload &&
+    typeof payload === "object" &&
+    "clientSecret" in payload &&
+    typeof payload.clientSecret === "string" &&
+    payload.clientSecret.trim().length > 0
+  )
+
+const buildCheckoutIntentMetadata = ({
+  effectiveSession,
+  firstName,
+  identity,
+  lastName,
+  name,
+  phone,
+  photoContext,
+  resolvedUserId,
+  validation,
+}: {
+  effectiveSession: EffectiveSession
+  firstName?: string
+  identity: { resolvedEmail: string; phoneNormalized: string }
+  lastName?: string
+  name?: string
+  phone?: string
+  photoContext?: string
+  resolvedUserId: string | null
+  validation: CheckoutValidation
+}): CheckoutIntentMetadata =>
+  omitEmptyMetadataFields({
+    courseSlug: validation.courseSlug,
+    courseTitle: validation.courseTitle,
+    date: effectiveSession.date ?? "",
+    time: effectiveSession.time ?? "",
+    packageId: validation.packageId,
+    packageLabel: validation.pkg?.label || "",
+    packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),
+    packageIsUnlimited: String(validation.packageIsUnlimited),
+    packageCadence: validation.packageCadence,
+    packageMakeUps: String(validation.packageMakeUps),
+    packageValidDays: String(validation.packageValidDays),
+    serviceId: validation.serviceId,
+    userId: resolvedUserId || "guest",
+    participants: String(validation.safeParticipants),
+    coupon: validation.coupon || "",
+    addons: validation.addons.join(","),
+    name: name || [firstName, lastName].filter(Boolean).join(" ") || "",
+    email: identity.resolvedEmail,
+    phone: identity.phoneNormalized,
+    phoneRaw: phone || "",
+    consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
+    consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
+    consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
+    consecutiveLinkedCourseTime: validation.consecutiveLinkedCourseTime || "",
+    flowContext: photoContext || "",
+  })
+
+const buildDelegatedTerminalPaymentIntentIdempotencyKey = (input: {
+  amountInt: number
+  currency: string
+  preparedContextId: string
+}) => `terminal-payment-intent:${input.preparedContextId}:${input.amountInt}:${input.currency}`
+
+const createLocalPaymentIntent = async (input: {
+  amount: number
+  currency: string
+  metadata: CheckoutIntentMetadata
+  receiptEmail: string
+}) => {
+  if (!stripe) {
+    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
+  }
+
+  const intent = await stripe.paymentIntents.create({
+    amount: input.amount,
+    currency: input.currency,
+    automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+    receipt_email: input.receiptEmail,
+    metadata: input.metadata,
+  })
+
+  return NextResponse.json({
+    clientSecret: intent.client_secret,
+  })
+}
 
 export async function POST(req: Request) {
   const startedAt = Date.now()
@@ -93,7 +193,7 @@ export async function POST(req: Request) {
     return toErrorResponse(preparation)
   }
 
-  const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
+  const { preparedAccount, verification, source, fallbackReason, terminalAuth, preparedContextId } = preparation
   const { clerkUser, resolvedUserId, identity, account } = preparedAccount
 
   if (prepareOnly) {
@@ -110,10 +210,6 @@ export async function POST(req: Request) {
     })
   }
 
-  if (!stripe) {
-    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
-  }
-
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
@@ -127,46 +223,92 @@ export async function POST(req: Request) {
     return toErrorResponse(newStudentError)
   }
 
-  try {
-    const intent = await stripe.paymentIntents.create({
-      amount: validation.amountInt,
-      currency: validation.currency,
-      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-      receipt_email: identity.resolvedEmail,
-      metadata: {
-        courseSlug: validation.courseSlug,
-        courseTitle: validation.courseTitle,
-        date: effectiveSession.date,
-        time: effectiveSession.time,
-        packageId: validation.packageId,
-        packageLabel: validation.pkg?.label || "",
-        packageTotalCredits: validation.packageTotalCredits === null ? "" : String(validation.packageTotalCredits),
-        packageIsUnlimited: String(validation.packageIsUnlimited),
-        packageCadence: validation.packageCadence,
-        packageMakeUps: String(validation.packageMakeUps),
-        packageValidDays: String(validation.packageValidDays),
-        serviceId: validation.serviceId,
-        userId: resolvedUserId || "guest",
-        participants: String(validation.safeParticipants),
-        coupon: validation.coupon || "",
-        addons: validation.addons.join(","),
-        name: name || [firstName, lastName].filter(Boolean).join(" ") || "",
-        email: identity.resolvedEmail,
-        phone: identity.phoneNormalized,
-        phoneRaw: phone || "",
-        // Consecutive class fields (present when user accepted the consecutive offer)
-        consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
-        consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
-        consecutiveCourseTitle: validation.consecutiveCourseTitle || "",
-        flowContext: photoContext || "",
-      },
-    })
+  const metadata = buildCheckoutIntentMetadata({
+    effectiveSession,
+    firstName,
+    identity,
+    lastName,
+    name,
+    phone,
+    photoContext,
+    resolvedUserId,
+    validation,
+  })
 
-    await clearPreparedCheckoutAfterSuccess({
-      terminalAuth,
-      kioskSessionToken,
-      validation,
-    })
+  const shouldDelegateTerminalPaymentIntent =
+    photoContext === FLOW_CONTEXT.KIOSK_TERMINAL &&
+    source === "prepared" &&
+    Boolean(terminalAuth?.ok) &&
+    Boolean(preparedContextId)
+
+  try {
+    let response: Response
+
+    if (shouldDelegateTerminalPaymentIntent && preparedContextId) {
+      const idempotencyKey = buildDelegatedTerminalPaymentIntentIdempotencyKey({
+        amountInt: validation.amountInt,
+        currency: validation.currency,
+        preparedContextId,
+      })
+      const requestId = req.headers.get("x-request-id")?.trim() || idempotencyKey
+      const gatewayResult = await createNestGatewayTerminalPaymentIntent({
+        payload: {
+          amount: validation.amountInt,
+          currency: validation.currency,
+          receiptEmail: identity.resolvedEmail,
+          idempotencyKey,
+          metadata,
+        },
+        requestId,
+      })
+
+      if ("clientSecret" in gatewayResult) {
+        response = NextResponse.json({ clientSecret: gatewayResult.clientSecret, account })
+      } else if (gatewayResult.source === "fallback") {
+        response = await createLocalPaymentIntent({
+          amount: validation.amountInt,
+          currency: validation.currency,
+          metadata,
+          receiptEmail: identity.resolvedEmail,
+        })
+      } else {
+        console.error("Terminal payment-intent gateway unknown state", {
+          idempotencyKey,
+          preparedContextId,
+          reason: gatewayResult.reason,
+          requestId,
+          source,
+        })
+        Sentry.captureMessage("Terminal payment-intent gateway unknown state", {
+          level: "error",
+          extra: {
+            idempotencyKey,
+            preparedContextId,
+            reason: gatewayResult.reason,
+            requestId,
+            source,
+          },
+        })
+        return NextResponse.json({ error: UNKNOWN_PAYMENT_INTENT_ERROR }, { status: 502 })
+      }
+    } else {
+      response = await createLocalPaymentIntent({
+        amount: validation.amountInt,
+        currency: validation.currency,
+        metadata,
+        receiptEmail: identity.resolvedEmail,
+      })
+    }
+
+    const payload = await response.json()
+
+    if (response.ok && hasUsableClientSecret(payload)) {
+      await clearPreparedCheckoutAfterSuccess({
+        terminalAuth,
+        kioskSessionToken,
+        validation,
+      })
+    }
 
     console.info("[staff-terminal-checkout-latency] checkout-intent", {
       segment: "card_next_step",
@@ -176,9 +318,9 @@ export async function POST(req: Request) {
     })
 
     return NextResponse.json({
-      clientSecret: intent.client_secret,
+      ...payload,
       account,
-    })
+    }, { status: response.status })
   } catch (err) {
     console.error("Stripe intent error", err)
     Sentry.captureException(err)

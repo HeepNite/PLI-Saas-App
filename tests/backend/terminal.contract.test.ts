@@ -217,6 +217,44 @@ describe("backend terminal contracts", () => {
     await expect(response.json()).resolves.toEqual({ clientSecret: "nest_pi_secret" })
   })
 
+  it("accepts terminal payment-intent metadata when optional fields are omitted", async () => {
+    setInternalSecret("shared-secret")
+
+    const handleRequest = createBackendRequestHandler({
+      paymentIntentsController: {
+        post: async () => ({ clientSecret: "nest_pi_secret" }),
+      },
+    })
+
+    const response = await handleRequest(
+      new Request("http://backend.internal/internal/terminal/payment-intents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [INTERNAL_AUTH_HEADER]: "shared-secret",
+        },
+        body: JSON.stringify({
+          ...createPaymentIntentRequest(),
+          metadata: {
+            courseSlug: "salsa-femenina-matutina",
+            courseTitle: "Course booking",
+            date: "2026-02-10",
+            time: "11:00",
+            serviceId: "dropin",
+            userId: "guest",
+            participants: "1",
+            email: "student@example.com",
+            phone: "9293876584",
+            flowContext: "kiosk_terminal",
+          },
+        }),
+      })
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ clientSecret: "nest_pi_secret" })
+  })
+
   it("still rejects unauthenticated internal terminal paths before route matching", async () => {
     setInternalSecret("shared-secret")
 
