@@ -160,7 +160,11 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
         requiresPhotoStep,
         skipInfoStep: skipContactStep,
         hasPackages: course.enrollment.packages.length > 0,
-        hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
+        hasConsecutiveOffer: Boolean(
+          effectiveConsecutiveOffer &&
+            typeof effectiveConsecutiveOffer === "object" &&
+            (effectiveConsecutiveOffer as { linkedCourseSlug?: string }).linkedCourseSlug
+        ),
         isProfileBookingFlow,
       }),
     [isCheckInFlow, isQrMobileCompactFlow, isCheckInNewFlow, isKioskTerminalFlow, requiresPhotoStep, skipContactStep, course.enrollment.packages.length, effectiveConsecutiveOffer, isProfileBookingFlow]
