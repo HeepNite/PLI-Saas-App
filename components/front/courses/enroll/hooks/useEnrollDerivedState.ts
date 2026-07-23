@@ -10,7 +10,7 @@ import {
   FileText,
   CheckCircle2,
 } from "lucide-react"
-import type { CourseData, EnrollmentOption } from "@/constants/courses"
+import type { CourseData } from "@/constants/courses"
 import type { Coupon, EnrollmentContact, PaymentMethod, CourseEnrollmentData } from "@/components/front/courses/types"
 import { useI18n } from "@/lib/i18n"
 import { getAvailableTimesForCourseDate, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
@@ -19,6 +19,7 @@ import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/
 import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { resolveEnrollInitialStep, getCheckInSignInModalVariant } from "@/lib/checkin/enroll-flow"
+import type { SignInModalVariant } from "@/components/front/courses/enroll/steps/EnrollSignInOverlay"
 import { getKioskPaymentTransitionMessage } from "@/lib/checkin/kiosk-qr-payment"
 import { isRegularFallbackLocked } from "@/lib/checkin/new-student-flow"
 import { formatUSPhone } from "@/components/front/courses/utils/phone"
@@ -179,9 +180,11 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
                 ? t("step_info")
                 : key === "packages"
                   ? "Packages"
-                  : key === "consecutive"
-                    ? "Promo"
-                    : key === "payments"
+                  : key === "promo"
+                    ? "Deals"
+                    : key === "consecutive"
+                      ? "Promo"
+                      : key === "payments"
                       ? t("step_payments")
                       : key === "review"
                         ? t("step_review")
@@ -221,6 +224,11 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     [steps]
   )
 
+  const promoStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "promo"),
+    [steps]
+  )
+
   const regularServicePrice = React.useMemo(
     () => availableServices.find((item) => item.id === regularServiceId)?.price || 20,
     [availableServices, regularServiceId]
@@ -236,7 +244,7 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     [initialStep, steps.length]
   )
 
-  const signInModalVariant = React.useMemo(
+  const signInModalVariant = React.useMemo<SignInModalVariant>(
     () => getCheckInSignInModalVariant(isCheckInFlow),
     [isCheckInFlow]
   )
@@ -372,6 +380,7 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     infoStepIndex,
     photoStepIndex,
     packagesStepIndex,
+    promoStepIndex,
     regularServicePrice,
     regularFallbackLocked,
     effectiveInitialStep,

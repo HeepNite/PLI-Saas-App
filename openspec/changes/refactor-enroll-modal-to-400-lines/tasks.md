@@ -179,11 +179,15 @@ git revert <PR2a-merge-commit>
 > **Dependency**: Slices 2a, 2b, and 2c merged.
 > **Target PR**: PR 3 → PR 2c branch.
 
-- [ ] 3.1 Create `components/front/courses/enroll/hooks/useKioskInactivity.ts` — extract station-completion timeout and kiosk inactivity controller wiring using the exact signature from `design.md` (~110 lines).
-- [ ] 3.2 Create `components/front/courses/enroll/hooks/useKioskQrPoller.ts` — extract `createKioskQrPoller` lifecycle (start/stop/outcome dispatch) using the exact signature from `design.md` (~90 lines).
-- [ ] 3.3 Modify `EnrollModal.tsx` — replace extracted kiosk effects with `useKioskInactivity(...)` and `useKioskQrPoller(...)` calls; preserve exact dependency arrays (~80 lines net change).
-- [ ] 3.4 Write `useKioskInactivity.test.ts` — fake timers; assert `onTimeoutAction` fires after inactivity window, resets on activity events, pauses during QR phase.
-- [ ] 3.5 Write `useKioskQrPoller.test.ts` — mock `createKioskQrPoller`; assert poller started when `kioskQrCheckoutPending = true` and stopped on cleanup.
+- [x] 3.1 Create `components/front/courses/enroll/hooks/useKioskInactivity.ts` — extract station-completion timeout and kiosk inactivity controller wiring using the exact signature from `design.md` (~110 lines). (Hook already existed unwired; verified logic and dependency array matched live inline effect exactly before wiring.)
+- [x] 3.2 Create `components/front/courses/enroll/hooks/useKioskQrPoller.ts` — extract `createKioskQrPoller` lifecycle (start/stop/outcome dispatch) using the exact signature from `design.md` (~90 lines). (Hook already existed unwired; verified logic matched live inline effect exactly before wiring.)
+- [x] 3.3 Modify `EnrollModal.tsx` — replace extracted kiosk effects with `useKioskInactivity(...)` and `useKioskQrPoller(...)` calls; preserve exact dependency arrays (~80 lines net change). Removed now-dead imports (`createKioskInactivityController`, `resolveStationTimeoutAction`, `shouldPauseKioskInactivityForQrPhase`, `createKioskQrPoller`, plus `PaymentMethod`/`KioskQrCheckoutState`/`EnrollFlowState` type imports made unused by the Slice 5 flow-setters extraction below).
+- [x] 3.4 `useKioskInactivity.test.ts` — pre-existing test file already covered `onTimeoutAction` firing after inactivity window, reset on activity events, and pause during QR phase (11 tests, green before and after wiring).
+- [x] 3.5 `useKioskQrPoller.test.ts` — pre-existing test file already covered `createKioskQrPoller` mocking, start on `kioskQrCheckoutPending = true`, and cleanup (tests green before and after wiring).
+
+**Apply Notes (Slice 5, partial)**: Beyond the Phase 3 hooks above, the worktree also contains several additional pre-existing, never-wired, untested hooks not tracked anywhere in this tasks.md or in `design.md`'s target architecture: `useEnrollFlowSetters.ts` (wired this slice — see below), `useEnrollDerivedState.ts` (fixed two drift bugs but NOT wired — see below), `useEnrollActions.ts` (composite hook wrapping `useEnrollNavigationActions.ts`, `useEnrollPaymentActions.ts`, `useEnrollSubmitActions.ts`), and `useEnrollEffects.ts`. None of these five have any test coverage. They collectively own submit/checkout/navigation logic (Stripe intent, cash checkout, kiosk QR checkout, drop-in check-in, step navigation) — directly payment-critical. Given zero test coverage and the drift already found in `useEnrollDerivedState.ts` (missing `promo` step label branch, missing `promoStepIndex` — would have broken the kiosk 3-step new-student flow's step label and step-forward navigation had it been wired as-is), these five hooks were deliberately NOT wired this slice; they need dedicated follow-up slices with the same line-by-line drift reconciliation performed on the Slice 4b step components, plus new test coverage before wiring. Recommend tracking as a new Phase 3b/Phase 6 in a design.md update.
+
+- [x] (unplanned, not in original Phase 2/3 scope) Wire `useEnrollFlowSetters.ts` into `EnrollModal.tsx` — replaces the 17 inline `React.useCallback`-wrapped `dispatchFlow` setter functions (`setService`, `setPkg`, `setAddons`, `setParticipants`, `setContact`, `setPaymentMethod`, `setStep`, `setSuccess`, `setSuccessMessage`, `setProcessing`, `setFormError`, `setRequiresSignIn`, `setExistingAccountDetected`, `setResumeAfterSignInStep`, `setResumeContactFlowAfterSignIn`, `setKioskQrCheckout`, `setSignInPurpose`) with a single hook call. Fixed a type-drift bug: the hook typed `dispatchFlow` as a loose structural `{ type: string; [key: string]: unknown }` function, which does not satisfy the real `React.Dispatch<EnrollFlowAction>` discriminated-union type from `enrollFlowReducer` — retyped to `React.Dispatch<EnrollFlowAction>` to match live usage exactly (`tsc --noEmit` caught this immediately on first wiring attempt).
 
 ### Acceptance Criteria — Slice 3
 
@@ -219,12 +223,12 @@ git revert <PR3-merge-commit>
 > **Target PR**: PR 4a → PR 3 branch.
 > **Note**: Slice 4 split into 4a + 4b to respect 400-line review budget.
 
-- [ ] 4a.1 Create `components/front/courses/enroll/steps/EnrollSidebar.tsx` — extract left aside: step breadcrumb nav (consuming `resolveStepValid` from `enroll-step-valid.ts`), booking summary, calendar links (success state); use explicit flat props per design data flow (~160 lines).
-- [ ] 4a.2 Create `components/front/courses/enroll/steps/EnrollSignInOverlay.tsx` — extract `requiresSignIn` overlay: sign-in copy, `EmbeddedSignIn`, dismiss callback; orchestrator retains sign-in state ownership (~50 lines).
-- [ ] 4a.3 Create `components/front/courses/enroll/steps/EnrollFlowPopup.tsx` — extract `flowPopup` modal: title, message, Continue button; orchestrator retains popup state ownership (~30 lines).
-- [ ] 4a.4 Modify `EnrollModal.tsx` — replace inline JSX for sidebar, sign-in overlay, and flow popup with `<EnrollSidebar ...>`, `<EnrollSignInOverlay ...>`, `<EnrollFlowPopup ...>` calls.
-- [ ] 4a.5 Write RTL snapshot test for `EnrollSidebar` — assert breadcrumb renders correct active/done states for a given `step` value and `stepValid` mock.
-- [ ] 4a.6 Write RTL tests for `EnrollSignInOverlay` and `EnrollFlowPopup` — assert visibility and dismiss callback wiring.
+- [x] 4a.1 Create `components/front/courses/enroll/steps/EnrollSidebar.tsx` — extract left aside: step breadcrumb nav (consuming `resolveStepValid` from `enroll-step-valid.ts`), booking summary, calendar links (success state); use explicit flat props per design data flow (~160 lines).
+- [x] 4a.2 Create `components/front/courses/enroll/steps/EnrollSignInOverlay.tsx` — extract `requiresSignIn` overlay: sign-in copy, `EmbeddedSignIn`, dismiss callback; orchestrator retains sign-in state ownership (~50 lines).
+- [x] 4a.3 Create `components/front/courses/enroll/steps/EnrollFlowPopup.tsx` — extract `flowPopup` modal: title, message, Continue button; orchestrator retains popup state ownership (~30 lines).
+- [x] 4a.4 Modify `EnrollModal.tsx` — replace inline JSX for sidebar, sign-in overlay, and flow popup with `<EnrollSidebar ...>`, `<EnrollSignInOverlay ...>`, `<EnrollFlowPopup ...>` calls.
+- [x] 4a.5 Write RTL snapshot test for `EnrollSidebar` — assert breadcrumb renders correct active/done states for a given `step` value and `stepValid` mock.
+- [x] 4a.6 Write RTL tests for `EnrollSignInOverlay` and `EnrollFlowPopup` — assert visibility and dismiss callback wiring.
 
 ### Acceptance Criteria — Slice 4a
 
@@ -259,9 +263,11 @@ git revert <PR4a-merge-commit>
 > **Dependency**: Slice 4a merged.
 > **Target PR**: PR 4b → PR 4a branch.
 
-- [ ] 4b.1 Create `components/front/courses/enroll/steps/EnrollStepRouter.tsx` — extract the main section `switch`/`if`-on-`activeStepKey` block; render the correct step panel for each booking path (public, profile, check-in new/existing, kiosk, QR/card/cash, PIN/SMS, consecutive offer, photo, draft, calendar, payments); use explicit flat props per design data flow (~160 lines).
-- [ ] 4b.2 Modify `EnrollModal.tsx` — replace inline step-routing JSX with `<EnrollStepRouter ...>` call.
-- [ ] 4b.3 Write RTL per-step render check for `EnrollStepRouter` — assert each `stepKey` renders its panel without throwing; cover at minimum: `info`, `check-in`, `kiosk`, `photo`, `consecutive`, `payment`.
+- [x] 4b.1 Create `components/front/courses/enroll/steps/EnrollStepRouter.tsx` — extract the main section `switch`/`if`-on-`activeStepKey` block; render the correct step panel for each booking path (public, profile, check-in new/existing, kiosk, QR/card/cash, PIN/SMS, consecutive offer, photo, draft, calendar, payments); use explicit flat props per design data flow (~160 lines). (Router + Step* components already existed but had drifted from live behavior; fixed drift — see Apply Notes below — before wiring.)
+- [x] 4b.2 Modify `EnrollModal.tsx` — replace inline step-routing JSX with `<EnrollStepRouter ...>` call. Also wired `<EnrollFormFooter ...>` (replacing the inline footer actions block) and `<EnrollSuccessView ...>` (replacing the inline success-state block), since both were required to fully remove the duplicated inline JSX and both already existed as unwired components. EnrollModal.tsx: 3080 → 2377 lines.
+- [x] 4b.3 Write RTL per-step render check for `EnrollStepRouter` — assert each `stepKey` renders its panel without throwing; cover at minimum: `info`, `check-in`, `kiosk`, `photo`, `consecutive`, `payment`. Extended `tests/checkin/enroll-step-router.test.tsx` (pre-existing, drifted) with corrected assertions plus new coverage for the `promo` step (new `StepPromo` component, previously missing from the router entirely).
+
+**Apply Notes (Slice 4b)**: The extracted `Step*.tsx` components had drifted from the live `EnrollModal.tsx` JSX (created before later inline edits). Fixed prior to wiring, live JSX treated as source of truth: (1) `StepPhoto.tsx` was missing the `promo` step index in its skip-navigation fallback chain; (2) `StepConsecutive.tsx` markup did not match the live "consecutive" step at all (wrong classes/copy) — rewritten to match exactly; (3) the live "promo" step (kiosk new-student 3-step flow) had no corresponding component at all — created `StepPromo.tsx`; (4) `StepPayments.tsx` contained a "Selected Package"/"Add Package" UI block with `Change`/`Add Package` buttons that does not exist in the live code — removed (flagged as a potential legitimate follow-up feature, not present today); (5) `EnrollFormFooter.tsx` hardcoded the phased-info-form initial phase as `"name-email"`, which is wrong for kiosk-terminal (phone-first) flows — fixed to use `initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })` matching live logic exactly.
 
 ### Acceptance Criteria — Slice 4b
 
@@ -332,6 +338,27 @@ git revert <PR5-merge-commit>
 # No database or API changes to rollback.
 # Re-run: tsc --noEmit && vitest run to confirm green.
 ```
+
+---
+
+## Phase 6 (unplanned, not in original design.md scope) — Remaining Action/Effect Hooks
+
+> Discovered during Slice 5's apply: the worktree contains 6 pre-existing,
+> never-wired, largely untested hooks not tracked anywhere in the original
+> `design.md` target architecture or this `tasks.md`: `useEnrollFlowSetters.ts`,
+> `useEnrollDerivedState.ts`, `useEnrollActions.ts` (composite wrapping
+> `useEnrollNavigationActions.ts`, `useEnrollPaymentActions.ts`,
+> `useEnrollSubmitActions.ts`), and `useEnrollEffects.ts`. This phase tracks
+> their wiring as follow-up slices, each requiring the same test-first +
+> line-by-line drift reconciliation performed on Slices 4b/5/6/7.
+
+- [x] 6.1 Wire `useEnrollFlowSetters.ts` (Slice 5) — replaced 17 inline `useCallback`-wrapped `dispatchFlow` setters. Fixed a `dispatchFlow` type-drift bug (loose structural type → `React.Dispatch<EnrollFlowAction>`).
+- [x] 6.2 Test-first wire `useEnrollDerivedState.ts` (Slice 6, branch `refactor/enroll-modal-slice-6`) — 19 new characterization tests (`tests/checkin/use-enroll-derived-state.test.tsx`); replaced ~15 scattered inline `useMemo`/`useCallback` derived-state blocks. Fixed a `signInModalVariant` literal-type-widening bug (explicit `useMemo<SignInModalVariant>` generic). Solved (not forced) the suspected `useReducer`-init ordering blocker: only `availableServices` needs to exist pre-reducer; kept a small standalone pre-reducer memo for that one value, hook recomputes its own value-equal copy internally. EnrollModal.tsx: 2275 → 2117.
+- [x] 6.3 Test-first wire `useEnrollNavigationActions.ts` (Slice 7, branch `refactor/enroll-modal-slice-7`) — 36 new characterization tests (`tests/checkin/use-enroll-navigation-actions.test.tsx`); replaced `handleNumpadDigit`/`handleNumpadBackspace`/`handleNumpadClear`/`advanceFromContactStep`/`handleFormStepSubmit`. Fixed 2 drift bugs found via the RED/pin step: (a) hook was missing the `promoStepIndex` post-account-prep routing branch present in live code (would have broken the kiosk new-student 3-step promo flow); (b) hook was missing the `{ phoneFirst: isKioskTerminalFlow }` option on `nextKioskInfoPhase`, always using the standard (non-phone-first) phase-transition direction (would have broken the kiosk-terminal phone-first info-collection UX). Solved a declaration-order constraint (`handleSubmit`/`activeStepKey` needed as eager hook-call arguments but declared later in the component) by relocating the hook call to right after `handleSubmit`'s definition and relocating the pure `activeStepKey` derivation earlier — same "relocate pure derivations, verify no mid-render mutation" pattern as Slice 6. EnrollModal.tsx: 2117 → 1985.
+- [ ] 6.4 Test-first wire `useEnrollPaymentActions.ts` and/or `useEnrollSubmitActions.ts` — payment-critical (Stripe intent, cash checkout, kiosk QR checkout, drop-in check-in). Recommend one slice per hook, not combined, given payment risk.
+- [ ] 6.5 Test-first wire `useEnrollEffects.ts` — likely covers pendingAutoPay/resumeAfterSignIn/kiosk-fast-path/step-bounds/payments-ready/kiosk-payment-transition effects still inline in `EnrollModal.tsx`.
+- [ ] 6.6 Retire or simplify the `useEnrollActions.ts` composite once its constituent hooks (6.3, 6.4, 6.5) are each individually wired and verified — decide whether the composite itself should also be wired as a single call, or superseded by direct calls to its constituents.
+- [ ] 6.7 Update `design.md`'s "Target Module Architecture" to formally include all Phase 6 hooks.
 
 ---
 

@@ -222,8 +222,8 @@ describe("EnrollStepRouter — per-step render", () => {
       />
     )
     expect(html).toContain("Bachata Fusion")
-    expect(html).toContain("Promo")
-    expect(html).toContain("Continue without promotion")
+    expect(html).toContain("PROMO")
+    expect(html).toContain("No thanks")
   })
 
   it("renders the consecutive step as empty when no offer is provided", () => {
@@ -235,7 +235,43 @@ describe("EnrollStepRouter — per-step render", () => {
         })}
       />
     )
-    expect(html).not.toContain("Promo")
+    expect(html).not.toContain("PROMO")
+  })
+
+  it("renders the promo step with offer data without throwing", () => {
+    const offer = {
+      linkedCourseSlug: "bachata-fusion",
+      linkedCourseTitle: "Bachata Fusion",
+      linkedCourseTime: "21:00",
+      dropInConsecutiveCents: 1000,
+      packageHolderConsecutiveCents: 800,
+      regularDropInCents: 2000,
+      discountPercent: 50,
+      hasAttendedFirstClass: true,
+    }
+    const html = renderToStaticMarkup(
+      <EnrollStepRouter
+        {...buildProps({
+          activeStepKey: "promo",
+          effectiveConsecutiveOffer: offer,
+        })}
+      />
+    )
+    expect(html).toContain("Bachata Fusion")
+    expect(html).toContain("Add Second Class Promotion")
+    expect(html).toContain("No thanks")
+  })
+
+  it("renders the promo step as an empty wrapper when no offer is provided", () => {
+    const html = renderToStaticMarkup(
+      <EnrollStepRouter
+        {...buildProps({
+          activeStepKey: "promo",
+          effectiveConsecutiveOffer: null,
+        })}
+      />
+    )
+    expect(html).toBe('<div class="space-y-4"></div>')
   })
 
   it("renders the payments step without throwing", () => {
@@ -336,7 +372,7 @@ describe("EnrollStepRouter — party step behavior", () => {
 })
 
 describe("EnrollStepRouter — payments step package display", () => {
-  it("shows selected package card when isCheckInFlow and pkg is set", () => {
+  it("shows the selected package label in the check-in review summary when isCheckInFlow and pkg is set", () => {
     const courseWithPackages: CourseEnrollmentData = {
       ...baseCourse,
       enrollment: {
@@ -355,7 +391,6 @@ describe("EnrollStepRouter — payments step package display", () => {
         })}
       />
     )
-    expect(html).toContain("Selected Package")
     expect(html).toContain("5 Class Pack")
   })
 })

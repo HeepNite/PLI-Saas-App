@@ -26,6 +26,7 @@ export type UseEnrollNavigationActionsInput = {
   photoPolicy: PhotoPolicy
   photoSaved: boolean
   photoStepIndex: number
+  promoStepIndex: number
   packagesStepIndex: number
   paymentsStepIndex: number
   usesPhasedInfoForm: boolean
@@ -58,7 +59,7 @@ export type UseEnrollNavigationActionsInput = {
 export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInput) {
   const {
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
-    step, steps, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex,
+    step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
     onExistingUserDetected, verifyNewStudent,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
@@ -155,6 +156,11 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         setStep(photoStepIndex)
         return
       }
+      // Go to promo step if it exists, then packages, then payments
+      if (promoStepIndex >= 0) {
+        setStep(promoStepIndex)
+        return
+      }
       if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
         return
@@ -168,7 +174,7 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     }
   }, [
     contact.email, contact.phone, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
-    isSignedIn, onExistingUserDetected, packagesStepIndex, paymentsStepIndex, photoPolicy,
+    isSignedIn, onExistingUserDetected, packagesStepIndex, paymentsStepIndex, promoStepIndex, photoPolicy,
     photoSaved, photoStepIndex, preparedAccount, requestAccountPreparation, requestNewStudentOutcome,
     setExistingAccountDetected, setFormError, setRequiresSignIn, setResumeAfterSignInStep,
     setResumeContactFlowAfterSignIn, setSignInPurpose, setStep, service, showRegularFallbackPopup,
@@ -177,10 +183,14 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
 
   const handleFormStepSubmit = async () => {
     if (usesPhasedInfoForm && activeStepKey === "info") {
-      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service)
+      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service, { phoneFirst: isKioskTerminalFlow })
       if (nextPhase !== "done") {
         setKioskInfoPhase(nextPhase)
-        if (isKioskTerminalFlow) setActiveNumericField("phone")
+        // For phone-first kiosk, after phone → name-email (activate text input, not numpad)
+        // For standard flow, after name-email → phone (activate numpad)
+        if (isKioskTerminalFlow && nextPhase === "phone") setActiveNumericField("phone")
+        else if (isKioskTerminalFlow && nextPhase === "name-email") setActiveNumericField(null)
+        else if (isKioskTerminalFlow) setActiveNumericField("phone")
         return
       }
     }
