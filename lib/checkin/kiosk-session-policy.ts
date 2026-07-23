@@ -8,6 +8,7 @@ type ResolveActiveKioskSessionInput = {
   hasPrivilegedClerkSession?: boolean
   isKioskTerminalFlow: boolean
   isSignedIn?: boolean
+  kioskClerkSessionId?: string | null
   suppressedClerkSessionId: KioskSuppressedClerkSessionId
 }
 
@@ -26,6 +27,17 @@ type ShouldClearSuppressedClerkSessionInput = {
 export const hasActiveKioskClerkSession = (input: ResolveActiveKioskSessionInput) => {
   if (!input.isSignedIn) return false
   if (input.isKioskTerminalFlow && input.hasPrivilegedClerkSession) return false
+  // The shared terminal is phone/PIN driven: only Clerk sessions the kiosk
+  // itself registered (SMS sign-in inside the flow) count as customer
+  // sessions. Ambient browser sessions (an admin whose staff role only
+  // exists in the DB mirror, or a customer logged into the site) must not
+  // hijack or tear down an in-progress kiosk flow.
+  if (
+    input.isKioskTerminalFlow &&
+    (!input.kioskClerkSessionId || input.activeSessionId !== input.kioskClerkSessionId)
+  ) {
+    return false
+  }
   if (!input.suppressedClerkSessionId) return true
   if (input.suppressedClerkSessionId === CURRENT_CLERK_SESSION_SUPPRESSION) return false
   return input.activeSessionId !== input.suppressedClerkSessionId
