@@ -13,6 +13,7 @@ export default function KioskNumericKeypad({
   activeKey = null,
   framed = true,
   size = "default",
+  captureKeyboard = true,
 }: {
   onDigit: (digit: string) => void
   onBackspace: () => void
@@ -22,6 +23,7 @@ export default function KioskNumericKeypad({
   activeKey?: string | null
   framed?: boolean
   size?: "default" | "large" | "modal" | "compact"
+  captureKeyboard?: boolean
 }) {
   const [pressedKey, setPressedKey] = React.useState<string | null>(null)
 
@@ -32,6 +34,35 @@ export default function KioskNumericKeypad({
       setPressedKey((current) => (current === key ? null : current))
     }, 140)
   }, [])
+
+  // Physical keyboard support: mirror 0-9 / Backspace / Delete onto the keypad
+  // handlers. Skipped while typing in an editable text field (e.g. name/email)
+  // so those inputs keep native behavior.
+  React.useEffect(() => {
+    if (disabled || !captureKeyboard) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+        const input = target as HTMLInputElement
+        const editable = !input.readOnly && input.type !== "button" && input.type !== "submit"
+        if (editable) return
+      }
+      if (event.key >= "0" && event.key <= "9") {
+        event.preventDefault()
+        const digit = event.key
+        triggerPress(digit, () => onDigit(digit))
+      } else if (event.key === "Backspace") {
+        event.preventDefault()
+        triggerPress("backspace", onBackspace)
+      } else if (event.key === "Delete" || event.key === "Escape") {
+        event.preventDefault()
+        triggerPress("clear", onClear)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [disabled, captureKeyboard, onDigit, onBackspace, onClear, triggerPress])
 
   const getButtonClassName = React.useCallback(
     (key: string) =>
