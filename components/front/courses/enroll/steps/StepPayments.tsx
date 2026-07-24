@@ -6,9 +6,11 @@ import type { CourseEnrollmentData } from "@/components/front/courses/types"
 import type { EnrollmentOption } from "@/constants/courses"
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import type { I18nKey } from "@/lib/i18n-dict"
+import { formatFriendlyDateTime } from "@/components/front/courses/utils/datetime"
 
 type StepPaymentsProps = {
   isCheckInFlow: boolean
+  isKioskTerminalFlow: boolean
   course: CourseEnrollmentData
   pkg: string
   service: string
@@ -38,6 +40,7 @@ type StepPaymentsProps = {
 
 export default function StepPayments({
   isCheckInFlow,
+  isKioskTerminalFlow,
   course,
   pkg,
   service,
@@ -64,6 +67,8 @@ export default function StepPayments({
   setPaymentMethod,
   t,
 }: StepPaymentsProps) {
+  const mobileQrCheckin = isCheckInFlow && !isKioskTerminalFlow
+
   return (
     <div className="space-y-4">
       <div className="relative overflow-hidden rounded-[1.15rem] border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(182,22,22,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.08),transparent_30%),linear-gradient(145deg,rgba(44,45,55,0.96),rgba(19,20,27,0.99))] p-4 text-white shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)]">
@@ -74,9 +79,11 @@ export default function StepPayments({
               <div>
                 <div className="text-sm font-semibold text-white">{t("reviewAndConfirm")}</div>
                 <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-white/68 sm:grid-cols-2">
-                  <div>{t("course")}: <span className="text-white">{course.title}</span></div>
+                  {!mobileQrCheckin && (
+                    <div>{t("course")}: <span className="text-white">{course.title}</span></div>
+                  )}
                   <div>{t("service")}: <span className="text-white">{course.enrollment.services.find((s) => s.id === service)?.label}{pkgOpt ? " (included in package)" : ""}</span></div>
-                  <div>{t("dateTime")}: <span className="text-white">{date} {to12h(time)}</span></div>
+                  <div>{t("dateTime")}: <span className="text-white">{mobileQrCheckin ? formatFriendlyDateTime(date, time, to12h) : `${date} ${to12h(time)}`}</span></div>
                   <div>{t("people")}: <span className="text-white">{participants}</span></div>
                   <div>{t("name")}: <span className="text-white">{`${contact.firstName} ${contact.lastName}`.trim() || "—"}</span></div>
                   <div>{t("email")}: <span className="text-white">{contact.email || "—"}</span></div>
@@ -99,18 +106,22 @@ export default function StepPayments({
             <div className="mt-1 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-sm font-semibold leading-snug text-white">
-                  {course.title}{time ? ` · ${to12h(time)}` : ""} — {course.enrollment.services.find((s) => s.id === service)?.label}
+                  {course.title}{time ? ` · ${to12h(time)}` : ""} — {mobileQrCheckin && pkgOpt ? pkgOpt.label : course.enrollment.services.find((s) => s.id === service)?.label}
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
-                  {date && <span>Date: {date}{time ? ` · ${to12h(time)}` : ""}</span>}
-                  {course.location?.address && <span>Address: {course.location.address}</span>}
-                </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
-                  <span>{participants} {participants === 1 ? t("onePerson") : t("manyPeople")}</span>
-                  <span>Service: {serviceOpt?.label || "—"}{pkgOpt ? " (included)" : ""}</span>
-                  {pkgOpt && <span>Package: {pkgOpt.label}</span>}
-                  {!!addonsOpts.length && <span>Extras: {addonsOpts.map((a) => a.label).join(", ")}</span>}
-                </div>
+                {!mobileQrCheckin && (
+                  <>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
+                      {date && <span>Date: {date}{time ? ` · ${to12h(time)}` : ""}</span>}
+                      {course.location?.address && <span>Address: {course.location.address}</span>}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/58">
+                      <span>{participants} {participants === 1 ? t("onePerson") : t("manyPeople")}</span>
+                      <span>Service: {serviceOpt?.label || "—"}{pkgOpt ? " (included)" : ""}</span>
+                      {pkgOpt && <span>Package: {pkgOpt.label}</span>}
+                      {!!addonsOpts.length && <span>Extras: {addonsOpts.map((a) => a.label).join(", ")}</span>}
+                    </div>
+                  </>
+                )}
               </div>
               <span className="shrink-0 text-sm font-semibold text-white">${subtotal.toFixed(2)}</span>
             </div>
@@ -175,7 +186,7 @@ export default function StepPayments({
 
       <div>
         <h4 className="text-sm font-semibold mb-2">{t("payments_method")}</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className={`grid gap-3 ${mobileQrCheckin ? "grid-cols-2" : "grid-cols-1 sm:grid-cols-2"}`}>
           <button
             type="button"
             disabled={kioskQrCheckoutLocked}
@@ -196,9 +207,9 @@ export default function StepPayments({
           >
             <div className="flex items-center gap-2 font-medium">
               <CreditCard className="h-4 w-4" aria-hidden />
-              {t("payments_stripe")}
+              {mobileQrCheckin ? "Card · Apple Pay · Google Pay" : t("payments_stripe")}
             </div>
-            <div className="mt-1 text-xs text-neutral-500">{t("payments_stripe_desc")}</div>
+            <div className="mt-1 text-xs text-neutral-500">{mobileQrCheckin ? "Pay with card or phone wallet." : t("payments_stripe_desc")}</div>
           </button>
         </div>
       </div>
