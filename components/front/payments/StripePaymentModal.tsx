@@ -17,8 +17,8 @@ export function StripePaymentModal({ clientSecret, onClose, onSuccess, email, na
   if (!clientSecret) return null
 
   return (
-    <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/35 backdrop-blur-[2px] px-2 sm:px-4 py-6">
-      <div className="relative mt-[11rem] w-full sm:mt-0 sm:max-w-md rounded-2xl bg-white p-4 shadow-2xl h-[56vh] max-h-[56vh] sm:h-[33rem] sm:max-h-[33rem] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 backdrop-blur-md px-2 sm:px-4 py-6">
+      <div className="relative w-full sm:max-w-md rounded-2xl bg-white shadow-2xl max-h-[85vh] flex flex-col overflow-hidden">
         <button
           type="button"
           onClick={onClose}
@@ -84,37 +84,41 @@ function PaymentForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 overflow-y-auto pr-1">
-      <h3 className="text-lg font-semibold">Secure payment</h3>
-      <p className="text-sm text-neutral-600">Usa Apple Pay, Google Pay o tarjeta.</p>
-      <div className="rounded-md border border-black/10 p-3 bg-white min-h-[220px]">
-        <PaymentElement
-          options={{
-            layout: "tabs",
-            defaultValues: {
-              billingDetails: {
-                email,
-                name,
-                phone,
-              },
-            },
-            wallets: {
-              applePay: "auto",
-              googlePay: "auto",
-              link: "never",
-            },
-            terms: {
-              card: "never",
-            },
-          }}
-        />
+    <form onSubmit={handleSubmit} className="flex flex-col min-h-0 h-full max-h-[85vh]">
+      <div className="shrink-0 p-4 pb-2">
+        <h3 className="text-lg font-semibold">Secure payment</h3>
+        <p className="text-sm text-neutral-600">Use Apple Pay, Google Pay, or card.</p>
       </div>
-      {error && (
-        <p className="text-sm text-red-600" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="mt-3 bg-white pt-3 pb-1 flex justify-end gap-2 border-t border-black/10">
+      <div className="flex-1 overflow-y-auto px-4 pb-2 min-h-0">
+        <div className="rounded-md border border-black/10 p-3 bg-white min-h-[220px]">
+          <PaymentElement
+            options={{
+              layout: "tabs",
+              defaultValues: {
+                billingDetails: {
+                  email,
+                  name,
+                  phone,
+                },
+              },
+              wallets: {
+                applePay: "auto",
+                googlePay: "auto",
+                link: "never",
+              },
+              terms: {
+                card: "never",
+              },
+            }}
+          />
+        </div>
+        {error && (
+          <p className="mt-2 text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0 bg-white p-4 pt-3 flex justify-end gap-2 border-t border-black/10">
         <button
           type="button"
           onClick={onClose}
