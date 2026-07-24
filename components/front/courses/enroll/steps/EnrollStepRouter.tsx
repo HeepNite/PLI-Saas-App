@@ -244,6 +244,7 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
       {activeStepKey === "payments" && (
         <StepPayments
           isCheckInFlow={props.isCheckInFlow}
+          isKioskTerminalFlow={props.isKioskTerminalFlow}
           course={props.course}
           pkg={props.pkg}
           service={props.service}

@@ -4,6 +4,7 @@ import React from "react"
 import { useAuth } from "@clerk/nextjs"
 import { useSearchParams } from "next/navigation"
 import dynamic from "next/dynamic"
+import Image from "next/image"
 import { buildQrBookingUrl, buildQrSignInUrl } from "@/lib/checkin/qr-booking-links"
 
 const ClientPhoneCheckIn = dynamic(() => import("./ClientPhoneCheckIn"), { ssr: false })
@@ -89,6 +90,15 @@ function WelcomeScreen({ searchParams }: { searchParams: URLSearchParams }) {
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-gradient-to-br from-[#151118] via-[#0d0b12] to-[#09090d] p-6 text-center shadow-lg">
+        <div className="mx-auto mb-4 flex justify-center">
+          <Image
+            src="/logo/logo-white.png"
+            alt="Palladium Latin Art"
+            width={120}
+            height={48}
+            className="h-10 w-auto object-contain"
+          />
+        </div>
         <p className="text-lg font-semibold text-white">Welcome!</p>
         <p className="mt-2 text-sm text-white/50">
           How would you like to continue?

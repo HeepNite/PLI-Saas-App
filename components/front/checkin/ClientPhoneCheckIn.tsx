@@ -3,7 +3,7 @@
 import React from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@clerk/nextjs"
 import { useClientPhoneCheckIn } from "./hooks/useClientPhoneCheckIn"
 import { buildQrBookingUrl, buildQrSignInUrl } from "@/lib/checkin/qr-booking-links"
@@ -336,6 +336,7 @@ function ConsecutiveOfferOverlay({
 }
 
 export default function ClientPhoneCheckIn() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const courseSlug = searchParams.get("courseSlug") || ""
   const date = searchParams.get("date") || ""
@@ -358,6 +359,19 @@ export default function ClientPhoneCheckIn() {
 
   const bookingUrl = buildQrBookingUrl({ courseSlug, date, time, durationMinutes })
   const signInUrl = buildQrSignInUrl(`/checkin?${searchParams.toString()}`)
+
+  // Success terminals: already checked in, or checked_in (cash-pending, package-credit,
+  // or standard Stripe-paid). Auto-redirect to the client profile 5s after landing on
+  // any of these — always, even while the consecutive-promo card is showing.
+  const isSuccess = result?.status === "already_checked_in" || result?.status === "checked_in"
+
+  React.useEffect(() => {
+    if (!isSuccess) return
+    const timer = setTimeout(() => {
+      router.push("/client-profile")
+    }, 5000)
+    return () => clearTimeout(timer)
+  }, [isSuccess, router])
 
   if (!courseSlug || !date || !time) {
     return (
