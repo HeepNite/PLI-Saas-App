@@ -107,7 +107,7 @@ export default function StepPayments({
               <div className="min-w-0">
                 <div className="text-sm font-semibold leading-snug text-white">
                   {mobileQrCheckin
-                    ? (pkgOpt ? `Package · ${pkgOpt.label}` : "Class")
+                    ? (pkg ? `Package · ${course.enrollment.packages.find((p) => p.id === pkg)?.label ?? ""}` : "Class")
                     : <>{course.title}{time ? ` · ${to12h(time)}` : ""} — {course.enrollment.services.find((s) => s.id === service)?.label}</>}
                 </div>
                 {!mobileQrCheckin && (
