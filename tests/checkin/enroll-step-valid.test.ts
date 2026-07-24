@@ -28,8 +28,6 @@ const createContext = (overrides: Partial<StepValidContext> = {}): StepValidCont
     phone: "+1 917 555 1212",
     note: "",
   },
-  studentPin: "1234",
-  studentPinConfirm: "1234",
   requiresPhotoStep: false,
   photoSaved: false,
   consecutiveChoiceMade: true,
@@ -51,14 +49,12 @@ describe("resolveStepValid", () => {
     expect(resolveStepValid(1, createContext({ consecutiveOfferLoading: true }))).toBe(false)
   })
 
-  it("validates contact info and new-student PIN confirmation", () => {
+  it("validates contact info fields", () => {
     expect(resolveStepValid(2, createContext())).toBe(true)
     expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, firstName: "A" } }))).toBe(false)
     expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, email: "a@b" } }))).toBe(false)
     expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, phone: "+1 917" } }))).toBe(false)
     expect(resolveStepValid(2, createContext({ service: "new-student" }))).toBe(true)
-    expect(resolveStepValid(2, createContext({ service: "new-student", studentPinConfirm: "9999" }))).toBe(false)
-    expect(resolveStepValid(2, createContext({ service: "new-student", studentPin: "123" }))).toBe(false)
   })
 
   it("validates the photo step only when required photo is saved", () => {

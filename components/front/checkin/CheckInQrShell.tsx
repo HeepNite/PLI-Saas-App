@@ -11,8 +11,8 @@ import type { EntryMode, TerminalPastClass } from "@/components/front/checkin/ch
 import type { ComponentProps } from "react"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
-import type { KioskPinThrottleSeverity } from "@/lib/security/kiosk-pin-throttle"
 import type { BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
+import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 
 type EnrollModalLike = {
   completionMode: ComponentProps<typeof CheckInQrOverlays>["completionMode"]
@@ -91,7 +91,7 @@ export type CheckInQrShellProps = {
   onExistingClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   onNewClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
 
-  // Kiosk PIN modal
+  // Kiosk PIN modal (phone-only)
   showKioskPinPanel: boolean
   returnedFromNewStudentFlow: boolean
   kioskPinPanelCopy: { title: string; description: string }
@@ -99,25 +99,9 @@ export type CheckInQrShellProps = {
   kioskPhone: string
   kioskPhoneLoading: boolean
   onKioskPhoneIdentify: () => void
-  kioskPin: string
-  entryRevealedIndex: number | null
-  entryActiveSlot: number
-  activePinField: "entry" | "next" | "confirm" | null
   kioskPinAttemptsRemaining: number | null
-  kioskPinThrottleSeverity: KioskPinThrottleSeverity | null
+  kioskPinThrottleSeverity: "normal" | "warning" | "cooldown" | "emergency" | null
   kioskPinBlockedUntilLabel: string | null
-  canIdentify: boolean
-  kioskPinLoading: boolean
-  kioskPinNext: string
-  nextRevealedIndex: number | null
-  nextActiveSlot: number
-  kioskPinConfirm: string
-  confirmRevealedIndex: number | null
-  confirmActiveSlot: number
-  canRotate: boolean
-  kioskPinRotating: boolean
-  onKioskPinIdentify: () => void
-  onKioskPinRotate: () => void
   onPinDigitInput: (digit: string) => void
   onPinBackspace: () => void
   onPinClear: () => void
@@ -168,6 +152,13 @@ export type CheckInQrShellProps = {
   newBookingCourse: CourseData | null
   openNewBooking: boolean
   packageCheckInResult: PackageCheckInResult | null
+  /** Terminal kiosk package check-in failure, if any. */
+  packageCheckInFailure: PackageCheckInFailure | null
+  /** True when the kiosk failure overlay should render instead of the resolving spinner. */
+  showPackageCheckInFailureOverlay: boolean
+  /** Completed kiosk auto-retry attempts. */
+  packageCheckInAttempts: number
+  onRetryPackageCheckIn: () => void
   photoFlowContext: EnrollModalLike["photoFlowContext"]
   showConsecutiveOverlay: boolean
   showConsecutivePaymentSelection: boolean
@@ -198,6 +189,14 @@ export type CheckInQrShellProps = {
   onPhoneSignInSession: (sessionId: string) => Promise<void>
   onPhoneSignInSuccess: () => Promise<void>
   onStationCompletion: () => void | Promise<void>
+  // Quick repeat overlay
+  showQuickRepeat: boolean
+  quickRepeatQrCheckout: KioskQrCheckoutState
+  quickRepeatProcessing: boolean
+  quickRepeatSuccess: boolean
+  quickRepeatSuccessChannel: "cash" | "card" | null
+  onQuickRepeatConfirm: (paymentChannel: "cash" | "card", consecutiveAccepted: boolean) => void | Promise<void>
+  onQuickRepeatDecline: () => void
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -254,33 +253,17 @@ export function CheckInQrShell({
   onExistingClick,
   onNewClick,
 
-  // Kiosk PIN
+  // Kiosk PIN (phone-only)
   showKioskPinPanel,
   returnedFromNewStudentFlow,
   kioskPinPanelCopy,
-  hasKioskPinSession,
+  hasKioskPinSession: _hasKioskPinSession,
   kioskPhone,
   kioskPhoneLoading,
   onKioskPhoneIdentify,
-  kioskPin,
-  entryRevealedIndex,
-  entryActiveSlot,
-  activePinField,
   kioskPinAttemptsRemaining,
   kioskPinThrottleSeverity,
   kioskPinBlockedUntilLabel,
-  canIdentify,
-  kioskPinLoading,
-  kioskPinNext,
-  nextRevealedIndex,
-  nextActiveSlot,
-  kioskPinConfirm,
-  confirmRevealedIndex,
-  confirmActiveSlot,
-  canRotate,
-  kioskPinRotating,
-  onKioskPinIdentify,
-  onKioskPinRotate,
   onPinDigitInput,
   onPinBackspace,
   onPinClear,
@@ -330,6 +313,10 @@ export function CheckInQrShell({
   newBookingCourse,
   openNewBooking,
   packageCheckInResult,
+  packageCheckInFailure,
+  showPackageCheckInFailureOverlay,
+  packageCheckInAttempts,
+  onRetryPackageCheckIn,
   photoFlowContext,
   showConsecutiveOverlay,
   showConsecutivePaymentSelection,
@@ -360,6 +347,13 @@ export function CheckInQrShell({
   onPhoneSignInSession,
   onPhoneSignInSuccess,
   onStationCompletion,
+  showQuickRepeat,
+  quickRepeatQrCheckout,
+  quickRepeatProcessing,
+  quickRepeatSuccess,
+  quickRepeatSuccessChannel,
+  onQuickRepeatConfirm,
+  onQuickRepeatDecline,
 }: CheckInQrShellProps) {
   const isTerminal = shellVariant === "terminal"
 
@@ -453,35 +447,16 @@ export function CheckInQrShell({
                 title={returnedFromNewStudentFlow ? "Welcome back!" : "Enter your phone number"}
                 description={returnedFromNewStudentFlow ? "You\u0027re already a registered customer. Enter your phone number to continue with regular pricing." : kioskPinPanelCopy.description}
                 onClose={onExistingCustomerDismiss}
-                hasSession={hasKioskPinSession}
                 phone={kioskPhone}
                 onPhoneIdentify={onKioskPhoneIdentify}
                 isPhoneIdentifying={kioskPhoneLoading}
-                entryPin={kioskPin}
-                entryRevealedIndex={entryRevealedIndex}
-                entryActiveSlot={entryActiveSlot}
-                isEntryActive={activePinField === "entry"}
                 attemptsRemaining={kioskPinAttemptsRemaining}
                 throttleSeverity={kioskPinThrottleSeverity}
                 blockedUntilLabel={kioskPinBlockedUntilLabel}
-                onIdentify={onKioskPinIdentify}
-                canIdentify={canIdentify}
-                isIdentifying={kioskPinLoading}
-                nextPin={kioskPinNext}
-                nextRevealedIndex={nextRevealedIndex}
-                nextActiveSlot={nextActiveSlot}
-                isNextActive={activePinField === "next"}
-                confirmPin={kioskPinConfirm}
-                confirmRevealedIndex={confirmRevealedIndex}
-                confirmActiveSlot={confirmActiveSlot}
-                isConfirmActive={activePinField === "confirm"}
-                onRotate={onKioskPinRotate}
-                canRotate={canRotate}
-                isRotating={kioskPinRotating}
                 onDigit={onPinDigitInput}
                 onBackspace={onPinBackspace}
                 onClear={onPinClear}
-                isKeypadDisabled={hasKioskPinSession ? kioskPinRotating : kioskPinLoading}
+                isKeypadDisabled={kioskPhoneLoading}
                 visibleError={visibleError}
                 success={success}
               />
@@ -540,6 +515,10 @@ export function CheckInQrShell({
         newBookingCourse={newBookingCourse}
         openNewBooking={openNewBooking}
         packageCheckInResult={packageCheckInResult}
+        packageCheckInFailure={packageCheckInFailure}
+        showPackageCheckInFailureOverlay={showPackageCheckInFailureOverlay}
+        packageCheckInAttempts={packageCheckInAttempts}
+        onRetryPackageCheckIn={onRetryPackageCheckIn}
         photoFlowContext={photoFlowContext}
         showConsecutiveOverlay={showConsecutiveOverlay}
         showConsecutivePaymentSelection={showConsecutivePaymentSelection}
@@ -571,6 +550,13 @@ export function CheckInQrShell({
         onPhoneSignInSuccess={onPhoneSignInSuccess}
         onStationCompletion={onStationCompletion}
         prefillSelection={prefillSelection}
+        showQuickRepeat={showQuickRepeat}
+        quickRepeatQrCheckout={quickRepeatQrCheckout}
+        quickRepeatProcessing={quickRepeatProcessing}
+        quickRepeatSuccess={quickRepeatSuccess}
+        quickRepeatSuccessChannel={quickRepeatSuccessChannel}
+        onQuickRepeatConfirm={onQuickRepeatConfirm}
+        onQuickRepeatDecline={onQuickRepeatDecline}
       />
     </main>
   )

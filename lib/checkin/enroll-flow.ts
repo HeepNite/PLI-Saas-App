@@ -3,7 +3,7 @@ type ResolveEnrollInitialStepInput = {
   stepsLength: number
 }
 
-export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "consecutive" | "payments" | "review"
+export type EnrollStepKey = "party" | "datetime" | "info" | "photo" | "packages" | "consecutive" | "promo" | "payments" | "review"
 
 type ResolveEnrollStepKeysInput = {
   isCheckInFlow: boolean
@@ -44,7 +44,18 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  * Kiosk flow: info → [photo] → [packages] → payments
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
+  if (input.isCheckInFlow && input.isKioskTerminalFlow && input.isCheckInNewFlow) {
+    // "I'm new" on kiosk: streamlined flow — the promo step only appears when a
+    // consecutive-class offer is actually available; otherwise go straight to payment.
+    return [
+      "info",
+      ...(input.hasConsecutiveOffer ? (["promo"] as const) : []),
+      "payments",
+    ] as EnrollStepKey[]
+  }
+
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
+    // Existing customer declining Quick Repeat: full flow with packages
     return [
       "info",
       ...(input.requiresPhotoStep ? (["photo"] as const) : []),

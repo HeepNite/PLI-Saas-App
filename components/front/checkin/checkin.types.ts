@@ -98,6 +98,14 @@ export type BootstrapResponse = {
   hasAnyActivePackage?: boolean
   /** Consecutive class offer, present when student attended Class A and a CourseLink exists */
   consecutiveOffer?: ConsecutiveOffer | null
+  /** True if user qualifies for the quick-repeat overlay (count >= 3, terminal flow only) */
+  quickRepeatEligible?: boolean
+  /** Pattern from the most recent purchase (terminal flow only) */
+  lastPurchasePattern?: {
+    paymentChannel: string
+    courseSlug: string
+    amount: number
+  } | null
 }
 
 export type CheckInQrClientProps = {

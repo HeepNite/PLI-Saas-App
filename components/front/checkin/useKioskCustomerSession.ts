@@ -40,9 +40,10 @@ export const useKioskCustomerSession = ({
         hasPrivilegedClerkSession,
         isKioskTerminalFlow,
         isSignedIn,
+        kioskClerkSessionId,
         suppressedClerkSessionId,
       }),
-    [activeSessionId, hasPrivilegedClerkSession, isKioskTerminalFlow, isSignedIn, suppressedClerkSessionId]
+    [activeSessionId, hasPrivilegedClerkSession, isKioskTerminalFlow, isSignedIn, kioskClerkSessionId, suppressedClerkSessionId]
   )
 
   const registerKioskClerkSession = React.useCallback((sessionId: string | null) => {

@@ -75,22 +75,6 @@ export const requestDropInCheckInApi = async ({ token, payload, fetchImpl }: Req
   return { res, data }
 }
 
-export const requestPinAvailabilityApi = async ({
-  pin,
-  fetchImpl,
-}: {
-  pin: string
-  fetchImpl?: FetchImpl
-}) => {
-  const res = await resolveFetch(fetchImpl)("/api/checkin/pin/check", {
-    method: "POST",
-    headers: createJsonHeaders(),
-    body: JSON.stringify({ pin }),
-  })
-  const data = await res.json().catch(() => null)
-  return { res, data }
-}
-
 export const requestCheckoutFinalizeApi = async ({
   token,
   paymentIntentId,

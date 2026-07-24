@@ -19,8 +19,6 @@ type EnrollValidationInput = {
   time: string
   contact: EnrollmentContact
   skipContactValidation?: boolean
-  studentPin: string
-  studentPinConfirm: string
   paymentMethod: PaymentMethod
   contactStepIndex?: number
   paymentsStepIndex: number
@@ -41,8 +39,6 @@ export const validateEnrollBeforeSubmit = ({
   time,
   contact,
   skipContactValidation = false,
-  studentPin,
-  studentPinConfirm,
   paymentMethod,
   contactStepIndex = 2,
   paymentsStepIndex,
@@ -71,14 +67,6 @@ export const validateEnrollBeforeSubmit = ({
     }
     if (!isCompleteUSPhone(contact.phone)) {
       return { step: contactStep, message: "Enter a valid US phone number." }
-    }
-  }
-  if (serviceId === "new-student") {
-    if (!/^\d{4}$/.test(studentPin)) {
-      return { step: contactStep, message: "Create a 4-digit PIN to continue." }
-    }
-    if (studentPin !== studentPinConfirm) {
-      return { step: contactStep, message: "PIN confirmation does not match." }
     }
   }
   if (paymentMethod !== "stripe" && paymentMethod !== "onsite") {

@@ -1,9 +1,9 @@
 "use client"
 
 import React from "react"
-import type { KioskPinRotationMode } from "@/components/front/checkin/checkin-kiosk.types"
 import { completeKioskCustomerFlow } from "@/lib/checkin/kiosk-reset"
 import type { ConsecutiveOffer, PackageOfferContext } from "@/components/front/checkin/checkin.types"
+import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 
 type EntryMode = "idle" | "existing" | "new"
 
@@ -24,8 +24,8 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setKioskPinBlockedUntil: React.Dispatch<React.SetStateAction<string | null>>
   setKioskPinConfirm: React.Dispatch<React.SetStateAction<string>>
   setKioskPinNext: React.Dispatch<React.SetStateAction<string>>
-  setKioskPinRotationMode: React.Dispatch<React.SetStateAction<KioskPinRotationMode | null>>
-  setKioskPinRotationRequired: React.Dispatch<React.SetStateAction<boolean>>
+  setKioskPinRotationMode: (value: unknown) => void
+  setKioskPinRotationRequired: (value: boolean | ((prev: boolean) => boolean)) => void
   setKioskPinSessionToken: React.Dispatch<React.SetStateAction<string>>
   setMode: React.Dispatch<React.SetStateAction<EntryMode>>
   setNewBookingOverride: React.Dispatch<React.SetStateAction<CheckInContextOverride | null>>
@@ -44,6 +44,10 @@ type UseKioskFlowCompletionParams<TBootstrap> = {
   setShowConsecutiveOverlay: React.Dispatch<React.SetStateAction<boolean>>
   setShowConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>
   setAwaitingConsecutivePaymentSelection: React.Dispatch<React.SetStateAction<boolean>>
+  /** Clears the kiosk package check-in retry backoff timer + pending state. */
+  clearPackageCheckInBackoff: () => void
+  setPackageCheckInAttempts: React.Dispatch<React.SetStateAction<number>>
+  setPackageCheckInFailure: React.Dispatch<React.SetStateAction<PackageCheckInFailure | null>>
 }
 
 export const useKioskFlowCompletion = <TBootstrap,>({
@@ -77,8 +81,16 @@ export const useKioskFlowCompletion = <TBootstrap,>({
   setShowConsecutiveOverlay,
   setShowConsecutivePaymentSelection,
   setAwaitingConsecutivePaymentSelection,
+  clearPackageCheckInBackoff,
+  setPackageCheckInAttempts,
+  setPackageCheckInFailure,
 }: UseKioskFlowCompletionParams<TBootstrap>) => {
   const resetCustomerFlowState = React.useCallback(() => {
+    // Cancel any pending retry backoff BEFORE zeroing attempts/failure —
+    // order matters (see design's "Retry policy" decision).
+    clearPackageCheckInBackoff()
+    setPackageCheckInAttempts(0)
+    setPackageCheckInFailure(null)
     setOpenNewBooking(false)
     setNewBookingOverride(null)
     setLatePaymentEntryOverride(null)
@@ -109,6 +121,7 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setShowConsecutivePaymentSelection(false)
     setAwaitingConsecutivePaymentSelection(false)
   }, [
+    clearPackageCheckInBackoff,
     resetKioskCustomerSession,
     setBootstrap,
     refreshConsecutiveOffer,
@@ -128,6 +141,8 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setNewBookingOverride,
     setLatePaymentEntryOverride,
     setOpenNewBooking,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
     setPackageCheckInResult,
     setPackageOfferContext,
     setPackageOfferSelectedId,
@@ -156,6 +171,14 @@ export const useKioskFlowCompletion = <TBootstrap,>({
       return
     }
 
+    // Defense-in-depth: this branch does its own partial reset (not the
+    // full resetCustomerFlowState) but must still clear any leftover kiosk
+    // package check-in backoff/attempts/failure state — e.g. a shared
+    // device or a future caller reusing this hook. Order matters: cancel
+    // the backoff before zeroing attempts/failure.
+    clearPackageCheckInBackoff()
+    setPackageCheckInAttempts(0)
+    setPackageCheckInFailure(null)
     setShowPhoneSignIn(false)
     setPendingLoginPhone("")
     setMode("idle")
@@ -163,11 +186,14 @@ export const useKioskFlowCompletion = <TBootstrap,>({
     setError(null)
     setSuccess(null)
   }, [
+    clearPackageCheckInBackoff,
     handleStationCompletion,
     isKioskTerminalFlow,
     setBootstrap,
     setError,
     setMode,
+    setPackageCheckInAttempts,
+    setPackageCheckInFailure,
     setPendingLoginPhone,
     setShowPhoneSignIn,
     setSuccess,

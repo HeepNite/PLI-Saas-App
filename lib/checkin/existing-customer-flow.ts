@@ -1,6 +1,24 @@
 import type { PackageOfferScenario } from "@/components/front/checkin/checkin.types"
+import type { PackageCheckInResult } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
 
 const EXISTING_CUSTOMER_INFO_STEP = 2
+
+export const PACKAGE_CHECK_IN_MAX_ATTEMPTS = 3
+const NO_PACKAGE_MESSAGE = "No active package available for this class."
+const NO_CREDITS_MESSAGE = "This package has no credits left."
+const DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE = "We couldn't check you in. Please see the front desk."
+const RETRY_AFTER_CAP_MS = 60_000
+
+/**
+ * Fixed backoff schedule (ms) applied between kiosk auto-retry attempts,
+ * indexed by `packageCheckInAttempts` at the moment a retryable failure is
+ * classified. Only 2 entries: with `maxAttempts = 3` and the
+ * `attempts + 1 < maxAttempts` retry-exhaustion boundary, `attemptIndex` can
+ * only ever be `0` or `1` — a would-be 3rd entry is unreachable dead
+ * configuration and has been trimmed. Overridden per-attempt by the server's
+ * `Retry-After` header for `rate_limited` failures.
+ */
+export const backoffDelays: readonly number[] = [0, 2000]
 
 export const hasExistingCustomerPrefillContact = (input?: {
   firstName?: string | null
@@ -152,7 +170,20 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   hasConsecutiveOffer: boolean
   /** Whether the consecutive offer fetch has resolved (success or failure) */
   consecutiveOfferSettled: boolean
+  /** Number of completed kiosk auto-retry attempts. Defaults to 0. */
+  attemptCount?: number
+  /** Retry budget. Defaults to 3. */
+  maxAttempts?: number
+  /** True once the kiosk retry budget is exhausted or a non-retryable failure occurred. Defaults to false. */
+  hasTerminalFailure?: boolean
+  /** True while a backoff delay is pending before the next automatic attempt. Defaults to false. */
+  retryBackoffActive?: boolean
 }) => {
+  const attemptCount = input.attemptCount ?? 0
+  const maxAttempts = input.maxAttempts ?? PACKAGE_CHECK_IN_MAX_ATTEMPTS
+  const hasTerminalFailure = input.hasTerminalFailure ?? false
+  const retryBackoffActive = input.retryBackoffActive ?? false
+
   // Already checked in or currently processing → don't re-trigger
   if (input.hasPackageCheckInResult || input.processingPackageCheckIn) return false
   // Existing successful attendance/purchase should show the duplicate/status
@@ -164,6 +195,17 @@ export const shouldAutoTriggerPackageCheckIn = (input: {
   if (!input.hasPackage || !input.effectiveCheckInWindowOpen) return false
   // No active session → no auto-trigger
   if (!input.hasActiveSession) return false
+  // Terminal failure reached or a backoff delay is pending → don't re-fire
+  // early on unrelated dependency changes.
+  if (hasTerminalFailure || retryBackoffActive) return false
+  // Retry budget exhausted → the flow must transition to terminal failure
+  // instead of firing another automatic attempt. Intentionally redundant
+  // defense-in-depth: the `hasTerminalFailure` check above normally
+  // short-circuits first, since the caller sets a terminal failure the
+  // moment the budget is exhausted. Kept as a backstop in case a caller ever
+  // re-evaluates this gate with a stale `hasTerminalFailure` — not load-bearing
+  // under the current call sites.
+  if (attemptCount >= maxAttempts) return false
   // Always check in with package first. Consecutive promotion can only be
   // offered after a successful class-A check-in, so no-credit users go to the
   // regular purchase flow instead of seeing a stale promotion popup.
@@ -179,7 +221,16 @@ export const shouldSurfaceClosedWindowPackageError = (input: {
   processingPackageCheckIn: boolean
   hasPackageCheckInResult: boolean
   hasExistingRegularBookingOverride: boolean
+  /**
+   * True once a package check-in failure (terminal or closed-window) has
+   * already been recorded. When true, this effect is a no-op so it cannot
+   * re-assert the failure while a manual Retry has just cleared it.
+   * Defaults to false.
+   */
+  hasPackageCheckInFailure?: boolean
 }) => {
+  const hasPackageCheckInFailure = input.hasPackageCheckInFailure ?? false
+  if (hasPackageCheckInFailure) return false
   if (!input.isKioskTerminalFlow || input.mode !== "existing") return false
   if (!input.hasBootstrap || !input.hasPackage) return false
   if (input.effectiveCheckInWindowOpen) return false
@@ -331,4 +382,156 @@ export const resolveDuplicatePurchaseDoneAction = (input: {
     return "open-consecutive-overlay"
   }
   return "complete-station"
+}
+
+/**
+ * Every terminal or retryable failure shape the package check-in request
+ * (`POST /api/checkin/qr/package`) can produce.
+ *
+ * Retryable (kiosk auto-retry only): `timeout`, `network`, `server`,
+ * `rate_limited`.
+ * Terminal immediately: `closed_window`, `no_package`, `no_credits`,
+ * `client_precondition`, `unknown`.
+ */
+export type PackageCheckInFailureKind =
+  | "timeout"
+  | "network"
+  | "server"
+  | "rate_limited"
+  | "closed_window"
+  | "no_package"
+  | "no_credits"
+  | "client_precondition"
+  | "unknown"
+
+export type PackageCheckInFailure = {
+  kind: PackageCheckInFailureKind
+  /** User-facing English message; server message verbatim when available. */
+  message: string
+  /** Only set for `kind === "rate_limited"`, parsed from `Retry-After`, capped at 60000ms. */
+  retryAfterMs?: number
+}
+
+export type PackageCheckInOutcome = PackageCheckInResult | PackageCheckInFailure
+
+const RETRYABLE_PACKAGE_CHECK_IN_FAILURE_KINDS: ReadonlySet<PackageCheckInFailureKind> = new Set([
+  "timeout",
+  "network",
+  "server",
+  "rate_limited",
+])
+
+export const isRetryablePackageFailure = (kind: PackageCheckInFailureKind): boolean =>
+  RETRYABLE_PACKAGE_CHECK_IN_FAILURE_KINDS.has(kind)
+
+/**
+ * Builds the resolving-overlay progress message for an in-progress kiosk
+ * auto-retry attempt.
+ *
+ * `attempt` is 1-indexed and describes the IN-PROGRESS attempt (the same
+ * convention as the retry-exhaustion boundary: at classification time,
+ * `packageCheckInAttempts` still reflects prior completed attempts, so the
+ * in-progress attempt is `packageCheckInAttempts + 1`).
+ *
+ * Returns `undefined` on the first attempt (no progress copy needed yet).
+ */
+export const getPackageCheckInResolvingMessage = (input: {
+  attempt: number
+  maxAttempts: number
+}): string | undefined =>
+  input.attempt <= 1 ? undefined : `Still checking you in… (attempt ${input.attempt} of ${input.maxAttempts})`
+
+const readPackageCheckInServerErrorMessage = (body: unknown): string | undefined => {
+  if (!body || typeof body !== "object") return undefined
+  const error = (body as { error?: unknown }).error
+  return typeof error === "string" && error.trim() ? error : undefined
+}
+
+const isClosedWindowFailureBody = (body: unknown): boolean =>
+  Boolean(body) && typeof body === "object" && "opensAt" in (body as object) && "closesAt" in (body as object)
+
+const parseRetryAfterMs = (retryAfterHeader?: string | null): number | undefined => {
+  if (!retryAfterHeader) return undefined
+  const seconds = Number(retryAfterHeader)
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined
+  return Math.min(seconds * 1000, RETRY_AFTER_CAP_MS)
+}
+
+const classifyPackageCheckInHttpFailure = (
+  status: number,
+  body: unknown,
+  retryAfterHeader?: string | null
+): PackageCheckInFailure => {
+  if (status === 409) {
+    if (isClosedWindowFailureBody(body)) {
+      return {
+        kind: "closed_window",
+        message: readPackageCheckInServerErrorMessage(body) ?? DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE,
+      }
+    }
+    const serverMessage = readPackageCheckInServerErrorMessage(body)
+    if (serverMessage === NO_PACKAGE_MESSAGE) {
+      return { kind: "no_package", message: serverMessage }
+    }
+    if (serverMessage === NO_CREDITS_MESSAGE) {
+      return { kind: "no_credits", message: serverMessage }
+    }
+    return { kind: "unknown", message: serverMessage ?? DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE }
+  }
+
+  if (status === 429) {
+    const retryAfterMs = parseRetryAfterMs(retryAfterHeader)
+    return {
+      kind: "rate_limited",
+      message: DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE,
+      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+    }
+  }
+
+  if (status === 401 || status === 403 || status === 404) {
+    return { kind: "unknown", message: readPackageCheckInServerErrorMessage(body) ?? DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE }
+  }
+
+  if (status >= 500) {
+    // A parseable body is a recognizable transient server-error shape and
+    // stays retryable. An unparseable body (e.g. `data === null`) cannot be
+    // distinguished from an unmapped failure, so it is treated as terminal.
+    if (body && typeof body === "object") {
+      return { kind: "server", message: DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE }
+    }
+    return { kind: "unknown", message: DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE }
+  }
+
+  return { kind: "unknown", message: readPackageCheckInServerErrorMessage(body) ?? DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE }
+}
+
+/**
+ * Describes what happened on a package check-in attempt, without requiring
+ * an actual `Response`/`fetch` throw — keeps `classifyPackageCheckInFailure`
+ * a pure, network-free, directly-testable function.
+ */
+export type PackageCheckInFailureSource =
+  | { kind: "timeout" }
+  | { kind: "network" }
+  | { kind: "http"; status: number; body: unknown; retryAfterHeader?: string | null }
+
+/**
+ * Classifies a failed package check-in attempt into one of the 9
+ * `PackageCheckInFailureKind`s. Never throws — every branch resolves to a
+ * value.
+ *
+ * `closed_window` is discriminated STRUCTURALLY (`opensAt`/`closesAt`
+ * presence in the response body), never by matching message text.
+ * `no_package`/`no_credits` are both bare `{ error: string }` 409s and are
+ * matched by exact server copy; an unrecognized 409 body degrades to
+ * `unknown` rather than throwing.
+ */
+export const classifyPackageCheckInFailure = (source: PackageCheckInFailureSource): PackageCheckInFailure => {
+  if (source.kind === "timeout") {
+    return { kind: "timeout", message: DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE }
+  }
+  if (source.kind === "network") {
+    return { kind: "network", message: DEFAULT_PACKAGE_CHECK_IN_FAILURE_MESSAGE }
+  }
+  return classifyPackageCheckInHttpFailure(source.status, source.body, source.retryAfterHeader)
 }
