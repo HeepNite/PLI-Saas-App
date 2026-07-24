@@ -361,17 +361,20 @@ export default function ClientPhoneCheckIn() {
   const signInUrl = buildQrSignInUrl(`/checkin?${searchParams.toString()}`)
 
   // Success terminals: already checked in, or checked_in (cash-pending, package-credit,
-  // or standard Stripe-paid). Auto-redirect to the client profile 5s after landing on
-  // any of these — always, even while the consecutive-promo card is showing.
+  // or standard Stripe-paid). Auto-redirect to the client profile 5s after the flow is
+  // truly done. While a consecutive-promo card is still on screen and undismissed, the
+  // student may still act on it, so hold the redirect until they dismiss it (or there is
+  // no offer). Once resolved, the 5s countdown to the profile begins.
   const isSuccess = result?.status === "already_checked_in" || result?.status === "checked_in"
+  const hasPendingOffer = Boolean(result?.consecutiveOffer) && !offerDismissed
 
   React.useEffect(() => {
-    if (!isSuccess) return
+    if (!isSuccess || hasPendingOffer) return
     const timer = setTimeout(() => {
       router.push("/client-profile")
     }, 5000)
     return () => clearTimeout(timer)
-  }, [isSuccess, router])
+  }, [isSuccess, hasPendingOffer, router])
 
   if (!courseSlug || !date || !time) {
     return (

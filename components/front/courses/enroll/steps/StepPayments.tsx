@@ -1,6 +1,6 @@
 "use client"
 import React from "react"
-import { Building2, CreditCard } from "lucide-react"
+import { Apple, Building2, CreditCard } from "lucide-react"
 import type { Coupon, EnrollmentContact, PaymentMethod } from "@/components/front/courses/types"
 import type { CourseEnrollmentData } from "@/components/front/courses/types"
 import type { EnrollmentOption } from "@/constants/courses"
@@ -91,7 +91,7 @@ export default function StepPayments({
                   {!!addons.length && (
                     <div>{t("extras")}: <span className="text-white">{addons.map((a) => course.enrollment.addons?.find((x) => x.id === a)?.label).filter(Boolean).join(", ")}</span></div>
                   )}
-                  {pkg && (
+                  {pkg && !mobileQrCheckin && (
                     <div>{t("package")}: <span className="text-white">{course.enrollment.packages.find((p) => p.id === pkg)?.label || "—"}</span></div>
                   )}
                   {contact.note && <div className="sm:col-span-2">{t("notes")}: <span className="text-white">{contact.note}</span></div>}
@@ -106,7 +106,9 @@ export default function StepPayments({
             <div className="mt-1 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-sm font-semibold leading-snug text-white">
-                  {course.title}{time ? ` · ${to12h(time)}` : ""} — {mobileQrCheckin && pkgOpt ? pkgOpt.label : course.enrollment.services.find((s) => s.id === service)?.label}
+                  {mobileQrCheckin
+                    ? (pkg ? `Package · ${course.enrollment.packages.find((p) => p.id === pkg)?.label ?? ""}` : "Class")
+                    : <>{course.title}{time ? ` · ${to12h(time)}` : ""} — {course.enrollment.services.find((s) => s.id === service)?.label}</>}
                 </div>
                 {!mobileQrCheckin && (
                   <>
@@ -206,8 +208,20 @@ export default function StepPayments({
             className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod === "stripe" ? "border-[var(--brand,#111)] bg-[var(--brand,#111)]/5" : "border-black/10 dark:border-white/10"}`}
           >
             <div className="flex items-center gap-2 font-medium">
-              <CreditCard className="h-4 w-4" aria-hidden />
-              {mobileQrCheckin ? "Card · Apple Pay · Google Pay" : t("payments_stripe")}
+              {mobileQrCheckin ? (
+                <span className="flex flex-nowrap items-center gap-2" aria-label="Card, Apple Pay, Google Pay">
+                  <CreditCard className="h-4 w-4 shrink-0" aria-hidden />
+                  <Apple className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="shrink-0 text-xs font-semibold leading-none" aria-hidden>
+                    <span style={{ color: "#4285F4" }}>G</span> Pay
+                  </span>
+                </span>
+              ) : (
+                <>
+                  <CreditCard className="h-4 w-4" aria-hidden />
+                  {t("payments_stripe")}
+                </>
+              )}
             </div>
             <div className="mt-1 text-xs text-neutral-500">{mobileQrCheckin ? "Pay with card or phone wallet." : t("payments_stripe_desc")}</div>
           </button>
