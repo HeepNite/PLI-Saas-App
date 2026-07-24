@@ -1275,7 +1275,7 @@ export default function EnrollModal({
                         : activeStepKey === "consecutive"
                           ? "Promotion for the Second Class"
                           : activeStepKey === "payments"
-                            ? `Payment for ${course.title}`
+                            ? (isQrMobileCompactFlow ? course.title : `Payment for ${course.title}`)
                             : `${steps[step]?.label} • ${course.title}`}
                   </h3>
                 </div>
