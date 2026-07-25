@@ -74,7 +74,9 @@ export async function POST(req: Request) {
   })
 
   const base = getBaseUrl()
-  const success = `${base}/client-profile?status=success`
+  const success = validation.consecutiveAddOnOnly
+    ? `${base}/checkin/promo-added?course=${encodeURIComponent(validation.consecutiveCourseTitle ?? "")}&price=${validation.consecutivePriceCents ?? 0}&remaining=${validation.packageRemaining ?? ""}`
+    : `${base}/client-profile?status=success`
   const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(

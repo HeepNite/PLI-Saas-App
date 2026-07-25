@@ -68,6 +68,7 @@ function ConsecutiveOfferOverlay({
   isPackageHolder,
   attendanceId,
   courseSlug,
+  packageRemaining,
   onDismiss,
 }: {
   offer: {
@@ -83,6 +84,7 @@ function ConsecutiveOfferOverlay({
   isPackageHolder: boolean
   attendanceId?: string
   courseSlug: string
+  packageRemaining?: number | null
   onDismiss: () => void
 }) {
   const [phase, setPhase] = React.useState<OverlayPhase>("offer")
@@ -163,6 +165,7 @@ function ConsecutiveOfferOverlay({
           consecutiveLinkedCourseSlug: offer.linkedCourseSlug,
           consecutiveCourseTitle: offer.linkedCourseTitle,
           consecutiveLinkedCourseTime: offer.linkedCourseTime ?? time,
+          ...(packageRemaining != null ? { packageRemaining } : {}),
         }),
       })
       const data = await res.json()
@@ -503,6 +506,7 @@ export default function ClientPhoneCheckIn() {
               isPackageHolder={!!result.package}
               attendanceId={result.attendance?.id}
               courseSlug={courseSlug}
+              packageRemaining={result.package?.remainingCredits ?? null}
               onDismiss={() => setOfferDismissed(true)}
             />
           )}
@@ -534,6 +538,7 @@ export default function ClientPhoneCheckIn() {
               isPackageHolder={!!result.package}
               attendanceId={result.attendance?.id}
               courseSlug={courseSlug}
+              packageRemaining={result.package?.remainingCredits ?? null}
               onDismiss={() => setOfferDismissed(true)}
             />
           )}
@@ -559,6 +564,7 @@ export default function ClientPhoneCheckIn() {
             isPackageHolder={!!result.package}
             attendanceId={result.attendance?.id}
             courseSlug={courseSlug}
+            packageRemaining={result.package?.remainingCredits ?? null}
             onDismiss={() => setOfferDismissed(true)}
           />
         )}
