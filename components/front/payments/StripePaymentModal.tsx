@@ -17,8 +17,8 @@ export function StripePaymentModal({ clientSecret, onClose, onSuccess, email, na
   if (!clientSecret) return null
 
   return (
-    <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 backdrop-blur-md px-2 sm:px-4 py-6">
-      <div className="relative w-full sm:max-w-md rounded-2xl bg-white shadow-2xl max-h-[85vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 backdrop-blur-md p-3">
+      <div className="relative w-full sm:max-w-md rounded-2xl bg-white shadow-2xl max-h-[90dvh] flex flex-col overflow-hidden">
         <button
           type="button"
           onClick={onClose}
@@ -84,8 +84,8 @@ function PaymentForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col min-h-0 h-full max-h-[85vh]">
-      <div className="shrink-0 p-4 pb-2">
+    <form onSubmit={handleSubmit} className="flex flex-col min-h-0 max-h-[90dvh]">
+      <div className="shrink-0 p-4 pb-2 pr-12">
         <h3 className="text-lg font-semibold">Secure payment</h3>
         <p className="text-sm text-neutral-600">Use Apple Pay, Google Pay, or card.</p>
       </div>
