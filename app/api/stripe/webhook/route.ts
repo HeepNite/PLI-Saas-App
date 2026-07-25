@@ -45,7 +45,14 @@ const stripe = stripeSecret
 const packagePurchaseEventKey = (packagePurchaseId: string) => `package-purchase:${packagePurchaseId}`
 
 const isTerminalFlow = (metadata: StripeMetadata) => {
-  return metadata.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
+  if (metadata.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL) return true
+  // Mobile-QR check-in paid via Stripe HOSTED checkout (full-page redirect): the
+  // browser navigates away to Stripe, so — unlike the embedded-modal path — there is
+  // no post-payment client callback to /api/checkin/qr/dropin. This webhook is the
+  // ONLY completion path, so it must mark attendance as checked-in the same way the
+  // staff kiosk terminal does. Gated on paymentSurface === "hosted_checkout" so a
+  // regular (scheduled) qr_phone booking is never accidentally checked in.
+  return metadata.flowContext === FLOW_CONTEXT.QR_PHONE && metadata.paymentSurface === "hosted_checkout"
 }
 
 const resolveAttendanceStatusForFlow = (input: {
