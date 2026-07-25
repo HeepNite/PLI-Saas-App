@@ -4,6 +4,7 @@ import React from "react"
 import AssistantWidgetMount from "@/components/front/AssistantWidgetMount"
 import { useI18n } from "@/lib/i18n"
 import { usePathname } from "next/navigation"
+import { detectQrFlow } from "@/lib/checkin/qr-flow"
 
 export default function AssistantWidgetMountI18n() {
   const { t } = useI18n()
@@ -11,14 +12,12 @@ export default function AssistantWidgetMountI18n() {
   const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
   const isCheckInRoute = pathname?.startsWith("/checkin")
 
-  // Keep the QR-mobile checkout distraction-free: the scanned-QR new-student
-  // booking runs under /courses/... carrying ?fromQr=1, and the check-in
-  // surfaces live under /checkin. Hide the assistant across both.
-  const [isQrFlow, setIsQrFlow] = React.useState(
-    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fromQr") === "1"
-  )
+  // Keep the QR-mobile checkout distraction-free. The check-in surfaces live
+  // under /checkin (?fromQr=1); the scanned-QR booking navigates to
+  // /courses/... with ?qrBooking=1 (see buildQrBookingUrl). Hide across both.
+  const [isQrFlow, setIsQrFlow] = React.useState(() => detectQrFlow())
   React.useEffect(() => {
-    setIsQrFlow(new URLSearchParams(window.location.search).get("fromQr") === "1")
+    setIsQrFlow(detectQrFlow())
   }, [pathname])
 
   if (isAuthRoute || isCheckInRoute || isQrFlow) return null

@@ -3,6 +3,7 @@
 import React from "react"
 import { ArrowUp, Home } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
+import { detectQrFlow } from "@/lib/checkin/qr-flow"
 
 export default function FloatingTopHomeButton() {
   const router = useRouter()
@@ -10,13 +11,11 @@ export default function FloatingTopHomeButton() {
   const isStaffRoute = pathname?.startsWith("/staff")
   const isCheckInRoute = pathname?.startsWith("/checkin")
   const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
-  // The scanned-QR new-student booking runs under /courses/... with ?fromQr=1;
-  // keep that checkout distraction-free.
-  const [isQrFlow, setIsQrFlow] = React.useState(
-    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fromQr") === "1"
-  )
+  // Keep the QR-mobile checkout distraction-free: /checkin (?fromQr=1) and the
+  // scanned-QR booking on /courses/... (?qrBooking=1).
+  const [isQrFlow, setIsQrFlow] = React.useState(() => detectQrFlow())
   React.useEffect(() => {
-    setIsQrFlow(new URLSearchParams(window.location.search).get("fromQr") === "1")
+    setIsQrFlow(detectQrFlow())
   }, [pathname])
   const [showTop, setShowTop] = React.useState(false)
   const [showButton, setShowButton] = React.useState(pathname !== "/")
