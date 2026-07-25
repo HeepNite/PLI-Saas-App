@@ -39,6 +39,8 @@ export type CheckoutBody = {
   consecutiveAddOnOnly?: boolean
   /** Slug of the first class that unlocked the consecutive add-on. */
   linkedFromCourseSlug?: string
+  /** Display-only: remaining credits in the payer's package (shown on the congrats screen). */
+  packageRemaining?: number
   /** Authoritative current class date from kiosk context (YYYY-MM-DD) */
   kioskCurrentCourseDate?: string
   /** Authoritative current class time from kiosk context (HH:MM) */
@@ -76,6 +78,8 @@ export type CheckoutValidation = {
   kioskCurrentCourseTime: string | null
   consecutiveAddOnOnly: boolean
   linkedFromCourseSlug: string | null
+  /** Display-only remaining credits for the congrats screen; never gates payment. */
+  packageRemaining: number | null
 }
 
 const getPackageCredits = (pkg?: EnrollmentOption) => {
@@ -133,6 +137,7 @@ export const validateCheckoutPayload = async (
     consecutiveLinkedCourseTime,
     consecutiveAddOnOnly = false,
     linkedFromCourseSlug,
+    packageRemaining,
     kioskCurrentCourseDate,
     kioskCurrentCourseTime,
   } = body || {}
@@ -261,5 +266,9 @@ export const validateCheckoutPayload = async (
     kioskCurrentCourseTime: validatedKioskCurrentCourseTime,
     consecutiveAddOnOnly: Boolean(consecutiveAddOnOnly),
     linkedFromCourseSlug: typeof linkedFromCourseSlug === "string" && linkedFromCourseSlug.trim() ? linkedFromCourseSlug.trim() : null,
+    packageRemaining:
+      typeof packageRemaining === "number" && Number.isFinite(packageRemaining) && packageRemaining >= 0
+        ? Math.floor(packageRemaining)
+        : null,
   }
 }
