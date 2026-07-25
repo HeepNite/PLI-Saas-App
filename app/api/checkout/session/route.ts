@@ -63,6 +63,13 @@ export async function POST(req: Request) {
     kioskSessionToken,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
+  // Mobile-QR check-in booking paid via Stripe HOSTED checkout (full-page redirect).
+  // The client sets `checkInBooking: true` on the QR-phone check-in payload so the
+  // webhook can complete the booking as a real check-in (attendance = checked-in),
+  // mirroring the staff kiosk terminal — there is no post-redirect client callback.
+  const isMobileQrCheckInBooking =
+    photoContext === FLOW_CONTEXT.QR_PHONE &&
+    (body as Record<string, unknown>)?.checkInBooking === true
 
   const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
@@ -76,7 +83,9 @@ export async function POST(req: Request) {
   const base = getBaseUrl()
   const success = validation.consecutiveAddOnOnly
     ? `${base}/checkin/promo-added?course=${encodeURIComponent(validation.consecutiveCourseTitle ?? "")}&price=${validation.consecutivePriceCents ?? 0}&remaining=${validation.packageRemaining ?? ""}`
-    : `${base}/client-profile?status=success`
+    : isMobileQrCheckInBooking
+      ? `${base}/checkin/booked?course=${encodeURIComponent(validation.courseTitle)}&name=${encodeURIComponent(firstName ?? "")}`
+      : `${base}/client-profile?status=success`
   const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(
@@ -162,7 +171,8 @@ export async function POST(req: Request) {
         phoneRaw: phone || "",
         email: identity.resolvedEmail,
         flowContext: photoContext,
-        paymentSurface: photoContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "hosted_checkout" : "web_checkout",
+        paymentSurface:
+          photoContext === FLOW_CONTEXT.KIOSK_TERMINAL || isMobileQrCheckInBooking ? "hosted_checkout" : "web_checkout",
         // Consecutive class fields (present when user accepted the consecutive offer)
         consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
         consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
