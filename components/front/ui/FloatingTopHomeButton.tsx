@@ -10,6 +10,14 @@ export default function FloatingTopHomeButton() {
   const isStaffRoute = pathname?.startsWith("/staff")
   const isCheckInRoute = pathname?.startsWith("/checkin")
   const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
+  // The scanned-QR new-student booking runs under /courses/... with ?fromQr=1;
+  // keep that checkout distraction-free.
+  const [isQrFlow, setIsQrFlow] = React.useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fromQr") === "1"
+  )
+  React.useEffect(() => {
+    setIsQrFlow(new URLSearchParams(window.location.search).get("fromQr") === "1")
+  }, [pathname])
   const [showTop, setShowTop] = React.useState(false)
   const [showButton, setShowButton] = React.useState(pathname !== "/")
   const [isCourseMobile, setIsCourseMobile] = React.useState(false)
@@ -32,7 +40,7 @@ export default function FloatingTopHomeButton() {
     return () => window.removeEventListener("scroll", onScroll)
   }, [pathname, isAuthRoute, isCheckInRoute, isStaffRoute])
 
-  if (isStaffRoute || isCheckInRoute || isAuthRoute) return null
+  if (isStaffRoute || isCheckInRoute || isAuthRoute || isQrFlow) return null
 
   const isHome = pathname === "/"
   const label = isHome ? "Back to top" : showTop ? "Back to top" : "Home"
