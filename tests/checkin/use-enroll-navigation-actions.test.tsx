@@ -240,7 +240,7 @@ describe("useEnrollNavigationActions", () => {
           isCheckInFlow: true,
           isKioskTerminalFlow: true,
           service: "new-student",
-          contact: { ...defaultContact(), phone: "+1 5555550123" },
+          contact: { ...defaultContact(), phone: "+1 5555550123", email: "a@b.com" },
           verifyNewStudent,
           onExistingUserDetected,
           requestAccountPreparation,
@@ -262,7 +262,7 @@ describe("useEnrollNavigationActions", () => {
           isCheckInFlow: true,
           isQrMobileCompactFlow: true,
           service: "new-student",
-          contact: { ...defaultContact(), phone: "+1 5555550123" },
+          contact: { ...defaultContact(), phone: "+1 5555550123", email: "a@b.com" },
           verifyNewStudent,
           requestAccountPreparation,
         })
@@ -281,7 +281,7 @@ describe("useEnrollNavigationActions", () => {
           isCheckInFlow: true,
           isKioskTerminalFlow: true,
           service: "new-student",
-          contact: { ...defaultContact(), phone: "+1 555" },
+          contact: { ...defaultContact(), phone: "+1 555", email: "a@b.com" },
           verifyNewStudent,
           requestAccountPreparation,
         })
@@ -292,6 +292,33 @@ describe("useEnrollNavigationActions", () => {
       expect(verifyNewStudent).not.toHaveBeenCalled()
       // Falls through to account preparation directly.
       expect(requestAccountPreparation).toHaveBeenCalledTimes(1)
+    })
+
+    it("kiosk/QR new-student blocks on an invalid email: no SMS, no account prep, surfaces error", async () => {
+      const verifyNewStudent = vi.fn(async () => "sms_pending")
+      const requestAccountPreparation = vi.fn(async () => preparedAccount())
+      const setFormError = vi.fn()
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          isQrMobileCompactFlow: true,
+          service: "new-student",
+          // Malformed address (missing domain), the exact failure from the field.
+          contact: { ...defaultContact(), phone: "+1 5555550123", email: "eg@fincom" },
+          verifyNewStudent,
+          requestAccountPreparation,
+          setFormError,
+        })
+      )
+      await act(async () => {
+        await getResult().advanceFromContactStep()
+      })
+
+      expect(verifyNewStudent).not.toHaveBeenCalled()
+      expect(requestAccountPreparation).not.toHaveBeenCalled()
+      expect(setFormError).toHaveBeenCalledWith(
+        "Please enter a valid email address (e.g. name@example.com)."
+      )
     })
   })
 

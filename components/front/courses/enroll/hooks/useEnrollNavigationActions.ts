@@ -6,6 +6,7 @@ import type { PhotoPolicy } from "@/lib/checkin/photo-context-policy"
 import type { EnrollStepKey } from "@/lib/checkin/enroll-flow"
 import type { SignInPurpose } from "@/components/front/courses/enroll/model/enroll-flow.types"
 import { isCompleteUSPhone } from "@/components/front/courses/utils/phone"
+import { isEmail } from "@/lib/shared"
 import { isCheckInContactGateStep, handleExistingUserDetected } from "@/lib/checkin/enroll-flow"
 import { isPhotoRequiredForAccount } from "@/lib/checkin/photo-context-policy"
 import { nextKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
@@ -97,6 +98,19 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
+      // New-student check-in creates the Clerk account from this email, so a
+      // malformed address (e.g. missing domain like "eg@fincom") must be caught
+      // HERE — before we send the SMS and prepare the account — instead of
+      // surfacing a confusing generic failure only after the server rejects it.
+      if (
+        service === "new-student" &&
+        (isKioskTerminalFlow || isQrMobileCompactFlow) &&
+        !isEmail(contact.email?.trim())
+      ) {
+        setFormError("Please enter a valid email address (e.g. name@example.com).")
+        return
+      }
+
       if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
         const result = await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({ isKioskTerminalFlow, service, verifyResult: result, onExistingUserDetected })) {
@@ -108,10 +122,11 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
             // Account preparation failed — the SMS verification screen was already
             // shown by verifyNewStudent (sms_pending). Without a prepared Clerk
             // account, EmbeddedSignIn's signIn.create would dead-end on
-            // "Couldn't find your account." Dismiss the verification screen and
-            // surface a recoverable error instead of stranding the user.
+            // "Couldn't find your account." Dismiss the verification screen so the
+            // user can correct and retry. requestAccountPreparation already set the
+            // specific server error (e.g. invalid email), so we preserve it here
+            // instead of overwriting with a generic message.
             resetVerification()
-            setFormError("We couldn't set up your account. Please try again.")
             return
           }
           return
