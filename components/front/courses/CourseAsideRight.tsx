@@ -37,26 +37,41 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const consumedQueryRef = React.useRef(false)
   const shouldUseDraft = shouldRestoreDraft && !qrBookingContext
   const shouldUseQrCompactBooking = Boolean(qrBookingContext)
-  const qrAuthReady = !shouldUseQrCompactBooking || isLoaded
-  const shouldSkipQrContactStep = shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn)
-  // Resolve the QR flow variant from the sign-in state once Clerk has loaded:
-  //   - genuinely new student (not signed in) → "checkin-new" ($15 new-student pricing)
-  //   - existing customer (already signed in) → "checkin-existing" (normal drop-in, prefilled contact)
-  // Captured once (as soon as Clerk is loaded) so SMS verification — which signs a new student in
-  // mid-flow — does NOT flip "checkin-new" → "checkin-existing" and change the $15 pricing. The
-  // capture happens on the same render the modal first opens (qrAuthReady requires isLoaded), so
-  // EnrollModal never initializes with the wrong variant. An existing customer is already signed in
-  // when the flow opens, so their variant is captured as "checkin-existing" from the start.
-  // `newStudent=1` (set by the checkout cancel_url and the "I'm new" welcome choice)
-  // forces the new-student variant even when the customer is already signed in — a new
-  // student is signed in mid-flow by SMS verification, so after cancelling the Stripe
-  // checkout they would otherwise be mis-captured as an existing customer and lose the
-  // $15 promo. The server re-verifies eligibility, so this never lets a returning
-  // (already-purchased) customer claim the promo.
+  // `newStudent=1` (set by the checkout cancel_url / the "I'm new" welcome choice)
+  // forces the new-student variant even when signed in.
   const [forceNewStudentVariant] = React.useState(() => searchParams.get("newStudent") === "1")
+
+  // Resolve the QR flow variant:
+  //   - not signed in → "checkin-new" ($15 new-student pricing)
+  //   - signed in → depends on whether they are an ESTABLISHED customer. A new
+  //     student is signed into Clerk mid-flow by SMS verification, so `isSignedIn`
+  //     alone would wrongly flip them to "checkin-existing" (drop-in $20) on any
+  //     booking restart. We ask the server whether the signed-in user has a
+  //     completed purchase or a package; only then are they "checkin-existing".
+  // Captured ONCE, and only after the check resolves, so the modal never opens
+  // with the wrong price. The server re-verifies at checkout, so a returning
+  // customer can never claim the promo even if this signal were stale.
+  const needsExistingCustomerCheck =
+    shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn) && !forceNewStudentVariant
+  const [existingCustomer, setExistingCustomer] = React.useState<boolean | null>(null)
+  React.useEffect(() => {
+    if (!needsExistingCustomerCheck) return
+    let active = true
+    fetch("/api/checkin/qr/new-student/eligibility")
+      .then((r) => (r.ok ? r.json() : { isExistingCustomer: true }))
+      .then((data) => { if (active) setExistingCustomer(Boolean(data?.isExistingCustomer)) })
+      .catch(() => { if (active) setExistingCustomer(true) })
+    return () => { active = false }
+  }, [needsExistingCustomerCheck])
+
+  // Ready once Clerk loaded AND (if signed in) the existing-customer check resolved.
+  const existingCustomerResolved = !needsExistingCustomerCheck || existingCustomer !== null
+  const qrAuthReady = !shouldUseQrCompactBooking || (isLoaded && existingCustomerResolved)
+  const shouldSkipQrContactStep = shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn)
   const capturedQrFlowVariantRef = React.useRef<"checkin-new" | "checkin-existing" | null>(null)
-  if (shouldUseQrCompactBooking && isLoaded && capturedQrFlowVariantRef.current === null) {
-    capturedQrFlowVariantRef.current = isSignedIn && !forceNewStudentVariant ? "checkin-existing" : "checkin-new"
+  if (shouldUseQrCompactBooking && isLoaded && existingCustomerResolved && capturedQrFlowVariantRef.current === null) {
+    const treatAsExisting = Boolean(isSignedIn) && !forceNewStudentVariant && existingCustomer === true
+    capturedQrFlowVariantRef.current = treatAsExisting ? "checkin-existing" : "checkin-new"
   }
   const qrCompactFlowVariant = shouldUseQrCompactBooking
     ? capturedQrFlowVariantRef.current ?? "checkin-new"
