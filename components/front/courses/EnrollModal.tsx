@@ -827,6 +827,27 @@ export default function EnrollModal({
     showRegularFallbackPopup,
   })
 
+  // Cancel handling for the QR deep-link flow. A scanned-QR booking has no
+  // "outside" to return to — calling onCloseAction() would clear the qrBooking
+  // params and unmount into the course page's dead "Loading your booking…"
+  // loader. Instead, cancel walks the user BACK inside the flow:
+  //   - SMS verification in progress → dismiss just the SMS screen and return to
+  //     the phone/info screen with their data intact.
+  //   - otherwise → return to the initial screen (step 0).
+  const handleCancel = React.useCallback(() => {
+    if (!isQrMobileCompactFlow) {
+      handleClose()
+      return
+    }
+    setFormError(null)
+    if (verificationState === "sms_pending" || verificationState === "sms_verifying") {
+      resetVerification()
+      return
+    }
+    resetForm()
+    resetVerification()
+  }, [isQrMobileCompactFlow, handleClose, verificationState, resetVerification, resetForm, setFormError])
+
   React.useEffect(() => {
     if (!open && !isInline) {
       resetForm()
@@ -1171,7 +1192,7 @@ export default function EnrollModal({
       {!isInline && (
         <button
           aria-label={t("aria_close")}
-          onClick={preventOutsideClose ? undefined : handleClose}
+          onClick={preventOutsideClose ? undefined : handleCancel}
           className={`absolute inset-0 ${isQrMobileCompactFlow ? "bg-black" : "bg-black/60"} backdrop-blur-sm`}
         />
       )}
@@ -1196,7 +1217,7 @@ export default function EnrollModal({
         {!isInline && (
           <button
             type="button"
-            onClick={handleClose}
+            onClick={handleCancel}
             className="absolute right-2 top-2 z-20 h-9 w-9 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 sm:right-3 sm:top-3"
             aria-label={t("aria_close")}
           >
@@ -1292,7 +1313,7 @@ export default function EnrollModal({
                 isStationCompletion={isStationCompletion}
                 stationCompletionTimeoutRef={stationCompletionTimeoutRef}
                 onCompletedAction={onCompletedAction}
-                handleClose={handleClose}
+                handleClose={handleCancel}
                 to12h={to12h}
                 t={t}
               />
@@ -1410,7 +1431,7 @@ export default function EnrollModal({
                   identityCheckBusy={identityCheckBusy}
                   consecutiveOfferLoading={consecutiveOfferLoading}
                   canContinueCurrentStep={canContinueCurrentStep}
-                  handleClose={handleClose}
+                  handleClose={handleCancel}
                   handleSubmit={handleSubmit}
                   resetKioskQrCheckout={resetKioskQrCheckout}
                   setStep={setStep}
