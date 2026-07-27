@@ -4,23 +4,18 @@ import React from "react"
 import AssistantWidgetMount from "@/components/front/AssistantWidgetMount"
 import { useI18n } from "@/lib/i18n"
 import { usePathname } from "next/navigation"
-import { detectQrFlow } from "@/lib/checkin/qr-flow"
+import { useHideFloatingChrome } from "@/lib/checkin/use-hide-floating-chrome"
 
 export default function AssistantWidgetMountI18n() {
   const { t } = useI18n()
   const pathname = usePathname()
   const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
   const isCheckInRoute = pathname?.startsWith("/checkin")
+  // Hide across the QR flow (URL) AND whenever a full-screen modal locks body
+  // scroll (covers every EnrollModal step regardless of route/param).
+  const hideForCheckout = useHideFloatingChrome()
 
-  // Keep the QR-mobile checkout distraction-free. The check-in surfaces live
-  // under /checkin (?fromQr=1); the scanned-QR booking navigates to
-  // /courses/... with ?qrBooking=1 (see buildQrBookingUrl). Hide across both.
-  const [isQrFlow, setIsQrFlow] = React.useState(() => detectQrFlow())
-  React.useEffect(() => {
-    setIsQrFlow(detectQrFlow())
-  }, [pathname])
-
-  if (isAuthRoute || isCheckInRoute || isQrFlow) return null
+  if (isAuthRoute || isCheckInRoute || hideForCheckout) return null
 
   return (
     <AssistantWidgetMount

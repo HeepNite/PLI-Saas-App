@@ -3,7 +3,7 @@
 import React from "react"
 import { ArrowUp, Home } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
-import { detectQrFlow } from "@/lib/checkin/qr-flow"
+import { useHideFloatingChrome } from "@/lib/checkin/use-hide-floating-chrome"
 
 export default function FloatingTopHomeButton() {
   const router = useRouter()
@@ -11,12 +11,9 @@ export default function FloatingTopHomeButton() {
   const isStaffRoute = pathname?.startsWith("/staff")
   const isCheckInRoute = pathname?.startsWith("/checkin")
   const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
-  // Keep the QR-mobile checkout distraction-free: /checkin (?fromQr=1) and the
-  // scanned-QR booking on /courses/... (?qrBooking=1).
-  const [isQrFlow, setIsQrFlow] = React.useState(() => detectQrFlow())
-  React.useEffect(() => {
-    setIsQrFlow(detectQrFlow())
-  }, [pathname])
+  // Hide across the QR flow (URL) AND whenever a full-screen modal locks body
+  // scroll (covers every EnrollModal step regardless of route/param).
+  const isQrFlow = useHideFloatingChrome()
   const [showTop, setShowTop] = React.useState(false)
   const [showButton, setShowButton] = React.useState(pathname !== "/")
   const [isCourseMobile, setIsCourseMobile] = React.useState(false)
