@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import Link from "next/link"
 
 // Footer inspired by the provided reference image.
 // - Big centered quote in a warm cream tone over deep black.
@@ -77,6 +78,20 @@ export default function FooterQuote() {
             <a href="mailto:hello@pli.studio" className="text-white hover:text-[var(--brand,#e31b1b)] transition drop-shadow-[0_8px_25px_rgba(227,27,27,0.35)]">
               hello@pli.studio
             </a>
+            <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs md:text-sm">
+              <Link
+                href="/privacy"
+                className="text-white/80 hover:text-[var(--brand,#e31b1b)] underline underline-offset-4 transition"
+              >
+                Privacy Policy
+              </Link>
+              <Link
+                href="/sms-terms"
+                className="text-white/80 hover:text-[var(--brand,#e31b1b)] underline underline-offset-4 transition"
+              >
+                SMS Terms
+              </Link>
+            </nav>
             <p className="text-xs md:text-sm text-neutral-300">
               ©{year} Palladium Latin Institute. All rights reserved.
             </p>
