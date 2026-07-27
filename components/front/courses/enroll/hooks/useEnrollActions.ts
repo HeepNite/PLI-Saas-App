@@ -195,7 +195,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
     step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
-    onExistingUserDetected, verifyNewStudent,
+    onExistingUserDetected, verifyNewStudent, resetVerification,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setResumeContactFlowAfterSignIn, setPendingAutoPay, setSignInPurpose,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase, setAddons,

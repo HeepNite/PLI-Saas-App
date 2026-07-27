@@ -36,6 +36,7 @@ export type UseEnrollNavigationActionsInput = {
   preparedAccount: PreparedAccountState | null
   onExistingUserDetected?: () => void
   verifyNewStudent: (phone: string, email: string) => Promise<string>
+  resetVerification: () => void
   setContact: SetState<EnrollmentContact>
   setStep: SetState<number>
   setFormError: SetState<string | null>
@@ -61,7 +62,7 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
     step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
-    onExistingUserDetected, verifyNewStudent,
+    onExistingUserDetected, verifyNewStudent, resetVerification,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setResumeContactFlowAfterSignIn, setPendingAutoPay, setSignInPurpose,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase, setAddons,
@@ -103,7 +104,16 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         }
         if (result === "sms_pending") {
           const account = await requestAccountPreparation()
-          if (!account) return
+          if (!account) {
+            // Account preparation failed — the SMS verification screen was already
+            // shown by verifyNewStudent (sms_pending). Without a prepared Clerk
+            // account, EmbeddedSignIn's signIn.create would dead-end on
+            // "Couldn't find your account." Dismiss the verification screen and
+            // surface a recoverable error instead of stranding the user.
+            resetVerification()
+            setFormError("We couldn't set up your account. Please try again.")
+            return
+          }
           return
         }
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
@@ -178,7 +188,7 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     photoSaved, photoStepIndex, preparedAccount, requestAccountPreparation, requestNewStudentOutcome,
     setExistingAccountDetected, setFormError, setRequiresSignIn, setResumeAfterSignInStep,
     setResumeContactFlowAfterSignIn, setSignInPurpose, setStep, service, showRegularFallbackPopup,
-    step, verifyNewStudent, setIdentityCheckBusy, setPendingAutoPay,
+    step, verifyNewStudent, resetVerification, setIdentityCheckBusy, setPendingAutoPay,
   ])
 
   const handleFormStepSubmit = async () => {
