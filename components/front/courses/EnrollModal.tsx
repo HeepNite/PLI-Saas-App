@@ -547,15 +547,10 @@ export default function EnrollModal({
     onTimeoutAction,
   })
 
-  React.useEffect(() => {
-    if (isInline) return
-    if (!open) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [open, isInline])
+  // NOTE: body scroll-lock is owned solely by useEnrollEffects. A second
+  // identical lock here caused a double-lock: the second effect captured
+  // `prev = "hidden"` and restored the body to "hidden" on close, leaving the
+  // page (e.g. the profile the flow redirects to) frozen/unscrollable.
 
 
   React.useEffect(() => {

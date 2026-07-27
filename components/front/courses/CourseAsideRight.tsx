@@ -182,6 +182,15 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
 
   return (
     <div ref={containerRef} className="space-y-4">
+      {/* On a scanned-QR deep-link the booking modal only opens once Clerk has
+          loaded (auth decides the flow variant), so for a beat the underlying
+          course page would flash. Cover it with a dark loader until the modal
+          is ready to take over. */}
+      {shouldUseQrCompactBooking && !qrAuthReady && (
+        <div className="fixed inset-0 z-[11500] flex items-center justify-center bg-[#0a0a0a]">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white" />
+        </div>
+      )}
       <div className="hidden lg:block">
         <EnrollModal
           course={course}
