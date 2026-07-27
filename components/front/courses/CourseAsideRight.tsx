@@ -47,9 +47,16 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   // capture happens on the same render the modal first opens (qrAuthReady requires isLoaded), so
   // EnrollModal never initializes with the wrong variant. An existing customer is already signed in
   // when the flow opens, so their variant is captured as "checkin-existing" from the start.
+  // `newStudent=1` (set by the checkout cancel_url and the "I'm new" welcome choice)
+  // forces the new-student variant even when the customer is already signed in — a new
+  // student is signed in mid-flow by SMS verification, so after cancelling the Stripe
+  // checkout they would otherwise be mis-captured as an existing customer and lose the
+  // $15 promo. The server re-verifies eligibility, so this never lets a returning
+  // (already-purchased) customer claim the promo.
+  const [forceNewStudentVariant] = React.useState(() => searchParams.get("newStudent") === "1")
   const capturedQrFlowVariantRef = React.useRef<"checkin-new" | "checkin-existing" | null>(null)
   if (shouldUseQrCompactBooking && isLoaded && capturedQrFlowVariantRef.current === null) {
-    capturedQrFlowVariantRef.current = isSignedIn ? "checkin-existing" : "checkin-new"
+    capturedQrFlowVariantRef.current = isSignedIn && !forceNewStudentVariant ? "checkin-existing" : "checkin-new"
   }
   const qrCompactFlowVariant = shouldUseQrCompactBooking
     ? capturedQrFlowVariantRef.current ?? "checkin-new"
@@ -71,7 +78,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       params.delete("step")
       changed = true
     }
-    for (const key of ["qrBooking", "date", "time", "durationMinutes"]) {
+    for (const key of ["qrBooking", "date", "time", "durationMinutes", "newStudent", "status"]) {
       if (params.has(key)) {
         params.delete(key)
         changed = true

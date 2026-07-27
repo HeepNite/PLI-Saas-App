@@ -12,6 +12,7 @@ import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/valid
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
+import { buildQrBookingUrl } from "@/lib/checkin/qr-booking-links"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -86,7 +87,20 @@ export async function POST(req: Request) {
     : isMobileQrCheckInBooking
       ? `${base}/checkin/booked?course=${encodeURIComponent(validation.courseTitle)}&name=${encodeURIComponent(firstName ?? "")}`
       : `${base}/client-profile?status=success`
-  const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
+  // On cancel, a plain `/courses/{slug}?status=cancel` drops ALL the QR/new-student
+  // context. Since SMS verification signed the new student in mid-flow, re-opening the
+  // booking would capture them as an EXISTING customer and charge the drop-in price
+  // instead of the $15 new-student promo. For the QR check-in booking, return to the
+  // same QR flow; for a new-student booking, force `newStudent=1` so the promo price
+  // survives the Stripe round-trip. The server still re-verifies eligibility
+  // (hasCompletedPurchase), so a genuine returning customer cannot abuse the flag.
+  const cancel = isMobileQrCheckInBooking
+    ? `${base}${buildQrBookingUrl({
+        courseSlug: validation.courseSlug,
+        date: effectiveSession.date ?? undefined,
+        time: effectiveSession.time ?? undefined,
+      })}${validation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel`
+    : `${base}/courses/${validation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(
     req,
