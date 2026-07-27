@@ -39,9 +39,21 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const shouldUseQrCompactBooking = Boolean(qrBookingContext)
   const qrAuthReady = !shouldUseQrCompactBooking || isLoaded
   const shouldSkipQrContactStep = shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn)
-  // QR booking always comes from the "I'm new" kiosk button → always checkin-new.
-  // Sign-in state only controls whether to skip the contact step, not the pricing variant.
-  const qrCompactFlowVariant = shouldUseQrCompactBooking ? "checkin-new" : undefined
+  // Resolve the QR flow variant from the sign-in state once Clerk has loaded:
+  //   - genuinely new student (not signed in) → "checkin-new" ($15 new-student pricing)
+  //   - existing customer (already signed in) → "checkin-existing" (normal drop-in, prefilled contact)
+  // Captured once (as soon as Clerk is loaded) so SMS verification — which signs a new student in
+  // mid-flow — does NOT flip "checkin-new" → "checkin-existing" and change the $15 pricing. The
+  // capture happens on the same render the modal first opens (qrAuthReady requires isLoaded), so
+  // EnrollModal never initializes with the wrong variant. An existing customer is already signed in
+  // when the flow opens, so their variant is captured as "checkin-existing" from the start.
+  const capturedQrFlowVariantRef = React.useRef<"checkin-new" | "checkin-existing" | null>(null)
+  if (shouldUseQrCompactBooking && isLoaded && capturedQrFlowVariantRef.current === null) {
+    capturedQrFlowVariantRef.current = isSignedIn ? "checkin-existing" : "checkin-new"
+  }
+  const qrCompactFlowVariant = shouldUseQrCompactBooking
+    ? capturedQrFlowVariantRef.current ?? "checkin-new"
+    : undefined
   // Suppress background content while QR modal initializes to prevent flash
   const shouldSuppressBackground = shouldUseQrCompactBooking && qrAuthReady && mobileOpen
   const bookingShift = "0px"
