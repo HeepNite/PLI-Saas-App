@@ -862,6 +862,7 @@ export default function EnrollModal({
     preparedAccount,
     onExistingUserDetected,
     verifyNewStudent,
+    resetVerification,
     setContact,
     setStep,
     setFormError,

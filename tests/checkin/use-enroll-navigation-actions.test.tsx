@@ -71,6 +71,7 @@ const defaultInput = (override: Partial<UseEnrollNavigationActionsInput> = {}): 
   preparedAccount: null,
   onExistingUserDetected: undefined,
   verifyNewStudent: vi.fn(async () => "eligible"),
+  resetVerification: vi.fn(),
   setContact: vi.fn(),
   setStep: vi.fn(),
   setFormError: vi.fn(),
