@@ -39,6 +39,7 @@ import {
 import {
   resolveCheckInServiceSelection,
 } from "@/lib/checkin/new-student-flow"
+import { buildQrWelcomeUrl } from "@/lib/checkin/qr-booking-links"
 import { createInitialEnrollFlowState, enrollFlowReducer } from "@/components/front/courses/enroll/model/enroll-flow.reducer"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { validateEnrollBeforeSubmit } from "@/components/front/courses/enroll/model/enroll-validation"
@@ -828,12 +829,14 @@ export default function EnrollModal({
   })
 
   // Cancel handling for the QR deep-link flow. A scanned-QR booking has no
-  // "outside" to return to — calling onCloseAction() would clear the qrBooking
-  // params and unmount into the course page's dead "Loading your booking…"
-  // loader. Instead, cancel walks the user BACK inside the flow:
+  // in-modal "outside" to return to — calling onCloseAction() would clear the
+  // qrBooking params and unmount into the course page's dead "Loading your
+  // booking…" loader, and resetForm() alone leaves an existing customer on the
+  // same payments screen (their step 0 IS payments). Instead:
   //   - SMS verification in progress → dismiss just the SMS screen and return to
   //     the phone/info screen with their data intact.
-  //   - otherwise → return to the initial screen (step 0).
+  //   - otherwise → return to the real initial screen: the /checkin Welcome
+  //     banner ("I'm new" / "I have an account") the customer started from.
   const handleCancel = React.useCallback(() => {
     if (!isQrMobileCompactFlow) {
       handleClose()
@@ -844,9 +847,21 @@ export default function EnrollModal({
       resetVerification()
       return
     }
+    if (course.slug && checkInContextDate && checkInContextTime) {
+      window.location.href = buildQrWelcomeUrl({
+        courseSlug: course.slug,
+        date: checkInContextDate,
+        time: checkInContextTime,
+        durationMinutes: checkInContextDuration,
+      })
+      return
+    }
     resetForm()
     resetVerification()
-  }, [isQrMobileCompactFlow, handleClose, verificationState, resetVerification, resetForm, setFormError])
+  }, [
+    isQrMobileCompactFlow, handleClose, verificationState, resetVerification, resetForm, setFormError,
+    course.slug, checkInContextDate, checkInContextTime, checkInContextDuration,
+  ])
 
   React.useEffect(() => {
     if (!open && !isInline) {
@@ -1512,6 +1527,17 @@ export default function EnrollModal({
             void advanceFromContactStepRef.current()
           }}
         />
+      )}
+      {/* QR flow: while advancing steps (e.g. after the "not in your package"
+          popup routes an existing customer to the drop-in payment), cover the
+          transition so the course page never flashes behind the modal. */}
+      {isQrMobileCompactFlow && identityCheckBusy && (
+        <div className="fixed inset-0 z-[10018] flex items-center justify-center bg-black">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <p className="text-sm text-white/70">Loading your booking…</p>
+          </div>
+        </div>
       )}
       {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
