@@ -4,7 +4,7 @@ import React, { Suspense } from "react"
 import Image from "next/image"
 import { useRouter, useSearchParams } from "next/navigation"
 
-const REDIRECT_MS = 7000
+const REDIRECT_MS = 15000
 
 function PromoAddedContent() {
   const router = useRouter()

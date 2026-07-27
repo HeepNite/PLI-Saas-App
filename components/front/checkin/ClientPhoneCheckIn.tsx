@@ -375,7 +375,7 @@ export default function ClientPhoneCheckIn() {
     if (!isSuccess || hasPendingOffer) return
     const timer = setTimeout(() => {
       router.push("/client-profile")
-    }, 8000)
+    }, 15000)
     return () => clearTimeout(timer)
   }, [isSuccess, hasPendingOffer, router])
 
