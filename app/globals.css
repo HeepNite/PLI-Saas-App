@@ -410,12 +410,14 @@ html {
 
 /* Prevent iOS Safari auto-zoom on input focus: any text field under 16px
    makes Safari zoom in and the zoom persists (e.g. it made the check-in
-   consecutive-promo overlay render oversized). Force >=16px on phones only,
-   so the staff kiosk tablet (>767px) keeps its current sizing. */
+   overlays render oversized). Force >=16px on phones only, so the staff kiosk
+   tablet (>767px) keeps its current sizing. !important is required to beat
+   Tailwind's `text-sm` utility (higher specificity) and inline font-size set
+   by third-party inputs (e.g. Clerk sign-in fields). */
 @media (max-width: 767px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   select,
   textarea {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }
