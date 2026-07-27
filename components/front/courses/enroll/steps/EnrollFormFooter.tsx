@@ -50,7 +50,12 @@ export default function EnrollFormFooter({
         {allowPanelAccess && (
           <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
         )}
-        {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === initialPhase) && (
+        {/* Secondary button: only render when it offers a real action — "Cancel QR",
+            a phased-info "Back", or a step "Back". On step 0 of a plain flow it would
+            otherwise duplicate the left Cancel button next to Confirm, so it is hidden. */}
+        {(kioskQrCheckoutLocked ||
+          (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialPhase) ||
+          step > 0) && (
           <button
             type="button"
             onClick={() => {
