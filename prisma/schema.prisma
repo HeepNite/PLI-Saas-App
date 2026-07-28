@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url = env("DATABASE_URL")
 }
 
 model Currency {
@@ -42,6 +42,7 @@ model User {
   kioskIdentificationSessions KioskIdentificationSession[]
   completedClassesOverride    Int?
   packageClassesUsedOverride  Int?
+  dayOfWeekPurchaseCounts     DayOfWeekPurchaseCount[]
 }
 
 model Purchase {
@@ -63,13 +64,20 @@ model Purchase {
   addonsCsv               String?
   stripePaymentIntentId   String?           @unique
   stripeCheckoutSessionId String?           @unique
+  parentPurchaseId        String?
+  idempotencyKey          String?           @unique
   metadata                Json?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   packagePurchases        PackagePurchase[]
 
   @@index([userId])
+  @@index([userId, status])
   @@index([courseSlug])
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@unique([parentPurchaseId])
 }
 
 model PackagePlan {
@@ -329,6 +337,9 @@ model Attendance {
   @@unique([userId, sessionId])
   @@index([userId])
   @@index([sessionId])
+  @@index([status])
+  @@index([checkedInAt])
+  @@index([userId, status, checkedInAt])
 }
 
 model PackageUsageLedger {
@@ -839,4 +850,57 @@ model MonthlyBoundary {
 
   @@unique([year, month])
   @@index([closedAt])
+}
+
+model StripeWebhookEvent {
+  id          String    @id @default(cuid())
+  eventId     String    @unique
+  eventType   String
+  status      String    @default("legacy")
+  attempts    Int       @default(0)
+  processedAt DateTime  @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([eventType])
+  @@index([processedAt])
+  @@index([status])
+}
+
+model DayOfWeekPurchaseCount {
+  id              String    @id @default(cuid())
+  userId          String
+  dayOfWeek       Int       // 0=Sunday, 6=Saturday
+  count           Int       @default(0)
+  lastCountedDate DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@unique([userId, dayOfWeek])
+  @@index([userId])
+}
+
+// Durable old→new clerkId map for the dev→prod Clerk instance migration
+// (scripts/migrate-clerk-instance.ts, non-deployed, local-only). One row per
+// migrated User or StaffAccount; `phase` tracks per-user pipeline progress so
+// a partial failure (e.g. createUser succeeded, createPhoneNumber failed) is
+// detectable and resumable without re-listing prod on every run. Also the
+// rollback lever for the DB remap transaction — see design D2/D3.
+model ClerkIdMigration {
+  id         String    @id @default(cuid())
+  entity     String // "user" | "staff"
+  appId      String // User.id or StaffAccount.id
+  oldClerkId String
+  newClerkId String
+  phone      String?
+  email      String?
+  phase      String // "user_created" | "phone_attached" | "skipped_deleted"
+  createdAt  DateTime  @default(now())
+  appliedAt  DateTime?
+
+  @@unique([entity, appId])
+  @@index([newClerkId])
+  @@index([phase])
 }
