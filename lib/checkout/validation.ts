@@ -39,6 +39,8 @@ export type CheckoutBody = {
   consecutiveAddOnOnly?: boolean
   /** Slug of the first class that unlocked the consecutive add-on. */
   linkedFromCourseSlug?: string
+  /** Display-only: remaining credits in the payer's package (shown on the congrats screen). */
+  packageRemaining?: number
   /** Authoritative current class date from kiosk context (YYYY-MM-DD) */
   kioskCurrentCourseDate?: string
   /** Authoritative current class time from kiosk context (HH:MM) */
@@ -76,6 +78,8 @@ export type CheckoutValidation = {
   kioskCurrentCourseTime: string | null
   consecutiveAddOnOnly: boolean
   linkedFromCourseSlug: string | null
+  /** Display-only remaining credits for the congrats screen; never gates payment. */
+  packageRemaining: number | null
 }
 
 const getPackageCredits = (pkg?: EnrollmentOption) => {
@@ -111,7 +115,10 @@ const normalizeTime24 = (value: unknown): string | null => {
 
 export { isEmail, normalizePhone }
 
-export const validateCheckoutPayload = async (body: CheckoutBody): Promise<CheckoutValidation | ApiError> => {
+export const validateCheckoutPayload = async (
+  body: CheckoutBody,
+  opts?: { prepareOnly?: boolean },
+): Promise<CheckoutValidation | ApiError> => {
   const {
     courseSlug,
     courseTitle = "Course booking",
@@ -130,13 +137,14 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     consecutiveLinkedCourseTime,
     consecutiveAddOnOnly = false,
     linkedFromCourseSlug,
+    packageRemaining,
     kioskCurrentCourseDate,
     kioskCurrentCourseTime,
   } = body || {}
 
   const rawAmount = typeof amount === "number" ? amount : Number.NaN
   const amountInt = Number.isFinite(rawAmount) ? Math.round(rawAmount) : 0
-  if (!courseSlug || amountInt <= 0) {
+  if (!courseSlug || (!opts?.prepareOnly && amountInt <= 0)) {
     return { status: 400, error: "Missing course slug or amount" }
   }
 
@@ -224,7 +232,8 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
   }
 
   if (Math.round(expected * 100) !== amountInt) {
-    return { status: 400, error: "Amount mismatch" }
+    console.error("[validation] Amount mismatch", { expected, expectedCents: Math.round(expected * 100), amountInt, serviceId, servicePrice: service?.price, courseSlug })
+    return { status: 400, error: `Amount mismatch (expected ${Math.round(expected * 100)} cents, got ${amountInt} cents, service.price=${service?.price})` }
   }
 
   return {
@@ -257,5 +266,9 @@ export const validateCheckoutPayload = async (body: CheckoutBody): Promise<Check
     kioskCurrentCourseTime: validatedKioskCurrentCourseTime,
     consecutiveAddOnOnly: Boolean(consecutiveAddOnOnly),
     linkedFromCourseSlug: typeof linkedFromCourseSlug === "string" && linkedFromCourseSlug.trim() ? linkedFromCourseSlug.trim() : null,
+    packageRemaining:
+      typeof packageRemaining === "number" && Number.isFinite(packageRemaining) && packageRemaining >= 0
+        ? Math.floor(packageRemaining)
+        : null,
   }
 }

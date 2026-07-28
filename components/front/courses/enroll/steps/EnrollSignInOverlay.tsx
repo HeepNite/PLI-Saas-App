@@ -9,13 +9,14 @@ export type EnrollSignInOverlayProps = {
   subtitle: string
   variant: SignInModalVariant
   signInReturnTo: string
-  phoneE164: string
+  phoneE164: string | undefined
   isKioskTerminalFlow: boolean
   isCheckInFlow: boolean
   onDismiss: () => void
   onSuccessAction?: () => Promise<void>
   cancelLabel: string
   backLabel: string
+  closeAriaLabel?: string
 }
 
 export default function EnrollSignInOverlay({
@@ -30,6 +31,7 @@ export default function EnrollSignInOverlay({
   onSuccessAction,
   cancelLabel,
   backLabel,
+  closeAriaLabel = "Close",
 }: EnrollSignInOverlayProps) {
   return (
     <div
@@ -41,7 +43,7 @@ export default function EnrollSignInOverlay({
     >
       <button
         type="button"
-        aria-label="Close"
+        aria-label={closeAriaLabel}
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onDismiss}
       />

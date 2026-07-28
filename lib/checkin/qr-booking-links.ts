@@ -26,6 +26,31 @@ export function buildQrBookingUrl({
   return `/courses/${encodeURIComponent(slug)}?${params.toString()}`
 }
 
+/**
+ * Builds the `/checkin` Welcome-screen URL (the "I'm new / I have an account"
+ * banner) a scanned-QR customer starts from. Used when cancelling the booking
+ * modal to return to that initial choice instead of stranding on the booking
+ * overlay. Deliberately omits kiosk params so CheckInPageRouter renders the
+ * WelcomeScreen (needs courseSlug+date+time and no kiosk params).
+ */
+export function buildQrWelcomeUrl({
+  courseSlug,
+  date,
+  time,
+  durationMinutes,
+}: QrBookingLinkParams) {
+  const slug = courseSlug.trim()
+  const params = new URLSearchParams()
+  if (slug) params.set("courseSlug", slug)
+  if (date) params.set("date", date)
+  if (time) params.set("time", time)
+  if (typeof durationMinutes === "number" && Number.isFinite(durationMinutes)) {
+    params.set("durationMinutes", String(Math.round(durationMinutes)))
+  }
+  const qs = params.toString()
+  return qs ? `/checkin?${qs}` : "/checkin"
+}
+
 export function buildQrSignInUrl(checkInPathWithQuery: string) {
   const redirectUrl = checkInPathWithQuery.startsWith("/checkin")
     ? checkInPathWithQuery
