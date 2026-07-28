@@ -126,9 +126,10 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
       resolveAvailableEnrollServices({
         services: course.enrollment.services,
         isCheckInExistingFlow,
+        isCheckInNewFlow,
         skipContactStep,
       }),
-    [course.enrollment.services, isCheckInExistingFlow, skipContactStep]
+    [course.enrollment.services, isCheckInExistingFlow, isCheckInNewFlow, skipContactStep]
   )
 
   const hasNewStudentService = React.useMemo(

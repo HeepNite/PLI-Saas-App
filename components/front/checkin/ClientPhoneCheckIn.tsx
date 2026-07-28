@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@clerk/nextjs"
 import { useClientPhoneCheckIn } from "./hooks/useClientPhoneCheckIn"
-import { buildQrBookingUrl, buildQrSignInUrl } from "@/lib/checkin/qr-booking-links"
+import { buildQrBookingUrl } from "@/lib/checkin/qr-booking-links"
 
 // ─── Shared card wrapper ────────────────────────────────────
 function CheckInCard({
@@ -361,7 +361,6 @@ export default function ClientPhoneCheckIn() {
   const [offerDismissed, setOfferDismissed] = React.useState(false)
 
   const bookingUrl = buildQrBookingUrl({ courseSlug, date, time, durationMinutes })
-  const signInUrl = buildQrSignInUrl(`/checkin?${searchParams.toString()}`)
 
   // Success terminals: already checked in, or checked_in (cash-pending, package-credit,
   // or standard Stripe-paid). Auto-redirect to the client profile 5s after the flow is
@@ -378,6 +377,16 @@ export default function ClientPhoneCheckIn() {
     }, 10000)
     return () => clearTimeout(timer)
   }, [isSuccess, hasPendingOffer, router])
+
+  // No booking and no package for this class simply means the customer hasn't
+  // bought it yet — that's not an error. Send them straight into the booking
+  // flow instead of showing a dead-end "No Booking Found" popup. A full-page nav
+  // lets the QR boot loader cover the transition (no course-page flash).
+  React.useEffect(() => {
+    if (result?.status === "rejected") {
+      window.location.href = bookingUrl
+    }
+  }, [result?.status, bookingUrl])
 
   if (!courseSlug || !date || !time) {
     return (
@@ -455,31 +464,13 @@ export default function ClientPhoneCheckIn() {
     )
   }
 
-  // ─── Rejected ───────────────────────────────────────────
+  // ─── No booking/package → redirecting to booking (see effect above) ─────
   if (result.status === "rejected") {
     return (
-      <CheckInCard borderColor="border-red-500/30">
-        <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15 text-2xl">
-          ❌
-        </span>
-        <p className="mt-3 text-lg font-semibold text-white">No Booking Found</p>
-        <p className="mt-2 text-sm text-white/60">
-          {result.message || "No booking found for this class."}
-        </p>
-        <div className="mt-4 flex flex-col gap-2">
-          <Link
-            href={bookingUrl}
-            className="inline-block rounded-md bg-[#b61616] px-4 py-2 text-sm font-semibold text-white"
-          >
-            Continue Booking
-          </Link>
-          <Link
-            href={signInUrl}
-            className="inline-block rounded-md border border-white/15 px-4 py-2 text-sm font-semibold text-white/80"
-          >
-            Sign In Instead
-          </Link>
-        </div>
+      <CheckInCard>
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-white" />
+        <p className="mt-4 text-lg font-semibold text-white">Taking you to booking…</p>
+        <p className="mt-1 text-sm text-white/60">One moment please.</p>
       </CheckInCard>
     )
   }
