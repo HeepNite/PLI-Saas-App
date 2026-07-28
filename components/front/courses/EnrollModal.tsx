@@ -828,9 +828,9 @@ export default function EnrollModal({
   })
 
   // Cancel handling for the QR deep-link flow. Cancelling restarts the whole
-  // booking, so we ask for confirmation first, then reset to the first step — all
-  // INSIDE the modal, no page navigation. Staying in the modal keeps the captured
-  // new-student variant (a ref resetForm doesn't touch), so the $15 price survives.
+  // booking, so we ask for confirmation first. Cancel means LEAVE the process
+  // entirely (not stay in the booking): a signed-in customer exits to their
+  // profile, an anonymous visitor to sign-in. Never back to the course page.
   const [showCancelConfirm, setShowCancelConfirm] = React.useState(false)
   const handleCancel = React.useCallback(() => {
     if (!isQrMobileCompactFlow) {
@@ -841,10 +841,10 @@ export default function EnrollModal({
   }, [isQrMobileCompactFlow, handleClose])
   const confirmCancelReset = React.useCallback(() => {
     setShowCancelConfirm(false)
-    setFormError(null)
     resetForm()
     resetVerification()
-  }, [resetForm, resetVerification, setFormError])
+    router.push(isSignedIn ? "/client-profile" : "/sign-in")
+  }, [resetForm, resetVerification, router, isSignedIn])
 
   React.useEffect(() => {
     if (!open && !isInline) {
@@ -1516,7 +1516,7 @@ export default function EnrollModal({
           <div className="w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-[linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
             <h3 className="text-lg font-semibold text-white">Cancel booking?</h3>
             <p className="mt-3 text-sm leading-relaxed text-white/70">
-              If you cancel, you&apos;ll have to start the booking over from the beginning.
+              If you cancel, this booking won&apos;t be completed and you&apos;ll have to start over.
             </p>
             <div className="mt-5 flex gap-2">
               <button
