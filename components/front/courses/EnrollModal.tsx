@@ -827,27 +827,24 @@ export default function EnrollModal({
     showRegularFallbackPopup,
   })
 
-  // Cancel handling for the QR deep-link flow. Everything stays INSIDE the modal —
-  // no page navigation. A full-page redirect (e.g. to the /checkin welcome banner)
-  // reloads the app, which bounced the customer through the course page, cleared
-  // their info, and — because SMS verification signs a new student in mid-flow —
-  // re-captured the flow variant as an existing customer, losing the $15 promo.
-  //   - SMS verification in progress → dismiss just the SMS screen, keep data.
-  //   - otherwise → reset to the first step. The captured new-student variant lives
-  //     in a ref that resetForm does NOT touch, so the $15 pricing is preserved.
+  // Cancel handling for the QR deep-link flow. Cancelling restarts the whole
+  // booking, so we ask for confirmation first, then reset to the first step — all
+  // INSIDE the modal, no page navigation. Staying in the modal keeps the captured
+  // new-student variant (a ref resetForm doesn't touch), so the $15 price survives.
+  const [showCancelConfirm, setShowCancelConfirm] = React.useState(false)
   const handleCancel = React.useCallback(() => {
     if (!isQrMobileCompactFlow) {
       handleClose()
       return
     }
+    setShowCancelConfirm(true)
+  }, [isQrMobileCompactFlow, handleClose])
+  const confirmCancelReset = React.useCallback(() => {
+    setShowCancelConfirm(false)
     setFormError(null)
-    if (verificationState === "sms_pending" || verificationState === "sms_verifying") {
-      resetVerification()
-      return
-    }
     resetForm()
     resetVerification()
-  }, [isQrMobileCompactFlow, handleClose, verificationState, resetVerification, resetForm, setFormError])
+  }, [resetForm, resetVerification, setFormError])
 
   React.useEffect(() => {
     if (!open && !isInline) {
@@ -1513,6 +1510,32 @@ export default function EnrollModal({
             void advanceFromContactStepRef.current()
           }}
         />
+      )}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 z-[10030] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-[linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
+            <h3 className="text-lg font-semibold text-white">Cancel booking?</h3>
+            <p className="mt-3 text-sm leading-relaxed text-white/70">
+              If you cancel, you&apos;ll have to start the booking over from the beginning.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCancelConfirm(false)}
+                className="flex-1 rounded-md border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/80"
+              >
+                Keep booking
+              </button>
+              <button
+                type="button"
+                onClick={confirmCancelReset}
+                className="flex-1 rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Yes, cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* QR flow: while advancing steps (e.g. after the "not in your package"
           popup routes an existing customer to the drop-in payment), cover the
