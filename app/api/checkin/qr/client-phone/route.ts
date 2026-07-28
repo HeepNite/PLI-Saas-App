@@ -8,22 +8,17 @@ import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
-import { asText } from "@/lib/shared"
-import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
-import { PURCHASE_SOURCE } from "@/lib/payment-constants"
+import { asRecord, asText } from "@/lib/shared"
+import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
 
 export const runtime = "nodejs"
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
-
-const toRecord = (value: unknown) =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 /**
  * POST /api/checkin/qr/client-phone
@@ -62,13 +57,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const payload = toRecord(body)
+    const payload = asRecord(body)
     const context = parseQrCheckInContext({
       courseSlug: payload?.courseSlug,
       date: payload?.date,
       time: payload?.time,
       durationMinutes: payload?.durationMinutes,
-    })
+    }, { requireKnownCourse: true })
     if ("status" in context) {
       return NextResponse.json({ error: context.error }, { status: context.status })
     }
@@ -103,6 +98,13 @@ export async function POST(req: Request) {
       },
     })
 
+    // ─── Resolve course title (catalog > session > slug) ─────
+    const catalogRow = await prisma.courseCatalog.findUnique({
+      where: { slug: context.courseSlug },
+      select: { title: true },
+    })
+    const courseTitle = session.title || catalogRow?.title || context.courseSlug
+
     // ─── Check existing Attendance ───────────────────────────
     const existingAttendance = await prisma.attendance.findUnique({
       where: { userId_sessionId: { userId: dbUser.id, sessionId: session.id } },
@@ -125,7 +127,7 @@ export async function POST(req: Request) {
           status: existingAttendance.status,
           checkedInAt: existingAttendance.checkedInAt.toISOString(),
           courseSlug: context.courseSlug,
-          courseTitle: session.title || context.courseSlug,
+          courseTitle: courseTitle,
           startsAt: session.startsAt.toISOString(),
         },
         package: existingAttendance.packageUsage?.packagePurchase || null,
@@ -142,17 +144,17 @@ export async function POST(req: Request) {
     })
 
     const matchingPurchase = purchases.find((p) => {
-      const meta = toRecord(p.metadata)
+      const meta = asRecord(p.metadata)
       const purchaseDate = asText(meta?.date)
       return purchaseDate === context.date
     })
 
     if (matchingPurchase) {
-      const meta = toRecord(matchingPurchase.metadata)
+      const meta = asRecord(matchingPurchase.metadata)
       const paymentChannel = asText(meta?.paymentChannel)
       const settlementStatus = asText(meta?.settlementStatus)
       const isPaid = SUCCESSFUL_PURCHASE_STATUSES.includes(matchingPurchase.status)
-      const isCashPending = paymentChannel === "cash" && (matchingPurchase.status === "pending" || settlementStatus === "pending")
+      const isCashPending = paymentChannel === PAYMENT_CHANNEL.CASH && (matchingPurchase.status === SETTLEMENT_STATUS.PENDING || settlementStatus === SETTLEMENT_STATUS.PENDING)
 
       if (!isPaid && !isCashPending) {
         return NextResponse.json({
@@ -171,10 +173,10 @@ export async function POST(req: Request) {
           ? await tx.attendance.update({
               where: { id: existingAttendance.id },
               data: {
-                status: "checked_in",
+                status: ATTENDANCE_STATUS.CHECKED_IN,
                 checkedInAt: now,
                 metadata: {
-                  ...(toRecord(existingAttendance.metadata) || {}),
+                  ...(asRecord(existingAttendance.metadata) || {}),
                   checkinSource: "qr_client_phone",
                   purchaseId: matchingPurchase.id,
                 },
@@ -184,7 +186,7 @@ export async function POST(req: Request) {
               data: {
                 userId: dbUser.id,
                 sessionId: session.id,
-                status: "checked_in",
+                status: ATTENDANCE_STATUS.CHECKED_IN,
                 checkedInAt: now,
                 metadata: {
                   checkinSource: "qr_client_phone",
@@ -194,46 +196,60 @@ export async function POST(req: Request) {
             })
 
         let pkg = null
-        if (linkedPackage && !linkedPackage.isUnlimited && (linkedPackage.remainingCredits ?? 0) > 0) {
-          await tx.packagePurchase.update({
-            where: { id: linkedPackage.id },
-            data: { remainingCredits: { decrement: 1 } },
+        if (linkedPackage) {
+          const { packagePurchase } = await reservePackageCreditForAttendanceTx(tx, {
+            packagePurchaseId: linkedPackage.id,
+            userId: dbUser.id,
+            attendanceId: att.id,
+            courseSlug: context.courseSlug,
+            reason: "qr_client_phone_checkin",
           })
-          await tx.packageUsageLedger.create({
-            data: {
-              packagePurchaseId: linkedPackage.id,
-              userId: dbUser.id,
-              attendanceId: att.id,
-              delta: -1,
-              reason: "qr_client_phone_checkin",
-              meta: { courseSlug: context.courseSlug, date: context.date, time: context.time },
-            },
-          })
-          pkg = await tx.packagePurchase.findUnique({
-            where: { id: linkedPackage.id },
-            select: { id: true, packageId: true, packageLabel: true, isUnlimited: true, remainingCredits: true, status: true },
-          })
+          pkg = packagePurchase
+            ? await tx.packagePurchase.findUnique({
+                where: { id: packagePurchase.id },
+                select: { id: true, packageId: true, packageLabel: true, isUnlimited: true, remainingCredits: true, status: true },
+              })
+            : null
         }
 
         return { attendance: att, refreshedPackage: pkg }
       })
 
       const points = await awardCheckInPoints(dbUser.id, context.courseSlug)
+      const consecutiveOffer = await resolveConsecutiveOffer({
+        userId: dbUser.id,
+        linkedFromCourseSlug: context.courseSlug,
+        todayJsWeekday: now.getDay(),
+        courseTimeMinutes: context.startsAt.getHours() * 60 + context.startsAt.getMinutes(),
+        now,
+      })
+
 
       return NextResponse.json({
-        status: "checked_in",
+        status: ATTENDANCE_STATUS.CHECKED_IN,
         attendance: {
           id: attendance.id,
           status: attendance.status,
           checkedInAt: attendance.checkedInAt.toISOString(),
           courseSlug: context.courseSlug,
-          courseTitle: session.title || context.courseSlug,
+          courseTitle,
           startsAt: session.startsAt.toISOString(),
         },
         package: refreshedPackage || undefined,
         cashPending: isCashPending || undefined,
         cashAmount: isCashPending ? matchingPurchase.amount / 100 : undefined,
         points,
+        courseTitle,
+        consecutiveOffer: consecutiveOffer
+          ? {
+              linkedCourseSlug: consecutiveOffer.linkedCourseSlug,
+              linkedCourseTitle: consecutiveOffer.linkedCourseTitle,
+              linkedCourseTime: consecutiveOffer.linkedCourseTime,
+              dropInConsecutiveCents: consecutiveOffer.dropInConsecutiveCents,
+              packageHolderConsecutiveCents: consecutiveOffer.packageHolderConsecutiveCents,
+              discountPercent: consecutiveOffer.discountPercent,
+            }
+          : null,
       })
     }
 
@@ -245,6 +261,7 @@ export async function POST(req: Request) {
         OR: [
           { courseSlug: context.courseSlug },
           { packagePlan: { courseSlugs: { has: context.courseSlug } } },
+          { courseSlug: null, packagePlanId: null },
         ],
       },
       include: { packagePlan: { select: { courseSlugs: true } } },
@@ -257,57 +274,55 @@ export async function POST(req: Request) {
     })
 
     if (usablePackage) {
-      // Consume credit + create Attendance in transaction
-      const result = await prisma.$transaction(async (tx) => {
-        if (!usablePackage.isUnlimited) {
-          await tx.packagePurchase.update({
-            where: { id: usablePackage.id },
-            data: { remainingCredits: { decrement: 1 } },
-          })
-        }
-
-        const attendance = await tx.attendance.create({
-          data: {
-            userId: dbUser.id,
-            sessionId: session.id,
-            status: "checked_in",
-            checkedInAt: now,
-            metadata: {
-              checkinSource: "qr_client_phone",
-              packagePurchaseId: usablePackage.id,
+      // Consume credit atomically + create Attendance in transaction
+      let packageAttendance: { id: string; status: string; checkedInAt: Date } | null = null
+      try {
+        packageAttendance = await prisma.$transaction(async (tx) => {
+          const attendance = await tx.attendance.create({
+            data: {
+              userId: dbUser.id,
+              sessionId: session.id,
+              status: ATTENDANCE_STATUS.CHECKED_IN,
+              checkedInAt: now,
+              metadata: {
+                checkinSource: "qr_client_phone",
+                packagePurchaseId: usablePackage.id,
+              },
             },
-          },
-        })
+          })
 
-        await tx.packageUsageLedger.create({
-          data: {
+          await reservePackageCreditForAttendanceTx(tx, {
             packagePurchaseId: usablePackage.id,
             userId: dbUser.id,
             attendanceId: attendance.id,
-            delta: -1,
+            courseSlug: context.courseSlug,
             reason: "qr_client_phone_checkin",
-            meta: { courseSlug: context.courseSlug, date: context.date, time: context.time },
-          },
-        })
+          })
 
-        await ensureAttendancePackagePurchase(tx, {
-          attendanceId: attendance.id,
-          userId: dbUser.id,
-          courseSlug: context.courseSlug,
-          courseTitle: session.title || context.courseSlug,
-          email: email || null,
-          name: name || null,
-          phone: phone || null,
-          packageId: usablePackage.packageId,
-          packagePurchaseId: usablePackage.id,
-          source: "qr_client_phone_checkin",
-          purchaseSource: PURCHASE_SOURCE.KIOSK,
-          date: context.date,
-          time: context.time,
-        })
+          await ensureAttendancePackagePurchase(tx, {
+            attendanceId: attendance.id,
+            userId: dbUser.id,
+            courseSlug: context.courseSlug,
+            courseTitle: courseTitle,
+            email: email || null,
+            name: name || null,
+            phone: phone || null,
+            packageId: usablePackage.packageId,
+            packagePurchaseId: usablePackage.id,
+            source: "qr_client_phone_checkin",
+            purchaseSource: PURCHASE_SOURCE.KIOSK,
+            date: context.date,
+            time: context.time,
+          })
 
-        return attendance
-      })
+          return attendance
+        })
+      } catch (err) {
+        if (err instanceof Error && err.message === "PACKAGE_NO_CREDITS") {
+          return NextResponse.json({ error: "PACKAGE_NO_CREDITS" }, { status: 409 })
+        }
+        throw err
+      }
 
       const refreshedPackage = await prisma.packagePurchase.findUnique({
         where: { id: usablePackage.id },
@@ -315,19 +330,38 @@ export async function POST(req: Request) {
       })
 
       const points = await awardCheckInPoints(dbUser.id, context.courseSlug)
+      const consecutiveOffer = await resolveConsecutiveOffer({
+        userId: dbUser.id,
+        linkedFromCourseSlug: context.courseSlug,
+        todayJsWeekday: now.getDay(),
+        courseTimeMinutes: context.startsAt.getHours() * 60 + context.startsAt.getMinutes(),
+        now,
+      })
+
 
       return NextResponse.json({
-        status: "checked_in",
+        status: ATTENDANCE_STATUS.CHECKED_IN,
         attendance: {
-          id: result.id,
-          status: result.status,
-          checkedInAt: result.checkedInAt.toISOString(),
+          id: packageAttendance.id,
+          status: packageAttendance.status,
+          checkedInAt: packageAttendance.checkedInAt.toISOString(),
           courseSlug: context.courseSlug,
-          courseTitle: session.title || context.courseSlug,
+          courseTitle,
           startsAt: session.startsAt.toISOString(),
         },
         package: refreshedPackage,
         points,
+        courseTitle,
+        consecutiveOffer: consecutiveOffer
+          ? {
+              linkedCourseSlug: consecutiveOffer.linkedCourseSlug,
+              linkedCourseTitle: consecutiveOffer.linkedCourseTitle,
+              linkedCourseTime: consecutiveOffer.linkedCourseTime,
+              dropInConsecutiveCents: consecutiveOffer.dropInConsecutiveCents,
+              packageHolderConsecutiveCents: consecutiveOffer.packageHolderConsecutiveCents,
+              discountPercent: consecutiveOffer.discountPercent,
+            }
+          : null,
       })
     }
 
