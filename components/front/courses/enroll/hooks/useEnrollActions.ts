@@ -51,7 +51,6 @@ export type UseEnrollActionsInput = {
   photoPolicy: PhotoPolicy
   photoSaved: boolean
   photoStepIndex: number
-  promoStepIndex: number
   packagesStepIndex: number
   paymentsStepIndex: number
   infoStepIndex: number
@@ -123,7 +122,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     checkInContextTime, checkInContextDuration, consecutiveAccepted, consecutiveAddedCents,
     effectiveConsecutiveOffer, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
     isSignedIn, processing, step, steps,
-    photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, infoStepIndex,
+    photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex, infoStepIndex,
     skipContactStep, regularServiceId, regularServicePrice, usesPhasedInfoForm, activeStepKey,
     kioskInfoPhase, activeNumericField, preparedAccount, pendingAutoPay, signInPurpose, onCloseAction,
     onExistingUserDetected, kioskQrCheckout,
@@ -193,9 +192,9 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
 
   const navigationActions = useEnrollNavigationActions({
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
-    step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
+    step, steps, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
-    onExistingUserDetected, verifyNewStudent, resetVerification,
+    onExistingUserDetected, verifyNewStudent,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setResumeContactFlowAfterSignIn, setPendingAutoPay, setSignInPurpose,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase, setAddons,

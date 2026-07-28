@@ -68,19 +68,16 @@ export default function StepPhoto({
             hasPackages: (course?.enrollment?.packages?.length ?? 0) > 0,
             hasConsecutiveOffer: Boolean(effectiveConsecutiveOffer),
           })
-          const promoIdx = postSkipKeys.indexOf("promo")
           const packagesIdx = postSkipKeys.indexOf("packages")
           const consecutiveIdx = postSkipKeys.indexOf("consecutive")
           const paymentsIdx = postSkipKeys.indexOf("payments")
-          const targetStep = promoIdx >= 0
-            ? promoIdx
-            : packagesIdx >= 0
-              ? packagesIdx
-              : consecutiveIdx >= 0
-                ? consecutiveIdx
-                : paymentsIdx >= 0
-                  ? paymentsIdx
-                  : postSkipKeys.length - 1
+          const targetStep = packagesIdx >= 0
+            ? packagesIdx
+            : consecutiveIdx >= 0
+              ? consecutiveIdx
+              : paymentsIdx >= 0
+                ? paymentsIdx
+                : postSkipKeys.length - 1
 
           setPhotoSaved(true)
           setStep(targetStep)

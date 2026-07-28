@@ -72,11 +72,7 @@ export type UseEnrollPaymentActionsInput = {
   setNewStudentFallbackPhoneKey: SetState<string | null>
   setFlowPopup: SetState<{ title: string; message: string } | null>
   setResumeContactFlowAfterSignIn: SetState<boolean>
-  // Narrowed to the exact keys this hook calls, with no vars/params (matches the actual
-  // call sites below), so the live useI18n().t-typed by a strict key union and an
-  // I18nVars-shaped second argument-remains assignable here without widening the real
-  // translator's parameter type project-wide.
-  t: (key: "account_exists_signed_in" | "account_exists_error") => string
+  t: (key: string, params?: Record<string, unknown>) => string
 }
 
 export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
@@ -317,100 +313,6 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         })
         alert("We couldn't start the QR payment. Please try again.")
       } finally {
-        setProcessing(false)
-      }
-      return
-    }
-
-    // Mobile-QR check-in (new student OR existing customer, NOT the staff kiosk
-    // terminal): use Stripe HOSTED checkout (full-page redirect) instead of the
-    // embedded modal. The hosted page renders Apple Pay / Google Pay natively and
-    // reliably on mobile, which the embedded element does not. The booking + check-in
-    // completes server-side from the Stripe webhook (see /api/checkout/session +
-    // /api/stripe/webhook); there is no post-redirect client callback.
-    if (paymentMethod === "stripe" && isCheckInFlow && !isKioskTerminalFlow) {
-      try {
-        const buildHostedCheckoutPayload = () => buildCheckoutPayload({ checkInBooking: true })
-        let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutSessionApi({ token, payload: buildHostedCheckoutPayload() })
-        const code = typeof result.data?.code === "string" ? result.data.code : undefined
-        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-          await new Promise((resolve) => window.setTimeout(resolve, 350))
-          const refreshed = await getToken({ skipCache: true })
-          if (refreshed) {
-            token = refreshed
-            result = await requestCheckoutSessionApi({ token, payload: buildHostedCheckoutPayload() })
-          }
-        }
-        if (!result.res.ok) {
-          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
-          const needsSignIn = !isCheckInFlow && finalCode === "ACCOUNT_EXISTS"
-          const isNewStudentBlocked =
-            finalCode === "NEW_STUDENT_ALREADY" ||
-            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-          const needsPhoneFallback =
-            isCheckInFlow &&
-            typeof result.data?.error === "string" &&
-            result.data.error.toLowerCase().includes("phone verification")
-          if (needsSignIn && isSignedIn) {
-            setFormError(t("account_exists_signed_in"))
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            return
-          }
-          if (isNewStudentBlocked) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-            )
-            return
-          }
-          if (needsPhoneFallback) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-            )
-            return
-          }
-          const message =
-            needsSignIn
-              ? t("account_exists_error")
-              : typeof result.data?.error === "string"
-                ? result.data.error
-                : "Error starting card payment."
-          setFormError(needsSignIn ? null : message)
-          setRequiresSignIn(needsSignIn)
-          setExistingAccountDetected(needsSignIn)
-          setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-          setPendingAutoPay(needsSignIn)
-          setProcessing(false)
-          return
-        }
-        if (typeof result.data?.url !== "string" || result.data.url.trim().length === 0) {
-          throw new Error("Checkout session is missing the hosted redirect URL")
-        }
-        setRequiresSignIn(false)
-        setExistingAccountDetected(false)
-        setResumeAfterSignInStep(null)
-        setPendingAutoPay(false)
-        // Full-page redirect to Stripe hosted checkout. Keep `processing` true so the
-        // submit button stays locked while the browser navigates away.
-        window.location.href = result.data.url
-        return
-      } catch (err) {
-        console.error(err)
-        alert("We couldn't start the payment. Please try again.")
         setProcessing(false)
       }
       return

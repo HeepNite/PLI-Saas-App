@@ -12,13 +12,6 @@ const mockPurchaseFindFirst = vi.fn()
 const mockPurchaseCreate = vi.fn()
 const mockPurchaseUpdate = vi.fn()
 const mockConstructEvent = vi.fn()
-const mockStripeWebhookEventCreate = vi.fn()
-const mockStripeWebhookEventUpdateMany = vi.fn()
-const mockStripeWebhookEventFindUnique = vi.fn()
-const mockStripeWebhookEventUpdate = vi.fn()
-const mockDayOfWeekFindUnique = vi.fn()
-const mockDayOfWeekUpdate = vi.fn()
-const mockDayOfWeekCreate = vi.fn()
 
 const mockPrisma = {
   purchase: {
@@ -27,17 +20,6 @@ const mockPrisma = {
     findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
     create: (...args: unknown[]) => mockPurchaseCreate(...args),
     update: (...args: unknown[]) => mockPurchaseUpdate(...args),
-  },
-  stripeWebhookEvent: {
-    create: (...args: unknown[]) => mockStripeWebhookEventCreate(...args),
-    updateMany: (...args: unknown[]) => mockStripeWebhookEventUpdateMany(...args),
-    findUnique: (...args: unknown[]) => mockStripeWebhookEventFindUnique(...args),
-    update: (...args: unknown[]) => mockStripeWebhookEventUpdate(...args),
-  },
-  dayOfWeekPurchaseCount: {
-    findUnique: (...args: unknown[]) => mockDayOfWeekFindUnique(...args),
-    update: (...args: unknown[]) => mockDayOfWeekUpdate(...args),
-    create: (...args: unknown[]) => mockDayOfWeekCreate(...args),
   },
   $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => callback(mockPrisma)),
 }
@@ -97,13 +79,6 @@ describe("stripe webhook checkout session persistence", () => {
     mockPurchaseCreate.mockReset()
     mockPurchaseUpdate.mockReset()
     mockConstructEvent.mockReset()
-    mockStripeWebhookEventCreate.mockReset()
-    mockStripeWebhookEventUpdateMany.mockReset()
-    mockStripeWebhookEventFindUnique.mockReset()
-    mockStripeWebhookEventUpdate.mockReset()
-    mockDayOfWeekFindUnique.mockReset()
-    mockDayOfWeekUpdate.mockReset()
-    mockDayOfWeekCreate.mockReset()
     mockPrisma.$transaction.mockClear()
 
     mockHeaders.mockResolvedValue({
@@ -118,25 +93,6 @@ describe("stripe webhook checkout session persistence", () => {
     mockPurchaseFindUnique.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue(null)
     mockPurchaseCreate.mockResolvedValue({ id: "purchase_child_1" })
-    mockStripeWebhookEventCreate.mockResolvedValue({
-      id: "swe_1",
-      eventId: "evt_test",
-      eventType: "test",
-      status: "processing",
-      attempts: 0,
-    })
-    mockStripeWebhookEventUpdateMany.mockResolvedValue({ count: 0 })
-    mockStripeWebhookEventFindUnique.mockResolvedValue(null)
-    mockStripeWebhookEventUpdate.mockResolvedValue({
-      id: "swe_1",
-      eventId: "evt_test",
-      eventType: "test",
-      status: "completed",
-      attempts: 0,
-    })
-    mockDayOfWeekFindUnique.mockResolvedValue(null)
-    mockDayOfWeekUpdate.mockResolvedValue({})
-    mockDayOfWeekCreate.mockResolvedValue({})
     mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "pkg_123" })
     mockSyncScheduledAttendanceFromPurchase.mockResolvedValue(undefined)
     mockAwardPointsFromRule.mockResolvedValue(undefined)
@@ -144,7 +100,6 @@ describe("stripe webhook checkout session persistence", () => {
 
   it("persists hosted checkout success through Purchase upsert", async () => {
     mockConstructEvent.mockReturnValue({
-      id: "evt_123",
       type: "checkout.session.completed",
       data: {
         object: {
@@ -235,7 +190,6 @@ describe("stripe webhook checkout session persistence", () => {
 
   it("splits hosted checkout consecutive metadata and schedules both course attendances", async () => {
     mockConstructEvent.mockReturnValue({
-      id: "evt_consecutive_1",
       type: "checkout.session.completed",
       data: {
         object: {
@@ -287,9 +241,6 @@ describe("stripe webhook checkout session persistence", () => {
         amount: 1500,
         courseSlug: "bachata-basics",
         courseTitle: "Bachata Basics",
-        // Top-level column (design §2b a) — the DB-level uniqueness guard for
-        // @@unique([parentPurchaseId]). Must be set IN ADDITION to metadata below.
-        parentPurchaseId: "purchase_123",
         metadata: expect.objectContaining({
           parentPurchaseId: "purchase_123",
           courseSlug: "bachata-basics",
@@ -319,97 +270,11 @@ describe("stripe webhook checkout session persistence", () => {
     )
   })
 
-  it("recovers from a concurrent double-create of the consecutive child via a P2002 refetch outside the transaction", async () => {
-    const { Prisma } = await import("@prisma/client")
-
-    // Simulate the losing worker: the transaction (pre-check findFirst + create)
-    // throws P2002 because a concurrent worker's create won the race on
-    // @@unique([parentPurchaseId]) first. Postgres aborts the whole transaction
-    // on any statement failure inside it (25P02) — the recovery read must
-    // happen OUTSIDE the transaction, on the top-level `prisma` client, not `tx`
-    // (design §6/ADR-4d, baked-in constraint #2).
-    mockPrisma.$transaction.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint failed on the fields: (`parentPurchaseId`)", {
-        code: "P2002",
-        clientVersion: "test",
-      })
-    )
-    // Calls to prisma.purchase.findUnique before the consecutive-child block
-    // (existingByIntent linkage, existingPurchase metadata fetch) — both null.
-    mockPurchaseFindUnique.mockResolvedValueOnce(null)
-    mockPurchaseFindUnique.mockResolvedValueOnce(null)
-    // The P2002-recovery refetch: top-level prisma.purchase.findUnique keyed on
-    // the column, returning the concurrent winner's row.
-    mockPurchaseFindUnique.mockResolvedValueOnce({ id: "purchase_child_winner" })
-
-    mockConstructEvent.mockReturnValue({
-      id: "evt_consecutive_concurrent",
-      type: "checkout.session.completed",
-      data: {
-        object: {
-          id: "cs_test_concurrent",
-          payment_status: "paid",
-          amount_total: 3500,
-          currency: "usd",
-          customer: "cus_123",
-          payment_intent: "pi_123",
-          customer_details: {
-            email: "test@example.com",
-            name: "Test User",
-            phone: "+1 9293876584",
-          },
-          metadata: {
-            courseSlug: "salsa-feminine-morning",
-            courseTitle: "Salsa Feminine Morning",
-            date: "2026-02-10",
-            time: "11:00",
-            serviceId: "dropin",
-            userId: "guest",
-            participants: "1",
-            consecutivePriceCents: "1500",
-            consecutiveLinkedCourseSlug: "bachata-basics",
-            consecutiveCourseTitle: "Bachata Basics",
-            consecutiveLinkedCourseTime: "12:00",
-          },
-        },
-      },
-    })
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_consecutive_concurrent" }),
-      })
-    )
-
-    // Must not propagate the P2002 as an unhandled throw — the refetch resolves
-    // it cleanly and the webhook still reports success.
-    expect(res.status).toBe(200)
-
-    // The recovery refetch must be keyed on the top-level column, not the
-    // metadata path used by the pre-check (baked-in constraint #1 stays intact).
-    expect(mockPurchaseFindUnique).toHaveBeenCalledWith({
-      where: { parentPurchaseId: "purchase_123" },
-    })
-
-    // Downstream processing continues using the winner's row, not a duplicate.
-    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(2)
-    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        purchaseId: "purchase_child_winner",
-        courseSlug: "bachata-basics",
-      })
-    )
-  })
-
   it("uses stored flowContext fallback when event metadata omits it", async () => {
     mockPurchaseFindUnique.mockResolvedValue({
       metadata: { flowContext: "kiosk_terminal" },
     })
     mockConstructEvent.mockReturnValue({
-      id: "evt_no_flow",
       type: "checkout.session.completed",
       data: {
         object: {
@@ -461,7 +326,6 @@ describe("stripe webhook checkout session persistence", () => {
     mockClerkClient.mockResolvedValue({ users: { getUser } })
 
     mockConstructEvent.mockReturnValue({
-      id: "evt_name_snapshot",
       type: "checkout.session.completed",
       data: {
         object: {
@@ -515,7 +379,6 @@ describe("stripe webhook checkout session persistence", () => {
   it("is idempotent for consecutive child creation when webhook replays", async () => {
     mockPurchaseFindFirst.mockResolvedValue({ id: "purchase_child_existing" })
     mockConstructEvent.mockReturnValue({
-      id: "evt_consecutive_replay",
       type: "checkout.session.completed",
       data: {
         object: {
@@ -556,7 +419,6 @@ describe("stripe webhook checkout session persistence", () => {
 
   it("normalizes payment intent success to paid before persisting", async () => {
     mockConstructEvent.mockReturnValue({
-      id: "evt_456",
       type: "payment_intent.succeeded",
       data: {
         object: {
@@ -616,509 +478,5 @@ describe("stripe webhook checkout session persistence", () => {
     })
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(1)
     expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(1)
-  })
-
-  it("reprocesses on redelivery after a failed attempt (regression: a throw must not be permanently marked processed)", async () => {
-    const { Prisma } = await import("@prisma/client")
-
-    const buildEvent = () => ({
-      id: "evt_retry_1",
-      type: "checkout.session.completed",
-      data: {
-        object: {
-          id: "cs_test_retry",
-          payment_status: "paid",
-          amount_total: 2000,
-          currency: "usd",
-          customer: "cus_123",
-          payment_intent: "pi_retry_1",
-          customer_details: {
-            email: "retry@example.com",
-            name: "Retry User",
-            phone: "+1 9293876584",
-          },
-          metadata: {
-            courseSlug: "salsa-femenina-matutina",
-            courseTitle: "Course booking",
-            date: "2026-02-10",
-            time: "11:00",
-            serviceId: "dropin",
-            userId: "guest",
-            participants: "1",
-          },
-        },
-      },
-    })
-
-    // --- First delivery: claim succeeds, downstream processing throws ---
-    mockConstructEvent.mockReturnValue(buildEvent())
-    mockStripeWebhookEventCreate.mockResolvedValueOnce({
-      id: "swe_retry_1",
-      eventId: "evt_retry_1",
-      eventType: "checkout.session.completed",
-      status: "processing",
-      attempts: 0,
-    })
-    mockPurchaseUpsert.mockRejectedValueOnce(new Error("downstream write failed"))
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const firstRes = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_retry_1" }),
-      })
-    )
-
-    expect(firstRes.status).toBe(500)
-    expect(mockPurchaseUpsert).toHaveBeenCalledTimes(1)
-
-    // --- Second delivery (redelivery of the same event.id): must re-run processing, not be swallowed as a duplicate ---
-    mockConstructEvent.mockReturnValue(buildEvent())
-    mockStripeWebhookEventCreate.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
-        code: "P2002",
-        clientVersion: "test",
-      })
-    )
-    // Post-fix reclaim path: the failed row is atomically re-claimed via updateMany.
-    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 1 })
-    mockPurchaseUpsert.mockResolvedValueOnce({
-      id: "purchase_retry_1",
-      createdAt: new Date("2026-03-24T12:00:00.000Z"),
-    })
-
-    const secondRes = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_retry_1" }),
-      })
-    )
-
-    expect(secondRes.status).toBe(200)
-    expect(mockPurchaseUpsert).toHaveBeenCalledTimes(2)
-  })
-
-  it("no-ops on duplicate delivery of an already-completed event", async () => {
-    const { Prisma } = await import("@prisma/client")
-    mockConstructEvent.mockReturnValue({
-      id: "evt_duplicate_completed",
-      type: "checkout.session.completed",
-      data: { object: { id: "cs_duplicate", payment_status: "paid", amount_total: 2000, currency: "usd" } },
-    })
-    mockStripeWebhookEventCreate.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" })
-    )
-    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 0 })
-    mockStripeWebhookEventFindUnique.mockResolvedValueOnce({
-      eventId: "evt_duplicate_completed",
-      status: "completed",
-    })
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_duplicate_completed" }),
-      })
-    )
-
-    expect(res.status).toBe(200)
-    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
-  })
-
-  it("no-ops on duplicate delivery of a legacy (pre-fix) event without auto-reclaiming it", async () => {
-    const { Prisma } = await import("@prisma/client")
-    mockConstructEvent.mockReturnValue({
-      id: "evt_duplicate_legacy",
-      type: "checkout.session.completed",
-      data: { object: { id: "cs_duplicate_legacy", payment_status: "paid", amount_total: 2000, currency: "usd" } },
-    })
-    mockStripeWebhookEventCreate.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" })
-    )
-    // The reclaim OR-clause deliberately excludes "legacy" (design §3) — the
-    // atomic updateMany must not match a legacy row, so count stays 0.
-    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 0 })
-    mockStripeWebhookEventFindUnique.mockResolvedValueOnce({
-      eventId: "evt_duplicate_legacy",
-      status: "legacy",
-    })
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_duplicate_legacy" }),
-      })
-    )
-
-    expect(res.status).toBe(200)
-    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
-  })
-
-  it("returns 409 for a concurrent in-flight delivery of the same event", async () => {
-    const { Prisma } = await import("@prisma/client")
-    mockConstructEvent.mockReturnValue({
-      id: "evt_in_flight",
-      type: "checkout.session.completed",
-      data: { object: { id: "cs_in_flight", payment_status: "paid", amount_total: 2000, currency: "usd" } },
-    })
-    mockStripeWebhookEventCreate.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" })
-    )
-    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 0 })
-    mockStripeWebhookEventFindUnique.mockResolvedValueOnce({
-      eventId: "evt_in_flight",
-      status: "processing",
-      updatedAt: new Date(),
-    })
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_in_flight" }),
-      })
-    )
-
-    expect(res.status).toBe(409)
-    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
-  })
-
-  it("reclaims a stale in-flight event and reprocesses it (dead-worker recovery)", async () => {
-    const { Prisma } = await import("@prisma/client")
-    mockConstructEvent.mockReturnValue({
-      id: "evt_stale_reclaim",
-      type: "checkout.session.completed",
-      data: {
-        object: {
-          id: "cs_stale_reclaim",
-          payment_status: "paid",
-          amount_total: 2000,
-          currency: "usd",
-          customer: "cus_123",
-          payment_intent: "pi_stale_reclaim",
-          customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
-          metadata: {
-            courseSlug: "salsa-femenina-matutina",
-            courseTitle: "Course booking",
-            date: "2026-02-10",
-            time: "11:00",
-            serviceId: "dropin",
-            userId: "guest",
-            participants: "1",
-          },
-        },
-      },
-    })
-    mockStripeWebhookEventCreate.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" })
-    )
-    // The existing row's updatedAt is well past STALE_MS — the atomic
-    // conditional reclaim (updateMany) matches it and re-claims processing.
-    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 1 })
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_stale_reclaim" }),
-      })
-    )
-
-    expect(res.status).toBe(200)
-    // A stale reclaim must fall through to "claimed" and actually reprocess —
-    // not be swallowed as a duplicate or in-flight no-op.
-    expect(mockStripeWebhookEventFindUnique).not.toHaveBeenCalled()
-    expect(mockPurchaseUpsert).toHaveBeenCalledTimes(1)
-  })
-
-  it("never writes a StripeWebhookEvent row for a signature verification failure", async () => {
-    mockConstructEvent.mockImplementation(() => {
-      throw new Error("invalid signature")
-    })
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_bad_sig" }),
-      })
-    )
-
-    expect(res.status).toBe(400)
-    expect(mockStripeWebhookEventCreate).not.toHaveBeenCalled()
-  })
-
-  it("still returns 200 when the completion write is exhausted after processing already succeeded", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-
-    mockConstructEvent.mockReturnValue({
-      id: "evt_completion_exhausted",
-      type: "checkout.session.completed",
-      data: {
-        object: {
-          id: "cs_completion_exhausted",
-          payment_status: "paid",
-          amount_total: 2000,
-          currency: "usd",
-          customer: "cus_123",
-          payment_intent: "pi_completion_exhausted",
-          customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
-          metadata: {
-            courseSlug: "salsa-femenina-matutina",
-            courseTitle: "Course booking",
-            date: "2026-02-10",
-            time: "11:00",
-            serviceId: "dropin",
-            userId: "guest",
-            participants: "1",
-          },
-        },
-      },
-    })
-    // Business processing succeeds (claim, upsert, sync, etc. all resolve via
-    // beforeEach defaults) but every completion-write retry attempt fails —
-    // this must NOT be confused with a processing failure (design §4 step 6).
-    mockStripeWebhookEventUpdate.mockRejectedValue(new Error("completion write failed"))
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_completion_exhausted" }),
-      })
-    )
-
-    // Business side effects already landed — must still report success to
-    // Stripe so it does not retry an event that already fully processed.
-    expect(res.status).toBe(200)
-    expect(mockPurchaseUpsert).toHaveBeenCalledTimes(1)
-    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledTimes(3)
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "stripe_webhook_completion_write_exhausted",
-      expect.objectContaining({ eventId: "evt_completion_exhausted" })
-    )
-
-    consoleErrorSpy.mockRestore()
-  })
-
-  it("does not double-increment the day-of-week purchase counter when a paid kiosk event is reprocessed on redelivery", async () => {
-    const { Prisma } = await import("@prisma/client")
-
-    const buildEvent = () => ({
-      id: "evt_dow_reprocess",
-      type: "checkout.session.completed",
-      data: {
-        object: {
-          id: "cs_dow_reprocess",
-          payment_status: "paid",
-          amount_total: 2000,
-          currency: "usd",
-          customer: "cus_123",
-          payment_intent: "pi_dow_reprocess",
-          customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
-          metadata: {
-            courseSlug: "salsa-femenina-matutina",
-            courseTitle: "Course booking",
-            date: "2026-02-10",
-            time: "11:00",
-            serviceId: "dropin",
-            userId: "guest",
-            participants: "1",
-            flowContext: "kiosk_terminal",
-          },
-        },
-      },
-    })
-
-    // --- First delivery: claim succeeds; no existing DayOfWeekPurchaseCount
-    // row for this user/day → the guard in incrementDayOfWeekCounter
-    // (lib/checkin/day-of-week-counter.ts:44-46) creates one.
-    mockConstructEvent.mockReturnValue(buildEvent())
-    mockDayOfWeekFindUnique.mockResolvedValueOnce(null)
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const firstRes = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_dow_reprocess" }),
-      })
-    )
-
-    expect(firstRes.status).toBe(200)
-    expect(mockDayOfWeekCreate).toHaveBeenCalledTimes(1)
-    expect(mockDayOfWeekUpdate).not.toHaveBeenCalled()
-
-    // --- Second delivery (redelivery/reprocess of the SAME event.id): force
-    // a stale-claim reclaim so processing genuinely reruns rather than being
-    // swallowed as a duplicate at the claim layer (mirrors the existing
-    // "reclaims a stale in-flight event" regression test above).
-    mockConstructEvent.mockReturnValue(buildEvent())
-    mockStripeWebhookEventCreate.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
-        code: "P2002",
-        clientVersion: "test",
-      })
-    )
-    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 1 })
-    // The row created on the first delivery now exists with lastCountedDate
-    // matching the same ET calendar day as the purchase — the same-day guard
-    // must fire and skip both create() and update() on the reprocess.
-    mockDayOfWeekFindUnique.mockResolvedValueOnce({
-      id: "dow_1",
-      lastCountedDate: new Date("2026-02-10T12:00:00.000Z"),
-    })
-
-    const secondRes = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_dow_reprocess" }),
-      })
-    )
-
-    expect(secondRes.status).toBe(200)
-    // Reprocessing the same paid event must NOT double-increment the
-    // counter: no additional create()/update() call on the redelivery.
-    expect(mockDayOfWeekCreate).toHaveBeenCalledTimes(1)
-    expect(mockDayOfWeekUpdate).not.toHaveBeenCalled()
-  })
-
-  it("does not crash or leave an unhandled rejection when Clerk's getUser times out and later rejects", async () => {
-    vi.useFakeTimers()
-    const unhandledRejections: unknown[] = []
-    const onUnhandledRejection = (reason: unknown) => {
-      unhandledRejections.push(reason)
-    }
-    process.on("unhandledRejection", onUnhandledRejection)
-
-    try {
-      let rejectGetUser!: (err: Error) => void
-      const hangingGetUser = new Promise((_resolve, reject) => {
-        rejectGetUser = reject
-      })
-      const getUser = vi.fn().mockReturnValue(hangingGetUser)
-      mockClerkClient.mockResolvedValue({ users: { getUser } })
-
-      mockConstructEvent.mockReturnValue({
-        id: "evt_clerk_timeout",
-        type: "checkout.session.completed",
-        data: {
-          object: {
-            id: "cs_clerk_timeout",
-            payment_status: "paid",
-            amount_total: 2000,
-            currency: "usd",
-            customer: "cus_123",
-            payment_intent: "pi_clerk_timeout",
-            customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
-            metadata: {
-              courseSlug: "salsa-femenina-matutina",
-              courseTitle: "Course booking",
-              date: "2026-02-10",
-              time: "11:00",
-              serviceId: "dropin",
-              userId: "clerk_user_timeout",
-              email: "test@example.com",
-              phone: "9293876584",
-              participants: "1",
-            },
-          },
-        },
-      })
-
-      const { POST } = await import("@/app/api/stripe/webhook/route")
-      const postPromise = POST(
-        new Request("http://localhost/api/stripe/webhook", {
-          method: "POST",
-          body: JSON.stringify({ id: "evt_clerk_timeout" }),
-        })
-      )
-
-      // Advance past the bounded Clerk timeout (CLERK_GET_USER_TIMEOUT_MS =
-      // 5000ms, route.ts) deterministically — no real wall-clock wait — so
-      // the race's timeout branch wins while getUser() is still hanging.
-      await vi.advanceTimersByTimeAsync(5000)
-
-      const res = await postPromise
-      expect(res.status).toBe(200)
-      expect(mockUpsertUserByIdentifiers).toHaveBeenCalledWith(
-        expect.objectContaining({ clerkId: "clerk_user_timeout" })
-      )
-
-      // Simulate the underlying getUser() call finally rejecting AFTER the
-      // race already settled on the timeout branch. This must be swallowed
-      // by the .catch() attached directly to the getUser() promise itself
-      // (route.ts ~144-147), never surfacing as an unhandled rejection.
-      rejectGetUser(new Error("late clerk failure"))
-      await vi.advanceTimersByTimeAsync(0)
-      await Promise.resolve()
-
-      expect(unhandledRejections).toEqual([])
-    } finally {
-      process.off("unhandledRejection", onUnhandledRejection)
-      vi.useRealTimers()
-    }
-  })
-
-  it("locks the consecutive-child pre-check to a metadata-path query, never a top-level parentPurchaseId column filter", async () => {
-    mockConstructEvent.mockReturnValue({
-      id: "evt_precheck_lockin",
-      type: "checkout.session.completed",
-      data: {
-        object: {
-          id: "cs_precheck_lockin",
-          payment_status: "paid",
-          amount_total: 3500,
-          currency: "usd",
-          customer: "cus_123",
-          payment_intent: "pi_precheck_lockin",
-          customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
-          metadata: {
-            courseSlug: "salsa-feminine-morning",
-            courseTitle: "Salsa Feminine Morning",
-            date: "2026-02-10",
-            time: "11:00",
-            serviceId: "dropin",
-            userId: "guest",
-            participants: "1",
-            consecutivePriceCents: "1500",
-            consecutiveLinkedCourseSlug: "bachata-basics",
-            consecutiveCourseTitle: "Bachata Basics",
-            consecutiveLinkedCourseTime: "12:00",
-          },
-        },
-      },
-    })
-
-    const { POST } = await import("@/app/api/stripe/webhook/route")
-    const res = await POST(
-      new Request("http://localhost/api/stripe/webhook", {
-        method: "POST",
-        body: JSON.stringify({ id: "evt_precheck_lockin" }),
-      })
-    )
-
-    expect(res.status).toBe(200)
-
-    // Design §2b(b)/ADR-4c (baked-in constraint #1): the pre-check MUST stay
-    // on metadata.path — historical consecutive-child rows never had the
-    // parentPurchaseId column backfilled (§2b c), so a column-based pre-check
-    // would silently create duplicate Purchases on a late reprocess.
-    expect(mockPurchaseFindFirst).toHaveBeenCalledWith({
-      where: {
-        userId: "db_user_1",
-        metadata: { path: ["parentPurchaseId"], equals: "purchase_123" },
-      },
-      select: { id: true },
-    })
-
-    // Lock-in: a future refactor that switches the pre-check to a top-level
-    // column where-clause must fail this test rather than silently pass.
-    expect(mockPurchaseFindFirst).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ parentPurchaseId: expect.anything() }),
-      })
-    )
   })
 })

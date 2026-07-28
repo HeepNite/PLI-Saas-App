@@ -222,10 +222,7 @@ describe("checkout session route", () => {
     )
   })
 
-  // Student PIN enrollment was removed from all student-facing checkout flows
-  // (commit 8edb5ca). Even when a studentPin is supplied for a new-student
-  // service, the checkout route must NOT enroll a PIN.
-  it("does not enroll a student PIN for new-student service (student PIN removed)", async () => {
+  it("enrolls a student PIN before creating checkout for new-student service", async () => {
     mockValidate.mockResolvedValueOnce({
       courseSlug: "salsa-femenina-matutina",
       courseTitle: "Course booking",
@@ -247,7 +244,7 @@ describe("checkout session route", () => {
     })
 
     const { POST } = await import("@/app/api/checkout/session/route")
-    const res = await POST(
+    await POST(
       new Request("http://localhost/api/checkout/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -255,9 +252,13 @@ describe("checkout session route", () => {
       })
     )
 
-    expect(res.status).toBe(200)
-    expect(mockEnrollStudentPin).not.toHaveBeenCalled()
-    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1)
+    expect(mockEnrollStudentPin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serviceId: "new-student",
+        studentPin: "1234",
+        studentPinConfirm: "1234",
+      })
+    )
   })
 
   it("falls back silently when prepared context is expired and still logs card latency", async () => {

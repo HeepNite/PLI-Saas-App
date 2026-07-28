@@ -13,7 +13,6 @@ import StepParty from "./StepParty"
 import StepDateTime from "./StepDateTime"
 import StepPhoto from "./StepPhoto"
 import StepPackages from "./StepPackages"
-import StepPromo from "./StepPromo"
 import StepConsecutive from "./StepConsecutive"
 import StepPayments from "./StepPayments"
 import StepReview from "./StepReview"
@@ -215,19 +214,6 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
         />
       )}
 
-      {activeStepKey === "promo" && (
-        <StepPromo
-          effectiveConsecutiveOffer={props.effectiveConsecutiveOffer}
-          effectiveIsPackageHolder={props.effectiveIsPackageHolder}
-          consecutiveAccepted={props.consecutiveAccepted}
-          setConsecutiveAccepted={props.setConsecutiveAccepted}
-          consecutiveChoiceMade={props.consecutiveChoiceMade}
-          setConsecutiveChoiceMade={props.setConsecutiveChoiceMade}
-          setConsecutiveAddedCents={props.setConsecutiveAddedCents}
-          to12h={props.to12h}
-        />
-      )}
-
       {activeStepKey === "consecutive" && props.effectiveConsecutiveOffer && (
         <StepConsecutive
           effectiveConsecutiveOffer={props.effectiveConsecutiveOffer}
@@ -247,6 +233,7 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           isKioskTerminalFlow={props.isKioskTerminalFlow}
           course={props.course}
           pkg={props.pkg}
+          setPkg={props.setPkg}
           service={props.service}
           date={props.date}
           time={props.time}
@@ -254,6 +241,8 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           contact={props.contact}
           addons={props.addons}
           to12h={props.to12h}
+          stepKeys={props.stepKeys}
+          setStep={props.setStep}
           consecutiveAccepted={props.consecutiveAccepted}
           consecutiveAddedCents={props.consecutiveAddedCents}
           effectiveConsecutiveOffer={props.effectiveConsecutiveOffer}

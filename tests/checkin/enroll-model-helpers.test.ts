@@ -36,7 +36,6 @@ describe("enroll model helpers", () => {
       resolveAvailableEnrollServices({
         services: course.enrollment.services,
         isCheckInExistingFlow: false,
-        isCheckInNewFlow: false,
         skipContactStep: true,
       }).map((service) => service.id)
     ).toEqual(["drop-in"])
@@ -45,21 +44,7 @@ describe("enroll model helpers", () => {
       resolveAvailableEnrollServices({
         services: course.enrollment.services,
         isCheckInExistingFlow: false,
-        isCheckInNewFlow: false,
         skipContactStep: false,
-      }).map((service) => service.id)
-    ).toEqual(["drop-in", "new-student"])
-  })
-
-  it("keeps new-student pricing for a signed-in new-student flow that skips contact", () => {
-    // A never-purchased customer is signed in mid-flow (skipContactStep) but is
-    // still priced as a new student — new-student must remain selectable.
-    expect(
-      resolveAvailableEnrollServices({
-        services: course.enrollment.services,
-        isCheckInExistingFlow: false,
-        isCheckInNewFlow: true,
-        skipContactStep: true,
       }).map((service) => service.id)
     ).toEqual(["drop-in", "new-student"])
   })

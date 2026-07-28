@@ -63,13 +63,5 @@ export const formatUSPhoneOnChange = (newValue: string, oldValue: string) => {
     return formatUSPhone(oldDigits.slice(0, -1))
   }
 
-  // Backspacing over a format character (e.g. "(" or "-") shortens the
-  // string but leaves digit count unchanged. Without this branch,
-  // reformatting reinserts the same char and backspace appears to do
-  // nothing, trapping the user in a loop.
-  if (newDigits.length === oldDigits.length && newValue.length < oldValue.length) {
-    return formatUSPhone(oldDigits.slice(0, -1))
-  }
-
   return formatUSPhone(newValue)
 }

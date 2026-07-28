@@ -2,9 +2,11 @@
 import React from "react"
 import type { EnrollmentContact, PaymentMethod } from "@/components/front/courses/types"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
-import type { EnrollFlowAction, EnrollFlowState } from "@/components/front/courses/enroll/model/enroll-flow.types"
+import type { EnrollFlowState } from "@/components/front/courses/enroll/model/enroll-flow.types"
 
-export function useEnrollFlowSetters(dispatchFlow: React.Dispatch<EnrollFlowAction>, stepsLength: number) {
+type DispatchFn = (action: { type: string; [key: string]: unknown }) => void
+
+export function useEnrollFlowSetters(dispatchFlow: DispatchFn, stepsLength: number) {
   const setService = React.useCallback((value: React.SetStateAction<string>) => {
     dispatchFlow({ type: "field/set-service", value })
   }, [dispatchFlow])

@@ -37,45 +37,11 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const consumedQueryRef = React.useRef(false)
   const shouldUseDraft = shouldRestoreDraft && !qrBookingContext
   const shouldUseQrCompactBooking = Boolean(qrBookingContext)
-  // `newStudent=1` (set by the checkout cancel_url / the "I'm new" welcome choice)
-  // forces the new-student variant even when signed in.
-  const [forceNewStudentVariant] = React.useState(() => searchParams.get("newStudent") === "1")
-
-  // Resolve the QR flow variant:
-  //   - not signed in → "checkin-new" ($15 new-student pricing)
-  //   - signed in → depends on whether they are an ESTABLISHED customer. A new
-  //     student is signed into Clerk mid-flow by SMS verification, so `isSignedIn`
-  //     alone would wrongly flip them to "checkin-existing" (drop-in $20) on any
-  //     booking restart. We ask the server whether the signed-in user has a
-  //     completed purchase or a package; only then are they "checkin-existing".
-  // Captured ONCE, and only after the check resolves, so the modal never opens
-  // with the wrong price. The server re-verifies at checkout, so a returning
-  // customer can never claim the promo even if this signal were stale.
-  const needsExistingCustomerCheck =
-    shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn) && !forceNewStudentVariant
-  const [existingCustomer, setExistingCustomer] = React.useState<boolean | null>(null)
-  React.useEffect(() => {
-    if (!needsExistingCustomerCheck) return
-    let active = true
-    fetch("/api/checkin/qr/new-student/eligibility")
-      .then((r) => (r.ok ? r.json() : { isExistingCustomer: true }))
-      .then((data) => { if (active) setExistingCustomer(Boolean(data?.isExistingCustomer)) })
-      .catch(() => { if (active) setExistingCustomer(true) })
-    return () => { active = false }
-  }, [needsExistingCustomerCheck])
-
-  // Ready once Clerk loaded AND (if signed in) the existing-customer check resolved.
-  const existingCustomerResolved = !needsExistingCustomerCheck || existingCustomer !== null
-  const qrAuthReady = !shouldUseQrCompactBooking || (isLoaded && existingCustomerResolved)
+  const qrAuthReady = !shouldUseQrCompactBooking || isLoaded
   const shouldSkipQrContactStep = shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn)
-  const capturedQrFlowVariantRef = React.useRef<"checkin-new" | "checkin-existing" | null>(null)
-  if (shouldUseQrCompactBooking && isLoaded && existingCustomerResolved && capturedQrFlowVariantRef.current === null) {
-    const treatAsExisting = Boolean(isSignedIn) && !forceNewStudentVariant && existingCustomer === true
-    capturedQrFlowVariantRef.current = treatAsExisting ? "checkin-existing" : "checkin-new"
-  }
-  const qrCompactFlowVariant = shouldUseQrCompactBooking
-    ? capturedQrFlowVariantRef.current ?? "checkin-new"
-    : undefined
+  // QR booking always comes from the "I'm new" kiosk button → always checkin-new.
+  // Sign-in state only controls whether to skip the contact step, not the pricing variant.
+  const qrCompactFlowVariant = shouldUseQrCompactBooking ? "checkin-new" : undefined
   // Suppress background content while QR modal initializes to prevent flash
   const shouldSuppressBackground = shouldUseQrCompactBooking && qrAuthReady && mobileOpen
   const bookingShift = "0px"
@@ -93,7 +59,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       params.delete("step")
       changed = true
     }
-    for (const key of ["qrBooking", "date", "time", "durationMinutes", "newStudent", "status"]) {
+    for (const key of ["qrBooking", "date", "time", "durationMinutes"]) {
       if (params.has(key)) {
         params.delete(key)
         changed = true
@@ -204,15 +170,6 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
 
   return (
     <div ref={containerRef} className="space-y-4">
-      {/* On a scanned-QR deep-link the booking modal only opens once Clerk has
-          loaded (auth decides the flow variant), so for a beat the underlying
-          course page would flash. Cover it with a dark loader until the modal
-          is ready to take over. */}
-      {shouldUseQrCompactBooking && !qrAuthReady && (
-        <div className="fixed inset-0 z-[11500] flex items-center justify-center bg-[#0a0a0a]">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white" />
-        </div>
-      )}
       <div className="hidden lg:block">
         <EnrollModal
           course={course}

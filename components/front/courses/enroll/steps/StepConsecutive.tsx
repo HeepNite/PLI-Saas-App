@@ -42,52 +42,50 @@ export default function StepConsecutive({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-        <p className="text-[10px] uppercase tracking-widest text-white/55">Add second class promotion</p>
-        <div className="mt-2 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                PROMO
+      <button
+        type="button"
+        onClick={selectPromo}
+        className={`relative w-full overflow-hidden rounded-[1.35rem] border px-5 py-5 text-left shadow-[0_22px_50px_-34px_rgba(0,0,0,0.9)] transition bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.20),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(182,22,22,0.22),transparent_36%),linear-gradient(145deg,rgba(38,40,52,0.96),rgba(17,19,28,0.98))] ${
+          consecutiveAccepted && consecutiveChoiceMade
+            ? "border-emerald-400/70 ring-2 ring-emerald-400/25"
+            : "border-white/14 hover:border-white/24 hover:brightness-110"
+        }`}
+      >
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden />
+        <div className="relative flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <span className="inline-flex rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">
+                Promo
               </span>
+              <h3 className="mt-3 text-lg font-semibold text-white">{effectiveConsecutiveOffer.linkedCourseTitle}</h3>
+              {effectiveConsecutiveOffer.linkedCourseTime && (
+                <p className="mt-1 text-sm text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
+              )}
             </div>
-            <p className="mt-1.5 font-semibold text-white leading-snug">{effectiveConsecutiveOffer.linkedCourseTitle}</p>
-            {effectiveConsecutiveOffer.linkedCourseTime && (
-              <p className="mt-0.5 text-xs text-white/55">{to12h(effectiveConsecutiveOffer.linkedCourseTime)}</p>
-            )}
+            <div className="shrink-0 text-right">
+              <p className="text-2xl font-bold text-emerald-300">${(consecutivePriceCents / 100).toFixed(2)}</p>
+              {regularPriceCents > 0 && (
+                <p className="mt-1 text-sm font-semibold text-red-300 line-through">${(regularPriceCents / 100).toFixed(2)}</p>
+              )}
+            </div>
           </div>
-          <div className="flex-shrink-0 text-right">
-            {regularPriceCents > consecutivePriceCents && (
-              <p className="text-xs text-red-400 line-through leading-none">${(regularPriceCents / 100).toFixed(2)}</p>
-            )}
-            <p className="text-base font-bold text-white leading-snug">${(consecutivePriceCents / 100).toFixed(2)}</p>
-          </div>
+          <p className="text-sm leading-relaxed text-white/68">
+            Add your second class at a special price. This will be added to your payment.
+          </p>
         </div>
-        <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            onClick={selectPromo}
-            className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition ${
-              consecutiveAccepted && consecutiveChoiceMade
-                ? "bg-emerald-600 text-white ring-2 ring-emerald-400/25"
-                : "bg-emerald-500 text-white hover:bg-emerald-400"
-            }`}
-          >
-            Add +${(consecutivePriceCents / 100).toFixed(2)}
-          </button>
-          <button
-            type="button"
-            onClick={declinePromo}
-            className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition ${
-              consecutiveChoiceMade && !consecutiveAccepted
-                ? "border-red-400/40 bg-red-500/10 text-red-400 ring-2 ring-red-400/25"
-                : "border-red-400/30 bg-transparent text-red-400 hover:bg-red-500/10"
-            }`}
-          >
-            No thanks
-          </button>
-        </div>
-      </div>
+      </button>
+      <button
+        type="button"
+        onClick={declinePromo}
+        className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+          consecutiveChoiceMade && !consecutiveAccepted
+            ? "border-white/35 bg-white/[0.08] text-white ring-2 ring-white/10"
+            : "border-white/12 bg-white/[0.03] text-white/72 hover:border-white/22 hover:text-white"
+        }`}
+      >
+        Continue without promotion
+      </button>
     </div>
   )
 }

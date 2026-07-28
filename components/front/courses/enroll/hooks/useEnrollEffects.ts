@@ -54,7 +54,6 @@ export type UseEnrollEffectsInput = {
   photoSaved: boolean
   photoPolicy: PhotoPolicy
   photoStepIndex: number
-  promoStepIndex: number
   packagesStepIndex: number
   paymentsStepIndex: number
   user?: {
@@ -115,7 +114,7 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     requiresSignIn, existingAccountDetected, resumeAfterSignInStep, resumeContactFlowAfterSignIn,
     pendingAutoPay, isSignedIn, isLoaded, processing, hasNewStudentService, regularFallbackLocked,
     regularServiceId, steps, preparedAccount, photoSaved, photoPolicy, photoStepIndex,
-    promoStepIndex, packagesStepIndex, paymentsStepIndex, user, verificationState, pendingClerkSessionRef,
+    packagesStepIndex, paymentsStepIndex, user, verificationState, pendingClerkSessionRef,
     stationCompletionTimeoutRef, kioskPaymentTransitionTimeoutRef, kioskPaymentTransitionStartedAtRef,
     getToken, router, setActive, onCompletedAction, requestAccountPreparation, resetVerification,
     advanceFromContactStepRef, handleSubmitRef,
@@ -377,8 +376,6 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
-      } else if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
       } else if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
       } else if (paymentsStepIndex >= 0) {
@@ -389,7 +386,7 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     return () => { cancelled = true }
   }, [
     verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount,
-    requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex,
-    packagesStepIndex, paymentsStepIndex, resetVerification, setStep,
+    requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex,
+    paymentsStepIndex, resetVerification, setStep,
   ])
 }

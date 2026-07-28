@@ -1,9 +1,8 @@
 "use client"
 import React from "react"
 import Link from "next/link"
-import { initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
+import type { KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
-import type { I18nKey } from "@/lib/i18n-dict"
 
 type Props = {
   step: number
@@ -27,7 +26,7 @@ type Props = {
   setStep: (value: React.SetStateAction<number>) => void
   setKioskInfoPhase: (value: React.SetStateAction<KioskInfoPhase>) => void
   setActiveNumericField: (value: React.SetStateAction<"phone" | null>) => void
-  t: (key: I18nKey) => string
+  t: (key: string, params?: Record<string, unknown>) => string
 }
 
 export default function EnrollFormFooter({
@@ -36,7 +35,6 @@ export default function EnrollFormFooter({
   identityCheckBusy, consecutiveOfferLoading, canContinueCurrentStep,
   handleClose, handleSubmit, resetKioskQrCheckout, setStep, setKioskInfoPhase, setActiveNumericField, t,
 }: Props) {
-  const initialPhase = initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
   return (
     <div className={isInline ? "flex flex-col gap-2 pt-2" : "flex items-center justify-between pt-2"}>
       <button
@@ -50,20 +48,14 @@ export default function EnrollFormFooter({
         {allowPanelAccess && (
           <Link href="/client-profile" className="px-4 py-2 rounded-md border border-black/10 dark:border-white/10 hidden sm:inline">{t("myPanel")}</Link>
         )}
-        {/* Secondary button: only render when it offers a real action — "Cancel QR",
-            a phased-info "Back", or a step "Back". On step 0 of a plain flow it would
-            otherwise duplicate the left Cancel button next to Confirm, so it is hidden. */}
-        {(kioskQrCheckoutLocked ||
-          (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialPhase) ||
-          step > 0) && (
+        {!(usesPhasedInfoForm && step === 0 && kioskInfoPhase === "name-email") && (
           <button
             type="button"
             onClick={() => {
               if (kioskQrCheckoutLocked) { resetKioskQrCheckout(); return }
-              if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialPhase) {
-                setKioskInfoPhase(initialPhase)
-                if (isKioskTerminalFlow) setActiveNumericField("phone")
-                else setActiveNumericField(null)
+              if (usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email") {
+                setKioskInfoPhase("name-email")
+                setActiveNumericField(null)
                 return
               }
               if (step === 0) { handleClose(); return }
@@ -73,7 +65,7 @@ export default function EnrollFormFooter({
           >
             {kioskQrCheckoutLocked
               ? "Cancel QR"
-              : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialPhase
+              : usesPhasedInfoForm && step === 0 && kioskInfoPhase !== "name-email"
                 ? "Back"
                 : step === 0 ? t("cancel") : t("back")}
           </button>

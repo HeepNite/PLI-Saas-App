@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
-import * as Sentry from "@sentry/nextjs"
 import {
   clearPreparedCheckoutAfterSuccess,
+  enrollStudentPinForCheckout,
   enforceNewStudentRules,
   resolveCheckoutPreparation,
   type ApiError,
@@ -12,7 +12,6 @@ import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/valid
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
-import { buildQrBookingUrl } from "@/lib/checkin/qr-booking-links"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -62,15 +61,10 @@ export async function POST(req: Request) {
     name,
     phone = "",
     kioskSessionToken,
+    studentPin,
+    studentPinConfirm,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
-  // Mobile-QR check-in booking paid via Stripe HOSTED checkout (full-page redirect).
-  // The client sets `checkInBooking: true` on the QR-phone check-in payload so the
-  // webhook can complete the booking as a real check-in (attendance = checked-in),
-  // mirroring the staff kiosk terminal — there is no post-redirect client callback.
-  const isMobileQrCheckInBooking =
-    photoContext === FLOW_CONTEXT.QR_PHONE &&
-    (body as Record<string, unknown>)?.checkInBooking === true
 
   const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
@@ -82,25 +76,8 @@ export async function POST(req: Request) {
   })
 
   const base = getBaseUrl()
-  const success = validation.consecutiveAddOnOnly
-    ? `${base}/checkin/promo-added?course=${encodeURIComponent(validation.consecutiveCourseTitle ?? "")}&price=${validation.consecutivePriceCents ?? 0}&remaining=${validation.packageRemaining ?? ""}`
-    : isMobileQrCheckInBooking
-      ? `${base}/checkin/booked?course=${encodeURIComponent(validation.courseTitle)}&name=${encodeURIComponent(firstName ?? "")}`
-      : `${base}/client-profile?status=success`
-  // On cancel, a plain `/courses/{slug}?status=cancel` drops ALL the QR/new-student
-  // context. Since SMS verification signed the new student in mid-flow, re-opening the
-  // booking would capture them as an EXISTING customer and charge the drop-in price
-  // instead of the $15 new-student promo. For the QR check-in booking, return to the
-  // same QR flow; for a new-student booking, force `newStudent=1` so the promo price
-  // survives the Stripe round-trip. The server still re-verifies eligibility
-  // (hasCompletedPurchase), so a genuine returning customer cannot abuse the flag.
-  const cancel = isMobileQrCheckInBooking
-    ? `${base}${buildQrBookingUrl({
-        courseSlug: validation.courseSlug,
-        date: effectiveSession.date ?? undefined,
-        time: effectiveSession.time ?? undefined,
-      })}${validation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel`
-    : `${base}/courses/${validation.courseSlug}?status=cancel`
+  const success = `${base}/courses/${validation.courseSlug}?status=success`
+  const cancel = `${base}/courses/${validation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(
     req,
@@ -136,6 +113,19 @@ export async function POST(req: Request) {
   })
   if (newStudentError) {
     return toErrorResponse(newStudentError)
+  }
+
+  const studentPinEnrollment = await enrollStudentPinForCheckout({
+    serviceId: validation.serviceId,
+    resolvedClerkUserId: resolvedUserId,
+    resolvedEmail: identity.resolvedEmail,
+    phoneNormalized: identity.phoneNormalized,
+    name: name || [firstName, lastName].filter(Boolean).join(" ") || undefined,
+    studentPin,
+    studentPinConfirm,
+  })
+  if (isApiError(studentPinEnrollment)) {
+    return toErrorResponse(studentPinEnrollment)
   }
 
   const expiresAt =
@@ -185,8 +175,7 @@ export async function POST(req: Request) {
         phoneRaw: phone || "",
         email: identity.resolvedEmail,
         flowContext: photoContext,
-        paymentSurface:
-          photoContext === FLOW_CONTEXT.KIOSK_TERMINAL || isMobileQrCheckInBooking ? "hosted_checkout" : "web_checkout",
+        paymentSurface: photoContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "hosted_checkout" : "web_checkout",
         // Consecutive class fields (present when user accepted the consecutive offer)
         consecutivePriceCents: validation.consecutivePriceCents != null ? String(validation.consecutivePriceCents) : "",
         consecutiveLinkedCourseSlug: validation.consecutiveLinkedCourseSlug || "",
@@ -217,7 +206,6 @@ export async function POST(req: Request) {
     })
   } catch (err) {
     console.error("Stripe checkout error", err)
-    Sentry.captureException(err)
     return NextResponse.json({ error: "Unable to create checkout session" }, { status: 500 })
   }
 }

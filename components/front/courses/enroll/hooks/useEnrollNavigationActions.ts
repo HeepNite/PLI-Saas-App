@@ -6,7 +6,6 @@ import type { PhotoPolicy } from "@/lib/checkin/photo-context-policy"
 import type { EnrollStepKey } from "@/lib/checkin/enroll-flow"
 import type { SignInPurpose } from "@/components/front/courses/enroll/model/enroll-flow.types"
 import { isCompleteUSPhone } from "@/components/front/courses/utils/phone"
-import { isEmail } from "@/lib/shared"
 import { isCheckInContactGateStep, handleExistingUserDetected } from "@/lib/checkin/enroll-flow"
 import { isPhotoRequiredForAccount } from "@/lib/checkin/photo-context-policy"
 import { nextKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
@@ -27,7 +26,6 @@ export type UseEnrollNavigationActionsInput = {
   photoPolicy: PhotoPolicy
   photoSaved: boolean
   photoStepIndex: number
-  promoStepIndex: number
   packagesStepIndex: number
   paymentsStepIndex: number
   usesPhasedInfoForm: boolean
@@ -37,7 +35,6 @@ export type UseEnrollNavigationActionsInput = {
   preparedAccount: PreparedAccountState | null
   onExistingUserDetected?: () => void
   verifyNewStudent: (phone: string, email: string) => Promise<string>
-  resetVerification: () => void
   setContact: SetState<EnrollmentContact>
   setStep: SetState<number>
   setFormError: SetState<string | null>
@@ -61,9 +58,9 @@ export type UseEnrollNavigationActionsInput = {
 export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInput) {
   const {
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
-    step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
+    step, steps, photoPolicy, photoSaved, photoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
-    onExistingUserDetected, verifyNewStudent, resetVerification,
+    onExistingUserDetected, verifyNewStudent,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setResumeContactFlowAfterSignIn, setPendingAutoPay, setSignInPurpose,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase, setAddons,
@@ -98,19 +95,6 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     setIdentityCheckBusy(true)
     setFormError(null)
     try {
-      // New-student check-in creates the Clerk account from this email, so a
-      // malformed address (e.g. missing domain like "eg@fincom") must be caught
-      // HERE — before we send the SMS and prepare the account — instead of
-      // surfacing a confusing generic failure only after the server rejects it.
-      if (
-        service === "new-student" &&
-        (isKioskTerminalFlow || isQrMobileCompactFlow) &&
-        !isEmail(contact.email?.trim())
-      ) {
-        setFormError("Please enter a valid email address (e.g. name@example.com).")
-        return
-      }
-
       if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
         const result = await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({ isKioskTerminalFlow, service, verifyResult: result, onExistingUserDetected })) {
@@ -118,17 +102,7 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         }
         if (result === "sms_pending") {
           const account = await requestAccountPreparation()
-          if (!account) {
-            // Account preparation failed — the SMS verification screen was already
-            // shown by verifyNewStudent (sms_pending). Without a prepared Clerk
-            // account, EmbeddedSignIn's signIn.create would dead-end on
-            // "Couldn't find your account." Dismiss the verification screen so the
-            // user can correct and retry. requestAccountPreparation already set the
-            // specific server error (e.g. invalid email), so we preserve it here
-            // instead of overwriting with a generic message.
-            resetVerification()
-            return
-          }
+          if (!account) return
           return
         }
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
@@ -181,11 +155,6 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         setStep(photoStepIndex)
         return
       }
-      // Go to promo step if it exists, then packages, then payments
-      if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
-        return
-      }
       if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
         return
@@ -199,23 +168,19 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     }
   }, [
     contact.email, contact.phone, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
-    isSignedIn, onExistingUserDetected, packagesStepIndex, paymentsStepIndex, promoStepIndex, photoPolicy,
+    isSignedIn, onExistingUserDetected, packagesStepIndex, paymentsStepIndex, photoPolicy,
     photoSaved, photoStepIndex, preparedAccount, requestAccountPreparation, requestNewStudentOutcome,
     setExistingAccountDetected, setFormError, setRequiresSignIn, setResumeAfterSignInStep,
     setResumeContactFlowAfterSignIn, setSignInPurpose, setStep, service, showRegularFallbackPopup,
-    step, verifyNewStudent, resetVerification, setIdentityCheckBusy, setPendingAutoPay,
+    step, verifyNewStudent, setIdentityCheckBusy, setPendingAutoPay,
   ])
 
   const handleFormStepSubmit = async () => {
     if (usesPhasedInfoForm && activeStepKey === "info") {
-      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service, { phoneFirst: isKioskTerminalFlow })
+      const nextPhase = nextKioskInfoPhase(kioskInfoPhase, service)
       if (nextPhase !== "done") {
         setKioskInfoPhase(nextPhase)
-        // For phone-first kiosk, after phone → name-email (activate text input, not numpad)
-        // For standard flow, after name-email → phone (activate numpad)
-        if (isKioskTerminalFlow && nextPhase === "phone") setActiveNumericField("phone")
-        else if (isKioskTerminalFlow && nextPhase === "name-email") setActiveNumericField(null)
-        else if (isKioskTerminalFlow) setActiveNumericField("phone")
+        if (isKioskTerminalFlow) setActiveNumericField("phone")
         return
       }
     }
