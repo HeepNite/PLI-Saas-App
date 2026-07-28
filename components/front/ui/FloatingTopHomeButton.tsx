@@ -3,6 +3,7 @@
 import React from "react"
 import { ArrowUp, Home } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
+import { useHideFloatingChrome } from "@/lib/checkin/use-hide-floating-chrome"
 
 export default function FloatingTopHomeButton() {
   const router = useRouter()
@@ -10,6 +11,9 @@ export default function FloatingTopHomeButton() {
   const isStaffRoute = pathname?.startsWith("/staff")
   const isCheckInRoute = pathname?.startsWith("/checkin")
   const isAuthRoute = pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up")
+  // Hide across the QR flow (URL) AND whenever a full-screen modal locks body
+  // scroll (covers every EnrollModal step regardless of route/param).
+  const isQrFlow = useHideFloatingChrome()
   const [showTop, setShowTop] = React.useState(false)
   const [showButton, setShowButton] = React.useState(pathname !== "/")
   const [isCourseMobile, setIsCourseMobile] = React.useState(false)
@@ -32,7 +36,7 @@ export default function FloatingTopHomeButton() {
     return () => window.removeEventListener("scroll", onScroll)
   }, [pathname, isAuthRoute, isCheckInRoute, isStaffRoute])
 
-  if (isStaffRoute || isCheckInRoute || isAuthRoute) return null
+  if (isStaffRoute || isCheckInRoute || isAuthRoute || isQrFlow) return null
 
   const isHome = pathname === "/"
   const label = isHome ? "Back to top" : showTop ? "Back to top" : "Home"
