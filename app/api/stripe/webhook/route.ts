@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
 import Stripe from "stripe"
-import * as Sentry from "@sentry/nextjs"
 import { Prisma } from "@prisma/client"
 import type { ClerkClient } from "@clerk/backend"
 import { clerkClient } from "@clerk/nextjs/server"
@@ -659,7 +658,6 @@ export async function POST(req: Request) {
     }
   } catch (err) {
     console.error("Stripe webhook handler failed", err)
-    Sentry.captureException(err, { tags: { eventType: event.type, eventId: event.id } })
     await markStripeWebhookEventFailed(event.id)
     return new NextResponse("Webhook handler failed", { status: 500 })
   }
