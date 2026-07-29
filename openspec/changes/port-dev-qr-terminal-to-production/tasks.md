@@ -46,8 +46,8 @@ main
 
 ## Phase 2: Required Journey Hardening
 
-- [ ] 2.1 RED `tests/api/checkin-qr-bootstrap.test.ts` + `tests/api/checkin-qr-client-phone.test.ts` for new user, package holder, non-package client, auth resume, unknown course, package eligibility, and fallback failure. (~70-100)
-- [ ] 2.2 GREEN `app/api/checkin/qr/bootstrap/route.ts` + `lib/checkin/qr-decision.ts` for local decision parity, Clerk fallback, terminal payload, and PR #226 unknown-course rejection reuse. (~90-130)
+- [x] 2.1 RED `tests/api/checkin-qr-bootstrap.test.ts` + `tests/api/checkin-qr-client-phone.test.ts` for new user, package holder, non-package client, auth resume, unknown course, package eligibility, and fallback failure. (~70-100)
+- [x] 2.2 GREEN `app/api/checkin/qr/bootstrap/route.ts` + `lib/checkin/qr-decision.ts` for local decision parity, Clerk fallback, terminal payload, and PR #226 unknown-course rejection reuse. (~90-130)
 - [ ] 2.3 RED `tests/api/checkin-qr-package.test.ts`, `tests/api/checkin-qr-dropin.test.ts`, and consecutive companions for duplicate/idempotency, atomic reservation, card/cash/payment failures, and closed windows. (~90-130)
 - [ ] 2.4 GREEN `app/api/checkin/qr/package/route.ts` + `app/api/checkin/qr/dropin/route.ts` reusing PR #226 atomic reservation/duplicate contracts and preserving purchase validation. (~110-150)
 - [ ] 2.5 RED `tests/api/checkin-terminal-consecutive-offer.test.ts` for throttling and same-day/not-ended/not-consumed/wrong-time offer filtering. (~40-70)

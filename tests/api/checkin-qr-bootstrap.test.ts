@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { STAFF_TERMINAL_LATENCY_TARGETS_MS } from "@/lib/checkin/kiosk-qr-payment"
 
+const BOOTSTRAP_URL = "http://localhost/api/checkin/qr/bootstrap"
+
+const createRequest = (body: Record<string, unknown>) =>
+  new Request(BOOTSTRAP_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+
 const mockAuth = vi.fn()
 const mockClerkClient = vi.fn()
 const mockResolveTerminalKioskSession = vi.fn()
@@ -8,6 +17,9 @@ const mockGetCatalogCourseBySlug = vi.fn()
 const mockPackageFindMany = vi.fn()
 const mockPurchaseFindMany = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
+const mockCourseLinkFindMany = vi.fn()
+const mockClassSessionFindUnique = vi.fn()
+const mockAttendanceFindUnique = vi.fn()
 const mockUpsertUserByIdentifiers = vi.fn()
 const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
@@ -22,6 +34,15 @@ vi.mock("@/lib/prisma", () => ({
     purchase: {
       findMany: (...args: unknown[]) => mockPurchaseFindMany(...args),
       findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
+    },
+    courseLink: {
+      findMany: (...args: unknown[]) => mockCourseLinkFindMany(...args),
+    },
+    classSession: {
+      findUnique: (...args: unknown[]) => mockClassSessionFindUnique(...args),
+    },
+    attendance: {
+      findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
     },
   },
 }))
@@ -68,6 +89,9 @@ describe("qr check-in bootstrap route", () => {
     mockPackageFindMany.mockReset()
     mockPurchaseFindMany.mockReset()
     mockPurchaseFindFirst.mockReset()
+    mockCourseLinkFindMany.mockReset()
+    mockClassSessionFindUnique.mockReset()
+    mockAttendanceFindUnique.mockReset()
     mockUpsertUserByIdentifiers.mockReset()
     mockConsumeRateLimit.mockReset()
     mockBuildRateLimitKey.mockReset()
@@ -99,6 +123,9 @@ describe("qr check-in bootstrap route", () => {
     mockPackageFindMany.mockResolvedValue([])
     mockPurchaseFindMany.mockResolvedValue([])
     mockPurchaseFindFirst.mockResolvedValue(null)
+    mockCourseLinkFindMany.mockResolvedValue([])
+    mockClassSessionFindUnique.mockResolvedValue(null)
+    mockAttendanceFindUnique.mockResolvedValue(null)
     mockUpsertUserByIdentifiers.mockResolvedValue({
       id: "db_user_1",
       name: "Jane Student",
@@ -137,6 +164,188 @@ describe("qr check-in bootstrap route", () => {
     })
     const res = await POST(req)
     expect(res.status).toBe(400)
+  })
+
+  it("returns 404 when the scanned course is unknown", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_user_1" })
+    mockGetCatalogCourseBySlug.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(new Request(BOOTSTRAP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courseSlug: "unknown-course", date: "2026-02-24", time: "11:00" }),
+    }))
+
+    expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toEqual({ error: "Course not found" })
+  })
+
+  it("returns the no-package bootstrap branch for a new customer", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_user_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(createRequest({
+      courseSlug: "salsa-femenina-matutina",
+      date: "2026-02-24",
+      time: "11:00",
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      package: null,
+      quickCheckout: null,
+      hasAnyActivePackage: false,
+      hasPreviousPurchase: false,
+    })
+  })
+
+  it("returns the eligible package bootstrap branch for package holders", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_user_1" })
+    mockPackageFindMany.mockResolvedValue([
+      {
+        id: "pkg_purchase_1",
+        packageId: "pkg_1",
+        packageLabel: "Starter",
+        courseSlug: "salsa-femenina-matutina",
+        isUnlimited: false,
+        remainingCredits: 4,
+        expiresAt: new Date("2026-03-01T00:00:00.000Z"),
+        status: "active",
+        packagePlan: null,
+      },
+    ])
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(createRequest({
+      courseSlug: "salsa-femenina-matutina",
+      date: "2026-02-24",
+      time: "11:00",
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      package: {
+        id: "pkg_purchase_1",
+        packageId: "pkg_1",
+        remainingCredits: 4,
+      },
+      hasAnyActivePackage: true,
+    })
+  })
+
+  it("returns the purchase-first bootstrap branch when no usable package exists", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_user_1" })
+    mockPurchaseFindMany.mockResolvedValue([
+      {
+        id: "purchase_1",
+        createdAt: new Date("2026-02-10T16:00:00.000Z"),
+        amount: 20,
+        currency: "usd",
+        status: "completed",
+        participants: 1,
+        addonsCsv: "",
+        coupon: "",
+        metadata: {
+          serviceId: "dropin",
+          packageId: "",
+          addons: [],
+          date: "2026-02-10",
+          time: "11:00",
+        },
+      },
+    ])
+    mockPurchaseFindFirst.mockResolvedValue({ id: "purchase_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(createRequest({
+      courseSlug: "salsa-femenina-matutina",
+      date: "2026-02-24",
+      time: "11:00",
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      package: null,
+      hasAnyActivePackage: false,
+      quickCheckout: {
+        serviceId: "dropin",
+        amountCents: 2000,
+      },
+      hasPreviousPurchase: true,
+      hasAnyCompletedPurchase: true,
+    })
+  })
+
+  it("falls back to Clerk identifier lookup when the kiosk session clerk id is stale", async () => {
+    const getUser = vi.fn().mockRejectedValueOnce(new Error("stale clerk user"))
+    const getUserList = vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: "clerk_user_1",
+          firstName: "Jane",
+          lastName: "Student",
+          hasImage: true,
+          primaryEmailAddress: { emailAddress: "student@example.com" },
+          primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+          phoneNumbers: [{ phoneNumber: "+1 555 111 2222" }],
+        },
+      ],
+    })
+    mockClerkClient.mockResolvedValue({
+      users: {
+        getUser,
+        getUserList,
+      },
+    })
+    mockAuth.mockResolvedValue({ userId: null })
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      terminalAuth: {
+        ok: true,
+        sessionId: "terminal_session_1",
+        terminal: {
+          id: "terminal_1",
+          slug: "terminal-1",
+          name: "Terminal 1",
+          location: null,
+          defaultCourseSlug: null,
+          active: true,
+        },
+      },
+      session: {
+        user: {
+          id: "db_user_1",
+          clerkId: "stale_clerk_user",
+          email: "student@example.com",
+          name: "Jane Student",
+          phone: "+1 555 111 2222",
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(createRequest({
+      courseSlug: "salsa-femenina-matutina",
+      date: "2026-02-24",
+      time: "11:00",
+      flowContext: "kiosk_terminal",
+      kioskSessionToken: "session_1",
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      customer: {
+        userId: "db_user_1",
+        clerkUserId: "clerk_user_1",
+        email: "student@example.com",
+      },
+    })
+    expect(getUser).toHaveBeenCalled()
+    expect(getUserList).toHaveBeenCalledWith({
+      emailAddress: ["student@example.com"],
+      limit: 1,
+    })
   })
 
   it("hydrates kiosk identification sessions with Clerk names and avatar state", async () => {
@@ -400,6 +609,39 @@ describe("qr check-in bootstrap route", () => {
     expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
     expect(getUser).toHaveBeenNthCalledWith(1, "staff_user_1")
     expect(getUser).toHaveBeenNthCalledWith(2, "customer_clerk_1")
+  })
+
+  it("rejects a staff principal recovered after the initial Clerk lookup fails", async () => {
+    const getUser = vi.fn()
+      .mockRejectedValueOnce(new Error("transient Clerk failure"))
+      .mockResolvedValueOnce({
+        id: "staff_user_1",
+        hasImage: true,
+        publicMetadata: { role: "owner" },
+        privateMetadata: {},
+        unsafeMetadata: {},
+        primaryEmailAddress: { emailAddress: "owner@example.com" },
+        primaryPhoneNumber: { phoneNumber: "+1 555 999 0000" },
+      })
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "staff_user_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+    const res = await POST(createRequest({
+      courseSlug: "salsa-femenina-matutina",
+      date: "2026-02-24",
+      time: "11:00",
+      flowContext: "kiosk_terminal",
+    }))
+
+    expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({
+      error: "Kiosk customer identification is required before continuing.",
+    })
+    expect(getUser).toHaveBeenCalledTimes(2)
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPackageFindMany).not.toHaveBeenCalled()
+    expect(mockPurchaseFindMany).not.toHaveBeenCalled()
   })
 
   it("prefers kiosk session identity over an active customer Clerk session in terminal flow", async () => {
