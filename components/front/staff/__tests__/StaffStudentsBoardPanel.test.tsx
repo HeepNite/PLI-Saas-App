@@ -404,7 +404,7 @@ describe("StaffStudentsBoardPanel", () => {
     expect(node.textContent).not.toContain("Previous")
   })
 
-  it("shows Fast Pay and compact Prov PIN copy for profile cards without package credit", async () => {
+  it("shows Fast Pay and no PIN control for profile cards without package credit", async () => {
     const node = await renderPanel(
       createProps({
         cards: {
@@ -417,7 +417,9 @@ describe("StaffStudentsBoardPanel", () => {
     )
 
     expect(node.textContent).toContain("Fast Pay")
-    expect(node.textContent).toContain("Prov PIN")
+    // PINs are no longer used: no Prov/Reissue PIN control anywhere on the card.
+    expect(node.textContent).not.toContain("Prov PIN")
+    expect(node.textContent).not.toContain("Reissue PIN")
     expect(node.textContent).not.toContain("Provisional PIN")
   })
 
@@ -490,7 +492,9 @@ describe("StaffStudentsBoardPanel", () => {
     )
 
     expect(node.textContent).toContain("Fast Sign")
-    expect(node.textContent).toContain("Prov PIN")
+    // PINs are no longer used: neither the badge nor the action button shows PIN copy.
+    expect(node.textContent).not.toContain("Prov PIN")
+    expect(node.textContent).not.toContain("Reissue PIN")
     expect(node.textContent).toContain("Kiosk / Terminal")
   })
 

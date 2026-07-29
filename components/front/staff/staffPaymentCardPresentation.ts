@@ -74,13 +74,32 @@ type ProfileBadge = {
   title?: string
 }
 
+type PackageBadgeInput =
+  | { isUnlimited: boolean; totalCredits: number | null; remainingCredits: number | null }
+  | null
+  | undefined
+
+// Compact package badge shared by both card renderers. Shows remaining/total classes
+// (e.g. "Pkg 5/8"), not the plan name. Non-package students read as "Drop-in".
+// Colors are intentionally non-caution — amber/yellow is reserved for real warnings.
+export const resolvePackageBadge = (activePackage: PackageBadgeInput) => {
+  if (!activePackage) {
+    return { label: "Drop-in", tone: "border-sky-400/40 bg-sky-400/12 text-sky-200" }
+  }
+  const tone = "border-emerald-400/35 bg-emerald-400/10 text-emerald-200"
+  if (activePackage.isUnlimited) return { label: "Unlimited", tone }
+  const remaining = Math.max(0, activePackage.remainingCredits ?? 0)
+  if (activePackage.totalCredits) return { label: `Pkg ${remaining}/${activePackage.totalCredits}`, tone }
+  return { label: `Pkg ${remaining} left`, tone }
+}
+
 export const resolveProfileCardBadges = (student: StudentProfileCard) => {
   const details = resolveProfileCardDetails(student)
   return [
     {
       key: "points",
       label: `Points: ${student.pointsBalance}`,
-      tone: "border-amber-400/35 bg-amber-400/10 text-amber-200",
+      tone: "border-fuchsia-400/35 bg-fuchsia-400/10 text-fuchsia-200",
     },
     {
       key: "payment",
@@ -94,9 +113,8 @@ export const resolveProfileCardBadges = (student: StudentProfileCard) => {
       ...(student.latestCheckInAt ? { title: formatStudentPaymentCardDateTimeLabel(student.latestCheckInAt) } : {}),
     },
     {
-      key: "pin",
-      label: details.pinStatusLabel,
-      tone: details.pinStatusTone,
+      key: "package",
+      ...resolvePackageBadge(student.activePackage),
     },
   ] satisfies ProfileBadge[]
 }
