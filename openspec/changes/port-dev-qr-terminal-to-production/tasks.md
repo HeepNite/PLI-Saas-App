@@ -50,8 +50,8 @@ main
 - [x] 2.2 GREEN `app/api/checkin/qr/bootstrap/route.ts` + `lib/checkin/qr-decision.ts` for local decision parity, Clerk fallback, terminal payload, and PR #226 unknown-course rejection reuse. (~90-130)
 - [x] 2.3 RED `tests/api/checkin-qr-package.test.ts`, `tests/api/checkin-qr-dropin.test.ts`, and consecutive companions for duplicate/idempotency, atomic reservation, card/cash/payment failures, and closed windows. (~90-130)
 - [x] 2.4 GREEN `app/api/checkin/qr/package/route.ts` + `app/api/checkin/qr/dropin/route.ts` reusing PR #226 atomic reservation/duplicate contracts and preserving purchase validation. (~110-150)
-- [ ] 2.5 RED `tests/api/checkin-terminal-consecutive-offer.test.ts` for throttling and same-day/not-ended/not-consumed/wrong-time offer filtering. (~40-70)
-- [ ] 2.6 GREEN `app/api/checkin/terminal/consecutive-offer/route.ts` with mandatory rate limiting/filtering in the required local-fallback slice. (~40-70)
+- [x] 2.5 RED `tests/api/checkin-terminal-consecutive-offer.test.ts` for throttling and same-day/not-ended/not-consumed/wrong-time offer filtering. (~40-70)
+- [x] 2.6 GREEN `app/api/checkin/terminal/consecutive-offer/route.ts` with mandatory rate limiting/filtering in the required local-fallback slice. (~40-70)
 - [x] 2.7 REFACTOR `lib/checkin/qr-decision.ts` and shared helpers to remove duplicated branch logic without changing contracts. (~20-40)
 
 ## Phase 3: Conditional Gateway Slice
