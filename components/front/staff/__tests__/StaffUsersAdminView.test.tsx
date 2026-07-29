@@ -49,7 +49,7 @@ const createProps = (): StaffUsersAdminViewProps => ({
   shell: {
     gridRef: { current: null },
     leftRailRef: { current: null },
-    showInlineRightRail: false,
+    reserveAssistantColumn: false,
     visibleNavItems: [
       { key: "users", label: "User Management", icon: (() => null) as never },
       { key: "assistant", label: "AI Assistant", icon: (() => null) as never },
