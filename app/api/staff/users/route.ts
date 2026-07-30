@@ -5,6 +5,7 @@ import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import {
   applyStaffRoleToMetadata,
   extractStaffRoleFromUserMetadata,
+  isStaffRole,
   STAFF_ROLES,
   type StaffRole,
 } from "@/lib/security/staff-role"
@@ -274,10 +275,16 @@ const toStaffListItem = (user: {
   publicMetadata?: unknown
   privateMetadata?: unknown
   unsafeMetadata?: unknown
-}, hasActiveSession: boolean): StaffListItem | null => {
-  const role = extractStaffRoleFromUserMetadata(user)
+}, hasActiveSession: boolean, dbFallback?: { role?: string | null; category?: string | null }): StaffListItem | null => {
+  const fallbackRole = (() => {
+    const normalized = dbFallback?.role?.trim().toLowerCase()
+    return normalized && isStaffRole(normalized) ? normalized : null
+  })()
+  // The DB StaffAccount is the roster source of truth: keep a staff member visible
+  // even if their Clerk role metadata was dropped (e.g. during the Clerk prod cutover).
+  const role = extractStaffRoleFromUserMetadata(user) || fallbackRole
   if (!role) return null
-  const category = extractStaffCategoryFromUserMetadata(user) || "guest"
+  const category = extractStaffCategoryFromUserMetadata(user) || parseStaffCategory(dbFallback?.category) || "guest"
   const primaryEmail =
     user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress || ""
   const primaryPhone =
@@ -424,6 +431,32 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
     throw error
   }
 
+  // The DB StaffAccount is the source of truth for WHO is staff. Clerk's getUserList
+  // is capped at 100 and STUDENTS share the same Clerk user pool, so staff beyond that
+  // window (typically the oldest accounts, e.g. the owner) would silently vanish. Pull
+  // the roster once and fold in any staff missing from the Clerk page so every staff
+  // member always appears, regardless of how many student accounts exist.
+  const staffRoster = (await prisma.staffAccount.findMany({
+    select: { clerkUserId: true, role: true, category: true, paymentModelId: true },
+  })) as Array<{ clerkUserId: string; role: string; category: string | null; paymentModelId: string | null }>
+  const staffByClerkId = new Map(staffRoster.map((account) => [account.clerkUserId, account]))
+
+  if (!query) {
+    const fetchedIds = new Set(usersData.map((user) => user.id))
+    const missingStaffIds = staffRoster
+      .map((account) => account.clerkUserId)
+      .filter((id) => id && !fetchedIds.has(id))
+    for (const idChunk of chunkArray(missingStaffIds, 100)) {
+      try {
+        const extra = await client.users.getUserList({ userId: idChunk, limit: idChunk.length })
+        usersData = usersData.concat(extra.data)
+      } catch (error) {
+        if (isClerkRateLimitError(error) || isClerkTransientError(error)) break
+        throw error
+      }
+    }
+  }
+
   const shouldForcePerUserSessionLookup = activeSessionUserIds.size === 0
   const verificationCandidates = usersData
     .filter((user) => !activeSessionUserIds.has(user.id))
@@ -452,26 +485,17 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   }
 
   let list = usersData
-    .map((user) => toStaffListItem(user, activeSessionUserIds.has(user.id)))
+    .map((user) => toStaffListItem(user, activeSessionUserIds.has(user.id), staffByClerkId.get(user.id)))
     .filter((item): item is StaffListItem => Boolean(item))
   if (categoryFilter) {
     list = list.filter((item) => item.category === categoryFilter)
   }
   list = list.sort((a, b) => b.createdAt - a.createdAt)
 
-  const clerkUserIds = list.map((item) => item.id).filter(Boolean)
-  if (clerkUserIds.length > 0) {
-    const staffAccounts = (await prisma.staffAccount.findMany({
-      where: {
-        clerkUserId: { in: clerkUserIds },
-      },
-    })) as Array<{ clerkUserId: string; paymentModelId?: string | null }>
-    const paymentModelByUserId = new Map(staffAccounts.map((account) => [account.clerkUserId, account.paymentModelId]))
-    list = list.map((item) => ({
-      ...item,
-      paymentModelId: paymentModelByUserId.get(item.id) ?? null,
-    }))
-  }
+  list = list.map((item) => ({
+    ...item,
+    paymentModelId: staffByClerkId.get(item.id)?.paymentModelId ?? null,
+  }))
 
   const response = NextResponse.json(
     { items: list },

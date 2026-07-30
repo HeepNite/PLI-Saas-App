@@ -105,6 +105,87 @@ describe("staff users routes", () => {
     expect(data.items[0].category).toBe("guest")
   })
 
+  it("GET includes DB-roster staff missing from the Clerk 100-user page", async () => {
+    // Simulate the prod bug: the capped Clerk page does NOT contain the owner
+    // (an older account pushed out by newer student accounts).
+    usersApi.getUserList.mockImplementation(async (params?: { userId?: string[] }) => {
+      if (params?.userId) {
+        return {
+          data: params.userId.map((id) => ({
+            id,
+            firstName: "Mariano",
+            lastName: "Owner",
+            emailAddresses: [{ emailAddress: "owner@example.com" }],
+            publicMetadata: { role: "owner" },
+            banned: false,
+            locked: false,
+            createdAt: 1,
+            lastSignInAt: Date.now(),
+          })),
+        }
+      }
+      return {
+        data: [
+          {
+            id: "u_recent_staff",
+            firstName: "Ana",
+            lastName: "Recent",
+            emailAddresses: [{ emailAddress: "ana@example.com" }],
+            publicMetadata: { role: "staff" },
+            banned: false,
+            locked: false,
+            createdAt: Date.now(),
+            lastSignInAt: Date.now(),
+          },
+        ],
+      }
+    })
+    mockPrisma.staffAccount.findMany.mockResolvedValue([
+      { clerkUserId: "u_owner_old", role: "owner", category: "partner", paymentModelId: null },
+    ])
+
+    const { GET } = await import("@/app/api/staff/users/route")
+    const res = await GET(new Request("http://localhost/api/staff/users"))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    const ids = data.items.map((item: { id: string }) => item.id)
+    expect(ids).toContain("u_owner_old")
+    expect(ids).toContain("u_recent_staff")
+    expect(usersApi.getUserList).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: ["u_owner_old"] })
+    )
+  })
+
+  it("GET keeps a roster staff member visible when Clerk role metadata is missing", async () => {
+    // Clerk cutover dropped the role from publicMetadata, but the DB knows they are staff.
+    usersApi.getUserList.mockResolvedValue({
+      data: [
+        {
+          id: "u_norole",
+          firstName: "Danna",
+          lastName: "Staff",
+          emailAddresses: [{ emailAddress: "danna@example.com" }],
+          publicMetadata: {},
+          banned: false,
+          locked: false,
+          createdAt: Date.now(),
+          lastSignInAt: Date.now(),
+        },
+      ],
+    })
+    mockPrisma.staffAccount.findMany.mockResolvedValue([
+      { clerkUserId: "u_norole", role: "staff", category: null, paymentModelId: null },
+    ])
+
+    const { GET } = await import("@/app/api/staff/users/route")
+    const res = await GET(new Request("http://localhost/api/staff/users"))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0].id).toBe("u_norole")
+    expect(data.items[0].role).toBe("staff")
+  })
+
   it("GET can filter by category", async () => {
     usersApi.getUserList.mockResolvedValue({
       data: [

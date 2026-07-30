@@ -44,6 +44,7 @@ import { useStaffCreateStudentAdmin } from "./useStaffCreateStudentAdmin"
 import { useStaffPortalShellAdmin } from "./useStaffPortalShellAdmin"
 import { useStaffPortalDataLifecycle } from "./useStaffPortalDataLifecycle"
 import { useStaffUsersAdminComposition } from "./useStaffUsersAdminComposition"
+import { shouldReserveStaffAssistantColumn } from "./useStaffAssistantRailLayout"
 
 import {
   PROFILE_REQUEST_TYPE_OPTIONS,
@@ -173,6 +174,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   expandAssistantRailRef.current = assistantAdmin.expandRail
   const showRightRail = true
   const showInlineRightRail = showRightRail && !assistantAdmin.isRailCollapsed
+  const reserveAssistantColumn = showRightRail && shouldReserveStaffAssistantColumn(assistantAdmin.isRailCollapsed)
 
   const scheduleAdmin = useStaffScheduleAdmin({
     canAccessSchoolNav,
@@ -526,6 +528,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     setStudentSearchQuery,
     showRightRail,
     showInlineRightRail,
+    reserveAssistantColumn,
     schoolWizard,
     wizardEnabledCtx,
     reviewPreviewHover,

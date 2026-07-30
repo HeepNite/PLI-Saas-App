@@ -15,7 +15,6 @@ import {
 import { ClerkSyncMismatchBanner } from "@/components/front/staff/ClerkSyncMismatchBanner"
 import {
   checkInStateTone,
-  resolveStudentPinTone,
 } from "./paymentState"
 import {
   formatIsoDateLong,
@@ -27,6 +26,7 @@ import {
   getOpenPaymentIds,
   paymentStateTone,
   PROFILE_CARD_BADGE_CLASS,
+  resolvePackageBadge,
   resolveProfileCardBadges,
   resolveProfileCardDetailRows,
   resolveProfileSettlementControl,
@@ -735,7 +735,7 @@ function FastClassActionControls({
         type="button"
         onClick={runFastAction}
         disabled={isDisabled}
-        className="rounded-md border border-emerald-300/35 bg-emerald-400/12 px-2 py-1 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex-1 whitespace-nowrap rounded-md border border-emerald-300/35 bg-emerald-400/12 px-2 py-1 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
         aria-label={`${label} for ${studentName}`}
       >
         {busy ? "Working…" : label}
@@ -811,8 +811,6 @@ function ProfileStudentCard({
   setAuditHistoryStudentId,
   setAuditHistoryStudentName,
   usersWithAuditEntries,
-  canOperateStudentPins,
-  openStudentPinModalForProfile,
   openOverrideModal,
   currentRole,
   currentCategory,
@@ -940,7 +938,7 @@ function ProfileStudentCard({
         })}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      <div className="mt-4 flex gap-2.5">
         <FastClassActionControls
           activePackage={student.activePackage}
           disabled={paymentsLoading}
@@ -955,24 +953,15 @@ function ProfileStudentCard({
             const subject = encodeURIComponent(`Student profile update · ${student.displayName}`)
             window.location.href = `mailto:${encodeURIComponent(student.email)}?subject=${subject}`
           }}
-          className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
+          className="flex-1 whitespace-nowrap rounded-md border border-white/20 px-2 py-1 text-[11px]"
         >
           Notify
         </button>
-        {canOperateStudentPins && student.userId ? (
-          <button
-            type="button"
-            onClick={() => openStudentPinModalForProfile(student)}
-            className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
-          >
-            {student.provisionalPinExpiresAt ? "Reissue PIN" : "Prov PIN"}
-          </button>
-        ) : null}
         {canEditStudentInfo && student.userId ? (
           <button
             type="button"
             onClick={() => openOverrideModal(student.userId, student.displayName)}
-            className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
+            className="flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
           >
             Edit info
           </button>
@@ -1035,8 +1024,6 @@ function PaymentStudentCard({
   setAuditHistoryStudentId,
   setAuditHistoryStudentName,
   usersWithAuditEntries,
-  canOperateStudentPins,
-  openStudentPinModal,
   openOverrideModal,
   currentRole,
   currentCategory,
@@ -1078,12 +1065,7 @@ function PaymentStudentCard({
       ? studentOpenIds
       : student.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
   const isSelected = studentSelectableIds.some((id) => selectedPaymentIds.includes(id))
-  const studentPinLabel = payment.studentPin.enabled
-    ? payment.studentPin.provisionalActive
-      ? "Prov PIN"
-      : "Enrolled PIN"
-    : null
-  const studentPinTone = resolveStudentPinTone(payment.studentPin)
+  const packageBadge = resolvePackageBadge(payment.activePackage)
   const pointsHistoryEntries = payment.pointsHistory.slice(0, 10)
 
   return (
@@ -1216,18 +1198,13 @@ function PaymentStudentCard({
         >
           Attendance
         </button>
-        {studentPinLabel && studentPinTone ? (
-          <span
-            className={`w-full flex items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold ${studentPinTone}`}
-          >
-            {studentPinLabel}
-          </span>
-        ) : (
-          <span className="w-full flex items-center justify-center rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/30">
-            —
-          </span>
-        )}
-        <span className="group relative w-full flex cursor-help items-center justify-center rounded-md border border-amber-400/35 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold text-amber-200">
+        <span
+          className={`w-full flex items-center justify-center truncate rounded-md border px-3 py-1.5 text-[11px] font-semibold ${packageBadge.tone}`}
+          title={packageBadge.label}
+        >
+          {packageBadge.label}
+        </span>
+        <span className="group relative w-full flex cursor-help items-center justify-center rounded-md border border-fuchsia-400/35 bg-fuchsia-400/10 px-3 py-1.5 text-[11px] font-semibold text-fuchsia-200">
           Points: {payment.pointsBalance}
           <span className="pointer-events-auto invisible absolute bottom-full left-0 z-[200] max-h-44 w-[16rem] -translate-x-1/2 translate-y-1 overflow-y-auto overscroll-contain rounded-md border border-white/20 bg-[#131622]/95 px-2.5 py-1.5 text-left text-[11px] text-white/90 opacity-0 shadow-[0_16px_24px_-14px_rgba(0,0,0,0.8)] transition-all duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
             <span className="font-semibold text-white">Points history</span>
@@ -1240,7 +1217,7 @@ function PaymentStudentCard({
                   key={`points-history-${entry.id}`}
                   className={`block text-white/85 ${index === 0 ? "mt-1" : "mt-1 border-t border-white/10 pt-1"}`}
                 >
-                  <span className="font-semibold text-amber-200">
+                  <span className="font-semibold text-fuchsia-200">
                     {entry.points > 0 ? `+${entry.points}` : entry.points}
                   </span>
                   <span className="ml-1 capitalize">
@@ -1394,7 +1371,7 @@ function PaymentStudentCard({
         </p>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      <div className="mt-4 flex gap-2.5">
         <FastClassActionControls
           activePackage={payment.activePackage}
           disabled={paymentsLoading}
@@ -1410,24 +1387,15 @@ function PaymentStudentCard({
             const subject = encodeURIComponent(`Class payment update · ${payment.courseTitle}`)
             window.location.href = `mailto:${encodeURIComponent(payment.customerEmail)}?subject=${subject}`
           }}
-          className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
+          className="flex-1 whitespace-nowrap rounded-md border border-white/20 px-2 py-1 text-[11px]"
         >
           Notify
         </button>
-        {canOperateStudentPins && payment.userId ? (
-          <button
-            type="button"
-            onClick={() => openStudentPinModal(payment)}
-            className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
-          >
-            {payment.studentPin.provisionalActive ? "Reissue PIN" : "Prov PIN"}
-          </button>
-        ) : null}
         {canEditStudentInfo && payment.userId ? (
           <button
             type="button"
             onClick={() => openOverrideModal(payment.userId, identity.fullName)}
-            className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
+            className="flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
           >
             Edit info
           </button>
