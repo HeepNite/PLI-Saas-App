@@ -1,14 +1,19 @@
+import React from "react"
 import type { Metadata } from "next"
 import { SignIn } from "@clerk/nextjs"
 import Image from "next/image"
 import { clerkDarkAuthAppearance } from "@/lib/clerk-auth-appearance"
+import { resolveSafeQrRedirect } from "@/lib/checkin/qr-auth-resume"
 
 export const metadata: Metadata = {
   title: "Sign in — PLI",
   description: "Access your PLI account to manage bookings and courses.",
 }
 
-export default function SignInPage() {
+export default async function SignInPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const params = await searchParams
+  const safeRedirect = resolveSafeQrRedirect(typeof params.redirect_url === "string" ? params.redirect_url : undefined)
+
   return (
     <main
       data-auth-page="true"
@@ -39,6 +44,7 @@ export default function SignInPage() {
                 "border border-white/15 bg-white/[0.03] hover:bg-white/[0.08] text-white rounded-md h-12 [&_svg]:text-white [&_svg]:fill-white",
             },
           }}
+          forceRedirectUrl={safeRedirect}
           fallbackRedirectUrl="/client-profile"
         />
       </div>

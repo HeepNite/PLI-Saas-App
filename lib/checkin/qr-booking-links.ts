@@ -1,3 +1,5 @@
+import { resolveSafeQrRedirect } from "@/lib/checkin/qr-auth-resume"
+
 export type QrBookingLinkParams = {
   courseSlug: string
   date?: string
@@ -52,9 +54,9 @@ export function buildQrWelcomeUrl({
 }
 
 export function buildQrSignInUrl(checkInPathWithQuery: string) {
-  const redirectUrl = checkInPathWithQuery.startsWith("/checkin")
-    ? checkInPathWithQuery
-    : "/checkin"
+  const redirectUrl = resolveSafeQrRedirect(checkInPathWithQuery)
 
-  return `/sign-in?redirect_url=${encodeURIComponent(redirectUrl)}`
+  return redirectUrl
+    ? `/sign-in?redirect_url=${encodeURIComponent(redirectUrl)}`
+    : "/sign-in"
 }

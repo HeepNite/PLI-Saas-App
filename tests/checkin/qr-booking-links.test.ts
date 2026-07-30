@@ -33,9 +33,10 @@ describe("QR booking links", () => {
   })
 
   it("keeps sign-in redirects scoped to check-in", () => {
-    expect(buildQrSignInUrl("/checkin?courseSlug=salsa-1")).toBe(
-      "/sign-in?redirect_url=%2Fcheckin%3FcourseSlug%3Dsalsa-1"
+    expect(buildQrSignInUrl("/checkin?courseSlug=salsa-1&date=2026-06-11&time=19%3A30&fromQr=1")).toBe(
+      "/sign-in?redirect_url=%2Fcheckin%3FcourseSlug%3Dsalsa-1%26date%3D2026-06-11%26time%3D19%253A30%26fromQr%3D1"
     )
-    expect(buildQrSignInUrl("/courses/salsa-1")).toBe("/sign-in?redirect_url=%2Fcheckin")
+    expect(buildQrSignInUrl("/checkin?courseSlug=salsa-1")).toBe("/sign-in")
+    expect(buildQrSignInUrl("/courses/salsa-1")).toBe("/sign-in")
   })
 })

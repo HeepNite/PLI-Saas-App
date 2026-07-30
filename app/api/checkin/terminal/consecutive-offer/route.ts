@@ -1,26 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
+import { DEFAULT_DURATION_MINUTES } from "@/lib/checkin/qr"
+import { CHECKIN_TIME_ZONE, toMinutes } from "@/lib/checkin/checkin-helpers"
+import { getEtDateIso, getEtHourMinute } from "@/lib/checkin/et-time"
 import { prisma } from "@/lib/prisma"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { computeDiscountPercent } from "@/lib/course-links"
 
 export const runtime = "nodejs"
 
-const CHECKIN_TIME_ZONE = "America/New_York"
 const WEEKDAY_LABELS_JS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
 
 const getJsWeekdayInTimeZone = (date: Date, timeZone: string) => {
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date)
   return WEEKDAY_LABELS_JS.findIndex((label) => label === weekday)
-}
-
-const toMinutes = (time: string | null | undefined) => {
-  if (!time) return null
-  const match = /^(\d{2}):(\d{2})$/.exec(time)
-  if (!match) return null
-  const hours = Number(match[1])
-  const minutes = Number(match[2])
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  return hours * 60 + minutes
 }
 
 const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[], weekday: number) => {
@@ -43,6 +36,18 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
  * before the student checks in or authenticates.
  */
 export async function GET(req: NextRequest) {
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("checkin:terminal:consecutive-offer:get", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
+  })
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
   const courseSlug = req.nextUrl.searchParams.get("courseSlug")
   const selectedTime = req.nextUrl.searchParams.get("time")
   const selectedDate = req.nextUrl.searchParams.get("date")
@@ -51,6 +56,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const now = new Date()
+    const todayIso = getEtDateIso(now)
+    if (selectedDate && selectedDate !== todayIso) {
+      return NextResponse.json(null)
+    }
+
     // Find active CourseLinks involving the selected course. The link itself is
     // not treated as direction-authoritative; today's schedule decides which
     // side is the first class and which side can be offered as the consecutive
@@ -92,16 +103,22 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // Check if course B has class on the selected date, falling back to today
-    // for legacy terminal callers that do not pass a date.
-    const parsedSelectedDate = selectedDate ? new Date(`${selectedDate}T12:00:00`) : null
-    const now = parsedSelectedDate && !Number.isNaN(parsedSelectedDate.getTime()) ? parsedSelectedDate : new Date()
     const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE) // 0=Sun, 1=Mon, ... in NY time
+    const { hour, minute } = getEtHourMinute(now)
+    const nowMinutes = hour * 60 + minute
 
     const courseATimesForToday = courseA
       ? resolveTimesForWeekday(courseA.scheduleRules, courseA.availableTimes, todayJsWeekday).times
       : []
-    const courseAStartMinutes = toMinutes(selectedTime) ?? toMinutes(courseATimesForToday[0])
+    if (selectedTime && !courseATimesForToday.includes(selectedTime)) {
+      return NextResponse.json(null)
+    }
+    const fallbackCourseATime = courseATimesForToday[0]
+    const courseAStartMinutes = selectedTime
+      ? toMinutes(selectedTime)
+      : fallbackCourseATime
+        ? toMinutes(fallbackCourseATime)
+        : null
 
     const nextClass = linkedCourses
       .filter((candidate) => candidate.active)
@@ -111,6 +128,8 @@ export async function GET(req: NextRequest) {
           .map((time) => {
             const minutes = toMinutes(time)
             if (courseAStartMinutes === null || minutes === null || minutes <= courseAStartMinutes) return null
+            const candidateEndMinutes = minutes + (candidate.durationMinutes ?? DEFAULT_DURATION_MINUTES)
+            if (candidateEndMinutes <= nowMinutes) return null
             const link = links.find((item) =>
               (item.courseSlugA === courseSlug && item.courseSlugB === candidate.slug) ||
               (item.courseSlugB === courseSlug && item.courseSlugA === candidate.slug)

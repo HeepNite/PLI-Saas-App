@@ -188,12 +188,20 @@ export async function POST(req: Request) {
     const kioskSessionResult = shouldResolveKioskSession
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
+    const shouldRetryLookupFailure =
+      !shouldPreferKioskSession && !customerClerkUserId && kioskCustomerAuth.lookupFailed && !kioskSessionResult?.ok
+    const effectiveKioskCustomerAuth = shouldRetryLookupFailure
+      ? await resolveKioskCustomerClerkAuth(authResult.userId)
+      : kioskCustomerAuth
+    const effectiveCustomerClerkUserId = shouldRetryLookupFailure
+      ? effectiveKioskCustomerAuth.userId
+      : customerClerkUserId
 
-    if (!customerClerkUserId && !kioskSessionResult?.ok) {
+    if (!effectiveCustomerClerkUserId && !kioskSessionResult?.ok) {
       return NextResponse.json(
         {
           error:
-            kioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
+            effectiveKioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
               ? "Kiosk customer identification is required before continuing."
               : kioskSessionResult?.error || "Unauthorized",
         },
@@ -231,25 +239,46 @@ export async function POST(req: Request) {
     let lastName = ""
     let name = kioskUser?.name || ""
 
-    if (customerClerkUserId || kioskUser?.clerkId) {
-      clerkUser = customerClerkUserId ? kioskCustomerAuth.clerkUser : null
+    if (effectiveCustomerClerkUserId || kioskUser?.clerkId) {
+      clerkUser = effectiveCustomerClerkUserId ? effectiveKioskCustomerAuth.clerkUser : null
       if (!clerkUser) {
-        const client = await clerkClient()
-        clerkUser = await client.users.getUser((customerClerkUserId || kioskUser?.clerkId) as string)
+        if (effectiveCustomerClerkUserId) {
+          try {
+            const client = await clerkClient()
+            clerkUser = await client.users.getUser(effectiveCustomerClerkUserId)
+          } catch {
+            clerkUser = await findClerkUserByIdentifiers({
+              email,
+              phone: kioskPhoneRaw,
+            })
+          }
+        } else {
+          try {
+            const client = await clerkClient()
+            clerkUser = await client.users.getUser(kioskUser!.clerkId as string)
+          } catch {
+            clerkUser = await findClerkUserByIdentifiers({
+              email,
+              phone: kioskPhoneRaw,
+            })
+          }
+        }
       }
-      let avatarState = resolveAvatarState(clerkUser)
-      if (avatarState.needsRefresh && clerkUser?.id) {
-        const client = await clerkClient()
-        clerkUser = await client.users.getUser(clerkUser.id)
-        avatarState = resolveAvatarState(clerkUser)
+      if (clerkUser) {
+        let avatarState = resolveAvatarState(clerkUser)
+        if (avatarState.needsRefresh && clerkUser.id) {
+          const client = await clerkClient()
+          clerkUser = await client.users.getUser(clerkUser.id)
+          avatarState = resolveAvatarState(clerkUser)
+        }
+        hasAvatar = Boolean(avatarState.hasAvatar)
+        email = clerkUser.primaryEmailAddress?.emailAddress || email
+        const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+        phone = normalizePhoneDigits(phoneRaw) || phone
+        firstName = clerkUser.firstName?.trim() || firstName
+        lastName = clerkUser.lastName?.trim() || lastName
+        name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
       }
-      hasAvatar = Boolean(avatarState.hasAvatar)
-      email = clerkUser.primaryEmailAddress?.emailAddress || email
-      const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-      phone = normalizePhoneDigits(phoneRaw) || phone
-      firstName = clerkUser.firstName?.trim() || firstName
-      lastName = clerkUser.lastName?.trim() || lastName
-      name = [firstName, lastName].filter(Boolean).join(" ").trim() || name
     } else if (email || kioskPhoneRaw) {
       clerkUser = await findClerkUserByIdentifiers({
         email,
@@ -279,10 +308,10 @@ export async function POST(req: Request) {
           email: kioskUser!.email,
           phone: kioskUser!.phone,
         }
-      : customerClerkUserId
+      : effectiveCustomerClerkUserId
       ? await (async () => {
           return upsertUserByIdentifiers({
-            clerkId: customerClerkUserId,
+            clerkId: effectiveCustomerClerkUserId,
             email,
             phone,
             name,
@@ -301,6 +330,7 @@ export async function POST(req: Request) {
     }
 
     const isTerminalFlow = flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
+    const resolvedClerkUserId = effectiveCustomerClerkUserId || clerkUser?.id || kioskUser?.clerkId || ""
 
     // ─── Consecutive offer detection ─────────────────────────
     const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
@@ -530,14 +560,14 @@ export async function POST(req: Request) {
         preparedAccount: {
           userId: dbUser.id,
           clerkUser: null,
-          resolvedUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+          resolvedUserId: resolvedClerkUserId || null,
           identity: {
             resolvedEmail: email || dbUser.email || "",
             phoneRaw: kioskPhoneRaw || clerkUser?.primaryPhoneNumber?.phoneNumber || dbUser.phone || "",
             phoneNormalized: phone || "",
           },
           account: {
-            clerkUserId: customerClerkUserId || kioskUser?.clerkId || clerkUser?.id || null,
+            clerkUserId: resolvedClerkUserId || null,
             created: false,
             requiresSignIn: false,
             hasAvatar,
@@ -578,7 +608,7 @@ export async function POST(req: Request) {
       },
       customer: {
         userId: dbUser.id,
-        clerkUserId: customerClerkUserId || kioskUser?.clerkId || "",
+        clerkUserId: resolvedClerkUserId,
         firstName,
         lastName,
         name: dbUser.name || name,
