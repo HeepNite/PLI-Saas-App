@@ -106,3 +106,110 @@
 ## Status
 - Phase 1 remains complete for PR1.
 - PR2 is partial: tasks 2.1–2.2 are complete; 2.3–2.7 were intentionally deferred to stay inside the 390-line cap.
+
+---
+
+## Scope — PR3 partial slice
+- Delivery mode: `auto-chain`
+- Chain strategy: `feature-branch-chain`
+- Current slice: `PR3 package/drop-in parity`
+- Current work-unit boundary: `2.3–2.4 plus 2.7 helper refactor`
+- Changed-line budget: `390`
+- Authored changed lines in this slice: `282` (code/tests before apply artifacts)
+- Total native-attempt changed lines: `346` (code/tests + OpenSpec artifacts)
+- Budget result: `346/390`, passed; consecutive-offer tasks 2.5–2.6 deferred to keep the slice reviewable
+
+## Newly Completed Tasks
+- [x] 2.3 RED package/drop-in parity regressions
+- [x] 2.4 GREEN package/drop-in route parity
+- [x] 2.7 REFACTOR shared QR action-window helper reuse
+
+## TDD Cycle Evidence — PR3 partial
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 2.3 | `tests/api/checkin-qr-package.test.ts`, `tests/api/checkin-qr-dropin.test.ts` | API (mocked Vitest route harness) | `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts` → 2 files, 17/17 passed (truthful pre-change-equivalent safety net for the files touched in this slice) | Expanded diagnostic command `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` failed in 5 places after adding new assertions and before route changes; this was the RED signal, not the safety net | `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → 3 files, 23/23 passed after package/drop-in parity changes | Added stale Clerk fallback, regular-vs-consecutive window, duplicate/idempotent purchase, and kiosk continuation cases to force the distinct package/drop-in paths | Route logic stayed minimal; helper extraction deferred to 2.7 |
+| 2.4 | `tests/api/checkin-qr-package.test.ts`, `tests/api/checkin-qr-dropin.test.ts` | API (mocked Vitest route harness) | `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts` → 2 files, 17/17 passed | Covered by 2.3 RED diagnostic run before production changes | `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts` → 2 files, 17/17 passed | Package route now restores safe Clerk fallback and separate consecutive window handling; drop-in route reuses the shared window helper without behavior drift | Minimal route changes only |
+| 2.7 | `tests/api/checkin-qr-package.test.ts`, `tests/api/checkin-qr-dropin.test.ts` | API approval tests | `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts` → 2 files, 17/17 passed before helper extraction | Refactor-only task — approval coverage from 2.3 served as the behavior lock; no additional failing behavior was introduced or required | `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts` → 2 files, 17/17 passed after extracting the helper | Reused the same package/drop-in matrix to prove no behavior drift across both standard and terminal windows | Extracted `lib/checkin/qr.ts::isQrActionWindowAllowed` and reused it in both routes; tests remained green before and after extraction |
+
+## Work Unit Evidence — PR3 partial
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 3 files / 23 tests |
+| Runtime harness command/scenario and exact result | `N/A` — user explicitly prohibited live production-backed flows; this slice is proven with mocked Vitest route harnesses only |
+| Rollback boundary | Revert `app/api/checkin/qr/package/route.ts`, `app/api/checkin/qr/dropin/route.ts`, `lib/checkin/qr.ts`, `tests/api/checkin-qr-package.test.ts`, and `tests/api/checkin-qr-dropin.test.ts` only |
+
+## Verification Commands — PR3 partial
+- `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → RED captured before production changes; current GREEN result is 3 files / 23 tests after package/drop-in parity fixes (the earlier 26-test count was corrected during evidence reconciliation)
+- Corrective retry: `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts` → passed, 2 files / 17 tests (truthful safety net for this slice)
+- Corrective retry: `npm test -- tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 3 files / 23 tests (current focused package/drop-in matrix plus unaffected consecutive-offer approval coverage)
+- Prior broader regression evidence from the initial PR3 verification: `npm test -- tests/checkin/checkin-bootstrap-context.test.ts tests/checkin/qr-booking-links.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-client-phone.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 7 files / 59 tests
+- `npx eslint "app/api/checkin/qr/package/route.ts" "app/api/checkin/qr/dropin/route.ts" "lib/checkin/qr.ts" "tests/api/checkin-qr-package.test.ts" "tests/api/checkin-qr-dropin.test.ts"` → passed
+- `npm run typecheck` → passed
+- `npm run build` → passed (repo still has unrelated pre-existing warnings)
+- `git diff --check` → passed
+
+## Files Touched — PR3 partial
+- `app/api/checkin/qr/package/route.ts` — restored safe Clerk fallback and split regular vs consecutive window handling
+- `app/api/checkin/qr/dropin/route.ts` — reused the shared QR action-window helper while preserving purchase validation behavior
+- `lib/checkin/qr.ts` — extracted shared QR action-window helper for route parity reuse
+- `tests/api/checkin-qr-package.test.ts` — added stale Clerk fallback and normal-vs-consecutive window regressions
+- `tests/api/checkin-qr-dropin.test.ts` — added standard-vs-terminal window regressions for drop-in continuation
+
+## Remaining Tasks
+- [ ] 2.5 RED terminal consecutive-offer throttling/filtering
+- [ ] 2.6 GREEN terminal consecutive-offer throttling/filtering
+- [ ] Phase 3 tasks 3.1–3.3
+- [ ] Phase 4 tasks 4.1–4.2
+
+## Status
+- Phase 1 and PR2 bootstrap work remain complete.
+- This child slice is partial: tasks 2.3, 2.4, and 2.7 are complete; 2.5–2.6 remain for the next bounded PR because completing them here would push the slice over the 390-line cap once artifacts are included.
+
+---
+
+## Scope — PR4 consecutive-offer safety
+- Delivery mode: `auto-chain`
+- Chain strategy: `feature-branch-chain`
+- Current slice: `PR4 consecutive-offer safety`
+- Current work-unit boundary: `2.5–2.6 terminal consecutive-offer rate-limit/filtering`
+- Changed-line budget: `220`
+- Authored changed lines in this slice: `149` (code/tests before apply artifacts)
+- Total native-attempt changed lines: `202` (code/tests + OpenSpec artifacts)
+- Budget result: `202/220`, passed
+
+## Newly Completed Tasks
+- [x] 2.5 RED terminal consecutive-offer throttling/filtering regressions
+- [x] 2.6 GREEN terminal consecutive-offer rate limiting + same-day/current-time filtering
+
+## TDD Cycle Evidence — PR4
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 2.5 | `tests/api/checkin-terminal-consecutive-offer.test.ts` | API (mocked Vitest route harness) | Existing PR1-PR3 regression matrix: `npm test -- tests/checkin/checkin-bootstrap-context.test.ts tests/checkin/qr-booking-links.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-client-phone.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 7 files / 64 tests | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → failed, 4 assertions before route changes (`429`, wrong-day, invalid-source-time, already-ended linked class) | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 1 file / 10 tests | Added rate-limit, same-day, invalid source time, and ended-today offer suppression cases | Reused existing ET/date + rate-limit helpers; no extra runtime files |
+| 2.6 | `tests/api/checkin-terminal-consecutive-offer.test.ts` | API (mocked Vitest route harness) | Same matrix as 2.5 | Covered by the 2.5 RED run before production changes | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 1 file / 10 tests | Verified route returns `429`, rejects non-today/invalid-time requests, and suppresses ended linked classes while preserving valid same-day offers | Kept changes inside the existing route only |
+
+## Work Unit Evidence — PR4
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 1 file / 10 tests |
+| Runtime harness command/scenario and exact result | `N/A` — user required mocked tests only; no live/runtime harness permitted for this slice |
+| Rollback boundary | Revert `app/api/checkin/terminal/consecutive-offer/route.ts`, `tests/api/checkin-terminal-consecutive-offer.test.ts`, and the 2.5–2.6 checkbox/apply-progress artifact updates only |
+
+## Verification Commands — PR4
+- `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → RED captured first (4 failing assertions), then GREEN passed, 1 file / 10 tests
+- `npm test -- tests/checkin/checkin-bootstrap-context.test.ts tests/checkin/qr-booking-links.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-client-phone.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 7 files / 64 tests
+- `npx eslint "app/api/checkin/terminal/consecutive-offer/route.ts" "tests/api/checkin-terminal-consecutive-offer.test.ts"` → passed
+- `npm run typecheck` → passed
+- `npm run build` → passed (with unrelated existing warnings)
+- `git diff --check` → passed
+
+## Files Touched — PR4
+- `app/api/checkin/terminal/consecutive-offer/route.ts` — added route throttling plus same-day, valid-source-time, and linked-class-not-ended filtering using existing helpers
+- `tests/api/checkin-terminal-consecutive-offer.test.ts` — added RED coverage for rate limiting and invalid same-day/current-time offer cases
+
+## Remaining Tasks
+- [ ] Phase 3 tasks 3.1–3.3
+- [ ] Phase 4 tasks 4.1–4.2
+
+## Status
+- Phase 2 is now complete through tasks 2.1–2.7.
+- Ready for the next chained batch (Phase 3) or verification scheduling.
