@@ -4,6 +4,9 @@ import { NextRequest } from "next/server"
 const mockCourseLinkFindMany = vi.fn()
 const mockCourseCatalogFindUnique = vi.fn()
 const mockCourseCatalogFindMany = vi.fn()
+const mockConsumeRateLimit = vi.fn()
+const mockBuildRateLimitKey = vi.fn()
+const mockGetClientIp = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -17,10 +20,16 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-const buildRequest = (params: Record<string, string>) => {
+vi.mock("@/lib/security/rate-limit", () => ({
+  consumeRateLimit: (...args: unknown[]) => mockConsumeRateLimit(...args),
+  buildRateLimitKey: (...args: unknown[]) => mockBuildRateLimitKey(...args),
+  getClientIp: (...args: unknown[]) => mockGetClientIp(...args),
+}))
+
+const buildRequest = (params: Record<string, string>, headers?: Record<string, string>) => {
   const url = new URL("https://app.test/api/checkin/terminal/consecutive-offer")
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
-  return new NextRequest(url)
+  return new NextRequest(url, { headers })
 }
 
 const beginnerCourse = {
@@ -78,7 +87,24 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     mockCourseLinkFindMany.mockReset()
     mockCourseCatalogFindUnique.mockReset()
     mockCourseCatalogFindMany.mockReset()
+    mockConsumeRateLimit.mockReset()
+    mockBuildRateLimitKey.mockReset()
+    mockGetClientIp.mockReset()
+    mockConsumeRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 })
+    mockBuildRateLimitKey.mockReturnValue("rate-limit-key")
+    mockGetClientIp.mockReturnValue("203.0.113.10")
     vi.useRealTimers()
+  })
+
+  it("returns 429 when the consecutive-offer rate limit is exceeded", async () => {
+    mockConsumeRateLimit.mockReturnValue({ ok: false, retryAfterSec: 9 })
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner" }, { "x-forwarded-for": "203.0.113.10" }))
+
+    expect(res.status).toBe(429)
+    expect(res.headers.get("Retry-After")).toBe("9")
+    expect(await res.json()).toEqual({ error: "Too many requests. Please try again in a moment." })
   })
 
   it("returns null when no courseSlug is provided", async () => {
@@ -196,5 +222,73 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
       linkedCourseTitle: "Advance Beginner Rueda",
       linkedCourseTime: "21:10",
     })
+  })
+
+  it("returns null when the selected class date is not today in ET", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-22T22:00:00.000Z"))
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", date: "2026-05-23", time: "20:10" }))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toBeNull()
+    expect(mockCourseCatalogFindMany).not.toHaveBeenCalled()
+  })
+
+  it("returns null when the selected time is not scheduled for the source course today", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-22T22:00:00.000Z"))
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", date: "2026-05-22", time: "19:10" }))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toBeNull()
+  })
+
+  it("returns null when the linked class has already ended today", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T02:10:00.000Z"))
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", date: "2026-05-22", time: "20:10" }))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toBeNull()
   })
 })

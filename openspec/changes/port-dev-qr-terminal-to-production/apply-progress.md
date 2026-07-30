@@ -164,3 +164,52 @@
 ## Status
 - Phase 1 and PR2 bootstrap work remain complete.
 - This child slice is partial: tasks 2.3, 2.4, and 2.7 are complete; 2.5–2.6 remain for the next bounded PR because completing them here would push the slice over the 390-line cap once artifacts are included.
+
+---
+
+## Scope — PR4 consecutive-offer safety
+- Delivery mode: `auto-chain`
+- Chain strategy: `feature-branch-chain`
+- Current slice: `PR4 consecutive-offer safety`
+- Current work-unit boundary: `2.5–2.6 terminal consecutive-offer rate-limit/filtering`
+- Changed-line budget: `220`
+- Authored changed lines in this slice: `149` (code/tests before apply artifacts)
+- Total native-attempt changed lines: `202` (code/tests + OpenSpec artifacts)
+- Budget result: `202/220`, passed
+
+## Newly Completed Tasks
+- [x] 2.5 RED terminal consecutive-offer throttling/filtering regressions
+- [x] 2.6 GREEN terminal consecutive-offer rate limiting + same-day/current-time filtering
+
+## TDD Cycle Evidence — PR4
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 2.5 | `tests/api/checkin-terminal-consecutive-offer.test.ts` | API (mocked Vitest route harness) | Existing PR1-PR3 regression matrix: `npm test -- tests/checkin/checkin-bootstrap-context.test.ts tests/checkin/qr-booking-links.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-client-phone.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 7 files / 64 tests | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → failed, 4 assertions before route changes (`429`, wrong-day, invalid-source-time, already-ended linked class) | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 1 file / 10 tests | Added rate-limit, same-day, invalid source time, and ended-today offer suppression cases | Reused existing ET/date + rate-limit helpers; no extra runtime files |
+| 2.6 | `tests/api/checkin-terminal-consecutive-offer.test.ts` | API (mocked Vitest route harness) | Same matrix as 2.5 | Covered by the 2.5 RED run before production changes | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 1 file / 10 tests | Verified route returns `429`, rejects non-today/invalid-time requests, and suppresses ended linked classes while preserving valid same-day offers | Kept changes inside the existing route only |
+
+## Work Unit Evidence — PR4
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 1 file / 10 tests |
+| Runtime harness command/scenario and exact result | `N/A` — user required mocked tests only; no live/runtime harness permitted for this slice |
+| Rollback boundary | Revert `app/api/checkin/terminal/consecutive-offer/route.ts`, `tests/api/checkin-terminal-consecutive-offer.test.ts`, and the 2.5–2.6 checkbox/apply-progress artifact updates only |
+
+## Verification Commands — PR4
+- `npm test -- tests/api/checkin-terminal-consecutive-offer.test.ts` → RED captured first (4 failing assertions), then GREEN passed, 1 file / 10 tests
+- `npm test -- tests/checkin/checkin-bootstrap-context.test.ts tests/checkin/qr-booking-links.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-client-phone.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts` → passed, 7 files / 64 tests
+- `npx eslint "app/api/checkin/terminal/consecutive-offer/route.ts" "tests/api/checkin-terminal-consecutive-offer.test.ts"` → passed
+- `npm run typecheck` → passed
+- `npm run build` → passed (with unrelated existing warnings)
+- `git diff --check` → passed
+
+## Files Touched — PR4
+- `app/api/checkin/terminal/consecutive-offer/route.ts` — added route throttling plus same-day, valid-source-time, and linked-class-not-ended filtering using existing helpers
+- `tests/api/checkin-terminal-consecutive-offer.test.ts` — added RED coverage for rate limiting and invalid same-day/current-time offer cases
+
+## Remaining Tasks
+- [ ] Phase 3 tasks 3.1–3.3
+- [ ] Phase 4 tasks 4.1–4.2
+
+## Status
+- Phase 2 is now complete through tasks 2.1–2.7.
+- Ready for the next chained batch (Phase 3) or verification scheduling.
