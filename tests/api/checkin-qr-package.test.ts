@@ -9,6 +9,9 @@ const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
 const mockIsQrCheckInWindowAllowed = vi.fn()
+const mockIsTerminalCheckInAllowed = vi.fn()
+const mockIsConsecutiveAddOnPurchaseAllowed = vi.fn()
+const mockIsQrActionWindowAllowed = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockGetAttendanceMilestoneClasses = vi.fn()
@@ -61,6 +64,9 @@ vi.mock("@/lib/security/rate-limit", () => ({
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
   isQrCheckInWindowAllowed: (...args: unknown[]) => mockIsQrCheckInWindowAllowed(...args),
+  isTerminalCheckInAllowed: (...args: unknown[]) => mockIsTerminalCheckInAllowed(...args),
+  isConsecutiveAddOnPurchaseAllowed: (...args: unknown[]) => mockIsConsecutiveAddOnPurchaseAllowed(...args),
+  isQrActionWindowAllowed: (...args: unknown[]) => mockIsQrActionWindowAllowed(...args),
 }))
 
 vi.mock("@/lib/packages", () => ({
@@ -91,6 +97,9 @@ describe("qr check-in package route", () => {
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
     mockIsQrCheckInWindowAllowed.mockReset()
+    mockIsTerminalCheckInAllowed.mockReset()
+    mockIsConsecutiveAddOnPurchaseAllowed.mockReset()
+    mockIsQrActionWindowAllowed.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockAwardPointsFromRule.mockReset()
     mockGetAttendanceMilestoneClasses.mockReset()
@@ -115,10 +124,18 @@ describe("qr check-in package route", () => {
       time: "11:00",
       durationMinutes: 60,
       startsAt: new Date("2026-03-31T15:00:00.000Z"),
+      endsAt: new Date("2026-03-31T16:00:00.000Z"),
       opensAt: new Date("2026-03-31T13:00:00.000Z"),
       closesAt: new Date("2026-03-31T18:00:00.000Z"),
     })
     mockIsQrCheckInWindowAllowed.mockReturnValue(true)
+    mockIsTerminalCheckInAllowed.mockReturnValue(true)
+    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
+    mockIsQrActionWindowAllowed.mockImplementation((mode: string) => {
+      if (mode === "terminal") return mockIsTerminalCheckInAllowed()
+      if (mode === "consecutive-add-on") return mockIsConsecutiveAddOnPurchaseAllowed()
+      return mockIsQrCheckInWindowAllowed()
+    })
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Salsa femenina matutina" })
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
       {
@@ -189,6 +206,148 @@ describe("qr check-in package route", () => {
     })
     const res = await POST(req)
     expect(res.status).toBe(400)
+  })
+
+  it("falls back to a retried Clerk lookup when kiosk auth resolution is stale", async () => {
+    const getUser = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Clerk 404: not found on this instance"))
+      .mockResolvedValueOnce({
+        id: "customer_clerk_1",
+        firstName: "Jane",
+        lastName: "Student",
+        primaryEmailAddress: { emailAddress: "student@example.com" },
+        primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+      })
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      }),
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
+    expect(getUser).toHaveBeenCalledTimes(2)
+    expect(getUser).toHaveBeenNthCalledWith(2, "customer_clerk_1")
+  })
+
+  it("rejects staff recovered by the kiosk Clerk retry without package side effects", async () => {
+    const getUser = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Clerk lookup failed"))
+      .mockResolvedValueOnce({
+        id: "staff_user_1",
+        publicMetadata: { role: "owner" },
+        privateMetadata: {},
+        unsafeMetadata: {},
+      })
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "staff_user_1" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "staff_db_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      }),
+    }))
+
+    expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({
+      error: "Kiosk customer identification is required before continuing.",
+    })
+    expect(getUser).toHaveBeenCalledTimes(2)
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.packagePurchase.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("returns 401 when Clerk fallback cannot resolve any customer identity", async () => {
+    const getUser = vi.fn().mockRejectedValue(new Error("Clerk 404: not found on this instance"))
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    mockUpsertUserByIdentifiers.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      }),
+    }))
+
+    expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({ error: "Unauthorized" })
+  })
+
+  it("returns 409 when regular package check-in is outside the class window", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockIsQrCheckInWindowAllowed.mockReturnValue(false)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courseSlug: "salsa-femenina-matutina", date: "2026-03-31", time: "11:00" }),
+    }))
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Check-in is closed for this class.",
+      opensAt: "2026-03-31T13:00:00.000Z",
+      closesAt: "2026-03-31T18:00:00.000Z",
+    })
+    expect(mockIsConsecutiveAddOnPurchaseAllowed).not.toHaveBeenCalled()
+  })
+
+  it("uses the consecutive add-on day window instead of the regular QR check-in window", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockIsQrCheckInWindowAllowed.mockReturnValue(false)
+    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(false)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const res = await POST(new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        consecutiveAddOn: true,
+        linkedFromCourseSlug: "salsa-night-beginner",
+      }),
+    }))
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      error: "This class has already ended. Consecutive add-on purchase is no longer available.",
+      endsAt: "2026-03-31T16:00:00.000Z",
+    })
+    expect(mockIsConsecutiveAddOnPurchaseAllowed).toHaveBeenCalled()
+    expect(mockIsQrCheckInWindowAllowed).not.toHaveBeenCalled()
   })
 
   it("ignores owner or staff Clerk auth in kiosk flow and applies the kiosk customer package", async () => {
