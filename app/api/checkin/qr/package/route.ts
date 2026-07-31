@@ -3,7 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isQrCheckInWindowAllowed, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
+import { isQrActionWindowAllowed, parseQrCheckInContext } from "@/lib/checkin/qr"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
@@ -15,7 +15,7 @@ import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
 import { normalizePhoneDigits } from "@/lib/shared"
 import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
-import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { FLOW_CONTEXT, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
@@ -98,12 +98,20 @@ export async function POST(req: Request) {
     const kioskSessionResult = shouldResolveKioskSession
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
+    const shouldRetryLookupFailure =
+      !shouldPreferKioskSession && !customerClerkUserId && kioskCustomerAuth.lookupFailed && !kioskSessionResult?.ok
+    const effectiveKioskCustomerAuth = shouldRetryLookupFailure
+      ? await resolveKioskCustomerClerkAuth(authResult.userId)
+      : kioskCustomerAuth
+    const effectiveCustomerClerkUserId = shouldRetryLookupFailure
+      ? effectiveKioskCustomerAuth.userId
+      : customerClerkUserId
 
-    if (!customerClerkUserId && !kioskSessionResult?.ok) {
+    if (!effectiveCustomerClerkUserId && !kioskSessionResult?.ok) {
       return NextResponse.json(
         {
           error:
-            kioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
+            effectiveKioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
               ? "Kiosk customer identification is required before continuing."
               : kioskSessionResult?.error || "Unauthorized",
         },
@@ -124,19 +132,26 @@ export async function POST(req: Request) {
     }
 
     const now = new Date()
+    const consecutiveAddOn = payload?.consecutiveAddOn === true
     // Terminal check-in stays open the whole NY day (#170); the client QR flow
     // keeps the stricter per-class window.
-    const windowAllowed =
-      flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
-        ? isTerminalCheckInAllowed(context, now)
-        : isQrCheckInWindowAllowed(context, now)
+    const windowAllowed = isQrActionWindowAllowed(
+      consecutiveAddOn ? "consecutive-add-on" : flowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "terminal" : "standard",
+      context,
+      now
+    )
     if (!windowAllowed) {
       return NextResponse.json(
-        {
-          error: "Check-in is closed for this class.",
-          opensAt: context.opensAt.toISOString(),
-          closesAt: context.closesAt.toISOString(),
-        },
+        consecutiveAddOn
+          ? {
+              error: "This class has already ended. Consecutive add-on purchase is no longer available.",
+              endsAt: context.endsAt.toISOString(),
+            }
+          : {
+              error: "Check-in is closed for this class.",
+              opensAt: context.opensAt.toISOString(),
+              closesAt: context.closesAt.toISOString(),
+            },
         { status: 409 }
       )
     }
@@ -153,18 +168,25 @@ export async function POST(req: Request) {
 
     const dbUser = kioskSessionResult?.ok
       ? { id: kioskSessionResult.session.user.id }
-      : customerClerkUserId
+      : effectiveCustomerClerkUserId
       ? await (async () => {
-          const clerkUser = kioskCustomerAuth.clerkUser || await (async () => {
-            const client = await clerkClient()
-            return client.users.getUser(customerClerkUserId)
-          })()
-          email = clerkUser.primaryEmailAddress?.emailAddress || ""
-          const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
-          phone = normalizePhoneDigits(phoneRaw)
-          name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+          let clerkUser = effectiveKioskCustomerAuth.clerkUser
+          if (!clerkUser) {
+            try {
+              const client = await clerkClient()
+              clerkUser = await client.users.getUser(effectiveCustomerClerkUserId)
+            } catch {
+              clerkUser = null
+            }
+          }
+          if (clerkUser) {
+            email = clerkUser.primaryEmailAddress?.emailAddress || ""
+            const phoneRaw = clerkUser.primaryPhoneNumber?.phoneNumber || ""
+            phone = normalizePhoneDigits(phoneRaw)
+            name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+          }
           return upsertUserByIdentifiers({
-            clerkId: customerClerkUserId,
+            clerkId: effectiveCustomerClerkUserId,
             email,
             phone,
             name,
@@ -177,7 +199,6 @@ export async function POST(req: Request) {
     }
 
     // ─── Consecutive package-holder add-on ───────────────────
-    const consecutiveAddOn = payload?.consecutiveAddOn === true
     const consecutiveCashPayment = payload?.consecutiveCashPayment === true
     const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
     const linkedFromAttendanceId = normalizeString(payload?.linkedFromAttendanceId)
