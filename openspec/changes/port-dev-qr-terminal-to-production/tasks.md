@@ -56,11 +56,13 @@ main
 
 ## Phase 3: Conditional Gateway Slice
 
-- [ ] 3.1 RED `tests/api/checkin-terminal-today-classes.test.ts` and bootstrap gateway cases for disabled, missing, and unhealthy gateway fallback. (~40-70)
-- [ ] 3.2 GREEN `app/api/checkin/terminal/today-classes/route.ts`, `lib/nest-gateway/config.ts`, and `lib/nest-gateway/client.ts` behind config-gated delegation only. (~70-110)
-- [ ] 3.3 REFACTOR isolate gateway adapter seams so PR3 reverts cleanly without touching PR1/PR2 parity. (~20-30)
+Maintainer decision: local Next.js fallback is the accepted production path for this release (`lo de nest no por ahora`). Tasks 3.1–3.3 are explicitly deferred, terminal for this change, and non-blocking unless a future change re-opens optional gateway delegation.
+
+- [x] 3.1 [DEFERRED — NOT IMPLEMENTED] RED `tests/api/checkin-terminal-today-classes.test.ts` and bootstrap gateway cases for disabled, missing, and unhealthy gateway fallback. (~40-70) — Maintainer deferred; out of scope and non-blocking for this release (`lo de nest no por ahora`).
+- [x] 3.2 [DEFERRED — NOT IMPLEMENTED] GREEN `app/api/checkin/terminal/today-classes/route.ts`, `lib/nest-gateway/config.ts`, and `lib/nest-gateway/client.ts` behind config-gated delegation only. (~70-110) — Maintainer deferred; do not implement in this release (`lo de nest no por ahora`).
+- [x] 3.3 [DEFERRED — NOT IMPLEMENTED] REFACTOR isolate gateway adapter seams so PR3 reverts cleanly without touching PR1/PR2 parity. (~20-30) — Maintainer deferred; do not implement in this release (`lo de nest no por ahora`).
 
 ## Phase 4: Verification
 
-- [ ] 4.1 Run focused API/component/E2E matrix, including `node scripts/run-playwright.mjs e2e/checkin.spec.ts`, and capture exact pass/fail evidence per work unit. (~0)
-- [ ] 4.2 Run directed `npm run lint`, `npm run typecheck`, and `npm run build`; record safe preview walkthrough evidence and rollback notes for each PR slice. (~0)
+- [x] 4.1 Run focused API/component/E2E matrix, including `node scripts/run-playwright.mjs e2e/checkin.spec.ts`, and capture exact pass/fail evidence per work unit. (~0) — Generation 10 / ordinal 14 replaced raw string equality with semantic `/checkin` URL validation and passed `node scripts/run-playwright.mjs e2e/checkin.spec.ts` (`4 passed / 4 tests`) plus the focused QR matrix (`7 files / 64 tests`).
+- [x] 4.2 Run directed `npm run lint`, `npm run typecheck`, and `npm run build`; record safe preview walkthrough evidence and rollback notes for each PR slice. (~0) — Scoped ESLint across the 14 tracker TS/TSX files plus `e2e/checkin.spec.ts`, `npm run typecheck`, `npm run build`, and `git diff --check` all passed; PR #230 read-only checks show successful CodeQL and Vercel entries while the PR remains draft.

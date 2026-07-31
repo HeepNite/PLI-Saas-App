@@ -213,3 +213,66 @@
 ## Status
 - Phase 2 is now complete through tasks 2.1–2.7.
 - Ready for the next chained batch (Phase 3) or verification scheduling.
+
+---
+
+## gentle-ai.remediation-result/v1
+- lineage_id: `port-dev-qr-terminal-to-production`
+- generation: `10`
+- ordinal: `14`
+- work_unit: `qr-semantic-e2e-finalization`
+- fix_batch: `g10-o14-semantic-url-assertion`
+- max_attempts: `2`
+- max_changed_lines: `200`
+- failed_evidence_revision: `sha256:929d39fb4487447c473ae9a84ab589e4e4981ca912c478f030a3e73f1b3f6ed2`
+- status: `success`
+- executive_summary: `Replaced raw string URL equality in e2e/checkin.spec.ts with a semantic /checkin assertion that requires the exact decoded QR context by key/value regardless of browser param ordering or encoding. Clerk keyless priming remained cookie-name-only, existing-customer auth stayed green, and both kiosk new-customer assertions now prove the current purchase-state contract on /checkin. The focused Playwright rerun, 7-file QR matrix, scoped ESLint, typecheck, build, and diff-check passed; npm run lint was also executed and truthfully captured as the existing tracker-wide failure baseline while the scoped 14-file QR/E2E lint differential stayed clean. PR #230 remains draft with read-only successful CodeQL and Vercel checks.`
+- artifacts: `e2e/checkin.spec.ts`, `openspec/changes/port-dev-qr-terminal-to-production/tasks.md`, `openspec/changes/port-dev-qr-terminal-to-production/apply-progress.md`
+- next_recommended: `sdd-verify`
+- risks: `Harness-only change. Global tracker lint still fails at the known repository baseline (4279 problems: 502 errors, 3777 warnings), but the scoped 14 QR-changed TS/TSX files plus E2E lint cleanly and build/typecheck/diff-check succeeded.`
+- skill_resolution: `paths-injected`
+- cumulative_changed_lines: `194/200` (`git diff --numstat` total after this metadata correction)
+- deferred_scope: `3.1-3.3 [DEFERRED — NOT IMPLEMENTED] by maintainer decision (lo de nest no por ahora); no Nest/gateway/runtime code changed.`
+- rollback_boundary: `Revert only e2e/checkin.spec.ts, openspec/changes/port-dev-qr-terminal-to-production/tasks.md, and openspec/changes/port-dev-qr-terminal-to-production/apply-progress.md.`
+
+## gentle-ai.remediation-evidence/v1
+```json
+{
+  "lineage_id": "port-dev-qr-terminal-to-production",
+  "generation": 10,
+  "ordinal": 14,
+  "work_unit": "qr-semantic-e2e-finalization",
+  "fix_batch": "g10-o14-semantic-url-assertion",
+  "max_attempts": 2,
+  "max_changed_lines": 200,
+  "failed_evidence_revision": "sha256:929d39fb4487447c473ae9a84ab589e4e4981ca912c478f030a3e73f1b3f6ed2",
+  "status": "success",
+  "skill_resolution": "paths-injected",
+  "cumulative_changed_lines": 194,
+  "red_to_green": {
+    "red": "generation 9 / ordinal 13 Playwright run failed 1/4 because raw string equality rejected encoded/reordered-but-equivalent kiosk QR params",
+    "red_fix_batch": "g9-o13-kiosk-purchase-ui-assertions",
+    "green": "semantic helper now requires pathname /checkin plus exact decoded courseSlug/date/time/durationMinutes/flowContext/e2eAuth values via URLSearchParams.getAll"
+  },
+  "commands": [
+    { "command": "historical RED: node scripts/run-playwright.mjs e2e/checkin.spec.ts", "result": "FAIL — 1 passed / 3 failed; raw query-string equality rejected the browser's encoded/reordered kiosk QR URL" },
+    { "command": "node scripts/run-playwright.mjs e2e/checkin.spec.ts", "result": "PASS — 4 passed / 4 tests" },
+    { "command": "npm test -- tests/checkin/checkin-bootstrap-context.test.ts tests/checkin/qr-booking-links.test.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-client-phone.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts", "result": "PASS — 7 files / 64 tests" },
+    { "command": "npm run lint", "result": "FAIL — tracker worktree baseline: 4279 problems (502 errors, 3777 warnings)" },
+    { "command": "npx eslint app/(auth)/sign-in/page.tsx app/api/checkin/qr/bootstrap/route.ts app/api/checkin/qr/dropin/route.ts app/api/checkin/qr/package/route.ts app/api/checkin/terminal/consecutive-offer/route.ts lib/checkin/qr-auth-resume.ts lib/checkin/qr-booking-links.ts lib/checkin/qr.ts tests/api/checkin-qr-bootstrap.test.ts tests/api/checkin-qr-dropin.test.ts tests/api/checkin-qr-package.test.ts tests/api/checkin-terminal-consecutive-offer.test.ts tests/checkin/checkin-bootstrap-context.test.ts tests/checkin/qr-booking-links.test.ts e2e/checkin.spec.ts", "result": "PASS" },
+    { "command": "npm run typecheck", "result": "PASS" },
+    { "command": "npm run build", "result": "PASS — production build completed; unrelated existing warnings remain" },
+    { "command": "git diff --check", "result": "PASS" },
+    { "command": "gh pr view 230 --json number,state,isDraft,headRefName,baseRefName,statusCheckRollup", "result": "PASS — draft PR #230 targets main from feat/qr-terminal-production; read-only status check rollup shows successful CodeQL and Vercel entries" }
+  ],
+  "root_cause_classification": {
+    "category": "harness-only",
+    "details": "No production QR defect remained. The only blocker was raw string URL equality in the Playwright harness; semantic param comparison resolved it while preserving the proven Clerk keyless classification as development-only."
+  },
+  "lint_differential": {
+    "main_baseline": "95 total / 15 errors / 80 warnings",
+    "tracker_global": "4279 problems / 502 errors / 3777 warnings",
+    "scoped_qr_changed_files": "PASS — 0 errors / 0 warnings across 14 tracker-changed TS/TSX files plus e2e/checkin.spec.ts"
+  }
+}
+```
