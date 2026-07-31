@@ -34,6 +34,10 @@ export function resolveSafeQrRedirect(raw: unknown): string | undefined {
     safeParams.set("durationMinutes", durationMinutes)
   }
 
+  if (parsed.searchParams.get("flowContext")?.trim() === "kiosk_terminal") {
+    safeParams.set("flowContext", "kiosk_terminal")
+  }
+
   for (const [key, value] of parsed.searchParams.entries()) {
     if (!SAFE_QR_EXTRA_PARAMS.has(key)) continue
 
