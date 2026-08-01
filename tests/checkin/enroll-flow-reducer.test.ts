@@ -148,8 +148,8 @@ describe("enroll selectors", () => {
       hasConsecutiveOffer: true,
     })
 
-    expect(stepKeys).toEqual(["info", "photo", "packages", "consecutive", "payments"])
-    expect(selectActiveStepKey(stepKeys, 2)).toBe("packages")
+    expect(stepKeys).toEqual(["info", "packages", "consecutive", "payments"])
+    expect(selectActiveStepKey(stepKeys, 1)).toBe("packages")
   })
 
   it("can skip the contact info step for trusted profile booking flows", () => {

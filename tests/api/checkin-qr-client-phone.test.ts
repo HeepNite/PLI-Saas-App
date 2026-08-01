@@ -118,7 +118,7 @@ function setupDefaults() {
   mockUpsertUser.mockResolvedValue(dbUser)
   mockSessionUpsert.mockResolvedValue(session)
   mockAttendanceFindUnique.mockResolvedValue(null)
-  mockCourseCatalogFindUnique.mockResolvedValue(null)
+  mockCourseCatalogFindUnique.mockResolvedValue({ title: "Salsa Night", active: true })
   mockPackagePurchaseFindFirst.mockResolvedValue(null)
   mockPackagePurchaseUpdateMany.mockResolvedValue({ count: 1 })
   mockPackageUsageLedgerFindUnique.mockResolvedValue(null)
@@ -256,11 +256,36 @@ describe("POST /api/checkin/qr/client-phone", () => {
     }))
   })
 
+  it("accepts an active catalog course not present in the legacy course list", async () => {
+    mockCourseCatalogFindUnique.mockResolvedValue({ title: "Production Course", active: true })
+    mockSessionUpsert.mockResolvedValue({
+      ...session,
+      courseSlug: "production-course",
+      title: null,
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest({
+      courseSlug: " Production-Course ",
+      date: "2026-06-11",
+      time: "20:00",
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ status: "rejected" })
+    expect(mockCourseCatalogFindUnique).toHaveBeenCalledWith({
+      where: { slug: "production-course" },
+      select: { title: true, active: true },
+    })
+    expect(mockCourseCatalogFindUnique).toHaveBeenCalledTimes(1)
+  })
+
   it("rejects an unknown course before using an active unscoped package", async () => {
     const universalPackage = {
       id: "pkg_universal", packageId: "plan_universal", packageLabel: "Universal", courseSlug: null,
       packagePlanId: null, isUnlimited: true, remainingCredits: null, expiresAt: null, status: "active", packagePlan: null,
     }
+    mockCourseCatalogFindUnique.mockResolvedValue(null)
     mockPackagePurchaseFindMany.mockResolvedValue([universalPackage])
     mockPackagePurchaseFindFirst.mockResolvedValue(universalPackage)
 
@@ -269,11 +294,44 @@ describe("POST /api/checkin/qr/client-phone", () => {
 
     expect(res.status).toBe(404)
     await expect(res.json()).resolves.toEqual({ error: "Course not found" })
+    expect(mockCourseCatalogFindUnique).toHaveBeenCalledWith({
+      where: { slug: "unknown-course" },
+      select: { title: true, active: true },
+    })
+    expect(mockGetUser).not.toHaveBeenCalled()
+    expect(mockUpsertUser).not.toHaveBeenCalled()
+    expect(mockSessionUpsert).not.toHaveBeenCalled()
+    expect(mockAttendanceFindUnique).not.toHaveBeenCalled()
+    expect(mockPackagePurchaseFindMany).not.toHaveBeenCalled()
     expect(mockAttendanceCreate).not.toHaveBeenCalled()
     expect(mockPackagePurchaseUpdateMany).not.toHaveBeenCalled()
     expect(mockPackageUsageLedgerCreate).not.toHaveBeenCalled()
     expect(mockTransaction).not.toHaveBeenCalled()
     expect(mockAwardPoints).not.toHaveBeenCalled()
+  })
+
+  it("rejects an inactive catalog course before resolving the user or session", async () => {
+    mockCourseCatalogFindUnique.mockResolvedValue({ title: "Inactive Course", active: false })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest({
+      courseSlug: "inactive-course",
+      date: "2026-06-11",
+      time: "20:00",
+    }))
+
+    expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toEqual({ error: "Course not found" })
+    expect(mockCourseCatalogFindUnique).toHaveBeenCalledWith({
+      where: { slug: "inactive-course" },
+      select: { title: true, active: true },
+    })
+    expect(mockGetUser).not.toHaveBeenCalled()
+    expect(mockUpsertUser).not.toHaveBeenCalled()
+    expect(mockSessionUpsert).not.toHaveBeenCalled()
+    expect(mockAttendanceFindUnique).not.toHaveBeenCalled()
+    expect(mockPackagePurchaseFindMany).not.toHaveBeenCalled()
+    expect(mockTransaction).not.toHaveBeenCalled()
   })
 
   it("returns PACKAGE_NO_CREDITS when atomic package reservation loses the final credit", async () => {

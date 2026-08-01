@@ -41,7 +41,8 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  *
  * For kiosk terminal flows, packages are shown in a dedicated step AFTER
  * user info collection (so we know if they're new/existing for pricing).
- * Kiosk flow: info → [photo] → [packages] → payments
+ * Kiosk flow: info → [packages] → payments
+ * Check-in flows never include Photo; profile photo management remains separate.
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow && input.isCheckInNewFlow) {
@@ -58,7 +59,6 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
     // Existing customer declining Quick Repeat: full flow with packages
     return [
       "info",
-      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasPackages ? (["packages"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
       "payments",
@@ -68,7 +68,7 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
   if (input.isQrMobileCompactFlow) {
     return [
       ...(input.skipInfoStep ? [] : (["info"] as const)),
-      ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+      ...(!input.isCheckInFlow && input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasPackages ? (["packages"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
       "payments",
@@ -88,7 +88,7 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
     "party",
     "datetime",
     ...(input.skipInfoStep ? [] : (["info"] as const)),
-    ...(input.requiresPhotoStep ? (["photo"] as const) : []),
+    ...(!input.isCheckInFlow && input.requiresPhotoStep ? (["photo"] as const) : []),
     ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
     "payments",
     ...(input.isCheckInFlow ? [] : (["review"] as const)),
@@ -100,8 +100,10 @@ export const isCheckInContactGateStep = (input: {
   activeStepKey: EnrollStepKey | ""
 }) => input.isCheckInFlow && input.activeStepKey === "info"
 
-export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) =>
-  input.isCheckInFlow && input.photoPolicyRequired && !(input.hasAvatar || input.photoSaved)
+export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) => {
+  void input
+  return false
+}
 
 export const shouldFetchConsecutiveOffer = (input: {
   isQrMobileCompactFlow: boolean

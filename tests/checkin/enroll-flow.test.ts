@@ -30,7 +30,7 @@ describe("enroll flow helpers", () => {
     ).toBe(false)
   })
 
-  it("keeps the photo step when the account still needs a photo", () => {
+  it("omits the photo step from check-in when the account still needs a photo", () => {
     expect(
       shouldIncludePhotoStep({
         isCheckInFlow: true,
@@ -38,7 +38,7 @@ describe("enroll flow helpers", () => {
         hasAvatar: false,
         photoSaved: false,
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
   // Kiosk "I'm new" flow now inserts a promo step between info and payments
@@ -50,13 +50,13 @@ describe("enroll flow helpers", () => {
         isCheckInNewFlow: true,
         isKioskTerminalFlow: true,
         requiresPhotoStep: false,
+        hasConsecutiveOffer: true,
       })
     ).toEqual(["info", "promo", "payments"])
   })
 
-  // Existing-customer kiosk flow keeps a conditional photo step (and packages
-  // when the course has them) before payments.
-  it("keeps a photo step for existing-customer kiosk check-in when a photo is required", () => {
+  // Existing-customer kiosk flow keeps packages when available, but never Photo.
+  it("omits the photo step for existing-customer kiosk check-in", () => {
     expect(
       resolveEnrollStepKeys({
         isCheckInFlow: true,
@@ -64,7 +64,7 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: true,
       })
-    ).toEqual(["info", "photo", "payments"])
+    ).toEqual(["info", "payments"])
   })
 
   it("keeps the standard non-kiosk flow steps unchanged", () => {
@@ -152,6 +152,19 @@ describe("enroll flow helpers", () => {
         hasConsecutiveOffer: true,
       })
     ).toEqual(["consecutive", "payments"])
+  })
+
+  it("omits photo from the production QR new-student check-in flow", () => {
+    expect(
+      resolveEnrollStepKeys({
+        isCheckInFlow: true,
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: false,
+        isQrMobileCompactFlow: true,
+        requiresPhotoStep: true,
+        hasPackages: true,
+      })
+    ).toEqual(["info", "packages", "payments"])
   })
 
   it("collects contact before payment for signed-out QR mobile booking", () => {
@@ -249,6 +262,7 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: false,
         hasPackages: true,
+        hasConsecutiveOffer: true,
       })
     ).toEqual(["info", "promo", "payments"])
   })
@@ -261,6 +275,7 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: true,
         hasPackages: true,
+        hasConsecutiveOffer: true,
       })
     ).toEqual(["info", "promo", "payments"])
   })
@@ -273,6 +288,7 @@ describe("enroll flow helpers", () => {
         isKioskTerminalFlow: true,
         requiresPhotoStep: false,
         hasPackages: false,
+        hasConsecutiveOffer: true,
       })
     ).toEqual(["info", "promo", "payments"])
   })
