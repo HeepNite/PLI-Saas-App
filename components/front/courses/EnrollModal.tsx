@@ -26,6 +26,7 @@ import {
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
+  shouldPrefillClerkContact,
   shouldRedirectPersonalCompletion,
 } from "@/lib/checkin/enroll-flow"
 import {
@@ -608,13 +609,9 @@ export default function EnrollModal({
   }, [hasNewStudentService, isCheckInNewFlow, open, regularFallbackLocked, service, setService])
 
   React.useEffect(() => {
-    // Prefill contact from the signed-in Clerk user. This also covers the
-    // signed-in "checkin-new" case: a never-purchased customer is priced as a
-    // new student ($15) but is still signed in, so their name/email/phone must be
-    // filled from Clerk (the info step is skipped for signed-in users). The
-    // !isSignedIn guard below keeps anonymous new students unprefilled.
     if (!isLoaded || !isSignedIn || !user) return
     if (!open && !isInline) return
+    if (!shouldPrefillClerkContact({ isCheckInNewFlow, isKioskTerminalFlow })) return
     const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
     const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
     setContact((prev) => ({
@@ -624,7 +621,7 @@ export default function EnrollModal({
       email: prev.email || user.primaryEmailAddress?.emailAddress || "",
       phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
     }))
-  }, [isLoaded, isSignedIn, user, open, isInline, setContact])
+  }, [isCheckInNewFlow, isKioskTerminalFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 

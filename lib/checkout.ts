@@ -82,7 +82,8 @@ export type CheckoutPreparationResolution = {
 
 export const resolveAuthUser = async (
   req: Request,
-  input: { firstName?: string; lastName?: string; name?: string; phone?: string }
+  input: { firstName?: string; lastName?: string; name?: string; phone?: string },
+  options: { updateMissingProfile?: boolean } = {}
 ) => {
   const authResult = await auth()
   let userId = authResult.userId
@@ -102,12 +103,14 @@ export const resolveAuthUser = async (
     try {
       const client = await clerkClient()
       clerkUser = await client.users.getUser(userId)
-      await updateClerkUserIfMissing(clerkUser, {
-        firstName: input.firstName,
-        lastName: input.lastName,
-        name: input.name,
-        phone: input.phone,
-      })
+      if (options.updateMissingProfile !== false) {
+        await updateClerkUserIfMissing(clerkUser, {
+          firstName: input.firstName,
+          lastName: input.lastName,
+          name: input.name,
+          phone: input.phone,
+        })
+      }
     } catch {
       // ignore and fallback
     }
@@ -192,7 +195,10 @@ export const prepareCheckoutAccount = async (
     deferUserCreation?: boolean
   } = {}
 ): Promise<ApiError | PreparedCheckoutAccount> => {
-  const authUser = await resolveAuthUser(req, input)
+  const isNewStudentKioskFlow = options.serviceId ? NEW_STUDENT_SERVICE_IDS.has(options.serviceId) : false
+  const authUser = await resolveAuthUser(req, input, {
+    updateMissingProfile: !(options.photoContext === "kiosk_terminal" && isNewStudentKioskFlow),
+  })
   const kioskCustomerAuth =
     options.photoContext === "kiosk_terminal"
       ? await resolveKioskCustomerClerkAuth(authUser.userId)
@@ -202,7 +208,6 @@ export const prepareCheckoutAccount = async (
   const userId = shouldPreferKioskSession ? null : kioskCustomerAuth ? kioskCustomerAuth.userId : authUser.userId
   const clerkUser = shouldPreferKioskSession ? null : kioskCustomerAuth?.clerkUser || authUser.clerkUser
 
-  const isNewStudentKioskFlow = options.serviceId ? NEW_STUDENT_SERVICE_IDS.has(options.serviceId) : false
   // The blocked check prevents staff from checking out as customers.
   // Skip it when: (a) it's a new-student flow, OR (b) the form provides
   // customer email/phone that differ from the staff's — meaning the staff

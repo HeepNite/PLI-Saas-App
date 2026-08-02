@@ -7,6 +7,7 @@ import {
   resolveEnrollStepKeys,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
+  shouldPrefillClerkContact,
   shouldRedirectPersonalCompletion,
 } from "@/lib/checkin/enroll-flow"
 
@@ -76,6 +77,27 @@ describe("enroll flow helpers", () => {
         requiresPhotoStep: true,
       })
     ).toEqual(["party", "datetime", "info", "photo", "payments", "review"])
+  })
+
+  it("rejects ambient Clerk contact only for shared kiosk new-student check-in", () => {
+    expect(
+      shouldPrefillClerkContact({
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: true,
+      })
+    ).toBe(false)
+    expect(
+      shouldPrefillClerkContact({
+        isCheckInNewFlow: true,
+        isKioskTerminalFlow: false,
+      })
+    ).toBe(true)
+    expect(
+      shouldPrefillClerkContact({
+        isCheckInNewFlow: false,
+        isKioskTerminalFlow: true,
+      })
+    ).toBe(true)
   })
 
   it("adds the consecutive offer step before payments in standard booking flows", () => {
