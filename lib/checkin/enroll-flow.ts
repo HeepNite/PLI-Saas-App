@@ -111,6 +111,11 @@ export const shouldFetchConsecutiveOffer = (input: {
   isProfileBookingFlow: boolean
 }) => input.isQrMobileCompactFlow || input.isCheckInFlow || input.isProfileBookingFlow
 
+export const shouldPrefillClerkContact = (input: {
+  isCheckInNewFlow: boolean
+  isKioskTerminalFlow: boolean
+}) => !(input.isCheckInNewFlow && input.isKioskTerminalFlow)
+
 export const getCheckInSignInModalVariant = (isCheckInFlow: boolean) =>
   isCheckInFlow ? "compact" : "sheet"
 

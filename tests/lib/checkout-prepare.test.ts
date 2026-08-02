@@ -147,6 +147,81 @@ describe("prepareCheckoutAccount", () => {
     expect(result.account.clerkUserId).toBe(clerkUser.id)
   })
 
+  it("does not update the ambient Clerk profile during kiosk new-student preparation", async () => {
+    const ambientUser = makeClerkUser({
+      id: "ambient_kiosk_user",
+      firstName: null,
+      lastName: null,
+      primaryPhoneNumber: { phoneNumber: "" },
+      primaryPhoneNumberId: null,
+      phoneNumbers: [],
+    })
+    const client = makeClerkClient()
+
+    client.users.getUser.mockResolvedValue(ambientUser)
+    client.users.getUserList.mockResolvedValue({ data: [] })
+    mockAuth.mockResolvedValue({ userId: ambientUser.id })
+    mockClerkClient.mockResolvedValue(client)
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(
+      new Request("http://localhost/checkout"),
+      {
+        email: "student@example.com",
+        firstName: "New",
+        lastName: "Student",
+        phone: "+1 555 222 3333",
+      },
+      {
+        photoContext: "kiosk_terminal",
+        allowExistingAccountLookup: true,
+        serviceId: "new-student",
+        deferUserCreation: true,
+      }
+    )
+
+    expect("status" in result).toBe(false)
+    expect(client.users.updateUser).not.toHaveBeenCalled()
+    expect(client.phoneNumbers.createPhoneNumber).not.toHaveBeenCalled()
+  })
+
+  it("still fills missing ambient Clerk profile fields during ordinary signed-in checkout", async () => {
+    const signedInUser = makeClerkUser({
+      id: "signed_in_user",
+      firstName: null,
+      lastName: null,
+      primaryPhoneNumber: { phoneNumber: "" },
+      primaryPhoneNumberId: null,
+      phoneNumbers: [],
+    })
+    const client = makeClerkClient()
+
+    client.users.getUser.mockResolvedValue(signedInUser)
+    mockAuth.mockResolvedValue({ userId: signedInUser.id })
+    mockClerkClient.mockResolvedValue(client)
+
+    const { prepareCheckoutAccount } = await import("@/lib/checkout")
+
+    const result = await prepareCheckoutAccount(new Request("http://localhost/checkout"), {
+      firstName: "Signed",
+      lastName: "Customer",
+      phone: "+1 555 444 5555",
+    })
+
+    expect("status" in result).toBe(false)
+    expect(client.users.updateUser).toHaveBeenCalledWith(signedInUser.id, {
+      firstName: "Signed",
+      lastName: "Customer",
+    })
+    expect(client.phoneNumbers.createPhoneNumber).toHaveBeenCalledWith({
+      userId: signedInUser.id,
+      phoneNumber: "+15554445555",
+      verified: false,
+      primary: true,
+    })
+  })
+
   it("returns hasAvatar true when an existing user is found by identifiers", async () => {
     const existingUser = makeClerkUser({
       id: "user_lookup_avatar",
