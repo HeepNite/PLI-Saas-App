@@ -169,6 +169,7 @@ export function useCheckInQrController({
   } = useConsecutiveOfferState({
     isKioskTerminalFlow,
     activeCourseSlug: preDisplayActiveContext.activeCourseSlug,
+    activeDate: preDisplayActiveContext.activeDate,
     activeTime: preDisplayActiveContext.activeTime,
   })
 

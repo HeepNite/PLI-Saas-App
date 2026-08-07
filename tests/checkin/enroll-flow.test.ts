@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   getCheckInSignInModalVariant,
   isCheckInContactGateStep,
+  resolvePostAccountStepIndex,
   resolveEnrollInitialStep,
+  resolvePromotionDecisionStepIndex,
   resolvePostPhotoStepIndex,
   resolveEnrollStepKeys,
   shouldFetchConsecutiveOffer,
@@ -14,6 +16,36 @@ import {
 describe("enroll flow helpers", () => {
   it("keeps the existing-customer flow on the requested info step", () => {
     expect(resolveEnrollInitialStep({ initialStep: 2, stepsLength: 5 })).toBe(2)
+  })
+
+  it("resolves either promotion step key before payments", () => {
+    expect(resolvePromotionDecisionStepIndex(["info", "promo", "payments"])).toBe(1)
+    expect(resolvePromotionDecisionStepIndex(["info", "consecutive", "payments"])).toBe(1)
+    expect(resolvePromotionDecisionStepIndex(["info", "payments"])).toBe(-1)
+  })
+
+  it("resolves the first post-account step from the actual flow order", () => {
+    expect(
+      resolvePostAccountStepIndex({
+        packagesStepIndex: 1,
+        promotionDecisionStepIndex: 2,
+        paymentsStepIndex: 3,
+      })
+    ).toBe(1)
+    expect(
+      resolvePostAccountStepIndex({
+        packagesStepIndex: -1,
+        promotionDecisionStepIndex: 1,
+        paymentsStepIndex: 2,
+      })
+    ).toBe(1)
+    expect(
+      resolvePostAccountStepIndex({
+        packagesStepIndex: -1,
+        promotionDecisionStepIndex: -1,
+        paymentsStepIndex: -1,
+      })
+    ).toBe(-1)
   })
 
   it("clamps an invalid initial step to the end of the flow", () => {
