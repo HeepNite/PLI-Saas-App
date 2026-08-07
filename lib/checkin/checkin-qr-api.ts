@@ -110,14 +110,17 @@ export const requestCheckoutSessionStatusApi = async ({
 
 export const requestTerminalConsecutiveOfferApi = async ({
   courseSlug,
+  date,
   time,
   signal,
   fetchImpl,
 }: GetRequestOptions & {
   courseSlug: string
+  date?: string
   time?: string
 }) => {
   const params = new URLSearchParams({ courseSlug })
+  if (date) params.set("date", date)
   if (time) params.set("time", time)
   const res = await resolveFetch(fetchImpl)(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
     signal,

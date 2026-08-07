@@ -36,6 +36,22 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
   return Math.max(0, Math.min(maxStep, Math.floor(input.initialStep)))
 }
 
+export const resolvePromotionDecisionStepIndex = (stepKeys: readonly EnrollStepKey[]) =>
+  stepKeys.findIndex((key) => key === "promo" || key === "consecutive")
+
+export const resolvePostAccountStepIndex = (input: {
+  packagesStepIndex: number
+  promotionDecisionStepIndex: number
+  paymentsStepIndex: number
+}) => {
+  const orderedStepIndexes = [
+    input.packagesStepIndex,
+    input.promotionDecisionStepIndex,
+    input.paymentsStepIndex,
+  ].filter((index) => index >= 0)
+  return orderedStepIndexes.length > 0 ? Math.min(...orderedStepIndexes) : -1
+}
+
 /**
  * Resolves the step keys for the enrollment flow based on context.
  *
@@ -126,9 +142,12 @@ export const resolvePostPhotoStepIndex = (input: {
   currentStep: number
   stepsLength: number
 }) => {
-  if (input.packagesStepIndex >= 0) return input.packagesStepIndex
-  if ((input.consecutiveStepIndex ?? -1) >= 0) return input.consecutiveStepIndex ?? -1
-  if (input.paymentsStepIndex >= 0) return input.paymentsStepIndex
+  const postPhotoStepIndex = resolvePostAccountStepIndex({
+    packagesStepIndex: input.packagesStepIndex,
+    promotionDecisionStepIndex: input.consecutiveStepIndex ?? -1,
+    paymentsStepIndex: input.paymentsStepIndex,
+  })
+  if (postPhotoStepIndex >= 0) return postPhotoStepIndex
 
   const maxStep = Math.max(0, input.stepsLength - 1)
   return Math.max(0, Math.min(maxStep, input.currentStep + 1))

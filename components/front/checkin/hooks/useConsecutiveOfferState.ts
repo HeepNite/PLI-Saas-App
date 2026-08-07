@@ -6,6 +6,7 @@ import type { ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
 type UseConsecutiveOfferStateOptions = {
   isKioskTerminalFlow: boolean
   activeCourseSlug: string
+  activeDate: string
   activeTime: string
   requestTerminalOffer?: typeof requestTerminalConsecutiveOfferApi
 }
@@ -13,6 +14,7 @@ type UseConsecutiveOfferStateOptions = {
 export function useConsecutiveOfferState({
   isKioskTerminalFlow,
   activeCourseSlug,
+  activeDate,
   activeTime,
   requestTerminalOffer = requestTerminalConsecutiveOfferApi,
 }: UseConsecutiveOfferStateOptions) {
@@ -26,42 +28,51 @@ export function useConsecutiveOfferState({
   const [consecutiveError, setConsecutiveError] = React.useState<string | null>(null)
   const [consecutiveFetchKey, setConsecutiveFetchKey] = React.useState(0)
   const [pendingNewBooking, setPendingNewBooking] = React.useState(false)
+  const requestGenerationRef = React.useRef(0)
 
   const refreshConsecutiveOffer = React.useCallback(() => {
     setConsecutiveFetchKey((key) => key + 1)
   }, [])
 
   React.useEffect(() => {
+    const requestGeneration = ++requestGenerationRef.current
+
     if (!isKioskTerminalFlow) {
       setConsecutiveOffer(null)
       setConsecutiveOfferSettled(true)
       return
     }
-    if (!activeCourseSlug) {
+    if (!activeCourseSlug || !activeDate) {
       setConsecutiveOffer(null)
       setConsecutiveOfferSettled(true)
       return
     }
 
+    setConsecutiveOffer(null)
     setConsecutiveOfferSettled(false)
 
     const controller = new AbortController()
+    const isCurrentRequest = () =>
+      requestGenerationRef.current === requestGeneration && !controller.signal.aborted
 
     requestTerminalOffer({
       courseSlug: activeCourseSlug,
+      date: activeDate,
       time: activeTime || undefined,
       signal: controller.signal,
     })
       .then(({ data }) => {
+        if (!isCurrentRequest()) return
         setConsecutiveOffer(data ? (data as ConsecutiveOffer) : null)
       })
       .catch(() => {})
       .finally(() => {
+        if (!isCurrentRequest()) return
         setConsecutiveOfferSettled(true)
       })
 
     return () => controller.abort()
-  }, [isKioskTerminalFlow, activeCourseSlug, activeTime, consecutiveFetchKey, requestTerminalOffer])
+  }, [isKioskTerminalFlow, activeCourseSlug, activeDate, activeTime, consecutiveFetchKey, requestTerminalOffer])
 
   return {
     consecutiveOffer,

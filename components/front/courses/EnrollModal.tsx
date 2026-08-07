@@ -28,6 +28,7 @@ import {
   shouldIncludePhotoStep,
   shouldPrefillClerkContact,
   shouldRedirectPersonalCompletion,
+  resolvePostAccountStepIndex,
 } from "@/lib/checkin/enroll-flow"
 import {
   getKioskPaymentTransitionRemainingMs,
@@ -306,7 +307,7 @@ export default function EnrollModal({
     infoStepIndex,
     photoStepIndex,
     packagesStepIndex,
-    promoStepIndex,
+    promotionDecisionStepIndex,
     regularServicePrice,
     regularFallbackLocked,
     effectiveInitialStep,
@@ -873,7 +874,7 @@ export default function EnrollModal({
     photoPolicy,
     photoSaved,
     photoStepIndex,
-    promoStepIndex,
+    promotionDecisionStepIndex,
     packagesStepIndex,
     paymentsStepIndex,
     usesPhasedInfoForm,
@@ -991,19 +992,20 @@ export default function EnrollModal({
       const account = preparedAccount || (await requestAccountPreparation())
       if (cancelled || !account) return
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
+      const postAccountStepIndex = resolvePostAccountStepIndex({
+        packagesStepIndex,
+        promotionDecisionStepIndex,
+        paymentsStepIndex,
+      })
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
-      } else if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
-      } else if (packagesStepIndex >= 0) {
-        setStep(packagesStepIndex)
-      } else if (paymentsStepIndex >= 0) {
-        setStep(paymentsStepIndex)
+      } else if (postAccountStepIndex >= 0) {
+        setStep(postAccountStepIndex)
       }
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
+  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promotionDecisionStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
 
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
     isKioskTerminalFlow,

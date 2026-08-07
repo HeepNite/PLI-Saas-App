@@ -98,19 +98,20 @@ describe("checkin QR API adapter", () => {
     expect(init).toEqual({ credentials: "include" })
   })
 
-  it("gets terminal consecutive offers with optional time and abort signal", async () => {
+  it("gets terminal consecutive offers with date, optional time, and abort signal", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ linkedCourseSlug: "class-b" }))
     const controller = new AbortController()
 
     const result = await requestTerminalConsecutiveOfferApi({
       courseSlug: "class-a",
+      date: "2026-08-07",
       time: "20:00",
       signal: controller.signal,
       fetchImpl,
     })
 
     const [url, init] = firstCall(fetchImpl)
-    expect(url).toBe("/api/checkin/terminal/consecutive-offer?courseSlug=class-a&time=20%3A00")
+    expect(url).toBe("/api/checkin/terminal/consecutive-offer?courseSlug=class-a&date=2026-08-07&time=20%3A00")
     expect(init).toEqual({ signal: controller.signal })
     expect(result.data).toEqual({ linkedCourseSlug: "class-b" })
   })
