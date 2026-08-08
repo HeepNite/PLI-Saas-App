@@ -205,13 +205,13 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
       {activeStepKey === "packages" && (
         <StepPackages
           isCheckInNewFlow={props.isCheckInNewFlow}
-          isQrMobileCompactFlow={props.isQrMobileCompactFlow}
           course={props.course}
           pkg={props.pkg}
           setPkg={props.setPkg}
           to12h={props.to12h}
           time={props.time}
           formatPackageMeta={props.formatPackageMeta}
+          dropInPrice={props.serviceOpt?.price}
         />
       )}
 

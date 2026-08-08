@@ -6,24 +6,24 @@ import type { EnrollmentOption } from "@/constants/courses"
 
 type StepPackagesProps = {
   isCheckInNewFlow: boolean
-  isQrMobileCompactFlow: boolean
   course: CourseEnrollmentData
   pkg: string
   setPkg: (value: React.SetStateAction<string>) => void
   to12h: (value: string) => string
   time: string
   formatPackageMeta: (option?: EnrollmentOption | null) => string | undefined
+  dropInPrice?: number
 }
 
 export default function StepPackages({
   isCheckInNewFlow,
-  isQrMobileCompactFlow,
   course,
   pkg,
   setPkg,
   to12h,
   time,
   formatPackageMeta,
+  dropInPrice,
 }: StepPackagesProps) {
   return (
     <div className="space-y-4">
@@ -87,7 +87,7 @@ export default function StepPackages({
                 <p className="text-sm font-semibold uppercase tracking-[-0.01em] text-white">Drop-in</p>
                 <p className="mt-0.5 text-[11px] text-white/50">{course.title} / {to12h(time)}</p>
               </div>
-              <p className="shrink-0 text-right text-lg font-semibold text-white">${(isCheckInNewFlow || isQrMobileCompactFlow) ? "15" : "20"}</p>
+              <p className="shrink-0 text-right text-lg font-semibold text-white">{formatEnrollmentOptionPrice(dropInPrice)}</p>
             </div>
             <p className="w-full text-xs leading-snug text-white/68">
               {isCheckInNewFlow ? "First-time student single class." : "Single class without a package."}
