@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
-import { buildSessionStartsAt, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getDateKeyInTimeZone, getStartOfDayNY, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { getCurrentMonthBoundariesNY } from "@/lib/monthly-boundary"
 import {
   HISTORY_MODE_TAKE_LIMIT,
@@ -355,6 +355,12 @@ const isStandaloneStaffFastActionAttendance = (metadata: Record<string, unknown>
   return source === "staff_fast_action" || source === "staff_fast_action_promo"
 }
 
+const getNextDateKey = (date: string) => {
+  const nextDate = new Date(`${date}T12:00:00.000Z`)
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+  return nextDate.toISOString().slice(0, 10)
+}
+
 const emptyTodayAttendanceOrchestration = (): TodayAttendanceOrchestrationResult => ({
   standaloneItems: [],
   todayAttendanceByPurchaseId: new Map(),
@@ -373,18 +379,30 @@ const loadTodayStaffPaymentsAttendances = async (input: {
   deduplicatedEnrichedPurchases: EnrichedPurchase[]
 }): Promise<TodayAttendanceOrchestrationResult> => {
   const { paymentsRequest, todayWindow, deduplicatedEnrichedPurchases } = input
-  if (paymentsRequest.mode !== "today") return emptyTodayAttendanceOrchestration()
+  if (paymentsRequest.mode !== "today" && paymentsRequest.mode !== "history") {
+    return emptyTodayAttendanceOrchestration()
+  }
 
   const { todayNY, startOfTodayNY, endOfTodayNY } = todayWindow
   const { query } = paymentsRequest
-  const { minStart, maxStart } = getStaffPaymentsTodaySessionBounds(todayNY)
+  const attendanceWindow = paymentsRequest.mode === "history"
+    ? {
+        checkedInAt: {
+          gte: getStartOfDayNY(paymentsRequest.historyRange.from),
+          lt: getStartOfDayNY(getNextDateKey(paymentsRequest.historyRange.to)),
+        },
+      }
+    : (() => {
+        const { minStart, maxStart } = getStaffPaymentsTodaySessionBounds(todayNY)
+        return {
+          session: { startsAt: { gte: minStart, lte: maxStart } },
+          checkedInAt: { gte: startOfTodayNY, lte: endOfTodayNY },
+        }
+      })()
 
   const todayAttendances = await prisma.attendance.findMany({
     where: {
-      session: {
-        startsAt: { gte: minStart, lte: maxStart },
-      },
-      checkedInAt: { gte: startOfTodayNY, lte: endOfTodayNY },
+      ...attendanceWindow,
       ...(query
         ? {
             user: {
@@ -429,15 +447,21 @@ const loadTodayStaffPaymentsAttendances = async (input: {
     take: TODAY_MODE_TAKE_LIMIT,
   })
 
-  const todayScopedPurchases = deduplicatedEnrichedPurchases.filter((item) =>
-    isTodayScopedPurchase({
-      classDate: item.classDate,
-      createdAt: item.purchase.createdAt,
-      todayNY,
-      startOfTodayNY,
-      endOfTodayNY,
-    })
-  )
+  const todayScopedPurchases = paymentsRequest.mode === "history"
+    ? filterPurchasesByClassDateRange(
+        deduplicatedEnrichedPurchases.filter((item) => item.classDate),
+        paymentsRequest.historyRange.from,
+        paymentsRequest.historyRange.to,
+      )
+    : deduplicatedEnrichedPurchases.filter((item) =>
+        isTodayScopedPurchase({
+          classDate: item.classDate,
+          createdAt: item.purchase.createdAt,
+          todayNY,
+          startOfTodayNY,
+          endOfTodayNY,
+        })
+      )
   const purchaseDedupKeys = new Set(
     todayScopedPurchases.flatMap((item) =>
       buildPurchaseAllDedupKeys({
@@ -532,7 +556,7 @@ const loadTodayStaffPaymentsAttendances = async (input: {
         settlementStatus: "pending",
         settlementNote: "",
         settledAt: null,
-        classDate: todayNY,
+        classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.checkedInAt) : todayNY,
         classTime: getTimeKeyInTimeZone(att.session.startsAt),
         classStartsAt: att.session.startsAt,
       })
@@ -581,7 +605,8 @@ const scopePurchasesForResponse = (input: {
   todayWindow: StaffPaymentsTodayWindow
 }) => {
   const { paymentsRequest, deduplicatedEnrichedPurchases, standaloneItems, todayWindow } = input
-  const historyEligiblePurchases = deduplicatedEnrichedPurchases.filter((item) => item.classDate)
+  const historyEligiblePurchases = [...deduplicatedEnrichedPurchases, ...standaloneItems]
+    .filter((item) => item.classDate)
   const historyDatePurchases = paymentsRequest.mode === "history"
     ? filterPurchasesByClassDateRange(historyEligiblePurchases, paymentsRequest.historyRange.from, paymentsRequest.historyRange.to)
     : []

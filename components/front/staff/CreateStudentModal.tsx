@@ -3,7 +3,8 @@
 import React from "react"
 import { createPortal } from "react-dom"
 import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle } from "lucide-react"
-import type { CreateStudentFormState, CreateStudentResult } from "./useStaffCreateStudentAdmin"
+import type { CreateStudentFormState, CreateStudentResult, CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
+import { getStudentAttendanceDateBounds } from "./useStaffCreateStudentAdmin"
 
 type CreateStudentModalProps = {
   isOpen: boolean
@@ -13,6 +14,7 @@ type CreateStudentModalProps = {
   result: CreateStudentResult | null
   hasAmount: boolean
   canSubmit: boolean
+  attendanceSessions: CreateStudentSessionOption[]
   onClose: () => void
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
@@ -26,6 +28,7 @@ export default function CreateStudentModal({
   result,
   hasAmount,
   canSubmit,
+  attendanceSessions,
   onClose,
   onUpdateField,
   onSubmit,
@@ -60,6 +63,7 @@ export default function CreateStudentModal({
             error={error}
             hasAmount={hasAmount}
             canSubmit={canSubmit}
+            attendanceSessions={attendanceSessions}
             onUpdateField={onUpdateField}
             onSubmit={onSubmit}
           />
@@ -76,6 +80,7 @@ function FormView({
   error,
   hasAmount,
   canSubmit,
+  attendanceSessions,
   onUpdateField,
   onSubmit,
 }: {
@@ -84,9 +89,12 @@ function FormView({
   error: string | null
   hasAmount: boolean
   canSubmit: boolean
+  attendanceSessions: CreateStudentSessionOption[]
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
 }) {
+  const attendanceDateBounds = getStudentAttendanceDateBounds()
+
   return (
     <form
       onSubmit={(e) => {
@@ -103,6 +111,22 @@ function FormView({
         value={form.email}
         onChange={(v) => onUpdateField("email", v)}
       />
+
+      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <label className="flex items-center gap-2 text-xs text-white/75">
+          <input type="checkbox" checked={form.createAttendance} onChange={(event) => onUpdateField("createAttendance", event.target.checked)} />
+          Create class check-in
+        </label>
+        {form.createAttendance && (
+          <>
+            <FieldInput label="Check-in date" type="date" placeholder="YYYY-MM-DD" value={form.attendanceDate} onChange={(value) => onUpdateField("attendanceDate", value)} min={attendanceDateBounds.minimum} max={attendanceDateBounds.maximum} />
+            <select value={form.attendanceSessionId} onChange={(event) => onUpdateField("attendanceSessionId", event.target.value)} className="w-full rounded-xl border border-white/15 bg-white/5 p-2 text-sm text-white">
+              <option value="">Select a class session</option>
+              {attendanceSessions.map((session) => <option key={session.id} value={session.id}>{session.title} · {new Date(session.startsAt).toLocaleString()}</option>)}
+            </select>
+          </>
+        )}
+      </div>
       <FieldInput
         label="Phone (E.164)"
         icon={<Phone className="h-4 w-4" />}
@@ -233,6 +257,7 @@ function FieldInput({
   value,
   onChange,
   min,
+  max,
   step,
 }: {
   label: string
@@ -242,6 +267,7 @@ function FieldInput({
   value: string
   onChange: (value: string) => void
   min?: string
+  max?: string
   step?: string
 }) {
   return (
@@ -259,6 +285,7 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           min={min}
+          max={max}
           step={step}
           className={`w-full rounded-xl border border-white/15 bg-white/5 ${icon ? "pl-9" : "pl-3"} pr-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[var(--brand,#b61616)]/60`}
         />

@@ -84,4 +84,23 @@ describe("packages helpers", () => {
     expect(tx.packagePurchase.updateMany).not.toHaveBeenCalled()
     expect(tx.packageUsageLedger.create).not.toHaveBeenCalled()
   })
+
+  it("does not reserve a package purchased after the attendance timestamp", async () => {
+    const timestamp = new Date("2026-06-19T23:30:00.000Z")
+    const tx = {
+      packageUsageLedger: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
+      packagePurchase: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null), update: vi.fn(), updateMany: vi.fn() },
+    }
+
+    await expect(reservePackageCreditForAttendanceTx(tx as never, {
+      packagePurchaseId: "package_purchase_1",
+      userId: "user_1",
+      attendanceId: "attendance_1",
+      at: timestamp,
+    })).rejects.toThrow("PACKAGE_NOT_AVAILABLE")
+
+    expect(tx.packagePurchase.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ purchasedAt: { lte: timestamp } }),
+    }))
+  })
 })
