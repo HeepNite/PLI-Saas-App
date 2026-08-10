@@ -7,7 +7,12 @@ export type CreateStudentFormState = {
   amountCents: string
   paymentMode: "cash" | "card_qr" | ""
   note: string
+  createAttendance: boolean
+  attendanceDate: string
+  attendanceSessionId: string
 }
+
+export type CreateStudentSessionOption = { id: string; courseSlug: string; title: string; startsAt: string; durationMinutes: number | null; isCurrent: boolean }
 
 export type CreateStudentResult = {
   userId: string
@@ -22,6 +27,22 @@ export type CreateStudentResult = {
   }
 }
 
+const getTodayNewYork = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date())
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((value) => value.type === type)?.value || ""
+  return `${part("year")}-${part("month")}-${part("day")}`
+}
+
+const getHistoricalDateMinimum = (todayNewYork: string) => {
+  const [year, month, day] = todayNewYork.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day - 14)).toISOString().slice(0, 10)
+}
+
+export const getStudentAttendanceDateBounds = () => {
+  const maximum = getTodayNewYork()
+  return { minimum: getHistoricalDateMinimum(maximum), maximum }
+}
+
 const INITIAL_FORM: CreateStudentFormState = {
   email: "",
   phone: "",
@@ -29,6 +50,9 @@ const INITIAL_FORM: CreateStudentFormState = {
   amountCents: "",
   paymentMode: "",
   note: "",
+  createAttendance: false,
+  attendanceDate: getTodayNewYork(),
+  attendanceSessionId: "",
 }
 
 type UseStaffCreateStudentAdminOptions = {
@@ -45,6 +69,7 @@ export function useStaffCreateStudentAdmin({
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [result, setResult] = React.useState<CreateStudentResult | null>(null)
+  const [attendanceSessions, setAttendanceSessions] = React.useState<CreateStudentSessionOption[]>([])
 
   const openModal = React.useCallback(() => {
     setForm(INITIAL_FORM)
@@ -56,13 +81,16 @@ export function useStaffCreateStudentAdmin({
   const closeModal = React.useCallback(() => {
     setIsOpen(false)
     setForm(INITIAL_FORM)
+    setAttendanceSessions([])
     setError(null)
     setResult(null)
   }, [])
 
   const updateField = React.useCallback(
     <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => {
-      setForm((prev) => ({ ...prev, [field]: value }))
+      const clearsAttendanceSelection = field === "attendanceDate" || (field === "createAttendance" && !value)
+      setForm((prev) => ({ ...prev, [field]: value, ...(clearsAttendanceSelection ? { attendanceSessionId: "" } : {}) }))
+      if (clearsAttendanceSelection) setAttendanceSessions([])
     },
     []
   )
@@ -84,6 +112,7 @@ export function useStaffCreateStudentAdmin({
           amountCents,
           paymentMode: amountCents > 0 ? form.paymentMode || undefined : undefined,
           note: form.note.trim() || undefined,
+          checkIn: form.createAttendance ? { enabled: true, date: form.attendanceDate, sessionId: form.attendanceSessionId || undefined } : undefined,
         }),
       })
 
@@ -104,6 +133,30 @@ export function useStaffCreateStudentAdmin({
     }
   }, [form, handleStaffAuthFailure, onSuccess])
 
+  React.useEffect(() => {
+    if (!isOpen || !form.createAttendance) {
+      setAttendanceSessions([])
+      return
+    }
+    let cancelled = false
+    setAttendanceSessions([])
+    void fetch(`/api/staff/students/sessions?date=${encodeURIComponent(form.attendanceDate)}`)
+      .then(async (res) => {
+        if (res.ok) return res.json()
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Unable to load class sessions (${res.status})`)
+      })
+      .then((data) => {
+        if (!cancelled) setAttendanceSessions(Array.isArray(data.items) ? data.items : [])
+      })
+      .catch((reason) => {
+        if (cancelled) return
+        setAttendanceSessions([])
+        setError(reason instanceof Error ? reason.message : "Unable to load class sessions")
+      })
+    return () => { cancelled = true }
+  }, [form.attendanceDate, form.createAttendance, isOpen])
+
   const hasAmount = React.useMemo(() => {
     const parsed = Number(form.amountCents)
     return Number.isFinite(parsed) && parsed > 0
@@ -113,8 +166,9 @@ export function useStaffCreateStudentAdmin({
     if (submitting) return false
     if (!form.email.trim() && !form.phone.trim()) return false
     if (hasAmount && !form.paymentMode) return false
+    if (form.createAttendance && !form.attendanceSessionId) return false
     return true
-  }, [form.email, form.phone, form.paymentMode, hasAmount, submitting])
+  }, [form.email, form.phone, form.paymentMode, form.createAttendance, form.attendanceSessionId, hasAmount, submitting])
 
   return {
     isOpen,
@@ -122,6 +176,7 @@ export function useStaffCreateStudentAdmin({
     submitting,
     error,
     result,
+    attendanceSessions,
     hasAmount,
     canSubmit,
     openModal,

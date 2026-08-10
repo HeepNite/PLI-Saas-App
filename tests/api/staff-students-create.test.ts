@@ -5,6 +5,7 @@ const mockFindClerkUserByIdentifiers = vi.fn()
 const mockEnsureClerkUser = vi.fn()
 const mockUpdateClerkUserIfMissing = vi.fn()
 const mockUpsertUserByIdentifiers = vi.fn()
+const mockWasUserCreatedByUpsert = vi.fn()
 const mockClerkClient = vi.fn()
 
 vi.mock("@/lib/security/staff-portal-auth", () => ({
@@ -19,16 +20,29 @@ vi.mock("@/lib/clerk-users", () => ({
 
 vi.mock("@/lib/users", () => ({
   upsertUserByIdentifiers: (...args: unknown[]) => mockUpsertUserByIdentifiers(...args),
+  wasUserCreatedByUpsert: (...args: unknown[]) => mockWasUserCreatedByUpsert(...args),
 }))
 
 const mockPrisma = {
+  classSession: {
+    findUnique: vi.fn(),
+  },
   purchase: {
     create: vi.fn(),
   },
+  $transaction: vi.fn(),
 }
 
 const mockWriteStudentDataAudit = vi.fn()
 const mockStripeCheckoutSessionsCreate = vi.fn()
+const mockReservePackageCreditForAttendanceTx = vi.fn()
+const mockConsumeRateLimit = vi.fn()
+
+const mockTx = {
+  attendance: { findUnique: vi.fn(), create: vi.fn() },
+  packagePurchase: { findFirst: vi.fn() },
+  studentDataAudit: { create: vi.fn() },
+}
 
 vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: (...args: unknown[]) => mockClerkClient(...args),
@@ -40,12 +54,16 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/security/rate-limit", () => ({
   buildRateLimitKey: vi.fn(() => "staff:students:create"),
-  consumeRateLimit: vi.fn(() => ({ ok: true })),
+  consumeRateLimit: (...args: unknown[]) => mockConsumeRateLimit(...args),
   getClientIp: vi.fn(() => "127.0.0.1"),
 }))
 
 vi.mock("@/lib/audit/student-data-audit", () => ({
   writeStudentDataAudit: (...args: unknown[]) => mockWriteStudentDataAudit(...args),
+}))
+
+vi.mock("@/lib/packages", () => ({
+  reservePackageCreditForAttendanceTx: (...args: unknown[]) => mockReservePackageCreditForAttendanceTx(...args),
 }))
 
 vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_fake")
@@ -106,15 +124,20 @@ describe("POST /api/staff/students", () => {
     mockEnsureClerkUser.mockReset()
     mockUpdateClerkUserIfMissing.mockReset()
     mockUpsertUserByIdentifiers.mockReset()
+    mockWasUserCreatedByUpsert.mockReset().mockImplementation((user: { created?: boolean } | null) => Boolean(user?.created))
     mockClerkClient.mockReset()
     mockPrisma.purchase.create.mockReset()
+    mockPrisma.classSession.findUnique.mockReset()
+    mockPrisma.$transaction.mockReset().mockImplementation(async (callback: (tx: typeof mockTx) => unknown) => callback(mockTx))
     mockWriteStudentDataAudit.mockReset()
+    mockReservePackageCreditForAttendanceTx.mockReset()
+    mockConsumeRateLimit.mockReset().mockReturnValue({ ok: true })
     mockStripeCheckoutSessionsCreate.mockReset()
     mockAuthorizeStudentOperationalRequest.mockResolvedValue(frontDeskAuth)
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockEnsureClerkUser.mockResolvedValue(createdClerkUser)
     mockUpdateClerkUserIfMissing.mockResolvedValue(undefined)
-    mockUpsertUserByIdentifiers.mockResolvedValue(localStudent)
+    mockUpsertUserByIdentifiers.mockResolvedValue({ ...localStudent, created: true })
     mockClerkClient.mockResolvedValue({
       invitations: {
         createInvitation: vi.fn().mockResolvedValue({ id: "inv_1" }),
@@ -128,6 +151,10 @@ describe("POST /api/staff/students", () => {
       status: "pending",
     })
     mockWriteStudentDataAudit.mockResolvedValue(undefined)
+    mockTx.attendance.findUnique.mockReset().mockResolvedValue(null)
+    mockTx.attendance.create.mockReset().mockResolvedValue({ id: "attendance_1" })
+    mockTx.packagePurchase.findFirst.mockReset().mockResolvedValue(null)
+    mockTx.studentDataAudit.create.mockReset().mockResolvedValue({ id: "audit_1" })
     mockStripeCheckoutSessionsCreate.mockResolvedValue({
       id: "cs_test_123",
       url: "https://checkout.stripe.com/pay/cs_test_123",
@@ -141,6 +168,27 @@ describe("POST /api/staff/students", () => {
 
     expect(res.status).toBe(403)
     await expect(res.json()).resolves.toEqual({ error: "Insufficient role" })
+  })
+
+  it.each([
+    { role: "owner", category: null },
+    { role: "admin", category: null },
+    { role: "staff", category: "front_desk" },
+  ])("preserves $role authorization accepted by the operational guard", async (auth) => {
+    mockAuthorizeStudentOperationalRequest.mockResolvedValue({ ...frontDeskAuth, ...auth })
+
+    const res = await postCreateStudent({ email: "student@example.com", amountCents: 0 })
+
+    expect(res.status).toBe(201)
+  })
+
+  it("preserves the create limiter and Retry-After response", async () => {
+    mockConsumeRateLimit.mockReturnValue({ ok: false, retryAfterSec: 12 })
+
+    const res = await postCreateStudent({ email: "student@example.com" })
+
+    expect(res.status).toBe(429)
+    expect(res.headers.get("Retry-After")).toBe("12")
   })
 
   it("rejects requests without email or phone", async () => {
@@ -208,6 +256,175 @@ describe("POST /api/staff/students", () => {
       name: "Maria Student",
     })
     await expect(res.json()).resolves.toMatchObject({ isExisting: true, userId: "user_student_1" })
+  })
+
+  it("records a historical attendance at the persisted session start and never emits profile.created for local reuse", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    const startsAt = new Date("2026-07-15T23:00:00.000Z")
+    mockFindClerkUserByIdentifiers.mockResolvedValue(createdClerkUser)
+    mockUpsertUserByIdentifiers.mockResolvedValue({ ...localStudent, created: false })
+    mockPrisma.classSession.findUnique.mockResolvedValue({
+      id: "session_1",
+      courseSlug: "salsa",
+      title: "Salsa",
+      startsAt,
+      durationMinutes: 60,
+    })
+
+    try {
+      const res = await postCreateStudent({
+        email: "student@example.com",
+        amountCents: 0,
+        checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" },
+      })
+
+      expect(res.status).toBe(201)
+      expect(mockTx.attendance.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "user_student_1",
+          sessionId: "session_1",
+          checkedInAt: startsAt,
+        }),
+      }))
+      expect(mockWriteStudentDataAudit).toHaveBeenCalledWith(expect.objectContaining({
+        entity: "attendance",
+        entityId: "attendance_1",
+        staffClerkId: "front_desk_1",
+      }), mockTx)
+      expect(mockWriteStudentDataAudit).not.toHaveBeenCalledWith(expect.objectContaining({ entity: "profile", field: "created" }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("accepts a persisted session on New York today", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    const startsAt = new Date("2026-07-29T23:00:00.000Z")
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_today", courseSlug: "salsa", title: "Salsa", startsAt })
+
+    try {
+      const res = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "2026-07-29", sessionId: "session_today" } })
+
+      expect(res.status).toBe(201)
+      expect(mockTx.attendance.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ sessionId: "session_today", checkedInAt: startsAt }),
+      }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects a session ID that does not resolve to a persisted session", async () => {
+    mockPrisma.classSession.findUnique.mockResolvedValue(null)
+
+    const res = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "2026-07-15", sessionId: "missing_session" } })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Selected class session is not available for staff check-in." })
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+  })
+
+  it("rejects duplicate attendance before reserving package credit", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: new Date("2026-07-15T23:00:00.000Z") })
+    mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing" })
+
+    try {
+      const res = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" } })
+
+      expect(res.status).toBe(409)
+      expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    ["future", "2026-07-30", new Date("2026-07-30T23:00:00.000Z")],
+    ["too-old", "2026-07-14", new Date("2026-07-14T23:00:00.000Z")],
+    ["date-mismatched", "2026-07-15", new Date("2026-07-16T23:00:00.000Z")],
+  ])("rejects a $0 session check-in", async (_label, date, startsAt) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt })
+
+    try {
+      const res = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date, sessionId: "session_1" } })
+
+      expect(res.status).toBe(400)
+      expect(mockTx.attendance.create).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects missing and invalid session selections", async () => {
+    const missingSession = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "2026-07-15" } })
+    const invalidDate = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "not-a-date", sessionId: "session_1" } })
+
+    expect(missingSession.status).toBe(400)
+    expect(invalidDate.status).toBe(400)
+  })
+
+  it("reserves a generic eligible package at the selected session start", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    const startsAt = new Date("2026-07-15T23:00:00.000Z")
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt })
+    mockTx.packagePurchase.findFirst.mockResolvedValue({ id: "package_1" })
+
+    try {
+      const res = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" } })
+
+      expect(res.status).toBe(201)
+      expect(mockTx.packagePurchase.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([expect.objectContaining({ OR: expect.arrayContaining([{ courseSlug: null, packagePlanId: null }]) })]),
+        }),
+      }))
+      expect(mockReservePackageCreditForAttendanceTx).toHaveBeenCalledWith(mockTx, expect.objectContaining({ packagePurchaseId: "package_1", at: startsAt }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not select a package purchased after the historical session", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    const startsAt = new Date("2026-07-15T23:00:00.000Z")
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt })
+
+    try {
+      const res = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" } })
+
+      expect(res.status).toBe(201)
+      expect(mockTx.packagePurchase.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ purchasedAt: { lte: startsAt } }),
+      }))
+      expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("writes distinct profile and attendance audits for a newly created student check-in", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    const startsAt = new Date("2026-07-15T23:00:00.000Z")
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt })
+
+    try {
+      const res = await postCreateStudent({ email: "student@example.com", checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" } })
+
+      expect(res.status).toBe(201)
+      expect(mockWriteStudentDataAudit).toHaveBeenCalledWith(expect.objectContaining({ entity: "attendance", staffClerkId: "front_desk_1", ipAddress: "127.0.0.1" }), mockTx)
+      expect(mockWriteStudentDataAudit).toHaveBeenCalledWith(expect.objectContaining({ entity: "profile", field: "created", staffClerkId: "front_desk_1", ipAddress: "127.0.0.1" }))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("creates a phone-only Clerk and local student identity", async () => {
