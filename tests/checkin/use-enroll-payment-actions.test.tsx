@@ -65,6 +65,7 @@ const defaultInput = (override: Partial<UseEnrollPaymentActionsInput> = {}): Use
   effectiveConsecutiveOffer: null,
   isCheckInFlow: false,
   isKioskTerminalFlow: false,
+  isProfileBookingFlow: false,
   isSignedIn: false,
   processing: false,
   step: 2,

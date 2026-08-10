@@ -41,6 +41,7 @@ export type UseEnrollActionsInput = {
   isCheckInFlow: boolean
   isKioskTerminalFlow: boolean
   isQrMobileCompactFlow: boolean
+  isProfileBookingFlow: boolean
   isSignedIn: boolean | undefined
   processing: boolean
   identityCheckBusy: boolean
@@ -122,7 +123,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken, checkInContextDate,
     checkInContextTime, checkInContextDuration, consecutiveAccepted, consecutiveAddedCents,
     effectiveConsecutiveOffer, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
-    isSignedIn, processing, step, steps,
+    isProfileBookingFlow, isSignedIn, processing, step, steps,
     photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, infoStepIndex,
     skipContactStep, regularServiceId, regularServicePrice, usesPhasedInfoForm, activeStepKey,
     kioskInfoPhase, activeNumericField, preparedAccount, pendingAutoPay, signInPurpose, onCloseAction,
@@ -164,7 +165,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
     consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
-    isCheckInFlow, isKioskTerminalFlow, isSignedIn, processing, step,
+    isCheckInFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
     paymentsStepIndex, infoStepIndex, regularServiceId, regularServicePrice,
     pendingAutoPay: pendingAutoPay,
     getToken,
