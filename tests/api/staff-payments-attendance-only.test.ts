@@ -50,6 +50,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/class-schedule", () => ({
   buildSessionStartsAt: (...args: unknown[]) => mockBuildSessionStartsAt(...args),
+  getDateKeyInTimeZone: (date: Date) => date.toISOString().slice(0, 10),
   getTodayNewYork: () => mockGetTodayNewYork(),
   getTimeKeyInTimeZone: (date: Date) => date.toISOString().split("T")[1].substring(0, 5),
   // Match the current EDT fixtures.
@@ -244,6 +245,28 @@ describe("staff payments route - attendance only", () => {
       attendanceId: "attendance_linked",
       checkInStatus: "checked_in",
     })
+  })
+
+  it("returns a historical attendance on the selected class date using checkedInAt", async () => {
+    const historicalStart = new Date("2026-03-10T23:00:00.000Z")
+    mockPrisma.attendance.findMany.mockResolvedValue([{
+      id: "attendance_historical",
+      userId: "user_historical",
+      status: "checked_in",
+      checkedInAt: historicalStart,
+      checkedOutAt: null,
+      session: { courseSlug: "salsa-beginners", startsAt: historicalStart, title: "Salsa Beginners" },
+      user: { id: "user_historical", name: "Historical Student", email: "history@example.com", phone: "+15555550100", clerkId: "clerk_history" },
+      metadata: { source: "staff_created_student" },
+      packageUsage: null,
+    }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-03-10&to=2026-03-10"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual(expect.arrayContaining([expect.objectContaining({ attendanceId: "attendance_historical", checkInStatus: "checked_in" })]))
   })
 
   it("excludes orphan staff fast-action attendance when the purchase was deleted", async () => {
