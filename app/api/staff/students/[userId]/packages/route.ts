@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma"
 import { authorizeCashPackageGrantRequest, authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { PAYMENT_CHANNEL, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -124,7 +126,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const payload = body as Record<string, unknown>
+  const payload = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {}
   const packagePurchaseId = typeof payload.packagePurchaseId === "string" ? payload.packagePurchaseId : ""
   if (!packagePurchaseId) {
     return NextResponse.json({ error: "packagePurchaseId is required." }, { status: 400 })
@@ -298,6 +300,107 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     return NextResponse.json({ ok: true, data: result })
   } catch (error) {
     console.error("Package override error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+export async function POST(req: Request, context: { params: Promise<{ userId: string }> }) {
+  const rateLimit = consumeRateLimit({ key: buildRateLimitKey("staff:packages:post", getClientIp(req)), limit: 30, windowMs: 60_000 })
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } })
+  }
+
+  const authResult = await authorizeCashPackageGrantRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+
+  const { userId } = await context.params
+  if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 })
+
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  const payload = body as Record<string, unknown>
+  const allowedFields = ["packagePlanId", "reason", "idempotencyKey"]
+  const packagePlanId = typeof payload.packagePlanId === "string" ? payload.packagePlanId.trim() : ""
+  const reason = typeof payload.reason === "string" ? payload.reason.trim() : ""
+  const idempotencyKey = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey.trim() : ""
+  if (Object.keys(payload).length !== allowedFields.length || Object.keys(payload).some((field) => !allowedFields.includes(field)) || !packagePlanId || !reason || reason.length > 500 || !idempotencyKey) {
+    return NextResponse.json({ error: "Invalid grant request" }, { status: 400 })
+  }
+
+  const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+  if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 })
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}), hashtext(${packagePlanId}))`
+
+      const replay = await tx.purchase.findUnique({ where: { idempotencyKey } })
+      if (replay) {
+        const metadata = asObject(replay.metadata)
+        if (replay.userId === userId && replay.packageId && metadata.source === "staff_package_grant" && metadata.packagePlanId === packagePlanId) {
+          return { ok: true, purchaseId: replay.id, replayed: true } as const
+        }
+        return { ok: false, error: "IDEMPOTENCY_KEY_REUSED" } as const
+      }
+
+      const plan = await tx.packagePlan.findFirst({ where: { id: packagePlanId, active: true } })
+      if (!plan) return { ok: false, error: "INVALID_PACKAGE_PLAN" } as const
+
+      const activePackage = await tx.packagePurchase.findFirst({
+        where: { userId, status: "active", OR: [{ packagePlanId }, { packageId: plan.key }] },
+        select: { id: true },
+      })
+      if (activePackage) return { ok: false, error: "DUPLICATE_ACTIVE_PACKAGE" } as const
+
+      const amount = plan.priceCents ?? 0
+      const metadata = {
+        source: "staff_package_grant", packagePlanId: plan.id, packageId: plan.key, packageLabel: plan.label,
+        packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
+        packageIsUnlimited: String(plan.isUnlimited), packageCadence: plan.cadence ?? "",
+        packageMakeUps: String(plan.makeUps), packageValidDays: String(plan.validDays),
+        paymentChannel: PAYMENT_CHANNEL.CASH, settlementStatus: SETTLEMENT_STATUS.PENDING, outstandingBalance: amount,
+      }
+      const purchase = await tx.purchase.upsert({
+        where: { idempotencyKey },
+        update: {},
+        create: {
+          userId, courseSlug: plan.courseSlug ?? `package:${plan.key}`, courseTitle: plan.label, amount,
+          currency: "usd", status: PURCHASE_STATUS.PENDING, packageId: plan.key, idempotencyKey, metadata,
+        },
+      })
+      const createdMetadata = asObject(purchase.metadata)
+      if (purchase.userId !== userId || purchase.packageId !== plan.key || createdMetadata.packagePlanId !== packagePlanId || createdMetadata.source !== "staff_package_grant") {
+        return { ok: false, error: "IDEMPOTENCY_KEY_REUSED" } as const
+      }
+
+      await writeStudentDataAudit({
+        targetUserId: userId, staffClerkId: authResult.userId, staffName: authResult.staffName,
+        entity: "package", entityId: purchase.id, field: "cash_package_grant",
+        valueAfter: { outcome: "CREATED", packagePlanId, purchaseId: purchase.id }, reason, ipAddress: getClientIp(req),
+      }, tx)
+      return { ok: true, purchaseId: purchase.id, replayed: false } as const
+    })
+
+    if (!result.ok) {
+      await writeStudentDataAudit({
+        targetUserId: userId, staffClerkId: authResult.userId, staffName: authResult.staffName,
+        entity: "package", field: "cash_package_grant", valueAfter: { outcome: result.error }, reason, ipAddress: getClientIp(req),
+      })
+      return NextResponse.json({ error: result.error }, { status: result.error === "INVALID_PACKAGE_PLAN" ? 400 : 409 })
+    }
+
+    return NextResponse.json({ ok: true, data: { purchaseId: result.purchaseId, replayed: result.replayed } }, { status: result.replayed ? 200 : 201 })
+  } catch (error) {
+    console.error("Cash package grant error:", error)
+    await writeStudentDataAudit({
+      targetUserId: userId, staffClerkId: authResult.userId, staffName: authResult.staffName,
+      entity: "package", field: "cash_package_grant", valueAfter: { outcome: "FAILED" }, reason, ipAddress: getClientIp(req),
+    })
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
