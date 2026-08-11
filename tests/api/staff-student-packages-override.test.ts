@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockAuthorizeOwnerOrAdmin = vi.fn()
+const mockAuthorizeCashPackageGrant = vi.fn()
 const mockWriteAudit = vi.fn()
 
 const mockPrisma = {
@@ -12,11 +13,15 @@ const mockPrisma = {
     findMany: vi.fn(),
     update: vi.fn(),
   },
+  packagePlan: {
+    findMany: vi.fn(),
+  },
   $transaction: vi.fn(),
 }
 
 vi.mock("@/lib/security/staff-portal-auth", () => ({
   authorizeOwnerOrAdminRequest: (...args: unknown[]) => mockAuthorizeOwnerOrAdmin(...args),
+  authorizeCashPackageGrantRequest: (...args: unknown[]) => mockAuthorizeCashPackageGrant(...args),
 }))
 
 vi.mock("@/lib/audit/student-data-audit", () => ({
@@ -56,6 +61,7 @@ describe("PATCH /api/staff/students/[userId]/packages", () => {
     vi.resetModules()
     mockAuthorizeOwnerOrAdmin.mockReset()
     mockAuthorizeOwnerOrAdmin.mockResolvedValue({ ok: true, userId: "user_owner_1", role: "owner", category: null })
+    mockAuthorizeCashPackageGrant.mockReset()
     mockWriteAudit.mockReset()
     mockWriteAudit.mockResolvedValue(undefined)
 
@@ -63,6 +69,7 @@ describe("PATCH /api/staff/students/[userId]/packages", () => {
     mockPrisma.packagePurchase.findUnique.mockReset()
     mockPrisma.packagePurchase.findMany.mockReset()
     mockPrisma.packagePurchase.update.mockReset()
+    mockPrisma.packagePlan.findMany.mockReset()
     mockPrisma.$transaction.mockReset()
 
     mockPrisma.user.findUnique.mockResolvedValue({ id: USER_ID, name: "Test Student" })
@@ -90,6 +97,43 @@ describe("PATCH /api/staff/students/[userId]/packages", () => {
       id: "pkg_a",
       usedCredits: 4,
     })
+    expect(mockAuthorizeOwnerOrAdmin).toHaveBeenCalledOnce()
+    expect(mockAuthorizeCashPackageGrant).not.toHaveBeenCalled()
+  })
+
+  it("lists only active plans for an authorized grant picker", async () => {
+    mockAuthorizeCashPackageGrant.mockResolvedValue({
+      ok: true,
+      userId: "user_staff_1",
+      role: "staff",
+      category: "front_desk",
+      subCategory: null,
+      staffName: "Front Desk",
+    })
+    mockPrisma.user.findUnique.mockResolvedValue({ id: USER_ID })
+    mockPrisma.packagePlan.findMany.mockResolvedValue([
+      { id: "plan_1", key: "ten-class-pack", label: "10 Class Pack", priceCents: 12000, cadence: "monthly", totalCredits: 10, isUnlimited: false },
+    ])
+
+    const { GET } = await import("@/app/api/staff/students/[userId]/packages/route")
+    const res = await GET(new Request(`http://localhost/api/staff/students/${USER_ID}/packages?intent=grant`), { params: Promise.resolve({ userId: USER_ID }) })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      ok: true,
+      data: { plans: [{ id: "plan_1", key: "ten-class-pack", label: "10 Class Pack", priceCents: 12000, cadence: "monthly", totalCredits: 10, isUnlimited: false }] },
+    })
+    expect(mockPrisma.packagePlan.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { active: true } }))
+  })
+
+  it.each([401, 403])("returns %i when grant authorization denies the request", async (status) => {
+    mockAuthorizeCashPackageGrant.mockResolvedValue({ ok: false, status, error: "Insufficient role" })
+
+    const { GET } = await import("@/app/api/staff/students/[userId]/packages/route")
+    const res = await GET(new Request(`http://localhost/api/staff/students/${USER_ID}/packages?intent=grant`), { params: Promise.resolve({ userId: USER_ID }) })
+
+    expect(res.status).toBe(status)
+    await expect(res.json()).resolves.toEqual({ error: "Insufficient role" })
   })
 
   it("returns 404 when listing packages for missing student", async () => {
