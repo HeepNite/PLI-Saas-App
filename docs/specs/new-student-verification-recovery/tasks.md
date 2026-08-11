@@ -48,6 +48,7 @@ Implement the approved resend-threshold, unprivileged-draft, staff-confirmed pri
 - [ ] Require staff code entry, verify draft state/expiry/enrollment binding, and reveal captured identity fields only after authorization.
 - [ ] Require explicit no-SMS and phone-validation confirmations.
 - [ ] Create the privileged ticket only after those confirmations and audit the decision without retaining credentials or duplicate payload.
+- [ ] Present a visible recovery control before ordinary contact fields that opens a dedicated dialog; keep the ordinary form unchanged through lookup and populate it only after ticket issuance.
 
 **Complete when:** a code alone cannot create or verify an account, while authorized confirmed staff can create exactly one valid privileged ticket.
 
@@ -74,6 +75,7 @@ Implement the approved resend-threshold, unprivileged-draft, staff-confirmed pri
 - [ ] Test outcome separation and that second resend is a UX gate, not delivery-failure proof.
 - [ ] Test explicit-action draft creation, code opacity, popup instruction, TTL, and absence of account privilege.
 - [ ] Test authorization-before-disclosure, Owner/Admin/Front Desk access, Teacher exclusion, uniform failures, review, and dual confirmation.
+- [ ] Test the dedicated staff dialog trigger, display-only lookup, and post-confirmation form population.
 - [ ] Test one-time privileged ticket issuance/consumption, concurrent reservation, expiry, lifecycle invalidation, audit, and non-leakage.
 - [ ] Force `POST /api/staff/students` local failure after reservation and prove the same authorization retries successfully without duplicate creation.
 - [ ] Regression-test unchanged admin attendance/payment behavior and verified-phone treatment restricted to valid consumption.

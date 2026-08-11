@@ -27,6 +27,10 @@ Use two bounded server-side records for supervised Terminal or QR/mobile recover
 
 The second resend is not a delivery-failure classifier. A generic error, prepared Clerk user, unverified Clerk user, client state, or draft alone cannot enter `ticket_issued`.
 
+## Staff Modal Interaction
+
+The New student modal shows a visible `SMS code did not arrive?` control before the ordinary contact fields. It opens a dedicated accessible dialog for manual-code entry, returned-identity review, and the two confirmations. A successful lookup is display-only: it must not populate or otherwise modify the ordinary creation form. Only a successful staff confirmation may write the ticket-derived phone, email, and name to that form, then close the recovery dialog so staff can continue the unchanged attendance and payment workflow.
+
 ## Records And Credentials
 
 | Record | Minimum payload | Credential rule | Privilege |
@@ -86,5 +90,6 @@ Server-side expiry enforcement is mandatory; client lifecycle requests are not t
 - Code alone cannot create, verify, authenticate, or disclose to unauthorized users.
 - Owner/Admin/Front Desk authorization, Teacher exclusion, authorization-before-disclosure, and uniform lookup failure.
 - Required staff review and dual confirmation before privileged-ticket issuance.
+- The staff control is visible before contact fields, opens a separate dialog, leaves ordinary fields unchanged after lookup, and populates ticket-derived fields only after confirmation.
 - Concurrent reservation permits one creator only; failed Clerk or local work releases a valid ticket for retry; successful local commit consumes/scrubs once with audit and student-domain writes.
 - Existing admin attendance/payment behavior and narrow Clerk verified-phone exception remain unchanged.

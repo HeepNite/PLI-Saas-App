@@ -21,15 +21,15 @@ describe("student recovery API boundaries", () => {
   beforeEach(() => {
     vi.resetModules()
     for (const mock of [mockAuthorize, mockIssueDraft, mockLookupDraft, mockIssueTicket, mockNormalizeCode]) mock.mockReset()
-    mockNormalizeCode.mockImplementation((value) => typeof value === "string" && /^[A-Z0-9]{12}$/.test(value) ? value : null)
+    mockNormalizeCode.mockImplementation((value) => typeof value === "string" && /^(?:PLI-\d{4}|[A-Z0-9]{12})$/.test(value) ? value : null)
   })
 
   it("returns only the opaque draft code to the student", async () => {
-    mockIssueDraft.mockResolvedValue("ABCDEFGHIJKL")
+    mockIssueDraft.mockResolvedValue("PLI-1234")
     const { POST } = await import("@/app/api/checkin/qr/new-student/recovery-draft/route")
     const response = await POST(post("http://localhost/recovery", { phone: "+15551234567", email: "student@example.com", name: "Student", source: "qr_mobile" }))
     expect(response.status).toBe(201)
-    await expect(response.json()).resolves.toEqual({ code: "ABCDEFGHIJKL" })
+    await expect(response.json()).resolves.toEqual({ code: "PLI-1234" })
   })
 
   it.each([

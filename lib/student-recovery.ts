@@ -1,21 +1,26 @@
-import { createHash, randomBytes } from "crypto"
-import { Prisma } from "@prisma/client"
+import { createHash, randomBytes, randomInt } from "crypto"
+import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 
 const DRAFT_TTL_MS = 15 * 60_000
 const TICKET_TTL_MS = 10 * 60_000
-const CODE_PATTERN = /^[A-Z0-9_-]{12}$/
+const DRAFT_CODE_PATTERN = /^PLI-\d{4}$/
+const TICKET_CODE_PATTERN = /^[A-Z0-9_-]{12}$/
+const DRAFT_CODE_ATTEMPTS = 10
 
 type RecoveryIdentity = { phone: string; email?: string; name?: string }
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex")
-const opaqueCode = () => randomBytes(9).toString("base64url").toUpperCase().slice(0, 12)
+const draftCode = () => `PLI-${randomInt(10_000).toString().padStart(4, "0")}`
+const opaqueTicket = () => randomBytes(9).toString("base64url").toUpperCase().slice(0, 12)
 const correlationId = () => randomBytes(12).toString("base64url")
+const isCodeHashCollision = (error: unknown) =>
+  typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002"
 
 export const normalizeRecoveryCode = (value: unknown) => {
   if (typeof value !== "string") return null
   const code = value.trim().toUpperCase()
-  return CODE_PATTERN.test(code) ? code : null
+  return DRAFT_CODE_PATTERN.test(code) || TICKET_CODE_PATTERN.test(code) ? code : null
 }
 
 export async function scrubExpiredRecoveryRecords(now = new Date()) {
@@ -31,19 +36,26 @@ export async function scrubExpiredRecoveryRecords(now = new Date()) {
 
 export async function issueRecoveryDraft(identity: RecoveryIdentity, source: string) {
   await scrubExpiredRecoveryRecords()
-  const code = opaqueCode()
-  await prisma.studentRecoveryDraft.create({
-    data: {
-      codeHash: digest(code),
-      correlationId: correlationId(),
-      phone: identity.phone,
-      email: identity.email || null,
-      name: identity.name || null,
-      source,
-      expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
-    },
-  })
-  return code
+  for (let attempt = 0; attempt < DRAFT_CODE_ATTEMPTS; attempt += 1) {
+    const code = draftCode()
+    try {
+      await prisma.studentRecoveryDraft.create({
+        data: {
+          codeHash: digest(code),
+          correlationId: correlationId(),
+          phone: identity.phone,
+          email: identity.email || null,
+          name: identity.name || null,
+          source,
+          expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
+        },
+      })
+      return code
+    } catch (error) {
+      if (!isCodeHashCollision(error) || attempt === DRAFT_CODE_ATTEMPTS - 1) throw error
+    }
+  }
+  throw new Error("Unable to issue recovery draft.")
 }
 
 export async function lookupRecoveryDraft(code: string) {
@@ -59,7 +71,7 @@ export async function lookupRecoveryDraft(code: string) {
 export async function issueRecoveryTicket(draftId: string, staffClerkId: string) {
   await scrubExpiredRecoveryRecords()
   const now = new Date()
-  const token = opaqueCode()
+  const token = opaqueTicket()
   const ticket = await prisma.$transaction(async (tx) => {
     const claimed = await tx.studentRecoveryDraft.updateMany({
       where: { id: draftId, status: "issued", expiresAt: { gt: now } },

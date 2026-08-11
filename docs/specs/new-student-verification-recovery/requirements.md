@@ -2,7 +2,7 @@
 
 ## Status
 
-`DESIGN COMPLETE - two-stage manual assistance handoff is the binding recovery contract; implementation remains out of scope.`
+`IMPLEMENTATION IN PROGRESS - two-stage manual assistance handoff is the binding recovery contract.`
 
 ## Objective
 
@@ -19,6 +19,7 @@ The manual assistance code is not identity proof and cannot create or verify an 
 - Show `Code did not arrive?` only after the student has used the second resend attempt and explicitly chooses the action.
 - Create an unprivileged, short-lived draft after that explicit action and display its opaque manual assistance code in a popup that instructs the student to give it to host/staff.
 - Allow authenticated Owner, Admin, or Front Desk staff to enter the code, review captured phone/name/email, explicitly confirm no-SMS and phone validation, and thereby create the privileged recovery ticket.
+- Keep the normal New student form unchanged until staff intentionally opens a dedicated SMS-recovery dialog, reviews a code result, and completes both required confirmations; only then populate its captured identity fields and ticket.
 - Reuse the complete existing admin student-creation flow, authorization, audit behavior, attendance choices, and payment behavior.
 - Preserve short expiry, one-time privileged-ticket consumption, authorization before disclosure, non-leakage, and lifecycle cleanup.
 
@@ -36,15 +37,16 @@ The manual assistance code is not identity proof and cannot create or verify an 
 3. The UI MUST present `Code did not arrive?` only after the second resend attempt has been used. This threshold is a UX gate, not evidence of carrier delivery failure.
 4. The action MUST require an explicit student choice. A generic error, client error state, prepared Clerk user, or unverified Clerk user alone MUST NOT create a privileged ticket.
 5. After the explicit action, the client MAY create one unprivileged short-lived recovery draft for the active supervised enrollment and display an opaque manual assistance code. The popup MUST instruct the student to give the code to host/staff.
-6. The manual assistance code MUST be opaque, contain no personal data or failure details, be non-URL, and must not create, verify, or authenticate an account by itself.
+6. The manual assistance code MUST be a human-readable `PLI-1234`-style value: the literal `PLI-` prefix followed by exactly four digits. It MUST contain no personal data or failure details, be non-URL, and must not create, verify, or authenticate an account by itself.
 7. An authenticated Owner, Admin, or Front Desk staff member MUST be authorized before draft lookup or disclosure. Teachers MUST be excluded.
 8. The authorized staff member MUST enter the manual assistance code, review the captured normalized phone, name, and email, and explicitly confirm both that the student reports no SMS and that the phone is validated.
-9. Only that authenticated staff confirmation MAY create the privileged recovery ticket. The privileged ticket MUST be short-lived, server-enforced, opaque, and consumable at most once.
-10. Privileged ticket consumption MUST invoke the existing complete admin student-creation flow using the captured identity fields. It MUST NOT accept replacement identity fields or introduce a recovery-specific endpoint.
-11. The staff confirmation MUST validate the phone only for this exceptional supervised path. The resulting user MAY be phone-verified without SMS only through a valid consumed privileged ticket.
-12. The existing admin workflow remains responsible for attendance date/session and payment choices and behavior. Recovery MUST introduce no variant.
-13. Drafts and tickets MUST expire, be invalidated on completion, cancellation, timeout, terminal reset, staff logout, and account switch where applicable, and have sensitive payload removed during cleanup.
-14. Audit behavior MUST identify the staff actor, the draft/ticket correlation, the explicit no-SMS and phone-validation confirmations, and the resulting creation event without retaining the manual code, privileged credential, or duplicated sensitive payload.
+9. The staff New student modal MUST present a clearly visible `SMS code did not arrive?` control before its ordinary contact fields. It MUST open a dedicated dialog for code entry, identity review, and confirmations; lookup MUST NOT alter the ordinary form, while successful confirmation MUST close the dialog and populate the captured identity fields plus the privileged ticket.
+10. Only that authenticated staff confirmation MAY create the privileged recovery ticket. The privileged ticket MUST be short-lived, server-enforced, opaque, and consumable at most once.
+11. Privileged ticket consumption MUST invoke the existing complete admin student-creation flow using the captured identity fields. It MUST NOT accept replacement identity fields or introduce a recovery-specific endpoint.
+12. The staff confirmation MUST validate the phone only for this exceptional supervised path. The resulting user MAY be phone-verified without SMS only through a valid consumed privileged ticket.
+13. The existing admin workflow remains responsible for attendance date/session and payment choices and behavior. Recovery MUST introduce no variant.
+14. Drafts and tickets MUST expire, be invalidated on completion, cancellation, timeout, terminal reset, staff logout, and account switch where applicable, and have sensitive payload removed during cleanup.
+15. Audit behavior MUST identify the staff actor, the draft/ticket correlation, the explicit no-SMS and phone-validation confirmations, and the resulting creation event without retaining the manual code, privileged credential, or duplicated sensitive payload.
 
 ## Security And Data Rules
 
@@ -62,10 +64,11 @@ Authorized operators should inspect Clerk Dashboard Application Logs for `sign_i
 ## Acceptance Criteria
 
 - [ ] The second resend enables `Code did not arrive?` but does not assert SMS delivery failure.
-- [ ] The explicit action creates only an unprivileged short-lived draft and opaque manual assistance code; no scanner is required.
+- [ ] The explicit action creates only an unprivileged short-lived draft and `PLI-1234`-style manual assistance code; no scanner is required.
 - [ ] The popup tells the student to give the code to host/staff, and the code alone cannot create or verify an account.
 - [ ] Only authenticated Owner, Admin, or Front Desk staff can disclose a draft, confirm recovery, create a privileged ticket, or complete recovery; a Teacher cannot.
 - [ ] Staff must enter the code, review captured identity fields, and explicitly confirm both no-SMS and phone validation before privileged ticket creation.
+- [ ] The clearly visible recovery control opens a dedicated dialog; lookup leaves ordinary fields unchanged, while successful confirmation closes the dialog and populates only ticket-derived identity fields.
 - [ ] Privileged ticket use is one-time, short-lived, authorized before disclosure, non-leaking, audited, and lifecycle-bound.
 - [ ] The complete existing admin creation, attendance, and payment workflow remains unchanged.
 - [ ] A pre-created or unverified Clerk user, generic error, or client request alone cannot create a privileged ticket or obtain verified-phone treatment.

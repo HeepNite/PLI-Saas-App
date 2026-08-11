@@ -12,8 +12,9 @@ On the staff PC, an authenticated Owner, Admin, or Front Desk staff member enter
 | --- | --- |
 | Threshold | Present the action after the second resend attempt. It is not delivery-failure proof. |
 | Draft | Explicit client action may create a short-lived, unprivileged draft for the active supervised enrollment. |
-| Manual assistance code | Opaque non-URL code displayed to the student with a host/staff instruction. It is not identity proof and cannot create or verify an account. |
+| Manual assistance code | Opaque non-URL `PLI-1234`-style code (literal `PLI-` plus exactly four digits) displayed to the student with a host/staff instruction. It is not identity proof and cannot create or verify an account. |
 | Staff review | Authorized staff enter the code, review captured phone/name/email, and explicitly confirm no-SMS plus phone validation. |
+| Staff UI | A clearly visible `SMS code did not arrive?` control appears before ordinary contact fields. It opens a dedicated dialog; lookup does not modify the form, and only successful dual confirmation closes the dialog and populates captured identity plus the ticket. |
 | Privileged ticket | Created only after authenticated staff confirmation. It is opaque, short-lived, server-enforced, and one-time. |
 | Roles | `studentOps` / `canOperateStudentEdits` governs access: Owner, Admin, and Front Desk (including front-desk guest) are allowed; Teachers are excluded. |
 | Creation path | Reuse existing `POST /api/staff/students` and its complete admin workflow. No new endpoint or permission. |

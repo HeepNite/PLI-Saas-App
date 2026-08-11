@@ -104,4 +104,60 @@ describe("useStaffCreateStudentAdmin", () => {
     expect(sessionSelect?.textContent).toContain("Salsa")
     vi.useRealTimers()
   })
+
+  it("keeps recovery review in a dedicated dialog until staff confirms it", async () => {
+    const onUpdateField = vi.fn()
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ draftId: "draft_1", phone: "+15551234567", email: "student@example.com", name: "Student" }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ticket: "ticket_1" }) } as Response)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => root?.render(
+      <CreateStudentModal
+        isOpen
+        form={{ email: "", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: false, attendanceDate: "2026-07-15", attendanceSessionId: "", recoveryTicket: "" }}
+        submitting={false}
+        error={null}
+        result={null}
+        hasAmount={false}
+        canSubmit={false}
+        attendanceSessions={[]}
+        onClose={() => undefined}
+        onUpdateField={onUpdateField}
+        onSubmit={() => undefined}
+      />
+    ))
+
+    const recoveryButton = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("SMS code did not arrive"))
+    expect(recoveryButton).toBeDefined()
+    expect(document.querySelector('[role="dialog"][aria-label="SMS recovery"]')).toBeNull()
+
+    await act(async () => recoveryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+    const recoveryDialog = document.querySelector('[role="dialog"][aria-label="SMS recovery"]')
+    expect(recoveryDialog).not.toBeNull()
+
+    const codeInput = recoveryDialog?.querySelector('input[aria-label="Recovery code"]') as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(codeInput, "PLI-1234")
+      codeInput.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    const reviewButton = Array.from(recoveryDialog?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Review code")
+    await act(async () => reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+
+    expect(onUpdateField).not.toHaveBeenCalled()
+    expect(recoveryDialog?.textContent).toContain("student@example.com")
+
+    const checkboxes = recoveryDialog?.querySelectorAll('input[type="checkbox"]') ?? []
+    await act(async () => checkboxes.forEach((checkbox) => checkbox.dispatchEvent(new MouseEvent("click", { bubbles: true }))))
+    const confirmButton = Array.from(recoveryDialog?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Confirm recovery")
+    await act(async () => confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+
+    expect(onUpdateField).toHaveBeenCalledWith("phone", "+15551234567")
+    expect(onUpdateField).toHaveBeenCalledWith("email", "student@example.com")
+    expect(onUpdateField).toHaveBeenCalledWith("name", "Student")
+    expect(onUpdateField).toHaveBeenCalledWith("recoveryTicket", "ticket_1")
+    expect(document.querySelector('[role="dialog"][aria-label="SMS recovery"]')).toBeNull()
+  })
 })

@@ -24,14 +24,27 @@ describe("student recovery", () => {
     mockPrisma.studentRecoveryDraft.create.mockResolvedValue({})
     const { issueRecoveryDraft } = await import("@/lib/student-recovery")
     const code = await issueRecoveryDraft({ phone: "+15551234567", email: "student@example.com", name: "Student" }, "qr_mobile")
-    expect(code).toMatch(/^[A-Z0-9_-]{12}$/)
+    expect(code).toMatch(/^PLI-\d{4}$/)
     expect(mockPrisma.studentRecoveryDraft.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ codeHash: expect.any(String) }) }))
     expect(JSON.stringify(mockPrisma.studentRecoveryDraft.create.mock.calls)).not.toContain(code)
   })
 
-  it("normalizes base64url recovery codes for display and lookup", async () => {
+  it("normalizes whitespace and case for staff-entered draft codes", async () => {
     const { normalizeRecoveryCode } = await import("@/lib/student-recovery")
+    expect(normalizeRecoveryCode(" pli-1234 ")).toBe("PLI-1234")
+    expect(normalizeRecoveryCode("PLI-12345")).toBeNull()
+    expect(normalizeRecoveryCode("PLI-12A4")).toBeNull()
     expect(normalizeRecoveryCode(" abc-def_ghij ")).toBe("ABC-DEF_GHIJ")
+  })
+
+  it("retries draft issuance after a code-hash collision", async () => {
+    mockPrisma.studentRecoveryDraft.create
+      .mockRejectedValueOnce({ code: "P2002" })
+      .mockResolvedValueOnce({})
+    const { issueRecoveryDraft } = await import("@/lib/student-recovery")
+
+    await expect(issueRecoveryDraft({ phone: "+15551234567" }, "qr_mobile")).resolves.toMatch(/^PLI-\d{4}$/)
+    expect(mockPrisma.studentRecoveryDraft.create).toHaveBeenCalledTimes(2)
   })
 
   it("atomically claims a draft before minting its only ticket", async () => {
