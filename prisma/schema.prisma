@@ -904,3 +904,42 @@ model ClerkIdMigration {
   @@index([newClerkId])
   @@index([phase])
 }
+
+model StaffTrustedDevice {
+  id          String    @id @default(cuid())
+  staffUserId String
+  tokenHash   String    @unique
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+
+  @@index([staffUserId])
+}
+
+model StaffPinAttemptCounter {
+  id                  String    @id @default(cuid())
+  targetKey           String    @unique
+  missCount           Int       @default(0)
+  lifetimeMissCount   Int       @default(0)
+  windowStart         DateTime  @default(now())
+  blockedUntil        DateTime?
+  cooldownLevel       Int       @default(0)
+  lockedPermanentlyAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([blockedUntil])
+}
+
+model StaffEnrollmentChallenge {
+  id          String    @id @default(cuid())
+  staffUserId String
+  codeHash    String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@index([staffUserId])
+  @@index([expiresAt])
+}
