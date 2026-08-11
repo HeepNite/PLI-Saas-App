@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
-import { createHash, randomBytes, timingSafeEqual } from "crypto"
 import { Prisma } from "@prisma/client"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { canAccessStaffPortalSection, canOperateStudentEdits } from "@/lib/security/staff-access"
+import { hashStaffPin as hashPin, isValidPinHash } from "@/lib/security/staff-pin-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import {
   applyStaffRoleToMetadata,
@@ -210,28 +210,6 @@ const safeGallery = (value: unknown, max = 6) => {
     }
   }
   return out
-}
-
-const hashPin = (pin: string) => {
-  const salt = randomBytes(16).toString("hex")
-  const hash = createHash("sha256")
-    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
-    .digest("hex")
-  return `${salt}:${hash}`
-}
-
-const isValidPinHash = (pin: string, pinHash: string) => {
-  const parts = pinHash.split(":")
-  if (parts.length !== 2) return false
-  const [salt, expectedHash] = parts
-  if (!salt || !expectedHash) return false
-  const nextHash = createHash("sha256")
-    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
-    .digest("hex")
-  const expectedBuffer = Buffer.from(expectedHash, "hex")
-  const nextBuffer = Buffer.from(nextHash, "hex")
-  if (expectedBuffer.length !== nextBuffer.length) return false
-  return timingSafeEqual(nextBuffer, expectedBuffer)
 }
 
 const STAFF_SCAN_PAGE_SIZE = 100

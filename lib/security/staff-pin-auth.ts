@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "crypto"
+import { createHash, randomBytes, timingSafeEqual } from "crypto"
 import { clerkClient } from "@clerk/nextjs/server"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
@@ -6,30 +6,67 @@ import { asObject } from "@/lib/shared"
 
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
+const PIN_HASH_SALT_BYTES = 16
 
+/**
+ * Ordered list of secrets used to derive/verify staff PIN hashes, most-preferred
+ * first. STAFF_PIN_PEPPER is the dedicated secret that decouples PIN hashes from
+ * CLERK_SECRET_KEY so they survive a Clerk key/instance swap; CLERK_SECRET_KEY is
+ * kept as a legacy secret so hashes created before the pepper was seeded still
+ * verify. Fail-closed: at least one must be set (no guessable literal fallback).
+ *
+ * THIS IS THE SINGLE SOURCE OF TRUTH for staff PIN hashing. Do NOT re-implement
+ * hashing/verification at call sites — import hashStaffPin / isValidPinHash.
+ */
+const getStaffPinSecrets = (): string[] => {
+  const secrets = [process.env.STAFF_PIN_PEPPER, process.env.CLERK_SECRET_KEY].filter(
+    (secret): secret is string => typeof secret === "string" && secret.length > 0
+  )
+  if (secrets.length === 0) {
+    throw new Error("STAFF_PIN_PEPPER or CLERK_SECRET_KEY must be set to hash or verify staff PINs.")
+  }
+  return secrets
+}
+
+const digestPin = (pin: string, salt: string, secret: string): string =>
+  createHash("sha256").update(`${pin}:${salt}:${secret}`).digest("hex")
+
+const timingSafeHexEqual = (a: string, b: string): boolean => {
+  try {
+    const aBuffer = Buffer.from(a, "hex")
+    const bBuffer = Buffer.from(b, "hex")
+    if (aBuffer.length === 0 || bBuffer.length === 0) return false
+    if (aBuffer.length !== bBuffer.length) return false
+    return timingSafeEqual(aBuffer, bBuffer)
+  } catch {
+    return false
+  }
+}
+
+/** Hashes a staff PIN into the `${salt}:${hash}` format, keyed with the preferred secret (pepper). */
+export const hashStaffPin = (pin: string): string => {
+  const secret = getStaffPinSecrets()[0]!
+  const salt = randomBytes(PIN_HASH_SALT_BYTES).toString("hex")
+  return `${salt}:${digestPin(pin, salt, secret)}`
+}
+
+/**
+ * Verifies a staff PIN against a stored `${salt}:${hash}`. Accepts a hash created
+ * with ANY configured secret (pepper OR legacy CLERK_SECRET_KEY) so PINs written
+ * before and after the pepper seeding both verify. Constant-time; iterates every
+ * secret (no early return) to avoid leaking which secret matched.
+ */
 export const isValidPinHash = (pin: string, pinHash: string): boolean => {
   const parts = pinHash.split(":")
   if (parts.length !== 2) return false
   const [salt, expectedHash] = parts
   if (!salt || !expectedHash) return false
 
-  // STAFF_PIN_PEPPER decouples staff PIN hashing from CLERK_SECRET_KEY so hashes
-  // survive a Clerk key swap. Falls back to CLERK_SECRET_KEY when unset, keeping
-  // existing hashes valid until the pepper is seeded with the current value.
-  const pepper = process.env.STAFF_PIN_PEPPER || process.env.CLERK_SECRET_KEY || "staff-pin"
-  const nextHash = createHash("sha256")
-    .update(`${pin}:${salt}:${pepper}`)
-    .digest("hex")
-
-  try {
-    const expectedBuffer = Buffer.from(expectedHash, "hex")
-    const nextBuffer = Buffer.from(nextHash, "hex")
-    if (expectedBuffer.length === 0 || nextBuffer.length === 0) return false
-    if (expectedBuffer.length !== nextBuffer.length) return false
-    return timingSafeEqual(expectedBuffer, nextBuffer)
-  } catch {
-    return false
+  let matched = false
+  for (const secret of getStaffPinSecrets()) {
+    if (timingSafeHexEqual(digestPin(pin, salt, secret), expectedHash)) matched = true
   }
+  return matched
 }
 
 export type MatchedStaffUser = {
