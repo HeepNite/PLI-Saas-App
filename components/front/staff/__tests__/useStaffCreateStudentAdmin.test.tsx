@@ -83,7 +83,7 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => root?.render(
       <CreateStudentModal
         isOpen
-        form={{ email: "student@example.com", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: true, attendanceDate: "2026-07-15", attendanceSessionId: "session_1" }}
+        form={{ email: "student@example.com", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: true, attendanceDate: "2026-07-15", attendanceSessionId: "session_1", recoveryTicket: "" }}
         submitting={false}
         error={null}
         result={null}

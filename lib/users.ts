@@ -25,6 +25,11 @@ type ExistingUser = {
   stripeCustomerId: string | null
 }
 
+const locallyCreatedUsers = new WeakSet<object>()
+
+export const wasUserCreatedByUpsert = (user: object | null): boolean =>
+  user !== null && locallyCreatedUsers.has(user)
+
 const normalize = (value: string | undefined) => {
   const trimmed = value?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : undefined
@@ -133,4 +138,6 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput, db: Prisma
       ...data,
     },
   })
+  locallyCreatedUsers.add(user)
+  return user
 }

@@ -7,10 +7,8 @@ import { authorizeStudentOperationalRequest, type StaffPortalAuthResult } from "
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { upsertUserByIdentifiers, wasUserCreatedByUpsert } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
-import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
+import { writeStudentDataAudit, type WriteStudentDataAuditParams } from "@/lib/audit/student-data-audit"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
-import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
-import { PURCHASE_SOURCE } from "@/lib/payment-constants"
 import { getNewYorkDateKey, isSelectableStudentSessionDate, isValidStudentSessionDate } from "./sessions/shared"
 import { consumeRecoveryTicket, normalizeRecoveryCode, releaseRecoveryTicket, reserveRecoveryTicket } from "@/lib/student-recovery"
 
@@ -31,11 +29,7 @@ type StaffCreateStudentPayload = {
   amountCents: number
   paymentMode?: "cash" | "card_qr"
   note?: string
-  checkIn?: {
-    enabled: boolean
-    sessionId?: string
-    date?: string
-  }
+  checkIn?: { enabled: true; sessionId: string; date: string }
 }
 
 type ParseResult =
@@ -275,120 +269,13 @@ const createStripeCheckout = async (
   return { id: session.id, url: session.url ?? undefined }
 }
 
-const findUsablePackageTx = async (
-  tx: Prisma.TransactionClient,
-  userId: string,
-  courseSlug: string,
-  now: Date
-) => {
-  const packages = await tx.packagePurchase.findMany({
-    where: {
-      userId,
-      status: "active",
-      AND: [
-        {
-          OR: [
-            { courseSlug },
-            { packagePlan: { courseSlugs: { has: courseSlug } } },
-            { courseSlug: null, packagePlanId: null },
-          ],
-        },
-        { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-        { OR: [{ isUnlimited: true, remainingCredits: null }, { remainingCredits: { gt: 0 } }] },
-      ],
-    },
-    select: {
-      id: true,
-      packageId: true,
-      packageLabel: true,
-      courseSlug: true,
-      isUnlimited: true,
-      remainingCredits: true,
-      expiresAt: true,
-      status: true,
-      packagePlan: { select: { courseSlugs: true } },
-    },
-    orderBy: [{ expiresAt: "asc" }, { purchasedAt: "desc" }],
-    take: 1,
-  })
-  return packages[0] || null
-}
-
-const createManualAttendanceTx = async (
-  tx: Prisma.TransactionClient,
-  input: {
-    user: { id: string; email?: string | null; name?: string | null; phone?: string | null }
-    sessionId: string
-    date?: string
-    staffUserId: string
-  }
-) => {
-  const now = new Date()
-  const session = await materializeSelectableClassSession(tx, now, input.sessionId, input.date)
-  if (!session) {
-    return { ok: false as const, status: 400, error: "Selected class session is not available for staff check-in." }
-  }
-
-  const existingAttendance = await tx.attendance.findUnique({
-    where: { userId_sessionId: { userId: input.user.id, sessionId: session.id } },
-    select: { id: true },
-  })
-  if (existingAttendance) {
-    return { ok: false as const, status: 409, error: "Student is already checked in for this class session." }
-  }
-
-  const selectedPackage = await findUsablePackageTx(tx, input.user.id, session.courseSlug, now)
-  const attendance = await tx.attendance.create({
-    data: {
-      userId: input.user.id,
-      sessionId: session.id,
-      status: selectedPackage ? "checked_in" : "checked_in_no_package",
-      checkedInAt: now,
-      metadata: {
-        source: "staff_created_student",
-        staffUserId: input.staffUserId,
-      },
-    },
-  })
-
-  if (selectedPackage) {
-    const reserveResult = await reservePackageCreditForAttendanceTx(tx, {
-      packagePurchaseId: selectedPackage.id,
-      userId: input.user.id,
-      attendanceId: attendance.id,
-      courseSlug: session.courseSlug,
-      at: now,
-      reason: "STAFF_CREATED_STUDENT_CHECK_IN",
-    })
-    const packagePurchase = reserveResult.packagePurchase || selectedPackage
-    const startsAtIso = session.startsAt.toISOString()
-    await ensureAttendancePackagePurchase(tx, {
-      attendanceId: attendance.id,
-      userId: input.user.id,
-      courseSlug: session.courseSlug,
-      courseTitle: session.title || session.courseSlug,
-      email: input.user.email || null,
-      name: input.user.name || null,
-      phone: input.user.phone || null,
-      packageId: packagePurchase.packageId,
-      packagePurchaseId: packagePurchase.id,
-      source: "staff_created_student",
-      purchaseSource: PURCHASE_SOURCE.FRONT_DESK,
-      date: input.date || startsAtIso.slice(0, 10),
-      time: startsAtIso.slice(11, 16),
-    })
-  }
-
-  return { ok: true as const, attendance }
-}
-
 const writeProfileCreationAudit = async (
   targetUserId: string,
   authResult: Extract<StaffPortalAuthResult, { ok: true }>,
   tx?: Prisma.TransactionClient,
   ipAddress?: string
 ) => {
-  const audit = {
+  const audit: WriteStudentDataAuditParams = {
     targetUserId,
     staffClerkId: authResult.userId,
     staffName: authResult.staffName,
@@ -477,7 +364,7 @@ const writePaymentCreationAudit = async (
   authResult: Extract<StaffPortalAuthResult, { ok: true }>,
   tx?: Prisma.TransactionClient
 ) => {
-  const audit = {
+  const audit: WriteStudentDataAuditParams = {
     targetUserId,
     staffClerkId: authResult.userId,
     staffName: authResult.staffName,
@@ -601,7 +488,7 @@ export async function POST(req: Request) {
   const recoveryToken = body && typeof body === "object"
     ? normalizeRecoveryCode((body as Record<string, unknown>).recoveryTicket)
     : null
-  const recovery = recoveryToken ? await reserveRecoveryTicket(recoveryToken, authResult.userId) : null
+  const recovery = recoveryToken === null ? null : await reserveRecoveryTicket(recoveryToken, authResult.userId)
   if (recoveryToken && !recovery) {
     return NextResponse.json({ error: "Recovery authorization is unavailable." }, { status: 400 })
   }
