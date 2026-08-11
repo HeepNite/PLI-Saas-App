@@ -7,6 +7,7 @@ const mockSessionUpsert = vi.fn()
 const mockAttendanceUpsert = vi.fn()
 const mockSyncPackagePurchase = vi.fn()
 const mockReservePackageCredit = vi.fn()
+const mockWriteAudit = vi.fn()
 
 const mockPrisma = {
   purchase: {
@@ -19,6 +20,10 @@ const mockPrisma = {
   attendance: {
     upsert: (...args: unknown[]) => mockAttendanceUpsert(...args),
   },
+  packagePlan: {
+    findUnique: (...args: unknown[]) => mockFindUnique(...args),
+  },
+  $transaction: vi.fn(),
 }
 
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }))
@@ -37,6 +42,9 @@ vi.mock("@/lib/packages", () => ({
   syncPackagePurchaseFromPaidPurchase: (...args: unknown[]) => mockSyncPackagePurchase(...args),
   reservePackageCreditForAttendance: (...args: unknown[]) => mockReservePackageCredit(...args),
 }))
+vi.mock("@/lib/audit/student-data-audit", () => ({
+  writeStudentDataAudit: (...args: unknown[]) => mockWriteAudit(...args),
+}))
 
 describe("staff payment settlement route", () => {
   beforeEach(() => {
@@ -48,6 +56,9 @@ describe("staff payment settlement route", () => {
     mockAttendanceUpsert.mockReset()
     mockSyncPackagePurchase.mockReset()
     mockReservePackageCredit.mockReset()
+    mockWriteAudit.mockReset()
+    mockPrisma.$transaction.mockReset()
+    mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma))
 
     mockAuthorizePortalSection.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
     mockFindUnique.mockResolvedValue({
@@ -62,6 +73,7 @@ describe("staff payment settlement route", () => {
       createdAt: new Date("2026-05-06T19:19:24.564Z"),
       metadata: {
         paymentChannel: "cash",
+        source: "tablet",
         date: "2026-05-06",
         time: "22:00",
         courseSlug: "salsa-timba-in-new-york",
@@ -80,7 +92,7 @@ describe("staff payment settlement route", () => {
     mockReservePackageCredit.mockResolvedValue({ consumed: true })
   })
 
-  it("reserves one package credit when cash package purchase is marked paid", async () => {
+  it("preserves attendance and initial credit reservation for tablet cash package purchases", async () => {
     const { PATCH } = await import("@/app/api/staff/payments/[purchaseId]/route")
     const res = await PATCH(
       new Request("http://localhost/api/staff/payments/purchase_main", {
@@ -105,5 +117,36 @@ describe("staff payment settlement route", () => {
       packageSynced: true,
       packageCreditReserved: true,
     })
+  })
+
+  it("materializes a staff package grant atomically from current plan values without attendance or credit reservation", async () => {
+    mockFindUnique
+      .mockResolvedValueOnce({
+        id: "purchase_grant",
+        userId: "user_1",
+        status: "pending",
+        courseSlug: "package:legacy-key",
+        packageId: "legacy-key",
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+        createdAt: new Date("2026-05-06T19:19:24.564Z"),
+        metadata: { paymentChannel: "cash", source: "staff_package_grant", packagePlanId: "plan_1" },
+      })
+      .mockResolvedValueOnce({ id: "plan_1", key: "current-key", label: "Current plan", courseSlug: "salsa", totalCredits: 12, isUnlimited: false, cadence: "monthly", makeUps: 2, validDays: 90 })
+    mockUpdate.mockResolvedValue({ id: "purchase_grant", status: "paid", metadata: {} })
+    mockSyncPackagePurchase.mockResolvedValue({ id: "package_purchase_1" })
+
+    const { PATCH } = await import("@/app/api/staff/payments/[purchaseId]/route")
+    const res = await PATCH(
+      new Request("http://localhost/api/staff/payments/purchase_grant", { method: "PATCH", body: JSON.stringify({ action: "mark_paid" }) }),
+      { params: Promise.resolve({ purchaseId: "purchase_grant" }) }
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockSyncPackagePurchase).toHaveBeenCalledWith(expect.objectContaining({ tx: mockPrisma, packagePlanId: "plan_1", metadata: expect.objectContaining({ packageId: "current-key", packageTotalCredits: "12", packageValidDays: "90" }) }))
+    expect(mockWriteAudit).toHaveBeenCalledWith(expect.objectContaining({ field: "cash_package_grant_settlement", valueAfter: expect.objectContaining({ outcome: "SETTLED" }) }), mockPrisma)
+    expect(mockSessionUpsert).not.toHaveBeenCalled()
+    expect(mockAttendanceUpsert).not.toHaveBeenCalled()
+    expect(mockReservePackageCredit).not.toHaveBeenCalled()
   })
 })
