@@ -2,8 +2,9 @@
 
 import React from "react"
 import { createPortal } from "react-dom"
-import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle } from "lucide-react"
-import { getEarliestStaffAttendanceDate, getTodayStaffDate, type CreateStudentFormState, type CreateStudentResult, type CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
+import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle, MessageSquareWarning } from "lucide-react"
+import type { CreateStudentFormState, CreateStudentResult, CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
+import { getStudentAttendanceDateBounds } from "./useStaffCreateStudentAdmin"
 
 type CreateStudentModalProps = {
   isOpen: boolean
@@ -97,6 +98,70 @@ function FormView({
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
 }) {
+  const attendanceDateBounds = getStudentAttendanceDateBounds()
+  const [recoveryCode, setRecoveryCode] = React.useState("")
+  const [recoveryDraft, setRecoveryDraft] = React.useState<{ draftId: string; phone: string; email: string | null; name: string | null } | null>(null)
+  const [recoveryBusy, setRecoveryBusy] = React.useState(false)
+  const [noSmsConfirmed, setNoSmsConfirmed] = React.useState(false)
+  const [phoneValidated, setPhoneValidated] = React.useState(false)
+  const [recoveryDialogOpen, setRecoveryDialogOpen] = React.useState(false)
+  const [recoveryError, setRecoveryError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    const ticket = form.recoveryTicket
+    return () => {
+      if (!ticket) return
+      void fetch("/api/staff/students/recovery/ticket", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket }),
+        keepalive: true,
+      })
+    }
+  }, [form.recoveryTicket])
+
+  const lookupRecovery = async () => {
+    setRecoveryBusy(true)
+    setRecoveryError(null)
+    try {
+      const response = await fetch("/api/staff/students/recovery/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: recoveryCode }) })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.draftId) {
+        setRecoveryError(data.error || "Recovery code is unavailable.")
+        return
+      }
+      setRecoveryDraft(data)
+    } catch {
+      setRecoveryError("Unable to review the recovery code. Try again.")
+    } finally {
+      setRecoveryBusy(false)
+    }
+  }
+
+  const confirmRecovery = async () => {
+    if (!recoveryDraft) return
+    setRecoveryBusy(true)
+    setRecoveryError(null)
+    try {
+      const response = await fetch("/api/staff/students/recovery/ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draftId: recoveryDraft.draftId, noSmsConfirmed, phoneValidated }) })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || typeof data.ticket !== "string") {
+        setRecoveryError(data.error || "Recovery confirmation is unavailable.")
+        return
+      }
+      onUpdateField("phone", recoveryDraft.phone || "")
+      onUpdateField("email", recoveryDraft.email || "")
+      onUpdateField("name", recoveryDraft.name || "")
+      onUpdateField("recoveryTicket", data.ticket)
+      setRecoveryDialogOpen(false)
+      setRecoveryDraft(null)
+    } catch {
+      setRecoveryError("Unable to confirm recovery. Try again.")
+    } finally {
+      setRecoveryBusy(false)
+    }
+  }
+
   return (
     <form
       onSubmit={(e) => {
@@ -105,6 +170,15 @@ function FormView({
       }}
       className="space-y-3"
     >
+      <button
+        type="button"
+        onClick={() => setRecoveryDialogOpen(true)}
+        className="flex w-full items-center justify-between rounded-xl border border-amber-300/40 bg-amber-300/10 px-3 py-2.5 text-left text-sm font-medium text-amber-50 transition-colors hover:bg-amber-300/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
+      >
+        <span className="flex items-center gap-2"><MessageSquareWarning className="h-4 w-4" />SMS code did not arrive?</span>
+        <span className="text-xs text-amber-100/80">Recover student</span>
+      </button>
+      {form.recoveryTicket && <p className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-2 text-xs text-emerald-100">Recovery confirmed. Continue with the existing form.</p>}
       <FieldInput
         label="Email"
         icon={<Mail className="h-4 w-4" />}
@@ -190,8 +264,8 @@ function FormView({
               placeholder="YYYY-MM-DD"
               value={form.attendanceDate}
               onChange={(v) => onUpdateField("attendanceDate", v)}
-              min={getEarliestStaffAttendanceDate()}
-              max={getTodayStaffDate()}
+              min={attendanceDateBounds.minimum}
+              max={attendanceDateBounds.maximum}
             />
             <label className="block text-xs font-medium text-white/70" htmlFor="create-student-session">
               Class session
@@ -233,6 +307,23 @@ function FormView({
       >
         {submitting ? "Creating..." : "Create student"}
       </button>
+      {recoveryDialogOpen && (
+        <RecoveryDialog
+          recoveryCode={recoveryCode}
+          recoveryDraft={recoveryDraft}
+          recoveryBusy={recoveryBusy}
+          recoveryError={recoveryError}
+          noSmsConfirmed={noSmsConfirmed}
+          phoneValidated={phoneValidated}
+          recoveryConfirmed={form.recoveryTicket !== ""}
+          onClose={() => setRecoveryDialogOpen(false)}
+          onCodeChange={setRecoveryCode}
+          onLookup={() => void lookupRecovery()}
+          onNoSmsConfirmedChange={setNoSmsConfirmed}
+          onPhoneValidatedChange={setPhoneValidated}
+          onConfirm={() => void confirmRecovery()}
+        />
+      )}
     </form>
   )
 }
@@ -243,6 +334,85 @@ function formatSessionOption(session: CreateStudentSessionOption) {
     ? session.startsAt
     : startsAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
   return `${session.isCurrent ? "Current · " : ""}${session.title || session.courseSlug} · ${dateLabel}`
+}
+
+function RecoveryDialog({
+  recoveryCode,
+  recoveryDraft,
+  recoveryBusy,
+  recoveryError,
+  noSmsConfirmed,
+  phoneValidated,
+  recoveryConfirmed,
+  onClose,
+  onCodeChange,
+  onLookup,
+  onNoSmsConfirmedChange,
+  onPhoneValidatedChange,
+  onConfirm,
+}: {
+  recoveryCode: string
+  recoveryDraft: { draftId: string; phone: string; email: string | null; name: string | null } | null
+  recoveryBusy: boolean
+  recoveryError: string | null
+  noSmsConfirmed: boolean
+  phoneValidated: boolean
+  recoveryConfirmed: boolean
+  onClose: () => void
+  onCodeChange: (value: string) => void
+  onLookup: () => void
+  onNoSmsConfirmedChange: (value: boolean) => void
+  onPhoneValidatedChange: (value: boolean) => void
+  onConfirm: () => void
+}) {
+  const codeInputRef = React.useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => {
+    codeInputRef.current?.focus()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [onClose])
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div role="dialog" aria-modal="true" aria-label="SMS recovery" className="relative z-10 w-full max-w-sm rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl">
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-base font-semibold text-white">SMS recovery</h3>
+            <p className="mt-1 text-xs leading-5 text-white/70">Enter the student&apos;s `PLI-1234` code to review their identity. The code alone cannot create or verify an account.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-white/50 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Close SMS recovery dialog"><X className="h-5 w-5" /></button>
+        </header>
+        {!recoveryDraft ? (
+          <div className="mt-4 space-y-3">
+            <label className="block space-y-1" htmlFor="student-recovery-code">
+              <span className="text-xs font-medium text-white/70">Recovery code</span>
+              <input ref={codeInputRef} id="student-recovery-code" aria-label="Recovery code" value={recoveryCode} onChange={(event) => onCodeChange(event.target.value)} placeholder="PLI-1234" className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-200 focus:ring-2 focus:ring-amber-200/30" />
+            </label>
+            <button type="button" onClick={onLookup} disabled={recoveryBusy || !recoveryCode.trim()} className="w-full rounded-xl border border-amber-300/40 px-3 py-2 text-sm font-medium text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-50">{recoveryBusy ? "Reviewing..." : "Review code"}</button>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-white/80">
+              <p className="font-medium text-white">Review returned identity</p>
+              <p className="mt-2">{recoveryDraft.name || "No name"}</p>
+              <p>{recoveryDraft.phone}</p>
+              <p>{recoveryDraft.email || "No email"}</p>
+            </div>
+            <label className="flex gap-2 text-sm text-white/80"><input type="checkbox" checked={noSmsConfirmed} onChange={(event) => onNoSmsConfirmedChange(event.target.checked)} /> Student reports no SMS.</label>
+            <label className="flex gap-2 text-sm text-white/80"><input type="checkbox" checked={phoneValidated} onChange={(event) => onPhoneValidatedChange(event.target.checked)} /> I validated this phone number.</label>
+            <button type="button" onClick={onConfirm} disabled={recoveryBusy || !noSmsConfirmed || !phoneValidated || recoveryConfirmed} className="w-full rounded-xl border border-amber-300/40 px-3 py-2 text-sm font-medium text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-50">{recoveryBusy ? "Confirming..." : "Confirm recovery"}</button>
+          </div>
+        )}
+        {recoveryError && <p role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/15 p-2 text-xs text-red-200">{recoveryError}</p>}
+      </div>
+    </div>,
+    document.body,
+  )
 }
 
 function SuccessView({ result, onClose }: { result: CreateStudentResult; onClose: () => void }) {

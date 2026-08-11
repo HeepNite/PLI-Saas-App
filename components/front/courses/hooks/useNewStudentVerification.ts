@@ -9,6 +9,7 @@ export type VerificationState =
   | "sms_pending"
   | "sms_verifying"
   | "verified"
+  | "error"
 
 type ExistingIdentifier = "phone" | "email" | "both"
 
@@ -19,6 +20,7 @@ type VerifyAction =
   | { type: "SMS_SENT" }
   | { type: "SMS_VERIFIED" }
   | { type: "SMS_DISMISSED" }
+  | { type: "VERIFY_ERROR"; error: string }
   | { type: "RESET" }
 
 type VerificationContext = {
@@ -64,6 +66,9 @@ export function verificationReducer(state: State, action: VerifyAction): State {
     case "SMS_DISMISSED":
       if (state.status !== "sms_pending" && state.status !== "sms_verifying") return state
       return { status: "existing_detected", ctx: state.ctx }
+
+    case "VERIFY_ERROR":
+      return { status: "error", ctx: { ...state.ctx, error: action.error } }
 
     case "RESET":
       return initialState
@@ -114,11 +119,8 @@ export function useNewStudentVerification() {
         dispatch({ type: "VERIFY_NEW" })
         return "sms_pending"
       } catch {
-        dispatch({
-          type: "VERIFY_EXISTING",
-          existingIdentifier: undefined,
-        })
-        return "existing_detected"
+        dispatch({ type: "VERIFY_ERROR", error: "We couldn't verify your details. Please try again." })
+        return "error"
       }
     },
     [state.status]
