@@ -39,6 +39,7 @@ import type {
 } from "./staffAdminTypes"
 import StaffProfilePaymentSection from "./StaffProfilePaymentSection"
 import StaffProfileRequestsSection from "./StaffProfileRequestsSection"
+import EnrollDeviceFlow from "./EnrollDeviceFlow"
 
 type ProfileCalendarCell = {
   day: number
@@ -828,6 +829,10 @@ export default function StaffProfileViewPanel(props: StaffProfileViewPanelProps)
             </p>
           ))}
         </div>
+      </div>
+
+      <div className="mt-6">
+        <EnrollDeviceFlow />
       </div>
     </article>
   )
