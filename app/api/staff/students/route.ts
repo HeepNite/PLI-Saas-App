@@ -9,7 +9,7 @@ import { upsertUserByIdentifiers, wasUserCreatedByUpsert } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { writeStudentDataAudit, type WriteStudentDataAuditParams } from "@/lib/audit/student-data-audit"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
-import { getNewYorkDateKey, isSelectableStudentSessionDate, isValidStudentSessionDate } from "./sessions/shared"
+import { findSelectableStudentSessions, getNewYorkDateKey, isSelectableStudentSessionDate, isValidStudentSessionDate, materializeSelectableStudentSession } from "./sessions/shared"
 import { consumeRecoveryTicket, normalizeRecoveryCode, releaseRecoveryTicket, reserveRecoveryTicket } from "@/lib/student-recovery"
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY
@@ -300,10 +300,7 @@ const createHistoricalAttendanceTx = async (
     ipAddress: string
   }
 ) => {
-  const session = await tx.classSession.findUnique({
-    where: { id: input.sessionId },
-    select: { id: true, courseSlug: true, title: true, startsAt: true },
-  })
+  const session = await materializeSelectableStudentSession(tx, input.sessionId, input.date)
   if (!session || !isSelectableStudentSessionDate(input.date) || getNewYorkDateKey(session.startsAt) !== input.date) {
     return { ok: false as const, status: 400, error: "Selected class session is not available for staff check-in." }
   }
@@ -476,10 +473,8 @@ export async function POST(req: Request) {
   }
 
   if (parsed.payload.checkIn) {
-    const session = await prisma.classSession.findUnique({
-      where: { id: parsed.payload.checkIn.sessionId },
-      select: { startsAt: true },
-    })
+    const session = (await findSelectableStudentSessions(prisma, parsed.payload.checkIn.date))
+      .find((candidate) => candidate.id === parsed.payload.checkIn?.sessionId)
     if (!session || !isSelectableStudentSessionDate(parsed.payload.checkIn.date) || getNewYorkDateKey(session.startsAt) !== parsed.payload.checkIn.date) {
       return NextResponse.json({ error: "Selected class session is not available for staff check-in." }, { status: 400 })
     }

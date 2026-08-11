@@ -335,7 +335,7 @@ function RecoveryDialog({
         <header className="flex items-start justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-white">SMS recovery</h3>
-            <p className="mt-1 text-xs leading-5 text-white/70">Enter the student&apos;s `PLI-1234` code to review their identity. The code alone cannot create or verify an account.</p>
+            <p className="mt-1 text-xs leading-5 text-white/70">Enter the student&apos;s `PLI-1234` or `PLI-1-1234` code to review their identity. The code alone cannot create or verify an account.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1 text-white/50 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Close SMS recovery dialog"><X className="h-5 w-5" /></button>
         </header>
@@ -343,7 +343,7 @@ function RecoveryDialog({
           <div className="mt-4 space-y-3">
             <label className="block space-y-1" htmlFor="student-recovery-code">
               <span className="text-xs font-medium text-white/70">Recovery code</span>
-              <input ref={codeInputRef} id="student-recovery-code" aria-label="Recovery code" value={recoveryCode} onChange={(event) => onCodeChange(event.target.value)} placeholder="PLI-1234" className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-200 focus:ring-2 focus:ring-amber-200/30" />
+              <input ref={codeInputRef} id="student-recovery-code" aria-label="Recovery code" value={recoveryCode} onChange={(event) => onCodeChange(event.target.value)} placeholder="PLI-1234 or PLI-1-1234" className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-200 focus:ring-2 focus:ring-amber-200/30" />
             </label>
             <button type="button" onClick={onLookup} disabled={recoveryBusy || !recoveryCode.trim()} className="w-full rounded-xl border border-amber-300/40 px-3 py-2 text-sm font-medium text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-50">{recoveryBusy ? "Reviewing..." : "Review code"}</button>
           </div>

@@ -37,7 +37,7 @@ The manual assistance code is not identity proof and cannot create or verify an 
 3. The UI MUST present `Code did not arrive?` only after the second resend attempt has been used. This threshold is a UX gate, not evidence of carrier delivery failure.
 4. The action MUST require an explicit student choice. A generic error, client error state, prepared Clerk user, or unverified Clerk user alone MUST NOT create a privileged ticket.
 5. After the explicit action, the client MAY create one unprivileged short-lived recovery draft for the active supervised enrollment and display an opaque manual assistance code. The popup MUST instruct the student to give the code to host/staff.
-6. The manual assistance code MUST be a human-readable `PLI-1234`-style value: the literal `PLI-` prefix followed by exactly four digits. It MUST contain no personal data or failure details, be non-URL, and must not create, verify, or authenticate an account by itself.
+6. The manual assistance code MUST default to the human-readable `PLI-1234` form. Only after all 10,000 active values in that namespace are exhausted, it MAY roll over to `PLI-1-1234`, then `PLI-2-1234`, and so on. It MUST contain no personal data or failure details, be non-URL, and must not create, verify, or authenticate an account by itself. The server stores only a verifier/hash plus a non-secret numeric namespace marker.
 7. An authenticated Owner, Admin, or Front Desk staff member MUST be authorized before draft lookup or disclosure. Teachers MUST be excluded.
 8. The authorized staff member MUST enter the manual assistance code, review the captured normalized phone, name, and email, and explicitly confirm both that the student reports no SMS and that the phone is validated.
 9. The staff New student modal MUST present a clearly visible `SMS code did not arrive?` control before its ordinary contact fields. It MUST open a dedicated dialog for code entry, identity review, and confirmations; lookup MUST NOT alter the ordinary form, while successful confirmation MUST close the dialog and populate the captured identity fields plus the privileged ticket.
@@ -64,7 +64,7 @@ Authorized operators should inspect Clerk Dashboard Application Logs for `sign_i
 ## Acceptance Criteria
 
 - [ ] The second resend enables `Code did not arrive?` but does not assert SMS delivery failure.
-- [ ] The explicit action creates only an unprivileged short-lived draft and `PLI-1234`-style manual assistance code; no scanner is required.
+- [ ] The explicit action creates only an unprivileged short-lived draft and a `PLI-1234` manual assistance code, rolling over only after namespace exhaustion; no scanner is required.
 - [ ] The popup tells the student to give the code to host/staff, and the code alone cannot create or verify an account.
 - [ ] Only authenticated Owner, Admin, or Front Desk staff can disclose a draft, confirm recovery, create a privileged ticket, or complete recovery; a Teacher cannot.
 - [ ] Staff must enter the code, review captured identity fields, and explicitly confirm both no-SMS and phone validation before privileged ticket creation.

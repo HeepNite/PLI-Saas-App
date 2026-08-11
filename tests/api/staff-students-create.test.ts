@@ -37,6 +37,11 @@ vi.mock("@/lib/student-recovery", () => ({
 const mockPrisma = {
   classSession: {
     findUnique: vi.fn(),
+    findMany: vi.fn(),
+    upsert: vi.fn(),
+  },
+  courseCatalog: {
+    findMany: vi.fn(),
   },
   purchase: {
     create: vi.fn(),
@@ -52,6 +57,7 @@ const mockConsumeRateLimit = vi.fn()
 
 const mockTx = {
   classSession: mockPrisma.classSession,
+  courseCatalog: mockPrisma.courseCatalog,
   purchase: mockPrisma.purchase,
   attendance: { findUnique: vi.fn(), create: vi.fn() },
   packagePurchase: { findFirst: vi.fn() },
@@ -147,6 +153,12 @@ describe("POST /api/staff/students", () => {
     mockPrisma.purchase.create.mockReset()
     mockPrisma.purchase.findUnique.mockReset().mockResolvedValue(null)
     mockPrisma.classSession.findUnique.mockReset()
+    mockPrisma.classSession.findMany.mockReset().mockImplementation(async () => {
+      const session = await mockPrisma.classSession.findUnique()
+      return session ? [session] : []
+    })
+    mockPrisma.classSession.upsert.mockReset()
+    mockPrisma.courseCatalog.findMany.mockReset().mockResolvedValue([])
     mockPrisma.$transaction.mockReset().mockImplementation(async (callback: (tx: typeof mockTx) => unknown) => callback(mockTx))
     mockWriteStudentDataAudit.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
@@ -343,6 +355,36 @@ describe("POST /api/staff/students", () => {
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toEqual({ error: "Selected class session is not available for staff check-in." })
     expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+  })
+
+  it("materializes a selected synthetic schedule before writing attendance", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    mockPrisma.classSession.findUnique.mockResolvedValue(null)
+    mockPrisma.classSession.findMany.mockResolvedValue([])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([{
+      slug: "salsa", title: "Salsa", durationMinutes: 60,
+      availableWeekdays: [3], availableTimes: ["19:00"], scheduleRules: null,
+    }])
+    mockPrisma.classSession.upsert.mockResolvedValue({
+      id: "session_materialized", courseSlug: "salsa", title: "Salsa",
+      startsAt: new Date("2026-07-29T23:00:00.000Z"), durationMinutes: 60,
+    })
+    try {
+      const res = await postCreateStudent({
+        email: "student@example.com",
+        checkIn: { enabled: true, date: "2026-07-29", sessionId: "scheduled:salsa:2026-07-29:19:00" },
+      })
+
+      expect(res.status).toBe(201)
+      expect(mockPrisma.classSession.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        where: { courseSlug_startsAt: { courseSlug: "salsa", startsAt: new Date("2026-07-29T23:00:00.000Z") } },
+        update: {},
+      }))
+      expect(mockTx.attendance.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ sessionId: "session_materialized" }),
+      }))
+    } finally { vi.useRealTimers() }
   })
 
   it("rejects duplicate attendance before reserving package credit", async () => {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { addDays, isSelectableStudentSessionDate, startOfNewYorkDate } from "./shared"
+import { findSelectableStudentSessions, isSelectableStudentSessionDate } from "./shared"
 
 export async function GET(req: Request) {
   const rateLimit = consumeRateLimit({
@@ -20,11 +20,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Date must be today or within the last 14 days." }, { status: 400 })
   }
 
-  const sessions = await prisma.classSession.findMany({
-    where: { startsAt: { gte: startOfNewYorkDate(date), lt: startOfNewYorkDate(addDays(date, 1)) } },
-    select: { id: true, courseSlug: true, title: true, startsAt: true, durationMinutes: true },
-    orderBy: { startsAt: "asc" },
-  })
+  const sessions = await findSelectableStudentSessions(prisma, date)
 
-  return NextResponse.json({ items: sessions.map((session) => ({ ...session, startsAt: session.startsAt.toISOString(), isCurrent: false })) })
+  return NextResponse.json({ items: sessions.map((session) => ({
+    id: session.id,
+    courseSlug: session.courseSlug,
+    title: session.title,
+    startsAt: session.startsAt.toISOString(),
+    durationMinutes: session.durationMinutes,
+    isCurrent: false,
+  })) })
 }
