@@ -10,6 +10,7 @@ export type CreateStudentFormState = {
   createAttendance: boolean
   attendanceDate: string
   attendanceSessionId: string
+  recoveryTicket: string
 }
 
 export type CreateStudentSessionOption = {
@@ -45,6 +46,7 @@ const INITIAL_FORM: CreateStudentFormState = {
   createAttendance: false,
   attendanceDate: "",
   attendanceSessionId: "",
+  recoveryTicket: "",
 }
 
 export const getTodayStaffDate = (now = new Date()) => {
@@ -71,6 +73,11 @@ const addDaysToDateKey = (dateKey: string, days: number) => {
 export const getEarliestStaffAttendanceDate = (now = new Date()) =>
   addDaysToDateKey(getTodayStaffDate(now), -STAFF_ATTENDANCE_BACKFILL_DAYS)
 
+export const getStudentAttendanceDateBounds = (now = new Date()) => ({
+  minimum: getEarliestStaffAttendanceDate(now),
+  maximum: getTodayStaffDate(now),
+})
+
 export const buildCreateStudentSessionsRequestUrl = (date: string) => {
   const query = date ? `?date=${encodeURIComponent(date)}` : ""
   return `/api/staff/students/sessions${query}`
@@ -95,6 +102,7 @@ export const buildCreateStudentRequestBody = (form: CreateStudentFormState) => {
     amountCents,
     paymentMode: amountCents > 0 ? form.paymentMode || undefined : undefined,
     note: form.note.trim() || undefined,
+    recoveryTicket: form.recoveryTicket || undefined,
     checkIn: form.createAttendance
       ? { enabled: true, date: form.attendanceDate || undefined, sessionId: form.attendanceSessionId || undefined }
       : undefined,

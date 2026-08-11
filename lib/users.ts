@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { normalizePhone } from "@/lib/shared"
+import type { PrismaTransaction } from "@/lib/audit/student-data-audit"
 
 export type UpsertUserInput = {
   clerkId?: string
@@ -24,12 +25,21 @@ type ExistingUser = {
   stripeCustomerId: string | null
 }
 
+const locallyCreatedUsers = new WeakSet<object>()
+
+/**
+ * Reports creation for the object returned by the most recent local upsert
+ * without changing the user object's established public shape.
+ */
+export const wasUserCreatedByUpsert = (user: object | null): boolean =>
+  user !== null && locallyCreatedUsers.has(user)
+
 const normalize = (value: string | undefined) => {
   const trimmed = value?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : undefined
 }
 
-export async function upsertUserByIdentifiers(input: UpsertUserInput) {
+export async function upsertUserByIdentifiers(input: UpsertUserInput, db: PrismaTransaction = prisma) {
   const clerkId = normalize(input.clerkId)
   const email = normalize(input.email)?.toLowerCase()
   const name = normalize(input.name)
@@ -46,13 +56,13 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
   if (stripeCustomerId) byIdentity.push({ stripeCustomerId })
 
   const existingByClerkId = clerkId
-    ? await prisma.user.findUnique({
+    ? await db.user.findUnique({
         where: { clerkId },
       })
     : null
 
   const identityMatches: ExistingUser[] = byIdentity.length
-    ? await prisma.user.findMany({
+    ? await db.user.findMany({
         where: { OR: byIdentity },
         orderBy: { createdAt: "asc" },
       })
@@ -113,10 +123,11 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
     }
 
     if (Object.keys(updateData).length > 0) {
-      return prisma.user.update({
+      const user = await db.user.update({
         where: { id: existing.id },
         data: updateData,
       })
+      return user
     }
     return existing
   }
@@ -125,10 +136,12 @@ export async function upsertUserByIdentifiers(input: UpsertUserInput) {
     return null
   }
 
-  return prisma.user.create({
+  const user = await db.user.create({
     data: {
       email: email || `phone-${phone}-${Date.now()}@placeholder.pli.local`,
       ...data,
     },
   })
+  locallyCreatedUsers.add(user)
+  return user
 }

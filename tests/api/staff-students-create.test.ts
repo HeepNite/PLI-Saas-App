@@ -5,7 +5,12 @@ const mockFindClerkUserByIdentifiers = vi.fn()
 const mockEnsureClerkUser = vi.fn()
 const mockUpdateClerkUserIfMissing = vi.fn()
 const mockUpsertUserByIdentifiers = vi.fn()
+const mockWasUserCreatedByUpsert = vi.fn()
 const mockClerkClient = vi.fn()
+const mockReserveRecoveryTicket = vi.fn()
+const mockReleaseRecoveryTicket = vi.fn()
+const mockConsumeRecoveryTicket = vi.fn()
+const mockNormalizeRecoveryCode = vi.fn()
 
 vi.mock("@/lib/security/staff-portal-auth", () => ({
   authorizeStudentOperationalRequest: (...args: unknown[]) => mockAuthorizeStudentOperationalRequest(...args),
@@ -19,6 +24,14 @@ vi.mock("@/lib/clerk-users", () => ({
 
 vi.mock("@/lib/users", () => ({
   upsertUserByIdentifiers: (...args: unknown[]) => mockUpsertUserByIdentifiers(...args),
+  wasUserCreatedByUpsert: (...args: unknown[]) => mockWasUserCreatedByUpsert(...args),
+}))
+
+vi.mock("@/lib/student-recovery", () => ({
+  reserveRecoveryTicket: (...args: unknown[]) => mockReserveRecoveryTicket(...args),
+  releaseRecoveryTicket: (...args: unknown[]) => mockReleaseRecoveryTicket(...args),
+  consumeRecoveryTicket: (...args: unknown[]) => mockConsumeRecoveryTicket(...args),
+  normalizeRecoveryCode: (...args: unknown[]) => mockNormalizeRecoveryCode(...args),
 }))
 
 const mockPrisma = {
@@ -39,6 +52,7 @@ const mockPrisma = {
   },
   purchase: {
     create: vi.fn(),
+    findUnique: vi.fn(),
   },
 }
 
@@ -154,6 +168,7 @@ describe("POST /api/staff/students", () => {
     mockEnsureClerkUser.mockReset()
     mockUpdateClerkUserIfMissing.mockReset()
     mockUpsertUserByIdentifiers.mockReset()
+    mockWasUserCreatedByUpsert.mockReset().mockReturnValue(true)
     mockClerkClient.mockReset()
     mockPrisma.$transaction.mockClear()
     mockPrisma.classSession.findMany.mockReset()
@@ -163,6 +178,11 @@ describe("POST /api/staff/students", () => {
     mockPrisma.attendance.create.mockReset()
     mockPrisma.packagePurchase.findMany.mockReset()
     mockPrisma.purchase.create.mockReset()
+    mockPrisma.purchase.findUnique.mockReset().mockResolvedValue(null)
+    mockReserveRecoveryTicket.mockReset()
+    mockReleaseRecoveryTicket.mockReset()
+    mockConsumeRecoveryTicket.mockReset().mockResolvedValue(true)
+    mockNormalizeRecoveryCode.mockReset().mockImplementation((value) => typeof value === "string" && /^[A-Z0-9_-]{12}$/.test(value) ? value : null)
     mockWriteStudentDataAudit.mockReset()
     mockStripeCheckoutSessionsCreate.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
@@ -450,6 +470,59 @@ describe("POST /api/staff/students", () => {
       expect.objectContaining({ entity: "profile", field: "created" })
     )
     expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("consumes a staff-confirmed recovery ticket with its captured identity", async () => {
+    mockReserveRecoveryTicket.mockResolvedValue({
+      ticketId: "ticket_1",
+      draftId: "draft_1",
+      correlationId: "recovery_1",
+      staffClerkId: "front_desk_1",
+      draft: { phone: "+15551234567", email: "student@example.com", name: "Maria Student" },
+    })
+    mockClerkClient.mockResolvedValue({
+      invitations: { createInvitation: vi.fn().mockResolvedValue({ id: "inv_1" }) },
+      phoneNumbers: { updatePhoneNumber: vi.fn().mockResolvedValue({}) },
+    })
+
+    const res = await postCreateStudent({ email: "replacement@example.com", recoveryTicket: "ABCDEFGHIJKL" })
+
+    expect(res.status).toBe(201)
+    expect(mockEnsureClerkUser).toHaveBeenCalledWith({ email: "student@example.com", phone: "+15551234567", name: "Maria Student" })
+    expect(mockConsumeRecoveryTicket).toHaveBeenCalledWith("ticket_1", "draft_1", mockPrisma)
+    expect(mockWriteStudentDataAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ field: "sms_recovery_confirmed", valueAfter: expect.objectContaining({ correlationId: "recovery_1" }) }),
+      mockPrisma,
+    )
+  })
+
+  it("releases the recovery ticket after Stripe failure and reuses the purchase on retry", async () => {
+    mockReserveRecoveryTicket.mockResolvedValue({
+      ticketId: "ticket_1",
+      draftId: "draft_1",
+      correlationId: "recovery_1",
+      staffClerkId: "front_desk_1",
+      draft: { phone: "+15551234567", email: "student@example.com", name: "Maria Student" },
+    })
+    mockClerkClient.mockResolvedValue({
+      invitations: { createInvitation: vi.fn().mockResolvedValue({ id: "inv_1" }) },
+      phoneNumbers: { updatePhoneNumber: vi.fn().mockResolvedValue({}) },
+    })
+    mockPrisma.purchase.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "purchase_1", metadata: {} })
+    mockStripeCheckoutSessionsCreate.mockRejectedValueOnce(new Error("Stripe unavailable"))
+
+    const request = { email: "replacement@example.com", amountCents: 2500, paymentMode: "card_qr", recoveryTicket: "ABCDEFGHIJKL" }
+    const failed = await postCreateStudent(request)
+    const retried = await postCreateStudent(request)
+
+    expect(failed.status).toBe(503)
+    expect(mockReleaseRecoveryTicket).toHaveBeenCalledWith("ticket_1")
+    expect(retried.status).toBe(201)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    expect(mockStripeCheckoutSessionsCreate).toHaveBeenLastCalledWith(expect.any(Object), { idempotencyKey: "ticket_1" })
+    expect(mockConsumeRecoveryTicket).toHaveBeenCalledWith("ticket_1", "draft_1", mockPrisma)
   })
 
   it("does not create a purchase when amount is zero", async () => {

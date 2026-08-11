@@ -166,6 +166,9 @@ export default function EnrollModal({
   const verifyNewStudent = verification.verify
   const resetVerification = verification.reset
   const markSmsVerified = verification.onSmsVerified
+  const [recoveryEligible, setRecoveryEligible] = React.useState(false)
+  const [recoveryCode, setRecoveryCode] = React.useState<string | null>(null)
+  const [recoveryError, setRecoveryError] = React.useState<string | null>(null)
   const isInline = mode === "inline"
   const checkInContextDate = normalizeIsoDate(checkInContext?.date)
   const checkInContextTime = normalizeTime24(checkInContext?.time)
@@ -230,6 +233,37 @@ export default function EnrollModal({
   )
   // Paso 2: datos de contacto (modular, sin teléfono)
   const contact = flowState.contact
+  const requestRecovery = React.useCallback(async () => {
+    setRecoveryError(null)
+    try {
+      const response = await fetch("/api/checkin/qr/new-student/recovery-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: contact.phone,
+          email: contact.email,
+          name: [contact.firstName, contact.lastName].filter(Boolean).join(" "),
+          source: isKioskTerminalFlow ? "kiosk_terminal" : "qr_mobile",
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || typeof data.code !== "string") throw new Error()
+      setRecoveryCode(data.code)
+    } catch {
+      setRecoveryError("We couldn't start staff assistance. Please try again.")
+    }
+  }, [contact.email, contact.firstName, contact.lastName, contact.phone, isKioskTerminalFlow])
+  const invalidateRecovery = React.useCallback((code = recoveryCode) => {
+    if (!code) return
+    void fetch("/api/checkin/qr/new-student/recovery-draft", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+      keepalive: true,
+    })
+    setRecoveryCode(null)
+    setRecoveryEligible(false)
+  }, [recoveryCode])
   // Flujo multi‑paso + éxito
   const step = flowState.step
   const success = flowState.success
@@ -847,17 +881,19 @@ export default function EnrollModal({
   }, [isQrMobileCompactFlow, handleClose])
   const confirmCancelReset = React.useCallback(() => {
     setShowCancelConfirm(false)
+    invalidateRecovery()
     resetForm()
     resetVerification()
     router.push(isSignedIn ? "/client-profile" : "/sign-in")
-  }, [resetForm, resetVerification, router, isSignedIn])
+  }, [invalidateRecovery, resetForm, resetVerification, router, isSignedIn])
 
   React.useEffect(() => {
     if (!open && !isInline) {
+      invalidateRecovery()
       resetForm()
       resetVerification()
     }
-  }, [open, isInline, resetForm, resetVerification])
+  }, [open, isInline, invalidateRecovery, resetForm, resetVerification])
 
   const {
     handleNumpadDigit,
@@ -1561,6 +1597,7 @@ export default function EnrollModal({
             aria-label={t("aria_close")}
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             onClick={() => {
+              invalidateRecovery()
               resetVerification()
             }}
           />
@@ -1569,6 +1606,7 @@ export default function EnrollModal({
               type="button"
               className="absolute right-5 top-5 z-10 shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/75 transition hover:bg-white/[0.04]"
               onClick={() => {
+                invalidateRecovery()
                 resetVerification()
               }}
             >
@@ -1584,6 +1622,7 @@ export default function EnrollModal({
               onCodeSent={() => {
                 verification.onSmsSent()
               }}
+              onSecondResend={() => setRecoveryEligible(true)}
               onSessionCreated={(sessionId) => {
                 pendingClerkSessionRef.current = sessionId
                 handleEmbeddedSignInSessionCreated({ onKioskSessionCreated, sessionId })
@@ -1592,6 +1631,23 @@ export default function EnrollModal({
                 markSmsVerified()
               }}
             />
+            {recoveryEligible && !recoveryCode && (
+              <button
+                type="button"
+                onClick={() => void requestRecovery()}
+                className="mt-4 text-xs text-amber-200 underline underline-offset-4"
+              >
+                Code did not arrive?
+              </button>
+            )}
+            {recoveryCode && (
+              <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-center">
+                <p className="text-sm font-semibold text-amber-100">Code did not arrive?</p>
+                <p className="mt-1 text-xs text-white/75">Give this code to the host/staff.</p>
+                <p className="mt-2 font-mono text-xl tracking-[0.2em] text-white">{recoveryCode}</p>
+              </div>
+            )}
+            {recoveryError && <p className="mt-3 text-xs text-red-200">{recoveryError}</p>}
           </div>
         </div>
       )}

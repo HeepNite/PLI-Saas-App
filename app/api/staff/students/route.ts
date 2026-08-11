@@ -6,14 +6,15 @@ import { ensureClerkUser, findClerkUserByIdentifiers, updateClerkUserIfMissing, 
 import { authorizeStudentOperationalRequest, type StaffPortalAuthResult } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
-import { upsertUserByIdentifiers } from "@/lib/users"
+import { upsertUserByIdentifiers, wasUserCreatedByUpsert } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
-import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
+import { writeStudentDataAudit, type WriteStudentDataAuditParams } from "@/lib/audit/student-data-audit"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
 import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey, materializeSelectableClassSession } from "./sessions/selectable-sessions"
 import { safeOptionalText as safeText } from "@/lib/api-helpers"
+import { consumeRecoveryTicket, normalizeRecoveryCode, releaseRecoveryTicket, reserveRecoveryTicket } from "@/lib/student-recovery"
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY
 const stripe = stripeSecret
@@ -219,7 +220,8 @@ const createCardQrPurchaseRecord = async (
   userId: string,
   amountCents: number,
   note?: string,
-  attendanceId?: string
+  attendanceId?: string,
+  idempotencyKey?: string,
 ) => {
   return purchaseDelegate.create({
     data: {
@@ -229,6 +231,7 @@ const createCardQrPurchaseRecord = async (
       amount: amountCents,
       currency: "usd",
       status: "pending",
+      idempotencyKey,
       metadata: {
         source: "staff_created_student",
         paymentMode: "card_qr",
@@ -242,7 +245,13 @@ const createCardQrPurchaseRecord = async (
   })
 }
 
-const createStripeCheckoutUrl = async (purchase: { id: string }, userId: string, amountCents: number, req: Request) => {
+const createStripeCheckoutUrl = async (
+  purchase: { id: string },
+  userId: string,
+  amountCents: number,
+  req: Request,
+  idempotencyKey?: string,
+) => {
 
   if (!stripe) {
     return undefined
@@ -252,7 +261,7 @@ const createStripeCheckoutUrl = async (purchase: { id: string }, userId: string,
   const baseUrl = requestUrl.origin
   const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60
 
-  const session = await stripe.checkout.sessions.create({
+  const checkoutParams: Stripe.Checkout.SessionCreateParams = {
     mode: "payment",
     payment_method_types: ["card"],
     line_items: [
@@ -277,9 +286,73 @@ const createStripeCheckoutUrl = async (purchase: { id: string }, userId: string,
       source: "staff_created_student",
       isRegistrationDeposit: "true",
     },
-  })
+  }
+  const session = idempotencyKey
+    ? await stripe.checkout.sessions.create(checkoutParams, { idempotencyKey })
+    : await stripe.checkout.sessions.create(checkoutParams)
 
   return session.url ?? undefined
+}
+
+const writeProfileCreationAudit = async (
+  targetUserId: string,
+  authResult: Extract<StaffPortalAuthResult, { ok: true }>
+) => {
+  await writeStudentDataAudit({
+    targetUserId,
+    staffClerkId: authResult.userId,
+    staffName: authResult.staffName,
+    entity: "profile",
+    field: "created",
+    valueBefore: null,
+    valueAfter: "created",
+    reason: "Student created by staff",
+  })
+}
+
+const writePaymentCreationAudit = async (
+  targetUserId: string,
+  purchaseId: string,
+  amountCents: number,
+  paymentMode: string,
+  authResult: Extract<StaffPortalAuthResult, { ok: true }>
+) => {
+  await writeStudentDataAudit({
+    targetUserId,
+    staffClerkId: authResult.userId,
+    staffName: authResult.staffName,
+    entity: "payment",
+    entityId: purchaseId,
+    field: "created",
+    valueBefore: null,
+    valueAfter: { amount: amountCents, mode: paymentMode },
+    reason: "Registration deposit recorded by staff",
+  })
+}
+
+const writeRecoveryAudit = async (
+  targetUserId: string,
+  correlationId: string,
+  authResult: Extract<StaffPortalAuthResult, { ok: true }>,
+  tx?: Prisma.TransactionClient
+) => {
+  await writeStudentDataAudit({
+    targetUserId,
+    staffClerkId: authResult.userId,
+    staffName: authResult.staffName,
+    entity: "profile",
+    field: "sms_recovery_confirmed",
+    valueBefore: null,
+    valueAfter: { correlationId, noSmsConfirmed: true, phoneValidated: true },
+    reason: "Staff-confirmed SMS verification recovery",
+  }, tx)
+}
+
+const verifyRecoveryPhone = async (clerkUser: ClerkUser, phone: string) => {
+  const phoneNumber = clerkUser.phoneNumbers.find((item) => item.phoneNumber === phone)
+  if (!phoneNumber || phoneNumber.verification?.status === "verified") return
+  const client = await clerkClient()
+  await client.phoneNumbers.updatePhoneNumber(phoneNumber.id, { verified: true })
 }
 
 const findUsablePackageTx = async (
@@ -389,42 +462,6 @@ const createManualAttendanceTx = async (
   return { ok: true as const, attendance }
 }
 
-const writeProfileCreationAudit = async (
-  targetUserId: string,
-  authResult: Extract<StaffPortalAuthResult, { ok: true }>
-) => {
-  await writeStudentDataAudit({
-    targetUserId,
-    staffClerkId: authResult.userId,
-    staffName: authResult.staffName,
-    entity: "profile",
-    field: "created",
-    valueBefore: null,
-    valueAfter: "created",
-    reason: "Student created by staff",
-  })
-}
-
-const writePaymentCreationAudit = async (
-  targetUserId: string,
-  purchaseId: string,
-  amountCents: number,
-  paymentMode: string,
-  authResult: Extract<StaffPortalAuthResult, { ok: true }>
-) => {
-  await writeStudentDataAudit({
-    targetUserId,
-    staffClerkId: authResult.userId,
-    staffName: authResult.staffName,
-    entity: "payment",
-    entityId: purchaseId,
-    field: "created",
-    valueBefore: null,
-    valueAfter: { amount: amountCents, mode: paymentMode },
-    reason: "Registration deposit recorded by staff",
-  })
-}
-
 const createOrReuseStudentIdentity = async (payload: StaffCreateStudentPayload, req: Request) => {
   let existingClerkUser: ClerkUser | null
   let clerkUser: ClerkUser | null
@@ -515,12 +552,45 @@ export async function POST(req: Request) {
     }
   }
 
-  const identity = await createOrReuseStudentIdentity(parsed.payload, req)
+  const recoveryToken = body && typeof body === "object"
+    ? normalizeRecoveryCode((body as Record<string, unknown>).recoveryTicket)
+    : null
+  const recovery = recoveryToken === null ? null : await reserveRecoveryTicket(recoveryToken, authResult.userId)
+  if (recoveryToken && !recovery) {
+    return NextResponse.json({ error: "Recovery authorization is unavailable." }, { status: 400 })
+  }
+
+  const releaseRecovery = async () => {
+    if (recovery) await releaseRecoveryTicket(recovery.ticketId)
+  }
+
+  const identityPayload = recovery
+    ? { ...parsed.payload, phone: recovery.draft.phone, email: recovery.draft.email || undefined, name: recovery.draft.name || undefined }
+    : parsed.payload
+
+  let identity: Awaited<ReturnType<typeof createOrReuseStudentIdentity>>
+  try {
+    identity = await createOrReuseStudentIdentity(identityPayload, req)
+  } catch {
+    await releaseRecovery()
+    return NextResponse.json({ error: "Student identity service is temporarily unavailable. Please try again." }, { status: 503 })
+  }
   if (!identity.ok) {
+    await releaseRecovery()
     return NextResponse.json({ error: identity.error }, { status: identity.status })
   }
 
+  if (recovery) {
+    try {
+      await verifyRecoveryPhone(identity.clerkUser, recovery.draft.phone)
+    } catch {
+      await releaseRecovery()
+      return NextResponse.json({ error: "Student identity service is temporarily unavailable. Please try again." }, { status: 503 })
+    }
+  }
+
   const { amountCents, paymentMode, note } = parsed.payload
+  const deferRecoveryConsumption = Boolean(recovery && amountCents > 0 && paymentMode === "card_qr")
   let purchase: { id: string } | undefined
   let attendanceId: string | undefined
   let stripeCheckoutUrl: string | undefined
@@ -540,38 +610,93 @@ export async function POST(req: Request) {
         return attendanceResult
       }
 
+      if (recovery && deferRecoveryConsumption) {
+        const existingPurchase = await tx.purchase.findUnique({
+          where: { idempotencyKey: recovery.ticketId },
+          select: { id: true, metadata: true },
+        })
+        if (existingPurchase) {
+          const metadata = existingPurchase.metadata
+          const reusedAttendanceId = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+            && typeof (metadata as Record<string, unknown>).attendanceId === "string"
+            ? (metadata as Record<string, unknown>).attendanceId as string
+            : undefined
+          return { ok: true as const, attendanceId: reusedAttendanceId, purchase: existingPurchase }
+        }
+      }
+
+      if (recovery && !deferRecoveryConsumption) {
+        if (!await consumeRecoveryTicket(recovery.ticketId, recovery.draftId, tx)) {
+          return { ok: false as const, status: 400, error: "Recovery authorization is unavailable." }
+        }
+        await writeRecoveryAudit(identity.localUser.id, recovery.correlationId, authResult, tx)
+      }
+
       const resolvedAttendanceId = attendanceResult?.attendance.id
       let createdPurchase: { id: string } | undefined
 
       if (amountCents > 0 && paymentMode === "cash") {
         createdPurchase = await createCashPurchase(tx.purchase, identity.localUser.id, amountCents, note, resolvedAttendanceId)
       } else if (amountCents > 0 && paymentMode === "card_qr") {
-        createdPurchase = await createCardQrPurchaseRecord(tx.purchase, identity.localUser.id, amountCents, note, resolvedAttendanceId)
+        createdPurchase = await createCardQrPurchaseRecord(
+          tx.purchase,
+          identity.localUser.id,
+          amountCents,
+          note,
+          resolvedAttendanceId,
+          deferRecoveryConsumption && recovery ? recovery.ticketId : undefined,
+        )
       }
 
       return { ok: true as const, attendanceId: resolvedAttendanceId, purchase: createdPurchase }
     })
 
     if (!result.ok) {
+      await releaseRecovery()
       return NextResponse.json({ error: result.error }, { status: result.status })
     }
 
     attendanceId = result.attendanceId
     purchase = result.purchase
   } catch (error) {
+    await releaseRecovery()
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json({ error: "Student is already checked in for this class session." }, { status: 409 })
     }
     throw error
   }
 
-  await writeProfileCreationAudit(identity.localUser.id, authResult)
-
-  if (purchase && amountCents > 0 && paymentMode) {
-    await writePaymentCreationAudit(identity.localUser.id, purchase.id, amountCents, paymentMode, authResult)
-    if (paymentMode === "card_qr") {
-      stripeCheckoutUrl = await createStripeCheckoutUrl(purchase, identity.localUser.id, amountCents, req)
+  try {
+    if (wasUserCreatedByUpsert(identity.localUser)) {
+      await writeProfileCreationAudit(identity.localUser.id, authResult)
     }
+
+    if (purchase && amountCents > 0 && paymentMode) {
+      await writePaymentCreationAudit(identity.localUser.id, purchase.id, amountCents, paymentMode, authResult)
+      if (paymentMode === "card_qr") {
+        stripeCheckoutUrl = await createStripeCheckoutUrl(
+          purchase,
+          identity.localUser.id,
+          amountCents,
+          req,
+          recovery && deferRecoveryConsumption ? recovery.ticketId : undefined,
+        )
+        if (recovery && deferRecoveryConsumption) {
+          await prisma.$transaction(async (tx) => {
+            if (!await consumeRecoveryTicket(recovery.ticketId, recovery.draftId, tx)) {
+              throw new Error("Recovery authorization is unavailable.")
+            }
+            await writeRecoveryAudit(identity.localUser.id, recovery.correlationId, authResult, tx)
+          })
+        }
+      }
+    }
+  } catch (error) {
+    await releaseRecovery()
+    if (recovery) {
+      return NextResponse.json({ error: "Student creation could not be completed. Please try again." }, { status: 503 })
+    }
+    throw error
   }
 
   return NextResponse.json({
