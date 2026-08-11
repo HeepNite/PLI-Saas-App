@@ -119,6 +119,64 @@ describe("staff users routes", () => {
     expect(data.items[0].category).toBe("guest")
   })
 
+  it("GET folds in staff missing from the Clerk page from the DB roster", async () => {
+    // Clerk's getUserList is capped at 100 and students share the pool, so an old
+    // staff account (e.g. the owner) can fall outside the window. It must still appear.
+    usersApi.getUserList.mockResolvedValue({
+      data: [
+        {
+          id: "u_staff",
+          firstName: "Ana",
+          lastName: "Staff",
+          emailAddresses: [{ emailAddress: "ana@example.com" }],
+          publicMetadata: { role: "staff" },
+          banned: false,
+          locked: false,
+          createdAt: Date.now(),
+          lastSignInAt: Date.now(),
+        },
+      ],
+    })
+    mockPrisma.staffAccount.findMany.mockResolvedValue([
+      { clerkUserId: "u_staff", email: "ana@example.com", role: "staff", category: null, paymentModelId: null },
+      {
+        clerkUserId: "u_owner",
+        email: "owner@example.com",
+        role: "admin",
+        category: null,
+        firstName: "Owner",
+        lastName: "Boss",
+        paymentModelId: "pm_owner",
+        createdAt: new Date(),
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/users/route")
+    const res = await GET(new Request("http://localhost/api/staff/users"))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    const ids = data.items.map((item: { id: string }) => item.id)
+    expect(ids).toContain("u_staff")
+    expect(ids).toContain("u_owner")
+    const owner = data.items.find((item: { id: string }) => item.id === "u_owner")
+    expect(owner.paymentModelId).toBe("pm_owner")
+    // The folded-in account must not be duplicated when it is also in the Clerk page.
+    expect(ids.filter((id: string) => id === "u_staff")).toHaveLength(1)
+  })
+
+  it("GET does not fold in DB-only staff while searching", async () => {
+    usersApi.getUserList.mockResolvedValue({ data: [] })
+    mockPrisma.staffAccount.findMany.mockResolvedValue([
+      { clerkUserId: "u_owner", email: "owner@example.com", role: "admin", category: null, paymentModelId: null },
+    ])
+
+    const { GET } = await import("@/app/api/staff/users/route")
+    const res = await GET(new Request("http://localhost/api/staff/users?q=owner"))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items).toHaveLength(0)
+  })
+
   it("GET can filter by category", async () => {
     usersApi.getUserList.mockResolvedValue({
       data: [
