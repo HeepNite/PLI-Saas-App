@@ -1,79 +1,68 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { describe, it, expect, afterEach } from "vitest"
 import { createHash } from "crypto"
-import { isValidPinHash } from "@/lib/security/staff-pin-auth"
+import { hashStaffPin, isValidPinHash } from "@/lib/security/staff-pin-auth"
 
-const buildHash = (pin: string, salt: string, pepper: string) =>
+const makeHash = (pin: string, salt: string, pepper: string) =>
   `${salt}:${createHash("sha256").update(`${pin}:${salt}:${pepper}`).digest("hex")}`
 
-describe("staff-pin-auth pepper resolution", () => {
-  const originalStaffPinPepper = process.env.STAFF_PIN_PEPPER
-  const originalClerkSecretKey = process.env.CLERK_SECRET_KEY
+const restore = (key: string, value: string | undefined) => {
+  if (value === undefined) delete process.env[key]
+  else process.env[key] = value
+}
 
-  beforeEach(() => {
-    delete process.env.STAFF_PIN_PEPPER
-    delete process.env.CLERK_SECRET_KEY
-  })
+describe("staff PIN pepper decoupling (survives Clerk key swap)", () => {
+  const origPepper = process.env.STAFF_PIN_PEPPER
+  const origClerk = process.env.CLERK_SECRET_KEY
 
   afterEach(() => {
-    if (originalStaffPinPepper === undefined) {
-      delete process.env.STAFF_PIN_PEPPER
-    } else {
-      process.env.STAFF_PIN_PEPPER = originalStaffPinPepper
-    }
-    if (originalClerkSecretKey === undefined) {
-      delete process.env.CLERK_SECRET_KEY
-    } else {
-      process.env.CLERK_SECRET_KEY = originalClerkSecretKey
-    }
+    restore("STAFF_PIN_PEPPER", origPepper)
+    restore("CLERK_SECRET_KEY", origClerk)
   })
 
-  // Scenario: STAFF_PIN_PEPPER set wins over CLERK_SECRET_KEY
-  it("uses STAFF_PIN_PEPPER when set, even if CLERK_SECRET_KEY is also set", () => {
-    process.env.STAFF_PIN_PEPPER = "new-pepper-value"
-    process.env.CLERK_SECRET_KEY = "sk_live_something"
-
-    const hash = buildHash("1234", "salt123", "new-pepper-value")
-
-    expect(isValidPinHash("1234", hash)).toBe(true)
+  it("validates a hash made with CLERK_SECRET_KEY when STAFF_PIN_PEPPER is unset (backward compatible)", () => {
+    delete process.env.STAFF_PIN_PEPPER
+    process.env.CLERK_SECRET_KEY = "old-secret"
+    expect(isValidPinHash("1234", makeHash("1234", "salt1", "old-secret"))).toBe(true)
   })
 
-  it("rejects a hash built with CLERK_SECRET_KEY when STAFF_PIN_PEPPER is set to a different value", () => {
-    process.env.STAFF_PIN_PEPPER = "new-pepper-value"
-    process.env.CLERK_SECRET_KEY = "sk_live_something"
-
-    const hash = buildHash("1234", "salt123", "sk_live_something")
-
-    expect(isValidPinHash("1234", hash)).toBe(false)
+  it("keeps validating a legacy hash after CLERK_SECRET_KEY changes, when STAFF_PIN_PEPPER holds the old value", () => {
+    // The cutover scenario: pepper seeded with the old value BEFORE swapping the key.
+    process.env.STAFF_PIN_PEPPER = "old-secret"
+    process.env.CLERK_SECRET_KEY = "new-secret-after-swap"
+    expect(isValidPinHash("1234", makeHash("1234", "salt2", "old-secret"))).toBe(true)
   })
 
-  // Scenario: STAFF_PIN_PEPPER unset — falls back to CLERK_SECRET_KEY
-  it("falls back to CLERK_SECRET_KEY when STAFF_PIN_PEPPER is unset", () => {
-    process.env.CLERK_SECRET_KEY = "sk_test_old_value"
-
-    const hash = buildHash("1234", "salt123", "sk_test_old_value")
-
-    expect(isValidPinHash("1234", hash)).toBe(true)
+  it("rejects a wrong pin", () => {
+    process.env.STAFF_PIN_PEPPER = "old-secret"
+    expect(isValidPinHash("9999", makeHash("1234", "salt3", "old-secret"))).toBe(false)
   })
 
-  // Scenario: both unset — falls back to the "staff-pin" literal
-  it("falls back to the literal \"staff-pin\" when both STAFF_PIN_PEPPER and CLERK_SECRET_KEY are unset", () => {
-    const hash = buildHash("1234", "salt123", "staff-pin")
-
-    expect(isValidPinHash("1234", hash)).toBe(true)
+  it("REGRESSION: validates a CLERK_SECRET_KEY hash even when STAFF_PIN_PEPPER is set to a DIFFERENT value", () => {
+    // Elvira's bug: PIN was written with CLERK_SECRET_KEY (all write paths), but
+    // STAFF_PIN_PEPPER is set to another value. Dual-verify must still accept it
+    // so a changed PIN can still sign into the staff area (previously → 401).
+    process.env.STAFF_PIN_PEPPER = "dedicated-pepper"
+    process.env.CLERK_SECRET_KEY = "clerk-secret"
+    expect(isValidPinHash("1234", makeHash("1234", "salt4", "clerk-secret"))).toBe(true)
   })
 
-  // Scenario: existing hash created with old CLERK_SECRET_KEY still verifies
-  // once STAFF_PIN_PEPPER is seeded with that same value (key-swap survival).
-  it("verifies an existing hash after STAFF_PIN_PEPPER is seeded with the prior CLERK_SECRET_KEY value", () => {
-    // Simulate pre-swap: hash created while CLERK_SECRET_KEY held the sk_test value.
-    process.env.CLERK_SECRET_KEY = "sk_test_pre_swap"
-    const hash = buildHash("1234", "salt123", "sk_test_pre_swap")
+  it("hashStaffPin roundtrips and keys the hash with the pepper (preferred secret)", () => {
+    process.env.STAFF_PIN_PEPPER = "dedicated-pepper"
+    process.env.CLERK_SECRET_KEY = "clerk-secret"
+    const stored = hashStaffPin("1234")
+    // isValidPinHash accepts it (roundtrip)…
+    expect(isValidPinHash("1234", stored)).toBe(true)
+    // …and it verifies specifically under the pepper, proving writes decouple
+    // from CLERK_SECRET_KEY (survives a future Clerk key swap).
+    const [salt] = stored.split(":")
+    expect(stored).toBe(makeHash("1234", salt!, "dedicated-pepper"))
+    expect(stored).not.toBe(makeHash("1234", salt!, "clerk-secret"))
+  })
 
-    // Simulate the seeding step: STAFF_PIN_PEPPER now holds the same old value,
-    // and CLERK_SECRET_KEY has been swapped to sk_live.
-    process.env.STAFF_PIN_PEPPER = "sk_test_pre_swap"
-    process.env.CLERK_SECRET_KEY = "sk_live_post_swap"
-
-    expect(isValidPinHash("1234", hash)).toBe(true)
+  it("fail-closed: throws when neither STAFF_PIN_PEPPER nor CLERK_SECRET_KEY is set (no guessable literal)", () => {
+    delete process.env.STAFF_PIN_PEPPER
+    delete process.env.CLERK_SECRET_KEY
+    expect(() => isValidPinHash("1234", makeHash("1234", "salt5", "staff-pin"))).toThrow()
+    expect(() => hashStaffPin("1234")).toThrow()
   })
 })

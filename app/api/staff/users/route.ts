@@ -1,7 +1,7 @@
-import { createHash, randomBytes } from "crypto"
 import { NextResponse } from "next/server"
 import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
+import { hashStaffPin as hashPin } from "@/lib/security/staff-pin-auth"
 import {
   applyStaffRoleToMetadata,
   extractStaffRoleFromUserMetadata,
@@ -74,14 +74,6 @@ const extractRetryAfterSec = (error: unknown): number => {
     if (Number.isFinite(parsed) && parsed > 0) return Math.ceil(parsed)
   }
   return 5
-}
-
-const hashPin = (pin: string) => {
-  const salt = randomBytes(16).toString("hex")
-  const hash = createHash("sha256")
-    .update(`${pin}:${salt}:${process.env.CLERK_SECRET_KEY || "staff-pin"}`)
-    .digest("hex")
-  return `${salt}:${hash}`
 }
 
 const isValidPinFormat = (pin: string) => /^\d{4}$/.test(pin)
