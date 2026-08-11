@@ -184,6 +184,7 @@ export default function EmbeddedSignIn({
   onSuccessAction,
   onSessionCreated,
   onCodeSent,
+  onSecondResend,
   useNumericKeypad = false,
   activateSessionOnSuccess = true,
   autoSend = false,
@@ -194,6 +195,7 @@ export default function EmbeddedSignIn({
   onSuccessAction?: () => void | Promise<void>
   onSessionCreated?: (sessionId: string) => void | Promise<void>
   onCodeSent?: () => void
+  onSecondResend?: () => void
   useNumericKeypad?: boolean
   activateSessionOnSuccess?: boolean
   /** When true, automatically sends SMS code on mount if phoneNumber is valid */
@@ -260,6 +262,7 @@ export default function EmbeddedSignIn({
 
   // Ref for auto-send - declared here but effect runs after sendCode is defined
   const autoSendTriggeredRef = React.useRef(false)
+  const resendAttemptsRef = React.useRef(0)
 
   const renderCursorHint = (field: KioskNumericField) =>
     useNumericKeypad && activeField === field ? (
@@ -390,7 +393,7 @@ export default function EmbeddedSignIn({
         dispatch({ type: "SET_ERROR", payload: "An active session was detected. Please close this modal and try again, or contact staff for help." })
         return
       }
-      dispatch({ type: "SET_ERROR", payload: message || "We couldn't send the code to your phone." })
+      dispatch({ type: "SET_ERROR", payload: "We couldn't send the code to your phone." })
     } finally {
       dispatch({ type: "SET_BUSY", payload: false })
     }
@@ -451,9 +454,8 @@ export default function EmbeddedSignIn({
       }
 
       dispatch({ type: "SET_ERROR", payload: "We couldn't complete sign-in. Please try again." })
-    } catch (err) {
-      const message = getClerkErrorMessage(err)
-      dispatch({ type: "SET_ERROR", payload: message || "The code is invalid." })
+    } catch {
+      dispatch({ type: "SET_ERROR", payload: "The code is invalid." })
     } finally {
       dispatch({ type: "SET_BUSY", payload: false })
     }
@@ -488,6 +490,8 @@ export default function EmbeddedSignIn({
             : `We sent a new code to ${formatUSPhone(phone)}.`,
       })
       onCodeSent?.()
+      resendAttemptsRef.current += 1
+      if (resendAttemptsRef.current === 2) onSecondResend?.()
     } catch (err) {
       const message = getClerkErrorMessage(err)
       if (message && PHONE_CODE_RATE_LIMIT_RE.test(message)) {
@@ -496,11 +500,11 @@ export default function EmbeddedSignIn({
         dispatch({ type: "SET_ERROR", payload: "We already sent a code. Use the one you received or wait 30 seconds to resend." })
         return
       }
-      dispatch({ type: "SET_ERROR", payload: message || "We couldn't resend the code." })
+      dispatch({ type: "SET_ERROR", payload: "We couldn't resend the code." })
     } finally {
       dispatch({ type: "SET_BUSY", payload: false })
     }
-  }, [blockDuringCooldown, emailAddressId, emailSafeIdentifier, isLoaded, onCodeSent, phone, phoneNumberId, signIn, startCodeCooldown, verificationStrategy])
+  }, [blockDuringCooldown, emailAddressId, emailSafeIdentifier, isLoaded, onCodeSent, onSecondResend, phone, phoneNumberId, signIn, startCodeCooldown, verificationStrategy])
 
   const sendCodeByEmail = React.useCallback(async () => {
     if (!isLoaded || !signIn || !emailAddressId) return
@@ -525,7 +529,7 @@ export default function EmbeddedSignIn({
         dispatch({ type: "SET_ERROR", payload: "We already sent a code. Use the one you received or wait 30 seconds to resend." })
         return
       }
-      dispatch({ type: "SET_ERROR", payload: message || "We couldn't send the code to your email." })
+      dispatch({ type: "SET_ERROR", payload: "We couldn't send the code to your email." })
     } finally {
       dispatch({ type: "SET_BUSY", payload: false })
     }

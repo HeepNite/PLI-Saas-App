@@ -10,6 +10,7 @@ export type CreateStudentFormState = {
   createAttendance: boolean
   attendanceDate: string
   attendanceSessionId: string
+  recoveryTicket: string
 }
 
 export type CreateStudentSessionOption = { id: string; courseSlug: string; title: string; startsAt: string; durationMinutes: number | null; isCurrent: boolean }
@@ -53,6 +54,7 @@ const INITIAL_FORM: CreateStudentFormState = {
   createAttendance: false,
   attendanceDate: getTodayNewYork(),
   attendanceSessionId: "",
+  recoveryTicket: "",
 }
 
 type UseStaffCreateStudentAdminOptions = {
@@ -112,6 +114,7 @@ export function useStaffCreateStudentAdmin({
           amountCents,
           paymentMode: amountCents > 0 ? form.paymentMode || undefined : undefined,
           note: form.note.trim() || undefined,
+          recoveryTicket: form.recoveryTicket || undefined,
           checkIn: form.createAttendance ? { enabled: true, date: form.attendanceDate, sessionId: form.attendanceSessionId || undefined } : undefined,
         }),
       })

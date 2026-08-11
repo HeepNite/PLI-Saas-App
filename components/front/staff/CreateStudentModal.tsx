@@ -94,6 +94,51 @@ function FormView({
   onSubmit: () => void
 }) {
   const attendanceDateBounds = getStudentAttendanceDateBounds()
+  const [recoveryCode, setRecoveryCode] = React.useState("")
+  const [recoveryDraft, setRecoveryDraft] = React.useState<{ draftId: string; phone: string; email: string | null; name: string | null } | null>(null)
+  const [recoveryBusy, setRecoveryBusy] = React.useState(false)
+  const [noSmsConfirmed, setNoSmsConfirmed] = React.useState(false)
+  const [phoneValidated, setPhoneValidated] = React.useState(false)
+
+  React.useEffect(() => {
+    const ticket = form.recoveryTicket
+    return () => {
+      if (!ticket) return
+      void fetch("/api/staff/students/recovery/ticket", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket }),
+        keepalive: true,
+      })
+    }
+  }, [form.recoveryTicket])
+
+  const lookupRecovery = async () => {
+    setRecoveryBusy(true)
+    try {
+      const response = await fetch("/api/staff/students/recovery/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: recoveryCode }) })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.draftId) return
+      setRecoveryDraft(data)
+      onUpdateField("phone", data.phone || "")
+      onUpdateField("email", data.email || "")
+      onUpdateField("name", data.name || "")
+    } finally {
+      setRecoveryBusy(false)
+    }
+  }
+
+  const confirmRecovery = async () => {
+    if (!recoveryDraft) return
+    setRecoveryBusy(true)
+    try {
+      const response = await fetch("/api/staff/students/recovery/ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draftId: recoveryDraft.draftId, noSmsConfirmed, phoneValidated }) })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && typeof data.ticket === "string") onUpdateField("recoveryTicket", data.ticket)
+    } finally {
+      setRecoveryBusy(false)
+    }
+  }
 
   return (
     <form
@@ -103,6 +148,23 @@ function FormView({
       }}
       className="space-y-3"
     >
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-white/75">
+        <p className="font-medium text-white/90">SMS recovery</p>
+        {!recoveryDraft ? (
+          <div className="mt-2 flex gap-2">
+            <input value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} placeholder="Assistance code" className="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-white" />
+            <button type="button" onClick={() => void lookupRecovery()} disabled={recoveryBusy} className="rounded-lg border border-white/20 px-3">Review</button>
+          </div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            <p>Review: {recoveryDraft.name || "No name"} · {recoveryDraft.phone} · {recoveryDraft.email || "No email"}</p>
+            <label className="flex gap-2"><input type="checkbox" checked={noSmsConfirmed} onChange={(event) => setNoSmsConfirmed(event.target.checked)} /> Student reports no SMS.</label>
+            <label className="flex gap-2"><input type="checkbox" checked={phoneValidated} onChange={(event) => setPhoneValidated(event.target.checked)} /> I validated this phone number.</label>
+            <button type="button" onClick={() => void confirmRecovery()} disabled={recoveryBusy || !noSmsConfirmed || !phoneValidated || form.recoveryTicket !== ""} className="rounded-lg border border-amber-300/40 px-3 py-1.5 text-amber-100">Confirm recovery</button>
+            {form.recoveryTicket && <p className="text-emerald-300">Recovery confirmed. Continue with the existing form.</p>}
+          </div>
+        )}
+      </div>
       <FieldInput
         label="Email"
         icon={<Mail className="h-4 w-4" />}
