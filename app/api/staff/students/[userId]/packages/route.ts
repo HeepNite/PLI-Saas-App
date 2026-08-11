@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
+import { authorizeCashPackageGrantRequest, authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
@@ -19,7 +19,8 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
     )
   }
 
-  const authResult = await authorizeOwnerOrAdminRequest()
+  const isGrantIntent = new URL(req.url).searchParams.get("intent") === "grant"
+  const authResult = isGrantIntent ? await authorizeCashPackageGrantRequest() : await authorizeOwnerOrAdminRequest()
   if (!authResult.ok) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status })
   }
@@ -33,6 +34,23 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
     const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
     if (!student) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 })
+    }
+
+    if (isGrantIntent) {
+      const plans = await prisma.packagePlan.findMany({
+        where: { active: true },
+        orderBy: [{ label: "asc" }],
+        select: {
+          id: true,
+          key: true,
+          label: true,
+          priceCents: true,
+          cadence: true,
+          totalCredits: true,
+          isUnlimited: true,
+        },
+      })
+      return NextResponse.json({ ok: true, data: { plans } })
     }
 
     const packages = await prisma.packagePurchase.findMany({
