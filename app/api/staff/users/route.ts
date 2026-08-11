@@ -627,23 +627,42 @@ const executeStaffUsersGet = async (req: Request, preflightAuth?: StaffPortalAut
     }
   }
 
+  // The DB StaffAccount is the source of truth for WHO is staff. Clerk's getUserList
+  // is capped at 100 and STUDENTS share the same Clerk user pool, so staff beyond that
+  // window (typically the oldest accounts, e.g. the owner) would silently vanish from
+  // the panel. Read the roster once, then reuse it to (a) fold in staff missing from
+  // the Clerk page and (b) enrich paymentModelId — replacing the previous second query.
+  const staffRoster = await readStaffAccounts()
+  const rosterByClerkId = new Map(staffRoster.map((account) => [account.clerkUserId, account]))
+
   let list = usersData
     .map((user) => toStaffListItem(user, activeSessionUserIds.has(user.id)))
     .filter((item): item is StaffListItem => Boolean(item))
+
+  // When not searching, fold in any staff missing from the Clerk page using the DB
+  // projection so every staff member always appears regardless of the student count.
+  // This also covers a staff member whose Clerk role metadata was dropped (their
+  // Clerk-derived row is filtered out above, then re-added here from the DB role).
+  if (!query) {
+    const listedIds = new Set(list.map((item) => item.id))
+    for (const account of staffRoster) {
+      if (!account.clerkUserId || listedIds.has(account.clerkUserId)) continue
+      const item = toStaffListItemFromAccount(account)
+      if (!item) continue
+      list.push(item)
+      listedIds.add(account.clerkUserId)
+    }
+  }
+
   if (categoryFilter) {
     list = list.filter((item) => item.category === categoryFilter)
   }
   list = list.sort((a, b) => b.createdAt - a.createdAt)
 
-  const clerkUserIds = list.map((item) => item.id).filter(Boolean)
-  if (clerkUserIds.length > 0) {
-    const staffAccounts = await readStaffAccounts(clerkUserIds)
-    const paymentModelByUserId = new Map(staffAccounts.map((account) => [account.clerkUserId, account.paymentModelId]))
-    list = list.map((item) => ({
-      ...item,
-      paymentModelId: paymentModelByUserId.get(item.id) ?? null,
-    }))
-  }
+  list = list.map((item) => ({
+    ...item,
+    paymentModelId: rosterByClerkId.get(item.id)?.paymentModelId ?? null,
+  }))
 
   return buildStaffUsersResponse(list, degradedState, requestUrl)
 }
