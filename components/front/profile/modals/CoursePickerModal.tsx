@@ -3,7 +3,6 @@ import { X } from "lucide-react"
 import type { CourseData } from "@/constants/courses"
 import {
   getAvailableTimesForCourseDateFromCourse,
-  isSlotInPastForTimeZone,
   formatTime12h,
   getDateKeyInTimeZone,
 } from "@/lib/class-schedule"
@@ -58,10 +57,9 @@ export function CoursePickerModal({
 }: CoursePickerModalProps) {
   const [busy, setBusy] = React.useState(false)
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null)
+  const todayIso = getDateKeyInTimeZone(new Date(), TZ)
 
   const upcomingClasses = React.useMemo<UpcomingClass[]>(() => {
-    const now = new Date()
-    const todayIso = getDateKeyInTimeZone(now, TZ)
     const tomorrowIso = addDays(todayIso, 1)
 
     const results: UpcomingClass[] = []
@@ -71,7 +69,6 @@ export function CoursePickerModal({
         const dateIso = addDays(todayIso, d)
         const times = getAvailableTimesForCourseDateFromCourse(course, dateIso)
         for (const time of times) {
-          if (isSlotInPastForTimeZone(dateIso, time, TZ)) continue
           results.push({
             course,
             date: dateIso,
@@ -90,7 +87,7 @@ export function CoursePickerModal({
     })
 
     return results
-  }, [orderedCourses])
+  }, [orderedCourses, todayIso])
 
   // Group by date
   const groupedByDay = React.useMemo(() => {
