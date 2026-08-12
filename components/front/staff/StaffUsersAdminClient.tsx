@@ -15,7 +15,7 @@ import {
 import { demoCourses } from "@/constants/courses"
 import type { StaffRole } from "@/lib/security/staff-role"
 import {
-  type StaffCategory,
+  type StaffCategory, type StaffSubCategory,
 } from "@/lib/security/staff-category"
 import { useSchoolWizard } from "@/components/front/staff/school"
 import type { StepEnabledContext } from "@/components/front/staff/school"
@@ -129,10 +129,11 @@ export const isInsideCriticalClassWindow = (
 type StaffUsersAdminClientProps = {
   currentRole: StaffRole
   currentCategory: StaffCategory | null
+  currentSubCategory: StaffSubCategory | null
   currentUserId: string
 }
 
-export default function StaffUsersAdminClient({ currentRole, currentCategory, currentUserId }: StaffUsersAdminClientProps) {
+export default function StaffUsersAdminClient({ currentRole, currentCategory, currentSubCategory, currentUserId }: StaffUsersAdminClientProps) {
   const searchParams = useSearchParams()
   const resolvedCurrentCategory: StaffCategory =
     currentCategory || (currentRole === "owner" ? "partner" : currentRole === "admin" ? "manager" : "guest")
@@ -520,6 +521,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const staffUsersAdminViewProps = useStaffUsersAdminComposition({
     currentRole,
     currentCategory,
+    currentSubCategory,
     currentUserId,
     error,
     setError,
