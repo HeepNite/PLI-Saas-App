@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import Stripe from "stripe"
 import { clerkClient } from "@clerk/nextjs/server"
-import { ensureClerkUser, findClerkUserByIdentifiers, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
+import { ensureClerkUser, findClerkUserByIdentifiers, type ClerkUser } from "@/lib/clerk-users"
 import { authorizeStudentOperationalRequest, type StaffPortalAuthResult } from "@/lib/security/staff-portal-auth"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { upsertUserByIdentifiers, wasUserCreatedByUpsert } from "@/lib/users"
@@ -11,6 +11,7 @@ import { writeStudentDataAudit, type WriteStudentDataAuditParams } from "@/lib/a
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { findSelectableStudentSessions, getNewYorkDateKey, isSelectableStudentSessionDate, isValidStudentSessionDate, materializeSelectableStudentSession } from "./sessions/shared"
 import { consumeRecoveryTicket, normalizeRecoveryCode, releaseRecoveryTicket, reserveRecoveryTicket } from "@/lib/student-recovery"
+import { normalizePhone } from "@/lib/shared"
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY
 const stripe = stripeSecret
@@ -30,6 +31,7 @@ type StaffCreateStudentPayload = {
   paymentMode?: "cash" | "card_qr"
   note?: string
   checkIn?: { enabled: true; sessionId: string; date: string }
+  package?: { packagePlanId: string; reason: string }
 }
 
 type ParseResult =
@@ -61,6 +63,7 @@ const parsePayload = (body: unknown): ParseResult => {
   const checkIn = record.checkIn && typeof record.checkIn === "object" && !Array.isArray(record.checkIn)
     ? record.checkIn as Record<string, unknown>
     : null
+  const packageRequest = record.package
 
   if (!email && !phone) {
     return { ok: false, error: "Provide an email or phone number." }
@@ -87,12 +90,28 @@ const parsePayload = (body: unknown): ParseResult => {
   if (paymentMode && !PAYMENT_MODES.has(paymentMode)) {
     return { ok: false, error: "Payment mode must be cash or card_qr." }
   }
+  let packageSelection: StaffCreateStudentPayload["package"]
+  if (packageRequest !== undefined) {
+    if (!packageRequest || typeof packageRequest !== "object" || Array.isArray(packageRequest)) {
+      return { ok: false, error: "Invalid package selection." }
+    }
+    const packageRecord = packageRequest as Record<string, unknown>
+    if (Object.keys(packageRecord).length !== 2 || !Object.hasOwn(packageRecord, "packagePlanId") || !Object.hasOwn(packageRecord, "reason")) {
+      return { ok: false, error: "Invalid package selection." }
+    }
+    const packagePlanId = typeof packageRecord.packagePlanId === "string" ? packageRecord.packagePlanId.trim() : ""
+    const reason = typeof packageRecord.reason === "string" ? packageRecord.reason.trim() : ""
+    if (!packagePlanId || packagePlanId.length > 120 || !reason || reason.length > 500) {
+      return { ok: false, error: "Invalid package selection." }
+    }
+    packageSelection = { packagePlanId, reason }
+  }
   if (checkIn?.enabled === true) {
     const sessionId = safeText(checkIn.sessionId, 120)
     const date = safeText(checkIn.date, 10)
     if (!sessionId) return { ok: false, error: "Select a class session for check-in." }
     if (!date || !isValidStudentSessionDate(date)) return { ok: false, error: "Invalid check-in date. Use YYYY-MM-DD." }
-    return { ok: true, payload: { email, phone, name, amountCents, paymentMode: paymentMode as "cash" | "card_qr" | undefined, note, checkIn: { enabled: true, sessionId, date } } }
+    return { ok: true, payload: { email, phone, name, amountCents, paymentMode: paymentMode as "cash" | "card_qr" | undefined, note, checkIn: { enabled: true, sessionId, date }, package: packageSelection } }
   }
 
   return {
@@ -104,6 +123,7 @@ const parsePayload = (body: unknown): ParseResult => {
       amountCents,
       paymentMode: paymentMode as "cash" | "card_qr" | undefined,
       note,
+      package: packageSelection,
     },
   }
 }
@@ -184,6 +204,41 @@ const createCashPurchase = async (
         settlementStatus: "pending",
         isRegistrationDeposit: true,
         staffNote: note ?? null,
+        attendanceId: attendanceId ?? null,
+      },
+    },
+  })
+}
+
+const createCreationCashPackagePurchase = async (
+  purchaseDelegate: PurchaseDelegate,
+  userId: string,
+  plan: { id: string; key: string; courseSlug: string | null; label: string; priceCents: number | null; cadence: string | null; totalCredits: number | null; makeUps: number; validDays: number; isUnlimited: boolean },
+  attendanceId?: string
+) => {
+  const amount = plan.priceCents ?? 0
+  return purchaseDelegate.create({
+    data: {
+      userId,
+      courseSlug: plan.courseSlug ?? `package:${plan.key}`,
+      courseTitle: plan.label,
+      amount,
+      currency: "usd",
+      status: "pending",
+      packageId: plan.key,
+      metadata: {
+        source: "staff_created_student_cash_package",
+        packagePlanId: plan.id,
+        packageId: plan.key,
+        packageLabel: plan.label,
+        packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
+        packageIsUnlimited: String(plan.isUnlimited),
+        packageCadence: plan.cadence ?? "",
+        packageMakeUps: String(plan.makeUps),
+        packageValidDays: String(plan.validDays),
+        paymentChannel: "cash",
+        settlementStatus: "pending",
+        outstandingBalance: amount,
         attendanceId: attendanceId ?? null,
       },
     },
@@ -298,6 +353,7 @@ const createHistoricalAttendanceTx = async (
     date: string
     auth: Extract<StaffPortalAuthResult, { ok: true }>
     ipAddress: string
+    pendingPackage?: boolean
   }
 ) => {
   const session = await materializeSelectableStudentSession(tx, input.sessionId, input.date)
@@ -311,7 +367,7 @@ const createHistoricalAttendanceTx = async (
   })
   if (existing) return { ok: false as const, status: 409, error: "Student is already checked in for this class session." }
 
-  const selectedPackage = await tx.packagePurchase.findFirst({
+  const selectedPackage = input.pendingPackage ? null : await tx.packagePurchase.findFirst({
     where: {
       userId: input.userId,
       status: "active",
@@ -327,7 +383,7 @@ const createHistoricalAttendanceTx = async (
       sessionId: session.id,
       status: selectedPackage ? "checked_in" : "checked_in_no_package",
       checkedInAt: session.startsAt,
-      metadata: { source: "staff_created_student", staffUserId: input.auth.userId },
+      metadata: { source: input.pendingPackage ? "staff_created_student_cash_package" : "staff_created_student", staffUserId: input.auth.userId },
     },
   })
   if (selectedPackage) await reservePackageCreditForAttendanceTx(tx, {
@@ -400,19 +456,12 @@ const resolveClerkStudentIdentity = async (payload: StaffCreateStudentPayload) =
 
   try {
     existingClerkUser = await findClerkUserByIdentifiers({ email: payload.email, phone: payload.phone })
-    clerkUser = existingClerkUser || await ensureClerkUser({
+    if (existingClerkUser) return { ok: false as const, status: 409, error: "This user already exists in the system." }
+    clerkUser = await ensureClerkUser({
       email: payload.email,
       phone: payload.phone,
       name: payload.name,
     })
-
-    if (existingClerkUser) {
-      await updateClerkUserIfMissing(existingClerkUser, {
-        email: payload.email,
-        phone: payload.phone,
-        name: payload.name,
-      })
-    }
   } catch (error) {
     console.warn("Clerk student identity operation failed", { status: clerkErrorStatus(error) ?? "unknown" })
     return { ok: false as const, ...describeClerkIdentityFailure(error) }
@@ -425,7 +474,7 @@ const resolveClerkStudentIdentity = async (payload: StaffCreateStudentPayload) =
   return {
     ok: true as const,
     clerkUser,
-    isExisting: Boolean(existingClerkUser),
+    isExisting: false,
   }
 }
 
@@ -487,13 +536,35 @@ export async function POST(req: Request) {
   if (recoveryToken && !recovery) {
     return NextResponse.json({ error: "Recovery authorization is unavailable." }, { status: 400 })
   }
+  const releaseRecovery = async () => {
+    if (recovery) await releaseRecoveryTicket(recovery.ticketId)
+  }
   const identityPayload = recovery
     ? { ...parsed.payload, phone: recovery.draft.phone, email: recovery.draft.email || undefined, name: recovery.draft.name || undefined }
     : parsed.payload
 
-  const releaseRecovery = async () => {
-    if (recovery) await releaseRecoveryTicket(recovery.ticketId)
+  const localIdentity = await prisma.user.findFirst({
+    where: {
+      OR: [
+        ...(identityPayload.email ? [{ email: identityPayload.email }] : []),
+        ...(normalizePhone(identityPayload.phone) ? [{ phone: normalizePhone(identityPayload.phone) }] : []),
+      ],
+    },
+    select: { id: true },
+  })
+  if (localIdentity) {
+    await releaseRecovery()
+    return NextResponse.json({ error: "This user already exists in the system." }, { status: 409 })
   }
+
+  const selectedPlan = identityPayload.package
+    ? await prisma.packagePlan.findFirst({ where: { id: identityPayload.package.packagePlanId, active: true } })
+    : null
+  if (identityPayload.package && !selectedPlan) {
+    await releaseRecovery()
+    return NextResponse.json({ error: "Invalid package selection." }, { status: 400 })
+  }
+
   let identity: Awaited<ReturnType<typeof resolveClerkStudentIdentity>>
   try {
     identity = await resolveClerkStudentIdentity(identityPayload)
@@ -556,6 +627,7 @@ export async function POST(req: Request) {
             date: parsed.payload.checkIn.date,
             auth: authResult,
             ipAddress: getClientIp(req),
+            pendingPackage: Boolean(selectedPlan),
           })
         : null
 
@@ -570,7 +642,21 @@ export async function POST(req: Request) {
       const resolvedAttendanceId = attendanceResult?.attendance.id
       let createdPurchase: { id: string } | undefined
 
-      if (amountCents > 0 && paymentMode === "cash") {
+      if (selectedPlan) {
+        createdPurchase = await createCreationCashPackagePurchase(tx.purchase, localUser.id, selectedPlan, resolvedAttendanceId)
+        await writeStudentDataAudit({
+          targetUserId: localUser.id,
+          staffClerkId: authResult.userId,
+          staffName: authResult.staffName,
+          entity: "package",
+          entityId: createdPurchase.id,
+          field: "cash_package_creation",
+          valueBefore: null,
+          valueAfter: { outcome: "CREATED", packagePlanId: selectedPlan.id, purchaseId: createdPurchase.id },
+          reason: identityPayload.package!.reason,
+          ipAddress: getClientIp(req),
+        }, tx)
+      } else if (amountCents > 0 && paymentMode === "cash") {
         createdPurchase = await createCashPurchase(tx.purchase, localUser.id, amountCents, note, resolvedAttendanceId)
       } else if (amountCents > 0 && paymentMode === "card_qr") {
         createdPurchase = await createCardQrPurchaseRecord(
