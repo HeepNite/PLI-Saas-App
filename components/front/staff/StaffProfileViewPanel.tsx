@@ -13,6 +13,7 @@ import ProfileScheduleSection from "./profile/ProfileScheduleSection"
 import ProfileRequestCreateForm from "./profile/ProfileRequestCreateForm"
 import ProfileRequestHistory from "./profile/ProfileRequestHistory"
 import ProfileRecommendations from "./profile/ProfileRecommendations"
+import EnrollDeviceFlow from "./EnrollDeviceFlow"
 import type { StaffProfileViewPanelProps } from "./profile/profileTypes"
 
 export type { StaffProfileViewPanelProps }
@@ -189,6 +190,10 @@ export default function StaffProfileViewPanel(props: StaffProfileViewPanelProps)
       </StaffProfileRequestsSection>
 
       <ProfileRecommendations selfRecommendations={selfRecommendations} />
+
+      <div className="mt-6">
+        <EnrollDeviceFlow />
+      </div>
     </article>
   )
 }
