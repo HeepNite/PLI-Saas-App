@@ -342,7 +342,7 @@ describe("POST /api/staff/students", () => {
     const res = await postCreateStudent({ phone: "201-539", name: "Bad Phone" })
 
     expect(res.status).toBe(400)
-    await expect(res.json()).resolves.toEqual({ error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." })
+    await expect(res.json()).resolves.toEqual({ error: "Enter a valid phone number: a 10-digit US number, or include the country code with + for international (for example +5491123456789)." })
     expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
     expect(mockEnsureClerkUser).not.toHaveBeenCalled()
   })
@@ -351,7 +351,7 @@ describe("POST /api/staff/students", () => {
     const res = await postCreateStudent({ phone: "+0123456789", name: "Bad International Phone" })
 
     expect(res.status).toBe(400)
-    await expect(res.json()).resolves.toEqual({ error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." })
+    await expect(res.json()).resolves.toEqual({ error: "Enter a valid phone number: a 10-digit US number, or include the country code with + for international (for example +5491123456789)." })
     expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
     expect(mockEnsureClerkUser).not.toHaveBeenCalled()
   })
@@ -360,7 +360,7 @@ describe("POST /api/staff/students", () => {
     const res = await postCreateStudent({ phone: "+1234567", name: "Short International Phone" })
 
     expect(res.status).toBe(400)
-    await expect(res.json()).resolves.toEqual({ error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." })
+    await expect(res.json()).resolves.toEqual({ error: "Enter a valid phone number: a 10-digit US number, or include the country code with + for international (for example +5491123456789)." })
     expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
     expect(mockEnsureClerkUser).not.toHaveBeenCalled()
   })

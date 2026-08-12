@@ -31,6 +31,7 @@ const mockPrisma = {
 vi.mock("@/lib/security/staff-portal-auth", () => ({
   authorizeOwnerOrAdminRequest: vi.fn(),
   authorizeStudentOperationalRequest: (...args: unknown[]) => mockAuthorizeStudentOperational(...args),
+  authorizeCashPackageGrantRequest: (...args: unknown[]) => mockAuthorizeStudentOperational(...args),
 }))
 
 vi.mock("@/lib/audit/student-data-audit", () => ({

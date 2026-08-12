@@ -48,6 +48,7 @@ describe("authorizeOwnerOrAdminRequest", () => {
       userId: "user_owner_1",
       role: "owner",
       category: null,
+      subCategory: null,
       staffName: null,
     })
   })
@@ -73,6 +74,7 @@ describe("authorizeOwnerOrAdminRequest", () => {
       userId: "user_admin_1",
       role: "admin",
       category: null,
+      subCategory: null,
       staffName: null,
     })
   })
