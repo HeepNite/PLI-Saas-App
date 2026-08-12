@@ -107,3 +107,14 @@ export const canOperateStudentEdits = (
   if (role === "staff" && category === "guest" && subCategory === "front_desk") return true
   return false
 }
+
+export const canGrantCashPackage = (
+  role: StaffRole | null | undefined,
+  category: StaffCategory | null | undefined,
+  subCategory?: StaffSubCategory | null
+): boolean => {
+  if (role === "owner" || role === "admin") return true
+  if (role !== "staff") return false
+  if (category === "front_desk" || category === "manager" || category === "partner") return true
+  return category === "guest" && (subCategory === "front_desk" || subCategory === "manager")
+}

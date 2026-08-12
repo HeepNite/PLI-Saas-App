@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { authorizeOwnerOrAdminRequest, authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
+import { authorizeCashPackageGrantRequest, authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
@@ -295,7 +295,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
 export async function POST(req: Request, context: { params: Promise<{ userId: string }> }) {
   const guard = await withStaffGuard(req, {
     rateLimit: { scope: "staff:packages:post", limit: 30, windowMs: 60_000 },
-    authorize: () => authorizeStudentOperationalRequest(),
+    authorize: () => authorizeCashPackageGrantRequest(),
   })
   if (!guard.ok) return guard.response
   const authResult = guard.auth

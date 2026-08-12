@@ -8,11 +8,16 @@ import {
 import { asObject } from "@/lib/shared"
 import {
   extractStaffCategoryFromUserMetadata,
+  extractStaffCategoryWithSubCategoryFromUser,
+  extractStaffSubCategoryFromUserMetadata,
   parseStaffCategory,
+  parseStaffSubCategory,
   type StaffCategory,
+  type StaffSubCategory,
 } from "@/lib/security/staff-category"
 import {
   canAccessStaffPortalSection,
+  canGrantCashPackage,
   canOperateStudentEdits,
   hasExplicitStaffPermission,
   type StaffPermission,
@@ -38,11 +43,11 @@ const extractRetryAfterSec = (error: unknown): number => {
 }
 
 export type StaffPortalAuthResult =
-  | { ok: true; userId: string; role: StaffRole; category: StaffCategory | null; staffName: string | null }
+  | { ok: true; userId: string; role: StaffRole; category: StaffCategory | null; subCategory: StaffSubCategory | null; staffName: string | null }
   | { ok: false; status: number; error: string; retryAfterSec?: number }
 
 export type StaffPortalBaseAuthResult =
-  | { ok: true; userId: string; role: StaffRole | null; category: StaffCategory | null; staffName: string | null }
+  | { ok: true; userId: string; role: StaffRole | null; category: StaffCategory | null; subCategory: StaffSubCategory | null; staffName: string | null }
   | { ok: false; status: number; error: string; retryAfterSec?: number }
 
 const STAFF_SCAN_PAGE_SIZE = 100
@@ -122,14 +127,21 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
 
   let metadataRole = extractStaffRoleFromUserMetadata(user)
   let metadataCategory = extractStaffCategoryFromUserMetadata(user)
-  if (!metadataRole || !metadataCategory) {
+  let metadataSubCategory = extractStaffSubCategoryFromUserMetadata(user)
+  const normalizedCategory = extractStaffCategoryWithSubCategoryFromUser(user)
+  if (!metadataCategory && normalizedCategory.subCategory) {
+    metadataCategory = normalizedCategory.category
+    metadataSubCategory = normalizedCategory.subCategory
+  }
+  if (!metadataRole || !metadataCategory || !metadataSubCategory) {
     try {
       const mirrored = await prisma.staffAccount.findUnique({
         where: { clerkUserId: authResult.userId },
-        select: { role: true, category: true },
+        select: { role: true, category: true, subCategory: true },
       })
       if (!metadataRole) metadataRole = parseDbRole(mirrored?.role)
       if (!metadataCategory) metadataCategory = parseStaffCategory(mirrored?.category)
+      if (!metadataSubCategory) metadataSubCategory = parseStaffSubCategory(mirrored?.subCategory)
     } catch (error) {
       console.warn("authorizeStaffPortalBaseRequest: failed to read staff mirror, continuing with Clerk metadata", error)
     }
@@ -148,6 +160,7 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
     userId: authResult.userId,
     role: metadataRole,
     category: metadataCategory,
+    subCategory: metadataSubCategory,
     staffName,
   }
 }
@@ -158,7 +171,7 @@ export const authorizeStaffPortalRequest = async (): Promise<StaffPortalAuthResu
   if (!canManageStaffPortal(authResult.role, authResult.category)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
-  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, staffName: authResult.staffName }
+  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
 }
 
 export const authorizeStaffPortalSectionRequest = async (
@@ -172,7 +185,7 @@ export const authorizeStaffPortalSectionRequest = async (
   if (!canAccessStaffPortalSection(authResult.role, authResult.category, section)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
-  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
 }
 
 export const authorizeOwnerRequest = async (): Promise<StaffPortalAuthResult> => {
@@ -182,7 +195,7 @@ export const authorizeOwnerRequest = async (): Promise<StaffPortalAuthResult> =>
     return { ok: false, status: 403, error: "Owner role required" }
   }
 
-  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
 }
 
 /**
@@ -196,7 +209,7 @@ export const authorizeOwnerOrAdminRequest = async (): Promise<StaffPortalAuthRes
     return { ok: false, status: 403, error: "Owner or Admin role required" }
   }
 
-  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, staffName: authResult.staffName }
+  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
 }
 
 export const authorizeStaffPermissionRequest = async (permission: StaffPermission): Promise<StaffPortalAuthResult> => {
@@ -205,7 +218,7 @@ export const authorizeStaffPermissionRequest = async (permission: StaffPermissio
   if (!authResult.role || !hasExplicitStaffPermission(authResult.role, authResult.category, permission)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
-  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
 }
 
 /**
@@ -222,5 +235,26 @@ export const authorizeStudentOperationalRequest = async (): Promise<StaffPortalA
   if (!authResult.role || !canOperateStudentEdits(authResult.role, authResult.category)) {
     return { ok: false, status: 403, error: "Insufficient role" }
   }
-  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, staffName: authResult.staffName }
+  return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
+}
+
+/**
+ * Authorize requests that grant cash packages. Broader than owner/admin:
+ * also allows staff whose category/subCategory is permitted to grant
+ * (front_desk, manager, partner) per canGrantCashPackage.
+ */
+export const authorizeCashPackageGrantRequest = async (): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!canGrantCashPackage(authResult.role, authResult.category, authResult.subCategory)) {
+    return { ok: false, status: 403, error: "Insufficient role" }
+  }
+  return {
+    ok: true,
+    userId: authResult.userId,
+    role: authResult.role as StaffRole,
+    category: authResult.category,
+    subCategory: authResult.subCategory,
+    staffName: authResult.staffName,
+  }
 }
