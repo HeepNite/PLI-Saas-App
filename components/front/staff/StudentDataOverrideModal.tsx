@@ -233,7 +233,6 @@ export default function StudentDataOverrideModal({
   const [availablePackages, setAvailablePackages] = React.useState<PackageOption[]>([])
   const [packagesLoading, setPackagesLoading] = React.useState(false)
   const [packagesError, setPackagesError] = React.useState<string | null>(null)
-  const [showManualPackageId, setShowManualPackageId] = React.useState(false)
 
   // Purchase selector state
   const [availablePurchases, setAvailablePurchases] = React.useState<PurchaseOption[]>([])
@@ -276,7 +275,6 @@ export default function StudentDataOverrideModal({
     setAvailablePackages([])
     setPackagesLoading(false)
     setPackagesError(null)
-    setShowManualPackageId(false)
     setAvailablePurchases([])
     setPurchasesLoading(false)
     setPurchasesError(null)
@@ -1210,27 +1208,6 @@ export default function StudentDataOverrideModal({
                         </>
                       )}
                     </label>
-
-                    {availablePackages.length === 0 ? (
-                      <div className="space-y-1">
-                        <button
-                          type="button"
-                          onClick={() => setShowManualPackageId((prev) => !prev)}
-                          className="text-xs font-medium text-[var(--brand,#b61616)] underline-offset-2 hover:underline"
-                        >
-                          {showManualPackageId ? "Hide manual UUID entry" : "Use manual UUID entry (advanced)"}
-                        </button>
-                        {showManualPackageId ? (
-                          <input
-                            type="text"
-                            value={form.packagePurchaseId}
-                            onChange={(e) => updateField("packagePurchaseId", e.target.value)}
-                            placeholder="package-purchase-uuid"
-                            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white"
-                          />
-                        ) : null}
-                      </div>
-                    ) : null}
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="block space-y-1">
