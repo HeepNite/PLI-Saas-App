@@ -91,7 +91,7 @@ const parsePayload = (body: unknown): ParseResult => {
     return { ok: false, error: "Invalid email." }
   }
   if (phoneInput && !phone) {
-    return { ok: false, error: "Enter a valid E.164 phone number (for example +5491123456789) or a 10-digit US phone number." }
+    return { ok: false, error: "Enter a valid phone number: a 10-digit US number, or include the country code with + for international (for example +5491123456789)." }
   }
   if (!email && !phone) {
     return { ok: false, error: "Provide an email or phone number." }
