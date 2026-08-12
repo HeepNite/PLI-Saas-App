@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockAuthorizeStudentOperationalRequest = vi.fn()
 const mockFindClerkUserByIdentifiers = vi.fn()
 const mockEnsureClerkUser = vi.fn()
-const mockUpdateClerkUserIfMissing = vi.fn()
 const mockUpsertUserByIdentifiers = vi.fn()
 const mockWasUserCreatedByUpsert = vi.fn()
 const mockClerkClient = vi.fn()
@@ -19,7 +18,6 @@ vi.mock("@/lib/security/staff-portal-auth", () => ({
 vi.mock("@/lib/clerk-users", () => ({
   ensureClerkUser: (...args: unknown[]) => mockEnsureClerkUser(...args),
   findClerkUserByIdentifiers: (...args: unknown[]) => mockFindClerkUserByIdentifiers(...args),
-  updateClerkUserIfMissing: (...args: unknown[]) => mockUpdateClerkUserIfMissing(...args),
 }))
 
 vi.mock("@/lib/users", () => ({
@@ -35,6 +33,8 @@ vi.mock("@/lib/student-recovery", () => ({
 }))
 
 const mockPrisma = {
+  user: { findFirst: vi.fn() },
+  packagePlan: { findFirst: vi.fn() },
   classSession: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
@@ -142,7 +142,6 @@ describe("POST /api/staff/students", () => {
     mockAuthorizeStudentOperationalRequest.mockReset()
     mockFindClerkUserByIdentifiers.mockReset()
     mockEnsureClerkUser.mockReset()
-    mockUpdateClerkUserIfMissing.mockReset()
     mockUpsertUserByIdentifiers.mockReset()
     mockWasUserCreatedByUpsert.mockReset().mockImplementation((user: { created?: boolean } | null) => Boolean(user?.created))
     mockClerkClient.mockReset()
@@ -151,6 +150,8 @@ describe("POST /api/staff/students", () => {
     mockConsumeRecoveryTicket.mockReset().mockResolvedValue(true)
     mockNormalizeRecoveryCode.mockReset().mockImplementation((value) => typeof value === "string" && /^[A-Z0-9_-]{12}$/.test(value) ? value : null)
     mockPrisma.purchase.create.mockReset()
+    mockPrisma.user.findFirst.mockReset().mockResolvedValue(null)
+    mockPrisma.packagePlan.findFirst.mockReset()
     mockPrisma.purchase.findUnique.mockReset().mockResolvedValue(null)
     mockPrisma.classSession.findUnique.mockReset()
     mockPrisma.classSession.findMany.mockReset().mockImplementation(async () => {
@@ -167,7 +168,6 @@ describe("POST /api/staff/students", () => {
     mockAuthorizeStudentOperationalRequest.mockResolvedValue(frontDeskAuth)
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockEnsureClerkUser.mockResolvedValue(createdClerkUser)
-    mockUpdateClerkUserIfMissing.mockResolvedValue(undefined)
     mockUpsertUserByIdentifiers.mockResolvedValue({ ...localStudent, created: true })
     mockClerkClient.mockResolvedValue({
       invitations: {
@@ -274,26 +274,94 @@ describe("POST /api/staff/students", () => {
     })
   })
 
-  it("reuses an existing Clerk identity before linking the local student", async () => {
+  it("hard-stops an existing Clerk identity before any mutation", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue(createdClerkUser)
 
     const res = await postCreateStudent({ email: "student@example.com", phone: "+1 555 123 4567", name: "Maria Student" })
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ error: "This user already exists in the system." })
     expect(mockEnsureClerkUser).not.toHaveBeenCalled()
-    expect(mockUpdateClerkUserIfMissing).toHaveBeenCalledWith(createdClerkUser, {
-      email: "student@example.com",
-      phone: "+1 555 123 4567",
-      name: "Maria Student",
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    expect(mockTx.attendance.create).not.toHaveBeenCalled()
+    expect(mockWriteStudentDataAudit).not.toHaveBeenCalled()
+  })
+
+  it("hard-stops a local identity before creating a Clerk user", async () => {
+    mockPrisma.user.findFirst.mockResolvedValue({ id: "existing_user" })
+
+    const res = await postCreateStudent({ email: "student@example.com" })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ error: "This user already exists in the system." })
+    expect(mockFindClerkUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+  })
+
+  it("rejects an invalid package selection before identity mutation", async () => {
+    const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "" } })
+
+    expect(res.status).toBe(400)
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+  })
+
+  it("rejects an inactive package plan before identity mutation", async () => {
+    mockPrisma.packagePlan.findFirst.mockResolvedValue(null)
+
+    const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "Cash at desk" } })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid package selection." })
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+  })
+
+  it("creates a pending cash package with its reason-backed audit", async () => {
+    mockPrisma.packagePlan.findFirst.mockResolvedValue({
+      id: "plan_1", key: "salsa-10", courseSlug: "salsa", label: "Salsa 10", priceCents: 12000,
+      cadence: "monthly", totalCredits: 10, makeUps: 1, validDays: 90, isUnlimited: false,
     })
-    await expect(res.json()).resolves.toMatchObject({ isExisting: true, userId: "user_student_1" })
+
+    const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "Cash at desk" } })
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      packageId: "salsa-10", amount: 12000, status: "pending", metadata: expect.objectContaining({
+        source: "staff_created_student_cash_package", packagePlanId: "plan_1", paymentChannel: "cash", settlementStatus: "pending",
+      }),
+    }) }))
+    expect(mockWriteStudentDataAudit).toHaveBeenCalledWith(expect.objectContaining({ entity: "package", field: "cash_package_creation", reason: "Cash at desk" }), mockTx)
+  })
+
+  it("links package-selected attendance without reserving a credit or $0 charge", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
+    mockPrisma.packagePlan.findFirst.mockResolvedValue({
+      id: "plan_1", key: "salsa-10", courseSlug: "salsa", label: "Salsa 10", priceCents: 12000,
+      cadence: "monthly", totalCredits: 10, makeUps: 1, validDays: 90, isUnlimited: false,
+    })
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: new Date("2026-07-15T23:00:00.000Z") })
+
+    try {
+      const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "Cash at desk" }, checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" } })
+
+      expect(res.status).toBe(201)
+      expect(mockTx.packagePurchase.findFirst).not.toHaveBeenCalled()
+      expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: expect.objectContaining({ attendanceId: "attendance_1" }) }) }))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("records a historical attendance at the persisted session start and never emits profile.created for local reuse", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
     const startsAt = new Date("2026-07-15T23:00:00.000Z")
-    mockFindClerkUserByIdentifiers.mockResolvedValue(createdClerkUser)
     mockUpsertUserByIdentifiers.mockResolvedValue({ ...localStudent, created: false })
     mockPrisma.classSession.findUnique.mockResolvedValue({
       id: "session_1",
