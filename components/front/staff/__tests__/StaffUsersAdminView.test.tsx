@@ -93,6 +93,8 @@ const createProps = (): StaffUsersAdminViewProps => ({
   },
   statusBanners: {
     currentRole: "owner",
+    currentCategory: "manager",
+    currentSubCategory: null,
   },
 })
 

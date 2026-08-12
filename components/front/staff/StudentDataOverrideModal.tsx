@@ -2,6 +2,7 @@
 
 import React from "react"
 import { Loader2, X, AlertTriangle, CheckCircle2, Clock, Package, DollarSign } from "lucide-react"
+import type { StaffCategory, StaffSubCategory } from "@/lib/security/staff-category"
 
 // ============================================================
 // Types
@@ -15,6 +16,8 @@ type OverrideModalProps = {
   studentId: string
   studentName: string
   currentRole: "owner" | "admin" | "staff"
+  currentCategory: StaffCategory | null
+  currentSubCategory: StaffSubCategory | null
   /** Called when a change is successfully saved — useful for updating audit entry indicators */
   onSuccess?: () => void
 }
@@ -61,6 +64,16 @@ type PurchaseOption = {
   outstandingBalance: number
   paymentMethod: string
   createdAt: string
+}
+
+type GrantPlan = {
+  id: string
+  key: string
+  label: string
+  priceCents: number | null
+  cadence: string | null
+  totalCredits: number | null
+  isUnlimited: boolean
 }
 
 type FormState = {
@@ -188,6 +201,8 @@ export default function StudentDataOverrideModal({
   studentId,
   studentName,
   currentRole,
+  currentCategory,
+  currentSubCategory,
   onSuccess,
 }: OverrideModalProps) {
   const [form, setForm] = React.useState<FormState>(createEmptyFormState)
@@ -195,6 +210,14 @@ export default function StudentDataOverrideModal({
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [successMessage, setSuccessMessage] = React.useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [grantPlans, setGrantPlans] = React.useState<GrantPlan[]>([])
+  const [grantPlanId, setGrantPlanId] = React.useState("")
+  const [grantLoading, setGrantLoading] = React.useState(false)
+  const [grantError, setGrantError] = React.useState<string | null>(null)
+  const [grantConfirmOpen, setGrantConfirmOpen] = React.useState(false)
+  const [grantSuccess, setGrantSuccess] = React.useState<string | null>(null)
+  const grantIdempotencyKey = React.useRef<string | null>(null)
+  const isTeacher = currentCategory === "teacher" || (currentCategory === "guest" && currentSubCategory === "teacher")
 
   // Session picker state
   const [availableSessions, setAvailableSessions] = React.useState<SessionItem[]>([])
@@ -257,6 +280,13 @@ export default function StudentDataOverrideModal({
     setAvailablePurchases([])
     setPurchasesLoading(false)
     setPurchasesError(null)
+    setGrantPlans([])
+    setGrantPlanId("")
+    setGrantLoading(false)
+    setGrantError(null)
+    setGrantConfirmOpen(false)
+    setGrantSuccess(null)
+    grantIdempotencyKey.current = null
   }, [])
 
   const formatPackageSummary = React.useCallback((pkg: PackageOption): string => {
@@ -402,6 +432,30 @@ export default function StudentDataOverrideModal({
       cancelled = true
     }
   }, [open, form.entity, studentId])
+
+  React.useEffect(() => {
+    if (!open || form.entity !== "package" || isTeacher) return
+    let cancelled = false
+    setGrantLoading(true)
+    setGrantError(null)
+    fetch(`/api/staff/students/${encodeURIComponent(studentId)}/packages?intent=grant`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load active package plans")
+        return res.json()
+      })
+      .then((data) => {
+        if (cancelled) return
+        setGrantPlans(data?.data?.plans ?? [])
+        setGrantLoading(false)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setGrantPlans([])
+        setGrantError(error instanceof Error ? error.message : "Failed to load active package plans")
+        setGrantLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [open, form.entity, isTeacher, studentId])
 
   // Fetch purchases when payment tab is active
   React.useEffect(() => {
@@ -656,6 +710,34 @@ export default function StudentDataOverrideModal({
     }
     setConfirmOpen(true)
   }, [validate])
+
+  const handleGrantConfirm = React.useCallback(async () => {
+    if (!grantPlanId || !form.reason.trim()) {
+      setGrantError(!grantPlanId ? "Select an active package plan." : "Reason is required.")
+      return
+    }
+    grantIdempotencyKey.current ||= crypto.randomUUID()
+    setGrantConfirmOpen(false)
+    setGrantError(null)
+    try {
+      const res = await fetch(`/api/staff/students/${encodeURIComponent(studentId)}/packages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packagePlanId: grantPlanId, reason: form.reason.trim(), idempotencyKey: grantIdempotencyKey.current }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setGrantSuccess("Cash package created as a pending cash payment.")
+        onSuccess?.()
+        return
+      }
+      setGrantError(res.status === 409 && data.error === "DUPLICATE_ACTIVE_PACKAGE"
+        ? "This student already has this active package."
+        : data.error || "Unable to create the cash package. Please try again.")
+    } catch {
+      setGrantError("Network error. Please try again.")
+    }
+  }, [form.reason, grantPlanId, onSuccess, studentId])
 
   // Reset state when modal opens
   React.useEffect(() => {
@@ -1068,6 +1150,27 @@ export default function StudentDataOverrideModal({
 
                 {form.entity === "package" && (
                   <div className="space-y-4">
+                    {!isTeacher ? (
+                      <section className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-800 dark:bg-emerald-900/15" aria-labelledby="cash-package-heading">
+                        <h4 id="cash-package-heading" className="font-medium text-emerald-900 dark:text-emerald-100">Add cash package</h4>
+                        <p className="mt-1 text-xs text-emerald-800 dark:text-emerald-200">Creates a pending cash payment. The package becomes active only after payment is marked paid.</p>
+                        <label className="mt-3 block space-y-1">
+                          <span className="text-xs text-black/65 dark:text-white/65">Active package plan</span>
+                          {grantLoading ? <span className="flex items-center gap-2 text-sm text-black/60 dark:text-white/60"><Loader2 className="h-4 w-4 animate-spin" />Loading active plans...</span> : (
+                            <>
+                            {grantError ? <p className="mb-2 text-sm text-[var(--brand,#b61616)]" role="alert">{grantError}</p> : null}
+                            <select name="cash-package-plan" value={grantPlanId} onChange={(event) => { setGrantPlanId(event.target.value); grantIdempotencyKey.current = null; setGrantError(null); setGrantSuccess(null) }} className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] dark:border-white/15 dark:bg-white/5 dark:text-white">
+                              <option value="">Select active package plan</option>
+                              {grantPlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.label}{plan.priceCents === null ? "" : ` · $${(plan.priceCents / 100).toFixed(2)}`}</option>)}
+                            </select>
+                            </>
+                          )}
+                        </label>
+                        {grantSuccess ? <p className="mt-3 text-sm text-emerald-800 dark:text-emerald-200" role="status">{grantSuccess}</p> : (
+                          <button type="button" disabled={grantLoading || !grantPlanId || !form.reason.trim()} onClick={() => setGrantConfirmOpen(true)} className="mt-3 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-50">Add cash package</button>
+                        )}
+                      </section>
+                    ) : null}
                     <label className="block space-y-1">
                       <span className="text-xs text-black/65 dark:text-white/65">
                         Package purchase <span className="text-[var(--brand,#b61616)]">*</span>
@@ -1292,6 +1395,19 @@ export default function StudentDataOverrideModal({
           </div>
         </div>
       )}
+
+      {grantConfirmOpen ? (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="cash-package-confirm-heading">
+          <div className="w-full max-w-md rounded-2xl border border-black/15 bg-white p-6 shadow-2xl dark:border-white/15 dark:bg-[#10131d]">
+            <h4 id="cash-package-confirm-heading" className="text-lg font-semibold text-black dark:text-white">Confirm cash package</h4>
+            <p className="mt-2 text-sm text-black/65 dark:text-white/65">This will create a pending cash payment for {studentName}. The package activates after payment is marked paid.</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setGrantConfirmOpen(false)} className="rounded-lg border border-black/20 px-4 py-2 text-sm font-medium text-black transition hover:bg-black/5 dark:border-white/20 dark:text-white dark:hover:bg-white/5">Go back</button>
+              <button type="button" onClick={() => void handleGrantConfirm()} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800">Confirm cash package</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }
