@@ -36,8 +36,6 @@ export function ProfileStudentCard({
   setAuditHistoryStudentId,
   setAuditHistoryStudentName,
   usersWithAuditEntries,
-  canOperateStudentPins,
-  openStudentPinModalForProfile,
   openOverrideModal,
   currentRole,
   currentCategory,
@@ -165,7 +163,7 @@ export function ProfileStudentCard({
         })}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      <div className="mt-4 flex gap-2.5">
         <FastClassActionControls
           activePackage={student.activePackage}
           disabled={paymentsLoading}
@@ -180,24 +178,15 @@ export function ProfileStudentCard({
             const subject = encodeURIComponent(`Student profile update · ${student.displayName}`)
             window.location.href = `mailto:${encodeURIComponent(student.email)}?subject=${subject}`
           }}
-          className="rounded-md border border-white/20 px-2 py-1 text-[11px]"
+          className="flex-1 whitespace-nowrap rounded-md border border-white/20 px-2 py-1 text-[11px]"
         >
           Notify
         </button>
-        {canOperateStudentPins && student.userId ? (
-          <button
-            type="button"
-            onClick={() => openStudentPinModalForProfile(student)}
-            className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-[11px] font-semibold text-cyan-100"
-          >
-            {student.provisionalPinExpiresAt ? "Reissue PIN" : "Prov PIN"}
-          </button>
-        ) : null}
         {canEditStudentInfo && student.userId ? (
           <button
             type="button"
             onClick={() => openOverrideModal(student.userId, student.displayName)}
-            className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
+            className="flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
           >
             Edit info
           </button>

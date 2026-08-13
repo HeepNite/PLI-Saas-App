@@ -262,7 +262,8 @@ export const scopePurchasesForResponse = (input: {
   todayWindow: StaffPaymentsTodayWindow
 }) => {
   const { paymentsRequest, deduplicatedEnrichedPurchases, standaloneItems, todayWindow } = input
-  const historyEligiblePurchases = deduplicatedEnrichedPurchases.filter((item) => item.classDate)
+  const historyEligiblePurchases = [...deduplicatedEnrichedPurchases, ...standaloneItems]
+    .filter((item) => item.classDate)
   const historyDatePurchases = paymentsRequest.mode === "history"
     ? filterPurchasesByClassDateRange(historyEligiblePurchases, paymentsRequest.historyRange.from, paymentsRequest.historyRange.to)
     : []

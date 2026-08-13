@@ -1,7 +1,25 @@
-import { describe, expect, it, vi } from "vitest"
-import { buildPackagePurchasePayload, reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Prisma } from "@prisma/client"
+
+const { mockPrisma } = vi.hoisted(() => ({
+  mockPrisma: {
+    packagePurchase: { findUnique: vi.fn(), create: vi.fn() },
+    packagePlan: { findUniqueOrThrow: vi.fn(), upsert: vi.fn() },
+  },
+}))
+
+vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }))
+
+import { buildPackagePurchasePayload, reservePackageCreditForAttendanceTx, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 
 describe("packages helpers", () => {
+  beforeEach(() => {
+    mockPrisma.packagePurchase.findUnique.mockReset()
+    mockPrisma.packagePurchase.create.mockReset()
+    mockPrisma.packagePlan.findUniqueOrThrow.mockReset()
+    mockPrisma.packagePlan.upsert.mockReset()
+  })
+
   it("returns null when package id is missing", () => {
     const payload = buildPackagePurchasePayload({})
     expect(payload).toBeNull()
@@ -83,5 +101,22 @@ describe("packages helpers", () => {
     })
     expect(tx.packagePurchase.updateMany).not.toHaveBeenCalled()
     expect(tx.packageUsageLedger.create).not.toHaveBeenCalled()
+  })
+
+  it("reuses the materialized purchase after a concurrent purchase-id create conflict", async () => {
+    const replayed = { id: "package_purchase_1", purchaseId: "purchase_1" }
+    mockPrisma.packagePurchase.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(replayed)
+    mockPrisma.packagePurchase.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint", { code: "P2002", clientVersion: "test" })
+    )
+    mockPrisma.packagePlan.findUniqueOrThrow.mockResolvedValue({ id: "plan_1" })
+
+    const result = await syncPackagePurchaseFromPaidPurchase({
+      userId: "user_1", purchaseId: "purchase_1", packagePlanId: "plan_1", source: "cash",
+      metadata: { packageId: "current-plan" },
+    })
+
+    expect(result).toBe(replayed)
+    expect(mockPrisma.packagePurchase.create).toHaveBeenCalledTimes(1)
   })
 })
