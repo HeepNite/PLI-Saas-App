@@ -431,6 +431,8 @@ export default function StaffStudentsBoardPanel({
           hasAmount={createStudent.hasAmount}
           canSubmit={createStudent.canSubmit}
           attendanceSessions={createStudent.attendanceSessions}
+          packagePlans={createStudent.packagePlans}
+          packagePlansLoading={createStudent.packagePlansLoading}
           onClose={createStudent.closeModal}
           onUpdateField={createStudent.updateField}
           onSubmit={createStudent.submit}
