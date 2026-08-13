@@ -109,7 +109,8 @@ export function useStaffCreateStudentAdmin({
     setError(null)
     setSubmitting(true)
 
-    const amountCents = form.amountCents.trim() ? Math.round(Number(form.amountCents) * 100) : 0
+    const hasPackage = Boolean(form.packagePlanId)
+    const amountCents = hasPackage || !form.amountCents.trim() ? 0 : Math.round(Number(form.amountCents) * 100)
 
     try {
       const res = await fetch("/api/staff/students", {
@@ -199,7 +200,7 @@ export function useStaffCreateStudentAdmin({
   const canSubmit = React.useMemo(() => {
     if (submitting) return false
     if (!form.email.trim() && !form.phone.trim()) return false
-    if (hasAmount && !form.paymentMode) return false
+    if (!form.packagePlanId && hasAmount && !form.paymentMode) return false
     if (form.createAttendance && !form.attendanceSessionId) return false
     if (form.packagePlanId && !form.packageReason.trim()) return false
     return true

@@ -79,10 +79,11 @@ describe("useStaffCreateStudentAdmin", () => {
     expect(state?.attendanceSessions).toEqual([])
   })
 
-  it("sends the selected active package only after staff enters a reason", async () => {
+  it("sends the selected active package only after staff enters a reason without a second payment", async () => {
     const onSuccess = vi.fn(async () => undefined)
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ id: "plan_1", label: "Ten classes", priceCents: 12500 }] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }] }) } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response)
     const container = document.createElement("div")
     document.body.appendChild(container)
@@ -92,7 +93,12 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => state?.openModal())
     await act(async () => {
       state?.updateField("email", "student@example.com")
+      state?.updateField("amountCents", "25")
+      state?.updateField("paymentMode", "cash")
       state?.updateField("packagePlanId", "plan_1")
+      state?.updateField("createAttendance", true)
+      state?.updateField("attendanceDate", "2026-07-15")
+      state?.updateField("attendanceSessionId", "session_1")
     })
 
     expect(state?.packagePlans).toEqual([{ id: "plan_1", label: "Ten classes", priceCents: 12500 }])
@@ -103,14 +109,60 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => { await state?.submit() })
 
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
-    expect(calls[1][0]).toBe("/api/staff/students")
-    expect(JSON.parse(calls[1][1].body)).toMatchObject({
+    const submitCall = calls.find(([url]) => url === "/api/staff/students")
+    expect(submitCall).toBeDefined()
+    expect(JSON.parse(submitCall![1].body)).toMatchObject({
+      amountCents: 0,
+      checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" },
       package: { packagePlanId: "plan_1", reason: "New student package" },
     })
+    expect(JSON.parse(submitCall![1].body).paymentMode).toBeUndefined()
     expect(onSuccess).toHaveBeenCalledTimes(1)
   })
 
-  it("renders the selected package amount and the exact duplicate-user error", async () => {
+  it("preserves payment controls and payload when no package is selected", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => root?.render(<Harness onState={(next) => { state = next }} onSuccess={async () => undefined} />))
+    await act(async () => state?.openModal())
+    await act(async () => {
+      state?.updateField("email", "student@example.com")
+      state?.updateField("amountCents", "25")
+      state?.updateField("paymentMode", "cash")
+    })
+    await act(async () => { await state?.submit() })
+
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect(JSON.parse(calls[1][1].body)).toMatchObject({ amountCents: 2500, paymentMode: "cash" })
+
+    await act(async () => root?.render(
+      <CreateStudentModal
+        isOpen
+        form={{ email: "student@example.com", phone: "", name: "", amountCents: "25", paymentMode: "cash", note: "", createAttendance: false, attendanceDate: "2026-07-15", attendanceSessionId: "", recoveryTicket: "", packagePlanId: "", packageReason: "" }}
+        submitting={false}
+        error={null}
+        result={null}
+        hasAmount
+        canSubmit
+        attendanceSessions={[]}
+        packagePlans={[]}
+        packagePlansLoading={false}
+        onClose={() => undefined}
+        onUpdateField={() => undefined}
+        onSubmit={() => undefined}
+      />
+    ))
+
+    expect(document.body.textContent).toContain("Amount ($)")
+    expect(document.body.textContent).toContain("Payment mode")
+  })
+
+  it("hides payment controls but keeps check-in controls usable when a package is selected", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -118,13 +170,13 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => root?.render(
       <CreateStudentModal
         isOpen
-        form={{ email: "student@example.com", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: false, attendanceDate: "2026-07-15", attendanceSessionId: "", recoveryTicket: "", packagePlanId: "plan_1", packageReason: "New student package" }}
+        form={{ email: "student@example.com", phone: "", name: "", amountCents: "25", paymentMode: "cash", note: "", createAttendance: true, attendanceDate: "2026-07-15", attendanceSessionId: "session_1", recoveryTicket: "", packagePlanId: "plan_1", packageReason: "New student package" }}
         submitting={false}
         error="This user already exists in the system."
         result={null}
         hasAmount={false}
         canSubmit
-        attendanceSessions={[]}
+        attendanceSessions={[{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }]}
         packagePlans={[{ id: "plan_1", label: "Ten classes", priceCents: 12500 }]}
         packagePlansLoading={false}
         onClose={() => undefined}
@@ -135,6 +187,10 @@ describe("useStaffCreateStudentAdmin", () => {
 
     expect(document.body.textContent).toContain("Selected: Ten classes · $125.00")
     expect(document.body.textContent).toContain("This user already exists in the system.")
+    expect(document.body.textContent).not.toContain("Amount ($)")
+    expect(document.body.textContent).not.toContain("Payment mode")
+    expect(document.querySelector('input[type="date"]')).not.toBeNull()
+    expect(document.body.textContent).toContain("Salsa")
   })
 
   it("renders optional check-in controls with advisory New York date bounds", async () => {

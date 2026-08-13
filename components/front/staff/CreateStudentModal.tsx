@@ -246,17 +246,19 @@ function FormView({
         value={form.name}
         onChange={(v) => onUpdateField("name", v)}
       />
-      <FieldInput
-        label="Amount ($)"
-        type="number"
-        placeholder="0.00"
-        value={form.amountCents}
-        onChange={(v) => onUpdateField("amountCents", v)}
-        min="0"
-        step="0.01"
-      />
+      {!form.packagePlanId && (
+        <FieldInput
+          label="Amount ($)"
+          type="number"
+          placeholder="0.00"
+          value={form.amountCents}
+          onChange={(v) => onUpdateField("amountCents", v)}
+          min="0"
+          step="0.01"
+        />
+      )}
 
-      {hasAmount && (
+      {!form.packagePlanId && hasAmount && (
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-white/70">Payment mode</span>
           <div className="flex gap-2">
