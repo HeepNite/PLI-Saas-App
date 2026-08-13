@@ -5,8 +5,11 @@ const mockFindUnique = vi.fn()
 const mockUpdate = vi.fn()
 const mockSessionUpsert = vi.fn()
 const mockAttendanceUpsert = vi.fn()
+const mockAttendanceFindUnique = vi.fn()
+const mockUserFindUnique = vi.fn()
 const mockSyncPackagePurchase = vi.fn()
 const mockReservePackageCredit = vi.fn()
+const mockEnsureAttendancePackagePurchase = vi.fn()
 const mockWriteAudit = vi.fn()
 
 const mockPrisma = {
@@ -19,7 +22,9 @@ const mockPrisma = {
   },
   attendance: {
     upsert: (...args: unknown[]) => mockAttendanceUpsert(...args),
+    findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
   },
+  user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
   packagePlan: {
     findUnique: (...args: unknown[]) => mockFindUnique(...args),
   },
@@ -41,6 +46,10 @@ vi.mock("@/lib/class-schedule", () => ({
 vi.mock("@/lib/packages", () => ({
   syncPackagePurchaseFromPaidPurchase: (...args: unknown[]) => mockSyncPackagePurchase(...args),
   reservePackageCreditForAttendance: (...args: unknown[]) => mockReservePackageCredit(...args),
+  reservePackageCreditForAttendanceTx: (...args: unknown[]) => mockReservePackageCredit(...args),
+}))
+vi.mock("@/lib/purchase-attendance", () => ({
+  ensureAttendancePackagePurchase: (...args: unknown[]) => mockEnsureAttendancePackagePurchase(...args),
 }))
 vi.mock("@/lib/audit/student-data-audit", () => ({
   writeStudentDataAudit: (...args: unknown[]) => mockWriteAudit(...args),
@@ -54,8 +63,11 @@ describe("staff payment settlement route", () => {
     mockUpdate.mockReset()
     mockSessionUpsert.mockReset()
     mockAttendanceUpsert.mockReset()
+    mockAttendanceFindUnique.mockReset()
+    mockUserFindUnique.mockReset()
     mockSyncPackagePurchase.mockReset()
     mockReservePackageCredit.mockReset()
+    mockEnsureAttendancePackagePurchase.mockReset()
     mockWriteAudit.mockReset()
     mockPrisma.$transaction.mockReset()
     mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma))
@@ -88,6 +100,11 @@ describe("staff payment settlement route", () => {
       .mockResolvedValueOnce({ id: "purchase_main", status: "paid", metadata: { paymentChannel: "cash", attendanceId: "att_main" } })
     mockSessionUpsert.mockResolvedValue({ id: "session_1" })
     mockAttendanceUpsert.mockResolvedValue({ id: "att_main" })
+    mockAttendanceFindUnique.mockResolvedValue({
+      id: "att_created",
+      session: { courseSlug: "salsa", title: "Salsa", startsAt: new Date("2026-05-07T02:00:00.000Z") },
+    })
+    mockUserFindUnique.mockResolvedValue({ email: "student@example.com", name: "Student", phone: "+15550100" })
     mockSyncPackagePurchase.mockResolvedValue({ id: "pkg_purchase_1" })
     mockReservePackageCredit.mockResolvedValue({ consumed: true })
   })
@@ -148,5 +165,91 @@ describe("staff payment settlement route", () => {
     expect(mockSessionUpsert).not.toHaveBeenCalled()
     expect(mockAttendanceUpsert).not.toHaveBeenCalled()
     expect(mockReservePackageCredit).not.toHaveBeenCalled()
+    expect(mockEnsureAttendancePackagePurchase).not.toHaveBeenCalled()
+  })
+
+  it("settles a creation-time cash package with one linked attendance credit and package-credit purchase", async () => {
+    mockFindUnique
+      .mockResolvedValueOnce({
+        id: "purchase_created", userId: "user_1", status: "pending", courseSlug: "package:legacy-key", courseTitle: "Legacy plan",
+        packageId: "legacy-key", email: "student@example.com", name: "Student", phone: "+15550100",
+        stripePaymentIntentId: null, stripeCheckoutSessionId: null, createdAt: new Date("2026-05-06T19:19:24.564Z"),
+        metadata: { paymentChannel: "cash", source: "staff_created_student_cash_package", packagePlanId: "plan_1", attendanceId: "att_created" },
+      })
+      .mockResolvedValueOnce({ id: "plan_1", key: "current-key", label: "Current plan", courseSlug: "salsa", totalCredits: 12, isUnlimited: false, cadence: "monthly", makeUps: 2, validDays: 90 })
+    mockUpdate.mockReset()
+    mockUpdate.mockResolvedValue({ id: "purchase_created", status: "paid", metadata: {} })
+    mockSyncPackagePurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "current-key" })
+    mockReservePackageCredit.mockResolvedValue({ consumed: true })
+
+    const { PATCH } = await import("@/app/api/staff/payments/[purchaseId]/route")
+    const res = await PATCH(
+      new Request("http://localhost/api/staff/payments/purchase_created", { method: "PATCH", body: JSON.stringify({ action: "mark_paid", note: "Cash received" }) }),
+      { params: Promise.resolve({ purchaseId: "purchase_created" }) }
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockSyncPackagePurchase).toHaveBeenCalledWith(expect.objectContaining({ tx: mockPrisma, packagePlanId: "plan_1" }))
+    expect(mockReservePackageCredit).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+      packagePurchaseId: "package_purchase_1", attendanceId: "att_created", reason: "PACKAGE_INITIAL_BOOKING",
+    }))
+    expect(mockEnsureAttendancePackagePurchase).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+      attendanceId: "att_created", packageId: "current-key", packagePurchaseId: "package_purchase_1",
+    }))
+    expect(mockWriteAudit).toHaveBeenCalledWith(expect.objectContaining({ field: "cash_package_creation_settlement", reason: "Cash received" }), mockPrisma)
+    expect(await res.json()).toMatchObject({ purchase: { packageSynced: true, packageCreditReserved: true } })
+  })
+
+  it("replays creation-time settlement through the idempotent materialization and attendance helpers", async () => {
+    mockFindUnique
+      .mockResolvedValueOnce({
+        id: "purchase_created", userId: "user_1", status: "paid", courseSlug: "package:legacy-key", courseTitle: "Legacy plan",
+        packageId: "legacy-key", email: null, name: null, phone: null, stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+        createdAt: new Date("2026-05-06T19:19:24.564Z"),
+        metadata: { paymentChannel: "cash", source: "staff_created_student_cash_package", packagePlanId: "plan_1", attendanceId: "att_created" },
+      })
+      .mockResolvedValueOnce({ id: "plan_1", key: "current-key", label: "Current plan", courseSlug: "salsa", totalCredits: 12, isUnlimited: false, cadence: "monthly", makeUps: 2, validDays: 90 })
+      .mockResolvedValueOnce({
+        id: "purchase_created", userId: "user_1", status: "paid", courseSlug: "package:legacy-key", courseTitle: "Legacy plan",
+        packageId: "legacy-key", email: null, name: null, phone: null, stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+        createdAt: new Date("2026-05-06T19:19:24.564Z"),
+        metadata: { paymentChannel: "cash", source: "staff_created_student_cash_package", packagePlanId: "plan_1", attendanceId: "att_created" },
+      })
+      .mockResolvedValueOnce({ id: "plan_1", key: "current-key", label: "Current plan", courseSlug: "salsa", totalCredits: 12, isUnlimited: false, cadence: "monthly", makeUps: 2, validDays: 90 })
+    mockUpdate.mockReset()
+    mockUpdate.mockResolvedValue({ id: "purchase_created", status: "paid", metadata: {} })
+    mockSyncPackagePurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "current-key" })
+    mockReservePackageCredit.mockResolvedValue({ consumed: true })
+
+    const { PATCH } = await import("@/app/api/staff/payments/[purchaseId]/route")
+    const res = await PATCH(new Request("http://localhost/api/staff/payments/purchase_created", { method: "PATCH", body: JSON.stringify({ action: "mark_paid" }) }), { params: Promise.resolve({ purchaseId: "purchase_created" }) })
+    const replay = await PATCH(new Request("http://localhost/api/staff/payments/purchase_created", { method: "PATCH", body: JSON.stringify({ action: "mark_paid" }) }), { params: Promise.resolve({ purchaseId: "purchase_created" }) })
+
+    expect(res.status).toBe(200)
+    expect(replay.status).toBe(200)
+    expect(mockSyncPackagePurchase).toHaveBeenCalledTimes(2)
+    expect(mockReservePackageCredit).toHaveBeenCalledTimes(2)
+    expect(mockEnsureAttendancePackagePurchase).toHaveBeenCalledTimes(2)
+  })
+
+  it("rolls back creation-time settlement when credit reservation fails", async () => {
+    mockFindUnique
+      .mockResolvedValueOnce({
+        id: "purchase_created", userId: "user_1", status: "pending", courseSlug: "package:legacy-key", courseTitle: "Legacy plan",
+        packageId: "legacy-key", stripePaymentIntentId: null, stripeCheckoutSessionId: null, createdAt: new Date("2026-05-06T19:19:24.564Z"),
+        metadata: { paymentChannel: "cash", source: "staff_created_student_cash_package", packagePlanId: "plan_1", attendanceId: "att_created" },
+      })
+      .mockResolvedValueOnce({ id: "plan_1", key: "current-key", label: "Current plan", courseSlug: "salsa", totalCredits: 12, isUnlimited: false, cadence: "monthly", makeUps: 2, validDays: 90 })
+    mockUpdate.mockReset()
+    mockUpdate.mockResolvedValue({ id: "purchase_created", status: "paid", metadata: {} })
+    mockSyncPackagePurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "current-key" })
+    mockReservePackageCredit.mockRejectedValue(new Error("PACKAGE_NO_CREDITS"))
+
+    const { PATCH } = await import("@/app/api/staff/payments/[purchaseId]/route")
+    await expect(PATCH(new Request("http://localhost/api/staff/payments/purchase_created", { method: "PATCH", body: JSON.stringify({ action: "mark_paid" }) }), { params: Promise.resolve({ purchaseId: "purchase_created" }) })).rejects.toThrow("PACKAGE_NO_CREDITS")
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledOnce()
+    expect(mockEnsureAttendancePackagePurchase).not.toHaveBeenCalled()
+    expect(mockWriteAudit).not.toHaveBeenCalled()
   })
 })
