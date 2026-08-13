@@ -30,6 +30,7 @@ describe("useStaffCreateStudentAdmin", () => {
   it("posts the selected historical session and refreshes exactly once after success", async () => {
     const onSuccess = vi.fn(async () => undefined)
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }] }) } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response)
     const container = document.createElement("div")
@@ -47,15 +48,20 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => { await state?.submit() })
 
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
-    expect(calls[0][0]).toBe("/api/staff/students/sessions?date=2026-07-15")
-    expect(JSON.parse(calls[1][1].body)).toMatchObject({
+    expect(calls[0][0]).toBe("/api/staff/students/package-plans")
+    expect(calls[1][0]).toBe("/api/staff/students/sessions?date=2026-07-15")
+    const request = JSON.parse(calls[2][1].body)
+    expect(request).toMatchObject({
       checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" },
     })
+    expect(request.package).toBeUndefined()
     expect(onSuccess).toHaveBeenCalledTimes(1)
   })
 
   it("blocks submission until a session is selected and surfaces session-loading failures", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, json: async () => ({ error: "Session service unavailable" }) } as Response)
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) } as Response)
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: "Session service unavailable" }) } as Response)
     const container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -73,6 +79,64 @@ describe("useStaffCreateStudentAdmin", () => {
     expect(state?.attendanceSessions).toEqual([])
   })
 
+  it("sends the selected active package only after staff enters a reason", async () => {
+    const onSuccess = vi.fn(async () => undefined)
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ id: "plan_1", label: "Ten classes", priceCents: 12500 }] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => root?.render(<Harness onState={(next) => { state = next }} onSuccess={onSuccess} />))
+    await act(async () => state?.openModal())
+    await act(async () => {
+      state?.updateField("email", "student@example.com")
+      state?.updateField("packagePlanId", "plan_1")
+    })
+
+    expect(state?.packagePlans).toEqual([{ id: "plan_1", label: "Ten classes", priceCents: 12500 }])
+    expect(state?.canSubmit).toBe(false)
+
+    await act(async () => state?.updateField("packageReason", "New student package"))
+    expect(state?.canSubmit).toBe(true)
+    await act(async () => { await state?.submit() })
+
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls[1][0]).toBe("/api/staff/students")
+    expect(JSON.parse(calls[1][1].body)).toMatchObject({
+      package: { packagePlanId: "plan_1", reason: "New student package" },
+    })
+    expect(onSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders the selected package amount and the exact duplicate-user error", async () => {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => root?.render(
+      <CreateStudentModal
+        isOpen
+        form={{ email: "student@example.com", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: false, attendanceDate: "2026-07-15", attendanceSessionId: "", recoveryTicket: "", packagePlanId: "plan_1", packageReason: "New student package" }}
+        submitting={false}
+        error="This user already exists in the system."
+        result={null}
+        hasAmount={false}
+        canSubmit
+        attendanceSessions={[]}
+        packagePlans={[{ id: "plan_1", label: "Ten classes", priceCents: 12500 }]}
+        packagePlansLoading={false}
+        onClose={() => undefined}
+        onUpdateField={() => undefined}
+        onSubmit={() => undefined}
+      />
+    ))
+
+    expect(document.body.textContent).toContain("Selected: Ten classes · $125.00")
+    expect(document.body.textContent).toContain("This user already exists in the system.")
+  })
+
   it("renders optional check-in controls with advisory New York date bounds", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
@@ -83,13 +147,15 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => root?.render(
       <CreateStudentModal
         isOpen
-        form={{ email: "student@example.com", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: true, attendanceDate: "2026-07-15", attendanceSessionId: "session_1", recoveryTicket: "" }}
+        form={{ email: "student@example.com", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: true, attendanceDate: "2026-07-15", attendanceSessionId: "session_1", recoveryTicket: "", packagePlanId: "", packageReason: "" }}
         submitting={false}
         error={null}
         result={null}
         hasAmount={false}
         canSubmit
         attendanceSessions={[{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }]}
+        packagePlans={[]}
+        packagePlansLoading={false}
         onClose={() => undefined}
         onUpdateField={() => undefined}
         onSubmit={() => undefined}
@@ -97,7 +163,7 @@ describe("useStaffCreateStudentAdmin", () => {
     ))
 
     const dateInput = document.querySelector('input[type="date"]')
-    const sessionSelect = document.querySelector("select")
+    const sessionSelect = Array.from(document.querySelectorAll("select")).find((select) => select.textContent?.includes("Salsa"))
     expect(dateInput).not.toBeNull()
     expect(dateInput?.getAttribute("min")).toBe("2026-07-15")
     expect(dateInput?.getAttribute("max")).toBe("2026-07-29")
@@ -117,13 +183,15 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => root?.render(
       <CreateStudentModal
         isOpen
-        form={{ email: "", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: false, attendanceDate: "2026-07-15", attendanceSessionId: "", recoveryTicket: "" }}
+        form={{ email: "", phone: "", name: "", amountCents: "", paymentMode: "", note: "", createAttendance: false, attendanceDate: "2026-07-15", attendanceSessionId: "", recoveryTicket: "", packagePlanId: "", packageReason: "" }}
         submitting={false}
         error={null}
         result={null}
         hasAmount={false}
         canSubmit={false}
         attendanceSessions={[]}
+        packagePlans={[]}
+        packagePlansLoading={false}
         onClose={() => undefined}
         onUpdateField={onUpdateField}
         onSubmit={() => undefined}

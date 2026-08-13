@@ -11,9 +11,12 @@ export type CreateStudentFormState = {
   attendanceDate: string
   attendanceSessionId: string
   recoveryTicket: string
+  packagePlanId: string
+  packageReason: string
 }
 
 export type CreateStudentSessionOption = { id: string; courseSlug: string; title: string; startsAt: string; durationMinutes: number | null; isCurrent: boolean }
+export type CreateStudentPackagePlanOption = { id: string; label: string; priceCents: number | null }
 
 export type CreateStudentResult = {
   userId: string
@@ -55,6 +58,8 @@ const INITIAL_FORM: CreateStudentFormState = {
   attendanceDate: getTodayNewYork(),
   attendanceSessionId: "",
   recoveryTicket: "",
+  packagePlanId: "",
+  packageReason: "",
 }
 
 type UseStaffCreateStudentAdminOptions = {
@@ -72,6 +77,8 @@ export function useStaffCreateStudentAdmin({
   const [error, setError] = React.useState<string | null>(null)
   const [result, setResult] = React.useState<CreateStudentResult | null>(null)
   const [attendanceSessions, setAttendanceSessions] = React.useState<CreateStudentSessionOption[]>([])
+  const [packagePlans, setPackagePlans] = React.useState<CreateStudentPackagePlanOption[]>([])
+  const [packagePlansLoading, setPackagePlansLoading] = React.useState(false)
 
   const openModal = React.useCallback(() => {
     setForm(INITIAL_FORM)
@@ -84,6 +91,7 @@ export function useStaffCreateStudentAdmin({
     setIsOpen(false)
     setForm(INITIAL_FORM)
     setAttendanceSessions([])
+    setPackagePlans([])
     setError(null)
     setResult(null)
   }, [])
@@ -116,13 +124,14 @@ export function useStaffCreateStudentAdmin({
           note: form.note.trim() || undefined,
           recoveryTicket: form.recoveryTicket || undefined,
           checkIn: form.createAttendance ? { enabled: true, date: form.attendanceDate, sessionId: form.attendanceSessionId || undefined } : undefined,
+          package: form.packagePlanId ? { packagePlanId: form.packagePlanId, reason: form.packageReason.trim() } : undefined,
         }),
       })
 
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
         const data = await res.json().catch(() => ({}))
-        setError(data.error || `Request failed (${res.status})`)
+        setError(data.error || (res.status === 409 ? "This user already exists in the system." : `Request failed (${res.status})`))
         return
       }
 
@@ -135,6 +144,28 @@ export function useStaffCreateStudentAdmin({
       setSubmitting(false)
     }
   }, [form, handleStaffAuthFailure, onSuccess])
+
+  React.useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    setPackagePlansLoading(true)
+    void fetch("/api/staff/students/package-plans")
+      .then(async (res) => {
+        if (res.ok) return res.json()
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Unable to load package plans (${res.status})`)
+      })
+      .then((data) => {
+        if (!cancelled) setPackagePlans(Array.isArray(data.items) ? data.items : [])
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load package plans")
+      })
+      .finally(() => {
+        if (!cancelled) setPackagePlansLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [isOpen])
 
   React.useEffect(() => {
     if (!isOpen || !form.createAttendance) {
@@ -170,8 +201,9 @@ export function useStaffCreateStudentAdmin({
     if (!form.email.trim() && !form.phone.trim()) return false
     if (hasAmount && !form.paymentMode) return false
     if (form.createAttendance && !form.attendanceSessionId) return false
+    if (form.packagePlanId && !form.packageReason.trim()) return false
     return true
-  }, [form.email, form.phone, form.paymentMode, form.createAttendance, form.attendanceSessionId, hasAmount, submitting])
+  }, [form.email, form.phone, form.paymentMode, form.createAttendance, form.attendanceSessionId, form.packagePlanId, form.packageReason, hasAmount, submitting])
 
   return {
     isOpen,
@@ -180,6 +212,8 @@ export function useStaffCreateStudentAdmin({
     error,
     result,
     attendanceSessions,
+    packagePlans,
+    packagePlansLoading,
     hasAmount,
     canSubmit,
     openModal,
