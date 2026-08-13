@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { getDateKeyInTimeZone, getStartOfDayNY, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { TODAY_MODE_TAKE_LIMIT, type StaffPaymentsRequest } from "@/app/api/staff/payments/payments-request"
 import { getStaffPaymentsTodaySessionBounds } from "@/app/api/staff/payments/payments-time"
 import { asObject, asText, attendanceSlotKey } from "@/app/api/staff/payments/shared"
@@ -9,6 +9,7 @@ import {
   type EnrichedPurchase,
   type StaffPaymentsTodayWindow,
   buildPurchaseAllDedupKeys,
+  filterPurchasesByClassDateRange,
   isTodayScopedPurchase,
 } from "@/app/api/staff/payments/payments-loader-purchase"
 
@@ -44,6 +45,12 @@ export const isStandaloneStaffFastActionAttendance = (metadata: Record<string, u
   return source === "staff_fast_action" || source === "staff_fast_action_promo"
 }
 
+const getNextDateKey = (date: string) => {
+  const nextDate = new Date(`${date}T12:00:00.000Z`)
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+  return nextDate.toISOString().slice(0, 10)
+}
+
 export const emptyTodayAttendanceOrchestration = (): TodayAttendanceOrchestrationResult => ({
   standaloneItems: [],
   todayAttendanceByPurchaseId: new Map(),
@@ -62,18 +69,30 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
   deduplicatedEnrichedPurchases: EnrichedPurchase[]
 }): Promise<TodayAttendanceOrchestrationResult> => {
   const { paymentsRequest, todayWindow, deduplicatedEnrichedPurchases } = input
-  if (paymentsRequest.mode !== "today") return emptyTodayAttendanceOrchestration()
+  if (paymentsRequest.mode !== "today" && paymentsRequest.mode !== "history") {
+    return emptyTodayAttendanceOrchestration()
+  }
 
   const { todayNY, startOfTodayNY, endOfTodayNY } = todayWindow
   const { query } = paymentsRequest
-  const { minStart, maxStart } = getStaffPaymentsTodaySessionBounds(todayNY)
+  const attendanceWindow = paymentsRequest.mode === "history"
+    ? {
+        checkedInAt: {
+          gte: getStartOfDayNY(paymentsRequest.historyRange.from),
+          lt: getStartOfDayNY(getNextDateKey(paymentsRequest.historyRange.to)),
+        },
+      }
+    : (() => {
+        const { minStart, maxStart } = getStaffPaymentsTodaySessionBounds(todayNY)
+        return {
+          session: { startsAt: { gte: minStart, lte: maxStart } },
+          checkedInAt: { gte: startOfTodayNY, lte: endOfTodayNY },
+        }
+      })()
 
   const todayAttendances = await prisma.attendance.findMany({
     where: {
-      session: {
-        startsAt: { gte: minStart, lte: maxStart },
-      },
-      checkedInAt: { gte: startOfTodayNY, lte: endOfTodayNY },
+      ...attendanceWindow,
       ...(query
         ? {
             user: {
@@ -118,15 +137,21 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
     take: TODAY_MODE_TAKE_LIMIT,
   })
 
-  const todayScopedPurchases = deduplicatedEnrichedPurchases.filter((item) =>
-    isTodayScopedPurchase({
-      classDate: item.classDate,
-      createdAt: item.purchase.createdAt,
-      todayNY,
-      startOfTodayNY,
-      endOfTodayNY,
-    })
-  )
+  const todayScopedPurchases = paymentsRequest.mode === "history"
+    ? filterPurchasesByClassDateRange(
+        deduplicatedEnrichedPurchases.filter((item) => item.classDate),
+        paymentsRequest.historyRange.from,
+        paymentsRequest.historyRange.to,
+      )
+    : deduplicatedEnrichedPurchases.filter((item) =>
+        isTodayScopedPurchase({
+          classDate: item.classDate,
+          createdAt: item.purchase.createdAt,
+          todayNY,
+          startOfTodayNY,
+          endOfTodayNY,
+        })
+      )
   const purchaseDedupKeys = new Set(
     todayScopedPurchases.flatMap((item) =>
       buildPurchaseAllDedupKeys({
@@ -221,7 +246,7 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
         settlementStatus: SETTLEMENT_STATUS.PENDING,
         settlementNote: "",
         settledAt: null,
-        classDate: todayNY,
+        classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.checkedInAt) : todayNY,
         classTime: getTimeKeyInTimeZone(att.session.startsAt),
         classStartsAt: att.session.startsAt,
       })

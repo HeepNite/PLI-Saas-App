@@ -63,58 +63,70 @@ export const syncPackagePurchaseFromPaidPurchase = async (input: {
   purchaseId: string
   purchasedAt?: Date
   source?: string
+  tx?: PrismaTx
+  packagePlanId?: string
   metadata: PackageMetadataInput
 }) => {
+  const db = input.tx || prisma
   const packagePayload = buildPackagePurchasePayload(input.metadata, input.purchasedAt)
   if (!packagePayload) return null
 
-  const existing = await prisma.packagePurchase.findUnique({
+  const existing = await db.packagePurchase.findUnique({
     where: { purchaseId: input.purchaseId },
   })
   if (existing) return existing
 
-  const plan = await prisma.packagePlan.upsert({
-    where: { key: packagePayload.packageId },
-    update: {
-      label: packagePayload.packageLabel,
-      cadence: packagePayload.packageCadence,
-      totalCredits: packagePayload.totalCredits,
-      makeUps: packagePayload.makeUps,
-      validDays: packagePayload.validDays,
-      isUnlimited: packagePayload.isUnlimited,
-      active: true,
-      ...(packagePayload.courseSlug ? { courseSlug: packagePayload.courseSlug } : {}),
-    },
-    create: {
-      key: packagePayload.packageId,
-      label: packagePayload.packageLabel,
-      cadence: packagePayload.packageCadence,
-      totalCredits: packagePayload.totalCredits,
-      makeUps: packagePayload.makeUps,
-      validDays: packagePayload.validDays,
-      isUnlimited: packagePayload.isUnlimited,
-      active: true,
-      ...(packagePayload.courseSlug ? { courseSlug: packagePayload.courseSlug } : {}),
-    },
-  })
+  const plan = input.packagePlanId
+    ? await db.packagePlan.findUniqueOrThrow({ where: { id: input.packagePlanId } })
+    : await db.packagePlan.upsert({
+        where: { key: packagePayload.packageId },
+        update: {
+          label: packagePayload.packageLabel,
+          cadence: packagePayload.packageCadence,
+          totalCredits: packagePayload.totalCredits,
+          makeUps: packagePayload.makeUps,
+          validDays: packagePayload.validDays,
+          isUnlimited: packagePayload.isUnlimited,
+          active: true,
+          ...(packagePayload.courseSlug ? { courseSlug: packagePayload.courseSlug } : {}),
+        },
+        create: {
+          key: packagePayload.packageId,
+          label: packagePayload.packageLabel,
+          cadence: packagePayload.packageCadence,
+          totalCredits: packagePayload.totalCredits,
+          makeUps: packagePayload.makeUps,
+          validDays: packagePayload.validDays,
+          isUnlimited: packagePayload.isUnlimited,
+          active: true,
+          ...(packagePayload.courseSlug ? { courseSlug: packagePayload.courseSlug } : {}),
+        },
+      })
 
-  return prisma.packagePurchase.create({
-    data: {
-      userId: input.userId,
-      packagePlanId: plan.id,
-      courseSlug: packagePayload.courseSlug,
-      packageId: packagePayload.packageId,
-      packageLabel: packagePayload.packageLabel,
-      totalCredits: packagePayload.totalCredits,
-      remainingCredits: packagePayload.remainingCredits,
-      isUnlimited: packagePayload.isUnlimited,
-      purchasedAt: input.purchasedAt || new Date(),
-      expiresAt: packagePayload.expiresAt,
-      status: "active",
-      purchaseId: input.purchaseId,
-      source: input.source || "stripe",
-    },
-  })
+  try {
+    return await db.packagePurchase.create({
+      data: {
+        userId: input.userId,
+        packagePlanId: plan.id,
+        courseSlug: packagePayload.courseSlug,
+        packageId: packagePayload.packageId,
+        packageLabel: packagePayload.packageLabel,
+        totalCredits: packagePayload.totalCredits,
+        remainingCredits: packagePayload.remainingCredits,
+        isUnlimited: packagePayload.isUnlimited,
+        purchasedAt: input.purchasedAt || new Date(),
+        expiresAt: packagePayload.expiresAt,
+        status: "active",
+        purchaseId: input.purchaseId,
+        source: input.source || "stripe",
+      },
+    })
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error
+    const replayed = await db.packagePurchase.findUnique({ where: { purchaseId: input.purchaseId } })
+    if (!replayed) throw error
+    return replayed
+  }
 }
 
 export const consumePackageCreditForAttendance = async (input: {

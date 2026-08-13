@@ -1659,7 +1659,7 @@ describe("resolveProfileCardDetails", () => {
       "Points: 3",
       "Paid in full",
       "Last check-in",
-      "PIN enrolled",
+      "Drop-in",
     ])
     expect(resolveProfileCardBadges(student as never)[2]).not.toHaveProperty("title")
     expect(resolveProfileCashSettlementControl(student as never)).toBeNull()

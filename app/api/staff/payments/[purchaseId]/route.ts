@@ -2,8 +2,10 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
+import { getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject as asObjectShared, asText } from "@/lib/shared"
 
@@ -77,6 +79,61 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
   const data: Prisma.PurchaseUpdateInput = { metadata: nextMetadata }
   if (isCashPurchase(purchase)) {
     data.status = settlementStatus === "paid" ? "paid" : "pending"
+  }
+
+  const isCashPackageGrant = action === "mark_paid"
+    && purchase.userId
+    && isCashPurchase(purchase)
+    && asText(metadata.source) === "staff_package_grant"
+  if (isCashPackageGrant) {
+    const packagePlanId = asText(metadata.packagePlanId)
+    const result = await prisma.$transaction(async (tx) => {
+      const plan = await tx.packagePlan.findUnique({ where: { id: packagePlanId } })
+      if (!plan) throw new Error("PACKAGE_PLAN_NOT_FOUND")
+
+      const updatedPurchase = await tx.purchase.update({ where: { id: purchaseId }, data })
+      const synced = await syncPackagePurchaseFromPaidPurchase({
+        tx,
+        packagePlanId: plan.id,
+        userId: purchase.userId,
+        purchaseId: purchase.id,
+        purchasedAt: purchase.createdAt,
+        source: "cash",
+        metadata: {
+          courseSlug: plan.courseSlug || undefined,
+          packageId: plan.key,
+          packageLabel: plan.label,
+          packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
+          packageIsUnlimited: String(plan.isUnlimited),
+          packageCadence: plan.cadence || undefined,
+          packageMakeUps: String(plan.makeUps),
+          packageValidDays: String(plan.validDays),
+        },
+      })
+      await writeStudentDataAudit({
+        targetUserId: purchase.userId,
+        staffClerkId: authResult.userId,
+        staffName: authResult.staffName,
+        entity: "package",
+        entityId: purchase.id,
+        field: "cash_package_grant_settlement",
+        valueAfter: { outcome: "SETTLED", packagePlanId: plan.id, purchaseId: purchase.id },
+        reason: note || "Cash package grant settled",
+        ipAddress: getClientIp(req),
+      }, tx)
+      return { updatedPurchase, synced }
+    })
+
+    return NextResponse.json({
+      ok: true,
+      purchase: {
+        id: result.updatedPurchase.id,
+        settlementStatus,
+        paymentStatus: result.updatedPurchase.status,
+        packageSynced: Boolean(result.synced),
+        packageCreditReserved: false,
+      },
+    })
   }
 
   const updated = await prisma.purchase.update({
