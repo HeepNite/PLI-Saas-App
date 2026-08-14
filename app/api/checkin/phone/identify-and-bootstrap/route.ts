@@ -9,7 +9,7 @@ import {
 } from "@/lib/security/student-pin"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { resolveKioskPinThrottleSeverity, getKioskPinThrottleMessage } from "@/lib/security/kiosk-pin-throttle"
-import { normalizePhone, normalizePhoneDigits } from "@/lib/shared"
+import { asRecord, asText, normalizePhone, normalizePhoneDigits } from "@/lib/shared"
 import { parseQrCheckInContext, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState, type ClerkUser } from "@/lib/clerk-users"
@@ -27,14 +27,6 @@ export const runtime = "nodejs"
 
 const MIN_PHONE_DIGITS = 10
 const DUPLICATE_BLOCKING_PURCHASE_STATUSES = [...SUCCESSFUL_PURCHASE_STATUSES, "pending"]
-
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
-
-const toRecord = (value: unknown) =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 const toStringArray = (value: unknown) => {
   if (!Array.isArray(value)) return [] as string[]
@@ -78,13 +70,13 @@ const buildPricingTemplate = (input: {
 }): CoursePricingTemplate | null => {
   const course = input.course
   const metadata = input.lastPurchaseMetadata
-  const serviceIdCandidate = normalizeString(metadata?.serviceId)
-  const packageIdCandidate = normalizeString(metadata?.packageId)
+  const serviceIdCandidate = asText(metadata?.serviceId)
+  const packageIdCandidate = asText(metadata?.packageId)
   const participantsCandidate =
     input.lastPurchaseParticipants && Number.isFinite(input.lastPurchaseParticipants)
       ? Math.max(1, Math.min(10, Math.round(input.lastPurchaseParticipants)))
       : 1
-  const couponCandidate = normalizeString(input.lastPurchaseCoupon)
+  const couponCandidate = asText(input.lastPurchaseCoupon)
   const addonsFromMetadata = toStringArray(metadata?.addons)
   const addonsFromCsv =
     typeof input.lastPurchaseAddonsCsv === "string"
@@ -271,7 +263,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const payload = toRecord(body)
+  const payload = asRecord(body)
   const rawPhone = typeof payload?.phone === "string" ? payload.phone.trim() : ""
   const phone = normalizePhone(rawPhone)
 
@@ -456,7 +448,7 @@ export async function POST(req: Request) {
   }
 
   // ─── Full path ──────────────────────────────────────────────
-  const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+  const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
 
   const todayJsWeekday = (() => {
     const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
@@ -604,7 +596,7 @@ export async function POST(req: Request) {
       : false
 
   const lastPurchase = recentPurchasesResult[0] || null
-  const purchaseMetadata = toRecord(lastPurchase?.metadata)
+  const purchaseMetadata = asRecord(lastPurchase?.metadata)
   const quickTemplate =
     lastPurchase && courseDataResult
       ? buildPricingTemplate({
