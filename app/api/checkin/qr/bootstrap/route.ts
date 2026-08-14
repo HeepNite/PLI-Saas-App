@@ -27,6 +27,12 @@ const splitName = (value: string) => {
   }
 }
 
+// Terminal-safe response: keeps the shared kiosk payload slim / privacy-safe by
+// stripping the customer's package + purchase data, BUT retains the two fields the
+// terminal Quick Repeat overlay needs — quickRepeatEligible (its trigger) and
+// lastPurchasePattern (the repeat amount/channel). Without these, a returning
+// customer (>=3 purchases) fell through to the regular flow instead of Quick Repeat.
+// consecutiveOffer is also retained (needed for the add-on inside Quick Repeat).
 type TerminalSafeBootstrapResponse = Omit<
   BootstrapResponse,
   | "package"
@@ -38,8 +44,6 @@ type TerminalSafeBootstrapResponse = Omit<
   | "hasExistingPurchaseForSession"
   | "hasAnyActivePackage"
   | "dayOfWeekPurchaseCount"
-  | "quickRepeatEligible"
-  | "lastPurchasePattern"
 > & {
   package?: undefined
   packages?: undefined
@@ -50,14 +54,14 @@ type TerminalSafeBootstrapResponse = Omit<
   hasExistingPurchaseForSession?: undefined
   hasAnyActivePackage?: undefined
   dayOfWeekPurchaseCount?: undefined
-  quickRepeatEligible?: undefined
-  lastPurchasePattern?: undefined
 }
 
 const createTerminalSafeBootstrapResponse = (bootstrap: BootstrapResponse): TerminalSafeBootstrapResponse => ({
   context: bootstrap.context,
   customer: bootstrap.customer,
   consecutiveOffer: bootstrap.consecutiveOffer,
+  quickRepeatEligible: bootstrap.quickRepeatEligible,
+  lastPurchasePattern: bootstrap.lastPurchasePattern,
 })
 
 /**
