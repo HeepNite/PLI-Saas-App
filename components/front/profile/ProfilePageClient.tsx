@@ -81,10 +81,43 @@ export default function ProfilePageClient() {
     [catalogCourses]
   )
   const [e2eAuthBypass, setE2eAuthBypass] = React.useState(false)
-  const [coursePickerOpen, setCoursePickerOpen] = React.useState(false)
-  const [selectedCourse, setSelectedCourse] = React.useState<CourseData | null>(null)
-  const [enrollOpen, setEnrollOpen] = React.useState(false)
-  const [selectedDateTime, setSelectedDateTime] = React.useState<{ date: string; time: string } | null>(null)
+  type CoursePickerState = {
+    coursePickerOpen: boolean
+    selectedCourse: CourseData | null
+    enrollOpen: boolean
+    selectedDateTime: { date: string; time: string } | null
+  }
+  type CoursePickerAction =
+    | { type: "OPEN_PICKER" }
+    | { type: "CLOSE_PICKER" }
+    | { type: "START_ENROLL"; course: CourseData; date: string; time: string }
+    | { type: "CLOSE_ENROLL" }
+
+  function coursePickerReducer(state: CoursePickerState, action: CoursePickerAction): CoursePickerState {
+    switch (action.type) {
+      case "OPEN_PICKER":
+        return { ...state, coursePickerOpen: true }
+      case "CLOSE_PICKER":
+        return { ...state, coursePickerOpen: false }
+      case "START_ENROLL":
+        return { coursePickerOpen: false, enrollOpen: true, selectedCourse: action.course, selectedDateTime: { date: action.date, time: action.time } }
+      case "CLOSE_ENROLL":
+        return { ...state, enrollOpen: false, selectedDateTime: null }
+      default:
+        return state
+    }
+  }
+
+  const [coursePicker, dispatchCoursePicker] = React.useReducer(coursePickerReducer, {
+    coursePickerOpen: false,
+    selectedCourse: null,
+    enrollOpen: false,
+    selectedDateTime: null,
+  })
+  const setCoursePickerOpen = React.useCallback(
+    (open: boolean) => dispatchCoursePicker({ type: open ? "OPEN_PICKER" : "CLOSE_PICKER" }),
+    []
+  )
   type ConsecutiveState = {
     offer: ConsecutiveOfferData | null
     source: { courseSlug: string; date: string; time: string } | null
@@ -253,10 +286,7 @@ export default function ProfilePageClient() {
     [bookings, classRequestsByAttendance]
   )
   const openProfileBookingModal = React.useCallback((course: CourseData, date: string, time: string) => {
-    setSelectedCourse(course)
-    setSelectedDateTime({ date, time })
-    setCoursePickerOpen(false)
-    setEnrollOpen(true)
+    dispatchCoursePicker({ type: "START_ENROLL", course, date, time })
   }, [])
   const fetchProfileConsecutiveOffer = React.useCallback(async (course: CourseData, date: string, time: string) => {
     const params = new URLSearchParams({ courseSlug: course.slug, date, time })
@@ -282,7 +312,7 @@ export default function ProfilePageClient() {
   const completeProfileFastCredit = React.useCallback(async (source: { courseSlug: string; date: string; time: string }, message: string) => {
     const { data } = await consumeProfilePackageCredit(source)
     if (data?.ok) {
-      setCoursePickerOpen(false)
+      dispatchCoursePicker({ type: "CLOSE_PICKER" })
       await loadBookings()
       setCheckInSuccess(message)
       return true
@@ -622,7 +652,7 @@ export default function ProfilePageClient() {
             />
 
             <MobileActionCards
-              onOpenCoursePicker={() => setCoursePickerOpen(true)}
+              onOpenCoursePicker={() => dispatchCoursePicker({ type: "OPEN_PICKER" })}
               onOpenChangeClassModal={openChangeClassModal}
               onOpenRequestModal={openRequestModal}
               selectedBooking={selectedBooking}
@@ -729,7 +759,7 @@ export default function ProfilePageClient() {
 
           <ProfileRightRail
             rightRailRef={rightRailRef}
-            onOpenCoursePicker={() => setCoursePickerOpen(true)}
+            onOpenCoursePicker={() => dispatchCoursePicker({ type: "OPEN_PICKER" })}
             bookingsLoading={bookingsLoading}
             selectedBooking={selectedBooking}
             bookingsError={bookingsError}
@@ -809,7 +839,7 @@ export default function ProfilePageClient() {
       />
 
       <CoursePickerModal
-        coursePickerOpen={coursePickerOpen}
+        coursePickerOpen={coursePicker.coursePickerOpen}
         setCoursePickerOpen={setCoursePickerOpen}
         orderedCourses={orderedCourses}
         preferredSet={preferredSet}
@@ -824,7 +854,7 @@ export default function ProfilePageClient() {
             }
 
             if (consecutiveOffer) {
-              setCoursePickerOpen(false)
+              dispatchCoursePicker({ type: "CLOSE_PICKER" })
               showProfileConsecutiveOffer(consecutiveOffer, { courseSlug: course.slug, date, time })
               return
             }
@@ -832,7 +862,7 @@ export default function ProfilePageClient() {
             try {
               const { data } = await consumeProfilePackageCredit({ courseSlug: course.slug, date, time })
               if (data?.ok) {
-                setCoursePickerOpen(false)
+                dispatchCoursePicker({ type: "CLOSE_PICKER" })
                 await loadBookings()
                 setCheckInSuccess(offerLookupFailed
                   ? "Class booked! A package credit has been applied. We couldn't load the promotion; please ask staff if you are staying for the next class."
@@ -877,21 +907,20 @@ export default function ProfilePageClient() {
         />
       )}
 
-      {selectedCourse && (
+      {coursePicker.selectedCourse && (
         <EnrollModal
-          course={selectedCourse}
-          open={enrollOpen}
+          course={coursePicker.selectedCourse}
+          open={coursePicker.enrollOpen}
           onCloseAction={() => {
-            setEnrollOpen(false)
-            setSelectedDateTime(null)
+            dispatchCoursePicker({ type: "CLOSE_ENROLL" })
           }}
           prefillContact={bookingPrefillContact}
           isPackageHolder={profileHasUsablePackage}
           skipContactStep
           useDraft={false}
-          {...(selectedDateTime
+          {...(coursePicker.selectedDateTime
             ? {
-                checkInContext: { date: selectedDateTime.date, time: selectedDateTime.time },
+                checkInContext: { date: coursePicker.selectedDateTime.date, time: coursePicker.selectedDateTime.time },
                 compactBookingSource: "profile-booking" as const,
               }
             : { initialStep: 1 })}
