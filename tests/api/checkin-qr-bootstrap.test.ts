@@ -547,8 +547,9 @@ describe("qr check-in bootstrap route", () => {
     expect(data.hasExistingPurchaseForSession).toBeUndefined()
     expect(data.hasAnyActivePackage).toBeUndefined()
     expect(data.dayOfWeekPurchaseCount).toBeUndefined()
-    expect(data.quickRepeatEligible).toBeUndefined()
-    expect(data.lastPurchasePattern).toBeUndefined()
+    // Quick Repeat needs these two on the terminal — retained, not stripped.
+    expect("quickRepeatEligible" in data).toBe(true)
+    expect("lastPurchasePattern" in data).toBe(true)
     expect(data.context).toMatchObject({ courseSlug: "salsa-femenina-matutina" })
     expect(data.customer).toMatchObject({ userId: "db_user_1" })
     expect(consoleInfo).not.toHaveBeenCalledWith(
@@ -676,8 +677,9 @@ describe("qr check-in bootstrap route", () => {
     expect(data.packages).toBeUndefined()
     expect(data.purchaseHistory).toBeUndefined()
     expect(data.dayOfWeekPurchaseCount).toBeUndefined()
-    expect(data.quickRepeatEligible).toBeUndefined()
-    expect(data.lastPurchasePattern).toBeUndefined()
+    // Quick Repeat needs these two on the terminal — retained, not stripped.
+    expect("quickRepeatEligible" in data).toBe(true)
+    expect("lastPurchasePattern" in data).toBe(true)
     expect(consoleInfo).not.toHaveBeenCalledWith(
       "[QuickRepeat debug]",
       expect.anything()
