@@ -50,6 +50,9 @@ const mockPrisma = {
   packagePurchase: {
     findMany: vi.fn(),
   },
+  packagePlan: {
+    findFirst: vi.fn(),
+  },
   purchase: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -177,6 +180,7 @@ describe("POST /api/staff/students", () => {
     mockPrisma.attendance.findUnique.mockReset()
     mockPrisma.attendance.create.mockReset()
     mockPrisma.packagePurchase.findMany.mockReset()
+    mockPrisma.packagePlan.findFirst.mockReset().mockResolvedValue(null)
     mockPrisma.purchase.create.mockReset()
     mockPrisma.purchase.findUnique.mockReset().mockResolvedValue(null)
     mockReserveRecoveryTicket.mockReset()
@@ -530,6 +534,79 @@ describe("POST /api/staff/students", () => {
 
     expect(res.status).toBe(201)
     expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("rejects an invalid package selection before identity mutation", async () => {
+    const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "" } })
+
+    expect(res.status).toBe(400)
+    expect(mockEnsureClerkUser).not.toHaveBeenCalled()
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+  })
+
+  it("rejects an inactive package plan", async () => {
+    mockPrisma.packagePlan.findFirst.mockResolvedValue(null)
+
+    const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "Cash at desk" } })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid package selection." })
+  })
+
+  it("creates a pending cash package with its reason-backed audit", async () => {
+    mockPrisma.packagePlan.findFirst.mockResolvedValue({
+      id: "plan_1", key: "salsa-10", courseSlug: "salsa", label: "Salsa 10", priceCents: 12000,
+      cadence: "monthly", totalCredits: 10, makeUps: 1, validDays: 90, isUnlimited: false,
+    })
+    mockPrisma.purchase.create.mockResolvedValue({ id: "package_funding" })
+
+    const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "Cash at desk" } })
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      packageId: "salsa-10", amount: 12000, status: "pending", metadata: expect.objectContaining({
+        source: "staff_created_student_cash_package", packagePlanId: "plan_1", paymentChannel: "cash", settlementStatus: "pending",
+      }),
+    }) }))
+    expect(mockWriteStudentDataAudit).toHaveBeenCalledWith(expect.objectContaining({ entity: "package", field: "cash_package_creation", reason: "Cash at desk" }), mockPrisma)
+  })
+
+  it("links a package-selected attendance without reserving a credit and represents the selected session", async () => {
+    mockPrisma.packagePlan.findFirst.mockResolvedValue({
+      id: "plan_1", key: "salsa-10", courseSlug: "salsa", label: "Salsa 10", priceCents: 12000,
+      cadence: "monthly", totalCredits: 10, makeUps: 1, validDays: 90, isUnlimited: false,
+    })
+    mockPrisma.classSession.findMany.mockResolvedValue([{
+      id: "session_1", courseSlug: "bachata", title: "Bachata", startsAt: new Date("2026-05-01T18:00:00.000Z"), durationMinutes: 60,
+    }])
+    mockPrisma.attendance.create.mockResolvedValue({
+      id: "attendance_1", userId: "user_student_1", sessionId: "session_1", status: "checked_in_no_package",
+    })
+    mockPrisma.purchase.create.mockResolvedValue({ id: "package_funding" })
+
+    const res = await postCreateStudent({
+      email: "student@example.com",
+      package: { packagePlanId: "plan_1", reason: "Cash at desk" },
+      checkIn: { enabled: true, sessionId: "session_1" },
+    })
+
+    expect(res.status).toBe(201)
+    expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+    expect(mockPrisma.packagePurchase.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadata: expect.objectContaining({ source: "staff_created_student_cash_package" }),
+      }),
+    })
+    expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      courseSlug: "bachata",
+      courseTitle: "Bachata",
+      metadata: expect.objectContaining({
+        attendanceId: "attendance_1",
+        packageCourseSlug: "salsa",
+      }),
+    }) }))
   })
 
   it("creates attendance for the selected class session and links the manual purchase metadata", async () => {

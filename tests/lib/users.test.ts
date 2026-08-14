@@ -13,7 +13,7 @@ const { mockPrisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }))
 
-import { upsertUserByIdentifiers } from "@/lib/users"
+import { upsertUserByIdentifiers, wasUserCreatedByUpsert } from "@/lib/users"
 
 describe("upsertUserByIdentifiers", () => {
   beforeEach(() => {
@@ -155,5 +155,17 @@ describe("upsertUserByIdentifiers", () => {
     expect(mockPrisma.user.update).not.toHaveBeenCalled()
     expect(mockPrisma.user.create).not.toHaveBeenCalled()
     expect(result).toEqual(linkedToDifferentClerk)
+  })
+
+  it("keeps the public user return shape while exposing local creation internally", async () => {
+    const createdUser = { id: "db_user_new", clerkId: "clerk_new" }
+    mockPrisma.user.findUnique.mockResolvedValue(null)
+    mockPrisma.user.findMany.mockResolvedValue([])
+    mockPrisma.user.create.mockResolvedValue(createdUser)
+
+    const result = await upsertUserByIdentifiers({ clerkId: "clerk_new", email: "new@example.com" })
+
+    expect(result).toEqual(createdUser)
+    expect(wasUserCreatedByUpsert(result)).toBe(true)
   })
 })
