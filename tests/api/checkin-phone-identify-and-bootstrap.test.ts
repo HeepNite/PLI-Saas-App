@@ -13,6 +13,7 @@ const mockUserFindFirst = vi.fn()
 const mockPackagePurchaseFindFirst = vi.fn()
 const mockPackagePurchaseFindMany = vi.fn()
 const mockPurchaseFindMany = vi.fn()
+const mockPurchaseCount = vi.fn()
 const mockClassSessionFindUnique = vi.fn()
 const mockAttendanceFindUnique = vi.fn()
 const mockCourseLinkFindMany = vi.fn()
@@ -55,6 +56,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     purchase: {
       findMany: (...args: unknown[]) => mockPurchaseFindMany(...args),
+      count: (...args: unknown[]) => mockPurchaseCount(...args),
     },
     classSession: {
       findUnique: (...args: unknown[]) => mockClassSessionFindUnique(...args),
@@ -196,6 +198,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockPackagePurchaseFindFirst.mockResolvedValue(null)
     mockPackagePurchaseFindMany.mockResolvedValue([])
     mockPurchaseFindMany.mockResolvedValue([])
+    mockPurchaseCount.mockResolvedValue(0)
     mockClassSessionFindUnique.mockResolvedValue(null)
     mockAttendanceFindUnique.mockResolvedValue(null)
     mockCourseLinkFindMany.mockResolvedValue([])
@@ -329,6 +332,42 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.path).toBe("full")
     expect(data.hasAnyActivePackage).toBe(false)
     expect(data.package).toBeNull()
+  })
+
+  // Terminal Quick Repeat (fast check-in): >=3 successful purchases => eligible.
+  it("marks quickRepeatEligible on the full path when the customer has >=3 successful purchases", async () => {
+    mockPackagePurchaseFindFirst.mockResolvedValue(null)
+    mockPackagePurchaseFindMany.mockResolvedValue([])
+    mockClassSessionFindUnique.mockResolvedValue(null)
+    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
+    mockPurchaseCount.mockResolvedValue(3)
+
+    const { POST } = await import(
+      "@/app/api/checkin/phone/identify-and-bootstrap/route"
+    )
+    const res = await POST(makeRequest(BASE_BODY))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.quickRepeatEligible).toBe(true)
+    expect(data.lastPurchasePattern).toMatchObject({ courseSlug: expect.any(String) })
+  })
+
+  it("leaves quickRepeatEligible false with fewer than 3 successful purchases", async () => {
+    mockPackagePurchaseFindFirst.mockResolvedValue(null)
+    mockPackagePurchaseFindMany.mockResolvedValue([])
+    mockClassSessionFindUnique.mockResolvedValue(null)
+    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
+    mockPurchaseCount.mockResolvedValue(2)
+
+    const { POST } = await import(
+      "@/app/api/checkin/phone/identify-and-bootstrap/route"
+    )
+    const res = await POST(makeRequest(BASE_BODY))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.quickRepeatEligible).toBe(false)
   })
 
   // Scenario: active package but no class session → full path
