@@ -119,6 +119,8 @@ export type FullPathResponse = {
   hasAnyActivePackage: boolean
   consecutiveOffer: ConsecutiveOfferPayload | null
   quickCheckout: QuickCheckoutTemplate | null
+  quickRepeatEligible?: boolean
+  lastPurchasePattern?: { paymentChannel: string; courseSlug: string; amount: number } | null
 }
 
 export type IdentifyAndBootstrapResponse = FastPathResponse | FullPathResponse

@@ -58,6 +58,15 @@ function mapIdentifyAndBootstrapToBootstrap(
     hasAnyActivePackage: data.hasAnyActivePackage,
     consecutiveOffer: data.consecutiveOffer ?? null,
     quickCheckout: data.quickCheckout ?? null,
+    // Terminal Quick Repeat: carried through so the controller's
+    // `bootstrap?.quickRepeatEligible && isKioskTerminalFlow` effect can fire.
+    quickRepeatEligible: isFullPath
+      ? (data as { quickRepeatEligible?: boolean }).quickRepeatEligible ?? false
+      : false,
+    lastPurchasePattern: isFullPath
+      ? (data as { lastPurchasePattern?: { paymentChannel: string; courseSlug: string; amount: number } | null })
+          .lastPurchasePattern ?? null
+      : null,
   }
 }
 

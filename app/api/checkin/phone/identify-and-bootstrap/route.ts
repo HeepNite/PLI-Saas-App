@@ -27,6 +27,10 @@ export const runtime = "nodejs"
 
 const MIN_PHONE_DIGITS = 10
 const DUPLICATE_BLOCKING_PURCHASE_STATUSES = [...SUCCESSFUL_PURCHASE_STATUSES, "pending"]
+// Quick Repeat (terminal fast check-in) eligibility: >= 3 successful purchases.
+// Mirrors QUICK_REPEAT_PURCHASE_THRESHOLD in lib/checkin/qr-decision.ts.
+const QUICK_REPEAT_PURCHASE_THRESHOLD = 3
+const CENTS_PER_DOLLAR = 100
 
 const normalizeString = (value: unknown) => {
   if (typeof value !== "string") return ""
@@ -622,6 +626,26 @@ export async function POST(req: Request) {
     isWindowOpen
   )
 
+  // Quick Repeat (terminal fast check-in): a returning customer with >= 3
+  // successful purchases skips the regular flow and gets the "same as always"
+  // overlay. The terminal reads bootstrap.quickRepeatEligible directly from this
+  // response (it does not re-fetch /api/checkin/qr/bootstrap), so it must be
+  // computed here. Additive: <3 purchases -> false -> unchanged behavior.
+  const successfulPurchaseCount = await prisma.purchase.count({
+    where: { userId: dbUser.id, status: { in: SUCCESSFUL_PURCHASE_STATUSES } },
+  })
+  const quickRepeatEligible = successfulPurchaseCount >= QUICK_REPEAT_PURCHASE_THRESHOLD
+  const lastPurchasePattern = {
+    paymentChannel:
+      typeof purchaseMetadata?.paymentChannel === "string"
+        ? String(purchaseMetadata.paymentChannel)
+        : "cash",
+    courseSlug,
+    amount:
+      (courseDataResult?.enrollment?.services?.find((service: { id: string }) => service.id === "dropin")?.price ?? 0) *
+      CENTS_PER_DOLLAR,
+  }
+
   const fullResponse: FullPathResponse = {
     identified: true,
     path: "full",
@@ -650,6 +674,8 @@ export async function POST(req: Request) {
           sourcePurchaseAt: lastPurchase?.createdAt?.toISOString() || null,
         }
       : null,
+    quickRepeatEligible,
+    lastPurchasePattern,
   }
 
   console.info("[kiosk-phone-identify-bootstrap] response", {
