@@ -1,27 +1,16 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 
 export const runtime = "nodejs"
 
 export async function GET(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:payroll:currencies:get", getClientIp(req)),
-    limit: 120,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:payroll:currencies:get", limit: 120, windowMs: 60_000 },
+    authorize: () => authorizeOwnerRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeOwnerRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   try {
     const items = await prisma.currency.findMany({
@@ -34,22 +23,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:payroll:currencies:post", getClientIp(req)),
-    limit: 30,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:payroll:currencies:post", limit: 30, windowMs: 60_000 },
+    authorize: () => authorizeOwnerRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeOwnerRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
 
   let body: unknown
   try {

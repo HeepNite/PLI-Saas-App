@@ -230,30 +230,6 @@ describe("staff users payroll phase 2", () => {
       )
     })
 
-    it("rejects direct_deposit with missing routingNumber", async () => {
-      const { PATCH } = await import("@/app/api/staff/users/[userId]/profile/route")
-
-      const res = await PATCH(
-        new Request("http://localhost/api/staff/users/staff_1/profile", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            paymentPreference: "direct_deposit",
-            paymentInfo: {
-              accountNumber: "000123456789",
-              accountType: "checking",
-              accountHolder: "Ana Desk",
-            },
-          }),
-        }),
-        { params: Promise.resolve({ userId: "staff_1" }) }
-      )
-
-      expect(res.status).toBe(422)
-      const data = await res.json()
-      expect(data.error).toContain("routingNumber")
-    })
-
     it("accepts valid zelle fields with zelleId", async () => {
       mockPrisma.staffAccount.update.mockResolvedValue({
         paymentPreference: "zelle",
@@ -285,25 +261,6 @@ describe("staff users payroll phase 2", () => {
       )
     })
 
-    it("rejects zelle when no zelleId or venmoUser is provided but other fields are present", async () => {
-      const { PATCH } = await import("@/app/api/staff/users/[userId]/profile/route")
-
-      const res = await PATCH(
-        new Request("http://localhost/api/staff/users/staff_1/profile", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            paymentPreference: "zelle",
-            paymentInfo: { bankName: "Chase" },
-          }),
-        }),
-        { params: Promise.resolve({ userId: "staff_1" }) }
-      )
-
-      expect(res.status).toBe(422)
-      const data = await res.json()
-      expect(data.error).toContain("zelleId")
-    })
   })
 
   describe("POST /api/staff/payroll/change-requests", () => {

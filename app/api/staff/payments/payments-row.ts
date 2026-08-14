@@ -9,6 +9,8 @@ import {
 } from "@/app/api/staff/payments/shared"
 import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failure"
 import type { PaymentsMode } from "@/app/api/staff/payments/payments-request"
+import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 
 type CheckInStatus = "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
 
@@ -133,19 +135,19 @@ const resolveSettlementStatus = (input: {
   isPaid: boolean
   hasOutstandingBalance: boolean
 }) => {
-  if (input.paymentChannel === "cash") {
-    return input.hasOutstandingBalance ? "pending" : input.currentSettlementStatus
+  if (input.paymentChannel === PAYMENT_CHANNEL.CASH) {
+    return input.hasOutstandingBalance ? SETTLEMENT_STATUS.PENDING : input.currentSettlementStatus
   }
 
-  return input.isPaid ? "paid" : input.currentSettlementStatus
+  return input.isPaid ? SETTLEMENT_STATUS.PAID : input.currentSettlementStatus
 }
 
 const resolveCheckInStatus = (attendanceStatus: string | null | undefined): CheckInStatus => {
   if (
-    attendanceStatus === "checked_in" ||
-    attendanceStatus === "checked_in_no_package" ||
-    attendanceStatus === "checked_out" ||
-    attendanceStatus === "scheduled"
+    attendanceStatus === ATTENDANCE_STATUS.CHECKED_IN ||
+    attendanceStatus === ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE ||
+    attendanceStatus === ATTENDANCE_STATUS.CHECKED_OUT ||
+    attendanceStatus === ATTENDANCE_STATUS.SCHEDULED
   ) {
     return attendanceStatus
   }
@@ -174,7 +176,7 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     stripePaymentIntentId: purchase.stripePaymentIntentId,
     stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
   })
-  const isPackageCredit = paymentChannel === "package_credit"
+  const isPackageCredit = paymentChannel === PAYMENT_CHANNEL.PACKAGE_CREDIT
 
   const metadataAttendanceId = asText(item.metadata.attendanceId) || null
   const explicitAttendance = metadataAttendanceId ? context.attendanceById.get(metadataAttendanceId) || null : null

@@ -10,7 +10,7 @@ import {
   resolveSchoolIdForClerkUser,
 } from "@/lib/payroll/route-helpers"
 import { hydratePaymentModelDefaultMethod, hydratePaymentModelsDefaultMethod } from "@/lib/payroll/payment-model-response"
-import { authorizeOwnerRequest, authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
+import { authorizeOwnerRequest, authorizeStaffPortalRequest, type StaffPortalAuthResult } from "@/lib/security/staff-portal-auth"
 
 export const runtime = "nodejs"
 
@@ -33,10 +33,19 @@ const validatePaymentMethod = async (schoolId: string, defaultPaymentMethodId: s
   return Boolean(method)
 }
 
+const authErrorResponse = (authResult: Extract<StaffPortalAuthResult, { ok: false }>) =>
+  NextResponse.json(
+    { error: authResult.error },
+    {
+      status: authResult.status,
+      headers: authResult.retryAfterSec ? { "Retry-After": String(authResult.retryAfterSec) } : undefined,
+    }
+  )
+
 export async function GET() {
   const authResult = await authorizeStaffPortalRequest()
   if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+    return authErrorResponse(authResult)
   }
 
   const schoolId = await resolveSchoolIdForClerkUser(authResult.userId)
@@ -58,7 +67,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const authResult = await authorizeOwnerRequest()
   if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+    return authErrorResponse(authResult)
   }
 
   const schoolId = await resolveSchoolIdForClerkUser(authResult.userId)
