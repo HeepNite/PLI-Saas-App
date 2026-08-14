@@ -336,14 +336,14 @@ describe("POST /api/staff/students", () => {
     expect(mockWriteStudentDataAudit).toHaveBeenCalledWith(expect.objectContaining({ entity: "package", field: "cash_package_creation", reason: "Cash at desk" }), mockTx)
   })
 
-  it("links package-selected attendance without reserving a credit or $0 charge", async () => {
+  it("creates one attendance and represents its package funding purchase as the selected session", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-29T16:00:00.000Z"))
     mockPrisma.packagePlan.findFirst.mockResolvedValue({
       id: "plan_1", key: "salsa-10", courseSlug: "salsa", label: "Salsa 10", priceCents: 12000,
       cadence: "monthly", totalCredits: 10, makeUps: 1, validDays: 90, isUnlimited: false,
     })
-    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: new Date("2026-07-15T23:00:00.000Z") })
+    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_1", courseSlug: "bachata", title: "Bachata", startsAt: new Date("2026-07-15T23:00:00.000Z") })
 
     try {
       const res = await postCreateStudent({ email: "student@example.com", package: { packagePlanId: "plan_1", reason: "Cash at desk" }, checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" } })
@@ -351,8 +351,18 @@ describe("POST /api/staff/students", () => {
       expect(res.status).toBe(201)
       expect(mockTx.packagePurchase.findFirst).not.toHaveBeenCalled()
       expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+      expect(mockTx.attendance.create).toHaveBeenCalledTimes(1)
       expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
-      expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: expect.objectContaining({ attendanceId: "attendance_1" }) }) }))
+      expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+        courseSlug: "bachata",
+        courseTitle: "Bachata",
+        metadata: expect.objectContaining({
+          attendanceId: "attendance_1",
+          date: "2026-07-15",
+          time: "19:00",
+          packageCourseSlug: "salsa",
+        }),
+      }) }))
     } finally {
       vi.useRealTimers()
     }
