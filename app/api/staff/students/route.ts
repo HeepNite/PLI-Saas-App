@@ -9,6 +9,7 @@ import { upsertUserByIdentifiers, wasUserCreatedByUpsert } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { writeStudentDataAudit, type WriteStudentDataAuditParams } from "@/lib/audit/student-data-audit"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { findSelectableStudentSessions, getNewYorkDateKey, isSelectableStudentSessionDate, isValidStudentSessionDate, materializeSelectableStudentSession } from "./sessions/shared"
 import { consumeRecoveryTicket, normalizeRecoveryCode, releaseRecoveryTicket, reserveRecoveryTicket } from "@/lib/student-recovery"
 import { normalizePhone } from "@/lib/shared"
@@ -214,14 +215,15 @@ const createCreationCashPackagePurchase = async (
   purchaseDelegate: PurchaseDelegate,
   userId: string,
   plan: { id: string; key: string; courseSlug: string | null; label: string; priceCents: number | null; cadence: string | null; totalCredits: number | null; makeUps: number; validDays: number; isUnlimited: boolean },
-  attendanceId?: string
+  checkIn?: { attendanceId: string; session: { courseSlug: string; title: string | null; startsAt: Date } }
 ) => {
   const amount = plan.priceCents ?? 0
+  const session = checkIn?.session
   return purchaseDelegate.create({
     data: {
       userId,
-      courseSlug: plan.courseSlug ?? `package:${plan.key}`,
-      courseTitle: plan.label,
+      courseSlug: session?.courseSlug ?? plan.courseSlug ?? `package:${plan.key}`,
+      courseTitle: session?.title ?? session?.courseSlug ?? plan.label,
       amount,
       currency: "usd",
       status: "pending",
@@ -236,10 +238,13 @@ const createCreationCashPackagePurchase = async (
         packageCadence: plan.cadence ?? "",
         packageMakeUps: String(plan.makeUps),
         packageValidDays: String(plan.validDays),
+        packageCourseSlug: plan.courseSlug ?? "",
         paymentChannel: "cash",
         settlementStatus: "pending",
         outstandingBalance: amount,
-        attendanceId: attendanceId ?? null,
+        date: session ? getDateKeyInTimeZone(session.startsAt) : null,
+        time: session ? getTimeKeyInTimeZone(session.startsAt) : null,
+        attendanceId: checkIn?.attendanceId ?? null,
       },
     },
   })
@@ -406,7 +411,7 @@ const createHistoricalAttendanceTx = async (
     reason: "Class check-in assigned by staff",
     ipAddress: input.ipAddress,
   }, tx)
-  return { ok: true as const, attendance }
+  return { ok: true as const, attendance, session }
 }
 
 const writePaymentCreationAudit = async (
@@ -643,7 +648,12 @@ export async function POST(req: Request) {
       let createdPurchase: { id: string } | undefined
 
       if (selectedPlan) {
-        createdPurchase = await createCreationCashPackagePurchase(tx.purchase, localUser.id, selectedPlan, resolvedAttendanceId)
+        createdPurchase = await createCreationCashPackagePurchase(
+          tx.purchase,
+          localUser.id,
+          selectedPlan,
+          attendanceResult?.ok ? { attendanceId: attendanceResult.attendance.id, session: attendanceResult.session } : undefined,
+        )
         await writeStudentDataAudit({
           targetUserId: localUser.id,
           staffClerkId: authResult.userId,
