@@ -729,3 +729,58 @@ export const getStudentPinStatus = async (userId: string): Promise<StudentPinSum
     },
   }
 }
+
+export type StudentPinCredentialRow = {
+  userId: string
+  kind: string
+  status: string
+  failedAttempts: number
+  lockedAt: Date | null
+  expiresAt: Date | null
+}
+
+export type StudentPinCredentialsResult =
+  | { available: false; credentials: StudentPinCredentialRow[] }
+  | { available: true; credentials: StudentPinCredentialRow[] }
+
+export const isStudentPinSchemaUnavailableError = (error: unknown): boolean => {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    const fallbackCode =
+      typeof error === "object" && error && "code" in error && typeof error.code === "string" ? error.code : null
+    const fallbackName =
+      typeof error === "object" && error && "name" in error && typeof error.name === "string" ? error.name : null
+    return fallbackName === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(fallbackCode || "")
+  }
+  return ["P2021", "P2022"].includes(error.code)
+}
+
+export const loadStudentPinCredentials = async (userIds: string[]): Promise<StudentPinCredentialsResult> => {
+  const empty: StudentPinCredentialRow[] = []
+
+  if (!userIds.length || !isStudentPinLifecycleEnabled()) {
+    return { available: false, credentials: empty }
+  }
+
+  try {
+    const credentials = await prisma.studentPinCredential.findMany({
+      where: {
+        userId: { in: userIds },
+        kind: { in: ["permanent", "provisional"] },
+      },
+      select: {
+        userId: true,
+        kind: true,
+        status: true,
+        failedAttempts: true,
+        lockedAt: true,
+        expiresAt: true,
+      },
+    })
+    return { available: true, credentials }
+  } catch (error) {
+    if (isStudentPinSchemaUnavailableError(error)) {
+      return { available: false, credentials: empty }
+    }
+    throw error
+  }
+}

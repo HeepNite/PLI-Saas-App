@@ -3,6 +3,37 @@ import { clerkClient } from "@clerk/nextjs/server"
 
 export type ClerkUser = Awaited<ReturnType<ClerkClient["users"]["getUser"]>>
 
+// ── Short-lived getUser cache (shared with staff-portal-auth) ────
+const CLERK_CACHE_TTL_MS = 60_000
+const clerkUserCache = new Map<string, { user: ClerkUser; expiresAt: number }>()
+const clerkUserInflight = new Map<string, Promise<ClerkUser>>()
+
+export const getCachedClerkUser = async (userId: string): Promise<ClerkUser> => {
+  const now = Date.now()
+  const cached = clerkUserCache.get(userId)
+  if (cached && cached.expiresAt > now) return cached.user
+
+  const inflight = clerkUserInflight.get(userId)
+  if (inflight) return inflight
+
+  const fetchUser = (async () => {
+    const client = await clerkClient()
+    const user = await client.users.getUser(userId)
+    clerkUserCache.set(userId, { user, expiresAt: now + CLERK_CACHE_TTL_MS })
+    return user
+  })()
+
+  clerkUserInflight.set(userId, fetchUser)
+
+  try {
+    return await fetchUser
+  } finally {
+    if (clerkUserInflight.get(userId) === fetchUser) {
+      clerkUserInflight.delete(userId)
+    }
+  }
+}
+
 /**
  * Keeps avatar gating correct before optimizing away full Clerk refreshes.
  */
@@ -57,21 +88,21 @@ export async function findClerkUserByIdentifiers(input: { email?: string; phone?
   const email = normalize(input.email)?.toLowerCase()
   const phone = toE164(input.phone)
 
-  if (email) {
-    const result = await client.users.getUserList({
-      emailAddress: [email],
-      limit: 1,
-    })
-    if (result.data.length > 0) return result.data[0]
-  }
+  if (!email && !phone) return null
 
-  if (phone) {
-    const result = await client.users.getUserList({
-      phoneNumber: [phone],
-      limit: 1,
-    })
-    if (result.data.length > 0) return result.data[0]
-  }
+  // Run both lookups in parallel when both identifiers are present
+  const [emailResult, phoneResult] = await Promise.all([
+    email
+      ? client.users.getUserList({ emailAddress: [email], limit: 1 })
+      : null,
+    phone
+      ? client.users.getUserList({ phoneNumber: [phone], limit: 1 })
+      : null,
+  ])
+
+  // Prefer email match over phone match
+  if (emailResult && emailResult.data.length > 0) return emailResult.data[0]
+  if (phoneResult && phoneResult.data.length > 0) return phoneResult.data[0]
 
   return null
 }
@@ -80,7 +111,7 @@ export async function ensureClerkUser(input: EnsureClerkUserInput) {
   const client = await clerkClient()
   const clerkId = normalize(input.clerkId)
   if (clerkId) {
-    return client.users.getUser(clerkId)
+    return getCachedClerkUser(clerkId)
   }
 
   const email = normalize(input.email)?.toLowerCase()
