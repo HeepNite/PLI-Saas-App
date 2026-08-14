@@ -56,6 +56,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     purchase: {
       findMany: (...args: unknown[]) => mockPurchaseFindMany(...args),
+      count: async () => 0,
     },
     classSession: {
       findUnique: (...args: unknown[]) => mockClassSessionFindUnique(...args),
