@@ -3,7 +3,7 @@
 import React from "react"
 import { createPortal } from "react-dom"
 import { X, UserPlus, QrCode, Banknote, Mail, Phone, AlertCircle, CheckCircle, MessageSquareWarning } from "lucide-react"
-import type { CreateStudentFormState, CreateStudentResult, CreateStudentSessionOption } from "./useStaffCreateStudentAdmin"
+import type { CreateStudentFormState, CreateStudentResult, CreateStudentSessionOption, CreateStudentPackagePlanOption } from "./useStaffCreateStudentAdmin"
 import { getStudentAttendanceDateBounds } from "./useStaffCreateStudentAdmin"
 
 type CreateStudentModalProps = {
@@ -15,6 +15,8 @@ type CreateStudentModalProps = {
   hasAmount: boolean
   canSubmit: boolean
   attendanceSessions: CreateStudentSessionOption[]
+  packagePlans: CreateStudentPackagePlanOption[]
+  packagePlansLoading: boolean
   onClose: () => void
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
@@ -29,6 +31,8 @@ export default function CreateStudentModal({
   hasAmount,
   canSubmit,
   attendanceSessions,
+  packagePlans,
+  packagePlansLoading,
   onClose,
   onUpdateField,
   onSubmit,
@@ -69,6 +73,8 @@ export default function CreateStudentModal({
             hasAmount={hasAmount}
             canSubmit={canSubmit}
             attendanceSessions={attendanceSessions}
+            packagePlans={packagePlans}
+            packagePlansLoading={packagePlansLoading}
             onUpdateField={onUpdateField}
             onSubmit={onSubmit}
           />
@@ -86,6 +92,8 @@ function FormView({
   hasAmount,
   canSubmit,
   attendanceSessions,
+  packagePlans,
+  packagePlansLoading,
   onUpdateField,
   onSubmit,
 }: {
@@ -95,6 +103,8 @@ function FormView({
   hasAmount: boolean
   canSubmit: boolean
   attendanceSessions: CreateStudentSessionOption[]
+  packagePlans: CreateStudentPackagePlanOption[]
+  packagePlansLoading: boolean
   onUpdateField: <K extends keyof CreateStudentFormState>(field: K, value: CreateStudentFormState[K]) => void
   onSubmit: () => void
 }) {
@@ -202,17 +212,19 @@ function FormView({
         value={form.name}
         onChange={(v) => onUpdateField("name", v)}
       />
-      <FieldInput
-        label="Amount ($)"
-        type="number"
-        placeholder="0.00"
-        value={form.amountCents}
-        onChange={(v) => onUpdateField("amountCents", v)}
-        min="0"
-        step="0.01"
-      />
+      {!form.packagePlanId && (
+        <FieldInput
+          label="Amount ($)"
+          type="number"
+          placeholder="0.00"
+          value={form.amountCents}
+          onChange={(v) => onUpdateField("amountCents", v)}
+          min="0"
+          step="0.01"
+        />
+      )}
 
-      {hasAmount && (
+      {!form.packagePlanId && hasAmount && (
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-white/70">Payment mode</span>
           <div className="flex gap-2">
@@ -241,6 +253,29 @@ function FormView({
         value={form.note}
         onChange={(v) => onUpdateField("note", v)}
       />
+
+      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <label className="block space-y-1" htmlFor="student-package-plan">
+          <span className="text-xs font-medium text-white/75">Package (optional)</span>
+          <select
+            id="student-package-plan"
+            value={form.packagePlanId}
+            disabled={packagePlansLoading}
+            onChange={(event) => onUpdateField("packagePlanId", event.target.value)}
+            className="w-full rounded-xl border border-white/15 bg-white/5 p-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="">No package</option>
+            {packagePlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.label} · {formatAmount(plan.priceCents)}</option>)}
+          </select>
+        </label>
+        {packagePlansLoading && <p className="text-xs text-white/60" role="status">Loading available packages...</p>}
+        {form.packagePlanId && (
+          <>
+            <p className="text-xs text-white/70">Selected: {packagePlans.find((plan) => plan.id === form.packagePlanId)?.label} · {formatAmount(packagePlans.find((plan) => plan.id === form.packagePlanId)?.priceCents ?? null)}</p>
+            <FieldInput label="Package reason" type="text" placeholder="Reason for this package" value={form.packageReason} onChange={(value) => onUpdateField("packageReason", value)} required />
+          </>
+        )}
+      </div>
 
       <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
         <label className="flex items-start gap-2 text-xs text-white/75">
@@ -474,6 +509,7 @@ function FieldInput({
   min,
   max,
   step,
+  required,
 }: {
   label: string
   icon?: React.ReactNode
@@ -484,6 +520,7 @@ function FieldInput({
   min?: string
   max?: string
   step?: string
+  required?: boolean
 }) {
   return (
     <label className="block space-y-1">
@@ -502,11 +539,16 @@ function FieldInput({
           min={min}
           max={max}
           step={step}
+          required={required}
           className={`w-full rounded-xl border border-white/15 bg-white/5 ${icon ? "pl-9" : "pl-3"} pr-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[var(--brand,#b61616)]/60`}
         />
       </div>
     </label>
   )
+}
+
+function formatAmount(priceCents: number | null) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((priceCents ?? 0) / 100)
 }
 
 function PaymentModeButton({

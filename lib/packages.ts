@@ -305,6 +305,7 @@ export const reservePackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
       id: input.packagePurchaseId,
       userId: input.userId,
       status: "active",
+      purchasedAt: { lte: timestamp },
       OR: [{ expiresAt: null }, { expiresAt: { gt: timestamp } }],
     },
   })
@@ -336,6 +337,7 @@ export const reservePackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
       id: selectedPackage.id,
       userId: input.userId,
       status: "active",
+      purchasedAt: { lte: timestamp },
       isUnlimited: false,
       OR: [{ expiresAt: null }, { expiresAt: { gt: timestamp } }],
       remainingCredits: { gt: 0 },

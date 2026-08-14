@@ -263,6 +263,47 @@ describe("staff payments route - attendance only", () => {
     })
   })
 
+  it("keeps a selected-session package funding purchase as one historical class row", async () => {
+    const selectedClassStart = new Date("2026-03-10T23:00:00.000Z")
+    mockPrisma.purchase.findMany.mockResolvedValue([{
+      ...buildPurchase({
+        id: "package_funding",
+        userId: "user_package",
+        metadata: { attendanceId: "attendance_package", date: "2026-03-10", time: "19:00", packagePlanId: "plan_salsa" },
+        createdAt: "2026-03-10T23:00:00.000Z",
+      }),
+      courseSlug: "bachata-intermediate",
+      courseTitle: "Bachata Intermediate",
+      packageId: "salsa-10",
+    }])
+    mockPrisma.attendance.findMany.mockResolvedValue([{
+      id: "attendance_package",
+      userId: "user_package",
+      status: "checked_in",
+      checkedInAt: selectedClassStart,
+      checkedOutAt: null,
+      session: { courseSlug: "bachata-intermediate", startsAt: selectedClassStart, title: "Bachata Intermediate" },
+      user: { id: "user_package", name: "Package Student", email: "package@example.com", phone: "+1 555 0300", clerkId: "clerk_package" },
+      metadata: { source: "staff_created_student_cash_package" },
+      packageUsage: null,
+    }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-03-10&to=2026-03-10"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      id: "package_funding",
+      attendanceId: "attendance_package",
+      courseSlug: "bachata-intermediate",
+      courseTitle: "Bachata Intermediate",
+      classDate: "2026-03-10",
+      classTime: "19:00",
+    })
+  })
+
   it("returns a historical attendance on the selected class date using checkedInAt", async () => {
     const historicalStart = new Date("2026-03-10T23:00:00.000Z")
     mockPrisma.attendance.findMany.mockResolvedValue([{

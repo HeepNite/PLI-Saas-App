@@ -11,6 +11,8 @@ export type CreateStudentFormState = {
   attendanceDate: string
   attendanceSessionId: string
   recoveryTicket: string
+  packagePlanId: string
+  packageReason: string
 }
 
 export type CreateStudentSessionOption = {
@@ -21,6 +23,8 @@ export type CreateStudentSessionOption = {
   durationMinutes: number | null
   isCurrent: boolean
 }
+
+export type CreateStudentPackagePlanOption = { id: string; label: string; priceCents: number | null }
 
 export type CreateStudentResult = {
   userId: string
@@ -47,6 +51,8 @@ const INITIAL_FORM: CreateStudentFormState = {
   attendanceDate: "",
   attendanceSessionId: "",
   recoveryTicket: "",
+  packagePlanId: "",
+  packageReason: "",
 }
 
 export const getTodayStaffDate = (now = new Date()) => {
@@ -94,7 +100,8 @@ export const createInitialStudentForm = (sessions: CreateStudentSessionOption[] 
 }
 
 export const buildCreateStudentRequestBody = (form: CreateStudentFormState) => {
-  const amountCents = form.amountCents.trim() ? Math.round(Number(form.amountCents) * 100) : 0
+  const hasPackage = Boolean(form.packagePlanId)
+  const amountCents = hasPackage || !form.amountCents.trim() ? 0 : Math.round(Number(form.amountCents) * 100)
   return {
     email: form.email.trim() || undefined,
     phone: form.phone.trim() || undefined,
@@ -106,6 +113,7 @@ export const buildCreateStudentRequestBody = (form: CreateStudentFormState) => {
     checkIn: form.createAttendance
       ? { enabled: true, date: form.attendanceDate || undefined, sessionId: form.attendanceSessionId || undefined }
       : undefined,
+    package: hasPackage ? { packagePlanId: form.packagePlanId, reason: form.packageReason.trim() } : undefined,
   }
 }
 
@@ -116,8 +124,9 @@ export const canSubmitCreateStudentForm = (input: {
 }) => {
   if (input.submitting) return false
   if (!input.form.email.trim() && !input.form.phone.trim()) return false
-  if (input.hasAmount && !input.form.paymentMode) return false
+  if (!input.form.packagePlanId && input.hasAmount && !input.form.paymentMode) return false
   if (input.form.createAttendance && !input.form.attendanceSessionId) return false
+  if (input.form.packagePlanId && !input.form.packageReason.trim()) return false
   return true
 }
 
@@ -161,6 +170,8 @@ export function useStaffCreateStudentAdmin({
   const [isOpen, setIsOpen] = React.useState(false)
   const [form, setForm] = React.useState<CreateStudentFormState>(INITIAL_FORM)
   const [attendanceSessions, setAttendanceSessions] = React.useState<CreateStudentSessionOption[]>([])
+  const [packagePlans, setPackagePlans] = React.useState<CreateStudentPackagePlanOption[]>([])
+  const [packagePlansLoading, setPackagePlansLoading] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [result, setResult] = React.useState<CreateStudentResult | null>(null)
@@ -175,9 +186,32 @@ export function useStaffCreateStudentAdmin({
   const closeModal = React.useCallback(() => {
     setIsOpen(false)
     setForm(createInitialStudentForm(attendanceSessions))
+    setPackagePlans([])
     setError(null)
     setResult(null)
   }, [attendanceSessions])
+
+  React.useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    setPackagePlansLoading(true)
+    void fetch("/api/staff/students/package-plans")
+      .then(async (res) => {
+        if (res.ok) return res.json()
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Unable to load package plans (${res.status})`)
+      })
+      .then((data) => {
+        if (!cancelled) setPackagePlans(Array.isArray(data.items) ? data.items : [])
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load package plans")
+      })
+      .finally(() => {
+        if (!cancelled) setPackagePlansLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [isOpen])
 
   React.useEffect(() => {
     if (!isOpen) return
@@ -225,7 +259,7 @@ export function useStaffCreateStudentAdmin({
       if (!res.ok) {
         if (handleStaffAuthFailure(res.status)) return
         const data = await res.json().catch(() => ({}))
-        setError(data.error || `Request failed (${res.status})`)
+        setError(data.error || (res.status === 409 ? "This user already exists in the system." : `Request failed (${res.status})`))
         return
       }
 
@@ -255,6 +289,8 @@ export function useStaffCreateStudentAdmin({
     error,
     result,
     attendanceSessions,
+    packagePlans,
+    packagePlansLoading,
     hasAmount,
     canSubmit,
     openModal,
