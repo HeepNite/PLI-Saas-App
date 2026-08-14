@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockAuthorizeOwnerRequest = vi.fn()
 const mockAuthorizeStaffPortalRequest = vi.fn()
 const mockClerkClient = vi.fn()
+const mockClerkGetUser = vi.fn()
 const mockWritePayrollAudit = vi.fn()
 
 const mockPrisma = {
@@ -26,9 +27,13 @@ vi.mock("@/lib/payroll/audit", () => ({
   writePayrollAudit: (...args: unknown[]) => mockWritePayrollAudit(...args),
 }))
 
-vi.mock("@/lib/payroll/types", () => ({
-  AUDIT_ENTRY_TYPES: { MODEL_ASSIGNED: "MODEL_ASSIGNED" },
-}))
+vi.mock("@/lib/payroll/types", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/payroll/types")>()
+  return {
+    ...actual,
+    AUDIT_ENTRY_TYPES: { MODEL_ASSIGNED: "MODEL_ASSIGNED" },
+  }
+})
 
 vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
@@ -40,7 +45,7 @@ describe("payment models auth gates", () => {
 
     mockClerkClient.mockResolvedValue({
       users: {
-        getUser: vi.fn().mockResolvedValue({ publicMetadata: { schoolId: "school_1" }, privateMetadata: {} }),
+        getUser: mockClerkGetUser.mockResolvedValue({ publicMetadata: { schoolId: "school_1" }, privateMetadata: {} }),
       },
     })
     mockPrisma.currency.findUnique.mockResolvedValue({ code: "ARS" })
@@ -56,6 +61,8 @@ describe("payment models auth gates", () => {
     mockPrisma.staffAccount.findUnique.mockResolvedValue({
       id: "staff_1",
       clerkUserId: "staff_user_1",
+      metadata: { schoolId: "school_1" },
+      paymentModel: null,
       paymentModelId: "model_old",
       hourlyRate: 100,
       paydayWeekday: 2,
@@ -83,6 +90,54 @@ describe("payment models auth gates", () => {
       expect(res.status).toBe(200)
     })
 
+    it("owner receives only masked configJson, never plaintext, on the bank_transfer default method", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "owner_1", role: "owner", category: "manager" })
+      mockPrisma.staffPaymentModel.findMany.mockResolvedValueOnce([
+        {
+          id: "model_1",
+          name: "Default ARS",
+          defaultPaymentMethodId: "pm_1",
+          defaultPaymentMethod: {
+            id: "pm_1",
+            schoolId: "school_1",
+            name: "Bank Transfer",
+            adapterType: "bank_transfer",
+            currency: "ARS",
+            active: true,
+            configJson: { accountAlias: "pli", stripeLikeSecret: "sk_live_LEAKED" },
+          },
+          isDefault: true,
+        },
+      ])
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+      const data = await res.json()
+      const raw = JSON.stringify(data)
+
+      expect(res.status).toBe(200)
+      expect(raw).not.toContain("sk_live_LEAKED")
+      expect(data.items[0].defaultPaymentMethod.configJson).toEqual({
+        accountAlias: "pli",
+        stripeLikeSecret: { configured: true, preview: "••••" },
+      })
+    })
+
+    it("resolves school context from the local staff mirror without calling Clerk", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "owner_1", role: "owner", category: "manager" })
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+
+      expect(res.status).toBe(200)
+      expect(mockPrisma.staffAccount.findUnique).toHaveBeenCalledWith({
+        where: { clerkUserId: "owner_1" },
+        select: { metadata: true, paymentModel: { select: { schoolId: true } } },
+      })
+      expect(mockClerkClient).not.toHaveBeenCalled()
+      expect(mockClerkGetUser).not.toHaveBeenCalled()
+    })
+
     it("admin+manager can view payment models", async () => {
       mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "admin_1", role: "admin", category: "manager" })
 
@@ -90,6 +145,34 @@ describe("payment models auth gates", () => {
       const res = await GET()
 
       expect(res.status).toBe(200)
+    })
+
+    it("admin+manager receives only masked configJson, never plaintext secrets", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "admin_1", role: "admin", category: "manager" })
+      mockPrisma.staffPaymentModel.findMany.mockResolvedValueOnce([
+        {
+          id: "model_1",
+          name: "Default ARS",
+          defaultPaymentMethodId: "pm_1",
+          defaultPaymentMethod: {
+            id: "pm_1",
+            schoolId: "school_1",
+            name: "Direct Deposit",
+            adapterType: "direct_deposit",
+            currency: "ARS",
+            active: true,
+            configJson: { accountNumber: "123456789", bankName: "Chase" },
+          },
+          isDefault: true,
+        },
+      ])
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+      const raw = JSON.stringify(await res.json())
+
+      expect(res.status).toBe(200)
+      expect(raw).not.toContain("123456789")
     })
 
     it("regular staff cannot view payment models", async () => {
@@ -110,6 +193,22 @@ describe("payment models auth gates", () => {
 
       expect(res.status).toBe(401)
       expect(await res.json()).toEqual({ error: "Unauthorized" })
+    })
+
+    it("forwards Retry-After on transient auth failures", async () => {
+      mockAuthorizeStaffPortalRequest.mockResolvedValue({
+        ok: false,
+        status: 503,
+        error: "Service temporarily busy. Please try again shortly.",
+        retryAfterSec: 15,
+      })
+
+      const { GET } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await GET()
+
+      expect(res.status).toBe(503)
+      expect(res.headers.get("Retry-After")).toBe("15")
+      expect(await res.json()).toEqual({ error: "Service temporarily busy. Please try again shortly." })
     })
   })
 
@@ -176,6 +275,26 @@ describe("payment models auth gates", () => {
 
       expect(res.status).toBe(401)
       expect(await res.json()).toEqual({ error: "Unauthorized" })
+    })
+
+    it("forwards Retry-After on transient auth failures", async () => {
+      mockAuthorizeOwnerRequest.mockResolvedValue({
+        ok: false,
+        status: 503,
+        error: "Service temporarily busy. Please try again shortly.",
+        retryAfterSec: 15,
+      })
+
+      const { POST } = await import("@/app/api/staff/payroll/payment-models/route")
+      const res = await POST(new Request("http://localhost/api/staff/payroll/payment-models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validBody),
+      }))
+
+      expect(res.status).toBe(503)
+      expect(res.headers.get("Retry-After")).toBe("15")
+      expect(await res.json()).toEqual({ error: "Service temporarily busy. Please try again shortly." })
     })
   })
 

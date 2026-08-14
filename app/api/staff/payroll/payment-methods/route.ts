@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { VALID_ADAPTER_TYPES } from "@/lib/payroll/adapters/registry"
+import { maskPaymentMethod, mergePaymentMethodConfig } from "@/lib/payroll/mask-payment-method-config"
+import type { AdapterType } from "@/lib/payroll/types"
 import {
   asOptionalString,
   currencyExists,
   jsonError,
   readJsonBody,
   resolveSchoolIdForClerkUser,
-  toNullableJsonInput,
 } from "@/lib/payroll/route-helpers"
-import { authorizeOwnerRequest } from "@/lib/security/staff-portal-auth"
+import { authorizeOwnerRequest, type StaffPortalAuthResult } from "@/lib/security/staff-portal-auth"
 
 export const runtime = "nodejs"
 
@@ -18,10 +19,19 @@ const isValidAdapterType = (value: string): value is (typeof VALID_ADAPTER_TYPES
 
 const normalizeName = (value: unknown) => asOptionalString(value)
 
+const authErrorResponse = (authResult: Extract<StaffPortalAuthResult, { ok: false }>) =>
+  NextResponse.json(
+    { error: authResult.error },
+    {
+      status: authResult.status,
+      headers: authResult.retryAfterSec ? { "Retry-After": String(authResult.retryAfterSec) } : undefined,
+    }
+  )
+
 export async function GET() {
   const authResult = await authorizeOwnerRequest()
   if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+    return authErrorResponse(authResult)
   }
 
   const schoolId = await resolveSchoolIdForClerkUser(authResult.userId)
@@ -34,13 +44,13 @@ export async function GET() {
     orderBy: [{ active: "desc" }, { name: "asc" }],
   })
 
-  return NextResponse.json({ items })
+  return NextResponse.json({ items: items.map(maskPaymentMethod) })
 }
 
 export async function POST(req: Request) {
   const authResult = await authorizeOwnerRequest()
   if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+    return authErrorResponse(authResult)
   }
 
   const schoolId = await resolveSchoolIdForClerkUser(authResult.userId)
@@ -80,11 +90,14 @@ export async function POST(req: Request) {
       name,
       adapterType,
       currency,
-      configJson:
-        parsedBody.body.config === undefined ? undefined : toNullableJsonInput(parsedBody.body.config),
+      configJson: mergePaymentMethodConfig(
+        adapterType as AdapterType,
+        undefined,
+        parsedBody.body.config,
+      ),
       active: true,
     },
   })
 
-  return NextResponse.json(created, { status: 201 })
+  return NextResponse.json(maskPaymentMethod(created), { status: 201 })
 }

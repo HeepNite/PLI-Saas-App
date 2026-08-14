@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { VALID_ADAPTER_TYPES } from "@/lib/payroll/adapters/registry"
+import { maskPaymentMethod, mergePaymentMethodConfig } from "@/lib/payroll/mask-payment-method-config"
+import type { AdapterType } from "@/lib/payroll/types"
 import {
   asOptionalBoolean,
   asOptionalString,
@@ -9,7 +11,6 @@ import {
   jsonError,
   readJsonBody,
   resolveSchoolIdForClerkUser,
-  toNullableJsonInput,
 } from "@/lib/payroll/route-helpers"
 import { authorizeOwnerRequest } from "@/lib/security/staff-portal-auth"
 
@@ -21,7 +22,13 @@ const isValidAdapterType = (value: string): value is (typeof VALID_ADAPTER_TYPES
 export async function PATCH(req: Request, context: { params: Promise<{ methodId: string }> }) {
   const authResult = await authorizeOwnerRequest()
   if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+    return NextResponse.json(
+      { error: authResult.error },
+      {
+        status: authResult.status,
+        headers: authResult.retryAfterSec ? { "Retry-After": String(authResult.retryAfterSec) } : undefined,
+      }
+    )
   }
 
   const schoolId = await resolveSchoolIdForClerkUser(authResult.userId)
@@ -39,7 +46,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ methodId:
 
   const existing = await prisma.staffPaymentMethod.findUnique({
     where: { id: methodId },
-    select: { id: true, schoolId: true, active: true },
+    select: { id: true, schoolId: true, active: true, configJson: true, adapterType: true },
   })
 
   if (!existing || existing.schoolId !== schoolId) {
@@ -51,7 +58,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ methodId:
     adapterType?: string
     currency?: string
     active?: boolean
-    configJson?: ReturnType<typeof toNullableJsonInput>
+    configJson?: ReturnType<typeof mergePaymentMethodConfig>
   } = {}
 
   if (hasOwn(parsedBody.body, "name")) {
@@ -93,8 +100,14 @@ export async function PATCH(req: Request, context: { params: Promise<{ methodId:
     data.currency = currency
   }
 
-  if (hasOwn(parsedBody.body, "config")) {
-    data.configJson = toNullableJsonInput(parsedBody.body.config)
+  if (hasOwn(parsedBody.body, "adapterType") || hasOwn(parsedBody.body, "config")) {
+    const effectiveAdapterType = (data.adapterType ?? existing.adapterType) as AdapterType
+    data.configJson = mergePaymentMethodConfig(
+      effectiveAdapterType,
+      existing.configJson,
+      parsedBody.body.config,
+      existing.adapterType as AdapterType,
+    )
   }
 
   if (hasOwn(parsedBody.body, "active")) {
@@ -129,5 +142,5 @@ export async function PATCH(req: Request, context: { params: Promise<{ methodId:
     data,
   })
 
-  return NextResponse.json(updated)
+  return NextResponse.json(maskPaymentMethod(updated))
 }

@@ -1,13 +1,13 @@
 import type { CardCheckInStatus } from "@/components/front/staff/historyCardAggregates"
 import { asObject, asText } from "@/lib/shared"
 export { asObject, asText } from "@/lib/shared"
-import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { PAYMENT_CHANNEL, PURCHASE_SOURCE, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
-export type SettlementStatus = "pending" | "paid"
-export type PaymentChannel = "cash" | "card" | "package_credit" | "unknown"
+export type SettlementStatus = (typeof SETTLEMENT_STATUS)[keyof typeof SETTLEMENT_STATUS]
+export type PaymentChannel = (typeof PAYMENT_CHANNEL)[keyof typeof PAYMENT_CHANNEL]
 export type PurchaseCategory = "package" | "dropin" | "other"
 
-export const COMPLETED_PAYMENT_STATUSES = new Set(["succeeded", "paid", "completed"])
+export const COMPLETED_PAYMENT_STATUSES = new Set<string>([PURCHASE_STATUS.SUCCEEDED, PURCHASE_STATUS.PAID, PURCHASE_STATUS.COMPLETED])
 
 export const normalizeSettlementStatus = (value: unknown): SettlementStatus => {
   if (typeof value !== "string") return SETTLEMENT_STATUS.PENDING
@@ -49,17 +49,19 @@ export const normalizePaymentChannel = (input: {
   return PAYMENT_CHANNEL.UNKNOWN
 }
 
-export type PurchaseSource = "web" | "kiosk" | "front_desk" | "unknown"
+export type PurchaseSource = (typeof PURCHASE_SOURCE)[keyof typeof PURCHASE_SOURCE]
 
 export const normalizePurchaseSource = (metadata: unknown): PurchaseSource => {
   const meta = asObject(metadata)
   const explicit = asText(meta.purchaseSource).toLowerCase()
-  if (explicit === "web") return PURCHASE_SOURCE.WEB
-  if (explicit === "kiosk") return PURCHASE_SOURCE.KIOSK
-  if (explicit === "front_desk") return PURCHASE_SOURCE.FRONT_DESK
+  if (explicit === PURCHASE_SOURCE.WEB) return PURCHASE_SOURCE.WEB
+  if (explicit === PURCHASE_SOURCE.KIOSK) return PURCHASE_SOURCE.KIOSK
+  if (explicit === PURCHASE_SOURCE.FRONT_DESK) return PURCHASE_SOURCE.FRONT_DESK
+  if (explicit === PURCHASE_SOURCE.ADMIN) return PURCHASE_SOURCE.ADMIN
 
   const source = asText(meta.source).toLowerCase()
   if (source.includes("kiosk") || source.includes("terminal")) return PURCHASE_SOURCE.KIOSK
+  if (source === "staff_created_student") return PURCHASE_SOURCE.FRONT_DESK
   if (source.includes("stripe_webhook") || source === "cash_checkout") return PURCHASE_SOURCE.WEB
   return PURCHASE_SOURCE.UNKNOWN
 }
@@ -173,14 +175,14 @@ export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(pur
   return {
     paymentChannel,
     settlementStatus,
-    isOpen: settlementStatus !== "paid" && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === "cash"),
+    isOpen: settlementStatus !== SETTLEMENT_STATUS.PAID && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === PAYMENT_CHANNEL.CASH),
   }
 }
 
 export const isPendingProcessablePurchase = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
   const { paymentChannel, isOpen } = isOpenPurchase(purchase)
   if (!isOpen) return false
-  if (paymentChannel === "cash") return true
+  if (paymentChannel === PAYMENT_CHANNEL.CASH) return true
   return paymentChannel === "unknown" && !purchase.stripePaymentIntentId && !purchase.stripeCheckoutSessionId
 }
 

@@ -16,6 +16,7 @@ const mockPrisma = {
   },
   staffUnavailabilityRequest: {
     count: vi.fn(),
+    findMany: vi.fn(),
   },
   staffPayrollEntry: {
     create: vi.fn(),
@@ -81,6 +82,7 @@ describe("staff payroll run-payday route", () => {
     mockPrisma.staffPaymentModel.findUnique.mockReset()
     mockPrisma.staffPaymentModel.findFirst.mockReset()
     mockPrisma.staffUnavailabilityRequest.count.mockReset()
+    mockPrisma.staffUnavailabilityRequest.findMany.mockReset()
     mockPrisma.staffPayrollEntry.create.mockReset()
 
     mockAuthorizeStaffPortalRequest.mockResolvedValue({ ok: true, userId: "manager_1", role: "admin", category: "manager" })
@@ -90,6 +92,8 @@ describe("staff payroll run-payday route", () => {
     mockPrisma.staffPaymentModel.findUnique.mockResolvedValue(null)
     mockPrisma.staffPaymentModel.findFirst.mockResolvedValue(defaultPaymentModel)
     mockPrisma.staffUnavailabilityRequest.count.mockResolvedValue(0)
+    // Suspension check moved to a batched findMany returning suspended staff ids.
+    mockPrisma.staffUnavailabilityRequest.findMany.mockResolvedValue([])
     mockCloseOpenClockEntriesForPayroll.mockResolvedValue(undefined)
     mockDeriveHoursWorked.mockResolvedValue({ hoursWorked: 8 })
     mockPrisma.staffPayrollEntry.create.mockResolvedValue({ id: "entry_1" })
@@ -131,7 +135,7 @@ describe("staff payroll run-payday route", () => {
   })
 
   it("skips suspended staff for the payroll period", async () => {
-    mockPrisma.staffUnavailabilityRequest.count.mockResolvedValue(1)
+    mockPrisma.staffUnavailabilityRequest.findMany.mockResolvedValue([{ staffAccountId: "staff_1" }])
 
     const res = await postRunPayday()
 
