@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { reservePackageCreditForAttendance, reservePackageCreditForAttendanceTx, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { buildSessionStartsAt } from "@/lib/class-schedule"
+import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
@@ -132,6 +133,97 @@ export async function PATCH(req: Request, context: { params: Promise<{ purchaseI
         paymentStatus: result.updatedPurchase.status,
         packageSynced: Boolean(result.synced),
         packageCreditReserved: false,
+      },
+    })
+  }
+
+  const isCreationCashPackage = action === "mark_paid"
+    && purchase.userId
+    && isCashPurchase(purchase)
+    && asText(metadata.source) === "staff_created_student_cash_package"
+  if (isCreationCashPackage) {
+    const packagePlanId = asText(metadata.packagePlanId)
+    const attendanceId = asText(metadata.attendanceId)
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedPurchase = await tx.purchase.update({ where: { id: purchaseId }, data })
+      const plan = await tx.packagePlan.findUnique({ where: { id: packagePlanId } })
+      if (!plan) throw new Error("PACKAGE_PLAN_NOT_FOUND")
+
+      const synced = await syncPackagePurchaseFromPaidPurchase({
+        tx,
+        packagePlanId: plan.id,
+        userId: purchase.userId,
+        purchaseId: purchase.id,
+        purchasedAt: purchase.createdAt,
+        source: "cash",
+        metadata: {
+          courseSlug: plan.courseSlug || undefined,
+          packageId: plan.key,
+          packageLabel: plan.label,
+          packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
+          packageIsUnlimited: String(plan.isUnlimited),
+          packageCadence: plan.cadence || undefined,
+          packageMakeUps: String(plan.makeUps),
+          packageValidDays: String(plan.validDays),
+        },
+      })
+
+      if (attendanceId && synced) {
+        const attendance = await tx.attendance.findUnique({
+          where: { id: attendanceId },
+          include: { session: true },
+        })
+        if (!attendance) throw new Error("ATTENDANCE_NOT_FOUND")
+
+        const student = await tx.user.findUnique({ where: { id: purchase.userId } })
+        if (!student) throw new Error("STUDENT_NOT_FOUND")
+
+        await reservePackageCreditForAttendanceTx(tx, {
+          packagePurchaseId: synced.id,
+          userId: purchase.userId,
+          attendanceId,
+          courseSlug: attendance.session.courseSlug,
+          at: purchase.createdAt,
+          reason: "PACKAGE_INITIAL_BOOKING",
+        })
+        await ensureAttendancePackagePurchase(tx, {
+          attendanceId,
+          userId: purchase.userId,
+          courseSlug: attendance.session.courseSlug,
+          courseTitle: attendance.session.title || attendance.session.courseSlug,
+          email: student.email,
+          name: student.name,
+          phone: student.phone,
+          packageId: synced.packageId,
+          packagePurchaseId: synced.id,
+          source: "staff_created_student_cash_package",
+          date: attendance.session.startsAt.toISOString().slice(0, 10),
+          time: attendance.session.startsAt.toISOString().slice(11, 16),
+        })
+      }
+
+      await writeStudentDataAudit({
+        targetUserId: purchase.userId,
+        staffClerkId: authResult.userId,
+        staffName: authResult.staffName,
+        entity: "package",
+        entityId: purchase.id,
+        field: "cash_package_creation_settlement",
+        valueAfter: { outcome: "SETTLED", packagePlanId: plan.id, purchaseId: purchase.id, attendanceId: attendanceId || null },
+        reason: note || "Cash package creation settled",
+        ipAddress: getClientIp(req),
+      }, tx)
+      return { updatedPurchase, synced, packageCreditReserved: Boolean(attendanceId && synced) }
+    })
+
+    return NextResponse.json({
+      ok: true,
+      purchase: {
+        id: result.updatedPurchase.id,
+        settlementStatus,
+        paymentStatus: result.updatedPurchase.status,
+        packageSynced: Boolean(result.synced),
+        packageCreditReserved: result.packageCreditReserved,
       },
     })
   }
