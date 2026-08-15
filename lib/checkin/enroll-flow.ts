@@ -49,8 +49,15 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow && input.isCheckInNewFlow) {
-    // "I'm new" on kiosk: streamlined 3-step flow
-    return ["info", "promo", "payments"]
+    // "I'm new" on kiosk: info → [packages] → [promo] → payments. Packages are
+    // offered when the course has them so a new student can buy a package on the
+    // spot; the promo step only appears when a consecutive-class offer exists.
+    return [
+      "info",
+      ...(input.hasPackages ? (["packages"] as const) : []),
+      ...(input.hasConsecutiveOffer ? (["promo"] as const) : []),
+      "payments",
+    ] as EnrollStepKey[]
   }
 
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
