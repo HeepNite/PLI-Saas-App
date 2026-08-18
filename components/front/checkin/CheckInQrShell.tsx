@@ -88,8 +88,8 @@ export type CheckInQrShellProps = {
   hideEntrySelection: boolean
   mode: EntryMode
   isKioskTerminalFlow: boolean
-  onExistingClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
-  onNewClick: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+  onExistingClick: (contextOverride?: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
+  onNewClick: (contextOverride?: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
 
   // Kiosk PIN modal (phone-only)
   showKioskPinPanel: boolean

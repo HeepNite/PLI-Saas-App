@@ -70,12 +70,12 @@ function computeCurrentSlug(now: Date, classes: TodayClassItem[]): string | null
     const rotationMinutes = endMinutes - 15 // rotate 15 min before end
 
     if (nowMinutes < rotationMinutes) {
-      return item.slug
+      return `${item.slug}|${time}`
     }
   }
 
   // All classes past rotation time → show the last one
-  return slots[slots.length - 1].item.slug
+  return `${slots[slots.length - 1].item.slug}|${slots[slots.length - 1].time}`
 }
 
 // ─── Test mode hook ───────────────────────────────────────────
@@ -272,7 +272,18 @@ export default function StaffTerminalShell({
     [effectiveNow, origin, todayClasses]
   )
 
-  const activeCompletedClass = selectedCompletedClass ?? terminalPastClasses[0] ?? null
+  const activeCompletedClass = selectedCompletedClass
+    ? terminalPastClasses.find((item) =>
+        item.courseSlug === selectedCompletedClass.courseSlug && item.time === selectedCompletedClass.time
+      ) ?? null
+    : terminalPastClasses[0] ?? null
+  const [currentCourseSlug, currentClassTime] = currentSlug?.split("|") ?? []
+  const primaryTerminalClass = currentSlug
+    ? terminalPastClasses.find((item) => item.courseSlug === currentCourseSlug && item.time === currentClassTime) ?? null
+    : null
+  const previousTerminalClasses = primaryTerminalClass
+    ? terminalPastClasses.filter((item) => item.time < primaryTerminalClass.time)
+    : []
 
   // Loading state
   if (loading) {
@@ -286,17 +297,17 @@ export default function StaffTerminalShell({
   // After-hours: keep the SAME terminal layout. The left column becomes a
   // Past Courses list; center/right stay as Continue Here + QR.
   if (allClassesEnded && activeCompletedClass) {
-    const selectedDate = fetchDateKeyRef.current ?? getStudioDateKey(effectiveNow)
     return (
       <div className="relative h-screen">
         <CheckInQrClient
-          key={`completed-${activeCompletedClass.courseSlug}-${activeCompletedClass.time}`}
+          key={`completed-${activeCompletedClass.date}-${activeCompletedClass.courseSlug}-${activeCompletedClass.time}`}
           forcedDeviceMode="station"
           forcedCourseSlug={activeCompletedClass.courseSlug}
           forcedClassContext={{
             courseSlug: activeCompletedClass.courseSlug,
-            date: selectedDate,
+            date: activeCompletedClass.date,
             time: activeCompletedClass.time,
+            durationMinutes: activeCompletedClass.durationMinutes ?? 60,
           }}
           shellVariant="terminal"
           terminalName={terminal.name}
@@ -336,14 +347,23 @@ export default function StaffTerminalShell({
     return (
       <div className="relative h-screen">
         <CheckInQrClient
-          key={currentSlug}
+          key={primaryTerminalClass
+            ? `${primaryTerminalClass.date}-${primaryTerminalClass.courseSlug}-${primaryTerminalClass.time}`
+            : currentSlug}
           forcedDeviceMode="station"
-          forcedCourseSlug={currentSlug}
+          forcedCourseSlug={currentCourseSlug}
+          forcedClassContext={primaryTerminalClass ? {
+            courseSlug: primaryTerminalClass.courseSlug,
+            date: primaryTerminalClass.date,
+            time: primaryTerminalClass.time,
+            durationMinutes: primaryTerminalClass.durationMinutes ?? 60,
+          } : undefined}
           shellVariant="terminal"
           terminalName={terminal.name}
           terminalLocation={terminal.location || ""}
           qrPathOverride="/checkin"
-          selectedCourseSlug={currentSlug}
+          selectedCourseSlug={currentCourseSlug}
+          terminalPastClasses={previousTerminalClasses}
           simulatedNowTick={simulatedNow ?? undefined}
           onFlowActiveChange={handleFlowActiveChange}
         />
@@ -352,11 +372,11 @@ export default function StaffTerminalShell({
         {testModeEnabled && simulatedNow && (
           <div className="absolute right-4 top-4 z-50 rounded bg-black/60 p-2 text-xs text-white">
             <div>TEST MODE — Simulated time: {pad(simulatedNow.getHours())}:{pad(simulatedNow.getMinutes())}</div>
-            <div>Current class: {currentSlug}</div>
+            <div>Current class: {currentCourseSlug}</div>
             {(() => {
-              const cls = todayClasses.find((c) => c.slug === currentSlug)
+              const cls = todayClasses.find((c) => c.slug === currentCourseSlug)
               if (!cls) return null
-              const start = cls.availableTimes?.[0]
+              const start = currentClassTime
               if (!start) return null
               const [h, m] = start.split(":").map(Number)
               const dur = cls.durationMinutes ?? 55

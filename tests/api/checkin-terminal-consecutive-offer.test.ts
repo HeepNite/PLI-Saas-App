@@ -152,13 +152,14 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     expect(await res.json()).toBeNull()
   })
 
-  it("does NOT surface the reverse-direction link (Timba → Beginner) when selected is Beginner on Monday", async () => {
+  it("does NOT surface the reverse-direction link (Timba → Beginner) when selected is Beginner at 20:50", async () => {
     // Monday 2026-05-18
     vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-05-18T22:00:00.000Z"))
+    vi.setSystemTime(new Date("2026-05-19T00:50:00.000Z"))
 
-    // No links in the A-direction for salsa-night-beginner today
-    mockCourseLinkFindMany.mockResolvedValue([])
+    mockCourseLinkFindMany.mockResolvedValue([{ courseSlugA: timbaCourse.slug, courseSlugB: beginnerCourse.slug, active: true, dropInConsecutiveCents: 1500, packageHolderConsecutiveCents: 1000 }])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([timbaCourse])
 
     const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
     const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "21:10" }))
@@ -222,6 +223,27 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
       linkedCourseTitle: "Advance Beginner Rueda",
       linkedCourseTime: "21:10",
     })
+  })
+
+  it("resolves the Tuesday 20:10 → 21:10 offer from schedule data after visual rotation", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-20T00:50:00.000Z")) // 20:50 NY Tue
+    const tuesdayAdvanced = {
+      ...ruedaCourse,
+      slug: "salsa-night-advance-beginner",
+      scheduleRules: { mode: "regular", rules: [{ weekday: 2, times: ["21:10"] }] },
+    }
+    mockCourseLinkFindMany.mockResolvedValue([{
+      courseSlugA: beginnerCourse.slug, courseSlugB: tuesdayAdvanced.slug, active: true,
+      dropInConsecutiveCents: 1000, packageHolderConsecutiveCents: 1000,
+    }])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([tuesdayAdvanced])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: beginnerCourse.slug, date: "2026-05-19", time: "20:10" }))
+
+    expect(await res.json()).toMatchObject({ linkedCourseSlug: tuesdayAdvanced.slug, linkedCourseTime: "21:10" })
   })
 
   it("returns null when the selected class date is not today in ET", async () => {

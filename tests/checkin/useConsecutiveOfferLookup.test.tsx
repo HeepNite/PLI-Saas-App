@@ -77,14 +77,14 @@ describe("useConsecutiveOfferLookup", () => {
     const { params, getResult } = await mount(defaultParams({
       hasActiveClerkSession: false,
       kioskPinSessionToken: "kiosk-token",
-      latePaymentEntryOverride: { courseSlug: "bachata", date: "2026-06-04", time: "18:30" },
+      latePaymentEntryOverride: { courseSlug: "bachata", date: "2026-06-04", time: "18:30", durationMinutes: 45 },
     }))
 
     await getResult().checkConsecutiveOfferAfterCheckIn()
 
     expect(params.requestBootstrap).toHaveBeenCalledWith({
       token: "token-1",
-      payload: { courseSlug: "bachata", date: "2026-06-04", time: "18:30", durationMinutes: 60, linkedFromCourseSlug: "bachata", flowContext: "kiosk_terminal", kioskSessionToken: "kiosk-token" },
+      payload: { courseSlug: "bachata", date: "2026-06-04", time: "18:30", durationMinutes: 45, linkedFromCourseSlug: "bachata", flowContext: "kiosk_terminal", kioskSessionToken: "kiosk-token" },
     })
   })
 
