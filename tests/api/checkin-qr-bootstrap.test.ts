@@ -538,16 +538,20 @@ describe("qr check-in bootstrap route", () => {
         kioskSessionId: "kiosk_session_1",
       })
     )
+    // Stripped for privacy: the full packages list, purchase history, and
+    // prior-purchase flags.
     expect(data.packages).toBeUndefined()
     expect(data.purchaseHistory).toBeUndefined()
-    expect(data.package).toBeUndefined()
-    expect(data.quickCheckout).toBeUndefined()
     expect(data.hasPreviousPurchase).toBeUndefined()
     expect(data.hasAnyCompletedPurchase).toBeUndefined()
-    expect(data.hasExistingPurchaseForSession).toBeUndefined()
-    expect(data.hasAnyActivePackage).toBeUndefined()
     expect(data.dayOfWeekPurchaseCount).toBeUndefined()
-    // Quick Repeat needs these two on the terminal — retained, not stripped.
+    // Retained on the terminal (the current customer's operational fields).
+    // package + hasAnyActivePackage are needed so the post-check-in consecutive
+    // promo lookup fires for package holders; Quick Repeat needs the last two.
+    expect("package" in data).toBe(true)
+    expect("quickCheckout" in data).toBe(true)
+    expect("hasExistingPurchaseForSession" in data).toBe(true)
+    expect("hasAnyActivePackage" in data).toBe(true)
     expect("quickRepeatEligible" in data).toBe(true)
     expect("lastPurchasePattern" in data).toBe(true)
     expect(data.context).toMatchObject({ courseSlug: "salsa-femenina-matutina" })
@@ -668,16 +672,17 @@ describe("qr check-in bootstrap route", () => {
         userId: "db_user_1",
       },
     })
-    expect(data.package).toBeUndefined()
-    expect(data.quickCheckout).toBeUndefined()
+    // Prior-purchase existence stays stripped (the leak this guards against).
     expect(data.hasPreviousPurchase).toBeUndefined()
     expect(data.hasAnyCompletedPurchase).toBeUndefined()
-    expect(data.hasExistingPurchaseForSession).toBeUndefined()
-    expect(data.hasAnyActivePackage).toBeUndefined()
     expect(data.packages).toBeUndefined()
     expect(data.purchaseHistory).toBeUndefined()
     expect(data.dayOfWeekPurchaseCount).toBeUndefined()
-    // Quick Repeat needs these two on the terminal — retained, not stripped.
+    // Current-session operational fields are retained (needed by the terminal
+    // overlays: package-holder consecutive promo + Quick Repeat).
+    expect("package" in data).toBe(true)
+    expect("quickCheckout" in data).toBe(true)
+    expect("hasAnyActivePackage" in data).toBe(true)
     expect("quickRepeatEligible" in data).toBe(true)
     expect("lastPurchasePattern" in data).toBe(true)
     expect(consoleInfo).not.toHaveBeenCalledWith(

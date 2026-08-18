@@ -33,32 +33,36 @@ const splitName = (value: string) => {
 // lastPurchasePattern (the repeat amount/channel). Without these, a returning
 // customer (>=3 purchases) fell through to the regular flow instead of Quick Repeat.
 // consecutiveOffer is also retained (needed for the add-on inside Quick Repeat).
+// Terminal-safe response: mirrors main's terminal payload. It KEEPS the current
+// customer's operational fields the terminal overlays need — package (usable pkg
+// for THIS class, required so the post-check-in consecutive-promo lookup's
+// hasUsablePackage gate passes), quickCheckout, hasExistingPurchaseForSession,
+// hasAnyActivePackage, consecutiveOffer, quickRepeatEligible, lastPurchasePattern.
+// It only strips the heavy/privacy history: the full packages list, purchaseHistory,
+// and the prior-purchase flags. (Previously package/quickCheckout/hasAnyActivePackage
+// were also stripped, which broke the terminal package-holder consecutive promo.)
 type TerminalSafeBootstrapResponse = Omit<
   BootstrapResponse,
-  | "package"
   | "packages"
-  | "quickCheckout"
   | "purchaseHistory"
   | "hasPreviousPurchase"
   | "hasAnyCompletedPurchase"
-  | "hasExistingPurchaseForSession"
-  | "hasAnyActivePackage"
   | "dayOfWeekPurchaseCount"
 > & {
-  package?: undefined
   packages?: undefined
-  quickCheckout?: undefined
   purchaseHistory?: undefined
   hasPreviousPurchase?: undefined
   hasAnyCompletedPurchase?: undefined
-  hasExistingPurchaseForSession?: undefined
-  hasAnyActivePackage?: undefined
   dayOfWeekPurchaseCount?: undefined
 }
 
 const createTerminalSafeBootstrapResponse = (bootstrap: BootstrapResponse): TerminalSafeBootstrapResponse => ({
   context: bootstrap.context,
   customer: bootstrap.customer,
+  package: bootstrap.package,
+  quickCheckout: bootstrap.quickCheckout,
+  hasExistingPurchaseForSession: bootstrap.hasExistingPurchaseForSession,
+  hasAnyActivePackage: bootstrap.hasAnyActivePackage,
   consecutiveOffer: bootstrap.consecutiveOffer,
   quickRepeatEligible: bootstrap.quickRepeatEligible,
   lastPurchasePattern: bootstrap.lastPurchasePattern,
