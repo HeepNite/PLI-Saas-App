@@ -56,7 +56,7 @@ describe("resolveCheckInBootstrapContextPayload", () => {
     })
   })
 
-  it("uses late-payment override context while preserving active duration", () => {
+  it("uses the selected previous class as the complete promotion source context", () => {
     expect(
       resolveCheckInBootstrapContextPayload({
         activeCourseSlug: "salsa",
@@ -64,17 +64,18 @@ describe("resolveCheckInBootstrapContextPayload", () => {
         activeTime: "20:00",
         durationMinutes: 75,
         latePaymentEntryOverride: {
-          courseSlug: "bachata",
-          date: "2026-06-04",
-          time: "18:30",
+          courseSlug: "salsa-night-beginner",
+          date: "2026-05-22",
+          time: "20:10",
+          durationMinutes: 55,
         },
       })
     ).toEqual({
-      courseSlug: "bachata",
-      date: "2026-06-04",
-      time: "18:30",
-      durationMinutes: 75,
-      linkedFromCourseSlug: "bachata",
+      courseSlug: "salsa-night-beginner",
+      date: "2026-05-22",
+      time: "20:10",
+      durationMinutes: 55,
+      linkedFromCourseSlug: "salsa-night-beginner",
     })
   })
 })

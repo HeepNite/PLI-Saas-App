@@ -79,7 +79,7 @@ export type UseCheckInTerminalEffectsInput = {
   consecutiveError: string | null
 
   // Existing purchase flow
-  openExistingPurchaseFlow: (args: { courseSlug: string; date: string; time: string }) => void
+  openExistingPurchaseFlow: (args: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
   setShowDuplicatePurchasePopup: (v: boolean) => void
 
   // Transient feedback
@@ -270,6 +270,7 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
       courseSlug: bootstrap.context.courseSlug,
       date: bootstrap.context.date,
       time: bootstrap.context.time,
+      durationMinutes: bootstrap.context.durationMinutes,
     })
   }, [
     bootstrap,

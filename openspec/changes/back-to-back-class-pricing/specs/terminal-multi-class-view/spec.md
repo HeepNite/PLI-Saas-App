@@ -58,6 +58,29 @@ The terminal MUST NOT rely solely on `forcedCourseSlug` to determine which class
 - WHEN it loads
 - THEN it still displays all today’s classes instead of showing an error
 
+### Requirement: Preserve Previous-Class Context During Rotation
+
+The terminal MUST treat automatic visual rotation and the selected operational class as separate concerns. Rotating focus to the next class MUST retain earlier same-day classes as fully operational registration and payment options.
+
+#### Scenario: Rotate and select either class
+
+- GIVEN linked 55-minute classes start at 20:10 and 21:10
+- WHEN New York time reaches the 20:50 rotation threshold
+- THEN 21:10 is primary and 20:10 remains selectable below with its exact slug, date, time, and duration
+- WHEN registration or payment selects 20:10
+- THEN bootstrap, checkout, and consecutive-offer lookup use 20:10 as source and may offer 21:10
+- BUT WHEN registration or payment selects primary 21:10
+- THEN 20:10 is not offered as a consecutive class
+
+#### Scenario: New York day boundary
+
+- WHEN an earlier class ends but its New York date remains current
+- THEN it remains selectable
+- BUT WHEN that New York date changes
+- THEN its context is removed
+
+Class availability and links MUST remain schedule-data-driven for every weekday; terminal rotation MUST NOT hardcode Tuesday, Friday, or any other weekday.
+
 ## Edge Cases
 
 ### Edge Case: No Classes Today
