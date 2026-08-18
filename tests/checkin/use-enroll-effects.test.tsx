@@ -499,9 +499,10 @@ describe("useEnrollEffects", () => {
     // has a 4-branch step-target chain: photoStepIndex -> promoStepIndex ->
     // packagesStepIndex -> paymentsStepIndex. The hook, before reconciliation,
     // only has 3 branches and is missing the promoStepIndex branch entirely.
-    // This test pins the CORRECT (live) behavior and must pass only after the
-    // hook is fixed to add the promoStepIndex branch.
-    it("advances to promoStepIndex when no photo is needed and promoStepIndex >= 0 (matches live EnrollModal)", async () => {
+    // Post-account navigation follows flow order: packages BEFORE promo. With
+    // both present, it must advance to the packages step (skipping it here was
+    // the reported bug).
+    it("advances to packagesStepIndex before promoStepIndex when both exist", async () => {
       const setStep = vi.fn()
       const requestAccountPreparation = vi.fn(async () => preparedAccount())
       await renderHook(
@@ -511,6 +512,29 @@ describe("useEnrollEffects", () => {
           photoStepIndex: -1,
           promoStepIndex: 5,
           packagesStepIndex: 1,
+          paymentsStepIndex: 2,
+          requestAccountPreparation,
+          setStep,
+        })
+      )
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(setStep).toHaveBeenCalledWith(1)
+    })
+
+    // When there is no packages step, it falls through to promo.
+    it("advances to promoStepIndex when no packages step and promoStepIndex >= 0", async () => {
+      const setStep = vi.fn()
+      const requestAccountPreparation = vi.fn(async () => preparedAccount())
+      await renderHook(
+        defaultInput({
+          verificationState: "verified",
+          isKioskTerminalFlow: true,
+          photoStepIndex: -1,
+          promoStepIndex: 5,
+          packagesStepIndex: -1,
           paymentsStepIndex: 2,
           requestAccountPreparation,
           setStep,
