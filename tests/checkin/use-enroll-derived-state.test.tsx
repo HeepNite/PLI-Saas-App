@@ -108,8 +108,8 @@ describe("useEnrollDerivedState", () => {
     }
   }
 
-  describe("kiosk new-student 3-step flow", () => {
-    it("produces the info -> promo -> payments steps with promoStepIndex wired", async () => {
+  describe("kiosk new-student flow with packages", () => {
+    it("produces info -> packages -> payments so a new student can buy a package", async () => {
       const { getResult } = await renderHook(
         defaultInput({
           isCheckInFlow: true,
@@ -119,13 +119,13 @@ describe("useEnrollDerivedState", () => {
       )
       const r = getResult()
 
-      expect(r.stepKeys).toEqual(["info", "promo", "payments"])
-      expect(r.steps.map((s) => s.key)).toEqual(["info", "promo", "payments"])
-      expect(r.steps.map((s) => s.label)).toEqual(["step_info", "Deals", "step_payments"])
-      expect(r.promoStepIndex).toBe(1)
+      expect(r.stepKeys).toEqual(["info", "packages", "payments"])
+      expect(r.steps.map((s) => s.key)).toEqual(["info", "packages", "payments"])
+      expect(r.steps.map((s) => s.label)).toEqual(["step_info", "Packages", "step_payments"])
+      expect(r.packagesStepIndex).toBe(1)
       expect(r.infoStepIndex).toBe(0)
       expect(r.paymentsStepIndex).toBe(2)
-      expect(r.packagesStepIndex).toBe(-1)
+      expect(r.promoStepIndex).toBe(-1)
       expect(r.photoStepIndex).toBe(-1)
     })
   })
@@ -387,11 +387,12 @@ describe("useEnrollDerivedState", () => {
   })
 
   describe("recomputation across re-renders", () => {
-    it("recomputes promoStepIndex and steps when switching from kiosk new-student to kiosk existing", async () => {
+    it("recomputes steps when switching from kiosk new-student to kiosk existing", async () => {
       const { getResult, rerender } = await renderHook(
         defaultInput({ isCheckInFlow: true, isCheckInNewFlow: true, isKioskTerminalFlow: true })
       )
-      expect(getResult().promoStepIndex).toBe(1)
+      expect(getResult().packagesStepIndex).toBe(1)
+      expect(getResult().stepKeys).toEqual(["info", "packages", "payments"])
 
       await rerender(
         defaultInput({ isCheckInFlow: true, isCheckInExistingFlow: true, isKioskTerminalFlow: true })
