@@ -181,13 +181,15 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         setStep(photoStepIndex)
         return
       }
-      // Go to promo step if it exists, then packages, then payments
-      if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
-        return
-      }
+      // Flow order: info → packages → promo → payments. Packages MUST be
+      // checked before promo, otherwise a new-student flow with packages jumps
+      // straight to the promo/Deals step and skips packages entirely.
       if (packagesStepIndex >= 0) {
         setStep(packagesStepIndex)
+        return
+      }
+      if (promoStepIndex >= 0) {
+        setStep(promoStepIndex)
         return
       }
       if (paymentsStepIndex >= 0) {

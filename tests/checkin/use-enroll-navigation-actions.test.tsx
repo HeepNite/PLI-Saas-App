@@ -547,14 +547,14 @@ describe("useEnrollNavigationActions", () => {
       expect(setStep).toHaveBeenCalledWith(1)
     })
 
-    it("prefers promoStepIndex over packagesStepIndex when both exist", async () => {
+    it("prefers packagesStepIndex over promoStepIndex when both exist (flow order: packages before promo)", async () => {
       const setStep = vi.fn()
       const { getResult } = await renderHook(
         defaultInput({
           isCheckInFlow: true,
           photoStepIndex: -1,
-          promoStepIndex: 1,
-          packagesStepIndex: 2,
+          packagesStepIndex: 1,
+          promoStepIndex: 2,
           paymentsStepIndex: 3,
           setStep,
         })

@@ -1039,10 +1039,12 @@ export default function EnrollModal({
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
+      } else if (packagesStepIndex >= 0) {
+        // Packages BEFORE promo (flow order: info → packages → promo → payments).
+        // Checking promo first skipped the packages step for new students.
+        setStep(packagesStepIndex)
       } else if (promoStepIndex >= 0) {
         setStep(promoStepIndex)
-      } else if (packagesStepIndex >= 0) {
-        setStep(packagesStepIndex)
       } else if (paymentsStepIndex >= 0) {
         setStep(paymentsStepIndex)
       }
