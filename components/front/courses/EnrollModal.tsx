@@ -647,6 +647,12 @@ export default function EnrollModal({
     // new student ($15) but is still signed in, so their name/email/phone must be
     // filled from Clerk (the info step is skipped for signed-in users). The
     // !isSignedIn guard below keeps anonymous new students unprefilled.
+    //
+    // NEVER prefill from Clerk on the shared kiosk terminal: an ambient Clerk
+    // session (a previous customer left signed in) would leak that person's
+    // name/email/phone into the next customer's form. The terminal identifies
+    // customers by phone (kiosk session), not by the browser's Clerk session.
+    if (isKioskTerminalFlow) return
     if (!isLoaded || !isSignedIn || !user) return
     if (!open && !isInline) return
     const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
@@ -658,7 +664,7 @@ export default function EnrollModal({
       email: prev.email || user.primaryEmailAddress?.emailAddress || "",
       phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
     }))
-  }, [isLoaded, isSignedIn, user, open, isInline, setContact])
+  }, [isKioskTerminalFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
