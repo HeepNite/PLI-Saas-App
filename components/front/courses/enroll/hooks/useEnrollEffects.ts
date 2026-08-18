@@ -377,10 +377,13 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
+      } else if (packagesStepIndex >= 0) {
+        // Packages come BEFORE the promo/Deals step (flow order:
+        // info → packages → promo → payments). Checking promo first here made
+        // the post-account navigation skip the packages step entirely.
+        setStep(packagesStepIndex)
       } else if (promoStepIndex >= 0) {
         setStep(promoStepIndex)
-      } else if (packagesStepIndex >= 0) {
-        setStep(packagesStepIndex)
       } else if (paymentsStepIndex >= 0) {
         setStep(paymentsStepIndex)
       }
