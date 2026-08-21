@@ -60,6 +60,23 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
  * before the student checks in or authenticates.
  */
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now()
+  const db: Record<string, number> = {}
+  const measureDatabaseCall = async <T>(name: string, operation: () => Promise<T>) => {
+    const callStartedAt = Date.now()
+    try {
+      return await operation()
+    } finally {
+      db[name] = Date.now() - callStartedAt
+    }
+  }
+  const logTiming = (outcome: "offer" | "no_offer" | "failed") => {
+    console.info("[terminal-consecutive-offer-latency] route", {
+      db,
+      durationMs: Date.now() - startedAt,
+      outcome,
+    })
+  }
   const ip = getClientIp(req)
   const rateLimit = consumeRateLimit({ key: buildRateLimitKey("terminal:consecutive-offer", ip), limit: 60, windowMs: 60_000 })
   if (!rateLimit.ok) {
@@ -81,30 +98,31 @@ export async function GET(req: NextRequest) {
     // not treated as direction-authoritative; today's schedule decides which
     // side is the first class and which side can be offered as the consecutive
     // class.
-    const links = await prisma.courseLink.findMany({
+    const links = await measureDatabaseCall("courseLinksMs", () => prisma.courseLink.findMany({
       where: {
         active: true,
         OR: [{ courseSlugA: courseSlug }, { courseSlugB: courseSlug }],
       },
-    })
+    }))
     if (links.length === 0) {
+      logTiming("no_offer")
       return NextResponse.json(null)
     }
 
-    const courseA = await prisma.courseCatalog.findUnique({
+    const courseA = await measureDatabaseCall("courseMs", () => prisma.courseCatalog.findUnique({
       where: { slug: courseSlug },
       select: {
         slug: true,
         availableTimes: true,
         scheduleRules: true,
       },
-    })
+    }))
 
     const linkedSlugs = links.map((link) =>
       link.courseSlugA === courseSlug ? link.courseSlugB : link.courseSlugA
     )
 
-    const linkedCourses = await prisma.courseCatalog.findMany({
+    const linkedCourses = await measureDatabaseCall("linkedCoursesMs", () => prisma.courseCatalog.findMany({
       where: { slug: { in: linkedSlugs } },
       select: {
         slug: true,
@@ -116,7 +134,7 @@ export async function GET(req: NextRequest) {
         dropInPriceCents: true,
         durationMinutes: true,
       },
-    })
+    }))
 
     // Check if course B has class on the selected date, falling back to today
     // for legacy terminal callers that do not pass a date.
@@ -165,6 +183,7 @@ export async function GET(req: NextRequest) {
       .sort((left, right) => left.minutes - right.minutes)[0]
 
     if (!nextClass) {
+      logTiming("no_offer")
       return NextResponse.json(null)
     }
 
@@ -185,8 +204,10 @@ export async function GET(req: NextRequest) {
       discountPercent,
       hasAttendedFirstClass: false, // pre-payment — attendance hasn't happened yet
     }
+    logTiming("offer")
     return NextResponse.json(offer)
   } catch {
+    logTiming("failed")
     return NextResponse.json(null)
   }
 }

@@ -112,6 +112,16 @@ describe("useEntryModeRouter", () => {
     expect(params.setOpenNewBooking).not.toHaveBeenCalledWith(true)
   })
 
+  it("preserves the selected past-class context when the bounded offer lookup releases booking", async () => {
+    const selectedPastClass = { courseSlug: "bachata", date: "2026-06-03", time: "18:00" }
+    const { params, getResult } = await mount(defaultParams({ consecutiveOfferSettled: true }))
+
+    act(() => getResult().handleNewClick(selectedPastClass))
+
+    expect(params.setNewBookingOverride).toHaveBeenCalledWith(selectedPastClass)
+    expect(params.setOpenNewBooking).toHaveBeenCalledWith(true)
+  })
+
   it("routes late-payment existing flow through override and existing mode", async () => {
     const { params, getResult } = await mount()
 
