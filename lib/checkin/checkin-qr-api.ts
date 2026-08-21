@@ -22,6 +22,7 @@ type PostJsonOptions = JsonRequestOptions & {
 }
 
 const PACKAGE_CHECK_IN_TIMEOUT_MS = 12_000
+export const TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS = 1_500
 
 const resolveFetch = (fetchImpl?: FetchImpl) => fetchImpl ?? fetch
 
@@ -119,12 +120,32 @@ export const requestTerminalConsecutiveOfferApi = async ({
   date?: string
   time?: string
 }) => {
+  const controller = new AbortController()
+  const abortFromCaller = () => controller.abort()
+  if (signal?.aborted) abortFromCaller()
+  else signal?.addEventListener("abort", abortFromCaller, { once: true })
+  const startedAt = Date.now()
+  const timeout = setTimeout(() => controller.abort(), TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS)
+  let outcome = "failed"
   const params = new URLSearchParams({ courseSlug })
   if (date) params.set("date", date)
   if (time) params.set("time", time)
-  const res = await resolveFetch(fetchImpl)(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
-    signal,
-  })
-  const data = res.ok ? await readJsonOrNull(res) : null
-  return { res, data }
+  try {
+    const res = await resolveFetch(fetchImpl)(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
+      signal: controller.signal,
+    })
+    const data = res.ok ? await readJsonOrNull(res) : null
+    outcome = res.ok ? "completed" : "http_error"
+    return { res, data }
+  } catch (error) {
+    outcome = controller.signal.aborted ? "aborted" : "failed"
+    throw error
+  } finally {
+    clearTimeout(timeout)
+    signal?.removeEventListener("abort", abortFromCaller)
+    console.info("[terminal-consecutive-offer-latency] client", {
+      durationMs: Date.now() - startedAt,
+      outcome,
+    })
+  }
 }

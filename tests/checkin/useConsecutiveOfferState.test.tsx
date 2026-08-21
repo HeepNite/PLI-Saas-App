@@ -77,6 +77,17 @@ describe("useConsecutiveOfferState", () => {
     expect(getResult().consecutiveOfferSettled).toBe(true)
   })
 
+  it("settles without an offer when the bounded request rejects", async () => {
+    const { getResult } = await mount(defaultParams({
+      requestTerminalOffer: vi.fn().mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" })),
+    }))
+
+    await act(async () => {})
+
+    expect(getResult().consecutiveOffer).toBeNull()
+    expect(getResult().consecutiveOfferSettled).toBe(true)
+  })
+
   it("settles without fetching outside kiosk terminal flow", async () => {
     const { params, getResult } = await mount(defaultParams({ isKioskTerminalFlow: false }))
 
