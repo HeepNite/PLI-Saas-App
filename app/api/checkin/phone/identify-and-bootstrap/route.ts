@@ -634,10 +634,7 @@ export async function POST(req: Request) {
   const successfulPurchaseCount = await prisma.purchase.count({
     where: { userId: dbUser.id, status: { in: SUCCESSFUL_PURCHASE_STATUSES } },
   })
-  // Not eligible when there's a usable package for this class — a package holder
-  // checks in with their package, not a repeat purchase. Once the package is
-  // exhausted (preferredPackage null), Quick Repeat applies again.
-  const quickRepeatEligible = successfulPurchaseCount >= QUICK_REPEAT_PURCHASE_THRESHOLD && !preferredPackage
+  const quickRepeatEligible = successfulPurchaseCount >= QUICK_REPEAT_PURCHASE_THRESHOLD
   const lastPurchasePattern = {
     paymentChannel:
       typeof purchaseMetadata?.paymentChannel === "string"

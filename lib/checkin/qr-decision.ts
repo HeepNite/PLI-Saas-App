@@ -322,11 +322,7 @@ export const buildQrBootstrapDecisionResponse = async (input: CheckinQrDecisionG
       : null,
     ...(isTerminalFlow
       ? {
-          // Not eligible when there's a usable package for this class — a package
-          // holder must check in with their package, not be offered a repeat
-          // purchase. Once the package is exhausted, preferredPackage is null and
-          // Quick Repeat applies again.
-          quickRepeatEligible: totalPurchaseCount >= QUICK_REPEAT_PURCHASE_THRESHOLD && !preferredPackage,
+          quickRepeatEligible: totalPurchaseCount >= QUICK_REPEAT_PURCHASE_THRESHOLD,
           lastPurchasePattern: {
             paymentChannel:
               lastPurchase && typeof asObject(lastPurchase.metadata)?.paymentChannel === "string"

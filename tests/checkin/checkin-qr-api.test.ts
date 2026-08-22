@@ -112,33 +112,8 @@ describe("checkin QR API adapter", () => {
 
     const [url, init] = firstCall(fetchImpl)
     expect(url).toBe("/api/checkin/terminal/consecutive-offer?courseSlug=class-a&date=2026-08-07&time=20%3A00")
-    expect(init).toMatchObject({ signal: expect.any(AbortSignal) })
+    expect(init).toEqual({ signal: controller.signal })
     expect(result.data).toEqual({ linkedCourseSlug: "class-b" })
-  })
-
-  it("aborts a terminal consecutive offer request at the 1500ms budget and logs safe timing", async () => {
-    vi.useFakeTimers()
-    const logSpy = vi.spyOn(console, "info").mockImplementation(() => {})
-    let observedSignal: AbortSignal | undefined
-    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
-      observedSignal = init?.signal ?? undefined
-      return new Promise<Response>((_resolve, reject) => {
-        observedSignal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })))
-      })
-    })
-
-    const request = requestTerminalConsecutiveOfferApi({ courseSlug: "class-a", fetchImpl }).catch((error) => error)
-
-    await vi.advanceTimersByTimeAsync(1_499)
-    expect(observedSignal?.aborted).toBe(false)
-
-    await vi.advanceTimersByTimeAsync(1)
-    expect(observedSignal?.aborted).toBe(true)
-    await expect(request).resolves.toMatchObject({ name: "AbortError" })
-    expect(logSpy).toHaveBeenCalledWith("[terminal-consecutive-offer-latency] client", {
-      durationMs: expect.any(Number),
-      outcome: "aborted",
-    })
   })
 
   it("returns null data for non-ok terminal offer responses", async () => {

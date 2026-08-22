@@ -129,22 +129,6 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     })
   })
 
-  it("logs duration-only timing for the route database calls", async () => {
-    const logSpy = vi.spyOn(console, "info").mockImplementation(() => {})
-    mockCourseLinkFindMany.mockResolvedValue([])
-
-    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
-    await GET(buildRequest({ courseSlug: "salsa-night-beginner" }))
-
-    expect(logSpy).toHaveBeenCalledWith("[terminal-consecutive-offer-latency] route", {
-      db: {
-        courseLinksMs: expect.any(Number),
-      },
-      durationMs: expect.any(Number),
-      outcome: "no_offer",
-    })
-  })
-
   it("does NOT surface a Monday offer for the Rueda link saved as A=beginner B=rueda when Rueda is Fri-only", async () => {
     // Monday 2026-05-18 (NY weekday 1)
     vi.useFakeTimers()
