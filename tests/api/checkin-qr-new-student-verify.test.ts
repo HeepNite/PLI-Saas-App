@@ -4,9 +4,15 @@ const mockFindClerkUserByIdentifiers = vi.fn()
 const mockUserFindFirst = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
 const mockAuth = vi.fn()
+const mockClerkGetUser = vi.fn()
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: (...args: unknown[]) => mockAuth(...args),
+  clerkClient: async () => ({
+    users: {
+      getUser: (...args: unknown[]) => mockClerkGetUser(...args),
+    },
+  }),
 }))
 
 vi.mock("@/lib/clerk-users", () => ({
@@ -30,6 +36,7 @@ describe("qr new-student verify route", () => {
     mockUserFindFirst.mockReset()
     mockPurchaseFindFirst.mockReset()
     mockAuth.mockReset()
+    mockClerkGetUser.mockReset()
     mockAuth.mockResolvedValue({ userId: null })
     process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/test"
   })
@@ -229,9 +236,46 @@ describe("qr new-student verify route", () => {
     )
   })
 
-  it("returns eligible when the current session already owns the phone", async () => {
+  it("requires SMS when an active session matches the email but does not own the submitted phone", async () => {
     mockAuth.mockResolvedValue({ userId: "clerk_123" })
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
+    mockClerkGetUser.mockResolvedValue({
+      id: "clerk_123",
+      phoneNumbers: [{ phoneNumber: "+1 212 555 0100", verification: { status: "verified" } }],
+    })
+    mockUserFindFirst.mockResolvedValue({ id: "usr_123", clerkId: "clerk_123" })
+    mockPurchaseFindFirst.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const req = new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "active-session@example.com",
+        phone: "+1 (929) 387-6584",
+      }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "requires_sms_verification",
+      reason: "phone_verification_required",
+      eligibleForNewStudent: false,
+      requiresSmsVerification: true,
+    })
+    expect(mockClerkGetUser).toHaveBeenCalledWith("clerk_123")
+  })
+
+  it("returns eligible when the active session owns both the matched identity and submitted phone", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_123" })
+    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
+    mockClerkGetUser.mockResolvedValue({
+      id: "clerk_123",
+      phoneNumbers: [{ phoneNumber: "+1 (929) 387-6584", verification: { status: "verified" } }],
+    })
     mockUserFindFirst.mockResolvedValue({ id: "usr_123", clerkId: "clerk_123" })
     mockPurchaseFindFirst.mockResolvedValue(null)
 
