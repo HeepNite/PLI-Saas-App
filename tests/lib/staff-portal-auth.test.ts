@@ -17,7 +17,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
 }))
 
-describe("authorizeOwnerOrAdminRequest", () => {
+describe("staff portal authorization", () => {
   beforeEach(() => {
     vi.resetModules()
     mockAuth.mockReset()
@@ -76,6 +76,78 @@ describe("authorizeOwnerOrAdminRequest", () => {
       category: null,
       subCategory: null,
       staffName: null,
+    })
+  })
+
+  it("allows a non-teacher staff member to grant cash packages", async () => {
+    mockClerkClient.mockReturnValue({
+      users: {
+        getUser: vi.fn().mockResolvedValue({
+          id: "user_front_desk_1",
+          publicMetadata: { role: "staff", staffCategory: "front_desk" },
+          privateMetadata: {},
+        }),
+      },
+    })
+    mockAuth.mockResolvedValue({ userId: "user_front_desk_1", sessionClaims: { iat: 1000 } })
+
+    const { authorizeCashPackageGrantRequest } = await import("@/lib/security/staff-portal-auth")
+
+    await expect(authorizeCashPackageGrantRequest()).resolves.toMatchObject({
+      ok: true,
+      userId: "user_front_desk_1",
+      role: "staff",
+      category: "front_desk",
+    })
+  })
+
+  it("denies both Clerk and mirrored teacher classifications for cash package grants", async () => {
+    mockClerkClient.mockReturnValue({
+      users: {
+        getUser: vi.fn().mockResolvedValue({
+          id: "user_teacher_1",
+          publicMetadata: { role: "staff", staffCategory: "guest", staffSubCategory: "teacher" },
+          privateMetadata: {},
+        }),
+      },
+    })
+    mockAuth.mockResolvedValue({ userId: "user_teacher_1", sessionClaims: { iat: 1000 } })
+
+    const { authorizeCashPackageGrantRequest } = await import("@/lib/security/staff-portal-auth")
+
+    await expect(authorizeCashPackageGrantRequest()).resolves.toEqual({
+      ok: false,
+      status: 403,
+      error: "Insufficient role",
+    })
+  })
+
+  it("uses the mirror sub-category fallback and denies a teacher when Clerk metadata is absent", async () => {
+    mockClerkClient.mockReturnValue({
+      users: {
+        getUser: vi.fn().mockResolvedValue({ id: "user_mirror_teacher", publicMetadata: {}, privateMetadata: {} }),
+      },
+    })
+    mockAuth.mockResolvedValue({ userId: "user_mirror_teacher", sessionClaims: { iat: 1000 } })
+    mockPrisma.staffAccount.findUnique.mockResolvedValue({ role: "staff", category: "guest", subCategory: "teacher" })
+
+    const { authorizeCashPackageGrantRequest } = await import("@/lib/security/staff-portal-auth")
+
+    await expect(authorizeCashPackageGrantRequest()).resolves.toEqual({
+      ok: false,
+      status: 403,
+      error: "Insufficient role",
+    })
+  })
+
+  it("denies unauthenticated cash package grant requests", async () => {
+    mockAuth.mockResolvedValue({ userId: null })
+    const { authorizeCashPackageGrantRequest } = await import("@/lib/security/staff-portal-auth")
+
+    await expect(authorizeCashPackageGrantRequest()).resolves.toEqual({
+      ok: false,
+      status: 401,
+      error: "Unauthorized",
     })
   })
 

@@ -46,9 +46,9 @@ vi.mock("@/components/front/staff/AuditHistoryPopover", () => ({
 }))
 
 vi.mock("@/components/front/staff/StudentDataOverrideModal", () => ({
-  default: ({ open, studentId, studentName, currentRole, onClose, onSuccess }: { open: boolean; studentId: string; studentName: string; currentRole: string; onClose: () => void; onSuccess: () => void }) => (
+  default: ({ open, studentId, studentName, currentRole, currentCategory, currentSubCategory, onClose, onSuccess }: { open: boolean; studentId: string; studentName: string; currentRole: string; currentCategory: string | null; currentSubCategory: string | null; onClose: () => void; onSuccess: () => void }) => (
     <section data-testid="override-modal">
-      Override {String(open)} {studentId} {studentName} {currentRole}
+      Override {String(open)} {studentId} {studentName} {currentRole} {currentCategory} {currentSubCategory}
       <button type="button" onClick={onClose}>Close override</button>
       <button type="button" onClick={onSuccess}>Override success</button>
     </section>
@@ -78,6 +78,8 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
   overrideModalOpen: false,
   overrideModalStudent: null,
   currentRole: "admin",
+  currentCategory: "manager",
+  currentSubCategory: null,
   onClosePaymentHistory: vi.fn(),
   onCloseAttendanceHistory: vi.fn(),
   onCloseAuditHistory: vi.fn(),
@@ -155,7 +157,7 @@ describe("StaffAdminHistoryOverlays", () => {
       Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Override success")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
     })
 
-    expect(node.textContent).toContain("Override true student-1 Student One owner")
+    expect(node.textContent).toContain("Override true student-1 Student One owner manager")
     expect(props.onOverrideSuccess).toHaveBeenCalledWith("student-1")
   })
 })

@@ -21,6 +21,7 @@ import { PackageTabForm } from "./student-override/PackageTabForm"
 import { StatsTabForm } from "./student-override/StatsTabForm"
 import { ConfirmDialog } from "./student-override/ConfirmDialog"
 import { useAddPackageGrant } from "./student-override/useAddPackageGrant"
+import type { StaffCategory, StaffSubCategory } from "@/lib/security/staff-category"
 
 // ============================================================
 // Types
@@ -32,6 +33,8 @@ type OverrideModalProps = {
   studentId: string
   studentName: string
   currentRole: "owner" | "admin" | "staff"
+  currentCategory?: StaffCategory | null
+  currentSubCategory?: StaffSubCategory | null
   /** Called when a change is successfully saved — useful for updating audit entry indicators */
   onSuccess?: () => void
 }

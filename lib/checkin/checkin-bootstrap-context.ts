@@ -10,6 +10,7 @@ type CheckInActiveContextInput = {
     courseSlug: string
     date: string
     time: string
+    durationMinutes?: number
   }
   selectedCourseSlug?: string
   nowTick: Date
@@ -25,6 +26,7 @@ type CheckInBootstrapContextInput = {
     courseSlug: string
     date: string
     time: string
+    durationMinutes?: number
   } | null
 }
 

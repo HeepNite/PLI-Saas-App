@@ -1,5 +1,6 @@
 import React from "react"
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory, StaffSubCategory } from "@/lib/security/staff-category"
 import StaffPortalNavButton, { type StaffPortalNavItem } from "./StaffPortalNavButton"
 import StaffAssistantRightRail from "./StaffAssistantRightRail"
 import StaffProfileViewPanel from "./StaffProfileViewPanel"
@@ -72,6 +73,8 @@ export type StaffUsersAdminViewProps = {
   }
   statusBanners: {
     currentRole: StaffRole
+    currentCategory: StaffCategory | null
+    currentSubCategory: StaffSubCategory | null
   }
 }
 
@@ -164,6 +167,8 @@ export default function StaffUsersAdminView({
       <StaffAdminHistoryOverlays
         {...modals.adminHistoryOverlays}
         currentRole={statusBanners.currentRole}
+        currentCategory={statusBanners.currentCategory}
+        currentSubCategory={statusBanners.currentSubCategory}
         onClosePaymentHistory={actions.onClosePaymentHistory}
         onCloseAttendanceHistory={actions.onCloseAttendanceHistory}
         onCloseAuditHistory={actions.onCloseAuditHistory}

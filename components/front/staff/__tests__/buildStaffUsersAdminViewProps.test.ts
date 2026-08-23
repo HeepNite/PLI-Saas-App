@@ -92,7 +92,7 @@ describe("buildStaffUsersAdminViewProps", () => {
         refreshPaymentsBoard,
       },
       formatters: { resolveHistoryDateIso: () => "2026-05-31" },
-      statusBanners: { currentRole: "owner" },
+      statusBanners: { currentRole: "owner", currentCategory: "manager", currentSubCategory: null },
     })
 
     props.actions.onOpenAssistantConfig()
