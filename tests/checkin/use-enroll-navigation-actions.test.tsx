@@ -203,6 +203,31 @@ describe("useEnrollNavigationActions", () => {
   })
 
   describe("advanceFromContactStep — kiosk/QR new-student SMS verification", () => {
+    it("kiosk: continues to package or payment selection when verification is already complete", async () => {
+      const verifyNewStudent = vi.fn(async () => "verified")
+      const requestAccountPreparation = vi.fn(async () => preparedAccount())
+      const setStep = vi.fn()
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          isKioskTerminalFlow: true,
+          service: "new-student",
+          contact: { ...defaultContact(), phone: "+1 5555550123", email: "a@b.com" },
+          verifyNewStudent,
+          requestAccountPreparation,
+          packagesStepIndex: 1,
+          setStep,
+        })
+      )
+
+      await act(async () => {
+        await getResult().advanceFromContactStep()
+      })
+
+      expect(requestAccountPreparation).toHaveBeenCalledTimes(1)
+      expect(setStep).toHaveBeenCalledWith(1)
+    })
+
     it("kiosk: calls verifyNewStudent and stops (no step change) on sms_pending", async () => {
       const verifyNewStudent = vi.fn(async () => "sms_pending")
       const requestAccountPreparation = vi.fn(async () => preparedAccount())
