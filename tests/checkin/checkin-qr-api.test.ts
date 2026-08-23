@@ -112,7 +112,7 @@ describe("checkin QR API adapter", () => {
 
     const [url, init] = firstCall(fetchImpl)
     expect(url).toBe("/api/checkin/terminal/consecutive-offer?courseSlug=class-a&date=2026-08-07&time=20%3A00")
-    expect(init).toEqual({ signal: controller.signal })
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
     expect(result.data).toEqual({ linkedCourseSlug: "class-b" })
   })
 
@@ -123,6 +123,30 @@ describe("checkin QR API adapter", () => {
 
     expect(result.res.ok).toBe(false)
     expect(result.data).toBeNull()
+  })
+
+  it("aborts terminal consecutive offer requests after 1,500 ms", async () => {
+    vi.useFakeTimers()
+
+    try {
+      const fetchImpl = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+          })
+      )
+      const request = requestTerminalConsecutiveOfferApi({ courseSlug: "class-a", fetchImpl })
+      const abortedRequest = expect(request).rejects.toMatchObject({ name: "AbortError" })
+
+      await vi.advanceTimersByTimeAsync(1_499)
+      expect(firstCall(fetchImpl)[1]?.signal?.aborted).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await abortedRequest
+      expect(firstCall(fetchImpl)[1]?.signal?.aborted).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("returns null data when JSON parsing fails", async () => {

@@ -22,6 +22,7 @@ type PostJsonOptions = JsonRequestOptions & {
 }
 
 const PACKAGE_CHECK_IN_TIMEOUT_MS = 12_000
+const TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS = 1_500
 
 const resolveFetch = (fetchImpl?: FetchImpl) => fetchImpl ?? fetch
 
@@ -122,9 +123,20 @@ export const requestTerminalConsecutiveOfferApi = async ({
   const params = new URLSearchParams({ courseSlug })
   if (date) params.set("date", date)
   if (time) params.set("time", time)
-  const res = await resolveFetch(fetchImpl)(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
-    signal,
-  })
-  const data = res.ok ? await readJsonOrNull(res) : null
-  return { res, data }
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  signal?.addEventListener("abort", abort, { once: true })
+  if (signal?.aborted) abort()
+  const timeout = setTimeout(abort, TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS)
+
+  try {
+    const res = await resolveFetch(fetchImpl)(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
+      signal: controller.signal,
+    })
+    const data = res.ok ? await readJsonOrNull(res) : null
+    return { res, data }
+  } finally {
+    clearTimeout(timeout)
+    signal?.removeEventListener("abort", abort)
+  }
 }
