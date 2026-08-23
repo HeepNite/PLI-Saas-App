@@ -242,10 +242,7 @@ export function useCheckInQrController({
   })
   setBootstrapRef.current = setBootstrap
 
-  // Activate quick repeat overlay when bootstrap signals eligibility.
-  // (quickRepeatEligible is already false when the customer has a usable package
-  // for this class — a package holder checks in with their package, not a repeat
-  // purchase; see the bootstrap decision builders.)
+  // Activate quick repeat overlay when bootstrap signals eligibility
   React.useEffect(() => {
     if (bootstrap?.quickRepeatEligible && isKioskTerminalFlow) {
       setShowQuickRepeat(true)
