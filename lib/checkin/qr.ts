@@ -93,6 +93,16 @@ export const isQrCheckInWindowAllowed = (context: QrCheckInContext, now = new Da
   return isQrCheckInWindowOpen(context, now)
 }
 
+export const isQrActionWindowAllowed = (
+  mode: "standard" | "terminal" | "consecutive-add-on",
+  context: QrCheckInContext,
+  now = new Date()
+) => {
+  if (mode === "terminal") return isTerminalCheckInAllowed(context, now)
+  if (mode === "consecutive-add-on") return isConsecutiveAddOnPurchaseAllowed(context, now)
+  return isQrCheckInWindowAllowed(context, now)
+}
+
 // The ONLY window is the class DAY (America/New_York). The consecutive add-on
 // stays available the whole day of the class and closes only when the NY day
 // ends (midnight) — no lower bound, no end-of-class (`endsAt`) or grace

@@ -83,7 +83,8 @@ export type CheckoutPreparationResolution = {
 
 export const resolveAuthUser = async (
   req: Request,
-  input: { firstName?: string; lastName?: string; name?: string; phone?: string }
+  input: { firstName?: string; lastName?: string; name?: string; phone?: string },
+  options: { updateClerkProfile?: boolean } = {}
 ) => {
   const authResult = await auth()
   let userId = authResult.userId
@@ -103,12 +104,14 @@ export const resolveAuthUser = async (
     try {
       const client = await clerkClient()
       clerkUser = await client.users.getUser(userId)
-      await updateClerkUserIfMissing(clerkUser, {
-        firstName: input.firstName,
-        lastName: input.lastName,
-        name: input.name,
-        phone: input.phone,
-      })
+      if (options.updateClerkProfile !== false) {
+        await updateClerkUserIfMissing(clerkUser, {
+          firstName: input.firstName,
+          lastName: input.lastName,
+          name: input.name,
+          phone: input.phone,
+        })
+      }
     } catch {
       // ignore and fallback
     }
@@ -203,7 +206,9 @@ const resolveKioskAwareAuth = async (
   input: PrepareCheckoutInput,
   options: PrepareCheckoutOptions
 ) => {
-  const authUser = await resolveAuthUser(req, input)
+  const authUser = await resolveAuthUser(req, input, {
+    updateClerkProfile: options.photoContext !== "kiosk_terminal",
+  })
   const kioskCustomerAuth =
     options.photoContext === "kiosk_terminal"
       ? await resolveKioskCustomerClerkAuth(authUser.userId)

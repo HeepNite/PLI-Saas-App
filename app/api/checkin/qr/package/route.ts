@@ -3,7 +3,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { parseQrCheckInContext, isTerminalCheckInAllowed, isConsecutiveAddOnPurchaseAllowed } from "@/lib/checkin/qr"
+import { isQrActionWindowAllowed, parseQrCheckInContext } from "@/lib/checkin/qr"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
@@ -128,9 +128,11 @@ export async function POST(req: Request) {
 
     const now = new Date()
     const consecutiveAddOn = payload?.consecutiveAddOn === true
-    const windowAllowed = consecutiveAddOn
-      ? isConsecutiveAddOnPurchaseAllowed(context, now)
-      : isTerminalCheckInAllowed(context, now)
+    const windowAllowed = isQrActionWindowAllowed(
+      consecutiveAddOn ? "consecutive-add-on" : flowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "terminal" : "standard",
+      context,
+      now
+    )
     if (!windowAllowed) {
       return NextResponse.json(
         consecutiveAddOn
@@ -140,9 +142,6 @@ export async function POST(req: Request) {
             }
           : {
               error: "Check-in is closed for this class.",
-              // opensAt is retained only for the client's structural
-              // closed_window discriminator (isClosedWindowFailureBody),
-              // not for gating — terminal check-in has no lower bound.
               opensAt: context.opensAt.toISOString(),
               closesAt: context.closesAt.toISOString(),
             },

@@ -40,7 +40,7 @@ export function useCheckInBootstrap({
   const [loadingBootstrap, setLoadingBootstrap] = React.useState(false)
   const [bootstrap, setBootstrap] = React.useState<BootstrapResponse | null>(null)
 
-  const loadBootstrap = React.useCallback(async () => {
+  const loadBootstrap = React.useCallback(async (contextOverride?: Record<string, unknown>) => {
     if (!contextIsValid) return
     if (!hasActiveClerkSession && !kioskPinSessionToken) return
     setLoadingBootstrap(true)
@@ -50,7 +50,7 @@ export function useCheckInBootstrap({
       const { res, data } = await requestBootstrap({
         token,
         payload: {
-          ...contextPayload,
+          ...(contextOverride ?? contextPayload),
           flowContext: photoFlowContext,
           ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
         },

@@ -1,7 +1,7 @@
 import React from "react"
 
 import type { StaffRole } from "@/lib/security/staff-role"
-import type { StaffCategory } from "@/lib/security/staff-category"
+import type { StaffCategory, StaffSubCategory } from "@/lib/security/staff-category"
 import type { StepEnabledContext, SchoolWizardState } from "@/components/front/staff/school"
 import type { AssignmentCourseOption, CourseLinkRow } from "./staffAdminTypes"
 import { getInitials } from "./staffPaymentCardPresentation"
@@ -34,6 +34,7 @@ import type { useStaffTeacherAdmin } from "./useStaffTeacherAdmin"
 type StaffUsersAdminCompositionInput = {
   currentRole: StaffRole
   currentCategory: StaffCategory | null
+  currentSubCategory: StaffSubCategory | null
   currentUserId: string
   error: string | null
   setError: React.Dispatch<React.SetStateAction<string | null>>
@@ -240,11 +241,11 @@ export function useStaffUsersAdminComposition(input: StaffUsersAdminCompositionI
       adminModalOverlays: { roomSafeDeleteModal: input.roomsAdmin.roomSafeDeleteModal, roomReassignModal: input.roomsAdmin.roomReassignModal, roomReservationCancelModal: input.roomsAdmin.roomReservationCancelModal, delayModal: payrollAdmin.delayModal, studentPinModal: pinAdmin.studentPinModal, activeRoomOptions: input.roomsAdmin.activeRoomOptions, roomBusyId: input.roomsAdmin.roomBusyId, roomReservationBusyId: input.roomsAdmin.roomReservationBusyId, studentPinReason: pinAdmin.studentPinReason, studentPinDraft: pinAdmin.studentPinDraft, studentPinSubmitting: pinAdmin.studentPinSubmitting, studentPinError: pinAdmin.studentPinError, studentPinIssued: pinAdmin.studentPinIssued, studentPinRevealIssued: pinAdmin.studentPinRevealIssued, onCloseRoomSafeDelete: input.roomsAdmin.closeRoomSafeDeleteModal, onUpdateRoomSafeDeleteReason: input.roomsAdmin.updateRoomSafeDeleteReason, onConfirmRoomSafeDelete: () => void input.roomsAdmin.confirmRoomSafeDelete(), onCloseRoomReassign: input.roomsAdmin.closeRoomReassignModal, onUpdateRoomReassignTarget: input.roomsAdmin.updateRoomReassignTarget, onUpdateRoomReassignMoveFutureSessions: input.roomsAdmin.updateRoomReassignMoveFutureSessions, onUpdateRoomReassignCourseSelection: input.roomsAdmin.updateRoomReassignCourseSelection, onConfirmRoomReassign: () => void input.roomsAdmin.confirmRoomReassign(), onCloseRoomReservationCancel: input.roomsAdmin.closeRoomReservationCancelModal, onUpdateRoomReservationCancelReason: input.roomsAdmin.updateRoomReservationCancelReason, onConfirmRoomReservationCancel: () => void input.roomsAdmin.confirmRoomReservationCancel(), onCloseDelayDetails: payrollAdmin.closeDelayDetails, onCloseStudentPin: pinAdmin.closeStudentPinModal, onStudentPinReasonChange: pinAdmin.setStudentPinReason, onStudentPinDraftChange: pinAdmin.setStudentPinDraft, onToggleStudentPinReveal: () => pinAdmin.setStudentPinRevealIssued((prev) => !prev), onCopyStudentPinError: pinAdmin.setStudentPinError, onSubmitStudentPinIssue: () => void pinAdmin.submitStudentPinIssue(), formatMinutesLabel: input.formatters.formatMinutesLabel, formatIsoDate: input.formatters.formatIsoDate },
       profileModal: profileModalAdmin,
       assignableRoles: portalShellAdmin.assignableRoles,
-      adminHistoryOverlays: { payments: paymentsAdmin.payments, userHistoryPayments: paymentsAdmin.userHistoryPayments, isHistoryMode: paymentsAdmin.isHistoryMode, currentDateNY: studentsBoardAdmin.currentDateNY, historyFrom: paymentsAdmin.historyFrom, historyTo: paymentsAdmin.historyTo, userHistoryLoading: paymentsAdmin.userHistoryLoading, paymentHistoryStudentId: paymentsAdmin.paymentHistoryStudentId, paymentHistoryAnchor: paymentsAdmin.paymentHistoryAnchor, attendanceHistoryStudentId: paymentsAdmin.attendanceHistoryStudentId, attendanceHistoryAnchor: paymentsAdmin.attendanceHistoryAnchor, auditHistoryStudentId: paymentsAdmin.auditHistoryStudentId, auditHistoryStudentName: paymentsAdmin.auditHistoryStudentName, auditHistoryAnchor: paymentsAdmin.auditHistoryAnchor, overrideModalOpen: studentAuditAdmin.overrideModalOpen, overrideModalStudent: studentAuditAdmin.overrideModalStudent, onCloseOverrideModal: studentAuditAdmin.closeOverrideModal },
+      adminHistoryOverlays: { payments: paymentsAdmin.payments, userHistoryPayments: paymentsAdmin.userHistoryPayments, isHistoryMode: paymentsAdmin.isHistoryMode, currentDateNY: studentsBoardAdmin.currentDateNY, historyFrom: paymentsAdmin.historyFrom, historyTo: paymentsAdmin.historyTo, userHistoryLoading: paymentsAdmin.userHistoryLoading, paymentHistoryStudentId: paymentsAdmin.paymentHistoryStudentId, paymentHistoryAnchor: paymentsAdmin.paymentHistoryAnchor, attendanceHistoryStudentId: paymentsAdmin.attendanceHistoryStudentId, attendanceHistoryAnchor: paymentsAdmin.attendanceHistoryAnchor, auditHistoryStudentId: paymentsAdmin.auditHistoryStudentId, auditHistoryStudentName: paymentsAdmin.auditHistoryStudentName, auditHistoryAnchor: paymentsAdmin.auditHistoryAnchor, overrideModalOpen: studentAuditAdmin.overrideModalOpen, overrideModalStudent: studentAuditAdmin.overrideModalStudent, currentCategory: input.currentCategory, currentSubCategory: input.currentSubCategory, onCloseOverrideModal: studentAuditAdmin.closeOverrideModal },
     },
     actions: { handleNavSelection: portalShellAdmin.handleNavSelection, setPaymentHistoryStudentId: paymentsAdmin.setPaymentHistoryStudentId, setPaymentHistoryAnchor: paymentsAdmin.setPaymentHistoryAnchor, setAttendanceHistoryStudentId: paymentsAdmin.setAttendanceHistoryStudentId, setAttendanceHistoryAnchor: paymentsAdmin.setAttendanceHistoryAnchor, setAuditHistoryAnchor: paymentsAdmin.setAuditHistoryAnchor, setAuditHistoryStudentId: paymentsAdmin.setAuditHistoryStudentId, setAuditHistoryStudentName: paymentsAdmin.setAuditHistoryStudentName, markUserHasAuditEntries: studentAuditAdmin.markUserHasAuditEntries, refreshPaymentsBoard: pinAdmin.refreshPaymentsBoard },
     formatters: { resolveHistoryDateIso: input.formatters.resolveHistoryDateIso },
-    statusBanners: { currentRole: input.currentRole },
+    statusBanners: { currentRole: input.currentRole, currentCategory: input.currentCategory, currentSubCategory: input.currentSubCategory },
   })
 }
 

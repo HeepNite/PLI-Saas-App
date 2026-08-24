@@ -8,8 +8,7 @@ const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
-const mockIsTerminalCheckInAllowed = vi.fn()
-const mockIsConsecutiveAddOnPurchaseAllowed = vi.fn()
+const mockIsQrActionWindowAllowed = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockGetAttendanceMilestoneClasses = vi.fn()
@@ -61,8 +60,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
-  isTerminalCheckInAllowed: (...args: unknown[]) => mockIsTerminalCheckInAllowed(...args),
-  isConsecutiveAddOnPurchaseAllowed: (...args: unknown[]) => mockIsConsecutiveAddOnPurchaseAllowed(...args),
+  isQrActionWindowAllowed: (...args: unknown[]) => mockIsQrActionWindowAllowed(...args),
 }))
 
 vi.mock("@/lib/packages", () => ({
@@ -92,8 +90,7 @@ describe("qr check-in package route", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
-    mockIsTerminalCheckInAllowed.mockReset()
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReset()
+    mockIsQrActionWindowAllowed.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockAwardPointsFromRule.mockReset()
     mockGetAttendanceMilestoneClasses.mockReset()
@@ -122,8 +119,7 @@ describe("qr check-in package route", () => {
       opensAt: new Date("2026-03-31T13:00:00.000Z"),
       closesAt: new Date("2026-03-31T18:00:00.000Z"),
     })
-    mockIsTerminalCheckInAllowed.mockReturnValue(true)
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Salsa femenina matutina" })
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
       {
@@ -216,6 +212,11 @@ describe("qr check-in package route", () => {
     const res = await POST(req)
 
     expect(res.status).toBe(200)
+    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
+      "terminal",
+      expect.objectContaining({ courseSlug: "salsa-femenina-matutina" }),
+      expect.any(Date)
+    )
     expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
     expect(getUser).toHaveBeenCalledTimes(2)
     expect(getUser).toHaveBeenNthCalledWith(2, "customer_clerk_1")
@@ -265,7 +266,7 @@ describe("qr check-in package route", () => {
 
   it("returns 409 when regular (non-add-on) check-in is truly past closesAt", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
-    mockIsTerminalCheckInAllowed.mockReturnValue(false)
+    mockIsQrActionWindowAllowed.mockReturnValue(false)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const req = new Request("http://localhost", {
@@ -281,7 +282,11 @@ describe("qr check-in package route", () => {
     expect(data.opensAt).toBe("2026-03-31T13:00:00.000Z")
     expect(data.closesAt).toBe("2026-03-31T18:00:00.000Z")
     expect(data.endsAt).toBeUndefined()
-    expect(mockIsConsecutiveAddOnPurchaseAllowed).not.toHaveBeenCalled()
+    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
+      "standard",
+      expect.objectContaining({ courseSlug: "salsa-femenina-matutina" }),
+      expect.any(Date)
+    )
   })
 
   it("succeeds for regular (non-add-on) check-in far before startsAt (pre-window, previously blocked by opensAt)", async () => {
@@ -299,8 +304,8 @@ describe("qr check-in package route", () => {
       },
     })
     mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
-    // Terminal check-in has no lower bound — allowed even far before startsAt.
-    mockIsTerminalCheckInAllowed.mockReturnValue(true)
+    // The route's standard action-window policy is authoritative for this request.
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const req = new Request("http://localhost", {
@@ -311,7 +316,11 @@ describe("qr check-in package route", () => {
     const res = await POST(req)
 
     expect(res.status).toBe(200)
-    expect(mockIsTerminalCheckInAllowed).toHaveBeenCalled()
+    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
+      "standard",
+      expect.objectContaining({ courseSlug: "salsa-femenina-matutina" }),
+      expect.any(Date)
+    )
   })
 
   it("returns 400 for invalid payload", async () => {

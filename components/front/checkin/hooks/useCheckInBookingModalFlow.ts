@@ -12,6 +12,7 @@ type BookingOverride = {
   courseSlug: string
   date: string
   time: string
+  durationMinutes?: number
 } | null
 
 type UseCheckInBookingModalFlowInput = {
@@ -64,7 +65,7 @@ type UseCheckInBookingModalFlowResult = {
   existingRegularBookingInitialStep: number
   existingRegularBookingPrefill: ReturnType<typeof pickEnrollPrefill>
   // Utility: opens existing purchase flow
-  openExistingPurchaseFlow: (context: { courseSlug: string; date: string; time: string }) => void
+  openExistingPurchaseFlow: (context: NonNullable<BookingOverride>) => void
   // Handlers
   handleDuplicatePurchaseDone: () => void
   handleNewBookingClose: () => void
@@ -121,9 +122,9 @@ export function useCheckInBookingModalFlow(
     () => ({
       date: newBookingOverride?.date || activeDate,
       time: newBookingOverride?.time || activeTime,
-      durationMinutes: durationMinutes ?? undefined,
+      durationMinutes: newBookingOverride?.durationMinutes ?? durationMinutes ?? undefined,
     }),
-    [activeDate, activeTime, durationMinutes, newBookingOverride?.date, newBookingOverride?.time],
+    [activeDate, activeTime, durationMinutes, newBookingOverride],
   )
 
   const existingRegularBookingCourse = React.useMemo(() => {
@@ -147,14 +148,13 @@ export function useCheckInBookingModalFlow(
     () => ({
       date: existingRegularBookingOverride?.date || activeDate,
       time: existingRegularBookingOverride?.time || activeTime,
-      durationMinutes: durationMinutes ?? undefined,
+      durationMinutes: existingRegularBookingOverride?.durationMinutes ?? durationMinutes ?? undefined,
     }),
     [
       activeDate,
       activeTime,
       durationMinutes,
-      existingRegularBookingOverride?.date,
-      existingRegularBookingOverride?.time,
+      existingRegularBookingOverride,
     ],
   )
 
@@ -176,7 +176,7 @@ export function useCheckInBookingModalFlow(
   // ─── Utility ─────────────────────────────────────────────────────────────
 
   const openExistingPurchaseFlow = React.useCallback(
-    (context: { courseSlug: string; date: string; time: string }) => {
+    (context: NonNullable<BookingOverride>) => {
       setError(null)
       setSuccess(null)
       setPaymentsModalReady(false)

@@ -37,6 +37,7 @@ export default async function StaffUsersAdminPage({
       <StaffUsersAdminClient
         currentRole={authResult.role}
         currentCategory={authResult.category}
+        currentSubCategory={authResult.subCategory}
         currentUserId={authResult.userId}
       />
     </main>

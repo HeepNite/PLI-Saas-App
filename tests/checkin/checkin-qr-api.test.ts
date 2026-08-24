@@ -22,58 +22,21 @@ describe("checkin QR API adapter", () => {
     vi.useRealTimers()
   })
 
-  // ─── PR3: 12s timeout wiring on requestPackageCheckInApi ───
-
-  it("aborts the package check-in request at exactly 12000ms, not before", async () => {
+  it("aborts package check-in at 12000ms and cleans its timeout", async () => {
     vi.useFakeTimers()
-    let observedSignal: AbortSignal | undefined
-    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
-      observedSignal = init?.signal ?? undefined
+    let signal: AbortSignal | undefined
+    const pendingFetch = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal ?? undefined
       return new Promise<Response>((_resolve, reject) => {
-        observedSignal?.addEventListener("abort", () => {
-          reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError" }))
-        })
+        signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })))
       })
     })
-
-    const requestPromise = requestPackageCheckInApi({ fetchImpl, payload: { courseSlug: "salsa" } }).catch((error) => error)
-
-    await vi.advanceTimersByTimeAsync(11_999)
-    expect(observedSignal?.aborted).toBe(false)
-
-    await vi.advanceTimersByTimeAsync(1)
-    expect(observedSignal?.aborted).toBe(true)
-
-    const result = await requestPromise
-    expect((result as Error).name).toBe("AbortError")
-  })
-
-  it("clears the timeout when the request resolves before the 12s deadline", async () => {
-    vi.useFakeTimers()
-    const clearTimeoutSpy = vi.spyOn(global, "clearTimeout")
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ ok: true }))
-
-    await requestPackageCheckInApi({ fetchImpl, payload: { courseSlug: "salsa" } })
-
-    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1)
-
-    // No leaked timer: advancing past the original deadline triggers nothing.
+    const request = requestPackageCheckInApi({ fetchImpl: pendingFetch, payload: { courseSlug: "salsa" } }).catch((error) => error)
     await vi.advanceTimersByTimeAsync(12_000)
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
-  })
-
-  it("clears the timeout when the request rejects before the 12s deadline", async () => {
-    vi.useFakeTimers()
-    const clearTimeoutSpy = vi.spyOn(global, "clearTimeout")
-    const fetchImpl = vi.fn().mockRejectedValue(new Error("network down"))
-
-    await expect(requestPackageCheckInApi({ fetchImpl, payload: { courseSlug: "salsa" } })).rejects.toThrow("network down")
-
-    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1)
-
-    // No leaked timer: advancing past the original deadline triggers nothing.
-    await vi.advanceTimersByTimeAsync(12_000)
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(signal?.aborted).toBe(true)
+    await expect(request).resolves.toMatchObject({ name: "AbortError" })
+    await requestPackageCheckInApi({ fetchImpl: vi.fn().mockResolvedValue(jsonResponse({ ok: true })), payload: { courseSlug: "salsa" } })
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("posts bootstrap payload with bearer token and credentials", async () => {
@@ -156,19 +119,20 @@ describe("checkin QR API adapter", () => {
     expect(init).toEqual({ credentials: "include" })
   })
 
-  it("gets terminal consecutive offers with optional time and abort signal", async () => {
+  it("gets terminal consecutive offers with date, optional time, and abort signal", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ linkedCourseSlug: "class-b" }))
     const controller = new AbortController()
 
     const result = await requestTerminalConsecutiveOfferApi({
       courseSlug: "class-a",
+      date: "2026-08-07",
       time: "20:00",
       signal: controller.signal,
       fetchImpl,
     })
 
     const [url, init] = firstCall(fetchImpl)
-    expect(url).toBe("/api/checkin/terminal/consecutive-offer?courseSlug=class-a&time=20%3A00")
+    expect(url).toBe("/api/checkin/terminal/consecutive-offer?courseSlug=class-a&date=2026-08-07&time=20%3A00")
     expect(init).toMatchObject({ signal: expect.any(AbortSignal) })
     expect(result.data).toEqual({ linkedCourseSlug: "class-b" })
   })

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
-import { parseQrCheckInContext, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
+import { isQrActionWindowAllowed, parseQrCheckInContext } from "@/lib/checkin/qr"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
@@ -81,13 +81,16 @@ export async function POST(req: Request) {
     }
 
     const now = new Date()
-    if (!isTerminalCheckInAllowed(context, now)) {
+    const flowContext = asText(payload?.flowContext)
+    const windowAllowed = isQrActionWindowAllowed(
+      flowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "terminal" : "standard",
+      context,
+      now
+    )
+    if (!windowAllowed) {
       return NextResponse.json(
         {
           error: "Check-in is closed for this class.",
-          // opensAt is retained only for the client's structural
-          // closed_window discriminator (isClosedWindowFailureBody),
-          // not for gating — terminal check-in has no lower bound.
           opensAt: context.opensAt.toISOString(),
           closesAt: context.closesAt.toISOString(),
         },

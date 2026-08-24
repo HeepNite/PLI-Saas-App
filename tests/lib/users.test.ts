@@ -168,4 +168,16 @@ describe("upsertUserByIdentifiers", () => {
     expect(result).toEqual(createdUser)
     expect(wasUserCreatedByUpsert(result)).toBe(true)
   })
+
+  it("keeps the public user return shape while exposing local creation internally", async () => {
+    const createdUser = { id: "db_user_new", clerkId: "clerk_new" }
+    mockPrisma.user.findUnique.mockResolvedValue(null)
+    mockPrisma.user.findMany.mockResolvedValue([])
+    mockPrisma.user.create.mockResolvedValue(createdUser)
+
+    const result = await upsertUserByIdentifiers({ clerkId: "clerk_new", email: "new@example.com" })
+
+    expect(result).toEqual(createdUser)
+    expect(wasUserCreatedByUpsert(result)).toBe(true)
+  })
 })

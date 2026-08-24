@@ -3,7 +3,7 @@ import React from "react"
 import { requestCheckInBootstrapApi } from "@/lib/checkin/checkin-qr-api"
 import type { ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
 
-type BookingOverride = { courseSlug: string; date: string; time: string } | null
+type BookingOverride = { courseSlug: string; date: string; time: string; durationMinutes?: number } | null
 
 type UseConsecutiveOfferLookupOptions = {
   isKioskTerminalFlow: boolean
@@ -65,7 +65,7 @@ export function useConsecutiveOfferLookup({
           courseSlug,
           date: latePaymentEntryOverride?.date ?? newBookingOverride?.date ?? activeDate,
           time: latePaymentEntryOverride?.time ?? newBookingOverride?.time ?? activeTime,
-          durationMinutes,
+          durationMinutes: latePaymentEntryOverride?.durationMinutes ?? newBookingOverride?.durationMinutes ?? durationMinutes,
           linkedFromCourseSlug: courseSlug,
           flowContext: photoFlowContext,
           ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),

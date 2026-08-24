@@ -1,4 +1,5 @@
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory, StaffSubCategory } from "@/lib/security/staff-category"
 import type { StaffUsersAdminViewProps } from "./StaffUsersAdminView"
 
 type BuildStaffUsersAdminViewPropsInput = {
@@ -58,7 +59,7 @@ type BuildStaffUsersAdminViewPropsInput = {
     refreshPaymentsBoard: () => Promise<void>
   }
   formatters: StaffUsersAdminViewProps["formatters"]
-  statusBanners: { currentRole: StaffRole }
+  statusBanners: { currentRole: StaffRole; currentCategory: StaffCategory | null; currentSubCategory: StaffSubCategory | null }
 }
 
 export function buildStaffUsersAdminViewProps(input: BuildStaffUsersAdminViewPropsInput): StaffUsersAdminViewProps {

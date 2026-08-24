@@ -10,6 +10,7 @@ const mockPrisma = {
   packagePurchase: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
+    findFirst: vi.fn(),
     update: vi.fn(),
   },
   $transaction: vi.fn(),
@@ -17,6 +18,7 @@ const mockPrisma = {
 
 vi.mock("@/lib/security/staff-portal-auth", () => ({
   authorizeOwnerOrAdminRequest: (...args: unknown[]) => mockAuthorizeOwnerOrAdmin(...args),
+  authorizeCashPackageGrantRequest: vi.fn(),
 }))
 
 vi.mock("@/lib/audit/student-data-audit", () => ({
@@ -62,6 +64,7 @@ describe("PATCH /api/staff/students/[userId]/packages", () => {
     mockPrisma.user.findUnique.mockReset()
     mockPrisma.packagePurchase.findUnique.mockReset()
     mockPrisma.packagePurchase.findMany.mockReset()
+    mockPrisma.packagePurchase.findFirst.mockReset()
     mockPrisma.packagePurchase.update.mockReset()
     mockPrisma.$transaction.mockReset()
 
@@ -90,6 +93,7 @@ describe("PATCH /api/staff/students/[userId]/packages", () => {
       id: "pkg_a",
       usedCredits: 4,
     })
+    expect(mockAuthorizeOwnerOrAdmin).toHaveBeenCalledOnce()
   })
 
   it("returns 404 when listing packages for missing student", async () => {

@@ -13,6 +13,7 @@ import {
   transformPaymentRowsToEvents,
 } from "./paymentTimelineTransforms"
 import type { StaffRole } from "@/lib/security/staff-role"
+import type { StaffCategory, StaffSubCategory } from "@/lib/security/staff-category"
 import type { PaymentRow } from "./staffAdminTypes"
 
 type OverrideModalStudent = { id: string; name: string } | null
@@ -35,6 +36,8 @@ type StaffAdminHistoryOverlaysProps = {
   overrideModalOpen: boolean
   overrideModalStudent: OverrideModalStudent
   currentRole: StaffRole
+  currentCategory: StaffCategory | null
+  currentSubCategory: StaffSubCategory | null
   onClosePaymentHistory: () => void
   onCloseAttendanceHistory: () => void
   onCloseAuditHistory: () => void
@@ -61,6 +64,8 @@ export default function StaffAdminHistoryOverlays({
   overrideModalOpen,
   overrideModalStudent,
   currentRole,
+  currentCategory,
+  currentSubCategory,
   onClosePaymentHistory,
   onCloseAttendanceHistory,
   onCloseAuditHistory,
@@ -127,7 +132,9 @@ export default function StaffAdminHistoryOverlays({
           onClose={onCloseOverrideModal}
           studentId={overrideModalStudent.id}
           studentName={overrideModalStudent.name}
-          currentRole={currentRole === "staff" ? "staff" : currentRole === "admin" ? "admin" : "owner"}
+           currentRole={currentRole === "staff" ? "staff" : currentRole === "admin" ? "admin" : "owner"}
+           currentCategory={currentCategory}
+           currentSubCategory={currentSubCategory}
           onSuccess={() => onOverrideSuccess(overrideModalStudent.id)}
         />
       ) : null}
