@@ -126,12 +126,8 @@ export function useEntryModeRouter({
       return
     }
     setNewBookingOverride(bookingContext)
-    if (consecutiveOfferSettled) {
-      setOpenNewBooking(true)
-    } else {
-      setPendingNewBooking(true)
-    }
-  }, [activeDate, activeTime, consecutiveOfferSettled, contextIsValid, reloadCatalogCourses, selectedCourse, setError, setMode, setNewBookingOverride, setOpenNewBooking, setPendingNewBooking, setSuccess])
+    setOpenNewBooking(true)
+  }, [activeDate, activeTime, contextIsValid, reloadCatalogCourses, selectedCourse, setError, setMode, setNewBookingOverride, setOpenNewBooking, setSuccess])
 
   React.useEffect(() => {
     if (pendingNewBooking && consecutiveOfferSettled) {
