@@ -8,8 +8,7 @@ const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
-const mockIsTerminalCheckInAllowed = vi.fn()
-const mockIsConsecutiveAddOnPurchaseAllowed = vi.fn()
+const mockIsQrActionWindowAllowed = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockGetAttendanceMilestoneClasses = vi.fn()
@@ -67,8 +66,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
-  isTerminalCheckInAllowed: (...args: unknown[]) => mockIsTerminalCheckInAllowed(...args),
-  isConsecutiveAddOnPurchaseAllowed: (...args: unknown[]) => mockIsConsecutiveAddOnPurchaseAllowed(...args),
+  isQrActionWindowAllowed: (...args: unknown[]) => mockIsQrActionWindowAllowed(...args),
 }))
 
 vi.mock("@/lib/packages", () => ({
@@ -116,8 +114,7 @@ describe("package consecutive add-on", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
-    mockIsTerminalCheckInAllowed.mockReset()
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReset()
+    mockIsQrActionWindowAllowed.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockAwardPointsFromRule.mockReset()
     mockGetAttendanceMilestoneClasses.mockReset()
@@ -161,8 +158,7 @@ describe("package consecutive add-on", () => {
       opensAt: new Date("2026-03-31T22:00:00.000Z"),
       closesAt: new Date("2026-04-01T03:00:00.000Z"),
     })
-    mockIsTerminalCheckInAllowed.mockReturnValue(true)
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Bachata Basics" })
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
       {
@@ -607,8 +603,7 @@ describe("package consecutive add-on", () => {
     mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
     // now (2026-03-31T15:00:00Z, set in beforeEach) is well before opensAt
     // (2026-03-31T22:00:00Z) — the regular window would reject this.
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
-    mockIsTerminalCheckInAllowed.mockReturnValue(false)
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const res = await POST(
@@ -630,13 +625,17 @@ describe("package consecutive add-on", () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.consecutive.isConsecutiveAddOn).toBe(true)
-    expect(mockIsConsecutiveAddOnPurchaseAllowed).toHaveBeenCalled()
+    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
+      "consecutive-add-on",
+      expect.objectContaining({ courseSlug: "bachata" }),
+      expect.any(Date)
+    )
   })
 
   it("rejects with 409 when now > context.endsAt (class already ended) — no attendance/purchase created", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(false)
+    mockIsQrActionWindowAllowed.mockReturnValue(false)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const res = await POST(
@@ -679,7 +678,7 @@ describe("package consecutive add-on", () => {
       active: true,
     })
     mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const res = await POST(
@@ -712,8 +711,7 @@ describe("package consecutive add-on", () => {
       active: true,
     })
     mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
-    mockIsTerminalCheckInAllowed.mockReturnValue(false)
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
 
     const { POST } = await import("@/app/api/checkin/qr/package/route")
     const res = await POST(

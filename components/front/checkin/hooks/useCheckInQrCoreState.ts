@@ -14,7 +14,6 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 import type {
   EntryMode,
-  BootstrapResponse,
   PackageOfferContext,
   CheckInQrClientProps,
 } from "@/components/front/checkin/checkin.types"
@@ -314,7 +313,7 @@ export function useCheckInQrCoreState({
   )
 
   const nowTick = simulatedNowTick ?? clockLayout.internalNowTick
-  const durationMinutes = parseDuration(searchParams.get("durationMinutes"))
+  const durationMinutes = forcedClassContext?.durationMinutes ?? parseDuration(searchParams.get("durationMinutes"))
 
   // ─── Setters: clock / layout ─────────────────────────────────
   const setInternalNowTick = React.useCallback<React.Dispatch<React.SetStateAction<Date>>>(

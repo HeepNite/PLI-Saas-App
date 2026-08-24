@@ -117,6 +117,7 @@ export type CheckInQrClientProps = {
     courseSlug: string
     date: string
     time: string
+    durationMinutes?: number
   }
   selectedCourseSlug?: string
   hideQrPanel?: boolean

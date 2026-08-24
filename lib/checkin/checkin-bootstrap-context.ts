@@ -86,7 +86,7 @@ export const resolveCheckInBootstrapContextPayload = ({
     courseSlug,
     date: latePaymentEntryOverride?.date ?? activeDate,
     time: latePaymentEntryOverride?.time ?? activeTime,
-    durationMinutes,
+    durationMinutes: latePaymentEntryOverride?.durationMinutes ?? durationMinutes,
     linkedFromCourseSlug: courseSlug,
   }
 }
