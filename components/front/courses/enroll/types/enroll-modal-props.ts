@@ -28,12 +28,13 @@ export type PreparedAccountState = {
 }
 
 export type NewStudentVerifyResponse = {
-  outcome?: "eligible" | "requires_sms_verification" | "fallback_regular"
+  outcome?: "eligible" | "requires_sms_verification" | "fallback_regular" | "existing_user"
   reason?: string
   message?: string
   eligibleForNewStudent?: boolean
   requiresSmsVerification?: boolean
   shouldFallbackToRegular?: boolean
+  existingIdentifier?: "phone" | "email" | "both"
 }
 
 export type FlowPopupState = {
