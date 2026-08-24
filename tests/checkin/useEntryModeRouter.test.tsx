@@ -124,14 +124,28 @@ describe("useEntryModeRouter", () => {
     expect(params.loadBootstrap).not.toHaveBeenCalled()
   })
 
-  it("defers new booking until consecutive offer fetch settles", async () => {
+  it("opens new booking immediately while consecutive offer lookup is unsettled", async () => {
     const { params, getResult } = await mount(defaultParams({ consecutiveOfferSettled: false }))
 
     act(() => getResult().handleNewClick())
 
     expect(params.setNewBookingOverride).toHaveBeenCalledWith({ courseSlug: "salsa", date: "2026-06-04", time: "20:00" })
-    expect(params.setPendingNewBooking).toHaveBeenCalledWith(true)
-    expect(params.setOpenNewBooking).not.toHaveBeenCalledWith(true)
+    expect(params.setOpenNewBooking).toHaveBeenCalledWith(true)
+    expect(params.setPendingNewBooking).not.toHaveBeenCalled()
+  })
+
+  it("rejects new booking when course context is missing", async () => {
+    const { params, getResult } = await mount(defaultParams({
+      consecutiveOfferSettled: false,
+      contextIsValid: false,
+      selectedCourse: null,
+    }))
+
+    act(() => getResult().handleNewClick())
+
+    expect(params.setError).toHaveBeenLastCalledWith("We couldn't open the purchase because QR data is missing.")
+    expect(params.setNewBookingOverride).not.toHaveBeenCalled()
+    expect(params.setOpenNewBooking).not.toHaveBeenCalled()
   })
 
   it("uses retained duration in new and existing booking contexts", async () => {
