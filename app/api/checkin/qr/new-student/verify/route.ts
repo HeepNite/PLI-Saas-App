@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { auth } from "@clerk/nextjs/server"
+import { auth, clerkClient } from "@clerk/nextjs/server"
 import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
 import { normalizePhone } from "@/lib/checkout/validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -89,6 +89,20 @@ const resolveExistingIdentifier = (
   if (phoneMatch) return "phone"
   if (emailMatch) return "email"
   return undefined
+}
+
+const sessionOwnsVerifiedPhone = async (sessionUserId: string, phoneNormalized: string) => {
+  try {
+    const client = await clerkClient()
+    const sessionUser = await client.users.getUser(sessionUserId)
+    return sessionUser.phoneNumbers.some(
+      (phone) =>
+        phone.verification?.status === "verified" &&
+        normalizePhone(phone.phoneNumber) === phoneNormalized
+    )
+  } catch {
+    return false
+  }
 }
 
 export async function POST(req: Request) {
@@ -232,8 +246,12 @@ export async function POST(req: Request) {
       return NextResponse.json(response)
     }
 
-    // Case 1: No completed purchase, current session already owns this phone → eligible (skip verification)
-    if (sessionUserId && existingClerkUser?.id === sessionUserId) {
+    // Case 1: No completed purchase and the matched Clerk identity is the active
+    // session with a verified copy of the submitted phone → eligible (skip SMS).
+    const sessionOwnsPhone =
+      Boolean(sessionUserId && existingClerkUser?.id === sessionUserId) &&
+      await sessionOwnsVerifiedPhone(sessionUserId as string, phoneNormalized)
+    if (sessionOwnsPhone) {
       console.log("[new-student-verify]", {
         phoneInput,
         sessionUserId,
