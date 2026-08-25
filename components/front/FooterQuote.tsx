@@ -16,13 +16,20 @@ const footerLinks: { label: string; href: string }[] = [
   { label: "Contact", href: "#contact" },
 ]
 
-export default function FooterQuote() {
+type FooterQuoteProps = {
+  compactMobileTopSpacing?: boolean
+}
+
+export default function FooterQuote({ compactMobileTopSpacing = false }: FooterQuoteProps) {
   const year = new Date().getFullYear()
+  const footerSpacing = compactMobileTopSpacing ? "mt-0 md:mt-10 lg:mt-12" : "mt-8 sm:mt-10 lg:mt-12"
+  const quoteSpacing = compactMobileTopSpacing ? "pb-20 pt-0 md:py-24 lg:py-28" : "py-20 sm:py-24 lg:py-28"
+
   return (
-    <footer id="site-footer" aria-label="Site footer" className="w-full mt-8 sm:mt-10 lg:mt-12 bg-black text-white">
+    <footer id="site-footer" aria-label="Site footer" className={`w-full bg-black text-white ${footerSpacing}`}>
       <div className="mx-auto w-full max-w-screen-xl 2xl:max-w-[2500px] px-4 sm:px-6 lg:px-8 min-h-[420px]">
         {/* Quote block */}
-        <div className="py-20 sm:py-24 lg:py-28">
+        <div className={quoteSpacing}>
           <div className="relative rounded-3xl bg-white/[0.04] backdrop-blur-xl shadow-[0_25px_120px_-60px_rgba(0,0,0,0.8)] overflow-hidden">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
             <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[var(--brand,#b61616)]/70 to-transparent" />

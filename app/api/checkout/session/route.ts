@@ -13,6 +13,18 @@ import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-conte
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
 import { buildQrBookingUrl } from "@/lib/checkin/qr-booking-links"
+import { resolveSpecialClassIdentity } from "@/lib/checkout/special-class-identity"
+import {
+  admitSpecialClassReservation,
+  failSpecialClassHold,
+  preserveSpecialClassHold,
+  updateSpecialClassPurchaseSession,
+} from "@/lib/checkout/special-class-reservation"
+import {
+  SPECIAL_SALSA_CLASS,
+  getSpecialClassHoldExpiresAt,
+  isSpecialClassPriceCents,
+} from "@/lib/special-salsa-class/config"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -29,6 +41,174 @@ const isApiError = (value: unknown): value is ApiError =>
   Boolean(value && typeof value === "object" && "status" in value && "error" in value)
 const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+const specialCheckoutError = (code: string) => {
+  const errors: Record<string, { status: number; error: string }> = {
+    INVALID_CONTACT: { status: 400, error: "Please enter a valid name, email, phone number, and checkout attempt." },
+    CONTACT_DETAILS_UNAVAILABLE: { status: 409, error: "We could not use those contact details. Please verify them and try again." },
+    CHECKOUT_EXPIRED: { status: 409, error: "This checkout attempt expired. Please try again." },
+    CHECKOUT_IN_PROGRESS: { status: 409, error: "A checkout is already in progress for these contact details. Please try again shortly." },
+    ALREADY_REGISTERED: { status: 409, error: "These contact details already have a reservation for this class." },
+    SOLD_OUT: { status: 409, error: "This class is sold out." },
+  }
+  const resolved = Object.hasOwn(errors, code) ? errors[code] : { status: 500, error: "Unable to start checkout. Please try again." }
+  return NextResponse.json({ error: resolved.error, code }, { status: resolved.status })
+}
+
+const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
+  const attemptId = typeof body.attemptId === "string" ? body.attemptId.trim() : ""
+  const name = typeof body.name === "string" ? body.name : ""
+  const email = typeof body.email === "string" ? body.email : ""
+  const phone = typeof body.phone === "string" ? body.phone : ""
+  if (!UUID_PATTERN.test(attemptId)) return specialCheckoutError("INVALID_CONTACT")
+
+  const identity = await resolveSpecialClassIdentity({ name, email, phone })
+  if (!identity.ok) return specialCheckoutError(identity.code)
+
+  const requestNow = new Date()
+  const holdExpiresAt = getSpecialClassHoldExpiresAt(requestNow)
+  const admission = await admitSpecialClassReservation({
+    attemptId,
+    dbUserId: identity.dbUserId,
+    email: identity.email,
+    name: identity.name,
+    phone: identity.phone,
+    holdExpiresAt,
+  }, { now: () => requestNow })
+  if (!admission.ok) return specialCheckoutError(admission.code)
+  const lockedAmountCents = admission.purchase.amount
+  if (!Number.isInteger(lockedAmountCents) || !isSpecialClassPriceCents(lockedAmountCents)) {
+    return specialCheckoutError("CHECKOUT_UNAVAILABLE")
+  }
+  const expiresAt = Math.floor(admission.holdExpiresAt.getTime() / 1000)
+
+  if (admission.purchase.stripeCheckoutSessionId) {
+    let existingSession: Stripe.Checkout.Session
+    try {
+      existingSession = await stripe!.checkout.sessions.retrieve(admission.purchase.stripeCheckoutSessionId)
+    } catch {
+      return specialCheckoutError("CHECKOUT_IN_PROGRESS")
+    }
+    const sharesPersistedExpiry = existingSession.expires_at === expiresAt
+    const holdIsActive = Date.now() < admission.holdExpiresAt.getTime()
+    const sharesLockedAmount = existingSession.amount_total == null || existingSession.amount_total === lockedAmountCents
+    const sharesLockedCurrency = !existingSession.currency || existingSession.currency.toLowerCase() === SPECIAL_SALSA_CLASS.currency
+    if (existingSession.status === "open" && existingSession.url && sharesPersistedExpiry && sharesLockedAmount && sharesLockedCurrency && holdIsActive) {
+      return NextResponse.json({
+        url: existingSession.url,
+        sessionId: existingSession.id,
+        expiresAt: admission.holdExpiresAt.toISOString(),
+      })
+    }
+    if (existingSession.status === "open") {
+      try {
+        await stripe!.checkout.sessions.expire(existingSession.id)
+      } catch {
+        await preserveSpecialClassHold({
+          purchaseId: admission.purchase.id,
+          sessionId: existingSession.id,
+          currentMetadata: admission.purchase.metadata,
+          holdExpiresAt: new Date(Math.max(admission.holdExpiresAt.getTime(), existingSession.expires_at * 1000)),
+        })
+        return specialCheckoutError("CHECKOUT_IN_PROGRESS")
+      }
+      await failSpecialClassHold(admission.purchase.id)
+      return specialCheckoutError("CHECKOUT_EXPIRED")
+    }
+    if (existingSession.status === "expired") {
+      await failSpecialClassHold(admission.purchase.id)
+      return specialCheckoutError("CHECKOUT_EXPIRED")
+    }
+    return specialCheckoutError("CHECKOUT_IN_PROGRESS")
+  }
+
+  const base = getBaseUrl()
+  let session: Stripe.Checkout.Session
+  try {
+    session = await stripe!.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      client_reference_id: identity.clerkUserId,
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: SPECIAL_SALSA_CLASS.currency,
+          unit_amount: lockedAmountCents,
+          product_data: {
+            name: SPECIAL_SALSA_CLASS.title,
+            description: `${SPECIAL_SALSA_CLASS.durationMinutes} minutes • ${SPECIAL_SALSA_CLASS.address}`,
+          },
+        },
+      }],
+      success_url: `${base}/special-salsa-class/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${base}/special-salsa-class?checkout=cancelled&attempt=${encodeURIComponent(attemptId)}`,
+      ...(identity.stripeCustomerId
+        ? { customer: identity.stripeCustomerId }
+        : { customer_creation: "always" as const, customer_email: identity.email }),
+      expires_at: expiresAt,
+      payment_intent_data: {
+        metadata: {
+          specialEventKey: SPECIAL_SALSA_CLASS.key,
+          attemptId,
+          lockedAmountCents: String(lockedAmountCents),
+        },
+      },
+      metadata: {
+        specialEventKey: SPECIAL_SALSA_CLASS.key,
+        attemptId,
+        lockedAmountCents: String(lockedAmountCents),
+        courseSlug: SPECIAL_SALSA_CLASS.courseSlug,
+        courseTitle: SPECIAL_SALSA_CLASS.title,
+        date: SPECIAL_SALSA_CLASS.localDate,
+        time: SPECIAL_SALSA_CLASS.localTime,
+        serviceId: SPECIAL_SALSA_CLASS.checkoutKind,
+        userId: identity.clerkUserId,
+        participants: "1",
+        name: identity.name,
+        email: identity.email,
+        phone: identity.phone,
+        flowContext: "external_web",
+        paymentSurface: "web_checkout",
+      },
+    }, { idempotencyKey: admission.idempotencyKey })
+  } catch {
+    await failSpecialClassHold(admission.purchase.id)
+    return specialCheckoutError("CHECKOUT_UNAVAILABLE")
+  }
+
+  if (!session.url) {
+    await failSpecialClassHold(admission.purchase.id)
+    return specialCheckoutError("CHECKOUT_UNAVAILABLE")
+  }
+  if (session.expires_at !== expiresAt || Date.now() >= admission.holdExpiresAt.getTime()) {
+    try {
+      await stripe!.checkout.sessions.expire(session.id)
+    } catch {
+      await preserveSpecialClassHold({
+        purchaseId: admission.purchase.id,
+        sessionId: session.id,
+        currentMetadata: admission.purchase.metadata,
+        holdExpiresAt: new Date(Math.max(admission.holdExpiresAt.getTime(), session.expires_at * 1000)),
+      })
+      return specialCheckoutError("CHECKOUT_UNAVAILABLE")
+    }
+    await failSpecialClassHold(admission.purchase.id)
+    return specialCheckoutError("CHECKOUT_UNAVAILABLE")
+  }
+  try {
+    await updateSpecialClassPurchaseSession(admission.purchase.id, session.id)
+  } catch {
+    return specialCheckoutError("CHECKOUT_UNAVAILABLE")
+  }
+
+  return NextResponse.json({
+    url: session.url,
+    sessionId: session.id,
+    expiresAt: admission.holdExpiresAt.toISOString(),
+  })
+}
 
 export async function POST(req: Request) {
   const startedAt = Date.now()
@@ -53,6 +233,13 @@ export async function POST(req: Request) {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  const bodyRecord = body && typeof body === "object" && !Array.isArray(body)
+    ? body as Record<string, unknown>
+    : {}
+  if (Object.hasOwn(bodyRecord, "checkoutKind") && bodyRecord.checkoutKind === SPECIAL_SALSA_CLASS.checkoutKind) {
+    return handleSpecialClassCheckout(bodyRecord)
   }
 
   const {
