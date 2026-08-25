@@ -50,8 +50,8 @@ export const useEnrollDraft = ({ open, success, draftKey, stepsCount, state, set
             ...draft.contact,
           }))
         }
-        if (typeof draft.couponInput === "string") setters.setCouponInput(draft.couponInput)
-        if (draft.appliedCoupon !== undefined) setters.setAppliedCoupon(draft.appliedCoupon ?? null)
+        // Coupons are intentionally NOT restored from the draft: a discount must
+        // only apply when the user explicitly enters a code, never automatically.
         if (draft.paymentMethod !== undefined) setters.setPaymentMethod(draft.paymentMethod)
         if (typeof draft.step === "number") {
           setters.setStep(Math.max(0, Math.min(stepsCount - 1, Math.floor(draft.step))))
@@ -65,6 +65,11 @@ export const useEnrollDraft = ({ open, success, draftKey, stepsCount, state, set
 
   React.useEffect(() => {
     if (!open) return
-    sessionStorage.setItem(draftKey, JSON.stringify(state))
+    // Coupons are excluded from the persisted draft so a discount can never be
+    // revived automatically on a later open — it must be re-entered explicitly.
+    const persistable: Partial<EnrollDraftState> = { ...state }
+    delete persistable.couponInput
+    delete persistable.appliedCoupon
+    sessionStorage.setItem(draftKey, JSON.stringify(persistable))
   }, [open, draftKey, state])
 }

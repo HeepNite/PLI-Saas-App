@@ -13,13 +13,6 @@ import { normalizePhone } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
-/**
- * @deprecated Superseded by `POST /api/checkin/phone/identify-and-bootstrap`,
- * which merges identification with the full/fast bootstrap payload in a
- * single round trip. Kept in place (not deleted) so the kiosk hook can be
- * repointed back to this endpoint with zero blast radius if the new
- * endpoint misbehaves. Do not add new callers.
- */
 const MIN_PHONE_DIGITS = 10
 
 export async function POST(req: Request) {

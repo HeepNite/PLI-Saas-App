@@ -7,11 +7,7 @@ import type { EnrollStepKey } from "@/lib/checkin/enroll-flow"
 import type { SignInPurpose } from "@/components/front/courses/enroll/model/enroll-flow.types"
 import { isCompleteUSPhone } from "@/components/front/courses/utils/phone"
 import { isEmail } from "@/lib/shared"
-import {
-  handleExistingUserDetected,
-  isCheckInContactGateStep,
-  resolvePostAccountStepIndex,
-} from "@/lib/checkin/enroll-flow"
+import { isCheckInContactGateStep, handleExistingUserDetected } from "@/lib/checkin/enroll-flow"
 import { isPhotoRequiredForAccount } from "@/lib/checkin/photo-context-policy"
 import { nextKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { appendPhoneDigit, removePhoneDigit } from "@/lib/checkin/numeric-keypad"
@@ -31,7 +27,7 @@ export type UseEnrollNavigationActionsInput = {
   photoPolicy: PhotoPolicy
   photoSaved: boolean
   photoStepIndex: number
-  promotionDecisionStepIndex: number
+  promoStepIndex: number
   packagesStepIndex: number
   paymentsStepIndex: number
   usesPhasedInfoForm: boolean
@@ -65,7 +61,7 @@ export type UseEnrollNavigationActionsInput = {
 export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInput) {
   const {
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
-    step, steps, photoPolicy, photoSaved, photoStepIndex, promotionDecisionStepIndex, packagesStepIndex, paymentsStepIndex,
+    step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
     onExistingUserDetected, verifyNewStudent, resetVerification,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
@@ -185,13 +181,19 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         setStep(photoStepIndex)
         return
       }
-      const postAccountStepIndex = resolvePostAccountStepIndex({
-        packagesStepIndex,
-        promotionDecisionStepIndex,
-        paymentsStepIndex,
-      })
-      if (postAccountStepIndex >= 0) {
-        setStep(postAccountStepIndex)
+      // Flow order: info → packages → promo → payments. Packages MUST be
+      // checked before promo, otherwise a new-student flow with packages jumps
+      // straight to the promo/Deals step and skips packages entirely.
+      if (packagesStepIndex >= 0) {
+        setStep(packagesStepIndex)
+        return
+      }
+      if (promoStepIndex >= 0) {
+        setStep(promoStepIndex)
+        return
+      }
+      if (paymentsStepIndex >= 0) {
+        setStep(paymentsStepIndex)
         return
       }
     } finally {
@@ -199,7 +201,7 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     }
   }, [
     contact.email, contact.phone, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
-    isSignedIn, onExistingUserDetected, packagesStepIndex, paymentsStepIndex, promotionDecisionStepIndex, photoPolicy,
+    isSignedIn, onExistingUserDetected, packagesStepIndex, paymentsStepIndex, promoStepIndex, photoPolicy,
     photoSaved, photoStepIndex, preparedAccount, requestAccountPreparation, requestNewStudentOutcome,
     setExistingAccountDetected, setFormError, setRequiresSignIn, setResumeAfterSignInStep,
     setResumeContactFlowAfterSignIn, setSignInPurpose, setStep, service, showRegularFallbackPopup,

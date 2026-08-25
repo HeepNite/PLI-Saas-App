@@ -5,6 +5,10 @@ export const runtime = "nodejs"
 
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 
+// Course media is public marketing content: the public catalog API embeds
+// these URLs and the response is served with `Cache-Control: public`.
+// Reads are intentionally unauthenticated; uploads/mutations stay guarded
+// in app/api/staff/school/courses/upload/route.ts.
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   const mediaId = typeof id === "string" ? id.trim() : ""

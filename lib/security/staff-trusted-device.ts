@@ -2,7 +2,6 @@ import { createHash, randomBytes } from "crypto"
 import { cookies } from "next/headers"
 import type { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getStaffPinSecret } from "@/lib/security/staff-pin-hash"
 
 /**
  * Personal trusted-device cookie + `StaffTrustedDevice` DB row (design v5,
@@ -22,8 +21,24 @@ const TRUSTED_DEVICE_TTL_SECONDS = 60 * 60 * 24 * 365
 // swaps (new phone, etc.) simple without a manual revoke step first.
 export const STAFF_TRUSTED_DEVICE_MAX_ACTIVE = 5
 
+/**
+ * Deterministic pepper for the device-token hash. Mirrors staff-pin-auth's
+ * pepper-first secret selection (STAFF_PIN_PEPPER decouples from CLERK_SECRET_KEY
+ * so tokens survive a Clerk key/instance swap; CLERK_SECRET_KEY stays as a legacy
+ * fallback) but stays self-contained on purpose: the device-token hash is
+ * deterministic + unsalted for an O(1) findUnique lookup, unlike the salted PIN
+ * hash in staff-pin-auth. Fail-closed: at least one secret must be set.
+ */
+const getDeviceHashSecret = (): string => {
+  const secret = process.env.STAFF_PIN_PEPPER || process.env.CLERK_SECRET_KEY
+  if (!secret) {
+    throw new Error("STAFF_PIN_PEPPER or CLERK_SECRET_KEY must be set to hash staff trusted-device tokens.")
+  }
+  return secret
+}
+
 const hashDeviceToken = (token: string): string =>
-  createHash("sha256").update(`${token}:${getStaffPinSecret()}`).digest("hex")
+  createHash("sha256").update(`${token}:${getDeviceHashSecret()}`).digest("hex")
 
 export const createTrustedDeviceToken = (): string => randomBytes(32).toString("base64url")
 

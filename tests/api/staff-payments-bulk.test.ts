@@ -250,7 +250,7 @@ describe("staff payments bulk route", () => {
     expect(data.packageCreditReservedCount).toBe(0)
   })
 
-  it("does not override card purchase status when only settlement metadata is changed", async () => {
+  it("skips missing, card, Stripe-backed, and already-settled records without mutations or side effects", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       {
         id: "purchase_card_1",
@@ -263,6 +263,18 @@ describe("staff payments bulk route", () => {
         stripePaymentIntentId: "pi_123",
         stripeCheckoutSessionId: "cs_123",
       },
+      {
+        id: "purchase_settled_cash_1",
+        userId: "user_4",
+        courseSlug: "salsa-evening",
+        packageId: "evening-pack",
+        amount: 5000,
+        status: "paid",
+        createdAt: new Date("2026-03-01T12:00:00.000Z"),
+        metadata: { paymentChannel: "cash", settlementStatus: "paid" },
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+      },
     ])
 
     const { POST } = await import("@/app/api/staff/payments/bulk/route")
@@ -270,15 +282,23 @@ describe("staff payments bulk route", () => {
       new Request("http://localhost/api/staff/payments/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mark_paid", ids: ["purchase_card_1"] }),
+        body: JSON.stringify({ action: "mark_paid", ids: ["missing_1", "purchase_card_1", "purchase_settled_cash_1"] }),
       })
     )
 
     expect(res.status).toBe(200)
-    const updateCall = mockPrisma.purchase.update.mock.calls[0]?.[0]
-    expect(updateCall.data.status).toBeUndefined()
-    expect(updateCall.data.metadata).toMatchObject({
-      settlementStatus: "paid",
+    expect(mockPrisma.purchase.update).not.toHaveBeenCalled()
+    expect(mockSyncPackagePurchase).not.toHaveBeenCalled()
+    expect(mockReservePackageCredit).not.toHaveBeenCalled()
+    expect(mockPrisma.classSession.upsert).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.upsert).not.toHaveBeenCalled()
+    expect(await res.json()).toMatchObject({
+      updatedCount: 0,
+      skipped: [
+        { id: "missing_1", reason: "not_found" },
+        { id: "purchase_card_1", reason: "not_cash" },
+        { id: "purchase_settled_cash_1", reason: "already_settled" },
+      ],
     })
   })
 
@@ -336,8 +356,10 @@ describe("staff payments bulk route", () => {
     )
 
     expect(res.status).toBe(200)
-    const updateCall = mockPrisma.purchase.update.mock.calls[0]?.[0]
-    expect(updateCall.data.status).toBeUndefined()
-    expect(updateCall.data.metadata).toMatchObject({ settlementStatus: "paid" })
+    expect(mockPrisma.purchase.update).not.toHaveBeenCalled()
+    expect(await res.json()).toMatchObject({
+      updatedCount: 0,
+      skipped: [{ id: "purchase_inconsistent_1", reason: "not_cash" }],
+    })
   })
 })

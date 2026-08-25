@@ -22,12 +22,21 @@ import { resolvePackageConsecutiveDeclineAction } from "@/lib/checkin/existing-c
  *   completion. In `post-checkin` mode it completes the station directly.
  */
 
+type PackageCheckInSuccess = {
+  remainingCredits: number | null
+  points: number
+}
+
+type PackageCheckInFailure = {
+  kind: string
+  message: string
+}
+
+type PackageCheckInOutcome = PackageCheckInSuccess | PackageCheckInFailure
+
 type DeclineDeps = {
   hasPackageCheckInResult: boolean
-  performPackageCheckInApi: () => Promise<{
-    remainingCredits: number | null
-    points: number
-  } | null>
+  performPackageCheckInApi: () => Promise<PackageCheckInOutcome>
   setConsecutiveProcessing: (value: boolean) => void
   setConsecutiveError: (value: string | null) => void
   setPackageCheckInResult: (
@@ -52,8 +61,8 @@ async function runDecline(deps: DeclineDeps) {
     deps.setConsecutiveProcessing(true)
     const result = await deps.performPackageCheckInApi()
     deps.setConsecutiveProcessing(false)
-    if (!result) {
-      deps.setConsecutiveError("Unable to check in with package.")
+    if ("kind" in result) {
+      deps.setConsecutiveError(result.message)
       return
     }
     deps.setPackageCheckInResult(result)
@@ -115,13 +124,16 @@ describe("consecutive offer decline — package holder", () => {
 
   it("surfaces an error and does NOT reset when class A check-in fails", async () => {
     const deps = createDeps({
-      performPackageCheckInApi: vi.fn().mockResolvedValue(null),
+      performPackageCheckInApi: vi.fn().mockResolvedValue({
+        kind: "server",
+        message: "We couldn't check you in. Please see the front desk.",
+      }),
     })
 
     await runDecline(deps)
 
     expect(deps.setConsecutiveError).toHaveBeenCalledWith(
-      "Unable to check in with package.",
+      "We couldn't check you in. Please see the front desk.",
     )
     expect(deps.setPackageCheckInResult).not.toHaveBeenCalled()
     expect(deps.handleStationCompletion).not.toHaveBeenCalled()

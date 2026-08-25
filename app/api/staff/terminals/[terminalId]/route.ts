@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { hashStaffTerminalPin, toTerminalSlug, verifyStaffTerminalPin } from "@/lib/security/staff-terminal"
+import { safeText } from "@/lib/api-helpers"
 
 export const runtime = "nodejs"
-
-const safeText = (value: unknown, max = 120) => (typeof value === "string" ? value.trim().slice(0, max) : "")
 
 const serializeTerminal = (terminal: {
   id: string
@@ -48,22 +47,12 @@ const ensureUniqueTerminalPin = async (pin: string, excludedTerminalId = "") => 
 }
 
 export async function PATCH(req: Request, context: { params: Promise<{ terminalId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:terminals:patch", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:terminals:patch", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { terminalId } = await context.params
   if (!terminalId) {
@@ -139,22 +128,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ terminalI
 }
 
 export async function DELETE(req: Request, context: { params: Promise<{ terminalId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:terminals:delete", getClientIp(req)),
-    limit: 30,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:terminals:delete", limit: 30, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { terminalId } = await context.params
   if (!terminalId) {

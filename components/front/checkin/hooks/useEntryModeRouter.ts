@@ -2,7 +2,7 @@ import React from "react"
 
 import type { BootstrapResponse, EntryMode } from "@/components/front/checkin/checkin.types"
 
-type CheckInContextOverride = { courseSlug: string; date: string; time: string; durationMinutes?: number }
+type CheckInContextOverride = { courseSlug: string; date: string; time: string }
 type SelectedCourseLike = { slug: string } | null
 type LatePaymentRecommendation = CheckInContextOverride | null
 
@@ -17,7 +17,6 @@ type UseEntryModeRouterOptions = {
   consecutiveOfferSettled: boolean
   contextIsValid: boolean
   displayLatePaymentQrLink: string | null
-  durationMinutes?: number
   effectiveCheckInWindowOpen: boolean
   forceRedirectUrl: string
   handlePackageCheckIn: () => void | Promise<void>
@@ -25,7 +24,7 @@ type UseEntryModeRouterOptions = {
   hasActiveClerkSession: boolean
   isKioskTerminalFlow: boolean
   latePaymentRecommendation: LatePaymentRecommendation
-  loadBootstrap: (contextOverride?: Record<string, unknown>) => void | Promise<void>
+  loadBootstrap: () => void | Promise<void>
   mode: EntryMode
   openExistingPurchaseFlow: (context: CheckInContextOverride) => void
   pendingNewBooking: boolean
@@ -36,7 +35,6 @@ type UseEntryModeRouterOptions = {
   resetKioskPinFlow: () => void
   selectedCourse: SelectedCourseLike
   setBootstrap: React.Dispatch<React.SetStateAction<BootstrapResponse | null>>
-  setConsecutiveOfferSettled: React.Dispatch<React.SetStateAction<boolean>>
   setError: React.Dispatch<React.SetStateAction<string | null>>
   setLatePaymentEntryOverride: React.Dispatch<React.SetStateAction<CheckInContextOverride | null>>
   setMode: React.Dispatch<React.SetStateAction<EntryMode>>
@@ -63,7 +61,6 @@ export function useEntryModeRouter({
   consecutiveOfferSettled,
   contextIsValid,
   displayLatePaymentQrLink,
-  durationMinutes,
   effectiveCheckInWindowOpen,
   forceRedirectUrl,
   handlePackageCheckIn,
@@ -82,7 +79,6 @@ export function useEntryModeRouter({
   resetKioskPinFlow,
   selectedCourse,
   setBootstrap,
-  setConsecutiveOfferSettled,
   setError,
   setLatePaymentEntryOverride,
   setMode,
@@ -114,12 +110,8 @@ export function useEntryModeRouter({
       setShowPhoneSignIn(true)
       return
     }
-    void loadBootstrap(contextOverride ? {
-      ...contextOverride,
-      durationMinutes: contextOverride.durationMinutes ?? durationMinutes ?? 60,
-      linkedFromCourseSlug: contextOverride.courseSlug,
-    } : undefined)
-  }, [contextIsValid, durationMinutes, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse, setBootstrap, setError, setLatePaymentEntryOverride, setMode, setShowPhoneSignIn, setSuccess])
+    void loadBootstrap()
+  }, [contextIsValid, hasActiveClerkSession, isKioskTerminalFlow, loadBootstrap, reloadCatalogCourses, resetKioskPinFlow, selectedCourse, setBootstrap, setError, setLatePaymentEntryOverride, setMode, setShowPhoneSignIn, setSuccess])
 
   const handleNewClick = React.useCallback((contextOverride?: CheckInContextOverride) => {
     void reloadCatalogCourses()
@@ -134,11 +126,8 @@ export function useEntryModeRouter({
       return
     }
     setNewBookingOverride(bookingContext)
-    if (contextOverride) {
-      setConsecutiveOfferSettled(false)
-    }
     setOpenNewBooking(true)
-  }, [activeDate, activeTime, contextIsValid, reloadCatalogCourses, selectedCourse, setConsecutiveOfferSettled, setError, setMode, setNewBookingOverride, setOpenNewBooking, setSuccess])
+  }, [activeDate, activeTime, contextIsValid, reloadCatalogCourses, selectedCourse, setError, setMode, setNewBookingOverride, setOpenNewBooking, setSuccess])
 
   React.useEffect(() => {
     if (pendingNewBooking && consecutiveOfferSettled) {
@@ -239,7 +228,6 @@ export function useEntryModeRouter({
       courseSlug: bootstrap!.context.courseSlug,
       date: bootstrap!.context.date,
       time: bootstrap!.context.time,
-      durationMinutes: bootstrap!.context.durationMinutes,
     })
   }, [bootstrap, effectiveCheckInWindowOpen, handlePackageCheckIn, openExistingPurchaseFlow, processingPackageCheckIn, setError])
 

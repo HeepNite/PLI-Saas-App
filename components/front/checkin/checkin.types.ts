@@ -98,6 +98,8 @@ export type BootstrapResponse = {
   hasAnyActivePackage?: boolean
   /** Consecutive class offer, present when student attended Class A and a CourseLink exists */
   consecutiveOffer?: ConsecutiveOffer | null
+  /** Number of distinct purchases on the current day-of-week (terminal flow only) */
+  dayOfWeekPurchaseCount?: number
   /** True if user qualifies for the quick-repeat overlay (count >= 3, terminal flow only) */
   quickRepeatEligible?: boolean
   /** Pattern from the most recent purchase (terminal flow only) */

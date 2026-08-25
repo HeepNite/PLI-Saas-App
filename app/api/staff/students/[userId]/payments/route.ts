@@ -2,7 +2,8 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText } from "@/lib/shared"
 import { VALID_PAYMENT_METHODS, PAYMENT_CHANNEL } from "@/lib/payment-constants"
 
@@ -12,22 +13,12 @@ const normalizePaymentMethod = (raw: string): string =>
   (VALID_PAYMENT_METHODS as readonly string[]).includes(raw) ? raw : PAYMENT_CHANNEL.CASH
 
 export async function GET(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:payments:get", getClientIp(req)),
-    limit: 120,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:payments:get", limit: 120, windowMs: 60_000 },
+    authorize: () => authorizeOwnerOrAdminRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeOwnerOrAdminRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { userId } = await context.params
   if (!userId) {
@@ -35,25 +26,26 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
   }
 
   try {
-    const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+    const [student, purchases] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { id: true } }),
+      prisma.purchase.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          courseSlug: true,
+          courseTitle: true,
+          amount: true,
+          currency: true,
+          status: true,
+          metadata: true,
+          createdAt: true,
+        },
+      }),
+    ])
     if (!student) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 })
     }
-
-    const purchases = await prisma.purchase.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        courseSlug: true,
-        courseTitle: true,
-        amount: true,
-        currency: true,
-        status: true,
-        metadata: true,
-        createdAt: true,
-      },
-    })
 
     const normalized = purchases.map((purchase) => {
       const metadata = asObject(purchase.metadata)
@@ -78,22 +70,12 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
 }
 
 export async function PATCH(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:payments:patch", getClientIp(req)),
-    limit: 90,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:payments:patch", limit: 90, windowMs: 60_000 },
+    authorize: () => authorizeOwnerOrAdminRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeOwnerOrAdminRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { userId } = await context.params
   if (!userId) {
@@ -285,22 +267,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
 }
 
 export async function DELETE(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:payments:delete", getClientIp(req)),
-    limit: 30,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:payments:delete", limit: 30, windowMs: 60_000 },
+    authorize: () => authorizeOwnerOrAdminRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeOwnerOrAdminRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   const { userId } = await context.params
   if (!userId) {

@@ -10,13 +10,24 @@ const mockClearPreparedCheckout = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
 const mockPurchaseCreate = vi.fn()
 
+const mockDayOfWeekFindUnique = vi.fn()
+const mockDayOfWeekCreate = vi.fn()
+const mockDayOfWeekUpdate = vi.fn()
+const mockDayOfWeekUpsert = vi.fn()
+
 const mockPrisma = {
   purchase: {
     findFirst: mockPurchaseFindFirst,
     create: mockPurchaseCreate,
   },
-  $transaction: vi.fn(async (callback: (tx: { purchase: { create: typeof mockPurchaseCreate } }) => unknown) =>
-    callback({ purchase: { create: mockPurchaseCreate } })
+  dayOfWeekPurchaseCount: {
+    findUnique: mockDayOfWeekFindUnique,
+    create: mockDayOfWeekCreate,
+    update: mockDayOfWeekUpdate,
+    upsert: mockDayOfWeekUpsert,
+  },
+  $transaction: vi.fn(async (callback: (tx: { purchase: { create: typeof mockPurchaseCreate }, dayOfWeekPurchaseCount: { findUnique: typeof mockDayOfWeekFindUnique, create: typeof mockDayOfWeekCreate, update: typeof mockDayOfWeekUpdate, upsert: typeof mockDayOfWeekUpsert } }) => unknown) =>
+    callback({ purchase: { create: mockPurchaseCreate }, dayOfWeekPurchaseCount: { findUnique: mockDayOfWeekFindUnique, create: mockDayOfWeekCreate, update: mockDayOfWeekUpdate, upsert: mockDayOfWeekUpsert } })
   ),
 }
 
@@ -49,6 +60,11 @@ describe("checkout cash route", () => {
     mockPrisma.purchase.findFirst.mockReset()
     mockPrisma.purchase.create.mockReset()
     mockPrisma.$transaction.mockClear()
+    mockDayOfWeekFindUnique.mockReset()
+    mockDayOfWeekCreate.mockReset()
+    mockDayOfWeekUpdate.mockReset()
+    mockDayOfWeekUpsert.mockReset()
+    mockDayOfWeekFindUnique.mockResolvedValue(null)
     mockClearPreparedCheckout.mockReset()
 
     mockValidate.mockResolvedValue({

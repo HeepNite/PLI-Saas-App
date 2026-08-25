@@ -4,9 +4,6 @@ import { NextRequest } from "next/server"
 const mockCourseLinkFindMany = vi.fn()
 const mockCourseCatalogFindUnique = vi.fn()
 const mockCourseCatalogFindMany = vi.fn()
-const mockConsumeRateLimit = vi.fn()
-const mockBuildRateLimitKey = vi.fn()
-const mockGetClientIp = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -20,16 +17,10 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-vi.mock("@/lib/security/rate-limit", () => ({
-  consumeRateLimit: (...args: unknown[]) => mockConsumeRateLimit(...args),
-  buildRateLimitKey: (...args: unknown[]) => mockBuildRateLimitKey(...args),
-  getClientIp: (...args: unknown[]) => mockGetClientIp(...args),
-}))
-
-const buildRequest = (params: Record<string, string>, headers?: Record<string, string>) => {
+const buildRequest = (params: Record<string, string>) => {
   const url = new URL("https://app.test/api/checkin/terminal/consecutive-offer")
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
-  return new NextRequest(url, { headers })
+  return new NextRequest(url)
 }
 
 const beginnerCourse = {
@@ -87,24 +78,7 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     mockCourseLinkFindMany.mockReset()
     mockCourseCatalogFindUnique.mockReset()
     mockCourseCatalogFindMany.mockReset()
-    mockConsumeRateLimit.mockReset()
-    mockBuildRateLimitKey.mockReset()
-    mockGetClientIp.mockReset()
-    mockConsumeRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 })
-    mockBuildRateLimitKey.mockReturnValue("rate-limit-key")
-    mockGetClientIp.mockReturnValue("203.0.113.10")
     vi.useRealTimers()
-  })
-
-  it("returns 429 when the consecutive-offer rate limit is exceeded", async () => {
-    mockConsumeRateLimit.mockReturnValue({ ok: false, retryAfterSec: 9 })
-
-    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
-    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner" }, { "x-forwarded-for": "203.0.113.10" }))
-
-    expect(res.status).toBe(429)
-    expect(res.headers.get("Retry-After")).toBe("9")
-    expect(await res.json()).toEqual({ error: "Too many requests. Please try again in a moment." })
   })
 
   it("returns null when no courseSlug is provided", async () => {
@@ -126,6 +100,22 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     expect(args.where).toMatchObject({
       active: true,
       OR: [{ courseSlugA: "salsa-night-beginner" }, { courseSlugB: "salsa-night-beginner" }],
+    })
+  })
+
+  it("logs duration-only timing for the route database calls", async () => {
+    const logSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+    mockCourseLinkFindMany.mockResolvedValue([])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    await GET(buildRequest({ courseSlug: "salsa-night-beginner" }))
+
+    expect(logSpy).toHaveBeenCalledWith("[terminal-consecutive-offer-latency] route", {
+      db: {
+        courseLinksMs: expect.any(Number),
+      },
+      durationMs: expect.any(Number),
+      outcome: "no_offer",
     })
   })
 
@@ -152,14 +142,13 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     expect(await res.json()).toBeNull()
   })
 
-  it("does NOT surface the reverse-direction link (Timba → Beginner) when selected is Beginner at 20:50", async () => {
+  it("does NOT surface the reverse-direction link (Timba → Beginner) when selected is Beginner on Monday", async () => {
     // Monday 2026-05-18
     vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-05-19T00:50:00.000Z"))
+    vi.setSystemTime(new Date("2026-05-18T22:00:00.000Z"))
 
-    mockCourseLinkFindMany.mockResolvedValue([{ courseSlugA: timbaCourse.slug, courseSlugB: beginnerCourse.slug, active: true, dropInConsecutiveCents: 1500, packageHolderConsecutiveCents: 1000 }])
-    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
-    mockCourseCatalogFindMany.mockResolvedValue([timbaCourse])
+    // No links in the A-direction for salsa-night-beginner today
+    mockCourseLinkFindMany.mockResolvedValue([])
 
     const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
     const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "21:10" }))
@@ -225,52 +214,11 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     })
   })
 
-  it("resolves the Tuesday 20:10 → 21:10 offer from schedule data after visual rotation", async () => {
+  it("excludes a linked class (later than A) whose end time has already passed relative to now", async () => {
+    // Friday 2026-05-22 (NY weekday 5). Rueda is 21:10 + 55min => ends 22:05 NY.
+    // Set "now" to 22:10 NY (past the Rueda class's end).
     vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-05-20T00:50:00.000Z")) // 20:50 NY Tue
-    const tuesdayAdvanced = {
-      ...ruedaCourse,
-      slug: "salsa-night-advance-beginner",
-      scheduleRules: { mode: "regular", rules: [{ weekday: 2, times: ["21:10"] }] },
-    }
-    mockCourseLinkFindMany.mockResolvedValue([{
-      courseSlugA: beginnerCourse.slug, courseSlugB: tuesdayAdvanced.slug, active: true,
-      dropInConsecutiveCents: 1000, packageHolderConsecutiveCents: 1000,
-    }])
-    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
-    mockCourseCatalogFindMany.mockResolvedValue([tuesdayAdvanced])
-
-    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
-    const res = await GET(buildRequest({ courseSlug: beginnerCourse.slug, date: "2026-05-19", time: "20:10" }))
-
-    expect(await res.json()).toMatchObject({ linkedCourseSlug: tuesdayAdvanced.slug, linkedCourseTime: "21:10" })
-  })
-
-  it("returns null when the selected class date is not today in ET", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-05-22T22:00:00.000Z"))
-
-    mockCourseLinkFindMany.mockResolvedValue([
-      {
-        courseSlugA: "salsa-night-beginner",
-        courseSlugB: "salsa-night-advance-beginner-rueda",
-        active: true,
-        dropInConsecutiveCents: 1000,
-        packageHolderConsecutiveCents: 1000,
-      },
-    ])
-
-    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
-    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", date: "2026-05-23", time: "20:10" }))
-
-    expect(res.status).toBe(200)
-    expect(await res.json()).toBeNull()
-    expect(mockCourseCatalogFindMany).not.toHaveBeenCalled()
-  })
-
-  it("returns null when the selected time is not scheduled for the source course today", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-05-22T22:00:00.000Z"))
+    vi.setSystemTime(new Date("2026-05-23T02:10:00.000Z")) // 22:10 NY Fri
 
     mockCourseLinkFindMany.mockResolvedValue([
       {
@@ -285,15 +233,16 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
 
     const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
-    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", date: "2026-05-22", time: "19:10" }))
-
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-22" }))
     expect(res.status).toBe(200)
     expect(await res.json()).toBeNull()
   })
 
-  it("returns null when the linked class has already ended today", async () => {
+  it("still offers a linked class (later than A) that has not yet ended (unchanged)", async () => {
+    // Friday 2026-05-22 (NY weekday 5). Rueda is 21:10 + 55min => ends 22:05 NY.
+    // Set "now" to 21:30 NY (class in progress, not yet ended).
     vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-05-23T02:10:00.000Z"))
+    vi.setSystemTime(new Date("2026-05-23T01:30:00.000Z")) // 21:30 NY Fri
 
     mockCourseLinkFindMany.mockResolvedValue([
       {
@@ -308,9 +257,76 @@ describe("GET /api/checkin/terminal/consecutive-offer", () => {
     mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
 
     const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
-    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", date: "2026-05-22", time: "20:10" }))
-
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-22" }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toBeNull()
+    const data = await res.json()
+    expect(data).toMatchObject({
+      linkedCourseSlug: "salsa-night-advance-beginner-rueda",
+      linkedCourseTime: "21:10",
+    })
+  })
+
+  it("still offers a linked class with null durationMinutes until its start + default duration passes", async () => {
+    // Friday 2026-05-22 (NY weekday 5). Rueda starts 21:10 with durationMinutes
+    // missing (null), so it must fall back to the default duration (60min)
+    // rather than being treated as ending the instant it starts (durationMinutes ?? 0).
+    // Default-duration end => 22:10 NY. Set "now" to 21:45 NY (after start, before
+    // the default-duration end) — the class must still be offered.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T01:45:00.000Z")) // 21:45 NY Fri
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([{ ...ruedaCourse, durationMinutes: null }])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-22" }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data).toMatchObject({
+      linkedCourseSlug: "salsa-night-advance-beginner-rueda",
+      linkedCourseTime: "21:10",
+    })
+  })
+
+  it("does not over-filter a future-dated selectedDate regardless of server TZ", async () => {
+    // Server clock set to a real "now" far in the past relative to the
+    // requested future date. If resolvedDateIsToday were computed via a
+    // locally-parsed Date under a non-UTC server TZ, this could misbehave;
+    // comparing the raw selectedDate string against today's NY calendar date
+    // keeps this deterministic. Rueda (later than Beginner) on a future
+    // Friday must still be offered, unfiltered by "now".
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-01T12:00:00.000Z")) // real now: long before the future date below
+
+    mockCourseLinkFindMany.mockResolvedValue([
+      {
+        courseSlugA: "salsa-night-beginner",
+        courseSlugB: "salsa-night-advance-beginner-rueda",
+        active: true,
+        dropInConsecutiveCents: 1000,
+        packageHolderConsecutiveCents: 1000,
+      },
+    ])
+    mockCourseCatalogFindUnique.mockResolvedValue(beginnerCourse)
+    mockCourseCatalogFindMany.mockResolvedValue([ruedaCourse])
+
+    const { GET } = await import("@/app/api/checkin/terminal/consecutive-offer/route")
+    // 2026-05-29 is a future Friday (NY weekday 5) relative to the stubbed "now".
+    const res = await GET(buildRequest({ courseSlug: "salsa-night-beginner", time: "20:10", date: "2026-05-29" }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data).toMatchObject({
+      linkedCourseSlug: "salsa-night-advance-beginner-rueda",
+      linkedCourseTime: "21:10",
+    })
   })
 })

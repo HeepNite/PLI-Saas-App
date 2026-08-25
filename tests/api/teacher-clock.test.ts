@@ -37,9 +37,9 @@ describe("teacher-clock", () => {
       const clockInAt = new Date("2026-04-03T10:00:00.000Z") // Friday (5)
       
       vi.mocked(prisma.courseCatalog.findMany).mockResolvedValue([
-        { id: "1", slug: "yoga-basics", durationMinutes: 60 } as any,
-        { id: "2", slug: "pilates-pro", durationMinutes: 45 } as any
-      ])
+        { id: "1", slug: "yoga-basics", durationMinutes: 60 },
+        { id: "2", slug: "pilates-pro", durationMinutes: 45 },
+      ] as unknown as Awaited<ReturnType<typeof prisma.courseCatalog.findMany>>)
 
       const result = await calculateTeacherClockOut(["yoga-basics", "pilates-pro"], clockInAt)
       

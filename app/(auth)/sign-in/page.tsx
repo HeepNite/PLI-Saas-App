@@ -1,9 +1,7 @@
-import React from "react"
 import type { Metadata } from "next"
 import { SignIn } from "@clerk/nextjs"
 import Image from "next/image"
 import { clerkDarkAuthAppearance } from "@/lib/clerk-auth-appearance"
-import { resolveSafeQrRedirect } from "@/lib/checkin/qr-auth-resume"
 
 export const metadata: Metadata = {
   title: "Sign in — PLI",
@@ -12,13 +10,36 @@ export const metadata: Metadata = {
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams
-  const safeRedirect = resolveSafeQrRedirect(typeof params.redirect_url === "string" ? params.redirect_url : undefined)
-
+  const rawRedirect = typeof params.redirect_url === "string" ? params.redirect_url.trim() : ""
+  const safeRedirect = rawRedirect.startsWith("/") ? rawRedirect : ""
   return (
     <main
       data-auth-page="true"
       className="relative flex min-h-dvh w-full items-center justify-center gap-0 overflow-hidden bg-[#13141d] px-5 py-8"
     >
+      {/* Force styles on Clerk elements that resist appearance API */}
+      <style>{`
+        [data-auth-page] .cl-alternativeMethods button,
+        [data-auth-page] .cl-alternativeMethods a,
+        [data-auth-page] .cl-alternativeMethods span,
+        [data-auth-page] [class*="alternativeMethod"] { color: rgba(255,255,255,0.8) !important; }
+        [data-auth-page] .cl-otpCodeField {
+          border: none !important;
+          box-shadow: none !important;
+          background: transparent !important;
+          outline: none !important;
+        }
+        [data-auth-page] .cl-otpCodeFieldInput {
+          border: 1px solid rgba(255,255,255,0.3) !important;
+          background: rgba(255,255,255,0.05) !important;
+          color: #fff !important;
+          border-radius: 8px !important;
+        }
+        [data-auth-page] .cl-otpCodeFieldInput:focus {
+          border-color: #b61616 !important;
+          box-shadow: 0 0 0 2px rgba(182,22,22,0.35) !important;
+        }
+      `}</style>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_55%_at_50%_0%,rgba(182,22,22,0.2),transparent_70%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04)_0%,rgba(255,255,255,0)_40%)]" />
       <div className="relative z-10 flex w-full max-w-full flex-col items-center justify-center gap-6">
@@ -44,7 +65,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
                 "border border-white/15 bg-white/[0.03] hover:bg-white/[0.08] text-white rounded-md h-12 [&_svg]:text-white [&_svg]:fill-white",
             },
           }}
-          forceRedirectUrl={safeRedirect}
+          forceRedirectUrl={safeRedirect || undefined}
           fallbackRedirectUrl="/client-profile"
         />
       </div>

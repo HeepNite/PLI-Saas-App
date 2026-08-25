@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 
-export const PACKAGE_PLAN_STATUSES = ["ACTIVE", "SUSPENDED", "SCHEDULED", "DELETED"] as const
+const PACKAGE_PLAN_STATUSES = ["ACTIVE", "SUSPENDED", "SCHEDULED", "DELETED"] as const
 export type PackagePlanStatus = (typeof PACKAGE_PLAN_STATUSES)[number]
 
 type LifecycleShape = {

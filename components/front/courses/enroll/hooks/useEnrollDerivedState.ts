@@ -18,11 +18,7 @@ import { buildEnrollCalendarLinks } from "@/components/front/courses/enroll/mode
 import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/enroll-pricing"
 import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
-import {
-  getCheckInSignInModalVariant,
-  resolveEnrollInitialStep,
-  resolvePromotionDecisionStepIndex,
-} from "@/lib/checkin/enroll-flow"
+import { resolveEnrollInitialStep, getCheckInSignInModalVariant } from "@/lib/checkin/enroll-flow"
 import type { SignInModalVariant } from "@/components/front/courses/enroll/steps/EnrollSignInOverlay"
 import { getKioskPaymentTransitionMessage } from "@/lib/checkin/kiosk-qr-payment"
 import { isRegularFallbackLocked } from "@/lib/checkin/new-student-flow"
@@ -229,9 +225,9 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     [steps]
   )
 
-  const promotionDecisionStepIndex = React.useMemo(
-    () => resolvePromotionDecisionStepIndex(stepKeys),
-    [stepKeys]
+  const promoStepIndex = React.useMemo(
+    () => steps.findIndex((item) => item.key === "promo"),
+    [steps]
   )
 
   const regularServicePrice = React.useMemo(
@@ -385,7 +381,7 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     infoStepIndex,
     photoStepIndex,
     packagesStepIndex,
-    promotionDecisionStepIndex,
+    promoStepIndex,
     regularServicePrice,
     regularFallbackLocked,
     effectiveInitialStep,

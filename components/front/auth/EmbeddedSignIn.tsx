@@ -219,6 +219,7 @@ export default function EmbeddedSignIn({
     verificationStrategy: "phone_code",
     activeField: INITIAL_KIOSK_NUMERIC_FIELD,
   }))
+  const [resendCountdownNow, setResendCountdownNow] = React.useState(() => Date.now())
 
   const {
     phone,
@@ -247,18 +248,26 @@ export default function EmbeddedSignIn({
     }
   }, [useNumericKeypad])
 
-  // Effect 3: Cooldown timer — clear resendAvailableAt once the window expires
+  // Effect 3: Cooldown timer — refresh the visible countdown once per second
   React.useEffect(() => {
     if (resendAvailableAt <= Date.now()) return
-    const timer = window.setTimeout(
-      () => dispatch({ type: "SET_RESEND_AVAILABLE_AT", payload: 0 }),
-      resendAvailableAt - Date.now()
-    )
-    return () => window.clearTimeout(timer)
+    setResendCountdownNow(Date.now())
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      setResendCountdownNow(now)
+      if (resendAvailableAt <= now) {
+        dispatch({ type: "SET_RESEND_AVAILABLE_AT", payload: 0 })
+      }
+    }, 1_000)
+    return () => window.clearInterval(timer)
   }, [resendAvailableAt])
 
   const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
-  const isResendCoolingDown = resendAvailableAt > Date.now()
+  const resendSecondsRemaining = Math.max(
+    0,
+    Math.ceil((resendAvailableAt - Math.max(resendCountdownNow, Date.now())) / 1_000)
+  )
+  const isResendCoolingDown = resendSecondsRemaining > 0
 
   // Ref for auto-send - declared here but effect runs after sendCode is defined
   const autoSendTriggeredRef = React.useRef(false)
@@ -710,7 +719,7 @@ export default function EmbeddedSignIn({
               disabled={busy || isResendCoolingDown}
               className="text-[var(--brand,#e31b1b)] underline decoration-[var(--brand,#e31b1b)]/30 underline-offset-4 disabled:opacity-60"
             >
-              {isResendCoolingDown ? "Wait 30s" : "Resend code"}
+              {isResendCoolingDown ? `Wait ${resendSecondsRemaining}s` : "Resend code"}
             </button>
           </div>
           <button

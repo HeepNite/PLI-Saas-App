@@ -1,6 +1,5 @@
 import { randomInt } from "crypto"
 import { NextResponse } from "next/server"
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { hasExplicitStaffPermission } from "@/lib/security/staff-access"
@@ -12,6 +11,7 @@ import {
   isStudentPinConflictError,
   isStudentPinFormatValid,
   isStudentPinLifecycleEnabled,
+  isStudentPinSchemaUnavailableError,
   issueProvisionalStudentPin,
   replacePermanentStudentPin,
   unlockStudentPinCredentials,
@@ -27,18 +27,6 @@ const STUDENT_PIN_DEPLOYMENT_ERROR =
   "Student PIN lifecycle tables are not deployed in this environment. Apply Prisma migration `20260326090000_add_student_pin_lifecycle` and redeploy before issuing provisional PINs."
 
 const maskPin = (pin: string) => `${"*".repeat(Math.max(0, pin.length - 2))}${pin.slice(-2)}`
-
-const isStudentPinSchemaUnavailableError = (error: unknown) => {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
-    const fallbackCode =
-      typeof error === "object" && error && "code" in error && typeof error.code === "string" ? error.code : null
-    const fallbackName =
-      typeof error === "object" && error && "name" in error && typeof error.name === "string" ? error.name : null
-    return fallbackName === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(fallbackCode || "")
-  }
-
-  return ["P2021", "P2022"].includes(error.code)
-}
 
 const studentPinSchemaUnavailableResponse = () =>
   NextResponse.json({ error: STUDENT_PIN_DEPLOYMENT_ERROR }, { status: 503 })

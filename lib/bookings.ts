@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { buildSessionStartsAt, getCourseBySlug } from "@/lib/class-schedule"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
 
 const DEFAULT_DURATION_MINUTES = 60
 export const DEFAULT_CLASS_CAPACITY = 12
@@ -21,21 +23,28 @@ export const syncScheduledAttendanceFromPurchase = async (input: {
   preferredStatus?: "scheduled" | "checked_in" | "checked_in_no_package"
   source?: string
 }) => {
+  const isSpecialClass = input.courseSlug === SPECIAL_SALSA_CLASS.courseSlug
   const date = input.date?.trim()
   const time = input.time?.trim()
-  if (!date || !time) return null
+  if (!isSpecialClass && (!date || !time)) return null
 
-  const startsAt = buildSessionStartsAt(date, time)
+  const startsAt = isSpecialClass
+    ? SPECIAL_SALSA_CLASS.startsAt
+    : buildSessionStartsAt(date as string, time as string)
   if (!startsAt) return null
 
   const course = getCourseBySlug(input.courseSlug)
-  const sessionTitle = course?.title || input.courseTitle || input.courseSlug
-  const preferredStatus = input.preferredStatus || "scheduled"
+  const sessionTitle = isSpecialClass
+    ? SPECIAL_SALSA_CLASS.title
+    : course?.title || input.courseTitle || input.courseSlug
+  const durationMinutes = isSpecialClass ? SPECIAL_SALSA_CLASS.durationMinutes : DEFAULT_DURATION_MINUTES
+  const capacity = isSpecialClass ? SPECIAL_SALSA_CLASS.capacity : DEFAULT_CLASS_CAPACITY
+  const preferredStatus = input.preferredStatus || ATTENDANCE_STATUS.SCHEDULED
   const source = input.source || "purchase_booking"
 
   const shouldUpgradeStatus = (current: string) => {
-    if (preferredStatus === "checked_in") return current === "scheduled"
-    if (preferredStatus === "checked_in_no_package") return current === "scheduled"
+    if (preferredStatus === ATTENDANCE_STATUS.CHECKED_IN) return current === ATTENDANCE_STATUS.SCHEDULED
+    if (preferredStatus === ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE) return current === ATTENDANCE_STATUS.SCHEDULED
     return false
   }
 
@@ -93,15 +102,17 @@ export const syncScheduledAttendanceFromPurchase = async (input: {
       },
       update: {
         title: sessionTitle,
-        durationMinutes: DEFAULT_DURATION_MINUTES,
-        capacity: DEFAULT_CLASS_CAPACITY,
+        durationMinutes,
+        capacity,
+        ...(isSpecialClass ? { location: SPECIAL_SALSA_CLASS.address } : {}),
       },
       create: {
         courseSlug: input.courseSlug,
         title: sessionTitle,
         startsAt,
-        durationMinutes: DEFAULT_DURATION_MINUTES,
-        capacity: DEFAULT_CLASS_CAPACITY,
+        durationMinutes,
+        capacity,
+        ...(isSpecialClass ? { location: SPECIAL_SALSA_CLASS.address } : {}),
       },
     })
 

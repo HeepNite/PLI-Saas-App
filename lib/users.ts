@@ -27,6 +27,10 @@ type ExistingUser = {
 
 const locallyCreatedUsers = new WeakSet<object>()
 
+/**
+ * Reports creation for the object returned by the most recent local upsert
+ * without changing the user object's established public shape.
+ */
 export const wasUserCreatedByUpsert = (user: object | null): boolean =>
   user !== null && locallyCreatedUsers.has(user)
 

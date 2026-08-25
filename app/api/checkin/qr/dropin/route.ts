@@ -10,39 +10,35 @@ import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
-import { asObject, normalizePhoneDigits } from "@/lib/shared"
-import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
-import { FLOW_CONTEXT } from "@/lib/payment-constants"
+import { asObject, asText, normalizePhoneDigits } from "@/lib/shared"
+import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
-const normalizeString = (value: unknown) => {
-  if (typeof value !== "string") return ""
-  return value.trim()
-}
 
 const isPaidPurchaseStatus = (status: string) => ["paid", "succeeded", "completed"].includes(status.toLowerCase())
 
 const isCashPurchaseMetadata = (value: unknown) => {
   const metadata = asObject(value)
-  const paymentChannel = normalizeString(metadata.paymentChannel).toLowerCase()
-  const paymentMethod = normalizeString(metadata.paymentMethod).toLowerCase()
-  const source = normalizeString(metadata.source).toLowerCase()
+  const paymentChannel = asText(metadata.paymentChannel).toLowerCase()
+  const paymentMethod = asText(metadata.paymentMethod).toLowerCase()
+  const source = asText(metadata.source).toLowerCase()
   return (
-    paymentChannel === "cash" ||
+    paymentChannel === PAYMENT_CHANNEL.CASH ||
     paymentMethod === "onsite" ||
-    paymentMethod === "cash" ||
+    paymentMethod === PAYMENT_CHANNEL.CASH ||
     source === "cash_checkout"
   )
 }
 
 const isHostedKioskCardPurchase = (value: unknown) => {
   const metadata = asObject(value)
-  const flowContext = normalizeString(metadata.flowContext).toLowerCase()
-  const paymentSurface = normalizeString(metadata.paymentSurface).toLowerCase()
+  const flowContext = asText(metadata.flowContext).toLowerCase()
+  const paymentSurface = asText(metadata.paymentSurface).toLowerCase()
   return flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && paymentSurface === "hosted_checkout"
 }
 
@@ -70,8 +66,8 @@ export async function POST(req: Request) {
     }
 
     const payload = asObject(body)
-    const paymentIntentId = normalizeString(payload?.paymentIntentId)
-    const purchaseId = normalizeString(payload?.purchaseId)
+    const paymentIntentId = asText(payload?.paymentIntentId)
+    const purchaseId = asText(payload?.purchaseId)
     const context = parseQrCheckInContext(
       {
         courseSlug: payload?.courseSlug,
@@ -85,11 +81,9 @@ export async function POST(req: Request) {
     }
 
     const now = new Date()
-    // Terminal check-in stays open the whole NY day (#170); the client QR flow
-    // keeps the stricter per-class window.
-    const dropinFlowContext = typeof payload?.flowContext === "string" ? payload.flowContext.trim() : ""
+    const flowContext = asText(payload?.flowContext)
     const windowAllowed = isQrActionWindowAllowed(
-      dropinFlowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "terminal" : "standard",
+      flowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "terminal" : "standard",
       context,
       now
     )
@@ -111,7 +105,7 @@ export async function POST(req: Request) {
 
     // ─── Consecutive discount validation ─────────────────────
     const consecutiveDiscountApplied = payload?.consecutiveDiscountApplied === true
-    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
     const consecutivePriceCents = payload?.consecutivePriceCents != null
       ? Number(payload.consecutivePriceCents)
       : null
@@ -167,9 +161,9 @@ export async function POST(req: Request) {
         })
 
         const metadata = asObject(purchase?.metadata)
-        const purchaseCourseSlug = normalizeString(metadata?.courseSlug) || normalizeString(purchase?.courseSlug)
-        const purchaseDate = normalizeString(metadata?.date)
-        const purchaseTime = normalizeString(metadata?.time)
+        const purchaseCourseSlug = asText(metadata?.courseSlug) || asText(purchase?.courseSlug)
+        const purchaseDate = asText(metadata?.date)
+        const purchaseTime = asText(metadata?.time)
 
         if (
           purchase &&
@@ -244,9 +238,9 @@ export async function POST(req: Request) {
     const dropInPurchase =
       recentPurchases.find((purchase) => {
         const metadata = asObject(purchase.metadata)
-        const metaDate = normalizeString(metadata?.date)
-        const metaTime = normalizeString(metadata?.time)
-        const metaPackageId = normalizeString(metadata?.packageId)
+        const metaDate = asText(metadata?.date)
+        const metaTime = asText(metadata?.time)
+        const metaPackageId = asText(metadata?.packageId)
         if (metaPackageId) return false
         if (!(metaDate === context.date && metaTime === context.time)) return false
         if (paymentIntentId && purchase.stripePaymentIntentId !== paymentIntentId) return false
@@ -301,7 +295,7 @@ export async function POST(req: Request) {
         ? await tx.attendance.update({
             where: { id: existingAttendance.id },
             data: {
-              status: "checked_in_no_package",
+              status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE,
               checkedInAt: now,
               metadata: {
                 ...previousMetadata,
@@ -316,7 +310,7 @@ export async function POST(req: Request) {
             data: {
               userId: dbUser.id,
               sessionId: session.id,
-              status: "checked_in_no_package",
+              status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE,
               checkedInAt: now,
               metadata: {
                 source: "qr_dropin_checkin",
@@ -382,7 +376,7 @@ export async function POST(req: Request) {
         purchaseId: dropInPurchase.id,
         paymentIntentId: dropInPurchase.stripePaymentIntentId,
         paymentStatus: dropInPurchase.status,
-        paymentMode: isCashPurchaseMetadata(dropInPurchase.metadata) ? "cash" : "card",
+        paymentMode: isCashPurchaseMetadata(dropInPurchase.metadata) ? PAYMENT_CHANNEL.CASH : PAYMENT_CHANNEL.CARD,
       },
       points: {
         awarded: result.pointsAwarded,

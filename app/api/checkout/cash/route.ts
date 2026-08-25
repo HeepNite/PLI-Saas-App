@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import {
   clearPreparedCheckoutAfterSuccess,
-  enrollStudentPinForCheckout,
   enforceNewStudentRules,
   resolveCheckoutPreparation,
   type ApiError,
@@ -13,7 +12,8 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { FLOW_CONTEXT, PURCHASE_SOURCE, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 
 export const runtime = "nodejs"
 
@@ -56,8 +56,6 @@ export async function POST(req: Request) {
     name,
     phone = "",
     kioskSessionToken,
-    studentPin,
-    studentPinConfirm,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
@@ -107,19 +105,6 @@ export async function POST(req: Request) {
   })
   if (newStudentError) {
     return toErrorResponse(newStudentError)
-  }
-
-  const studentPinEnrollment = await enrollStudentPinForCheckout({
-    serviceId: validation.serviceId,
-    resolvedClerkUserId: resolvedUserId,
-    resolvedEmail: identity.resolvedEmail,
-    phoneNormalized: identity.phoneNormalized,
-    name: name || [firstName, lastName].filter(Boolean).join(" ") || undefined,
-    studentPin,
-    studentPinConfirm,
-  })
-  if (isApiError(studentPinEnrollment)) {
-    return toErrorResponse(studentPinEnrollment)
   }
 
   const dbUser = await upsertUserByIdentifiers({
@@ -197,8 +182,8 @@ export async function POST(req: Request) {
             source: "cash_checkout",
             purchaseSource: resolveKioskPurchaseSource(photoContext),
             paymentMethod: "onsite",
-            paymentChannel: "cash",
-            settlementStatus: "pending",
+            paymentChannel: PAYMENT_CHANNEL.CASH,
+            settlementStatus: SETTLEMENT_STATUS.PENDING,
             settledAt: null,
             date: effectiveSession.date,
             time: effectiveSession.time,
@@ -250,8 +235,8 @@ export async function POST(req: Request) {
             source: "cash_checkout",
             purchaseSource: resolveKioskPurchaseSource(photoContext),
             paymentMethod: "onsite",
-            paymentChannel: "cash",
-            settlementStatus: "pending",
+            paymentChannel: PAYMENT_CHANNEL.CASH,
+            settlementStatus: SETTLEMENT_STATUS.PENDING,
             settledAt: null,
             date: effectiveSession.date,
             time: validation.consecutiveLinkedCourseTime ?? effectiveSession.time,
@@ -284,6 +269,10 @@ export async function POST(req: Request) {
       kioskSessionToken,
       validation,
     })
+
+    if (photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && effectiveSession.date) {
+      await incrementDayOfWeekCounter(dbUser.id, new Date(`${effectiveSession.date}T12:00:00.000Z`))
+    }
 
     console.info("[staff-terminal-checkout-latency] checkout-cash", {
       segment: "cash_consecutive",
@@ -329,8 +318,8 @@ export async function POST(req: Request) {
         source: "cash_checkout",
         purchaseSource: resolveKioskPurchaseSource(photoContext),
         paymentMethod: "onsite",
-        paymentChannel: "cash",
-        settlementStatus: "pending",
+        paymentChannel: PAYMENT_CHANNEL.CASH,
+        settlementStatus: SETTLEMENT_STATUS.PENDING,
         settledAt: null,
         date: effectiveSession.date,
         time: effectiveSession.time,
@@ -363,6 +352,10 @@ export async function POST(req: Request) {
     kioskSessionToken,
     validation,
   })
+
+  if (photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && effectiveSession.date) {
+    await incrementDayOfWeekCounter(dbUser.id, new Date(`${effectiveSession.date}T12:00:00.000Z`))
+  }
 
   console.info("[staff-terminal-checkout-latency] checkout-cash", {
     segment: "cash_next_step",

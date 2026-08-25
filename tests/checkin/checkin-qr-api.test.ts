@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   requestCheckInBootstrapApi,
@@ -18,6 +18,27 @@ const jsonResponse = (data: unknown, status = 200) =>
 const firstCall = (fetchImpl: ReturnType<typeof vi.fn>) => fetchImpl.mock.calls[0] as [string, RequestInit?]
 
 describe("checkin QR API adapter", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("aborts package check-in at 12000ms and cleans its timeout", async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | undefined
+    const pendingFetch = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal ?? undefined
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })))
+      })
+    })
+    const request = requestPackageCheckInApi({ fetchImpl: pendingFetch, payload: { courseSlug: "salsa" } }).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(signal?.aborted).toBe(true)
+    await expect(request).resolves.toMatchObject({ name: "AbortError" })
+    await requestPackageCheckInApi({ fetchImpl: vi.fn().mockResolvedValue(jsonResponse({ ok: true })), payload: { courseSlug: "salsa" } })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it("posts bootstrap payload with bearer token and credentials", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ ok: true }))
 
@@ -112,8 +133,33 @@ describe("checkin QR API adapter", () => {
 
     const [url, init] = firstCall(fetchImpl)
     expect(url).toBe("/api/checkin/terminal/consecutive-offer?courseSlug=class-a&date=2026-08-07&time=20%3A00")
-    expect(init?.signal).toBeInstanceOf(AbortSignal)
+    expect(init).toMatchObject({ signal: expect.any(AbortSignal) })
     expect(result.data).toEqual({ linkedCourseSlug: "class-b" })
+  })
+
+  it("aborts a terminal consecutive offer request at the 1500ms budget and logs safe timing", async () => {
+    vi.useFakeTimers()
+    const logSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+    let observedSignal: AbortSignal | undefined
+    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined
+      return new Promise<Response>((_resolve, reject) => {
+        observedSignal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })))
+      })
+    })
+
+    const request = requestTerminalConsecutiveOfferApi({ courseSlug: "class-a", fetchImpl }).catch((error) => error)
+
+    await vi.advanceTimersByTimeAsync(1_499)
+    expect(observedSignal?.aborted).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(observedSignal?.aborted).toBe(true)
+    await expect(request).resolves.toMatchObject({ name: "AbortError" })
+    expect(logSpy).toHaveBeenCalledWith("[terminal-consecutive-offer-latency] client", {
+      durationMs: expect.any(Number),
+      outcome: "aborted",
+    })
   })
 
   it("returns null data for non-ok terminal offer responses", async () => {
@@ -123,30 +169,6 @@ describe("checkin QR API adapter", () => {
 
     expect(result.res.ok).toBe(false)
     expect(result.data).toBeNull()
-  })
-
-  it("aborts terminal consecutive offer requests after 1,500 ms", async () => {
-    vi.useFakeTimers()
-
-    try {
-      const fetchImpl = vi.fn(
-        (_url: string, init?: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
-          })
-      )
-      const request = requestTerminalConsecutiveOfferApi({ courseSlug: "class-a", fetchImpl })
-      const abortedRequest = expect(request).rejects.toMatchObject({ name: "AbortError" })
-
-      await vi.advanceTimersByTimeAsync(1_499)
-      expect(firstCall(fetchImpl)[1]?.signal?.aborted).toBe(false)
-
-      await vi.advanceTimersByTimeAsync(1)
-      await abortedRequest
-      expect(firstCall(fetchImpl)[1]?.signal?.aborted).toBe(true)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it("returns null data when JSON parsing fails", async () => {

@@ -30,7 +30,6 @@ type UseCheckInDisplayDataArgs = {
     courseSlug: string
     date: string
     time: string
-    durationMinutes?: number
   }
   terminalTodayOnly?: boolean
   selectedCourseSlug?: string

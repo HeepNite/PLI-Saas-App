@@ -132,6 +132,9 @@ describe("useCheckInBootstrap", () => {
 
     await act(async () => getResult().loadBootstrap())
 
+    // The terminal prefetch offer must remain available for the EnrollModal
+    // purchase/drop-in flow, so setConsecutiveOffer is intentionally not
+    // reset to null — only the overlay/payment-selection UI is cleared.
     expect(params.setConsecutiveOffer).not.toHaveBeenCalled()
     expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
     expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)

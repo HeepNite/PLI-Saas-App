@@ -5,7 +5,6 @@ import { hashStaffPin as hashPin } from "@/lib/security/staff-pin-auth"
 import {
   applyStaffRoleToMetadata,
   extractStaffRoleFromUserMetadata,
-  isStaffRole,
   STAFF_ROLES,
   type StaffRole,
 } from "@/lib/security/staff-role"
@@ -19,6 +18,7 @@ import {
   type StaffCategory,
 } from "@/lib/security/staff-category"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import {
   createStaffRoleAudit,
   extractStaffRoleSnapshot,
@@ -42,7 +42,17 @@ const staffUsersCache = new Map<string, CacheEntry>()
 const inflightRequests = new Map<string, Promise<NextResponse>>()
 
 const shouldBypassStaffUsersCache = () =>
-  process.env.NODE_ENV === "test"
+  process.env.NODE_ENV === "test" && process.env.STAFF_USERS_CACHE_TEST_ENABLED !== "true"
+
+type StaffPortalAuthResult = Awaited<ReturnType<typeof authorizeStaffPortalRequest>>
+
+const buildStaffUsersAuthFailureResponse = (authResult: Extract<StaffPortalAuthResult, { ok: false }>) => {
+  const headers: Record<string, string> = {}
+  if (authResult.status === 503 && authResult.retryAfterSec) {
+    headers["Retry-After"] = String(authResult.retryAfterSec)
+  }
+  return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers })
+}
 
 const isClerkRateLimitError = (error: unknown): boolean => {
   if (!error || typeof error !== "object") return false
@@ -211,6 +221,31 @@ const sanitizeName = (value: unknown, max = 80) => {
 const PRESENCE_MAX_AGE_MS = 16 * 60 * 60 * 1000
 const PRESENCE_ONLINE_MAX_AGE_MS = 30 * 60 * 1000
 const VERIFY_SESSION_ACTIVE_WINDOW_MS = 72 * 60 * 60 * 1000
+const MAX_PER_USER_SESSION_LOOKUPS = 10
+
+type StaffUsersDegradedState = {
+  degraded: boolean
+  message: string | null
+  retryAfterSec?: number
+  presenceUnavailable: boolean
+}
+
+const createHealthyStaffUsersState = (): StaffUsersDegradedState => ({
+  degraded: false,
+  message: null,
+  presenceUnavailable: false,
+})
+
+const markStaffUsersDegraded = (
+  state: StaffUsersDegradedState,
+  message: string,
+  options: { retryAfterSec?: number; presenceUnavailable?: boolean } = {}
+) => {
+  state.degraded = true
+  state.message = state.message || message
+  if (options.retryAfterSec) state.retryAfterSec = options.retryAfterSec
+  if (options.presenceUnavailable) state.presenceUnavailable = true
+}
 
 const shouldVerifyUserActiveSession = (user: {
   lastActiveAt?: number | null
@@ -241,15 +276,6 @@ const shouldVerifyUserActiveSession = (user: {
   return false
 }
 
-const chunkArray = <T,>(items: T[], size: number): T[][] => {
-  if (size <= 0) return [items]
-  const chunks: T[][] = []
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size))
-  }
-  return chunks
-}
-
 const toStaffListItem = (user: {
   id: string
   firstName?: string | null
@@ -267,16 +293,10 @@ const toStaffListItem = (user: {
   publicMetadata?: unknown
   privateMetadata?: unknown
   unsafeMetadata?: unknown
-}, hasActiveSession: boolean, dbFallback?: { role?: string | null; category?: string | null }): StaffListItem | null => {
-  const fallbackRole = (() => {
-    const normalized = dbFallback?.role?.trim().toLowerCase()
-    return normalized && isStaffRole(normalized) ? normalized : null
-  })()
-  // The DB StaffAccount is the roster source of truth: keep a staff member visible
-  // even if their Clerk role metadata was dropped (e.g. during the Clerk prod cutover).
-  const role = extractStaffRoleFromUserMetadata(user) || fallbackRole
+}, hasActiveSession: boolean): StaffListItem | null => {
+  const role = extractStaffRoleFromUserMetadata(user)
   if (!role) return null
-  const category = extractStaffCategoryFromUserMetadata(user) || parseStaffCategory(dbFallback?.category) || "guest"
+  const category = extractStaffCategoryFromUserMetadata(user) || "guest"
   const primaryEmail =
     user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress || ""
   const primaryPhone =
@@ -351,20 +371,132 @@ const toStaffListItem = (user: {
   }
 }
 
-const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
-  const authResult = await authorizeStaffPortalRequest()
+type StaffAccountRow = {
+  clerkUserId: string
+  email: string
+  phone?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  role: string
+  category?: string | null
+  banned?: boolean | null
+  locked?: boolean | null
+  hasPin?: boolean | null
+  lastSignInAt?: Date | string | number | null
+  lastCheckInAt?: Date | string | number | null
+  paymentModelId?: string | null
+  hourlyRate?: number | null
+  paydayWeekday?: number | null
+  createdAt?: Date | string | number | null
+  metadata?: unknown
+}
+
+const dateishToMillis = (value: Date | string | number | null | undefined): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (value instanceof Date) {
+    const millis = value.getTime()
+    return Number.isFinite(millis) ? millis : null
+  }
+  if (typeof value === "string" && value.trim()) {
+    const millis = Date.parse(value)
+    return Number.isFinite(millis) ? millis : null
+  }
+  return null
+}
+
+const toStaffListItemFromAccount = (account: StaffAccountRow): StaffListItem | null => {
+  const role = parseRole(account.role)
+  if (!role) return null
+  const category = parseStaffCategory(account.category) || "guest"
+  const metadata = asObject(account.metadata)
+  const lastCheckInAt = dateishToMillis(account.lastCheckInAt)
+  const lastSignInAt = dateishToMillis(account.lastSignInAt)
+  return {
+    id: account.clerkUserId,
+    paymentModelId: account.paymentModelId ?? null,
+    email: account.email,
+    phone: account.phone || "",
+    avatarUrl: typeof metadata.imageUrl === "string" ? metadata.imageUrl : "",
+    location: "—",
+    hasPin: Boolean(account.hasPin),
+    firstName: account.firstName || "",
+    lastName: account.lastName || "",
+    role,
+    category,
+    payrollHoursWorked: null,
+    payrollHourlyRate: asNumber(account.hourlyRate),
+    payrollStatus: null,
+    payrollPaydayWeekday: asWeekday(account.paydayWeekday),
+    payrollDelayEntries: [],
+    performanceRating: null,
+    performanceReviewsCount: null,
+    performanceReviewCycleDays: null,
+    teacherType: "",
+    teacherAssignedUserId: "",
+    teacherRecurrenceUnit: "month",
+    teacherRecurrenceInterval: null,
+    teacherCourseSlugs: [],
+    teacherWeekdays: [],
+    teacherShiftStart: "",
+    teacherShiftEnd: "",
+    teacherWeeklyHours: null,
+    teacherBonusTargetHours: null,
+    banned: Boolean(account.banned),
+    locked: Boolean(account.locked),
+    online: Boolean(lastCheckInAt && Date.now() - lastCheckInAt <= PRESENCE_ONLINE_MAX_AGE_MS),
+    authOnline: false,
+    lastActiveAt: null,
+    staffLastCheckInAt: lastCheckInAt,
+    createdAt: dateishToMillis(account.createdAt) || Date.now(),
+    lastSignInAt,
+  }
+}
+
+const readStaffAccounts = async (clerkUserIds?: string[]) => {
+  if (!clerkUserIds) return (await prisma.staffAccount.findMany()) as StaffAccountRow[]
+  return (await prisma.staffAccount.findMany({ where: { clerkUserId: { in: clerkUserIds } } })) as StaffAccountRow[]
+}
+
+const buildStaffUsersResponse = (list: StaffListItem[], state: StaffUsersDegradedState, requestUrl: URL) => {
+  const body = state.degraded
+    ? {
+        items: list,
+        status: "degraded",
+        degraded: true,
+        message: state.message || "Staff user presence is temporarily unavailable. Showing saved staff records.",
+        presenceUnavailable: state.presenceUnavailable,
+        ...(state.retryAfterSec ? { retryAfterSec: state.retryAfterSec } : {}),
+      }
+    : { items: list }
+
+  const response = NextResponse.json(body, {
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      ...(state.degraded ? { "X-Staff-Service-Status": "degraded" } : {}),
+      ...(state.retryAfterSec ? { "Retry-After": String(state.retryAfterSec) } : {}),
+    },
+  })
+
+  const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
+  staffUsersCache.set(cacheKey, {
+    expiresAt: Date.now() + STAFF_USERS_CACHE_TTL_MS,
+    response: response.clone(),
+  })
+
+  return response
+}
+
+const executeStaffUsersGet = async (req: Request, preflightAuth?: StaffPortalAuthResult): Promise<NextResponse> => {
+  const authResult = preflightAuth ?? await authorizeStaffPortalRequest()
   if (!authResult.ok) {
-    const headers: Record<string, string> = {}
-    if (authResult.status === 503 && authResult.retryAfterSec) {
-      headers["Retry-After"] = String(authResult.retryAfterSec)
-    }
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers })
+    return buildStaffUsersAuthFailureResponse(authResult)
   }
 
   const requestUrl = new URL(req.url)
   const { query, categoryFilter } = parseStaffUsersGetFilters(requestUrl)
 
   const client = await clerkClient()
+  const degradedState = createHealthyStaffUsersState()
 
   let activeSessionUserIds = new Set<string>()
   try {
@@ -377,7 +509,12 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
         .map((session) => (typeof session.userId === "string" ? session.userId : ""))
         .filter((userId) => userId.length > 0)
     )
-  } catch {
+  } catch (error) {
+    markStaffUsersDegraded(
+      degradedState,
+      "Staff user presence is temporarily unavailable. Showing saved user rows.",
+      { retryAfterSec: isClerkRateLimitError(error) ? extractRetryAfterSec(error) : undefined, presenceUnavailable: true }
+    )
     activeSessionUserIds = new Set<string>()
   }
 
@@ -409,44 +546,42 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
   } catch (error) {
     if (isClerkRateLimitError(error)) {
       const retryAfterSec = extractRetryAfterSec(error)
-      return NextResponse.json(
-        { error: "Service temporarily busy. Please try again shortly." },
-        { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+      markStaffUsersDegraded(
+        degradedState,
+        "Staff user details are temporarily limited. Showing saved staff records.",
+        { retryAfterSec, presenceUnavailable: true }
       )
+      const accounts = await readStaffAccounts()
+      let fallbackList = accounts.map(toStaffListItemFromAccount).filter((item): item is StaffListItem => Boolean(item))
+      if (query) {
+        const normalizedQuery = query.toLowerCase()
+        fallbackList = fallbackList.filter((item) =>
+          [item.email, item.firstName, item.lastName].some((value) => value.toLowerCase().includes(normalizedQuery))
+        )
+      }
+      if (categoryFilter) fallbackList = fallbackList.filter((item) => item.category === categoryFilter)
+      fallbackList = fallbackList.sort((a, b) => b.createdAt - a.createdAt)
+      return buildStaffUsersResponse(fallbackList, degradedState, requestUrl)
     }
     if (isClerkTransientError(error)) {
-      return NextResponse.json(
-        { error: "Service temporarily unavailable. Please try again shortly." },
-        { status: 503, headers: { "Retry-After": "5" } }
+      markStaffUsersDegraded(
+        degradedState,
+        "Staff user details are temporarily unavailable. Showing saved staff records.",
+        { retryAfterSec: 5, presenceUnavailable: true }
       )
+      const accounts = await readStaffAccounts()
+      let fallbackList = accounts.map(toStaffListItemFromAccount).filter((item): item is StaffListItem => Boolean(item))
+      if (query) {
+        const normalizedQuery = query.toLowerCase()
+        fallbackList = fallbackList.filter((item) =>
+          [item.email, item.firstName, item.lastName].some((value) => value.toLowerCase().includes(normalizedQuery))
+        )
+      }
+      if (categoryFilter) fallbackList = fallbackList.filter((item) => item.category === categoryFilter)
+      fallbackList = fallbackList.sort((a, b) => b.createdAt - a.createdAt)
+      return buildStaffUsersResponse(fallbackList, degradedState, requestUrl)
     }
     throw error
-  }
-
-  // The DB StaffAccount is the source of truth for WHO is staff. Clerk's getUserList
-  // is capped at 100 and STUDENTS share the same Clerk user pool, so staff beyond that
-  // window (typically the oldest accounts, e.g. the owner) would silently vanish. Pull
-  // the roster once and fold in any staff missing from the Clerk page so every staff
-  // member always appears, regardless of how many student accounts exist.
-  const staffRoster = (await prisma.staffAccount.findMany({
-    select: { clerkUserId: true, role: true, category: true, paymentModelId: true },
-  })) as Array<{ clerkUserId: string; role: string; category: string | null; paymentModelId: string | null }>
-  const staffByClerkId = new Map(staffRoster.map((account) => [account.clerkUserId, account]))
-
-  if (!query) {
-    const fetchedIds = new Set(usersData.map((user) => user.id))
-    const missingStaffIds = staffRoster
-      .map((account) => account.clerkUserId)
-      .filter((id) => id && !fetchedIds.has(id))
-    for (const idChunk of chunkArray(missingStaffIds, 100)) {
-      try {
-        const extra = await client.users.getUserList({ userId: idChunk, limit: idChunk.length })
-        usersData = usersData.concat(extra.data)
-      } catch (error) {
-        if (isClerkRateLimitError(error) || isClerkTransientError(error)) break
-        throw error
-      }
-    }
   }
 
   const shouldForcePerUserSessionLookup = activeSessionUserIds.size === 0
@@ -454,31 +589,71 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
     .filter((user) => !activeSessionUserIds.has(user.id))
     .filter((user) => (shouldForcePerUserSessionLookup ? true : shouldVerifyUserActiveSession(user)))
 
-  if (verificationCandidates.length > 0) {
-    const batches = chunkArray(verificationCandidates, 10)
-    for (const batch of batches) {
-      await Promise.all(
-        batch.map(async (user) => {
-          try {
-            const sessions = await client.sessions.getSessionList({
-              userId: user.id,
-              status: "active",
-              limit: 1,
-            })
-            if (sessions.data.length > 0) {
-              activeSessionUserIds.add(user.id)
-            }
-          } catch {
-            // Ignore per-user session lookup failure and keep fallback presence logic.
-          }
+  if (verificationCandidates.length > MAX_PER_USER_SESSION_LOOKUPS) {
+    markStaffUsersDegraded(
+      degradedState,
+      "Staff user presence is temporarily limited. Showing saved user rows.",
+      { presenceUnavailable: true }
+    )
+  }
+
+  const cappedVerificationCandidates = verificationCandidates.slice(0, MAX_PER_USER_SESSION_LOOKUPS)
+
+  if (cappedVerificationCandidates.length > 0) {
+    const results = await Promise.allSettled(
+      cappedVerificationCandidates.map(async (user) => {
+        const sessions = await client.sessions.getSessionList({
+          userId: user.id,
+          status: "active",
+          limit: 1,
         })
+        if (sessions.data.length > 0) {
+          activeSessionUserIds.add(user.id)
+        }
+      })
+    )
+    const perUserSessionRetryAfterSec = results.reduce<number | undefined>((retryAfterSec, result) => {
+      if (result.status === "fulfilled" || !isClerkRateLimitError(result.reason)) return retryAfterSec
+      const candidateRetryAfterSec = extractRetryAfterSec(result.reason)
+      return retryAfterSec ? Math.max(retryAfterSec, candidateRetryAfterSec) : candidateRetryAfterSec
+    }, undefined)
+
+    if (results.some((result) => result.status === "rejected")) {
+      markStaffUsersDegraded(
+        degradedState,
+        "Staff user presence is temporarily unavailable. Showing saved user rows.",
+        { retryAfterSec: perUserSessionRetryAfterSec, presenceUnavailable: true }
       )
     }
   }
 
+  // The DB StaffAccount is the source of truth for WHO is staff. Clerk's getUserList
+  // is capped at 100 and STUDENTS share the same Clerk user pool, so staff beyond that
+  // window (typically the oldest accounts, e.g. the owner) would silently vanish from
+  // the panel. Read the roster once, then reuse it to (a) fold in staff missing from
+  // the Clerk page and (b) enrich paymentModelId — replacing the previous second query.
+  const staffRoster = await readStaffAccounts()
+  const rosterByClerkId = new Map(staffRoster.map((account) => [account.clerkUserId, account]))
+
   let list = usersData
-    .map((user) => toStaffListItem(user, activeSessionUserIds.has(user.id), staffByClerkId.get(user.id)))
+    .map((user) => toStaffListItem(user, activeSessionUserIds.has(user.id)))
     .filter((item): item is StaffListItem => Boolean(item))
+
+  // When not searching, fold in any staff missing from the Clerk page using the DB
+  // projection so every staff member always appears regardless of the student count.
+  // This also covers a staff member whose Clerk role metadata was dropped (their
+  // Clerk-derived row is filtered out above, then re-added here from the DB role).
+  if (!query) {
+    const listedIds = new Set(list.map((item) => item.id))
+    for (const account of staffRoster) {
+      if (!account.clerkUserId || listedIds.has(account.clerkUserId)) continue
+      const item = toStaffListItemFromAccount(account)
+      if (!item) continue
+      list.push(item)
+      listedIds.add(account.clerkUserId)
+    }
+  }
+
   if (categoryFilter) {
     list = list.filter((item) => item.category === categoryFilter)
   }
@@ -486,26 +661,10 @@ const executeStaffUsersGet = async (req: Request): Promise<NextResponse> => {
 
   list = list.map((item) => ({
     ...item,
-    paymentModelId: staffByClerkId.get(item.id)?.paymentModelId ?? null,
+    paymentModelId: rosterByClerkId.get(item.id)?.paymentModelId ?? null,
   }))
 
-  const response = NextResponse.json(
-    { items: list },
-    {
-      headers: {
-        "Cache-Control": "no-store, max-age=0",
-      },
-    }
-  )
-
-  // Store in short-lived cache for deduplication
-  const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
-  staffUsersCache.set(cacheKey, {
-    expiresAt: Date.now() + STAFF_USERS_CACHE_TTL_MS,
-    response: response.clone(),
-  })
-
-  return response
+  return buildStaffUsersResponse(list, degradedState, requestUrl)
 }
 
 export async function GET(req: Request) {
@@ -521,7 +680,12 @@ export async function GET(req: Request) {
     )
   }
 
-  // Check short-lived cache first (avoids redundant Clerk calls during rapid polling)
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return buildStaffUsersAuthFailureResponse(authResult)
+  }
+
+  // Check short-lived cache after backend auth/authorization succeeds.
   if (!shouldBypassStaffUsersCache()) {
     const requestUrl = new URL(req.url)
     const cacheKey = buildStaffUsersCacheKeyFromRequestUrl(requestUrl)
@@ -537,7 +701,7 @@ export async function GET(req: Request) {
       return existingInflight
     }
 
-    const pendingPromise = executeStaffUsersGet(req).finally(() => {
+    const pendingPromise = executeStaffUsersGet(req, authResult).finally(() => {
       inflightRequests.delete(cacheKey)
     })
 
@@ -546,26 +710,16 @@ export async function GET(req: Request) {
     return pendingPromise
   }
 
-  return executeStaffUsersGet(req)
+  return executeStaffUsersGet(req, authResult)
 }
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:users:post", getClientIp(req)),
-    limit: 60,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:users:post", limit: 60, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   let body: unknown
   try {

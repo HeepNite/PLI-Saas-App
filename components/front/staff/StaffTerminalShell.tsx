@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
+import { useKioskDeployRefresh } from "@/components/front/checkin/hooks/useKioskDeployRefresh"
 import { getEtHourMinute } from "@/lib/checkin/et-time"
 import { areAllClassesEnded } from "@/components/front/staff/CompletedClassesSelector"
 
@@ -32,6 +33,11 @@ type TodayClassItem = {
   coverImageUrl: string | null
 }
 
+type TodayClassSlot = {
+  item: TodayClassItem
+  time: string
+}
+
 const STUDIO_TZ = "America/New_York"
 
 function getStudioDateKey(date = new Date()): string {
@@ -53,16 +59,14 @@ function getMsUntilNextStudioDay(now = new Date()): number {
 
 // ─── Auto-rotation algorithm ──────────────────────────────────
 
-function computeCurrentSlug(now: Date, classes: TodayClassItem[]): string | null {
-  const slots = classes
-    .flatMap((item) => item.availableTimes.map((time) => ({ item, time })))
-    .sort((a, b) => a.time.localeCompare(b.time))
+function computeCurrentSlot(now: Date, slots: TodayClassSlot[]): TodayClassSlot | null {
   if (slots.length === 0) return null
 
   const { hour, minute } = getEtHourMinute(now)
   const nowMinutes = hour * 60 + minute
 
-  for (const { item, time } of slots) {
+  for (const slot of slots) {
+    const { item, time } = slot
     const [h, m] = time.split(":").map(Number)
     const startMinutes = h * 60 + m
     const duration = item.durationMinutes ?? 55
@@ -70,12 +74,12 @@ function computeCurrentSlug(now: Date, classes: TodayClassItem[]): string | null
     const rotationMinutes = endMinutes - 15 // rotate 15 min before end
 
     if (nowMinutes < rotationMinutes) {
-      return `${item.slug}|${time}`
+      return slot
     }
   }
 
   // All classes past rotation time → show the last one
-  return `${slots[slots.length - 1].item.slug}|${slots[slots.length - 1].time}`
+  return slots[slots.length - 1]
 }
 
 // ─── Test mode hook ───────────────────────────────────────────
@@ -147,7 +151,7 @@ export default function StaffTerminalShell({
 
   const [todayClasses, setTodayClasses] = useState<TodayClassItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [origin, setOrigin] = useState("")
+  const origin = typeof window !== "undefined" ? window.location.origin : ""
 
   const fetchDateKeyRef = React.useRef<string | null>(null)
 
@@ -171,12 +175,6 @@ export default function StaffTerminalShell({
   useEffect(() => {
     void fetchTodayClasses()
   }, [fetchTodayClasses])
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setOrigin(window.location.origin)
-    }
-  }, [])
 
   // Re-fetch when the day changes (single timeout to next midnight ET) + on wake from sleep
   useEffect(() => {
@@ -215,36 +213,49 @@ export default function StaffTerminalShell({
     return simulatedNow ?? new Date()
   }, [simulatedNow, tick])
 
-  // ─── Deferred slug computation (rotation guard) ─────────────
-  // Compute the target slug every tick, but only apply it when no
-  // active flow is in progress inside CheckInQrClient.
-  const computedSlug = useMemo(
-    () => computeCurrentSlug(effectiveNow, todayClasses),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [todayClasses, effectiveNow, tick]
+  const classSlots = useMemo(
+    () => todayClasses
+      .flatMap((item) => item.availableTimes.map((time) => ({ item, time })))
+      .sort((a, b) => a.time.localeCompare(b.time)),
+    [todayClasses]
   )
 
-  const [currentSlug, setCurrentSlug] = useState<string | null>(computedSlug)
-  const pendingSlugRef = React.useRef<string | null>(null)
+  // ─── Deferred slot computation (rotation guard) ─────────────
+  // Compute the target slot every tick, but only apply it when no
+  // active flow is in progress inside CheckInQrClient.
+  const computedSlot = useMemo(
+    () => computeCurrentSlot(effectiveNow, classSlots),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [classSlots, effectiveNow, tick]
+  )
+
+  const [currentSlot, setCurrentSlot] = useState<TodayClassSlot | null>(computedSlot)
+  const pendingSlotRef = React.useRef<TodayClassSlot | null | undefined>(undefined)
   const flowActiveRef = React.useRef(false)
 
-  // Apply computed slug immediately or defer if flow is active
+  // Apply computed slot immediately or defer if flow is active
   useEffect(() => {
     if (!flowActiveRef.current) {
-      setCurrentSlug(computedSlug)
+      setCurrentSlot(computedSlot)
     } else {
-      pendingSlugRef.current = computedSlug
+      pendingSlotRef.current = computedSlot
     }
-  }, [computedSlug])
+  }, [computedSlot])
 
   // Callback passed to CheckInQrClient to track active flow state
   const handleFlowActiveChange = React.useCallback((active: boolean) => {
     flowActiveRef.current = active
-    if (!active && pendingSlugRef.current !== null) {
-      setCurrentSlug(pendingSlugRef.current)
-      pendingSlugRef.current = null
+    if (!active && pendingSlotRef.current !== undefined) {
+      setCurrentSlot(pendingSlotRef.current)
+      pendingSlotRef.current = undefined
     }
   }, [])
+
+  // Auto-reload on new deploy: the 24/7 kiosk otherwise keeps a stale bundle.
+  // flowActiveRef mirrors hasTerminalSensitiveCustomerState (via
+  // onFlowActiveChange), so the reload only happens while the kiosk is idle.
+  const isFlowActive = React.useCallback(() => flowActiveRef.current, [])
+  useKioskDeployRefresh({ enabled: true, isFlowActive })
 
   const [selectedCompletedClass, setSelectedCompletedClass] = React.useState<CompletedClassSelection | null>(null)
   const allClassesEnded = useMemo(
@@ -254,10 +265,9 @@ export default function StaffTerminalShell({
   )
 
   const terminalPastClasses = useMemo(
-    () => todayClasses.flatMap((cls) => {
+    () => classSlots.map(({ item: cls, time }) => {
       const date = fetchDateKeyRef.current ?? getStudioDateKey(effectiveNow)
-      const times = cls.availableTimes.length ? cls.availableTimes : []
-      return times.map((time) => ({
+      return {
         courseSlug: cls.slug,
         title: cls.title,
         date,
@@ -267,23 +277,17 @@ export default function StaffTerminalShell({
         category: cls.category,
         imageUrl: cls.coverImageUrl,
         qrImageUrl: buildCheckInQrImageUrl({ origin, courseSlug: cls.slug, date, time, durationMinutes: cls.durationMinutes ?? 60 }),
-      }))
+      }
     }),
-    [effectiveNow, origin, todayClasses]
+    [classSlots, effectiveNow, origin]
   )
 
-  const activeCompletedClass = selectedCompletedClass
-    ? terminalPastClasses.find((item) =>
-        item.courseSlug === selectedCompletedClass.courseSlug && item.time === selectedCompletedClass.time
-      ) ?? null
-    : terminalPastClasses[0] ?? null
-  const [currentCourseSlug, currentClassTime] = currentSlug?.split("|") ?? []
-  const primaryTerminalClass = currentSlug
-    ? terminalPastClasses.find((item) => item.courseSlug === currentCourseSlug && item.time === currentClassTime) ?? null
-    : null
-  const previousTerminalClasses = primaryTerminalClass
-    ? terminalPastClasses.filter((item) => item.time < primaryTerminalClass.time)
+  const currentSlotIndex = currentSlot ? classSlots.indexOf(currentSlot) : -1
+  const rotatedPastClasses = currentSlotIndex > 0
+    ? terminalPastClasses.slice(0, currentSlotIndex)
     : []
+
+  const activeCompletedClass = selectedCompletedClass ?? terminalPastClasses[0] ?? null
 
   // Loading state
   if (loading) {
@@ -297,17 +301,17 @@ export default function StaffTerminalShell({
   // After-hours: keep the SAME terminal layout. The left column becomes a
   // Past Courses list; center/right stay as Continue Here + QR.
   if (allClassesEnded && activeCompletedClass) {
+    const selectedDate = fetchDateKeyRef.current ?? getStudioDateKey(effectiveNow)
     return (
       <div className="relative h-screen">
         <CheckInQrClient
-          key={`completed-${activeCompletedClass.date}-${activeCompletedClass.courseSlug}-${activeCompletedClass.time}`}
+          key={`completed-${activeCompletedClass.courseSlug}-${activeCompletedClass.time}`}
           forcedDeviceMode="station"
           forcedCourseSlug={activeCompletedClass.courseSlug}
           forcedClassContext={{
             courseSlug: activeCompletedClass.courseSlug,
-            date: activeCompletedClass.date,
+            date: selectedDate,
             time: activeCompletedClass.time,
-            durationMinutes: activeCompletedClass.durationMinutes ?? 60,
           }}
           shellVariant="terminal"
           terminalName={terminal.name}
@@ -342,28 +346,28 @@ export default function StaffTerminalShell({
     )
   }
 
-  // Auto-rotated class — CheckInQrClient remounts when slug changes
-  if (currentSlug) {
+  // Auto-rotated class — CheckInQrClient remounts when the slot changes
+  if (currentSlot) {
+    const currentSlug = currentSlot.item.slug
+    const currentDate = fetchDateKeyRef.current ?? getStudioDateKey(effectiveNow)
     return (
       <div className="relative h-screen">
         <CheckInQrClient
-          key={primaryTerminalClass
-            ? `${primaryTerminalClass.date}-${primaryTerminalClass.courseSlug}-${primaryTerminalClass.time}`
-            : currentSlug}
+          key={`${currentSlug}-${currentSlot.time}`}
           forcedDeviceMode="station"
-          forcedCourseSlug={currentCourseSlug}
-          forcedClassContext={primaryTerminalClass ? {
-            courseSlug: primaryTerminalClass.courseSlug,
-            date: primaryTerminalClass.date,
-            time: primaryTerminalClass.time,
-            durationMinutes: primaryTerminalClass.durationMinutes ?? 60,
-          } : undefined}
+          forcedCourseSlug={currentSlug}
+          forcedClassContext={{
+            courseSlug: currentSlug,
+            date: currentDate,
+            time: currentSlot.time,
+            durationMinutes: currentSlot.item.durationMinutes ?? 55,
+          }}
           shellVariant="terminal"
           terminalName={terminal.name}
           terminalLocation={terminal.location || ""}
           qrPathOverride="/checkin"
-          selectedCourseSlug={currentCourseSlug}
-          terminalPastClasses={previousTerminalClasses}
+          selectedCourseSlug={currentSlug}
+          terminalPastClasses={rotatedPastClasses}
           simulatedNowTick={simulatedNow ?? undefined}
           onFlowActiveChange={handleFlowActiveChange}
         />
@@ -372,12 +376,10 @@ export default function StaffTerminalShell({
         {testModeEnabled && simulatedNow && (
           <div className="absolute right-4 top-4 z-50 rounded bg-black/60 p-2 text-xs text-white">
             <div>TEST MODE — Simulated time: {pad(simulatedNow.getHours())}:{pad(simulatedNow.getMinutes())}</div>
-            <div>Current class: {currentCourseSlug}</div>
+            <div>Current class: {currentSlug}</div>
             {(() => {
-              const cls = todayClasses.find((c) => c.slug === currentCourseSlug)
-              if (!cls) return null
-              const start = currentClassTime
-              if (!start) return null
+              const cls = currentSlot.item
+              const start = currentSlot.time
               const [h, m] = start.split(":").map(Number)
               const dur = cls.durationMinutes ?? 55
               const rotMin = h * 60 + m + dur - 15

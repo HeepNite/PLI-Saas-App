@@ -40,8 +40,8 @@ interface CourseCardPanelProps {
   terminalPastClasses?: TerminalPastClass[]
   selectedTerminalPastClass?: { courseSlug: string; time: string } | null
   onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
-  onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
-  onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
+  onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+  onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   compact?: boolean
   actionSlot?: React.ReactNode
 }
@@ -73,14 +73,13 @@ export function CourseCardPanel({
     if (compact && actionSlot) {
       return (
         <div className="mx-[1.25rem] my-0 mt-3 rounded-2xl border border-white/15 bg-white/[0.02] p-4 lg:p-5">
-          {showPastCourses && selectedTerminalPastClass ? (
+          {showPastCourses ? (
             <PastCoursesList
               classes={terminalPastClasses || []}
               onExistingClick={onExistingClick}
               onNewClick={onNewClick}
             />
           ) : (
-          <>
           <div
             className="grid items-start"
             style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
@@ -107,16 +106,6 @@ export function CourseCardPanel({
               <QrSection qrImage={qrImage} compact={compact} />
             </div>
           </div>
-          {showPastCourses ? (
-            <div className="mt-4 border-t border-white/10 pt-4">
-              <PastCoursesList
-                classes={terminalPastClasses || []}
-                onExistingClick={onExistingClick}
-                onNewClick={onNewClick}
-              />
-            </div>
-          ) : null}
-          </>
           )}
         </div>
       )
@@ -187,8 +176,8 @@ function PastCoursesList({
   onNewClick,
 }: {
   classes: TerminalPastClass[]
-  onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
-  onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
+  onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
+  onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
 }) {
   return (
     <div className="flex h-full min-h-full flex-col">
@@ -199,12 +188,7 @@ function PastCoursesList({
       </div>
       <div className="flex flex-col gap-4">
         {classes.map((item) => {
-          const context = {
-            courseSlug: item.courseSlug,
-            date: item.date,
-            time: item.time,
-            durationMinutes: item.durationMinutes ?? 60,
-          }
+          const context = { courseSlug: item.courseSlug, date: item.date, time: item.time }
           return (
             <div
               key={`${item.courseSlug}-${item.time}`}

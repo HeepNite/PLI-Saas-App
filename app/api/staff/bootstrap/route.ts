@@ -3,28 +3,18 @@ import { clerkClient } from "@clerk/nextjs/server"
 import { authorizeStaffPortalBaseRequest, hasAnyStaffAdmin } from "@/lib/security/staff-portal-auth"
 import { applyStaffRoleToMetadata, extractStaffRoleFromUserMetadata, isStaffAdminRole } from "@/lib/security/staff-role"
 import { applyStaffCategoryToMetadata } from "@/lib/security/staff-category"
-import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { createStaffRoleAudit, extractStaffRoleSnapshot, syncStaffAccountFromClerkUser } from "@/lib/security/staff-account-sync"
 
 export const runtime = "nodejs"
 
 export async function POST(req: Request) {
-  const rateLimit = consumeRateLimit({
-    key: buildRateLimitKey("staff:bootstrap:post", getClientIp(req)),
-    limit: 20,
-    windowMs: 60_000,
+  const guard = await withStaffGuard(req, {
+    rateLimit: { scope: "staff:bootstrap:post", limit: 20, windowMs: 60_000 },
+    authorize: () => authorizeStaffPortalBaseRequest(),
   })
-  if (!rateLimit.ok) {
-    return NextResponse.json(
-      { error: "Too many requests. Please try again in a moment." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
-    )
-  }
-
-  const authResult = await authorizeStaffPortalBaseRequest()
-  if (!authResult.ok) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
-  }
+  if (!guard.ok) return guard.response
+  const authResult = guard.auth
 
   if (isStaffAdminRole(authResult.role)) {
     return NextResponse.json({ ok: true, mode: "already_admin", role: authResult.role })

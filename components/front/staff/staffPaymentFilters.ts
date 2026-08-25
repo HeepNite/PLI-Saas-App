@@ -47,6 +47,8 @@ export const matchesStripeStatus = (
   row: {
     classPaid: PaymentRow["classPaid"]
     purchaseCategory: PaymentRow["purchaseCategory"]
+    paymentChannel?: PaymentRow["paymentChannel"]
+    settlementStatus?: PaymentRow["settlementStatus"]
     fundingPayment?: PaymentRow["fundingPayment"]
     checkInStatus?: PaymentRow["checkInStatus"]
     packageId?: PaymentRow["packageId"]
@@ -54,6 +56,9 @@ export const matchesStripeStatus = (
   filter: "all" | "pending" | "paid"
 ) => {
   if (filter === "all") return true
+  if (row.paymentChannel === "cash") {
+    return filter === "paid" ? row.settlementStatus === "paid" : row.settlementStatus !== "paid"
+  }
   if (filter === "paid") return isPaymentPaidForUi(row)
   return !isPaymentPaidForUi(row)
 }

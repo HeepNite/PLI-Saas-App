@@ -48,7 +48,6 @@ model User {
 model StudentRecoveryDraft {
   id             String   @id @default(cuid())
   codeHash       String?  @unique
-  recoveryCodeNamespace Int @default(0)
   correlationId  String   @unique
   phone          String?
   email          String?

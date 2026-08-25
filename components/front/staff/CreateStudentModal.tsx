@@ -42,11 +42,16 @@ export default function CreateStudentModal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-labelledby="create-student-title" className="relative z-10 w-full max-w-md rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-student-dialog-title"
+        className="relative z-10 w-full max-w-md rounded-2xl border border-white/15 bg-[#1a1d2e] p-5 shadow-2xl"
+      >
         <header className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-[var(--brand,#b61616)]" />
-            <h2 id="create-student-title" className="text-lg font-semibold text-white">New student</h2>
+            <h2 id="create-student-dialog-title" className="text-lg font-semibold text-white">New student</h2>
           </div>
           <button
             type="button"
@@ -192,50 +197,11 @@ function FormView({
         value={form.email}
         onChange={(v) => onUpdateField("email", v)}
       />
-
-      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <label className="block space-y-1" htmlFor="student-package-plan">
-          <span className="text-xs font-medium text-white/75">Package (optional)</span>
-          <select
-            id="student-package-plan"
-            value={form.packagePlanId}
-            disabled={packagePlansLoading}
-            onChange={(event) => onUpdateField("packagePlanId", event.target.value)}
-            className="w-full rounded-xl border border-white/15 bg-white/5 p-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <option value="">No package</option>
-            {packagePlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.label} · {formatAmount(plan.priceCents)}</option>)}
-          </select>
-        </label>
-        {packagePlansLoading && <p className="text-xs text-white/60" role="status">Loading available packages...</p>}
-        {form.packagePlanId && (
-          <>
-            <p className="text-xs text-white/70">Selected: {packagePlans.find((plan) => plan.id === form.packagePlanId)?.label} · {formatAmount(packagePlans.find((plan) => plan.id === form.packagePlanId)?.priceCents ?? null)}</p>
-            <FieldInput label="Package reason" type="text" placeholder="Reason for this package" value={form.packageReason} onChange={(value) => onUpdateField("packageReason", value)} required />
-          </>
-        )}
-      </div>
-
-      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <label className="flex items-center gap-2 text-xs text-white/75">
-          <input type="checkbox" checked={form.createAttendance} onChange={(event) => onUpdateField("createAttendance", event.target.checked)} />
-          Create class check-in
-        </label>
-        {form.createAttendance && (
-          <>
-            <FieldInput label="Check-in date" type="date" placeholder="YYYY-MM-DD" value={form.attendanceDate} onChange={(value) => onUpdateField("attendanceDate", value)} min={attendanceDateBounds.minimum} max={attendanceDateBounds.maximum} />
-            <select value={form.attendanceSessionId} onChange={(event) => onUpdateField("attendanceSessionId", event.target.value)} className="w-full rounded-xl border border-white/15 bg-white/5 p-2 text-sm text-white">
-              <option value="">Select a class session</option>
-              {attendanceSessions.map((session) => <option key={session.id} value={session.id}>{session.title} · {new Date(session.startsAt).toLocaleString()}</option>)}
-            </select>
-          </>
-        )}
-      </div>
       <FieldInput
-        label="Phone (E.164)"
+        label="Phone"
         icon={<Phone className="h-4 w-4" />}
         type="tel"
-        placeholder="+1 555 123 4567"
+        placeholder="1 555 123 4567"
         value={form.phone}
         onChange={(v) => onUpdateField("phone", v)}
       />
@@ -288,6 +254,80 @@ function FormView({
         onChange={(v) => onUpdateField("note", v)}
       />
 
+      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <label className="block space-y-1" htmlFor="student-package-plan">
+          <span className="text-xs font-medium text-white/75">Package (optional)</span>
+          <select
+            id="student-package-plan"
+            value={form.packagePlanId}
+            disabled={packagePlansLoading}
+            onChange={(event) => onUpdateField("packagePlanId", event.target.value)}
+            className="w-full rounded-xl border border-white/15 bg-white/5 p-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="">No package</option>
+            {packagePlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.label} · {formatAmount(plan.priceCents)}</option>)}
+          </select>
+        </label>
+        {packagePlansLoading && <p className="text-xs text-white/60" role="status">Loading available packages...</p>}
+        {form.packagePlanId && (
+          <>
+            <p className="text-xs text-white/70">Selected: {packagePlans.find((plan) => plan.id === form.packagePlanId)?.label} · {formatAmount(packagePlans.find((plan) => plan.id === form.packagePlanId)?.priceCents ?? null)}</p>
+            <FieldInput label="Package reason" type="text" placeholder="Reason for this package" value={form.packageReason} onChange={(value) => onUpdateField("packageReason", value)} required />
+          </>
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <label className="flex items-start gap-2 text-xs text-white/75">
+          <input
+            type="checkbox"
+            checked={form.createAttendance}
+            onChange={(e) => onUpdateField("createAttendance", e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="block font-medium text-white/85">Create class check-in</span>
+            <span className="text-white/50">Use this when the new student is physically present for class.</span>
+          </span>
+        </label>
+
+        {form.createAttendance && (
+          <div className="space-y-2">
+            <FieldInput
+              label="Check-in date"
+              type="date"
+              placeholder="YYYY-MM-DD"
+              value={form.attendanceDate}
+              onChange={(v) => onUpdateField("attendanceDate", v)}
+              min={attendanceDateBounds.minimum}
+              max={attendanceDateBounds.maximum}
+            />
+            <label className="block text-xs font-medium text-white/70" htmlFor="create-student-session">
+              Class session
+            </label>
+            <select
+              id="create-student-session"
+              value={form.attendanceSessionId}
+              onChange={(e) => onUpdateField("attendanceSessionId", e.target.value)}
+              className="w-full rounded-lg border border-white/12 bg-black/20 px-3 py-2 text-sm text-white outline-none transition focus:border-[var(--brand,#b61616)]"
+            >
+              <option value="">Select a class session</option>
+              {attendanceSessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {formatSessionOption(session)}
+                </option>
+              ))}
+            </select>
+            {attendanceSessions.length === 0 && (
+              <p className="text-[11px] text-amber-300">No class sessions are scheduled for this date. Choose another date or turn off check-in.</p>
+            )}
+            {!form.attendanceSessionId && (
+              <p className="text-[11px] text-amber-300">Select a class session or turn off check-in to create the student.</p>
+            )}
+          </div>
+        )}
+      </div>
+
       {error && (
         <div className="flex items-start gap-2 rounded-lg bg-red-500/15 border border-red-500/30 p-2.5 text-xs text-red-300">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -321,6 +361,14 @@ function FormView({
       )}
     </form>
   )
+}
+
+function formatSessionOption(session: CreateStudentSessionOption) {
+  const startsAt = new Date(session.startsAt)
+  const dateLabel = Number.isNaN(startsAt.getTime())
+    ? session.startsAt
+    : startsAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+  return `${session.isCurrent ? "Current · " : ""}${session.title || session.courseSlug} · ${dateLabel}`
 }
 
 function RecoveryDialog({
@@ -370,7 +418,7 @@ function RecoveryDialog({
         <header className="flex items-start justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-white">SMS recovery</h3>
-            <p className="mt-1 text-xs leading-5 text-white/70">Enter the student&apos;s `PLI-1234` or `PLI-1-1234` code to review their identity. The code alone cannot create or verify an account.</p>
+            <p className="mt-1 text-xs leading-5 text-white/70">Enter the student&apos;s `PLI-1234` code to review their identity. The code alone cannot create or verify an account.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1 text-white/50 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Close SMS recovery dialog"><X className="h-5 w-5" /></button>
         </header>
@@ -378,7 +426,7 @@ function RecoveryDialog({
           <div className="mt-4 space-y-3">
             <label className="block space-y-1" htmlFor="student-recovery-code">
               <span className="text-xs font-medium text-white/70">Recovery code</span>
-              <input ref={codeInputRef} id="student-recovery-code" aria-label="Recovery code" value={recoveryCode} onChange={(event) => onCodeChange(event.target.value)} placeholder="PLI-1234 or PLI-1-1234" className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-200 focus:ring-2 focus:ring-amber-200/30" />
+              <input ref={codeInputRef} id="student-recovery-code" aria-label="Recovery code" value={recoveryCode} onChange={(event) => onCodeChange(event.target.value)} placeholder="PLI-1234" className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-200 focus:ring-2 focus:ring-amber-200/30" />
             </label>
             <button type="button" onClick={onLookup} disabled={recoveryBusy || !recoveryCode.trim()} className="w-full rounded-xl border border-amber-300/40 px-3 py-2 text-sm font-medium text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-50">{recoveryBusy ? "Reviewing..." : "Review code"}</button>
           </div>
@@ -499,6 +547,10 @@ function FieldInput({
   )
 }
 
+function formatAmount(priceCents: number | null) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((priceCents ?? 0) / 100)
+}
+
 function PaymentModeButton({
   icon,
   label,
@@ -516,6 +568,7 @@ function PaymentModeButton({
     <button
       type="button"
       onClick={onSelect}
+      aria-pressed={selected}
       className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition ${
         selected
           ? "border-[var(--brand,#b61616)]/60 bg-[var(--brand,#b61616)]/15 text-white"
@@ -527,8 +580,4 @@ function PaymentModeButton({
       {label}
     </button>
   )
-}
-
-function formatAmount(priceCents: number | null) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((priceCents ?? 0) / 100)
 }

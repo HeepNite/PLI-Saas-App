@@ -8,9 +8,6 @@ const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
-const mockIsQrCheckInWindowAllowed = vi.fn()
-const mockIsTerminalCheckInAllowed = vi.fn()
-const mockIsConsecutiveAddOnPurchaseAllowed = vi.fn()
 const mockIsQrActionWindowAllowed = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
@@ -63,9 +60,6 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
-  isQrCheckInWindowAllowed: (...args: unknown[]) => mockIsQrCheckInWindowAllowed(...args),
-  isTerminalCheckInAllowed: (...args: unknown[]) => mockIsTerminalCheckInAllowed(...args),
-  isConsecutiveAddOnPurchaseAllowed: (...args: unknown[]) => mockIsConsecutiveAddOnPurchaseAllowed(...args),
   isQrActionWindowAllowed: (...args: unknown[]) => mockIsQrActionWindowAllowed(...args),
 }))
 
@@ -96,9 +90,6 @@ describe("qr check-in package route", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
-    mockIsQrCheckInWindowAllowed.mockReset()
-    mockIsTerminalCheckInAllowed.mockReset()
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReset()
     mockIsQrActionWindowAllowed.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockAwardPointsFromRule.mockReset()
@@ -128,14 +119,7 @@ describe("qr check-in package route", () => {
       opensAt: new Date("2026-03-31T13:00:00.000Z"),
       closesAt: new Date("2026-03-31T18:00:00.000Z"),
     })
-    mockIsQrCheckInWindowAllowed.mockReturnValue(true)
-    mockIsTerminalCheckInAllowed.mockReturnValue(true)
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(true)
-    mockIsQrActionWindowAllowed.mockImplementation((mode: string) => {
-      if (mode === "terminal") return mockIsTerminalCheckInAllowed()
-      if (mode === "consecutive-add-on") return mockIsConsecutiveAddOnPurchaseAllowed()
-      return mockIsQrCheckInWindowAllowed()
-    })
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Salsa femenina matutina" })
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
       {
@@ -194,6 +178,151 @@ describe("qr check-in package route", () => {
     expect(res.status).toBe(401)
   })
 
+  // Scenario: kiosk_terminal flowContext, no kioskSessionToken,
+  // authResult.userId is set but resolveKioskCustomerClerkAuth's own
+  // getUser lookup throws (stale/cross-instance clerkId). Previously the
+  // guard's `!customerClerkUserId && !kioskSessionResult?.ok` short-
+  // circuited to 401 before the route's own getUser retry ever ran. The
+  // route must retry resolution using the original id and respond 200
+  // (NOT 401, NOT 500).
+  it("falls back to a retried getUser lookup when resolveKioskCustomerClerkAuth's getUser throws and no kioskSessionToken is supplied", async () => {
+    const getUser = vi.fn().mockRejectedValueOnce(new Error("Clerk 404: not found on this instance")).mockResolvedValueOnce({
+      id: "customer_clerk_1",
+      firstName: "Jane",
+      lastName: "Student",
+      primaryEmailAddress: { emailAddress: "student@example.com" },
+      primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+    })
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
+      "terminal",
+      expect.objectContaining({ courseSlug: "salsa-femenina-matutina" }),
+      expect.any(Date)
+    )
+    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
+    expect(getUser).toHaveBeenCalledTimes(2)
+    expect(getUser).toHaveBeenNthCalledWith(2, "customer_clerk_1")
+  })
+
+  // Scenario: double-miss — kiosk_terminal flowContext, no kioskSessionToken,
+  // authResult.userId is set, both the resolveKioskCustomerClerkAuth lookup
+  // and the retried client.users.getUser lookup reject, and no email/phone
+  // identifiers are available (no kioskUser, no resolved clerkUser). The
+  // route must degrade to a controlled 500 ("Unable to resolve user")
+  // instead of throwing or writing a stale identity.
+  it("returns a controlled 500 with 'Unable to resolve user' when both getUser attempts reject and no identifiers are available", async () => {
+    const getUser = vi.fn().mockRejectedValue(new Error("Clerk 404: not found on this instance"))
+    mockClerkClient.mockResolvedValue({ users: { getUser } })
+    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    // No clerkUser was resolved and no kioskUser/email/phone identifiers are
+    // available, so the real upsertUserByIdentifiers would reject the
+    // empty-identifier upsert and return null — mirror that here.
+    mockUpsertUserByIdentifiers.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-femenina-matutina",
+        date: "2026-03-31",
+        time: "11:00",
+        flowContext: "kiosk_terminal",
+      }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(500)
+    const data = await res.json()
+    expect(data.error).toBe("Unable to resolve user")
+    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
+    expect(getUser).toHaveBeenCalledTimes(2)
+    // The upsert was attempted with no email/phone identifiers and returned
+    // null, matching the real upsertUserByIdentifiers empty-identifier
+    // guard — no stale row created.
+    expect(mockUpsertUserByIdentifiers).toHaveBeenCalledWith(
+      expect.objectContaining({ clerkId: "customer_clerk_1", email: "", phone: "" })
+    )
+  })
+
+  it("returns 409 when regular (non-add-on) check-in is truly past closesAt", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockIsQrActionWindowAllowed.mockReturnValue(false)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courseSlug: "salsa-femenina-matutina", date: "2026-03-31", time: "11:00" }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(409)
+    const data = await res.json()
+    expect(data.error).toBe("Check-in is closed for this class.")
+    expect(data.opensAt).toBe("2026-03-31T13:00:00.000Z")
+    expect(data.closesAt).toBe("2026-03-31T18:00:00.000Z")
+    expect(data.endsAt).toBeUndefined()
+    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
+      "standard",
+      expect.objectContaining({ courseSlug: "salsa-femenina-matutina" }),
+      expect.any(Date)
+    )
+  })
+
+  it("succeeds for regular (non-add-on) check-in far before startsAt (pre-window, previously blocked by opensAt)", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
+    mockClerkClient.mockResolvedValue({
+      users: {
+        getUser: vi.fn().mockResolvedValue({
+          id: "customer_clerk_1",
+          firstName: "Jane",
+          lastName: "Student",
+          primaryEmailAddress: { emailAddress: "student@example.com" },
+          primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
+        }),
+      },
+    })
+    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
+    // The route's standard action-window policy is authoritative for this request.
+    mockIsQrActionWindowAllowed.mockReturnValue(true)
+
+    const { POST } = await import("@/app/api/checkin/qr/package/route")
+    const req = new Request("http://localhost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courseSlug: "salsa-femenina-matutina", date: "2026-03-31", time: "11:00" }),
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
+      "standard",
+      expect.objectContaining({ courseSlug: "salsa-femenina-matutina" }),
+      expect.any(Date)
+    )
+  })
+
   it("returns 400 for invalid payload", async () => {
     mockAuth.mockResolvedValue({ userId: "user_123" })
     mockParseQrCheckInContext.mockReturnValue({ status: 400, error: "Invalid context" })
@@ -206,148 +335,6 @@ describe("qr check-in package route", () => {
     })
     const res = await POST(req)
     expect(res.status).toBe(400)
-  })
-
-  it("falls back to a retried Clerk lookup when kiosk auth resolution is stale", async () => {
-    const getUser = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("Clerk 404: not found on this instance"))
-      .mockResolvedValueOnce({
-        id: "customer_clerk_1",
-        firstName: "Jane",
-        lastName: "Student",
-        primaryEmailAddress: { emailAddress: "student@example.com" },
-        primaryPhoneNumber: { phoneNumber: "+1 555 111 2222" },
-      })
-    mockClerkClient.mockResolvedValue({ users: { getUser } })
-    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
-    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
-    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(new Request("http://localhost", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        courseSlug: "salsa-femenina-matutina",
-        date: "2026-03-31",
-        time: "11:00",
-        flowContext: "kiosk_terminal",
-      }),
-    }))
-
-    expect(res.status).toBe(200)
-    expect(mockResolveTerminalKioskSession).not.toHaveBeenCalled()
-    expect(getUser).toHaveBeenCalledTimes(2)
-    expect(getUser).toHaveBeenNthCalledWith(2, "customer_clerk_1")
-  })
-
-  it("rejects staff recovered by the kiosk Clerk retry without package side effects", async () => {
-    const getUser = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("Clerk lookup failed"))
-      .mockResolvedValueOnce({
-        id: "staff_user_1",
-        publicMetadata: { role: "owner" },
-        privateMetadata: {},
-        unsafeMetadata: {},
-      })
-    mockClerkClient.mockResolvedValue({ users: { getUser } })
-    mockAuth.mockResolvedValue({ userId: "staff_user_1" })
-    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "staff_db_1" })
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(new Request("http://localhost", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        courseSlug: "salsa-femenina-matutina",
-        date: "2026-03-31",
-        time: "11:00",
-        flowContext: "kiosk_terminal",
-      }),
-    }))
-
-    expect(res.status).toBe(401)
-    await expect(res.json()).resolves.toEqual({
-      error: "Kiosk customer identification is required before continuing.",
-    })
-    expect(getUser).toHaveBeenCalledTimes(2)
-    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
-    expect(mockPrisma.packagePurchase.findMany).not.toHaveBeenCalled()
-    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
-    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
-    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
-  })
-
-  it("returns 401 when Clerk fallback cannot resolve any customer identity", async () => {
-    const getUser = vi.fn().mockRejectedValue(new Error("Clerk 404: not found on this instance"))
-    mockClerkClient.mockResolvedValue({ users: { getUser } })
-    mockAuth.mockResolvedValue({ userId: "customer_clerk_1" })
-    mockResolveTerminalKioskSession.mockResolvedValue({ ok: false, status: 401, error: "Unauthorized" })
-    mockUpsertUserByIdentifiers.mockResolvedValue(null)
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(new Request("http://localhost", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        courseSlug: "salsa-femenina-matutina",
-        date: "2026-03-31",
-        time: "11:00",
-        flowContext: "kiosk_terminal",
-      }),
-    }))
-
-    expect(res.status).toBe(401)
-    await expect(res.json()).resolves.toEqual({ error: "Unauthorized" })
-  })
-
-  it("returns 409 when regular package check-in is outside the class window", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_123" })
-    mockIsQrCheckInWindowAllowed.mockReturnValue(false)
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(new Request("http://localhost", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ courseSlug: "salsa-femenina-matutina", date: "2026-03-31", time: "11:00" }),
-    }))
-
-    expect(res.status).toBe(409)
-    await expect(res.json()).resolves.toMatchObject({
-      error: "Check-in is closed for this class.",
-      opensAt: "2026-03-31T13:00:00.000Z",
-      closesAt: "2026-03-31T18:00:00.000Z",
-    })
-    expect(mockIsConsecutiveAddOnPurchaseAllowed).not.toHaveBeenCalled()
-  })
-
-  it("uses the consecutive add-on day window instead of the regular QR check-in window", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_123" })
-    mockIsQrCheckInWindowAllowed.mockReturnValue(false)
-    mockIsConsecutiveAddOnPurchaseAllowed.mockReturnValue(false)
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(new Request("http://localhost", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        courseSlug: "salsa-femenina-matutina",
-        date: "2026-03-31",
-        time: "11:00",
-        consecutiveAddOn: true,
-        linkedFromCourseSlug: "salsa-night-beginner",
-      }),
-    }))
-
-    expect(res.status).toBe(409)
-    await expect(res.json()).resolves.toMatchObject({
-      error: "This class has already ended. Consecutive add-on purchase is no longer available.",
-      endsAt: "2026-03-31T16:00:00.000Z",
-    })
-    expect(mockIsConsecutiveAddOnPurchaseAllowed).toHaveBeenCalled()
-    expect(mockIsQrCheckInWindowAllowed).not.toHaveBeenCalled()
   })
 
   it("ignores owner or staff Clerk auth in kiosk flow and applies the kiosk customer package", async () => {

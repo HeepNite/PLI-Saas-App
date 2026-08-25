@@ -69,20 +69,21 @@ describe("staff access helpers", () => {
   })
 
   describe("canGrantCashPackage", () => {
-    it("allows staff roles except teachers", () => {
+    it("allows owner/admin and permitted staff categories", () => {
       expect(canGrantCashPackage("owner", "manager")).toBe(true)
       expect(canGrantCashPackage("admin", "manager")).toBe(true)
       expect(canGrantCashPackage("staff", "front_desk")).toBe(true)
       expect(canGrantCashPackage("staff", "manager")).toBe(true)
+      expect(canGrantCashPackage("staff", "partner")).toBe(true)
     })
 
-    it("denies legacy and normalized teacher classifications and unknown roles", () => {
+    it("denies teachers and unknown roles", () => {
       expect(canGrantCashPackage("staff", "teacher")).toBe(false)
       expect(canGrantCashPackage("staff", "guest", "teacher")).toBe(false)
       expect(canGrantCashPackage(null, "front_desk")).toBe(false)
     })
 
-    it("denies staff whose classification cannot prove they are non-teaching", () => {
+    it("denies staff whose classification cannot prove they may grant", () => {
       expect(canGrantCashPackage("staff", null)).toBe(false)
       expect(canGrantCashPackage("staff", undefined)).toBe(false)
       expect(canGrantCashPackage("staff", "guest", null)).toBe(false)

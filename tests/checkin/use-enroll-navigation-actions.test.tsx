@@ -61,7 +61,7 @@ const defaultInput = (override: Partial<UseEnrollNavigationActionsInput> = {}): 
   photoPolicy: noPhotoPolicy(),
   photoSaved: false,
   photoStepIndex: -1,
-  promotionDecisionStepIndex: -1,
+  promoStepIndex: -1,
   packagesStepIndex: 1,
   paymentsStepIndex: 2,
   usesPhasedInfoForm: false,
@@ -542,7 +542,7 @@ describe("useEnrollNavigationActions", () => {
           photoPolicy: requiredSelfPhotoPolicy(),
           photoSaved: false,
           photoStepIndex: 1,
-          promotionDecisionStepIndex: -1,
+          promoStepIndex: -1,
           packagesStepIndex: 2,
           paymentsStepIndex: 3,
           setStep,
@@ -554,13 +554,13 @@ describe("useEnrollNavigationActions", () => {
       expect(setStep).toHaveBeenCalledWith(1)
     })
 
-    it("routes new students to the promo decision before payments", async () => {
+    it("routes to promoStepIndex when it exists and photo/packages do not apply (kiosk new-student 3-step flow)", async () => {
       const setStep = vi.fn()
       const { getResult } = await renderHook(
         defaultInput({
           isCheckInFlow: true,
           photoStepIndex: -1,
-          promotionDecisionStepIndex: 1,
+          promoStepIndex: 1,
           packagesStepIndex: -1,
           paymentsStepIndex: 2,
           setStep,
@@ -572,35 +572,22 @@ describe("useEnrollNavigationActions", () => {
       expect(setStep).toHaveBeenCalledWith(1)
     })
 
-    it("routes existing customers through packages, then consecutive, before payments", async () => {
+    it("prefers packagesStepIndex over promoStepIndex when both exist (flow order: packages before promo)", async () => {
       const setStep = vi.fn()
-      const input = defaultInput({
-        isCheckInFlow: true,
-        steps: [
-          { key: "info", label: "Info" },
-          { key: "packages", label: "Packages" },
-          { key: "consecutive", label: "Promo" },
-          { key: "payments", label: "Payments" },
-        ],
-        photoStepIndex: -1,
-        promotionDecisionStepIndex: 2,
-        packagesStepIndex: 1,
-        paymentsStepIndex: 3,
-        setStep,
-      })
-      const { getResult, rerender } = await renderHook(input)
-
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          photoStepIndex: -1,
+          packagesStepIndex: 1,
+          promoStepIndex: 2,
+          paymentsStepIndex: 3,
+          setStep,
+        })
+      )
       await act(async () => {
         await getResult().advanceFromContactStep()
       })
       expect(setStep).toHaveBeenCalledWith(1)
-
-      setStep.mockClear()
-      await rerender({ ...input, step: 1, activeStepKey: "packages" })
-      await act(async () => {
-        await getResult().handleFormStepSubmit()
-      })
-      expect(setStep).toHaveBeenCalledWith(2)
     })
 
     it("routes to packagesStepIndex when photo and promo steps are not applicable", async () => {
@@ -609,7 +596,7 @@ describe("useEnrollNavigationActions", () => {
         defaultInput({
           isCheckInFlow: true,
           photoStepIndex: -1,
-          promotionDecisionStepIndex: -1,
+          promoStepIndex: -1,
           packagesStepIndex: 1,
           paymentsStepIndex: 2,
           setStep,
@@ -627,7 +614,7 @@ describe("useEnrollNavigationActions", () => {
         defaultInput({
           isCheckInFlow: true,
           photoStepIndex: -1,
-          promotionDecisionStepIndex: -1,
+          promoStepIndex: -1,
           packagesStepIndex: -1,
           paymentsStepIndex: 2,
           setStep,

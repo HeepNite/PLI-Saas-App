@@ -1,6 +1,7 @@
 import type { BootstrapResponse } from "@/components/front/checkin/checkin.types"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
+import { getDayOfWeekCount } from "@/lib/checkin/day-of-week-counter"
 import { parseQrCheckInContext, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
 import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
@@ -170,7 +171,7 @@ export const buildQrBootstrapDecisionResponse = async (input: CheckinQrDecisionG
   const courseTimeMatch = /^(\d{2}):(\d{2})$/.exec(context.time || "")
   const courseTimeMinutes = courseTimeMatch ? Number(courseTimeMatch[1]) * 60 + Number(courseTimeMatch[2]) : null
 
-  const [allActivePackages, recentPurchases, anyCompletedPurchase, classSession, totalPurchaseCount, consecutiveOffer] = await Promise.all([
+  const [allActivePackages, recentPurchases, anyCompletedPurchase, classSession, dayOfWeekPurchaseCount, totalPurchaseCount, consecutiveOffer] = await Promise.all([
     prisma.packagePurchase.findMany({
       where: {
         userId: input.customer.userId,
@@ -213,6 +214,7 @@ export const buildQrBootstrapDecisionResponse = async (input: CheckinQrDecisionG
       where: { courseSlug_startsAt: { courseSlug: context.courseSlug, startsAt: context.startsAt } },
       select: { id: true },
     }),
+    isTerminalFlow ? getDayOfWeekCount(input.customer.userId, weekday) : Promise.resolve(0),
     isTerminalFlow
       ? prisma.purchase.count({ where: { userId: input.customer.userId, status: { in: SUCCESSFUL_PURCHASE_STATUSES } } })
       : Promise.resolve(0),
@@ -322,7 +324,12 @@ export const buildQrBootstrapDecisionResponse = async (input: CheckinQrDecisionG
       : null,
     ...(isTerminalFlow
       ? {
-          quickRepeatEligible: totalPurchaseCount >= QUICK_REPEAT_PURCHASE_THRESHOLD,
+          dayOfWeekPurchaseCount,
+          // Not eligible when there's a usable package for this class — a package
+          // holder must check in with their package, not be offered a repeat
+          // purchase. Once the package is exhausted, preferredPackage is null and
+          // Quick Repeat applies again.
+          quickRepeatEligible: totalPurchaseCount >= QUICK_REPEAT_PURCHASE_THRESHOLD && !preferredPackage,
           lastPurchasePattern: {
             paymentChannel:
               lastPurchase && typeof asObject(lastPurchase.metadata)?.paymentChannel === "string"

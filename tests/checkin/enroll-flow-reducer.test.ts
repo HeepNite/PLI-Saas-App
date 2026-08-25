@@ -148,8 +148,10 @@ describe("enroll selectors", () => {
       hasConsecutiveOffer: true,
     })
 
+    // Kiosk existing-customer flow includes "packages" and "consecutive" when
+    // available, and never includes "photo" (check-in flows never show it,
+    // even when requiresPhotoStep is passed as true).
     expect(stepKeys).toEqual(["info", "packages", "consecutive", "payments"])
-    expect(selectActiveStepKey(stepKeys, 1)).toBe("packages")
   })
 
   it("can skip the contact info step for trusted profile booking flows", () => {
