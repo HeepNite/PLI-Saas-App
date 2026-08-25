@@ -89,8 +89,11 @@ export function PaymentStudentCard({
     ),
   ]
   const studentOpenIds = getOpenPaymentIds(student.allPayments)
+  const isHistoryCashSettlement = cardVariant.context === "history" && payment.paymentChannel === "cash" && payment.settlementStatus !== "paid"
   const studentSelectableIds =
-    studentOpenIds.length > 0
+    isHistoryCashSettlement
+      ? [payment.id]
+      : studentOpenIds.length > 0
       ? studentOpenIds
       : student.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
   const isSelected = studentSelectableIds.some((id) => selectedPaymentIds.includes(id))
@@ -103,8 +106,7 @@ export function PaymentStudentCard({
         payment.paymentChannel === "cash" ? "pt-9" : ""
       }`}
     >
-      {payment.paymentChannel === "cash" ||
-      (typeof payment.outstandingBalance === "number" && payment.outstandingBalance > 0) ? (
+      {isHistoryCashSettlement || (cardVariant.context !== "history" && payment.paymentChannel === "cash") ? (
         isSelected ? (
           <div className="absolute right-3 top-3 z-10 flex items-center gap-1">
             <button

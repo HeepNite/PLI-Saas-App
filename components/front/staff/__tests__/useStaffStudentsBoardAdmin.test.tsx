@@ -225,6 +225,67 @@ describe("useStaffStudentsBoardAdmin", () => {
     expect(state.historyReadableRange).toBe("Wed 25 Mar 26 → Thu 26 Mar 26")
   })
 
+  it("keeps history card aggregates and detail payments within the active filter scope", async () => {
+    const state = await renderHook(createOptions({
+      isHistoryMode: true,
+      paymentCategoryFilter: "history",
+      historyClassKey: "reformer",
+      historyPaymentMethodFilter: "cash",
+      historyAttendanceFilter: "attended",
+      payments: [
+        payment({ id: "reformer-paid", settlementStatus: "paid", outstandingBalance: 750, amount: 2500 }),
+        payment({
+          id: "salsa-pending",
+          courseSlug: "salsa",
+          courseTitle: "Salsa",
+          settlementStatus: "pending",
+          classPaid: false,
+          amount: 9000,
+        }),
+      ],
+    }))
+
+    expect(state.filteredStudentCards).toHaveLength(1)
+    expect(state.filteredStudentCards[0]).toMatchObject({
+      totalPayments: 1,
+      totalCollectedCents: 2500,
+      paidPayments: 1,
+      allPayments: [{ id: "reformer-paid" }],
+    })
+    expect(state.historyDerivedStats).toMatchObject({
+      paidCount: 1,
+      pendingCount: 0,
+      totalCollected: 2500,
+      dropIn: 1,
+    })
+  })
+
+  it("orders the current filtered scope by collected spend while preserving equal-spend order and zero-spend students", async () => {
+    await renderHook(createOptions({
+      isHistoryMode: true,
+      paymentCategoryFilter: "history",
+      payments: [
+        payment({ id: "first-equal", userId: "student-1", amount: 2000 }),
+        payment({ id: "second-equal", userId: "student-2", customerName: "Grace Hopper", amount: 2000 }),
+        payment({ id: "zero-spend", userId: "student-3", customerName: "Katherine Johnson", amount: 0 }),
+      ],
+    }))
+
+    const preCollectedEqualSpendOrder = latestState!.filteredStudentCards
+      .map((card) => card.latestPayment.id)
+      .filter((id) => id !== "zero-spend")
+
+    await act(async () => {
+      latestState!.activateCollectedOrdering()
+    })
+
+    expect(latestState!.isCollectedOrdering).toBe(true)
+    expect(latestState!.filteredStudentCards.map((card) => card.latestPayment.id)).toEqual([
+      ...preCollectedEqualSpendOrder,
+      "zero-spend",
+    ])
+  })
+
   it("backs off web-cash arrival polling when a degraded 200 response is returned", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-03-25T12:00:00.000Z"))

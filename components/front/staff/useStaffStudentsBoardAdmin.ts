@@ -119,6 +119,7 @@ export function useStaffStudentsBoardAdmin({
   staffAuthedFetch,
 }: UseStaffStudentsBoardAdminOptions) {
   const [currentPage, setCurrentPage] = React.useState(1)
+  const [isCollectedOrdering, setIsCollectedOrdering] = React.useState(false)
 
   const studentCards = React.useMemo(
     () => buildHistoryStudentCards(payments, { mode: isHistoryMode ? "history" : "daily" }),
@@ -145,8 +146,7 @@ export function useStaffStudentsBoardAdmin({
 
         return {
           ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key, { mode: "history" }) : item),
-          // Preserve original allPayments for tooltip history display
-          allPayments: item.allPayments,
+          allPayments: isHistoryMode ? matchingPayments : item.allPayments,
           latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
         }
       })
@@ -154,7 +154,7 @@ export function useStaffStudentsBoardAdmin({
   }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentCards])
 
   const filteredStudentCards = React.useMemo(() => {
-    return boardContextStudentCards
+    const cards = boardContextStudentCards
       .map((item) => {
         const matchingPayments = resolveStudentCardPayments(item.allPayments, {
           isHistoryMode,
@@ -169,13 +169,30 @@ export function useStaffStudentsBoardAdmin({
 
         return {
           ...(isHistoryMode ? buildHistoryStudentCard(matchingPayments, item.key, { mode: "history" }) : item),
-          // Preserve original allPayments for tooltip history display
-          allPayments: item.allPayments,
+          allPayments: isHistoryMode ? matchingPayments : item.allPayments,
           latestPayment: isHistoryMode ? matchingPayments[0] : resolveDailyVisiblePayment(matchingPayments) || matchingPayments[0],
         }
       })
       .filter((item): item is (typeof boardContextStudentCards)[number] => Boolean(item))
-  }, [boardContextStudentCards, historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentSearchQuery])
+    if (!isCollectedOrdering) return cards
+
+    return cards
+      .map((item, index) => ({
+        item,
+        index,
+        spend: resolveStudentCardPayments(item.allPayments, {
+          isHistoryMode,
+          historyClassKey,
+          historyPaymentMethodFilter,
+          historyAttendanceFilter,
+          paymentCategoryFilter,
+          paymentsFilter,
+          studentSearchQuery,
+        }).reduce((sum, payment) => sum + payment.amount, 0),
+      }))
+      .sort((left, right) => right.spend - left.spend || left.index - right.index)
+      .map(({ item }) => item)
+  }, [boardContextStudentCards, historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isCollectedOrdering, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentSearchQuery])
 
   const {
     searchResultCards,
@@ -206,12 +223,15 @@ export function useStaffStudentsBoardAdmin({
     if (searchResultCards !== null) {
       return resolveVisibleProfileSettlementIds(searchResultCards)
     }
-    if (paymentCategoryFilter !== "cash") return []
+    if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(filteredStudentCards.flatMap((item) => {
+      if (isHistoryMode) {
+        return item.latestPayment.paymentChannel === "cash" && item.latestPayment.settlementStatus !== "paid" ? [item.latestPayment.id] : []
+      }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
     }))]
-  }, [filteredStudentCards, paymentCategoryFilter, searchResultCards])
+  }, [filteredStudentCards, isHistoryMode, paymentCategoryFilter, searchResultCards])
 
   const cardContext = React.useMemo<CardContext>(
     () => resolveCardContext(isHistoryMode, searchResultCards !== null),
@@ -255,12 +275,15 @@ export function useStaffStudentsBoardAdmin({
     if (searchResultCards !== null) {
       return resolveVisibleProfileSettlementIds(paginatedSearchResultCards)
     }
-    if (paymentCategoryFilter !== "cash") return []
+    if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(paginatedStudentCards.flatMap((item) => {
+      if (isHistoryMode) {
+        return item.latestPayment.paymentChannel === "cash" && item.latestPayment.settlementStatus !== "paid" ? [item.latestPayment.id] : []
+      }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
     }))]
-  }, [paginatedSearchResultCards, paginatedStudentCards, paymentCategoryFilter, searchResultCards])
+  }, [isHistoryMode, paginatedSearchResultCards, paginatedStudentCards, paymentCategoryFilter, searchResultCards])
 
   const selectedFilteredPaymentIds = React.useMemo(
     () => selectedPaymentIds.filter((id) => filteredPaymentIds.includes(id)),
@@ -300,19 +323,23 @@ export function useStaffStudentsBoardAdmin({
   }, [totalPages])
 
   const historyDerivedStats = React.useMemo(() => {
+    const scopedPayments = filteredStudentCards.flatMap((item) => item.allPayments)
+    const isHistoryPaymentPaid = (payment: PaymentRow) =>
+      payment.paymentChannel === "cash" ? payment.settlementStatus === "paid" : isPaymentPaidForUi(payment)
     const studentCount = filteredStudentCards.length
-    const paidCount = filteredStudentCards.filter((item) => isPaymentPaidForUi(item.latestPayment)).length
+    const paidCount = filteredStudentCards.filter((item) => isHistoryPaymentPaid(item.latestPayment)).length
     const checkedInCount = filteredStudentCards.filter((item) => item.allPayments.some(isCompletedClassEvidence)).length
     const totalCollected = filteredStudentCards.reduce((sum, item) => sum + resolveDirectClassRevenueCents(item.allPayments), 0)
     const pendingCount = filteredStudentCards.filter((item) => {
-      if (!isPaymentPaidForUi(item.latestPayment)) return true
+      if (!isHistoryPaymentPaid(item.latestPayment)) return true
+      if (item.latestPayment.paymentChannel === "cash") return false
       const balance = "outstandingBalance" in item && typeof item.outstandingBalance === "number" ? item.outstandingBalance : item.latestPayment.outstandingBalance
       return typeof balance === "number" && balance > 0
     }).length
-    const packages = payments.filter((p) => p.purchaseCategory === "package").length
-    const dropIn = payments.filter((p) => p.purchaseCategory === "dropin").length
+    const packages = scopedPayments.filter((p) => p.purchaseCategory === "package").length
+    const dropIn = scopedPayments.filter((p) => p.purchaseCategory === "dropin").length
     return { studentCount, paidCount, pendingCount, totalCollected, checkedInCount, packages, dropIn }
-  }, [filteredStudentCards, payments])
+  }, [filteredStudentCards])
 
   const currentMonthStudentsSummary = React.useMemo(
     () =>
@@ -505,6 +532,8 @@ export function useStaffStudentsBoardAdmin({
     visiblePaymentIds,
     selectedFilteredPaymentIds,
     cashSelectedCount,
+    isCollectedOrdering,
+    activateCollectedOrdering: () => setIsCollectedOrdering(true),
     historyDerivedStats,
     studentsSummary,
     todayDateIso,

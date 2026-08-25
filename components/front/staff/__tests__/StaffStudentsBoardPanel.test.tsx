@@ -146,6 +146,8 @@ const createControls = (): StaffStudentsBoardPanelProps["controls"] => ({
     packages: 0,
     dropIn: 0,
   },
+  isCollectedOrdering: false,
+  activateCollectedOrdering: vi.fn(),
   filteredStudentCardsLength: 0,
   visiblePaymentIds: [],
   selectPaymentIds: vi.fn(),
@@ -899,5 +901,39 @@ describe("StaffStudentsBoardPanel", () => {
       cardFilterButton!.click()
     })
     expect(onPaymentCategoryChange).toHaveBeenCalledWith("card")
+  })
+
+  it("keeps history mode when package and drop-in history stats apply their payment filters", async () => {
+    const onPaymentCategoryChange = vi.fn()
+    const setHistoryPaymentMethodFilter = vi.fn()
+    const controls = createControls()
+    const node = await renderPanel(createProps({
+      controls: {
+        ...controls,
+        isHistoryMode: true,
+        paymentCategoryFilter: "history",
+        historyFrom: "2026-05-01",
+        historyTo: "2026-05-26",
+        historyReadableRange: "Thu 01 May 26 → Mon 26 May 26",
+        historyDerivedStats: { ...controls.historyDerivedStats, packages: 2, dropIn: 3 },
+        onPaymentCategoryChange,
+        setHistoryPaymentMethodFilter,
+      },
+    }))
+
+    const buttons = Array.from(node.querySelectorAll("button"))
+    const packageStat = buttons.find((button) => button.textContent?.includes("2Packages"))
+    const dropInStat = buttons.find((button) => button.textContent?.includes("3Drop-in"))
+
+    expect(packageStat).toBeDefined()
+    expect(dropInStat).toBeDefined()
+    await act(async () => {
+      packageStat!.click()
+      dropInStat!.click()
+    })
+
+    expect(setHistoryPaymentMethodFilter).toHaveBeenNthCalledWith(1, "package")
+    expect(setHistoryPaymentMethodFilter).toHaveBeenNthCalledWith(2, "dropin")
+    expect(onPaymentCategoryChange).not.toHaveBeenCalled()
   })
 })
