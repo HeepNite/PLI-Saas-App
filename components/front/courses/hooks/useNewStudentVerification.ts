@@ -17,6 +17,7 @@ type VerifyAction =
   | { type: "VERIFY_START" }
   | { type: "VERIFY_EXISTING"; existingIdentifier?: ExistingIdentifier }
   | { type: "VERIFY_NEW" }
+  | { type: "VERIFY_ELIGIBLE" }
   | { type: "SMS_SENT" }
   | { type: "SMS_VERIFIED" }
   | { type: "SMS_DISMISSED" }
@@ -55,6 +56,9 @@ export function verificationReducer(state: State, action: VerifyAction): State {
     case "VERIFY_NEW":
       return { status: "sms_pending", ctx: { ...state.ctx, error: null } }
 
+    case "VERIFY_ELIGIBLE":
+      return { status: "verified", ctx: { ...state.ctx, error: null } }
+
     case "SMS_SENT":
       if (state.status !== "sms_pending") return state
       return { status: "sms_verifying", ctx: state.ctx }
@@ -78,6 +82,35 @@ export function verificationReducer(state: State, action: VerifyAction): State {
   }
 }
 
+type VerificationResponse = {
+  outcome?: "eligible" | "requires_sms_verification" | "fallback_regular" | "existing_user"
+  requiresSmsVerification?: boolean
+}
+
+export function resolveNewStudentVerificationOutcome(response: unknown): "existing_detected" | "sms_pending" | "verified" {
+  if (!response || typeof response !== "object") {
+    throw new Error("Unexpected verification response")
+  }
+
+  const { outcome, requiresSmsVerification } = response as VerificationResponse
+  if (outcome === "existing_user" || outcome === "fallback_regular") return "existing_detected"
+  if (outcome === "requires_sms_verification" || requiresSmsVerification === true) return "sms_pending"
+  if (outcome === "eligible") return "verified"
+
+  throw new Error("Unexpected verification response")
+}
+
+const getExistingIdentifier = (response: unknown): ExistingIdentifier | undefined => {
+  if (!response || typeof response !== "object" || !Object.hasOwn(response, "existingIdentifier")) {
+    return undefined
+  }
+
+  const existingIdentifier = (response as { existingIdentifier?: unknown }).existingIdentifier
+  return existingIdentifier === "phone" || existingIdentifier === "email" || existingIdentifier === "both"
+    ? existingIdentifier
+    : undefined
+}
+
 // --- Hook ---
 
 export function useNewStudentVerification() {
@@ -99,25 +132,24 @@ export function useNewStudentVerification() {
           throw new Error(data.error ?? "Verification failed")
         }
 
-        const data = await res.json()
+        const data: unknown = await res.json()
+        const outcome = resolveNewStudentVerificationOutcome(data)
 
-        // Unified contract uses `outcome` field (not `status`)
-        if (data.outcome === "existing_user" || data.outcome === "fallback_regular") {
+        if (outcome === "existing_detected") {
           dispatch({
             type: "VERIFY_EXISTING",
-            existingIdentifier: data.existingIdentifier,
+            existingIdentifier: getExistingIdentifier(data),
           })
           return "existing_detected"
         }
 
-        if (data.outcome === "eligible" || data.requiresSmsVerification) {
+        if (outcome === "sms_pending") {
           dispatch({ type: "VERIFY_NEW" })
           return "sms_pending"
         }
 
-        // Unknown outcome — treat as sms_pending to avoid blocking the flow
-        dispatch({ type: "VERIFY_NEW" })
-        return "sms_pending"
+        dispatch({ type: "VERIFY_ELIGIBLE" })
+        return "verified"
       } catch {
         dispatch({ type: "VERIFY_ERROR", error: "We couldn't verify your details. Please try again." })
         return "error"
