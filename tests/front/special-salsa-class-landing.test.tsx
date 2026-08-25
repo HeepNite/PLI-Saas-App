@@ -304,6 +304,35 @@ describe("special salsa class public UI", () => {
     container.remove()
   })
 
+  it("lets a visitor deliberately enable and disable the hero video sound", async () => {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+
+    const video = container.querySelector("video") as HTMLVideoElement
+    const soundToggle = container.querySelector('[data-hero-video-sound-toggle]') as HTMLButtonElement
+    expect(video.muted).toBe(true)
+    expect(soundToggle.getAttribute("aria-label")).toBe("Turn sound on for promotional video")
+    expect(soundToggle.getAttribute("aria-pressed")).toBe("false")
+
+    await act(async () => soundToggle.click())
+
+    expect(video.muted).toBe(false)
+    expect(soundToggle.getAttribute("aria-label")).toBe("Mute promotional video")
+    expect(soundToggle.getAttribute("aria-pressed")).toBe("true")
+
+    await act(async () => soundToggle.click())
+
+    expect(video.muted).toBe(true)
+    expect(soundToggle.getAttribute("aria-label")).toBe("Turn sound on for promotional video")
+    expect(soundToggle.getAttribute("aria-pressed")).toBe("false")
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
   it("renders one joined course card with media and details and no external form", () => {
     const container = document.createElement("div")
     container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
