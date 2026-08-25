@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
-import { admitSpecialClassReservation } from "@/lib/checkout/special-class-reservation"
+import {
+  admitSpecialClassReservation,
+  preserveSpecialClassHold,
+} from "@/lib/checkout/special-class-reservation"
 
 const input = {
   attemptId: "c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
@@ -31,6 +34,34 @@ const makeTransaction = (countedSpots = 0) => {
 }
 
 describe("special salsa class reservation admission", () => {
+  it("extends the countable hold boundary through a still-open Stripe Session expiry", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+
+    await preserveSpecialClassHold({
+      purchaseId: "purchase_1",
+      sessionId: "cs_mismatched",
+      currentMetadata: {
+        specialEventKey: "special-salsa-class-2026-08-30",
+        holdExpiresAt: "2026-08-23T20:30:00.000Z",
+      },
+      holdExpiresAt: new Date("2026-08-23T20:31:00.999Z"),
+    }, {
+      db: { purchase: { updateMany } } as never,
+    })
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "purchase_1", status: "pending" },
+      data: {
+        stripeCheckoutSessionId: "cs_mismatched",
+        createdAt: new Date("2026-08-23T20:01:00.000Z"),
+        metadata: {
+          specialEventKey: "special-salsa-class-2026-08-30",
+          holdExpiresAt: "2026-08-23T20:31:00.000Z",
+        },
+      },
+    })
+  })
+
   it("creates one fixed pending hold inside a serializable transaction", async () => {
     const tx = makeTransaction()
     const db = { $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }
@@ -172,5 +203,61 @@ describe("special salsa class reservation admission", () => {
     expect(result).toMatchObject({ ok: true, kind: "existing", purchase: { id: "purchase_existing" } })
     expect(db.$transaction).toHaveBeenCalledTimes(2)
     expect(tx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("rejects a second active attempt and a completed reservation", async () => {
+    const pendingTx = makeTransaction()
+    pendingTx.purchase.findFirst.mockResolvedValue({ status: "pending" })
+    const pendingDb = { $transaction: vi.fn(async (callback: (client: typeof pendingTx) => unknown) => callback(pendingTx)) }
+    await expect(admitSpecialClassReservation(input, {
+      db: pendingDb as never,
+      now: () => new Date("2026-08-23T20:00:00.000Z"),
+    })).resolves.toEqual({
+      ok: false,
+      code: "CHECKOUT_IN_PROGRESS",
+    })
+
+    const paidTx = makeTransaction()
+    paidTx.purchase.findFirst.mockResolvedValue({ status: "paid" })
+    const paidDb = { $transaction: vi.fn(async (callback: (client: typeof paidTx) => unknown) => callback(paidTx)) }
+    await expect(admitSpecialClassReservation(input, {
+      db: paidDb as never,
+      now: () => new Date("2026-08-23T20:00:00.000Z"),
+    })).resolves.toEqual({
+      ok: false,
+      code: "ALREADY_REGISTERED",
+    })
+  })
+
+  it("admits exactly one of two concurrent requests for the final spot", async () => {
+    let countedSpots = 39
+    let queue = Promise.resolve()
+    const db = {
+      $transaction: vi.fn(<T>(callback: (client: ReturnType<typeof makeTransaction>) => Promise<T>) => {
+        const run = queue.then(async () => {
+          const tx = makeTransaction(countedSpots)
+          tx.purchase.count.mockImplementation(async () => countedSpots)
+          tx.purchase.create.mockImplementation(async () => {
+            countedSpots += 1
+            return { id: `purchase_${countedSpots}`, status: "pending", stripeCheckoutSessionId: null }
+          })
+          return callback(tx)
+        })
+        queue = run.then(() => undefined, () => undefined)
+        return run
+      }),
+    }
+
+    const [first, second] = await Promise.all([
+      admitSpecialClassReservation(input, { db: db as never, now: () => new Date("2026-08-23T20:00:00.000Z") }),
+      admitSpecialClassReservation({ ...input, attemptId: "6f4fdf3c-a910-4f72-b8f0-f5637a101d65", dbUserId: "db_user_2" }, {
+        db: db as never,
+        now: () => new Date("2026-08-23T20:00:00.000Z"),
+      }),
+    ])
+
+    expect([first, second].filter((result) => result.ok)).toHaveLength(1)
+    expect([first, second]).toContainEqual({ ok: false, code: "SOLD_OUT" })
+    expect(countedSpots).toBe(40)
   })
 })
