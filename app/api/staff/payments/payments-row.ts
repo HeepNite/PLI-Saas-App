@@ -136,7 +136,7 @@ const resolveSettlementStatus = (input: {
   hasOutstandingBalance: boolean
 }) => {
   if (input.paymentChannel === PAYMENT_CHANNEL.CASH) {
-    return input.hasOutstandingBalance ? SETTLEMENT_STATUS.PENDING : input.currentSettlementStatus
+    return input.currentSettlementStatus
   }
 
   return input.isPaid ? SETTLEMENT_STATUS.PAID : input.currentSettlementStatus

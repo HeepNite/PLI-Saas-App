@@ -340,8 +340,8 @@ export default function StaffPaymentsBoardControls({
                         if (label === "Students") setPaymentsFilter("all")
                         if (label === "Paid") setPaymentsFilter("paid")
                         if (label === "Pending") setPaymentsFilter("pending")
-                        if (label === "Packages") onPaymentCategoryChange("packages")
-                        if (label === "Drop-in") onPaymentCategoryChange("dropin")
+                        if (label === "Packages") setHistoryPaymentMethodFilter("package")
+                        if (label === "Drop-in") setHistoryPaymentMethodFilter("dropin")
                         if (label === "Collected") activateCollectedOrdering()
                       }}
                       className={`flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 text-left shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)] ${label === "Collected" && isCollectedOrdering ? "ring-1 ring-blue-400/70" : ""}`}

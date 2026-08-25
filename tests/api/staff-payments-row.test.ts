@@ -98,13 +98,13 @@ describe("buildStaffPaymentResponseRow", () => {
     })
   })
 
-  it("keeps cash rows with an outstanding balance pending", () => {
+  it("preserves a paid cash settlement despite a separate outstanding balance", () => {
     const row = buildStaffPaymentResponseRow(baseItem, {
       ...emptyContext,
       outstandingBalanceByUser: new Map([["user_123", 25]]),
     })
 
-    expect(row.settlementStatus).toBe("pending")
+    expect(row.settlementStatus).toBe("paid")
     expect(row.outstandingBalance).toBe(25)
   })
 
