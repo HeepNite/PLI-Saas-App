@@ -8,7 +8,7 @@ export const SPECIAL_SALSA_CLASS = Object.freeze({
   courseSlug: "special-salsa-calena-2026-08-30",
   title: "Special Salsa Caleña Class",
   displayTitle: "Salsa de Cali",
-  videoSrc: "/videos/SalsaClass.mp4",
+  videoSrc: "/Videos/special-salsa.mp4",
   videoPosterSrc: "/logo/logo-black.png",
   timeZone: "America/New_York",
   localDate: "2026-08-30",
