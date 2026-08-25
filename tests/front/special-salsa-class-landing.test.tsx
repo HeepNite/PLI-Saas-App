@@ -56,6 +56,7 @@ describe("special salsa class public UI", () => {
     navigationState.searchParams = new URLSearchParams()
     navigationState.router.replace.mockReset()
     vi.restoreAllMocks()
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue()
   })
 
   afterEach(() => {
@@ -259,9 +260,13 @@ describe("special salsa class public UI", () => {
     expect(html).toContain('/Videos/special-salsa.mp4')
     expect(html).toContain('type="video/mp4"')
     expect(existsSync(join(process.cwd(), "public/Videos/special-salsa.mp4"))).toBe(true)
-    expect(html).toContain("controls")
+    expect(html).toContain("autoPlay")
+    expect(html).toContain("muted")
+    expect(html).toContain("loop")
     expect(html).toContain("playsInline")
-    expect(html).not.toContain("autoplay")
+    expect(html).not.toMatch(/<video\b[^>]*\bcontrols(?:=|[\s>])/)
+    expect(html).toContain('data-hero-video-toggle')
+    expect(html).toContain('aria-label="Play promotional video"')
     expect(html).not.toContain('name="name"')
     expect(html).not.toContain('name="phone"')
     expect(html).not.toContain('name="email"')
@@ -274,6 +279,29 @@ describe("special salsa class public UI", () => {
     expect(html).toContain("object-cover")
     expect(html).toContain('aria-controls="special-reservation-dialog"')
     expect(html).toContain('aria-haspopup="dialog"')
+  })
+
+  it("provides an accessible play control when autoplay cannot start", async () => {
+    const play = vi.fn().mockRejectedValue(new Error("Autoplay blocked"))
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    await act(async () => Promise.resolve())
+
+    const toggle = container.querySelector('[data-hero-video-toggle]') as HTMLButtonElement
+    expect(toggle.getAttribute("aria-label")).toBe("Play promotional video")
+    expect(toggle.getAttribute("aria-pressed")).toBe("false")
+
+    await act(async () => toggle.click())
+
+    expect(play).toHaveBeenCalledTimes(2)
+    expect(toggle.getAttribute("aria-label")).toBe("Play promotional video")
+
+    await act(async () => root.unmount())
+    container.remove()
   })
 
   it("renders one joined course card with media and details and no external form", () => {
