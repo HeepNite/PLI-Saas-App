@@ -119,6 +119,7 @@ export function useStaffStudentsBoardAdmin({
   staffAuthedFetch,
 }: UseStaffStudentsBoardAdminOptions) {
   const [currentPage, setCurrentPage] = React.useState(1)
+  const [isCollectedOrdering, setIsCollectedOrdering] = React.useState(false)
 
   const studentCards = React.useMemo(
     () => buildHistoryStudentCards(payments, { mode: isHistoryMode ? "history" : "daily" }),
@@ -154,7 +155,7 @@ export function useStaffStudentsBoardAdmin({
   }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentCards])
 
   const filteredStudentCards = React.useMemo(() => {
-    return boardContextStudentCards
+    const cards = boardContextStudentCards
       .map((item) => {
         const matchingPayments = resolveStudentCardPayments(item.allPayments, {
           isHistoryMode,
@@ -175,7 +176,25 @@ export function useStaffStudentsBoardAdmin({
         }
       })
       .filter((item): item is (typeof boardContextStudentCards)[number] => Boolean(item))
-  }, [boardContextStudentCards, historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentSearchQuery])
+    if (!isCollectedOrdering) return cards
+
+    return cards
+      .map((item, index) => ({
+        item,
+        index,
+        spend: resolveStudentCardPayments(item.allPayments, {
+          isHistoryMode,
+          historyClassKey,
+          historyPaymentMethodFilter,
+          historyAttendanceFilter,
+          paymentCategoryFilter,
+          paymentsFilter,
+          studentSearchQuery,
+        }).reduce((sum, payment) => sum + payment.amount, 0),
+      }))
+      .sort((left, right) => right.spend - left.spend || left.index - right.index)
+      .map(({ item }) => item)
+  }, [boardContextStudentCards, historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isCollectedOrdering, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentSearchQuery])
 
   const {
     searchResultCards,
@@ -206,12 +225,15 @@ export function useStaffStudentsBoardAdmin({
     if (searchResultCards !== null) {
       return resolveVisibleProfileSettlementIds(searchResultCards)
     }
-    if (paymentCategoryFilter !== "cash") return []
+    if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(filteredStudentCards.flatMap((item) => {
+      if (isHistoryMode) {
+        return item.latestPayment.paymentChannel === "cash" && item.latestPayment.settlementStatus !== "paid" ? [item.latestPayment.id] : []
+      }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
     }))]
-  }, [filteredStudentCards, paymentCategoryFilter, searchResultCards])
+  }, [filteredStudentCards, isHistoryMode, paymentCategoryFilter, searchResultCards])
 
   const cardContext = React.useMemo<CardContext>(
     () => resolveCardContext(isHistoryMode, searchResultCards !== null),
@@ -255,12 +277,15 @@ export function useStaffStudentsBoardAdmin({
     if (searchResultCards !== null) {
       return resolveVisibleProfileSettlementIds(paginatedSearchResultCards)
     }
-    if (paymentCategoryFilter !== "cash") return []
+    if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(paginatedStudentCards.flatMap((item) => {
+      if (isHistoryMode) {
+        return item.latestPayment.paymentChannel === "cash" && item.latestPayment.settlementStatus !== "paid" ? [item.latestPayment.id] : []
+      }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
     }))]
-  }, [paginatedSearchResultCards, paginatedStudentCards, paymentCategoryFilter, searchResultCards])
+  }, [isHistoryMode, paginatedSearchResultCards, paginatedStudentCards, paymentCategoryFilter, searchResultCards])
 
   const selectedFilteredPaymentIds = React.useMemo(
     () => selectedPaymentIds.filter((id) => filteredPaymentIds.includes(id)),
@@ -505,6 +530,8 @@ export function useStaffStudentsBoardAdmin({
     visiblePaymentIds,
     selectedFilteredPaymentIds,
     cashSelectedCount,
+    isCollectedOrdering,
+    activateCollectedOrdering: () => setIsCollectedOrdering(true),
     historyDerivedStats,
     studentsSummary,
     todayDateIso,
