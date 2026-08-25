@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockHeaders = vi.fn()
 const mockClerkClient = vi.fn()
@@ -142,6 +142,10 @@ describe("stripe webhook checkout session persistence", () => {
     mockAwardPointsFromRule.mockResolvedValue(undefined)
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("persists hosted checkout success through Purchase upsert", async () => {
     mockConstructEvent.mockReturnValue({
       id: "evt_123",
@@ -231,6 +235,201 @@ describe("stripe webhook checkout session persistence", () => {
         source: "stripe_webhook_checkout",
       })
     )
+  })
+
+  it("updates the pending special purchase and schedules one fixed attendance", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-30T14:00:00.000Z"))
+    mockPurchaseFindUnique
+      .mockResolvedValueOnce({
+        amount: 2000,
+        currency: "usd",
+        metadata: { specialEventKey: "special-salsa-class-2026-08-30", lockedAmountCents: "2000" },
+      })
+      .mockResolvedValueOnce(null)
+    mockConstructEvent.mockReturnValue({
+      id: "evt_special_paid",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_special_paid",
+          payment_status: "paid",
+          amount_total: 2000,
+          currency: "usd",
+          customer: "cus_special",
+          payment_intent: "pi_special",
+          customer_details: { email: "ada@example.com", name: "Ada Lovelace", phone: "+12015550123" },
+          metadata: {
+            specialEventKey: "special-salsa-class-2026-08-30",
+            attemptId: "c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
+            lockedAmountCents: "2000",
+            courseSlug: "tampered-course",
+            courseTitle: "Tampered title",
+            date: "2030-01-01",
+            time: "01:00",
+            userId: "clerk_special_1",
+            participants: "99",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+
+    expect(res.status).toBe(200)
+    expect(mockPurchaseUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { stripeCheckoutSessionId: "cs_special_paid" },
+      update: expect.objectContaining({
+        status: "paid",
+        amount: 2000,
+        currency: "usd",
+        courseSlug: "special-salsa-calena-2026-08-30",
+        courseTitle: "Special Salsa Caleña Class",
+        participants: 1,
+      }),
+    }))
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(1)
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      courseSlug: "special-salsa-calena-2026-08-30",
+      date: "2026-08-30",
+      time: "16:00",
+      preferredStatus: "scheduled",
+    }))
+  })
+
+  it("rejects a special Checkout Session whose amount differs from the locked Purchase", async () => {
+    mockPurchaseFindUnique.mockResolvedValueOnce({
+      amount: 2000,
+      currency: "usd",
+      metadata: { specialEventKey: "special-salsa-class-2026-08-30", lockedAmountCents: "2000" },
+    })
+    mockConstructEvent.mockReturnValue({
+      id: "evt_special_mismatch",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_special_mismatch",
+          payment_status: "paid",
+          amount_total: 2500,
+          currency: "usd",
+          customer: "cus_special",
+          payment_intent: "pi_special_mismatch",
+          customer_details: { email: "ada@example.com", name: "Ada Lovelace", phone: "+12015550123" },
+          metadata: {
+            specialEventKey: "special-salsa-class-2026-08-30",
+            attemptId: "c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
+            lockedAmountCents: "2500",
+            userId: "clerk_special_1",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+
+    expect(res.status).toBe(500)
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+  })
+
+  it("rejects a special Checkout Session when the locked Purchase lacks its special marker", async () => {
+    mockPurchaseFindUnique.mockResolvedValueOnce({
+      amount: 2000,
+      currency: "usd",
+      metadata: { lockedAmountCents: "2000" },
+    })
+    mockConstructEvent.mockReturnValue({
+      id: "evt_special_missing_purchase_marker",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_special_missing_purchase_marker",
+          payment_status: "paid",
+          amount_total: 2000,
+          currency: "usd",
+          metadata: {
+            specialEventKey: "special-salsa-class-2026-08-30",
+            lockedAmountCents: "2000",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+
+    expect(res.status).toBe(500)
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+  })
+
+  it("leaves special PaymentIntent success fulfillment to the Checkout Session event", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_special_intent_paid",
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_special",
+          status: "succeeded",
+          amount: 2000,
+          currency: "usd",
+          customer: "cus_special",
+          receipt_email: "ada@example.com",
+          metadata: {
+            specialEventKey: "special-salsa-class-2026-08-30",
+            attemptId: "c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
+            lockedAmountCents: "2000",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+
+    expect(res.status).toBe(200)
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["checkout.session.expired", "expired"],
+    ["checkout.session.async_payment_failed", "failed"],
+  ])("marks a special hold terminal on %s without creating attendance", async (eventType, status) => {
+    mockPurchaseFindUnique.mockResolvedValueOnce({
+      id: "purchase_special_pending",
+      status: "pending",
+      metadata: { specialEventKey: "special-salsa-class-2026-08-30" },
+    })
+    mockPurchaseUpdate.mockResolvedValueOnce({})
+    mockConstructEvent.mockReturnValue({
+      id: `evt_${status}`,
+      type: eventType,
+      created: 1_787_517_000,
+      data: {
+        object: {
+          id: "cs_special_terminal",
+          created: 1_787_515_200,
+          expires_at: 1_787_517_000,
+          metadata: { specialEventKey: "special-salsa-class-2026-08-30" },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+
+    expect(res.status).toBe(200)
+    expect(mockPurchaseUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "purchase_special_pending" },
+      data: expect.objectContaining({ status }),
+    }))
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
   })
 
   it("splits hosted checkout consecutive metadata and schedules both course attendances", async () => {
