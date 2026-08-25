@@ -32,6 +32,12 @@ type ReservationDatabase = {
   $transaction: <T>(callback: (tx: TransactionClient) => Promise<T>, options: { isolationLevel: "Serializable" }) => Promise<T>
 }
 
+type HoldDatabase = {
+  purchase: {
+    updateMany: (input: unknown) => Promise<{ count: number }>
+  }
+}
+
 type ReservationInput = {
   attemptId: string
   dbUserId: string
@@ -196,4 +202,48 @@ export async function admitSpecialClassReservation(
     }
   }
   throw new Error("Unable to admit special class reservation")
+}
+
+export const updateSpecialClassPurchaseSession = (purchaseId: string, sessionId: string) =>
+  prisma.purchase.update({ where: { id: purchaseId }, data: { stripeCheckoutSessionId: sessionId } })
+
+export const preserveSpecialClassHold = (
+  input: {
+    purchaseId: string
+    sessionId: string
+    currentMetadata: unknown
+    holdExpiresAt: Date
+  },
+  options: { db?: HoldDatabase } = {},
+) => {
+  const db = options.db || (prisma as unknown as HoldDatabase)
+  const holdExpiresAt = new Date(Math.floor(input.holdExpiresAt.getTime() / 1000) * 1000)
+  const currentMetadata = input.currentMetadata && typeof input.currentMetadata === "object" && !Array.isArray(input.currentMetadata)
+    ? input.currentMetadata as Record<string, unknown>
+    : {}
+
+  return db.purchase.updateMany({
+    where: { id: input.purchaseId, status: "pending" },
+    data: {
+      stripeCheckoutSessionId: input.sessionId,
+      createdAt: getSpecialClassHoldCreatedAt(holdExpiresAt),
+      metadata: { ...currentMetadata, holdExpiresAt: holdExpiresAt.toISOString() },
+    },
+  })
+}
+
+export const failSpecialClassHold = (purchaseId: string) =>
+  prisma.purchase.updateMany({ where: { id: purchaseId, status: "pending" }, data: { status: "failed" } })
+
+export const getSpecialClassAvailability = async (now = new Date()) => {
+  const counted = await prisma.purchase.count({
+    where: {
+      courseSlug: SPECIAL_SALSA_CLASS.courseSlug,
+      OR: [
+        { status: { in: SUCCESSFUL_STATUSES } },
+        { status: "pending", createdAt: { gt: getSpecialClassHoldCutoff(now) } },
+      ],
+    },
+  })
+  return { remaining: Math.max(SPECIAL_SALSA_CLASS.capacity - counted, 0), soldOut: counted >= SPECIAL_SALSA_CLASS.capacity }
 }
