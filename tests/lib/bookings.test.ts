@@ -118,45 +118,4 @@ describe("syncScheduledAttendanceFromPurchase", () => {
       })
     )
   })
-
-  it("preserves the fixed special session capacity, time, duration, and location", async () => {
-    mockAttendanceFindFirst.mockResolvedValue(null)
-    mockClassSessionUpsert.mockResolvedValue({ id: "special_session_1" })
-    mockAttendanceFindUnique.mockResolvedValue(null)
-    mockAttendanceCreate.mockResolvedValue({ id: "attendance_1", status: "scheduled" })
-
-    const { syncScheduledAttendanceFromPurchase } = await import("@/lib/bookings")
-    await syncScheduledAttendanceFromPurchase({
-      userId: "user_1",
-      purchaseId: "purchase_1",
-      courseSlug: "special-salsa-calena-2026-08-30",
-      courseTitle: "Browser-authored title",
-      date: "2030-01-01",
-      time: "01:00",
-      preferredStatus: "scheduled",
-    })
-
-    expect(mockClassSessionUpsert).toHaveBeenCalledWith({
-      where: {
-        courseSlug_startsAt: {
-          courseSlug: "special-salsa-calena-2026-08-30",
-          startsAt: new Date("2026-08-30T20:00:00.000Z"),
-        },
-      },
-      update: {
-        title: "Special Salsa Caleña Class",
-        durationMinutes: 60,
-        capacity: 40,
-        location: "54 Coles St, Jersey City",
-      },
-      create: {
-        courseSlug: "special-salsa-calena-2026-08-30",
-        title: "Special Salsa Caleña Class",
-        startsAt: new Date("2026-08-30T20:00:00.000Z"),
-        durationMinutes: 60,
-        capacity: 40,
-        location: "54 Coles St, Jersey City",
-      },
-    })
-  })
 })

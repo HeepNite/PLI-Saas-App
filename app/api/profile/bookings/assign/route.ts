@@ -18,9 +18,13 @@ import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
-import { asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
+
+const normalizeString = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim()
+}
 
 const isUniqueError = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
     }
 
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
-    const packagePurchaseId = asText(payload?.packagePurchaseId)
+    const packagePurchaseId = normalizeString(payload?.packagePurchaseId)
     const rawAssignments = Array.isArray(payload?.assignments) ? payload?.assignments : []
 
     if (!packagePurchaseId || !rawAssignments.length) {
@@ -67,8 +71,8 @@ export async function POST(req: Request) {
       .map((item) => {
         const record = item && typeof item === "object" ? (item as Record<string, unknown>) : null
         return {
-          date: asText(record?.date),
-          time: asText(record?.time),
+          date: normalizeString(record?.date),
+          time: normalizeString(record?.time),
         }
       })
       .filter((item) => parseIsoDate(item.date) && parseTime24(item.time))

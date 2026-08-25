@@ -12,8 +12,8 @@ import {
   extractStaffSubCategoryFromUserMetadata,
   parseStaffCategory,
   parseStaffSubCategory,
-  type StaffCategory,
   type StaffSubCategory,
+  type StaffCategory,
 } from "@/lib/security/staff-category"
 import {
   canAccessStaffPortalSection,
@@ -24,7 +24,6 @@ import {
   type StaffPortalSection,
 } from "@/lib/security/staff-access"
 import { prisma } from "@/lib/prisma"
-import { getCachedClerkUser } from "@/lib/clerk-users"
 
 const isClerkRateLimitError = (error: unknown): boolean => {
   if (!error || typeof error !== "object") return false
@@ -53,7 +52,6 @@ export type StaffPortalBaseAuthResult =
 const STAFF_SCAN_PAGE_SIZE = 100
 const STAFF_SCAN_MAX_USERS = 5000
 const STAFF_ROLE_SET = new Set<StaffRole>(STAFF_ROLES)
-
 
 const parseSessionIssuedAtMs = (claims: unknown): number | null => {
   if (!claims || typeof claims !== "object") return null
@@ -107,9 +105,10 @@ export const authorizeStaffPortalBaseRequest = async (): Promise<StaffPortalBase
     return { ok: false, status: 401, error: "Unauthorized" }
   }
 
+  const client = await clerkClient()
   let user
   try {
-    user = await getCachedClerkUser(authResult.userId)
+    user = await client.users.getUser(authResult.userId)
   } catch (error) {
     if (isClerkRateLimitError(error)) {
       const retryAfterSec = extractRetryAfterSec(error)
@@ -238,11 +237,6 @@ export const authorizeStudentOperationalRequest = async (): Promise<StaffPortalA
   return { ok: true, userId: authResult.userId, role: authResult.role, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
 }
 
-/**
- * Authorize requests that grant cash packages. Broader than owner/admin:
- * also allows staff whose category/subCategory is permitted to grant
- * (front_desk, manager, partner) per canGrantCashPackage.
- */
 export const authorizeCashPackageGrantRequest = async (): Promise<StaffPortalAuthResult> => {
   const authResult = await authorizeStaffPortalBaseRequest()
   if (!authResult.ok) return authResult

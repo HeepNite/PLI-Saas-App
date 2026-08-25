@@ -13,15 +13,22 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { hasAttendedCourseToday } from "@/lib/checkin/consecutive-class"
-import { asRecord, asText, normalizePhoneDigits } from "@/lib/shared"
-import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
-import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { normalizePhoneDigits } from "@/lib/shared"
+import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
+import { FLOW_CONTEXT, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
+const normalizeString = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim()
+}
+
+const toRecord = (value: unknown) =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : null
 
 const pickPreferredPackage = (input: {
   courseSlug: string
@@ -77,7 +84,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const payload = asRecord(body)
+    const payload = toRecord(body)
     const authResult = await auth()
     const kioskSessionToken = typeof payload?.kioskSessionToken === "string" ? payload.kioskSessionToken.trim() : ""
     const flowContext = typeof payload?.flowContext === "string" ? payload.flowContext.trim() : ""
@@ -91,22 +98,20 @@ export async function POST(req: Request) {
     const kioskSessionResult = shouldResolveKioskSession
       ? await resolveTerminalKioskSession(kioskSessionToken)
       : null
-    // The Clerk lookup for the authenticated kiosk customer failed (stale/
-    // cross-instance clerkId) rather than there being no authenticated
-    // customer at all. Without a kiosk session to fall back to, retry
-    // resolution below via client.users.getUser using the original id
-    // instead of short-circuiting to 401 — this is scoped to this route
-    // only and does not change resolveKioskCustomerClerkAuth's public
-    // `userId: null` contract relied on by lib/checkout.ts.
     const shouldRetryLookupFailure =
       !shouldPreferKioskSession && !customerClerkUserId && kioskCustomerAuth.lookupFailed && !kioskSessionResult?.ok
-    const effectiveCustomerClerkUserId = shouldRetryLookupFailure ? authResult.userId : customerClerkUserId
+    const effectiveKioskCustomerAuth = shouldRetryLookupFailure
+      ? await resolveKioskCustomerClerkAuth(authResult.userId)
+      : kioskCustomerAuth
+    const effectiveCustomerClerkUserId = shouldRetryLookupFailure
+      ? effectiveKioskCustomerAuth.userId
+      : customerClerkUserId
 
     if (!effectiveCustomerClerkUserId && !kioskSessionResult?.ok) {
       return NextResponse.json(
         {
           error:
-            kioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
+            effectiveKioskCustomerAuth.blocked && flowContext === FLOW_CONTEXT.KIOSK_TERMINAL
               ? "Kiosk customer identification is required before continuing."
               : kioskSessionResult?.error || "Unauthorized",
         },
@@ -128,6 +133,8 @@ export async function POST(req: Request) {
 
     const now = new Date()
     const consecutiveAddOn = payload?.consecutiveAddOn === true
+    // Terminal check-in stays open the whole NY day (#170); the client QR flow
+    // keeps the stricter per-class window.
     const windowAllowed = isQrActionWindowAllowed(
       consecutiveAddOn ? "consecutive-add-on" : flowContext === FLOW_CONTEXT.KIOSK_TERMINAL ? "terminal" : "standard",
       context,
@@ -163,15 +170,7 @@ export async function POST(req: Request) {
       ? { id: kioskSessionResult.session.user.id }
       : effectiveCustomerClerkUserId
       ? await (async () => {
-          // A stale/cross-instance clerkId (e.g. during the dev→prod Clerk
-          // instance migration window) must not surface an uncaught/unexpected
-          // 500 from a thrown lookup error — degrade to an unresolved
-          // clerkUser so the upsert below still runs on whatever email/phone
-          // identifiers are available. If no identifiers are available
-          // either, upsertUserByIdentifiers returns null and the route
-          // returns a controlled 500 ("Unable to resolve user") instead of
-          // writing a stale identity.
-          let clerkUser = kioskCustomerAuth.clerkUser
+          let clerkUser = effectiveKioskCustomerAuth.clerkUser
           if (!clerkUser) {
             try {
               const client = await clerkClient()
@@ -200,11 +199,9 @@ export async function POST(req: Request) {
     }
 
     // ─── Consecutive package-holder add-on ───────────────────
-    // `consecutiveAddOn` is derived earlier (above the window guard) so the
-    // correct time predicate can be selected before this block runs.
     const consecutiveCashPayment = payload?.consecutiveCashPayment === true
-    const linkedFromCourseSlug = asText(payload?.linkedFromCourseSlug)
-    const linkedFromAttendanceId = asText(payload?.linkedFromAttendanceId)
+    const linkedFromCourseSlug = normalizeString(payload?.linkedFromCourseSlug)
+    const linkedFromAttendanceId = normalizeString(payload?.linkedFromAttendanceId)
     const consecutivePriceCents = payload?.consecutivePriceCents != null
       ? Number(payload.consecutivePriceCents)
       : null
@@ -352,7 +349,7 @@ export async function POST(req: Request) {
           data: {
             userId: dbUser.id,
             sessionId: session.id,
-            status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE,
+            status: "checked_in_no_package",
             checkedInAt: now,
             metadata: {
               source: "qr_package_consecutive_addon",
@@ -374,11 +371,11 @@ export async function POST(req: Request) {
             courseTitle: course.title,
             amount: recordedConsecutivePriceCents,
             currency: "usd",
-            status: consecutiveCashPayment ? SETTLEMENT_STATUS.PENDING : SETTLEMENT_STATUS.PAID,
+            status: consecutiveCashPayment ? "pending" : "paid",
             participants: 1,
             metadata: {
-              paymentChannel: consecutiveCashPayment ? PAYMENT_CHANNEL.CASH : "consecutive_addon",
-              settlementStatus: consecutiveCashPayment ? SETTLEMENT_STATUS.PENDING : SETTLEMENT_STATUS.PAID,
+              paymentChannel: consecutiveCashPayment ? "cash" : "consecutive_addon",
+              settlementStatus: consecutiveCashPayment ? "pending" : "paid",
               settledAt: consecutiveCashPayment ? null : undefined,
               date: context.date,
               time: context.time,
@@ -507,7 +504,7 @@ export async function POST(req: Request) {
         ? await tx.attendance.update({
             where: { id: existingAttendance.id },
             data: {
-              status: ATTENDANCE_STATUS.CHECKED_IN,
+              status: "checked_in",
               checkedInAt: now,
               metadata: {
                 ...previousMetadata,
@@ -521,7 +518,7 @@ export async function POST(req: Request) {
             data: {
               userId: dbUser.id,
               sessionId: session.id,
-              status: ATTENDANCE_STATUS.CHECKED_IN,
+              status: "checked_in",
               checkedInAt: now,
               metadata: {
                 source: "qr_package_checkin",

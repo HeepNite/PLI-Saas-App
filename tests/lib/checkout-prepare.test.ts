@@ -7,7 +7,6 @@ const {
   mockLookupPreparedCheckoutContext,
   mockVerifyToken,
   mockResolveTerminalKioskSession,
-  mockUpsertUserByIdentifiers,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockAuthorizeStaffTerminalSession: vi.fn(),
@@ -15,13 +14,6 @@ const {
   mockLookupPreparedCheckoutContext: vi.fn(),
   mockVerifyToken: vi.fn(),
   mockResolveTerminalKioskSession: vi.fn(),
-  mockUpsertUserByIdentifiers: vi.fn(),
-}))
-
-// Persisting the DB user is not under test here and requires a database.
-// Mock it so the new-user / staff→student paths don't hit real prisma.
-vi.mock("@/lib/users", () => ({
-  upsertUserByIdentifiers: mockUpsertUserByIdentifiers,
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -101,7 +93,6 @@ describe("prepareCheckoutAccount", () => {
     mockResolveTerminalKioskSession.mockReset()
     mockAuthorizeStaffTerminalSession.mockReset()
     mockLookupPreparedCheckoutContext.mockReset()
-    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_prepare" })
   })
 
   it("returns hasAvatar true for an authenticated user with an avatar", async () => {

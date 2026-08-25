@@ -5,7 +5,6 @@ import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
 import { normalizePhone } from "@/lib/checkout/validation"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
@@ -32,6 +31,10 @@ type VerifyResponse = {
   }
 }
 
+const normalizeString = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim()
+}
 
 const buildPhoneVariants = (normalizedPhone: string) => {
   const digits = normalizedPhone.replace(/\D/g, "")
@@ -124,8 +127,8 @@ export async function POST(req: Request) {
     }
 
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
-    const phoneInput = asText(payload?.phone)
-    const emailInput = asText(payload?.email)
+    const phoneInput = normalizeString(payload?.phone)
+    const emailInput = normalizeString(payload?.email)
 
     const phoneNormalized = normalizePhone(phoneInput) || ""
     const phoneVariants = buildPhoneVariants(phoneNormalized)
@@ -190,6 +193,17 @@ export async function POST(req: Request) {
     if (phoneVariants.length > 0) purchaseFilters.push(...buildPhoneQueryFilters(phoneVariants))
     if (emailInput) purchaseFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
 
+    console.log("[new-student-verify] purchase-check-input", {
+      phoneInput,
+      phoneNormalized,
+      phoneVariants,
+      clerkLookupPhone,
+      existingClerkUserId: existingClerkUser?.id ?? null,
+      existingDbUserId: existingDbUser?.id ?? null,
+      existingDbUserPhone: existingDbUser?.phone ?? null,
+      purchaseFilterCount: purchaseFilters.length,
+      purchaseFilters: JSON.stringify(purchaseFilters).slice(0, 500),
+    })
 
     let hasCompletedPurchase = false
     if (purchaseFilters.length > 0 && process.env.DATABASE_URL) {
@@ -202,6 +216,16 @@ export async function POST(req: Request) {
 
     if (hasCompletedPurchase) {
       // Returning customer — fallback to regular price (even if session matches)
+      console.log("[new-student-verify]", {
+        phoneInput,
+        phoneVariants,
+        clerkUserFound: !!existingClerkUser,
+        dbUserFound: !!existingDbUser,
+        purchaseFound: true,
+        sessionUserId: sessionUserId ?? null,
+        shortCircuitReason: "purchase_found_before_session_check",
+        outcome: "fallback_regular",
+      })
       const response: VerifyResponse = {
         outcome: "fallback_regular",
         reason: "existing_customer",
@@ -228,6 +252,12 @@ export async function POST(req: Request) {
       Boolean(sessionUserId && existingClerkUser?.id === sessionUserId) &&
       await sessionOwnsVerifiedPhone(sessionUserId as string, phoneNormalized)
     if (sessionOwnsPhone) {
+      console.log("[new-student-verify]", {
+        phoneInput,
+        sessionUserId,
+        shortCircuitReason: "session_owns_phone_no_purchase",
+        outcome: "eligible",
+      })
       const response: VerifyResponse = {
         outcome: "eligible",
         reason: "verified_phone_session",
@@ -244,6 +274,15 @@ export async function POST(req: Request) {
 
     // Case 3: No completed purchases — requires SMS verification.
     // Covers both truly new (no identity) and existing-but-no-purchases.
+    console.log("[new-student-verify]", {
+      phoneInput,
+      phoneVariants,
+      clerkUserFound: !!existingClerkUser,
+      dbUserFound: !!existingDbUser,
+      sessionUserId: sessionUserId ?? null,
+      purchaseFound: false,
+      outcome: "requires_sms_verification",
+    })
     const response: VerifyResponse = {
       outcome: "requires_sms_verification",
       reason: "phone_verification_required",

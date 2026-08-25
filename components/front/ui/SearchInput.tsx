@@ -16,13 +16,7 @@ import {
 import { demoCourses, type CourseData } from "@/constants/courses"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 
-const SearchInput = ({
-  placeholder,
-  ariaLabel,
-}: {
-  placeholder?: string
-  ariaLabel?: string
-}) => {
+const SearchInput = () => {
   const { t } = useI18n()
   const { courses: catalogCourses } = useCatalogCourses()
   const sourceCourses = catalogCourses.length ? catalogCourses : demoCourses
@@ -83,8 +77,8 @@ const SearchInput = ({
               className="w-full rounded-full bg-secondary/80 px-4 py-2 pl-10 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--brand)]"
               type="search"
               name="q"
-              placeholder={placeholder ?? t("searchPlaceholder")}
-              aria-label={ariaLabel ?? t("aria_search")}
+              placeholder={t("searchPlaceholder")}
+              aria-label={t("aria_search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => {

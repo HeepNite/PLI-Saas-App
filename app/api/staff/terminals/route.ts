@@ -2,11 +2,12 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { buildTerminalPinAlert } from "@/lib/security/kiosk-pin-throttle"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { hashStaffTerminalPin, toTerminalSlug, verifyStaffTerminalPin } from "@/lib/security/staff-terminal"
-import { safeText } from "@/lib/api-helpers"
 
 export const runtime = "nodejs"
+
+const safeText = (value: unknown, max = 120) => (typeof value === "string" ? value.trim().slice(0, max) : "")
 
 const serializeTerminal = (terminal: {
   id: string
@@ -60,11 +61,22 @@ const ensureUniqueTerminalPin = async (pin: string, excludedTerminalId = "") => 
 }
 
 export async function GET(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:terminals:get", limit: 90, windowMs: 60_000 },
-    authorize: authorizeStaffPortalRequest,
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:terminals:get", getClientIp(req)),
+    limit: 90,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const items = await prisma.staffTerminal.findMany({
     include: {
@@ -83,12 +95,22 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:terminals:post", limit: 40, windowMs: 60_000 },
-    authorize: authorizeStaffPortalRequest,
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:terminals:post", getClientIp(req)),
+    limit: 40,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const { auth } = guard
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   let body: unknown
   try {
@@ -127,7 +149,7 @@ export async function POST(req: Request) {
         location,
         defaultCourseSlug,
         pinHash: hashStaffTerminalPin(pin),
-        createdByUserId: auth.userId,
+        createdByUserId: authResult.userId,
       },
     })
 

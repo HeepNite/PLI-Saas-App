@@ -5,16 +5,17 @@ import { findConsecutiveLinkBetween } from "@/lib/course-links"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { prisma } from "@/lib/prisma"
-import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
-import { asObject, asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
 const DEFAULT_DROP_IN_CENTS = 2000
 const SERIALIZABLE_RETRY_ATTEMPTS = 3
+
+const toRecord = (value: unknown) => value && typeof value === "object" ? value as Record<string, unknown> : {}
+const normalizeString = (value: unknown) => typeof value === "string" ? value.trim() : ""
 const isOpenCashPurchase = (purchase: { status: string; amount: number }) => purchase.status !== "paid" ? purchase.amount : undefined
 const PENDING_PAYMENT_MESSAGE = "You still have a pending payment. Please resolve it first."
 const COMPLETED_PURCHASE_MESSAGE = "This student already has a completed purchase for this class."
@@ -36,7 +37,7 @@ const runSerializableTransaction = async <T>(callback: (tx: Prisma.TransactionCl
 
 const parseBody = async (req: Request) => {
   try {
-    return asObject(await req.json())
+    return toRecord(await req.json())
   } catch {
     return null
   }
@@ -199,25 +200,24 @@ const createPromoCash = async (input: { userId: string; linkedCourseSlug: string
 }
 
 export async function POST(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:students:fast-class-action", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStudentOperationalRequest(),
-  })
-  if (!guard.ok) return guard.response
-  const staffAuth = guard.auth
+  const rateLimit = consumeRateLimit({ key: buildRateLimitKey("staff:students:fast-class-action", getClientIp(req)), limit: 60, windowMs: 60_000 })
+  if (!rateLimit.ok) return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+
+  const staffAuth = await authorizeStudentOperationalRequest()
+  if (!staffAuth.ok) return NextResponse.json({ error: staffAuth.error }, { status: staffAuth.status })
 
   const body = await parseBody(req)
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  const userId = asText(body.userId)
+  const userId = normalizeString(body.userId)
   if (!userId) return NextResponse.json({ error: "userId is required" }, { status: 400 })
 
   const now = new Date()
   if (body.acceptConsecutive === true) {
-    const promo = asObject(body.promo)
+    const promo = toRecord(body.promo)
     const result = await createPromoCash({
       userId,
-      linkedCourseSlug: asText(promo.linkedCourseSlug),
-      linkedFromCourseSlug: asText(promo.linkedFromCourseSlug),
+      linkedCourseSlug: normalizeString(promo.linkedCourseSlug),
+      linkedFromCourseSlug: normalizeString(promo.linkedFromCourseSlug),
       priceCents: Number(promo.priceCents),
       now,
     })

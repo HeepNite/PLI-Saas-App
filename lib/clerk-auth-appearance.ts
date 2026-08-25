@@ -30,17 +30,12 @@ export const clerkDarkAuthAppearance = {
     footerActionLink: "text-[var(--brand,#e31b1b)] hover:text-[#ff4f4f] font-medium",
     identityPreviewText: "text-white/75",
     identityPreviewEditButton: "text-[var(--brand,#e31b1b)]",
-    alternativeMethodsBlockButton: "text-white/80 hover:bg-white/[0.06]",
-    alternativeMethodsBlockButtonText: "text-white/80",
-    alternativeMethodsBlockButtonArrow: "text-white/50",
-    otpCodeFieldInput:
-      "border border-white/30 bg-white/[0.03] text-white text-center text-lg rounded-md focus:border-[var(--brand,#b61616)] focus:ring-[var(--brand,#b61616)]/35",
     alertText: "text-red-300",
     alert: "border border-red-500/30 bg-red-500/10",
   },
 } as const
 
-const clerkDarkStaffAppearance = {
+export const clerkDarkStaffAppearance = {
   ...clerkDarkAuthAppearance,
   elements: {
     ...clerkDarkAuthAppearance.elements,

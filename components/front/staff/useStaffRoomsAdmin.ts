@@ -29,10 +29,6 @@ import type {
 
 type FetchSchoolData = (options?: { showLoader?: boolean }) => Promise<void>
 
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
-
 const buildReservationDateTime = (date: string, time: string) => {
   if (!ISO_DATE_REGEX.test(date) || !normalizeClockTime(time)) return null
   const parsed = new Date(`${date}T${time}:00`)
@@ -63,163 +59,6 @@ const buildReservationRangePreview = (form: RoomReservationFormState) => {
   return `${startsAt.toLocaleString("en-US", options)} → ${endsAt.toLocaleString("en-US", options)}`
 }
 
-// ---------------------------------------------------------------------------
-// Room reducer
-// ---------------------------------------------------------------------------
-
-interface RoomState {
-  roomForm: RoomFormState
-  roomSearchQuery: string
-  roomStatusFilter: "all" | "active" | "inactive"
-  roomSaving: boolean
-  roomBusyId: string | null
-  roomFormError: string | null
-  roomFormSuccess: string | null
-  roomActionErrors: Record<string, string>
-  roomSafeDeleteModal: RoomSafeDeleteModalState | null
-  roomReassignModal: RoomReassignModalState | null
-}
-
-type RoomAction =
-  | { type: "SET_ROOM_FORM"; payload: RoomFormState }
-  | { type: "PATCH_ROOM_FORM"; field: keyof RoomFormState; value: RoomFormState[keyof RoomFormState] }
-  | { type: "SET_ROOM_SEARCH_QUERY"; payload: string }
-  | { type: "SET_ROOM_STATUS_FILTER"; payload: "all" | "active" | "inactive" }
-  | { type: "SET_ROOM_SAVING"; payload: boolean }
-  | { type: "SET_ROOM_BUSY_ID"; payload: string | null }
-  | { type: "SET_ROOM_FORM_ERROR"; payload: string | null }
-  | { type: "SET_ROOM_FORM_SUCCESS"; payload: string | null }
-  | { type: "SET_ROOM_ACTION_ERROR"; roomId: string; error: string }
-  | { type: "CLEAR_ROOM_ACTION_ERROR"; roomId: string }
-  | { type: "SET_ROOM_SAFE_DELETE_MODAL"; payload: RoomSafeDeleteModalState | null }
-  | { type: "PATCH_ROOM_SAFE_DELETE_MODAL"; patch: Partial<RoomSafeDeleteModalState> }
-  | { type: "SET_ROOM_REASSIGN_MODAL"; payload: RoomReassignModalState | null }
-  | { type: "PATCH_ROOM_REASSIGN_MODAL"; patch: Partial<RoomReassignModalState> }
-  | { type: "SET_ROOM_ACTION_BUSY"; roomId: string }
-
-const initialRoomState: RoomState = {
-  roomForm: createInitialRoomForm(),
-  roomSearchQuery: "",
-  roomStatusFilter: "all",
-  roomSaving: false,
-  roomBusyId: null,
-  roomFormError: null,
-  roomFormSuccess: null,
-  roomActionErrors: {},
-  roomSafeDeleteModal: null,
-  roomReassignModal: null,
-}
-
-function roomReducer(state: RoomState, action: RoomAction): RoomState {
-  switch (action.type) {
-    case "SET_ROOM_FORM":
-      return { ...state, roomForm: action.payload }
-    case "PATCH_ROOM_FORM":
-      return { ...state, roomForm: { ...state.roomForm, [action.field]: action.value } }
-    case "SET_ROOM_SEARCH_QUERY":
-      return { ...state, roomSearchQuery: action.payload }
-    case "SET_ROOM_STATUS_FILTER":
-      return { ...state, roomStatusFilter: action.payload }
-    case "SET_ROOM_SAVING":
-      return { ...state, roomSaving: action.payload }
-    case "SET_ROOM_BUSY_ID":
-      return { ...state, roomBusyId: action.payload }
-    case "SET_ROOM_FORM_ERROR":
-      return { ...state, roomFormError: action.payload }
-    case "SET_ROOM_FORM_SUCCESS":
-      return { ...state, roomFormSuccess: action.payload }
-    case "SET_ROOM_ACTION_ERROR":
-      return { ...state, roomActionErrors: { ...state.roomActionErrors, [action.roomId]: action.error } }
-    case "CLEAR_ROOM_ACTION_ERROR":
-      return { ...state, roomActionErrors: clearRecordEntry(state.roomActionErrors, action.roomId) }
-    case "SET_ROOM_SAFE_DELETE_MODAL":
-      return { ...state, roomSafeDeleteModal: action.payload }
-    case "PATCH_ROOM_SAFE_DELETE_MODAL":
-      return state.roomSafeDeleteModal
-        ? { ...state, roomSafeDeleteModal: { ...state.roomSafeDeleteModal, ...action.patch } }
-        : state
-    case "SET_ROOM_REASSIGN_MODAL":
-      return { ...state, roomReassignModal: action.payload }
-    case "PATCH_ROOM_REASSIGN_MODAL":
-      return state.roomReassignModal
-        ? { ...state, roomReassignModal: { ...state.roomReassignModal, ...action.patch } }
-        : state
-    case "SET_ROOM_ACTION_BUSY":
-      return {
-        ...state,
-        roomBusyId: action.roomId,
-        roomActionErrors: clearRecordEntry(state.roomActionErrors, action.roomId),
-        roomFormSuccess: null,
-      }
-    default:
-      return state
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Reservation reducer
-// ---------------------------------------------------------------------------
-
-interface ReservationState {
-  roomReservationForm: RoomReservationFormState
-  roomReservationSaving: boolean
-  roomReservationCancelModal: RoomReservationCancelModalState | null
-  roomReservationBusyId: string | null
-  roomReservationFormError: string | null
-  roomReservationFormSuccess: string | null
-}
-
-type ReservationAction =
-  | { type: "SET_RESERVATION_FORM"; payload: RoomReservationFormState }
-  | { type: "PATCH_RESERVATION_FORM"; field: keyof RoomReservationFormState; value: RoomReservationFormState[keyof RoomReservationFormState] }
-  | { type: "PATCH_RESERVATION_DATE_RANGE"; startDate: string; endDate: string }
-  | { type: "SET_RESERVATION_SAVING"; payload: boolean }
-  | { type: "SET_RESERVATION_CANCEL_MODAL"; payload: RoomReservationCancelModalState | null }
-  | { type: "PATCH_RESERVATION_CANCEL_MODAL"; patch: Partial<RoomReservationCancelModalState> }
-  | { type: "SET_RESERVATION_BUSY_ID"; payload: string | null }
-  | { type: "SET_RESERVATION_FORM_ERROR"; payload: string | null }
-  | { type: "SET_RESERVATION_FORM_SUCCESS"; payload: string | null }
-
-const initialReservationState: ReservationState = {
-  roomReservationForm: createEmptyRoomReservationForm(),
-  roomReservationSaving: false,
-  roomReservationCancelModal: null,
-  roomReservationBusyId: null,
-  roomReservationFormError: null,
-  roomReservationFormSuccess: null,
-}
-
-function reservationReducer(state: ReservationState, action: ReservationAction): ReservationState {
-  switch (action.type) {
-    case "SET_RESERVATION_FORM":
-      return { ...state, roomReservationForm: action.payload }
-    case "PATCH_RESERVATION_FORM":
-      return { ...state, roomReservationForm: { ...state.roomReservationForm, [action.field]: action.value } }
-    case "PATCH_RESERVATION_DATE_RANGE":
-      return { ...state, roomReservationForm: { ...state.roomReservationForm, startDate: action.startDate, endDate: action.endDate } }
-    case "SET_RESERVATION_SAVING":
-      return { ...state, roomReservationSaving: action.payload }
-    case "SET_RESERVATION_CANCEL_MODAL":
-      return { ...state, roomReservationCancelModal: action.payload }
-    case "PATCH_RESERVATION_CANCEL_MODAL":
-      return state.roomReservationCancelModal
-        ? { ...state, roomReservationCancelModal: { ...state.roomReservationCancelModal, ...action.patch } }
-        : state
-    case "SET_RESERVATION_BUSY_ID":
-      return { ...state, roomReservationBusyId: action.payload }
-    case "SET_RESERVATION_FORM_ERROR":
-      return { ...state, roomReservationFormError: action.payload }
-    case "SET_RESERVATION_FORM_SUCCESS":
-      return { ...state, roomReservationFormSuccess: action.payload }
-    default:
-      return state
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export const useStaffRoomsAdmin = (input: {
   rooms: RoomRow[]
   reservations: RoomReservationRow[]
@@ -229,35 +68,22 @@ export const useStaffRoomsAdmin = (input: {
   fetchSchoolData: FetchSchoolData
   handleStaffAuthFailure: (status: number) => boolean
 }) => {
-  const [roomState, dispatchRoom] = React.useReducer(roomReducer, initialRoomState)
-  const [reservationState, dispatchReservation] = React.useReducer(reservationReducer, initialReservationState)
-
-  // Destructure for ergonomic use inside callbacks
-  const {
-    roomForm,
-    roomSearchQuery,
-    roomStatusFilter,
-    roomSaving,
-    roomBusyId,
-    roomFormError,
-    roomFormSuccess,
-    roomActionErrors,
-    roomSafeDeleteModal,
-    roomReassignModal,
-  } = roomState
-
-  const {
-    roomReservationForm,
-    roomReservationSaving,
-    roomReservationCancelModal,
-    roomReservationBusyId,
-    roomReservationFormError,
-    roomReservationFormSuccess,
-  } = reservationState
-
-  // ---------------------------------------------------------------------------
-  // Derived values (useMemo) — unchanged
-  // ---------------------------------------------------------------------------
+  const [roomForm, setRoomForm] = React.useState<RoomFormState>(() => createInitialRoomForm())
+  const [roomSearchQuery, setRoomSearchQuery] = React.useState("")
+  const [roomStatusFilter, setRoomStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
+  const [roomSaving, setRoomSaving] = React.useState(false)
+  const [roomBusyId, setRoomBusyId] = React.useState<string | null>(null)
+  const [roomFormError, setRoomFormError] = React.useState<string | null>(null)
+  const [roomFormSuccess, setRoomFormSuccess] = React.useState<string | null>(null)
+  const [roomActionErrors, setRoomActionErrors] = React.useState<Record<string, string>>({})
+  const [roomSafeDeleteModal, setRoomSafeDeleteModal] = React.useState<RoomSafeDeleteModalState | null>(null)
+  const [roomReassignModal, setRoomReassignModal] = React.useState<RoomReassignModalState | null>(null)
+  const [roomReservationForm, setRoomReservationForm] = React.useState<RoomReservationFormState>(() => createEmptyRoomReservationForm())
+  const [roomReservationSaving, setRoomReservationSaving] = React.useState(false)
+  const [roomReservationCancelModal, setRoomReservationCancelModal] = React.useState<RoomReservationCancelModalState | null>(null)
+  const [roomReservationBusyId, setRoomReservationBusyId] = React.useState<string | null>(null)
+  const [roomReservationFormError, setRoomReservationFormError] = React.useState<string | null>(null)
+  const [roomReservationFormSuccess, setRoomReservationFormSuccess] = React.useState<string | null>(null)
 
   const roomById = React.useMemo(() => buildRoomLookup(input.rooms), [input.rooms])
   const activeRoomOptions = React.useMemo(() => input.rooms.filter((room) => room.active), [input.rooms])
@@ -295,50 +121,38 @@ export const useStaffRoomsAdmin = (input: {
   )
   const reservationRangePreview = React.useMemo(() => buildReservationRangePreview(roomReservationForm), [roomReservationForm])
 
-  // ---------------------------------------------------------------------------
-  // Room form callbacks
-  // ---------------------------------------------------------------------------
-
   const resetRoomForm = React.useCallback(() => {
-    dispatchRoom({ type: "SET_ROOM_FORM", payload: createInitialRoomForm() })
-    dispatchRoom({ type: "SET_ROOM_FORM_ERROR", payload: null })
-    dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: null })
+    setRoomForm(createInitialRoomForm())
+    setRoomFormError(null)
+    setRoomFormSuccess(null)
   }, [])
 
   const updateRoomFormField = React.useCallback(<Field extends keyof RoomFormState>(field: Field, value: RoomFormState[Field]) => {
-    dispatchRoom({ type: "PATCH_ROOM_FORM", field, value })
+    setRoomForm((prev) => ({ ...prev, [field]: value }))
   }, [])
 
   const loadRoomIntoForm = React.useCallback((room: RoomRow) => {
-    dispatchRoom({ type: "SET_ROOM_FORM", payload: createRoomFormFromRoom(room) })
-    dispatchRoom({ type: "SET_ROOM_FORM_ERROR", payload: null })
-    dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: null })
+    setRoomForm(createRoomFormFromRoom(room))
+    setRoomFormError(null)
+    setRoomFormSuccess(null)
   }, [])
-
-  // ---------------------------------------------------------------------------
-  // Reservation form callbacks
-  // ---------------------------------------------------------------------------
 
   const updateRoomReservationFormField = React.useCallback(
     <Field extends keyof RoomReservationFormState>(field: Field, value: RoomReservationFormState[Field]) => {
-      dispatchReservation({ type: "PATCH_RESERVATION_FORM", field, value })
+      setRoomReservationForm((prev) => ({ ...prev, [field]: value }))
     },
     []
   )
 
   const updateRoomReservationDateRange = React.useCallback((startDate: string, endDate: string | null) => {
-    dispatchReservation({ type: "PATCH_RESERVATION_DATE_RANGE", startDate, endDate: endDate || "" })
+    setRoomReservationForm((prev) => ({ ...prev, startDate, endDate: endDate || "" }))
   }, [])
-
-  // ---------------------------------------------------------------------------
-  // Room async actions
-  // ---------------------------------------------------------------------------
 
   const saveRoom = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
-    dispatchRoom({ type: "SET_ROOM_SAVING", payload: true })
-    dispatchRoom({ type: "SET_ROOM_FORM_ERROR", payload: null })
-    dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: null })
+    setRoomSaving(true)
+    setRoomFormError(null)
+    setRoomFormSuccess(null)
     try {
       const isEditing = Boolean(roomForm.id)
       const res = await fetch(isEditing ? `/api/staff/rooms/${roomForm.id}` : "/api/staff/rooms", {
@@ -354,22 +168,24 @@ export const useStaffRoomsAdmin = (input: {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (input.handleStaffAuthFailure(res.status)) return
-        dispatchRoom({ type: "SET_ROOM_FORM_ERROR", payload: typeof data?.error === "string" ? data.error : "Unable to save room." })
+        setRoomFormError(typeof data?.error === "string" ? data.error : "Unable to save room.")
         return
       }
       const nextSuccess = typeof data?.message === "string" ? data.message : isEditing ? "Room updated." : "Room created."
       await input.fetchSchoolData({ showLoader: false })
       resetRoomForm()
-      dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: nextSuccess })
+      setRoomFormSuccess(nextSuccess)
     } catch {
-      dispatchRoom({ type: "SET_ROOM_FORM_ERROR", payload: "Network error while saving room." })
+      setRoomFormError("Network error while saving room.")
     } finally {
-      dispatchRoom({ type: "SET_ROOM_SAVING", payload: false })
+      setRoomSaving(false)
     }
   }, [input, resetRoomForm, roomForm])
 
   const setRoomActionBusy = React.useCallback((roomId: string) => {
-    dispatchRoom({ type: "SET_ROOM_ACTION_BUSY", roomId })
+    setRoomBusyId(roomId)
+    setRoomActionErrors((prev) => clearRecordEntry(prev, roomId))
+    setRoomFormSuccess(null)
   }, [])
 
   const disableRoom = React.useCallback(async (roomId: string) => {
@@ -382,16 +198,16 @@ export const useStaffRoomsAdmin = (input: {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (input.handleStaffAuthFailure(res.status)) return
-        dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId, error: resolveRoomActionErrorMessage(data, "Unable to disable room.") })
+        setRoomActionErrors((prev) => ({ ...prev, [roomId]: resolveRoomActionErrorMessage(data, "Unable to disable room.") }))
         return
       }
       await input.fetchSchoolData({ showLoader: false })
       if (roomForm.id === roomId) resetRoomForm()
-      dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: typeof data?.message === "string" ? data.message : "Room disabled." })
+      setRoomFormSuccess(typeof data?.message === "string" ? data.message : "Room disabled.")
     } catch {
-      dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId, error: "Network error while disabling room." })
+      setRoomActionErrors((prev) => ({ ...prev, [roomId]: "Network error while disabling room." }))
     } finally {
-      dispatchRoom({ type: "SET_ROOM_BUSY_ID", payload: null })
+      setRoomBusyId(null)
     }
   }, [input, resetRoomForm, roomForm.id, setRoomActionBusy])
 
@@ -406,45 +222,31 @@ export const useStaffRoomsAdmin = (input: {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (input.handleStaffAuthFailure(res.status)) return
-        dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId, error: resolveRoomActionErrorMessage(data, "Unable to activate room.") })
+        setRoomActionErrors((prev) => ({ ...prev, [roomId]: resolveRoomActionErrorMessage(data, "Unable to activate room.") }))
         return
       }
       await input.fetchSchoolData({ showLoader: false })
-      dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: typeof data?.message === "string" ? data.message : "Room activated." })
+      setRoomFormSuccess(typeof data?.message === "string" ? data.message : "Room activated.")
     } catch {
-      dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId, error: "Network error while activating room." })
+      setRoomActionErrors((prev) => ({ ...prev, [roomId]: "Network error while activating room." }))
     } finally {
-      dispatchRoom({ type: "SET_ROOM_BUSY_ID", payload: null })
+      setRoomBusyId(null)
     }
   }, [input, setRoomActionBusy])
 
-  // ---------------------------------------------------------------------------
-  // Safe-delete modal callbacks
-  // ---------------------------------------------------------------------------
-
   const openRoomSafeDeleteModal = React.useCallback((room: RoomRow) => {
-    dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: null })
-    dispatchRoom({ type: "SET_ROOM_SAFE_DELETE_MODAL", payload: { room, reason: "", error: null } })
+    setRoomFormSuccess(null)
+    setRoomSafeDeleteModal({ room, reason: "", error: null })
   }, [])
 
-  const closeRoomSafeDeleteModal = React.useCallback(() => {
-    dispatchRoom({ type: "SET_ROOM_SAFE_DELETE_MODAL", payload: null })
-  }, [])
+  const closeRoomSafeDeleteModal = React.useCallback(() => setRoomSafeDeleteModal(null), [])
 
   const updateRoomSafeDeleteReason = React.useCallback((reason: string) => {
-    dispatchRoom({
-      type: "PATCH_ROOM_SAFE_DELETE_MODAL",
-      patch: {
-        reason,
-        // Clear the specific validation error when user is typing a reason
-        ...(roomSafeDeleteModal?.error === "Deletion reason is required." ? { error: null } : {}),
-      },
+    setRoomSafeDeleteModal((prev) => {
+      if (!prev) return prev
+      return { ...prev, reason, error: prev.error === "Deletion reason is required." ? null : prev.error }
     })
-  }, [roomSafeDeleteModal?.error])
-
-  // ---------------------------------------------------------------------------
-  // Reassign modal callbacks
-  // ---------------------------------------------------------------------------
+  }, [])
 
   const openRoomReassignModal = React.useCallback((room: RoomRow) => {
     const affectedCourses = input.courses
@@ -456,67 +258,55 @@ export const useStaffRoomsAdmin = (input: {
         scheduleLabel: buildAssignmentCourseScheduleLabel(course),
       }))
 
-    dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: null })
-    dispatchRoom({
-      type: "SET_ROOM_REASSIGN_MODAL",
-      payload: {
-        room,
-        targetRoomId: "",
-        moveFutureSessions: false,
-        availableCourses: affectedCourses,
-        selectedCourseIds: affectedCourses.map((course) => course.id),
-        error: null,
-      },
+    setRoomFormSuccess(null)
+    setRoomReassignModal({
+      room,
+      targetRoomId: "",
+      moveFutureSessions: false,
+      availableCourses: affectedCourses,
+      selectedCourseIds: affectedCourses.map((course) => course.id),
+      error: null,
     })
   }, [input.courses])
 
-  const closeRoomReassignModal = React.useCallback(() => {
-    dispatchRoom({ type: "SET_ROOM_REASSIGN_MODAL", payload: null })
-  }, [])
+  const closeRoomReassignModal = React.useCallback(() => setRoomReassignModal(null), [])
 
   const updateRoomReassignTarget = React.useCallback((targetRoomId: string) => {
-    dispatchRoom({
-      type: "PATCH_ROOM_REASSIGN_MODAL",
-      patch: {
-        targetRoomId,
-        ...(roomReassignModal?.error === "Select a target room to continue." ? { error: null } : {}),
-      },
+    setRoomReassignModal((prev) => {
+      if (!prev) return prev
+      return { ...prev, targetRoomId, error: prev.error === "Select a target room to continue." ? null : prev.error }
     })
-  }, [roomReassignModal?.error])
+  }, [])
 
   const updateRoomReassignMoveFutureSessions = React.useCallback((moveFutureSessions: boolean) => {
-    dispatchRoom({ type: "PATCH_ROOM_REASSIGN_MODAL", patch: { moveFutureSessions } })
+    setRoomReassignModal((prev) => (prev ? { ...prev, moveFutureSessions } : prev))
   }, [])
 
   const updateRoomReassignCourseSelection = React.useCallback((courseId: string, selected: boolean) => {
-    if (!roomReassignModal) return
-    const selectedCourseIds = selected
-      ? [...roomReassignModal.selectedCourseIds, courseId]
-      : roomReassignModal.selectedCourseIds.filter((id) => id !== courseId)
-    dispatchRoom({
-      type: "PATCH_ROOM_REASSIGN_MODAL",
-      patch: {
+    setRoomReassignModal((prev) => {
+      if (!prev) return prev
+      const selectedCourseIds = selected
+        ? [...prev.selectedCourseIds, courseId]
+        : prev.selectedCourseIds.filter((id) => id !== courseId)
+      return {
+        ...prev,
         selectedCourseIds,
-        ...(roomReassignModal.error === "Select at least one course to reassign." ? { error: null } : {}),
-      },
+        error: prev.error === "Select at least one course to reassign." ? null : prev.error,
+      }
     })
-  }, [roomReassignModal])
-
-  // ---------------------------------------------------------------------------
-  // Safe-delete and reassign async actions
-  // ---------------------------------------------------------------------------
+  }, [])
 
   const confirmRoomSafeDelete = React.useCallback(async () => {
     if (!roomSafeDeleteModal) return
     const room = roomSafeDeleteModal.room
     const reason = roomSafeDeleteModal.reason.trim()
     if (!reason) {
-      dispatchRoom({ type: "PATCH_ROOM_SAFE_DELETE_MODAL", patch: { error: "Deletion reason is required." } })
+      setRoomSafeDeleteModal((prev) => (prev ? { ...prev, error: "Deletion reason is required." } : prev))
       return
     }
 
     setRoomActionBusy(room.id)
-    dispatchRoom({ type: "PATCH_ROOM_SAFE_DELETE_MODAL", patch: { error: null } })
+    setRoomSafeDeleteModal((prev) => (prev ? { ...prev, error: null } : prev))
     try {
       const res = await fetch(`/api/staff/rooms/${room.id}/safe-delete`, {
         method: "POST",
@@ -527,23 +317,21 @@ export const useStaffRoomsAdmin = (input: {
       if (!res.ok) {
         if (input.handleStaffAuthFailure(res.status)) return
         const nextError = resolveRoomActionErrorMessage(data, "Unable to safe-delete room.")
-        if (roomSafeDeleteModal.room.id === room.id) {
-          dispatchRoom({ type: "PATCH_ROOM_SAFE_DELETE_MODAL", patch: { error: nextError } })
-        }
-        dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId: room.id, error: nextError })
+        setRoomSafeDeleteModal((prev) => (prev && prev.room.id === room.id ? { ...prev, error: nextError } : prev))
+        setRoomActionErrors((prev) => ({ ...prev, [room.id]: nextError }))
         return
       }
 
       await input.fetchSchoolData({ showLoader: false })
       if (roomForm.id === room.id) resetRoomForm()
       closeRoomSafeDeleteModal()
-      dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: "Room deleted." })
+      setRoomFormSuccess("Room deleted.")
     } catch {
       const nextError = "Network error while deleting room."
-      dispatchRoom({ type: "PATCH_ROOM_SAFE_DELETE_MODAL", patch: { error: nextError } })
-      dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId: room.id, error: nextError })
+      setRoomSafeDeleteModal((prev) => (prev && prev.room.id === room.id ? { ...prev, error: nextError } : prev))
+      setRoomActionErrors((prev) => ({ ...prev, [room.id]: nextError }))
     } finally {
-      dispatchRoom({ type: "SET_ROOM_BUSY_ID", payload: null })
+      setRoomBusyId(null)
     }
   }, [closeRoomSafeDeleteModal, input, resetRoomForm, roomForm.id, roomSafeDeleteModal, setRoomActionBusy])
 
@@ -553,16 +341,16 @@ export const useStaffRoomsAdmin = (input: {
     const targetRoomId = roomReassignModal.targetRoomId
     const selectedCourseIds = roomReassignModal.selectedCourseIds
     if (!targetRoomId) {
-      dispatchRoom({ type: "PATCH_ROOM_REASSIGN_MODAL", patch: { error: "Select a target room to continue." } })
+      setRoomReassignModal((prev) => (prev ? { ...prev, error: "Select a target room to continue." } : prev))
       return
     }
     if (roomReassignModal.availableCourses.length > 0 && selectedCourseIds.length === 0) {
-      dispatchRoom({ type: "PATCH_ROOM_REASSIGN_MODAL", patch: { error: "Select at least one course to reassign." } })
+      setRoomReassignModal((prev) => (prev ? { ...prev, error: "Select at least one course to reassign." } : prev))
       return
     }
 
     setRoomActionBusy(room.id)
-    dispatchRoom({ type: "PATCH_ROOM_REASSIGN_MODAL", patch: { error: null } })
+    setRoomReassignModal((prev) => (prev ? { ...prev, error: null } : prev))
     try {
       const res = await fetch(`/api/staff/rooms/${room.id}/reassign`, {
         method: "POST",
@@ -577,10 +365,8 @@ export const useStaffRoomsAdmin = (input: {
       if (!res.ok) {
         if (input.handleStaffAuthFailure(res.status)) return
         const nextError = resolveRoomActionErrorMessage(data, "Unable to reassign room.")
-        if (roomReassignModal.room.id === room.id) {
-          dispatchRoom({ type: "PATCH_ROOM_REASSIGN_MODAL", patch: { error: nextError } })
-        }
-        dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId: room.id, error: nextError })
+        setRoomReassignModal((prev) => (prev && prev.room.id === room.id ? { ...prev, error: nextError } : prev))
+        setRoomActionErrors((prev) => ({ ...prev, [room.id]: nextError }))
         return
       }
 
@@ -588,35 +374,31 @@ export const useStaffRoomsAdmin = (input: {
       const movedDefaults = typeof data?.reassignedDefaults === "number" ? data.reassignedDefaults : 0
       await input.fetchSchoolData({ showLoader: false })
       closeRoomReassignModal()
-      dispatchRoom({ type: "SET_ROOM_FORM_SUCCESS", payload: `Room reassigned. Defaults moved: ${movedDefaults}. Future sessions moved: ${movedSessions}.` })
+      setRoomFormSuccess(`Room reassigned. Defaults moved: ${movedDefaults}. Future sessions moved: ${movedSessions}.`)
     } catch {
       const nextError = "Network error while reassigning room."
-      dispatchRoom({ type: "PATCH_ROOM_REASSIGN_MODAL", patch: { error: nextError } })
-      dispatchRoom({ type: "SET_ROOM_ACTION_ERROR", roomId: room.id, error: nextError })
+      setRoomReassignModal((prev) => (prev && prev.room.id === room.id ? { ...prev, error: nextError } : prev))
+      setRoomActionErrors((prev) => ({ ...prev, [room.id]: nextError }))
     } finally {
-      dispatchRoom({ type: "SET_ROOM_BUSY_ID", payload: null })
+      setRoomBusyId(null)
     }
   }, [closeRoomReassignModal, input, roomReassignModal, setRoomActionBusy])
 
-  // ---------------------------------------------------------------------------
-  // Reservation async actions
-  // ---------------------------------------------------------------------------
-
   const saveRoomReservation = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
-    dispatchReservation({ type: "SET_RESERVATION_SAVING", payload: true })
-    dispatchReservation({ type: "SET_RESERVATION_FORM_ERROR", payload: null })
-    dispatchReservation({ type: "SET_RESERVATION_FORM_SUCCESS", payload: null })
+    setRoomReservationSaving(true)
+    setRoomReservationFormError(null)
+    setRoomReservationFormSuccess(null)
     try {
       const effectiveEndDate = roomReservationForm.endDate || roomReservationForm.startDate
       const startsAtDate = buildReservationDateTime(roomReservationForm.startDate, roomReservationForm.startTime)
       const endsAtDate = buildReservationDateTime(effectiveEndDate, roomReservationForm.endTime)
       if (!startsAtDate || !endsAtDate) {
-        dispatchReservation({ type: "SET_RESERVATION_FORM_ERROR", payload: "Select a valid start/end date and time." })
+        setRoomReservationFormError("Select a valid start/end date and time.")
         return
       }
       if (endsAtDate.getTime() <= startsAtDate.getTime()) {
-        dispatchReservation({ type: "SET_RESERVATION_FORM_ERROR", payload: "End date/time must be after start date/time. For overnight events, choose the next day as end date." })
+        setRoomReservationFormError("End date/time must be after start date/time. For overnight events, choose the next day as end date.")
         return
       }
       const res = await fetch("/api/staff/room-reservations", {
@@ -636,37 +418,35 @@ export const useStaffRoomsAdmin = (input: {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (input.handleStaffAuthFailure(res.status)) return
-        dispatchReservation({ type: "SET_RESERVATION_FORM_ERROR", payload: resolveRoomActionErrorMessage(data, "Unable to create reservation.") })
+        setRoomReservationFormError(resolveRoomActionErrorMessage(data, "Unable to create reservation."))
         return
       }
       await input.fetchSchoolData({ showLoader: false })
-      dispatchReservation({ type: "SET_RESERVATION_FORM", payload: createEmptyRoomReservationForm() })
-      dispatchReservation({ type: "SET_RESERVATION_FORM_SUCCESS", payload: "Reservation created." })
+      setRoomReservationForm(createEmptyRoomReservationForm())
+      setRoomReservationFormSuccess("Reservation created.")
     } catch {
-      dispatchReservation({ type: "SET_RESERVATION_FORM_ERROR", payload: "Network error while creating reservation." })
+      setRoomReservationFormError("Network error while creating reservation.")
     } finally {
-      dispatchReservation({ type: "SET_RESERVATION_SAVING", payload: false })
+      setRoomReservationSaving(false)
     }
   }, [input, roomReservationForm])
 
-  const closeRoomReservationCancelModal = React.useCallback(() => {
-    dispatchReservation({ type: "SET_RESERVATION_CANCEL_MODAL", payload: null })
-  }, [])
+  const closeRoomReservationCancelModal = React.useCallback(() => setRoomReservationCancelModal(null), [])
 
   const openRoomReservationCancelModal = React.useCallback((reservation: RoomReservationRow) => {
-    dispatchReservation({ type: "SET_RESERVATION_FORM_SUCCESS", payload: null })
-    dispatchReservation({ type: "SET_RESERVATION_CANCEL_MODAL", payload: { reservation, reason: "", error: null } })
+    setRoomReservationFormSuccess(null)
+    setRoomReservationCancelModal({ reservation, reason: "", error: null })
   }, [])
 
   const updateRoomReservationCancelReason = React.useCallback((reason: string) => {
-    dispatchReservation({ type: "PATCH_RESERVATION_CANCEL_MODAL", patch: { reason, error: null } })
+    setRoomReservationCancelModal((prev) => (prev ? { ...prev, reason, error: null } : prev))
   }, [])
 
   const confirmRoomReservationCancel = React.useCallback(async () => {
     if (!roomReservationCancelModal) return
     const reservation = roomReservationCancelModal.reservation
-    dispatchReservation({ type: "SET_RESERVATION_BUSY_ID", payload: reservation.id })
-    dispatchReservation({ type: "SET_RESERVATION_FORM_ERROR", payload: null })
+    setRoomReservationBusyId(reservation.id)
+    setRoomReservationFormError(null)
     try {
       const res = await fetch(`/api/staff/room-reservations/${reservation.id}/cancel`, {
         method: "POST",
@@ -677,25 +457,18 @@ export const useStaffRoomsAdmin = (input: {
       if (!res.ok) {
         if (input.handleStaffAuthFailure(res.status)) return
         const nextError = resolveRoomActionErrorMessage(data, "Unable to cancel reservation.")
-        dispatchReservation({ type: "PATCH_RESERVATION_CANCEL_MODAL", patch: { error: nextError } })
+        setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: nextError } : prev))
         return
       }
       await input.fetchSchoolData({ showLoader: false })
       closeRoomReservationCancelModal()
-      dispatchReservation({ type: "SET_RESERVATION_FORM_SUCCESS", payload: "Reservation cancelled." })
+      setRoomReservationFormSuccess("Reservation cancelled.")
     } catch {
-      dispatchReservation({ type: "PATCH_RESERVATION_CANCEL_MODAL", patch: { error: "Network error while cancelling reservation." } })
+      setRoomReservationCancelModal((prev) => (prev ? { ...prev, error: "Network error while cancelling reservation." } : prev))
     } finally {
-      dispatchReservation({ type: "SET_RESERVATION_BUSY_ID", payload: null })
+      setRoomReservationBusyId(null)
     }
   }, [closeRoomReservationCancelModal, input, roomReservationCancelModal])
-
-  const setRoomSearchQuery = React.useCallback((v: string) => dispatchRoom({ type: "SET_ROOM_SEARCH_QUERY", payload: v }), [])
-  const setRoomStatusFilter = React.useCallback((v: "all" | "active" | "inactive") => dispatchRoom({ type: "SET_ROOM_STATUS_FILTER", payload: v }), [])
-
-  // ---------------------------------------------------------------------------
-  // Public interface — identical to original
-  // ---------------------------------------------------------------------------
 
   return {
     roomForm,

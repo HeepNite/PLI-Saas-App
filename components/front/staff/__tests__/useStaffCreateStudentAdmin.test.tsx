@@ -29,12 +29,10 @@ describe("useStaffCreateStudentAdmin", () => {
 
   it("posts the selected historical session and refreshes exactly once after success", async () => {
     const onSuccess = vi.fn(async () => undefined)
-    const sessionsResponse = { ok: true, json: async () => ({ items: [{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }] }) } as Response
-    const createResponse = { ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString()
-      return url.startsWith("/api/staff/students/sessions") ? sessionsResponse : createResponse
-    })
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response)
     const container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -50,23 +48,20 @@ describe("useStaffCreateStudentAdmin", () => {
     await act(async () => { await state?.submit() })
 
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
-    // Sessions are re-fetched for the newly selected historical date.
-    expect(calls.some((call) => call[0] === "/api/staff/students/sessions?date=2026-07-15")).toBe(true)
-    const submitCall = calls.find((call) => call[0] === "/api/staff/students")
-    expect(submitCall).toBeDefined()
-    expect(JSON.parse(submitCall![1].body)).toMatchObject({
+    expect(calls[0][0]).toBe("/api/staff/students/package-plans")
+    expect(calls[1][0]).toBe("/api/staff/students/sessions?date=2026-07-15")
+    const request = JSON.parse(calls[2][1].body)
+    expect(request).toMatchObject({
       checkIn: { enabled: true, date: "2026-07-15", sessionId: "session_1" },
     })
+    expect(request.package).toBeUndefined()
     expect(onSuccess).toHaveBeenCalledTimes(1)
   })
 
-  it("blocks submission until a session is selected and keeps manual creation usable when sessions fail to load", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString()
-      return url.startsWith("/api/staff/students/package-plans")
-        ? ({ ok: true, json: async () => ({ items: [] }) } as Response)
-        : ({ ok: false, json: async () => ({ error: "Session service unavailable" }) } as Response)
-    })
+  it("blocks submission until a session is selected and surfaces session-loading failures", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) } as Response)
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: "Session service unavailable" }) } as Response)
     const container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -80,22 +75,16 @@ describe("useStaffCreateStudentAdmin", () => {
 
     expect(state?.canSubmit).toBe(false)
     await act(async () => undefined)
-    // Attendance is optional: a failed sessions load must not surface a blocking error.
-    expect(state?.error).toBeNull()
+    expect(state?.error).toBe("Session service unavailable")
     expect(state?.attendanceSessions).toEqual([])
   })
 
   it("sends the selected active package only after staff enters a reason without a second payment", async () => {
     const onSuccess = vi.fn(async () => undefined)
-    const packagePlansResponse = { ok: true, json: async () => ({ items: [{ id: "plan_1", label: "Ten classes", priceCents: 12500 }] }) } as Response
-    const sessionsResponse = { ok: true, json: async () => ({ items: [{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }] }) } as Response
-    const createResponse = { ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString()
-      if (url.startsWith("/api/staff/students/package-plans")) return packagePlansResponse
-      if (url.startsWith("/api/staff/students/sessions")) return sessionsResponse
-      return createResponse
-    })
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ id: "plan_1", label: "Ten classes", priceCents: 12500 }] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt: "2026-07-15T23:00:00.000Z", durationMinutes: 60, isCurrent: false }] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response)
     const container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -129,6 +118,48 @@ describe("useStaffCreateStudentAdmin", () => {
     })
     expect(JSON.parse(submitCall![1].body).paymentMode).toBeUndefined()
     expect(onSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it("preserves payment controls and payload when no package is selected", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ userId: "user_1", clerkUserId: "clerk_1", isExisting: false, activation: {} }) } as Response)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => root?.render(<Harness onState={(next) => { state = next }} onSuccess={async () => undefined} />))
+    await act(async () => state?.openModal())
+    await act(async () => {
+      state?.updateField("email", "student@example.com")
+      state?.updateField("amountCents", "25")
+      state?.updateField("paymentMode", "cash")
+    })
+    await act(async () => { await state?.submit() })
+
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect(JSON.parse(calls[1][1].body)).toMatchObject({ amountCents: 2500, paymentMode: "cash" })
+
+    await act(async () => root?.render(
+      <CreateStudentModal
+        isOpen
+        form={{ email: "student@example.com", phone: "", name: "", amountCents: "25", paymentMode: "cash", note: "", createAttendance: false, attendanceDate: "2026-07-15", attendanceSessionId: "", recoveryTicket: "", packagePlanId: "", packageReason: "" }}
+        submitting={false}
+        error={null}
+        result={null}
+        hasAmount
+        canSubmit
+        attendanceSessions={[]}
+        packagePlans={[]}
+        packagePlansLoading={false}
+        onClose={() => undefined}
+        onUpdateField={() => undefined}
+        onSubmit={() => undefined}
+      />
+    ))
+
+    expect(document.body.textContent).toContain("Amount ($)")
+    expect(document.body.textContent).toContain("Payment mode")
   })
 
   it("hides payment controls but keeps check-in controls usable when a package is selected", async () => {

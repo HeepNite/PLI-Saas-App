@@ -35,10 +35,12 @@ The New student modal shows a visible `SMS code did not arrive?` control before 
 
 | Record | Minimum payload | Credential rule | Privilege |
 | --- | --- | --- | --- |
-| Recovery draft | Normalized phone, name, email, source enrollment, resend-threshold/action reference, expiry, lifecycle state. | Store a verifier/hash for the opaque manual assistance code; show plaintext only in the student popup. | None: cannot create, verify, or authenticate an account. |
+| Recovery draft | Normalized phone, name, email, source enrollment, resend-threshold/action reference, expiry, lifecycle state, numeric code namespace. | Store a verifier/hash for the opaque manual assistance code; show plaintext only in the student popup. Start at `PLI-1234`; exhaustively try each value once before rolling over to `PLI-1-1234`, then later namespaces. | None: cannot create, verify, or authenticate an account. |
 | Recovery ticket | Draft reference, staff-confirmation audit reference, expiry, state, lifecycle metadata. | Store a verifier/hash for its high-entropy opaque credential. | One authorized existing admin-flow consumption only. |
 
 Neither code may contain PII or failure details or appear in a URL. Sensitive draft/ticket payload is removed on consumption, expiry, or invalidation; retain only non-sensitive lifecycle metadata where operationally necessary.
+
+The recovery code issuer begins in namespace zero and visits each of its 10,000 four-digit candidates at most once in a randomized cyclic order. A collision-safe unique hash write proves a candidate unavailable; only 10,000 collisions prove a namespace exhausted and permit the next namespace. Scrubbing expired or invalidated drafts clears their hashes, returning that capacity to the default namespace.
 
 ## Authorization And Disclosure
 

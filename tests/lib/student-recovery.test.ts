@@ -34,10 +34,13 @@ describe("student recovery", () => {
     expect(normalizeRecoveryCode(" pli-1234 ")).toBe("PLI-1234")
     expect(normalizeRecoveryCode("PLI-12345")).toBeNull()
     expect(normalizeRecoveryCode("PLI-12A4")).toBeNull()
+    expect(normalizeRecoveryCode(" pli-1-1234 ")).toBe("PLI-1-1234")
+    expect(normalizeRecoveryCode("PLI-0-1234")).toBeNull()
+    expect(normalizeRecoveryCode("PLI-01-1234")).toBeNull()
     expect(normalizeRecoveryCode(" abc-def_ghij ")).toBe("ABC-DEF_GHIJ")
   })
 
-  it("retries draft issuance after a code-hash collision", async () => {
+  it("retries draft issuance after a code-hash collision without repeating a candidate", async () => {
     mockPrisma.studentRecoveryDraft.create
       .mockRejectedValueOnce({ code: "P2002" })
       .mockResolvedValueOnce({})
@@ -45,6 +48,22 @@ describe("student recovery", () => {
 
     await expect(issueRecoveryDraft({ phone: "+15551234567" }, "qr_mobile")).resolves.toMatch(/^PLI-\d{4}$/)
     expect(mockPrisma.studentRecoveryDraft.create).toHaveBeenCalledTimes(2)
+  })
+
+  it("rolls to the next namespace only after exhausting every default candidate", async () => {
+    mockPrisma.studentRecoveryDraft.create
+      .mockImplementationOnce(() => Promise.reject({ code: "P2002" }))
+    for (let index = 1; index < 10_000; index += 1) {
+      mockPrisma.studentRecoveryDraft.create.mockImplementationOnce(() => Promise.reject({ code: "P2002" }))
+    }
+    mockPrisma.studentRecoveryDraft.create.mockResolvedValueOnce({})
+    const { issueRecoveryDraft } = await import("@/lib/student-recovery")
+
+    await expect(issueRecoveryDraft({ phone: "+15551234567" }, "qr_mobile")).resolves.toMatch(/^PLI-1-\d{4}$/)
+    expect(mockPrisma.studentRecoveryDraft.create).toHaveBeenCalledTimes(10_001)
+    expect(mockPrisma.studentRecoveryDraft.create).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ recoveryCodeNamespace: 1 }),
+    }))
   })
 
   it("atomically claims a draft before minting its only ticket", async () => {

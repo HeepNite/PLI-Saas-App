@@ -133,11 +133,7 @@ describe("RescheduleModal", () => {
       rescheduleSuccess: null,
     })
 
-    type WalkNode = {
-      type?: unknown
-      props?: { onClick?: () => void; children?: unknown; "aria-label"?: string }
-    }
-    const stack: WalkNode[] = [element as WalkNode]
+    const stack = [element as any]
     while (stack.length) {
       const node = stack.pop()
       if (!node?.props) continue
@@ -146,7 +142,7 @@ describe("RescheduleModal", () => {
         break
       }
       const children = Array.isArray(node.props.children) ? node.props.children : [node.props.children]
-      for (const child of children) stack.push(child as WalkNode)
+      for (const child of children) stack.push(child)
     }
 
     expect(closeChangeClassModal).toHaveBeenCalledTimes(1)

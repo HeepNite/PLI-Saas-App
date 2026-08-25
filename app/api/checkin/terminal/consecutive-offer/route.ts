@@ -1,43 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
+import { DEFAULT_DURATION_MINUTES } from "@/lib/checkin/qr"
+import { CHECKIN_TIME_ZONE, toMinutes } from "@/lib/checkin/checkin-helpers"
+import { getEtDateIso, getEtHourMinute } from "@/lib/checkin/et-time"
 import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 import { computeDiscountPercent } from "@/lib/course-links"
-import { DEFAULT_DURATION_MINUTES } from "@/lib/checkin/qr"
 
 export const runtime = "nodejs"
 
-const CHECKIN_TIME_ZONE = "America/New_York"
 const WEEKDAY_LABELS_JS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
 
 const getJsWeekdayInTimeZone = (date: Date, timeZone: string) => {
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date)
   return WEEKDAY_LABELS_JS.findIndex((label) => label === weekday)
-}
-
-const formatDateInTimeZone = (date: Date, timeZone: string) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone }).format(date) // YYYY-MM-DD
-
-const getMinutesInTimeZone = (date: Date, timeZone: string) => {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date)
-  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0")
-  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0")
-  return hour * 60 + minute
-}
-
-const toMinutes = (time: string | null | undefined) => {
-  if (!time) return null
-  const match = /^(\d{2}):(\d{2})$/.exec(time)
-  if (!match) return null
-  const hours = Number(match[1])
-  const minutes = Number(match[2])
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  return hours * 60 + minutes
 }
 
 const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[], weekday: number) => {
@@ -60,28 +36,14 @@ const resolveTimesForWeekday = (scheduleRules: unknown, availableTimes: string[]
  * before the student checks in or authenticates.
  */
 export async function GET(req: NextRequest) {
-  const startedAt = Date.now()
-  const db: Record<string, number> = {}
-  const measureDatabaseCall = async <T>(name: string, operation: () => Promise<T>) => {
-    const callStartedAt = Date.now()
-    try {
-      return await operation()
-    } finally {
-      db[name] = Date.now() - callStartedAt
-    }
-  }
-  const logTiming = (outcome: "offer" | "no_offer" | "failed") => {
-    console.info("[terminal-consecutive-offer-latency] route", {
-      db,
-      durationMs: Date.now() - startedAt,
-      outcome,
-    })
-  }
-  const ip = getClientIp(req)
-  const rateLimit = consumeRateLimit({ key: buildRateLimitKey("terminal:consecutive-offer", ip), limit: 60, windowMs: 60_000 })
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("checkin:terminal:consecutive-offer:get", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
+  })
   if (!rateLimit.ok) {
     return NextResponse.json(
-      { error: "Too many requests" },
+      { error: "Too many requests. Please try again in a moment." },
       { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
     )
   }
@@ -94,35 +56,40 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const now = new Date()
+    const todayIso = getEtDateIso(now)
+    if (selectedDate && selectedDate !== todayIso) {
+      return NextResponse.json(null)
+    }
+
     // Find active CourseLinks involving the selected course. The link itself is
     // not treated as direction-authoritative; today's schedule decides which
     // side is the first class and which side can be offered as the consecutive
     // class.
-    const links = await measureDatabaseCall("courseLinksMs", () => prisma.courseLink.findMany({
+    const links = await prisma.courseLink.findMany({
       where: {
         active: true,
         OR: [{ courseSlugA: courseSlug }, { courseSlugB: courseSlug }],
       },
-    }))
+    })
     if (links.length === 0) {
-      logTiming("no_offer")
       return NextResponse.json(null)
     }
 
-    const courseA = await measureDatabaseCall("courseMs", () => prisma.courseCatalog.findUnique({
+    const courseA = await prisma.courseCatalog.findUnique({
       where: { slug: courseSlug },
       select: {
         slug: true,
         availableTimes: true,
         scheduleRules: true,
       },
-    }))
+    })
 
     const linkedSlugs = links.map((link) =>
       link.courseSlugA === courseSlug ? link.courseSlugB : link.courseSlugA
     )
 
-    const linkedCourses = await measureDatabaseCall("linkedCoursesMs", () => prisma.courseCatalog.findMany({
+    const linkedCourses = await prisma.courseCatalog.findMany({
       where: { slug: { in: linkedSlugs } },
       select: {
         slug: true,
@@ -134,33 +101,24 @@ export async function GET(req: NextRequest) {
         dropInPriceCents: true,
         durationMinutes: true,
       },
-    }))
+    })
 
-    // Check if course B has class on the selected date, falling back to today
-    // for legacy terminal callers that do not pass a date.
-    const parsedSelectedDate = selectedDate ? new Date(`${selectedDate}T12:00:00`) : null
-    const now = parsedSelectedDate && !Number.isNaN(parsedSelectedDate.getTime()) ? parsedSelectedDate : new Date()
     const todayJsWeekday = getJsWeekdayInTimeZone(now, CHECKIN_TIME_ZONE) // 0=Sun, 1=Mon, ... in NY time
-
-    // Real wall-clock "now", independent of the resolved/selected date above.
-    // Used ONLY to filter out already-passed candidates, and ONLY when the
-    // resolved date is actually today — a future-dated selection must never
-    // be past-filtered against the current moment.
-    const actualNow = new Date()
-    const actualCalendarDate = formatDateInTimeZone(actualNow, CHECKIN_TIME_ZONE)
-    // Compare the raw selectedDate string (already YYYY-MM-DD in NY-intended
-    // form) directly against today's NY calendar date, so this check is
-    // independent of the server's local TZ. Round-tripping through a
-    // locally-parsed Date (as `now` above does, for weekday/schedule
-    // resolution) would make "is this today" sensitive to the server's TZ
-    // offset. When selectedDate is absent (legacy callers), treat as today.
-    const resolvedDateIsToday = selectedDate ? selectedDate === actualCalendarDate : true
-    const nowMinutes = resolvedDateIsToday ? getMinutesInTimeZone(actualNow, CHECKIN_TIME_ZONE) : null
+    const { hour, minute } = getEtHourMinute(now)
+    const nowMinutes = hour * 60 + minute
 
     const courseATimesForToday = courseA
       ? resolveTimesForWeekday(courseA.scheduleRules, courseA.availableTimes, todayJsWeekday).times
       : []
-    const courseAStartMinutes = toMinutes(selectedTime) ?? toMinutes(courseATimesForToday[0])
+    if (selectedTime && !courseATimesForToday.includes(selectedTime)) {
+      return NextResponse.json(null)
+    }
+    const fallbackCourseATime = courseATimesForToday[0]
+    const courseAStartMinutes = selectedTime
+      ? toMinutes(selectedTime)
+      : fallbackCourseATime
+        ? toMinutes(fallbackCourseATime)
+        : null
 
     const nextClass = linkedCourses
       .filter((candidate) => candidate.active)
@@ -171,7 +129,7 @@ export async function GET(req: NextRequest) {
             const minutes = toMinutes(time)
             if (courseAStartMinutes === null || minutes === null || minutes <= courseAStartMinutes) return null
             const candidateEndMinutes = minutes + (candidate.durationMinutes ?? DEFAULT_DURATION_MINUTES)
-            if (nowMinutes !== null && candidateEndMinutes <= nowMinutes) return null
+            if (candidateEndMinutes <= nowMinutes) return null
             const link = links.find((item) =>
               (item.courseSlugA === courseSlug && item.courseSlugB === candidate.slug) ||
               (item.courseSlugB === courseSlug && item.courseSlugA === candidate.slug)
@@ -183,7 +141,6 @@ export async function GET(req: NextRequest) {
       .sort((left, right) => left.minutes - right.minutes)[0]
 
     if (!nextClass) {
-      logTiming("no_offer")
       return NextResponse.json(null)
     }
 
@@ -204,10 +161,8 @@ export async function GET(req: NextRequest) {
       discountPercent,
       hasAttendedFirstClass: false, // pre-payment — attendance hasn't happened yet
     }
-    logTiming("offer")
     return NextResponse.json(offer)
   } catch {
-    logTiming("failed")
     return NextResponse.json(null)
   }
 }

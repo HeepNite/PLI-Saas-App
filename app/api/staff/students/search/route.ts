@@ -4,9 +4,8 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { buildSessionStartsAt, getTodayNewYork } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
-import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
-import { isProvisionalStudentPinActive, loadStudentPinCredentials } from "@/lib/security/student-pin"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { isProvisionalStudentPinActive, isStudentPinLifecycleEnabled } from "@/lib/security/student-pin"
 import type { ActivePackage, ProfileLatestClassAttended, StudentProfileCard } from "@/components/front/staff/historyCardAggregates"
 import { resolveStudentIdentity, type ClerkUserData } from "@/app/api/staff/students/search/shared"
 import {
@@ -203,13 +202,10 @@ const loadActivePackages = async (userIds: string[]) => {
 const loadLatestAttendedRows = async (userIds: string[]) => {
   if (userIds.length === 0) return []
 
-  const lookbackDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
-
   return prisma.attendance.findMany({
     where: {
       userId: { in: userIds },
       status: { in: [...ATTENDED_CHECKIN_STATUSES] },
-      checkedInAt: { gte: lookbackDate },
     },
     select: {
       id: true,
@@ -226,8 +222,6 @@ const loadLatestAttendedRows = async (userIds: string[]) => {
         },
       },
     },
-    orderBy: { checkedInAt: "desc" },
-    take: Math.max(userIds.length * 2, 50),
   })
 }
 
@@ -249,6 +243,48 @@ const loadTodayPurchases = async (userIds: string[], todayNY: string) => {
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   })
+}
+
+const isStudentPinSchemaUnavailableError = (error: unknown) => {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    const fallbackCode =
+      typeof error === "object" && error && "code" in error && typeof error.code === "string" ? error.code : null
+    const fallbackName =
+      typeof error === "object" && error && "name" in error && typeof error.name === "string" ? error.name : null
+    return fallbackName === "PrismaClientKnownRequestError" && ["P2021", "P2022"].includes(fallbackCode || "")
+  }
+  return ["P2021", "P2022"].includes(error.code)
+}
+
+const loadStudentPinCredentials = async (userIds: string[]) => {
+  if (!userIds.length || !isStudentPinLifecycleEnabled()) {
+    return [] as Array<{
+      userId: string
+      kind: string
+      status: string
+      expiresAt: Date | null
+    }>
+  }
+
+  try {
+    return await prisma.studentPinCredential.findMany({
+      where: {
+        userId: { in: userIds },
+        kind: { in: ["permanent", "provisional"] },
+      },
+      select: {
+        userId: true,
+        kind: true,
+        status: true,
+        expiresAt: true,
+      },
+    })
+  } catch (error) {
+    if (isStudentPinSchemaUnavailableError(error)) {
+      return []
+    }
+    throw error
+  }
 }
 
 const toIso = (value: Date | null | undefined) => (value ? value.toISOString() : null)
@@ -499,7 +535,7 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
     purchases,
     activePackages,
     latestAttendedRows,
-    pinCredentialsResult,
+    pinCredentials,
     todayPurchases,
   ] = await Promise.all([
     buildClerkIdentityMap(users),
@@ -510,7 +546,6 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
     loadStudentPinCredentials(userIds),
     loadTodayPurchases(userIds, todayNY),
   ])
-  const pinCredentials = pinCredentialsResult.credentials
 
   const [todayCheckInStatusByUser, activePackageByUser] = await Promise.all([
     buildTodayCheckInStatusByUser(todayPurchases),
@@ -628,11 +663,22 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
 }
 
 export async function GET(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:students:search:get", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalSectionRequest("students"),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:students:search:get", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalSectionRequest("students")
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const url = new URL(req.url)
   const rawQuery = url.searchParams.get("q")

@@ -2,19 +2,27 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
-import { getClientIp } from "@/lib/security/rate-limit"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
-import { ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
 
 export async function PATCH(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:stats:patch", limit: 90, windowMs: 60_000 },
-    authorize: () => authorizeOwnerOrAdminRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:stats:patch", getClientIp(req)),
+    limit: 90,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeOwnerOrAdminRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { userId } = await context.params
   if (!userId) {
@@ -77,7 +85,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
         const actualCompleted = await tx.attendance.count({
           where: {
             userId,
-            status: { in: [...ATTENDED_CHECKIN_STATUSES] },
+            status: { in: ["checked_in", "checked_in_no_package", "checked_out"] },
           },
         })
 
@@ -105,7 +113,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
             where: {
               packagePurchaseId: activePackage.id,
               attendance: {
-                status: { in: [...ATTENDED_CHECKIN_STATUSES] },
+                status: { in: ["checked_in", "checked_in_no_package", "checked_out"] },
               },
             },
           })

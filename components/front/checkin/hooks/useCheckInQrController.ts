@@ -168,9 +168,9 @@ export function useCheckInQrController({
     refreshConsecutiveOffer,
   } = useConsecutiveOfferState({
     isKioskTerminalFlow,
-    activeCourseSlug: preDisplayActiveContext.activeCourseSlug,
-    activeDate: preDisplayActiveContext.activeDate,
-    activeTime: preDisplayActiveContext.activeTime,
+    activeCourseSlug: latePaymentEntryOverride?.courseSlug ?? newBookingOverride?.courseSlug ?? preDisplayActiveContext.activeCourseSlug,
+    activeDate: latePaymentEntryOverride?.date ?? newBookingOverride?.date ?? preDisplayActiveContext.activeDate,
+    activeTime: latePaymentEntryOverride?.time ?? newBookingOverride?.time ?? preDisplayActiveContext.activeTime,
   })
 
   // ─── Kiosk hooks ────────────────────────────────────────────
@@ -242,10 +242,7 @@ export function useCheckInQrController({
   })
   setBootstrapRef.current = setBootstrap
 
-  // Activate quick repeat overlay when bootstrap signals eligibility.
-  // (quickRepeatEligible is already false when the customer has a usable package
-  // for this class — a package holder checks in with their package, not a repeat
-  // purchase; see the bootstrap decision builders.)
+  // Activate quick repeat overlay when bootstrap signals eligibility
   React.useEffect(() => {
     if (bootstrap?.quickRepeatEligible && isKioskTerminalFlow) {
       setShowQuickRepeat(true)
@@ -752,6 +749,7 @@ export function useCheckInQrController({
     consecutiveOfferSettled,
     contextIsValid,
     displayLatePaymentQrLink: display.latePaymentQrLink ?? null,
+    durationMinutes,
     effectiveCheckInWindowOpen,
     forceRedirectUrl,
     handlePackageCheckIn,
@@ -770,6 +768,7 @@ export function useCheckInQrController({
     resetKioskPinFlow,
     selectedCourse,
     setBootstrap,
+    setConsecutiveOfferSettled,
     setError,
     setLatePaymentEntryOverride,
     setMode,

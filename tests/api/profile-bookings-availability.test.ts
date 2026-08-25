@@ -16,29 +16,6 @@ vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
 }))
 
-// Courses now come from the DB catalog; provide a fixture with an 11:00 slot
-// available every weekday so schedule resolution is deterministic.
-vi.mock("@/lib/catalog-courses", () => ({
-  getCatalogFrontData: vi.fn(async () => ({
-    courses: [
-      {
-        slug: "salsa-femenina-matutina",
-        title: "Salsa Femenina Matutina",
-        schedule: {
-          day: "Mon",
-          time: "11:00",
-          starts: "Ongoing",
-          availableWeekdays: [0, 1, 2, 3, 4, 5, 6],
-          availableTimes: ["11:00"],
-        },
-        enrollment: { services: [], packages: [], addons: [] },
-      },
-    ],
-    homeCourses: [],
-    homeCourseCategories: [],
-  })),
-}))
-
 vi.mock("@clerk/nextjs/server", () => ({
   auth: (...args: unknown[]) => mockAuth(...args),
 }))

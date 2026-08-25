@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockAuthorizePortal = vi.fn()
 const mockClerkClient = vi.fn()
@@ -20,16 +20,6 @@ const invitationsApi = {
 
 const sessionsApi = {
   getSessionList: vi.fn(),
-}
-
-const createDeferred = <T,>() => {
-  let resolve!: (value: T) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((promiseResolve, promiseReject) => {
-    resolve = promiseResolve
-    reject = promiseReject
-  })
-  return { promise, resolve, reject }
 }
 
 const mockPrisma = {
@@ -69,10 +59,6 @@ describe("staff users routes", () => {
     mockClerkClient.mockResolvedValue({ users: usersApi, invitations: invitationsApi, sessions: sessionsApi })
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
     mockPrisma.staffAccount.findMany.mockResolvedValue([])
-  })
-
-  afterEach(() => {
-    vi.unstubAllEnvs()
   })
 
   it("GET returns 401 when portal auth fails", async () => {
@@ -119,17 +105,67 @@ describe("staff users routes", () => {
     expect(data.items[0].category).toBe("guest")
   })
 
-  it("GET folds in staff missing from the Clerk page from the DB roster", async () => {
-    // Clerk's getUserList is capped at 100 and students share the pool, so an old
-    // staff account (e.g. the owner) can fall outside the window. It must still appear.
+  it("GET includes DB-roster staff missing from the Clerk 100-user page", async () => {
+    // Simulate the prod bug: the capped Clerk page does NOT contain the owner
+    // (an older account pushed out by newer student accounts).
+    usersApi.getUserList.mockImplementation(async (params?: { userId?: string[] }) => {
+      if (params?.userId) {
+        return {
+          data: params.userId.map((id) => ({
+            id,
+            firstName: "Mariano",
+            lastName: "Owner",
+            emailAddresses: [{ emailAddress: "owner@example.com" }],
+            publicMetadata: { role: "owner" },
+            banned: false,
+            locked: false,
+            createdAt: 1,
+            lastSignInAt: Date.now(),
+          })),
+        }
+      }
+      return {
+        data: [
+          {
+            id: "u_recent_staff",
+            firstName: "Ana",
+            lastName: "Recent",
+            emailAddresses: [{ emailAddress: "ana@example.com" }],
+            publicMetadata: { role: "staff" },
+            banned: false,
+            locked: false,
+            createdAt: Date.now(),
+            lastSignInAt: Date.now(),
+          },
+        ],
+      }
+    })
+    mockPrisma.staffAccount.findMany.mockResolvedValue([
+      { clerkUserId: "u_owner_old", role: "owner", category: "partner", paymentModelId: null },
+    ])
+
+    const { GET } = await import("@/app/api/staff/users/route")
+    const res = await GET(new Request("http://localhost/api/staff/users"))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    const ids = data.items.map((item: { id: string }) => item.id)
+    expect(ids).toContain("u_owner_old")
+    expect(ids).toContain("u_recent_staff")
+    expect(usersApi.getUserList).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: ["u_owner_old"] })
+    )
+  })
+
+  it("GET keeps a roster staff member visible when Clerk role metadata is missing", async () => {
+    // Clerk cutover dropped the role from publicMetadata, but the DB knows they are staff.
     usersApi.getUserList.mockResolvedValue({
       data: [
         {
-          id: "u_staff",
-          firstName: "Ana",
+          id: "u_norole",
+          firstName: "Danna",
           lastName: "Staff",
-          emailAddresses: [{ emailAddress: "ana@example.com" }],
-          publicMetadata: { role: "staff" },
+          emailAddresses: [{ emailAddress: "danna@example.com" }],
+          publicMetadata: {},
           banned: false,
           locked: false,
           createdAt: Date.now(),
@@ -138,43 +174,16 @@ describe("staff users routes", () => {
       ],
     })
     mockPrisma.staffAccount.findMany.mockResolvedValue([
-      { clerkUserId: "u_staff", email: "ana@example.com", role: "staff", category: null, paymentModelId: null },
-      {
-        clerkUserId: "u_owner",
-        email: "owner@example.com",
-        role: "admin",
-        category: null,
-        firstName: "Owner",
-        lastName: "Boss",
-        paymentModelId: "pm_owner",
-        createdAt: new Date(),
-      },
+      { clerkUserId: "u_norole", role: "staff", category: null, paymentModelId: null },
     ])
 
     const { GET } = await import("@/app/api/staff/users/route")
     const res = await GET(new Request("http://localhost/api/staff/users"))
     expect(res.status).toBe(200)
     const data = await res.json()
-    const ids = data.items.map((item: { id: string }) => item.id)
-    expect(ids).toContain("u_staff")
-    expect(ids).toContain("u_owner")
-    const owner = data.items.find((item: { id: string }) => item.id === "u_owner")
-    expect(owner.paymentModelId).toBe("pm_owner")
-    // The folded-in account must not be duplicated when it is also in the Clerk page.
-    expect(ids.filter((id: string) => id === "u_staff")).toHaveLength(1)
-  })
-
-  it("GET does not fold in DB-only staff while searching", async () => {
-    usersApi.getUserList.mockResolvedValue({ data: [] })
-    mockPrisma.staffAccount.findMany.mockResolvedValue([
-      { clerkUserId: "u_owner", email: "owner@example.com", role: "admin", category: null, paymentModelId: null },
-    ])
-
-    const { GET } = await import("@/app/api/staff/users/route")
-    const res = await GET(new Request("http://localhost/api/staff/users?q=owner"))
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.items).toHaveLength(0)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0].id).toBe("u_norole")
+    expect(data.items[0].role).toBe("staff")
   })
 
   it("GET can filter by category", async () => {
@@ -223,97 +232,6 @@ describe("staff users routes", () => {
     expect(usersApi.getUserList).toHaveBeenCalledWith(
       expect.objectContaining({ query: "ana" })
     )
-  })
-
-  it("GET requires auth before returning a cached staff users response", async () => {
-    vi.stubEnv("STAFF_USERS_CACHE_TEST_ENABLED", "true")
-    usersApi.getUserList.mockResolvedValue({
-      data: [
-        {
-          id: "u_cached_staff",
-          firstName: "Cached",
-          lastName: "Staff",
-          emailAddresses: [{ emailAddress: "cached@example.com" }],
-          publicMetadata: { role: "staff" },
-          banned: false,
-          locked: false,
-          createdAt: Date.now(),
-          lastSignInAt: Date.now(),
-        },
-      ],
-    })
-
-    const { GET } = await import("@/app/api/staff/users/route")
-
-    const first = await GET(new Request("http://localhost/api/staff/users?q=cached"))
-    expect(first.status).toBe(200)
-    expect((await first.json()).items[0].id).toBe("u_cached_staff")
-
-    const second = await GET(new Request("http://localhost/api/staff/users?q=cached"))
-    expect(second.status).toBe(200)
-    expect((await second.json()).items[0].id).toBe("u_cached_staff")
-    expect(usersApi.getUserList).toHaveBeenCalledTimes(1)
-
-    mockAuthorizePortal.mockResolvedValueOnce({ ok: false, status: 401, error: "Invalid key" })
-    const unauthorized = await GET(new Request("http://localhost/api/staff/users?q=cached"))
-    expect(unauthorized.status).toBe(401)
-    expect(await unauthorized.json()).toEqual({ error: "Invalid key" })
-    expect(mockAuthorizePortal).toHaveBeenCalledTimes(3)
-    expect(usersApi.getUserList).toHaveBeenCalledTimes(1)
-  })
-
-  it("GET requires auth before joining an in-flight staff users response", async () => {
-    vi.stubEnv("STAFF_USERS_CACHE_TEST_ENABLED", "true")
-    const getUserListStarted = createDeferred<void>()
-    const pendingUsers = createDeferred<{
-      data: Array<{
-        id: string
-        firstName: string
-        lastName: string
-        emailAddresses: Array<{ emailAddress: string }>
-        publicMetadata: { role: string }
-        banned: boolean
-        locked: boolean
-        createdAt: number
-        lastSignInAt: number
-      }>
-    }>()
-    sessionsApi.getSessionList.mockResolvedValue({ data: [] })
-    usersApi.getUserList.mockImplementationOnce(() => {
-      getUserListStarted.resolve()
-      return pendingUsers.promise
-    })
-
-    const { GET } = await import("@/app/api/staff/users/route")
-
-    const authorized = GET(new Request("http://localhost/api/staff/users?q=inflight-auth"))
-    await getUserListStarted.promise
-
-    mockAuthorizePortal.mockResolvedValueOnce({ ok: false, status: 401, error: "Invalid key" })
-    const unauthorized = await GET(new Request("http://localhost/api/staff/users?q=inflight-auth"))
-    expect(unauthorized.status).toBe(401)
-    expect(await unauthorized.json()).toEqual({ error: "Invalid key" })
-
-    pendingUsers.resolve({
-      data: [
-        {
-          id: "u_inflight_staff",
-          firstName: "Inflight",
-          lastName: "Staff",
-          emailAddresses: [{ emailAddress: "inflight@example.com" }],
-          publicMetadata: { role: "staff" },
-          banned: false,
-          locked: false,
-          createdAt: Date.now(),
-          lastSignInAt: Date.now(),
-        },
-      ],
-    })
-
-    const authorizedResponse = await authorized
-    expect(authorizedResponse.status).toBe(200)
-    expect((await authorizedResponse.json()).items[0].id).toBe("u_inflight_staff")
-    expect(usersApi.getUserList).toHaveBeenCalledTimes(1)
   })
 
   it("normalizes q before building cache key", async () => {
@@ -607,13 +525,7 @@ describe("staff users routes", () => {
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
       expect(res.status).toBe(200)
-      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
       const data = await res.json()
-      expect(data).toMatchObject({
-        status: "degraded",
-        presenceUnavailable: true,
-      })
-      expect(data.error).toBeUndefined()
       expect(data.items).toHaveLength(1)
       expect(data.items[0].online).toBe(false)
       expect(data.items[0].authOnline).toBe(false)
@@ -692,137 +604,41 @@ describe("staff users routes", () => {
   })
 
   describe("Clerk error handling", () => {
-    it("GET returns saved staff rows as degraded 200 when optional Clerk list is rate limited", async () => {
+    it("GET returns 429 with Retry-After when Clerk returns 429 on getUserList", async () => {
       const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429, headers: { "retry-after": "10" } })
       usersApi.getUserList.mockRejectedValue(clerkError)
       sessionsApi.getSessionList.mockResolvedValue({ data: [] })
-      mockPrisma.staffAccount.findMany.mockResolvedValueOnce([
-        {
-          clerkUserId: "u_saved",
-          email: "saved@example.com",
-          firstName: "Saved",
-          lastName: "Staff",
-          role: "staff",
-          category: "teacher",
-          banned: false,
-          locked: false,
-          hasPin: true,
-          paymentModelId: "model_1",
-          createdAt: new Date("2026-07-01T00:00:00.000Z"),
-        },
-      ])
 
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(429)
       expect(res.headers.get("Retry-After")).toBe("10")
-      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
       const data = await res.json()
-      expect(data).toMatchObject({ status: "degraded", presenceUnavailable: true })
-      expect(data.items).toHaveLength(1)
-      expect(data.items[0]).toMatchObject({ id: "u_saved", email: "saved@example.com", paymentModelId: "model_1" })
+      expect(data.error).toMatch(/temporarily busy/i)
     })
 
-    it("GET returns degraded 200 with Retry-After when optional Clerk list returns 500", async () => {
+    it("GET returns 503 with Retry-After when Clerk returns 500 on getUserList", async () => {
       const clerkError = Object.assign(new Error("Internal Server Error"), { status: 500 })
       usersApi.getUserList.mockRejectedValue(clerkError)
       sessionsApi.getSessionList.mockResolvedValue({ data: [] })
 
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(503)
       expect(res.headers.get("Retry-After")).toBe("5")
-      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
       const data = await res.json()
-      expect(data).toMatchObject({ status: "degraded", items: [] })
+      expect(data.error).toMatch(/temporarily unavailable/i)
     })
 
-    it("GET returns degraded 200 with default Retry-After when Clerk 429 has no retry-after header", async () => {
+    it("GET returns 429 with default Retry-After when Clerk 429 has no retry-after header", async () => {
       const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429 })
       usersApi.getUserList.mockRejectedValue(clerkError)
       sessionsApi.getSessionList.mockResolvedValue({ data: [] })
 
       const { GET } = await import("@/app/api/staff/users/route")
       const res = await GET(new Request("http://localhost/api/staff/users"))
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(429)
       expect(res.headers.get("Retry-After")).toBe("5")
-    })
-
-    it("GET returns degraded 200 with Retry-After when per-user Clerk session lookup is rate limited", async () => {
-      const now = Date.now()
-      const clerkError = Object.assign(new Error("Too Many Requests"), { status: 429, headers: { "retry-after": "12" } })
-      usersApi.getUserList.mockResolvedValue({
-        data: [
-          {
-            id: "u_presence_rate_limited",
-            firstName: "Presence",
-            lastName: "Limited",
-            emailAddresses: [{ emailAddress: "presence-limited@example.com" }],
-            publicMetadata: { role: "staff" },
-            privateMetadata: { staffPresenceStatus: "online", staffPresenceUpdatedAt: new Date(now).toISOString() },
-            banned: false,
-            locked: false,
-            createdAt: now,
-            lastSignInAt: now,
-            lastActiveAt: now,
-          },
-        ],
-      })
-      sessionsApi.getSessionList.mockResolvedValueOnce({ data: [] }).mockRejectedValueOnce(clerkError)
-      mockPrisma.staffAccount.findMany.mockResolvedValueOnce([
-        {
-          clerkUserId: "u_presence_rate_limited",
-          email: "presence-limited@example.com",
-          role: "staff",
-          category: "teacher",
-          paymentModelId: "model_presence",
-        },
-      ])
-
-      const { GET } = await import("@/app/api/staff/users/route")
-      const res = await GET(new Request("http://localhost/api/staff/users"))
-      expect(res.status).toBe(200)
-      expect(res.headers.get("Retry-After")).toBe("12")
-      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
-      const data = await res.json()
-      expect(data).toMatchObject({ status: "degraded", presenceUnavailable: true, retryAfterSec: 12 })
-      expect(data.items).toHaveLength(1)
-      expect(data.items[0]).toMatchObject({
-        id: "u_presence_rate_limited",
-        email: "presence-limited@example.com",
-        authOnline: false,
-        paymentModelId: "model_presence",
-      })
-    })
-
-    it("GET caps per-user session lookups and returns a degraded presence flag", async () => {
-      const now = Date.now()
-      usersApi.getUserList.mockResolvedValue({
-        data: Array.from({ length: 12 }, (_, index) => ({
-          id: `u_presence_${index}`,
-          firstName: "Presence",
-          lastName: String(index),
-          emailAddresses: [{ emailAddress: `presence-${index}@example.com` }],
-          publicMetadata: { role: "staff" },
-          privateMetadata: { staffPresenceStatus: "online", staffPresenceUpdatedAt: new Date(now).toISOString() },
-          banned: false,
-          locked: false,
-          createdAt: now - index,
-          lastSignInAt: now,
-          lastActiveAt: now,
-        })),
-      })
-      sessionsApi.getSessionList.mockResolvedValue({ data: [] })
-
-      const { GET } = await import("@/app/api/staff/users/route")
-      const res = await GET(new Request("http://localhost/api/staff/users"))
-      const data = await res.json()
-
-      expect(res.status).toBe(200)
-      expect(res.headers.get("X-Staff-Service-Status")).toBe("degraded")
-      expect(data).toMatchObject({ status: "degraded", presenceUnavailable: true })
-      expect(data.items).toHaveLength(12)
-      expect(sessionsApi.getSessionList).toHaveBeenCalledTimes(11)
     })
   })
 })

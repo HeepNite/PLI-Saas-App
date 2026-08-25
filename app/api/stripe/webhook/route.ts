@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
 import Stripe from "stripe"
-import * as Sentry from "@sentry/nextjs"
 import { Prisma } from "@prisma/client"
 import type { ClerkClient } from "@clerk/backend"
 import { clerkClient } from "@clerk/nextjs/server"
@@ -30,7 +29,6 @@ import {
   markStripeWebhookEventFailed,
   touchStripeWebhookEventHeartbeat,
 } from "@/lib/stripe/webhook-event-store"
-import { SPECIAL_SALSA_CLASS, isSpecialClassPriceCents } from "@/lib/special-salsa-class/config"
 
 export const runtime = "nodejs"
 
@@ -44,46 +42,6 @@ const stripe = stripeSecret
   : null
 
 const packagePurchaseEventKey = (packagePurchaseId: string) => `package-purchase:${packagePurchaseId}`
-
-const resolveTrustedSpecialMetadata = (
-  meta: StripeMetadata,
-  amount: number,
-  currency: string,
-  lockedPurchase?: { amount: number; currency: string; metadata: unknown } | null,
-): StripeMetadata => {
-  if (!meta.specialEventKey) return meta
-  if (meta.specialEventKey !== SPECIAL_SALSA_CLASS.key) {
-    throw new Error("Unrecognized special event marker")
-  }
-  if (!isSpecialClassPriceCents(amount) || currency.toLowerCase() !== SPECIAL_SALSA_CLASS.currency) {
-    throw new Error("Special event payment contract mismatch")
-  }
-  const metadataAmount = parseIntSafe(meta.lockedAmountCents)
-  if (metadataAmount !== undefined && metadataAmount !== amount) {
-    throw new Error("Special event metadata amount mismatch")
-  }
-  const lockedMetadata = lockedPurchase?.metadata
-  if (lockedPurchase && (
-    lockedPurchase.amount !== amount ||
-    lockedPurchase.currency.toLowerCase() !== currency.toLowerCase() ||
-    !lockedMetadata ||
-    typeof lockedMetadata !== "object" ||
-    Array.isArray(lockedMetadata) ||
-    !Object.hasOwn(lockedMetadata, "specialEventKey") ||
-    (lockedMetadata as Record<string, unknown>).specialEventKey !== SPECIAL_SALSA_CLASS.key
-  )) {
-    throw new Error("Special event locked Purchase mismatch")
-  }
-  return {
-    ...meta,
-    courseSlug: SPECIAL_SALSA_CLASS.courseSlug,
-    courseTitle: SPECIAL_SALSA_CLASS.title,
-    date: SPECIAL_SALSA_CLASS.localDate,
-    time: SPECIAL_SALSA_CLASS.localTime,
-    serviceId: SPECIAL_SALSA_CLASS.checkoutKind,
-    participants: "1",
-  }
-}
 
 const isTerminalFlow = (metadata: StripeMetadata) => {
   if (metadata.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL) return true
@@ -475,19 +433,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
 }
 
 async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: string) {
-  const amount = session.amount_total ?? 0
-  const currency = session.currency || "usd"
-  const rawMeta = pickStripeMetadata(session.metadata)
-  const specialPurchase = rawMeta.specialEventKey
-    ? await prisma.purchase.findUnique({
-        where: { stripeCheckoutSessionId: session.id },
-        select: { metadata: true, amount: true, currency: true },
-      })
-    : null
-  if (rawMeta.specialEventKey && !specialPurchase) {
-    throw new Error("Special event locked Purchase missing")
-  }
-  const meta = resolveTrustedSpecialMetadata(rawMeta, amount, currency, specialPurchase)
+  const meta = pickStripeMetadata(session.metadata)
   const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
   const email = meta.email || session.customer_details?.email || session.customer_email || undefined
   const purchaseName = session.customer_details?.name || meta.name || undefined
@@ -509,13 +455,12 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
   })
 
   if (!user) {
-    console.warn("Stripe webhook: user resolution failed", {
-      hasClerkId: Boolean(clerkId),
-      hasEmail: Boolean(email),
-    })
+    console.warn("Stripe webhook: user resolution failed", { clerkId, email })
     return
   }
 
+  const amount = session.amount_total ?? 0
+  const currency = session.currency || "usd"
   const status = normalizePersistedPurchaseStatus(session.payment_status)
 
   // If the payment_intent.succeeded handler already created a Purchase for this PI,
@@ -534,7 +479,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
   }
 
   // Fetch existing metadata to avoid clobbering stripeFailure on success
-  const existingPurchase = specialPurchase || await prisma.purchase.findUnique({
+  const existingPurchase = await prisma.purchase.findUnique({
     where: { stripeCheckoutSessionId: session.id },
     select: { metadata: true },
   })
@@ -569,13 +514,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string
   })
   if (existingByIntent) return
 
-  const amount = intent.amount ?? 0
-  const currency = intent.currency || "usd"
   const meta = pickStripeMetadata(intent.metadata)
-  if (meta.specialEventKey) {
-    resolveTrustedSpecialMetadata(meta, amount, currency)
-    return
-  }
   const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
   const email = meta.email || intent.receipt_email || undefined
   const purchaseName = meta.name || undefined
@@ -591,13 +530,12 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string
   })
 
   if (!user) {
-    console.warn("Stripe webhook: user resolution failed", {
-      hasClerkId: Boolean(clerkId),
-      hasEmail: Boolean(email),
-    })
+    console.warn("Stripe webhook: user resolution failed", { clerkId, email })
     return
   }
 
+  const amount = intent.amount ?? 0
+  const currency = intent.currency || "usd"
   const status = normalizePersistedPurchaseStatus(intent.status)
 
   // Fetch existing metadata to avoid clobbering stripeFailure on success
@@ -720,7 +658,6 @@ export async function POST(req: Request) {
     }
   } catch (err) {
     console.error("Stripe webhook handler failed", err)
-    Sentry.captureException(err, { tags: { eventType: event.type, eventId: event.id } })
     await markStripeWebhookEventFailed(event.id)
     return new NextResponse("Webhook handler failed", { status: 500 })
   }

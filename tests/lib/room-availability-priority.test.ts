@@ -13,9 +13,6 @@ const ROOM_A = "room-a"
 const ROOM_B = "room-b"
 const ROOM_C = "room-c"
 
-// Structural prisma shape expected by findAvailableRoomsForSlot.
-type RoomAvailabilityPrisma = Parameters<typeof findAvailableRoomsForSlot>[0]["prisma"]
-
 // ─── Task 2.1: bufferMinutes ────────────────────────────────────────────────
 
 describe("findRoomAvailabilityConflict — bufferMinutes", () => {
@@ -283,7 +280,7 @@ describe("findAvailableRoomsForSlot", () => {
     const available = await findAvailableRoomsForSlot({
       targetStartsAt: new Date("2026-06-01T10:00:00.000Z"),
       targetEndsAt: new Date("2026-06-01T11:00:00.000Z"),
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
 
     expect(available).toHaveLength(2)
@@ -312,7 +309,7 @@ describe("findAvailableRoomsForSlot", () => {
     const available = await findAvailableRoomsForSlot({
       targetStartsAt: new Date("2026-06-01T10:30:00.000Z"),
       targetEndsAt: new Date("2026-06-01T11:00:00.000Z"),
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
 
     expect(available).toHaveLength(1)
@@ -341,7 +338,7 @@ describe("findAvailableRoomsForSlot", () => {
     const available = await findAvailableRoomsForSlot({
       targetStartsAt: new Date("2026-06-01T10:30:00.000Z"),
       targetEndsAt: new Date("2026-06-01T11:00:00.000Z"),
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
 
     expect(available).toHaveLength(1)
@@ -363,7 +360,7 @@ describe("findAvailableRoomsForSlot", () => {
       targetStartsAt: new Date("2026-06-01T10:00:00.000Z"),
       targetEndsAt: new Date("2026-06-01T11:00:00.000Z"),
       excludeRoomId: ROOM_A,
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
 
     expect(available).toHaveLength(1)
@@ -397,7 +394,7 @@ describe("findAvailableRoomsForSlot", () => {
     const available = await findAvailableRoomsForSlot({
       targetStartsAt: new Date("2026-06-01T10:30:00.000Z"),
       targetEndsAt: new Date("2026-06-01T11:00:00.000Z"),
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
 
     expect(available).toHaveLength(0)
@@ -417,7 +414,7 @@ describe("findAvailableRoomsForSlot", () => {
     const available = await findAvailableRoomsForSlot({
       targetStartsAt: new Date("2026-06-01T10:00:00.000Z"),
       targetEndsAt: new Date("2026-06-01T11:00:00.000Z"),
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
 
     expect(available).toHaveLength(1)
@@ -447,7 +444,7 @@ describe("findAvailableRoomsForSlot", () => {
       targetStartsAt: new Date("2026-06-01T11:14:00.000Z"),
       targetEndsAt: new Date("2026-06-01T12:00:00.000Z"),
       bufferMinutes: 15,
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
     expect(withConflict.map((r) => r.id)).not.toContain(ROOM_A)
 
@@ -455,7 +452,7 @@ describe("findAvailableRoomsForSlot", () => {
       targetStartsAt: new Date("2026-06-01T11:16:00.000Z"),
       targetEndsAt: new Date("2026-06-01T12:00:00.000Z"),
       bufferMinutes: 15,
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
     expect(withoutConflict.map((r) => r.id)).toContain(ROOM_A)
   })
@@ -505,7 +502,7 @@ describe("findAvailableRoomsForSlot", () => {
     const available = await findAvailableRoomsForSlot({
       targetStartsAt: new Date("2026-06-01T14:30:00.000Z"),
       targetEndsAt: new Date("2026-06-01T15:00:00.000Z"),
-      prisma: mockPrisma as unknown as RoomAvailabilityPrisma,
+      prisma: mockPrisma as any,
     })
 
     expect(available.map((r) => r.id)).not.toContain(ROOM_A)

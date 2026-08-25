@@ -16,7 +16,6 @@ import { I18nProvider } from "@/lib/i18n";
 import { cookies } from "next/headers";
 import FloatingTopHomeButton from "@/components/front/ui/FloatingTopHomeButton";
 import SmoothScroll from "@/components/front/ui/SmoothScroll";
-import { FloatingChromeProvider } from "@/components/front/ui/FloatingChromeVisibility";
 
 
 export const metadata: Metadata = {
@@ -51,13 +50,11 @@ export default async function RootLayout({children,}: Readonly<{ children: React
                 enableSystem
                 disableTransitionOnChange
             >
-                <FloatingChromeProvider>
-                    {children}
-                    <SmoothScroll />
-                    <FloatingTopHomeButton />
-                    {/* Floating assistant widget mounted globally (client-only wrapper, i18n-aware) */}
-                    <AssistantWidgetMountI18n />
-                </FloatingChromeProvider>
+                {children}
+                <SmoothScroll />
+                <FloatingTopHomeButton />
+                {/* Floating assistant widget mounted globally (client-only wrapper, i18n-aware) */}
+                <AssistantWidgetMountI18n />
             </ThemeProvider>
           </I18nProvider>
         </ClerkProvider>

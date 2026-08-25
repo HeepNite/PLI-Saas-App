@@ -14,9 +14,6 @@ const mockCreatePreparedCheckoutContext = vi.fn()
 const mockCourseLinkFindMany = vi.fn()
 const mockAttendanceFindFirst = vi.fn()
 const mockPurchaseFindFirstConsecutive = vi.fn()
-const mockPurchaseCount = vi.fn()
-const mockDayOfWeekPurchaseCountFindUnique = vi.fn()
-const mockClassSessionFindUnique = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -26,19 +23,12 @@ vi.mock("@/lib/prisma", () => ({
     purchase: {
       findMany: (...args: unknown[]) => mockPurchaseFindMany(...args),
       findFirst: (...args: unknown[]) => mockPurchaseFindFirstConsecutive(...args),
-      count: (...args: unknown[]) => mockPurchaseCount(...args),
     },
     courseLink: {
       findMany: (...args: unknown[]) => mockCourseLinkFindMany(...args),
     },
     attendance: {
       findFirst: (...args: unknown[]) => mockAttendanceFindFirst(...args),
-    },
-    dayOfWeekPurchaseCount: {
-      findUnique: (...args: unknown[]) => mockDayOfWeekPurchaseCountFindUnique(...args),
-    },
-    classSession: {
-      findUnique: (...args: unknown[]) => mockClassSessionFindUnique(...args),
     },
   },
 }))
@@ -122,9 +112,6 @@ describe("bootstrap consecutive offer", () => {
     mockPackageFindMany.mockResolvedValue([])
     mockPurchaseFindMany.mockResolvedValue([])
     mockPurchaseFindFirstConsecutive.mockResolvedValue(null)
-    mockPurchaseCount.mockResolvedValue(0)
-    mockDayOfWeekPurchaseCountFindUnique.mockResolvedValue(null)
-    mockClassSessionFindUnique.mockResolvedValue(null)
   })
 
   const setupKioskSession = () => {
@@ -259,10 +246,7 @@ describe("bootstrap consecutive offer", () => {
     expect(data.consecutiveOffer).toBeNull()
   })
 
-  // Contract updated by acd5f62 / PR #145: in the kiosk terminal flow the
-  // consecutive promo is always surfaced regardless of attendance state, and
-  // hasAttendedFirstClass simply reflects whether Class A was attended today.
-  it("still returns the offer in terminal flow when student hasn't attended Class A today (hasAttendedFirstClass=false)", async () => {
+  it("returns no offer when student hasn't attended Class A today", async () => {
     setupKioskSession()
     mockGetCatalogCourseBySlug.mockImplementation(async (slug: string) => {
       if (slug === "salsa") {
@@ -321,9 +305,7 @@ describe("bootstrap consecutive offer", () => {
 
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.consecutiveOffer).not.toBeNull()
-    expect(data.consecutiveOffer.linkedCourseSlug).toBe("bachata")
-    expect(data.consecutiveOffer.hasAttendedFirstClass).toBe(false)
+    expect(data.consecutiveOffer).toBeNull()
   })
 
   it("returns no offer when student already purchased Class B today", async () => {
@@ -422,45 +404,6 @@ describe("bootstrap consecutive offer", () => {
     expect(data.consecutiveOffer).toBeNull()
     // Should not query courseLink at all
     expect(mockCourseLinkFindMany).not.toHaveBeenCalled()
-  })
-
-  it("degrades consecutiveOffer to null when the optional promo lookup throws", async () => {
-    setupKioskSession()
-    mockGetCatalogCourseBySlug.mockResolvedValue({
-      slug: "bachata",
-      title: "Bachata Basics",
-      enrollment: {
-        services: [{ id: "dropin", label: "Drop-in", price: 15 }],
-        packages: [],
-        addons: [],
-      },
-    })
-    mockCourseLinkFindMany.mockRejectedValue(new Error("promo lookup failed"))
-
-    const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
-    const res = await POST(
-      new Request("http://localhost", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseSlug: "bachata",
-          date: "2026-03-24",
-          time: "20:00",
-          durationMinutes: 60,
-          flowContext: "kiosk_terminal",
-          kioskSessionToken: "kiosk_session_1",
-          linkedFromCourseSlug: "salsa",
-        }),
-      })
-    )
-
-    expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toMatchObject({
-      context: {
-        courseSlug: "bachata",
-      },
-      consecutiveOffer: null,
-    })
   })
 
   it("returns no offer when course B has day-specific rules and is NOT scheduled today (Mon Beginner → Fri-only Rueda)", async () => {

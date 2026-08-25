@@ -30,22 +30,13 @@ import {
  *   then opens for class B.
  */
 
-type PackageCheckInSuccess = {
-  remainingCredits: number | null
-  points: number
-}
-
-type PackageCheckInFailure = {
-  kind: string
-  message: string
-}
-
-type PackageCheckInOutcome = PackageCheckInSuccess | PackageCheckInFailure
-
 type AcceptDeps = {
   hasPackageCheckInResult: boolean
   priceCents: number | null
-  performPackageCheckInApi: () => Promise<PackageCheckInOutcome>
+  performPackageCheckInApi: () => Promise<{
+    remainingCredits: number | null
+    points: number
+  } | null>
   setConsecutiveProcessing: (value: boolean) => void
   setConsecutiveError: (value: string | null) => void
   setPackageCheckInResult: (
@@ -76,8 +67,8 @@ async function runAccept(deps: AcceptDeps) {
   if (action === "pre-checkin-then-payment-selection") {
     deps.setConsecutiveProcessing(true)
     const result = await deps.performPackageCheckInApi()
-    if ("kind" in result) {
-      deps.setConsecutiveError(result.message)
+    if (!result) {
+      deps.setConsecutiveError("Unable to check in with package.")
       deps.setConsecutiveProcessing(false)
       return
     }
@@ -209,15 +200,12 @@ describe("consecutive offer accept — package holder", () => {
     const deps = createDeps({
       hasPackageCheckInResult: false,
       priceCents: 1000,
-      performPackageCheckInApi: vi.fn().mockResolvedValue({
-        kind: "server",
-        message: "We couldn't check you in. Please see the front desk.",
-      }),
+      performPackageCheckInApi: vi.fn().mockResolvedValue(null),
     })
     await runAccept(deps)
 
     expect(deps.setConsecutiveError).toHaveBeenCalledWith(
-      "We couldn't check you in. Please see the front desk.",
+      "Unable to check in with package.",
     )
     expect(deps.setShowConsecutivePaymentSelection).not.toHaveBeenCalled()
     expect(deps.setAwaitingConsecutivePaymentSelection).not.toHaveBeenCalled()

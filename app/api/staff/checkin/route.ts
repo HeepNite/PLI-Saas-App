@@ -10,8 +10,7 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { buildSessionEndsAtUtc, findOverlappingRoomSession, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { findRoomAvailabilityConflict } from "@/lib/room-availability"
 import { buildCheckInUserLookupCriteria } from "./shared"
-import { ATTENDANCE_STATUS, ATTENDANCE_POINT_STATUSES, CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/attendance-constants"
-import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { ATTENDANCE_POINT_STATUSES, CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
@@ -82,20 +81,19 @@ export async function POST(req: Request) {
     email: parsed.email,
   })
 
-  const [user, course] = await Promise.all([
-    prisma.user.findFirst({
-      where: {
-        OR: userSearchOr,
-      },
-    }),
-    prisma.courseCatalog.findUnique({
-      where: { slug: parsed.courseSlug },
-      select: { title: true, dropInPriceCents: true }
-    }),
-  ])
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: userSearchOr,
+    },
+  })
   if (!user) {
     return NextResponse.json({ error: "User not found" }, { status: 404 })
   }
+
+  const course = await prisma.courseCatalog.findUnique({
+    where: { slug: parsed.courseSlug },
+    select: { title: true, dropInPriceCents: true }
+  })
 
   const startsAt = parsed.startsAt || new Date()
   const durationMinutes = parsed.durationMinutes
@@ -278,14 +276,14 @@ export async function POST(req: Request) {
       },
     },
     update: {
-      status: ATTENDANCE_STATUS.CHECKED_IN,
+      status: "checked_in",
       checkedInAt: new Date(),
       metadata: parsed.notes ? { notes: parsed.notes } : undefined,
     },
     create: {
       userId: user.id,
       sessionId: session.id,
-      status: ATTENDANCE_STATUS.CHECKED_IN,
+      status: "checked_in",
       metadata: parsed.notes ? { notes: parsed.notes } : undefined,
     },
   })
@@ -298,16 +296,16 @@ export async function POST(req: Request) {
   })
   const packagePurchase = packageResult.packagePurchase
 
-  const attendanceStatus = packagePurchase ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
+  const attendanceStatus = packagePurchase ? "checked_in" : "checked_in_no_package"
   const purchaseDate = getDateKeyInTimeZone(startsAt)
   const purchaseTime = getTimeKeyInTimeZone(startsAt)
 
   if (!packagePurchase) {
     await prisma.attendance.update({
       where: { id: attendance.id },
-      data: { status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE },
+      data: { status: "checked_in_no_package" },
     })
-
+    
     await prisma.purchase.create({
       data: {
         userId: user.id,
@@ -320,8 +318,8 @@ export async function POST(req: Request) {
         name: user.name || null,
         phone: user.phone || null,
         metadata: {
-          paymentChannel: PAYMENT_CHANNEL.CASH,
-          settlementStatus: SETTLEMENT_STATUS.PENDING,
+          paymentChannel: "cash",
+          settlementStatus: "pending",
           date: purchaseDate,
           time: purchaseTime,
           source: "staff_checkin_no_package",
@@ -348,16 +346,15 @@ export async function POST(req: Request) {
     })
   }
 
-  const [checkedInCount, attendanceMilestoneEvery] = await Promise.all([
-    prisma.attendance.count({
-      where: {
-        userId: user.id,
-        status: { in: ATTENDANCE_POINT_STATUSES },
-        session: { courseSlug: parsed.courseSlug },
-      },
-    }),
-    getAttendanceMilestoneClasses(),
-  ])
+  const checkedInCount = await prisma.attendance.count({
+    where: {
+      userId: user.id,
+      status: { in: ATTENDANCE_POINT_STATUSES },
+      session: { courseSlug: parsed.courseSlug },
+    },
+  })
+
+  const attendanceMilestoneEvery = await getAttendanceMilestoneClasses()
   let pointsAwarded = 0
   let attendanceMilestone = 0
   if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {
@@ -475,7 +472,7 @@ export async function PATCH(req: Request) {
   const updatedAttendance = await prisma.attendance.update({
     where: { id: existingAttendance.id },
     data: {
-      status: ATTENDANCE_STATUS.CHECKED_OUT,
+      status: "checked_out",
       checkedOutAt: new Date(),
     },
     include: { session: true },

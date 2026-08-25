@@ -105,13 +105,6 @@ export default function StaffSchoolPackagesPointsPanel({
   )
 }
 
-const PACKAGE_STEP_TITLE: Record<number, string> = {
-  0: "Package information",
-  1: "Assign courses",
-  2: "Pricing and credits",
-  3: "Validity and status",
-}
-
 function PackagesPanel({
   visible,
   step,
@@ -140,7 +133,7 @@ function PackagesPanel({
     <article className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-[0_16px_42px_-20px_rgba(0,0,0,0.45)] backdrop-blur dark:border-white/10 dark:bg-[#131622]/92 sm:p-5">
       <p className="text-xs uppercase tracking-[0.35em] text-[var(--brand,#b61616)]">Package builder</p>
       <h3 className="mt-2 text-xl font-semibold text-black dark:text-white">
-        {PACKAGE_STEP_TITLE[step] ?? "Validity and status"}
+        {step === 0 ? "Package information" : step === 1 ? "Assign courses" : step === 2 ? "Pricing and credits" : "Validity and status"}
       </h3>
 
       <form onSubmit={packages.onSave} className="mt-4 space-y-5">

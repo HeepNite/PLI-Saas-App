@@ -129,10 +129,7 @@ describe("upsertUserByIdentifiers", () => {
     })
   })
 
-  // Contract updated (commit ccf4119, "fix upsert constraint"): when an identity
-  // match already belongs to a different clerkId, the row is reused/returned as-is
-  // rather than creating a new row (avoids a unique-constraint violation).
-  it("returns the existing row when the identity match is linked to another clerkId", async () => {
+  it("creates a new row instead of reusing a row linked to another clerkId", async () => {
     const linkedToDifferentClerk = {
       id: "db_user_conflict",
       clerkId: "clerk_other",
@@ -144,6 +141,7 @@ describe("upsertUserByIdentifiers", () => {
 
     mockPrisma.user.findUnique.mockResolvedValue(null)
     mockPrisma.user.findMany.mockResolvedValue([linkedToDifferentClerk])
+    mockPrisma.user.create.mockResolvedValue({ id: "db_user_new", clerkId: "clerk_new" })
 
     const result = await upsertUserByIdentifiers({
       clerkId: "clerk_new",
@@ -153,20 +151,15 @@ describe("upsertUserByIdentifiers", () => {
     })
 
     expect(mockPrisma.user.update).not.toHaveBeenCalled()
-    expect(mockPrisma.user.create).not.toHaveBeenCalled()
-    expect(result).toEqual(linkedToDifferentClerk)
-  })
-
-  it("keeps the public user return shape while exposing local creation internally", async () => {
-    const createdUser = { id: "db_user_new", clerkId: "clerk_new" }
-    mockPrisma.user.findUnique.mockResolvedValue(null)
-    mockPrisma.user.findMany.mockResolvedValue([])
-    mockPrisma.user.create.mockResolvedValue(createdUser)
-
-    const result = await upsertUserByIdentifiers({ clerkId: "clerk_new", email: "new@example.com" })
-
-    expect(result).toEqual(createdUser)
-    expect(wasUserCreatedByUpsert(result)).toBe(true)
+    expect(mockPrisma.user.create).toHaveBeenCalledWith({
+      data: {
+        clerkId: "clerk_new",
+        email: "new@example.com",
+        name: "New Name",
+        phone: "15512603078",
+      },
+    })
+    expect(result).toEqual({ id: "db_user_new", clerkId: "clerk_new" })
   })
 
   it("keeps the public user return shape while exposing local creation internally", async () => {

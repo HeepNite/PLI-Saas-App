@@ -1,37 +1,31 @@
 import { NextResponse } from "next/server"
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authorizeCashPackageGrantRequest, authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
-import { getClientIp } from "@/lib/security/rate-limit"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
-import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { PAYMENT_CHANNEL, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { asObject } from "@/lib/shared"
 
 export const runtime = "nodejs"
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000
-
-// Pending idempotency lookups only need to cover the double-submit window.
-const IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000
-
-const isUniqueConstraintError = (error: unknown) =>
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
-
-// Thrown inside the $transaction to abort the write and surface a 409 to the caller once the
-// duplicate-active-plan check (now transaction-scoped, see issue #1 fix) finds a match.
-class DuplicateActivePackageError extends Error {
-  constructor(public readonly existing: { id: string; packageLabel: string | null; expiresAt: Date | null }) {
-    super("Duplicate active package")
-  }
-}
-
 export async function GET(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:packages:get", limit: 120, windowMs: 60_000 },
-    authorize: () => authorizeOwnerOrAdminRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:packages:get", getClientIp(req)),
+    limit: 120,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const isGrantIntent = new URL(req.url).searchParams.get("intent") === "grant"
+  const authResult = isGrantIntent ? await authorizeCashPackageGrantRequest() : await authorizeOwnerOrAdminRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { userId } = await context.params
   if (!userId) {
@@ -42,6 +36,23 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
     const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
     if (!student) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 })
+    }
+
+    if (isGrantIntent) {
+      const plans = await prisma.packagePlan.findMany({
+        where: { active: true },
+        orderBy: [{ label: "asc" }],
+        select: {
+          id: true,
+          key: true,
+          label: true,
+          priceCents: true,
+          cadence: true,
+          totalCredits: true,
+          isUnlimited: true,
+        },
+      })
+      return NextResponse.json({ ok: true, data: { plans } })
     }
 
     const packages = await prisma.packagePurchase.findMany({
@@ -86,12 +97,22 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
 }
 
 export async function PATCH(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:packages:patch", limit: 90, windowMs: 60_000 },
-    authorize: () => authorizeOwnerOrAdminRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:packages:patch", getClientIp(req)),
+    limit: 90,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeOwnerOrAdminRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { userId } = await context.params
   if (!userId) {
@@ -105,7 +126,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const payload = body as Record<string, unknown>
+  const payload = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {}
   const packagePurchaseId = typeof payload.packagePurchaseId === "string" ? payload.packagePurchaseId : ""
   if (!packagePurchaseId) {
     return NextResponse.json({ error: "packagePurchaseId is required." }, { status: 400 })
@@ -283,27 +304,17 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
   }
 }
 
-/**
- * Grant a cash package to a student from the admin/front-desk student panel.
- *
- * Creates ONLY a pending cash `Purchase` seeded from the chosen `PackagePlan`
- * — byte-parity with the tablet single-purchase metadata shape in
- * `app/api/checkout/cash/route.ts`. It does NOT create a `PackagePurchase`;
- * materialization happens later via the unchanged mark-paid path
- * (`syncPackagePurchaseFromPaidPurchase` in `lib/packages.ts`).
- */
 export async function POST(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:packages:post", limit: 30, windowMs: 60_000 },
-    authorize: () => authorizeCashPackageGrantRequest(),
-  })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  const rateLimit = consumeRateLimit({ key: buildRateLimitKey("staff:packages:post", getClientIp(req)), limit: 30, windowMs: 60_000 })
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } })
+  }
+
+  const authResult = await authorizeCashPackageGrantRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   const { userId } = await context.params
-  if (!userId) {
-    return NextResponse.json({ error: "Missing userId" }, { status: 400 })
-  }
+  if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 })
 
   let body: unknown
   try {
@@ -313,197 +324,83 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
   }
 
   const payload = body as Record<string, unknown>
-
+  const allowedFields = ["packagePlanId", "reason", "idempotencyKey"]
   const packagePlanId = typeof payload.packagePlanId === "string" ? payload.packagePlanId.trim() : ""
-  const key = typeof payload.key === "string" ? payload.key.trim() : ""
-  if (!packagePlanId && !key) {
-    return NextResponse.json({ error: "packagePlanId or key is required." }, { status: 400 })
-  }
-
   const reason = typeof payload.reason === "string" ? payload.reason.trim() : ""
-  if (!reason || reason.length > 500) {
-    return NextResponse.json({ error: "Reason is required (max 500 characters)." }, { status: 400 })
-  }
-
-  const confirmDuplicate = payload.confirmDuplicate === true
   const idempotencyKey = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey.trim() : ""
-
-  if (!idempotencyKey) {
-    return NextResponse.json({ error: "idempotencyKey is required." }, { status: 400 })
+  if (Object.keys(payload).length !== allowedFields.length || Object.keys(payload).some((field) => !allowedFields.includes(field)) || !packagePlanId || !reason || reason.length > 500 || !idempotencyKey) {
+    return NextResponse.json({ error: "Invalid grant request" }, { status: 400 })
   }
 
-  let expiresAtDate: Date | null = null
-  if ("expiresAt" in payload && payload.expiresAt !== undefined && payload.expiresAt !== null && payload.expiresAt !== "") {
-    if (typeof payload.expiresAt !== "string") {
-      return NextResponse.json({ error: "expiresAt must be an ISO date string." }, { status: 400 })
-    }
-    const parsed = new Date(payload.expiresAt)
-    if (isNaN(parsed.getTime())) {
-      return NextResponse.json({ error: "expiresAt must be a valid ISO date string." }, { status: 400 })
-    }
-    if (parsed.getTime() <= Date.now()) {
-      return NextResponse.json({ error: "expiresAt must be in the future." }, { status: 400 })
-    }
-    expiresAtDate = parsed
-  }
-
-  const purchaseSource = authResult.role === "owner" || authResult.role === "admin"
-    ? PURCHASE_SOURCE.ADMIN
-    : PURCHASE_SOURCE.FRONT_DESK
+  const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+  if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 })
 
   try {
-    const student = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
-    if (!student) {
-      return NextResponse.json({ error: "Student not found" }, { status: 404 })
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}), hashtext(${packagePlanId}))`
 
-    const plan = await prisma.packagePlan.findFirst({
-      where: packagePlanId ? { id: packagePlanId } : { key },
-    })
-    if (!plan) {
-      return NextResponse.json({ error: "Package plan not found" }, { status: 404 })
-    }
-    if (!plan.active || plan.priceCents == null) {
-      return NextResponse.json({ error: "Package plan is not available for purchase." }, { status: 400 })
-    }
-
-    // Idempotency pre-check: fast-path return for a recent double-submit. This is only a
-    // best-effort shortcut — the `Purchase.idempotencyKey` unique DB constraint (see
-    // prisma/schema.prisma) is the actual concurrency guard for two racing requests, handled
-    // via the P2002 catch below.
-    const since = new Date(Date.now() - IDEMPOTENCY_WINDOW_MS)
-    const existingByIdempotencyKey = await prisma.purchase.findFirst({
-      where: { userId, idempotencyKey, createdAt: { gte: since } },
-    })
-    if (existingByIdempotencyKey) {
-      return NextResponse.json({
-        ok: true,
-        data: { purchaseId: existingByIdempotencyKey.id, settlementStatus: SETTLEMENT_STATUS.PENDING },
-      })
-    }
-
-    // LOAD-BEARING: syncPackagePurchaseFromPaidPurchase only reads metadata.packageValidDays
-    // to compute expiresAt at materialization time (purchasedAt + validDays). It never reads
-    // an explicit expiresAt. To honor a staff-editable expiry without touching the shared
-    // mark-paid/sync path, translate the chosen expiry into a validDays count here.
-    const packageValidDays = expiresAtDate
-      ? String(Math.max(1, Math.ceil((expiresAtDate.getTime() - Date.now()) / MS_PER_DAY)))
-      : String(plan.validDays)
-
-    const courseSlug = plan.courseSlug ?? plan.courseSlugs[0] ?? null
-
-    let result: Awaited<ReturnType<typeof prisma.purchase.create>>
-    try {
-      result = await prisma.$transaction(async (tx) => {
-        // Duplicate-active-plan check runs inside the transaction so the read-then-decide
-        // is consistent with the write that follows it.
-        const existingActivePackage = await tx.packagePurchase.findFirst({
-          where: {
-            userId,
-            status: "active",
-            OR: [{ packagePlanId: plan.id }, { packageId: plan.key }],
-          },
-          select: { id: true, packageLabel: true, expiresAt: true },
-        })
-        if (existingActivePackage && !confirmDuplicate) {
-          throw new DuplicateActivePackageError(existingActivePackage)
+      const replay = await tx.purchase.findUnique({ where: { idempotencyKey } })
+      if (replay) {
+        const metadata = asObject(replay.metadata)
+        if (replay.userId === userId && replay.packageId && metadata.source === "staff_package_grant" && metadata.packagePlanId === packagePlanId) {
+          return { ok: true, purchaseId: replay.id, replayed: true } as const
         }
-
-        const purchase = await tx.purchase.create({
-          data: {
-            userId,
-            courseSlug: courseSlug || "_staff_package_grant",
-            courseTitle: plan.label,
-            amount: plan.priceCents!,
-            currency: "usd",
-            status: "pending",
-            participants: 1,
-            packageId: plan.key,
-            idempotencyKey,
-            metadata: {
-              source: "cash_checkout",
-              purchaseSource,
-              paymentMethod: "onsite",
-              paymentChannel: PAYMENT_CHANNEL.CASH,
-              settlementStatus: SETTLEMENT_STATUS.PENDING,
-              settledAt: null,
-              courseSlug,
-              packageId: plan.key,
-              packageLabel: plan.label || "",
-              packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
-              packageIsUnlimited: String(plan.isUnlimited),
-              packageCadence: plan.cadence || "",
-              packageMakeUps: String(plan.makeUps),
-              packageValidDays,
-              userId,
-              participants: "1",
-              requiresCardMigration: true,
-              idempotencyKey,
-            },
-          },
-        })
-
-        await writeStudentDataAudit(
-          {
-            targetUserId: userId,
-            staffClerkId: authResult.userId,
-            staffName: authResult.staffName,
-            entity: "package",
-            entityId: purchase.id,
-            field: "created",
-            valueBefore: null,
-            valueAfter: {
-              packagePlanId: plan.id,
-              packageKey: plan.key,
-              packageLabel: plan.label,
-              paymentChannel: PAYMENT_CHANNEL.CASH,
-            },
-            reason,
-            ipAddress: getClientIp(req),
-          },
-          tx
-        )
-
-        return purchase
-      })
-    } catch (transactionError) {
-      if (transactionError instanceof DuplicateActivePackageError) {
-        return NextResponse.json(
-          {
-            error: "Student already has an active package for this plan.",
-            code: "DUPLICATE_ACTIVE_PACKAGE",
-            existing: {
-              id: transactionError.existing.id,
-              label: transactionError.existing.packageLabel,
-              expiresAt: transactionError.existing.expiresAt,
-            },
-          },
-          { status: 409 }
-        )
+        return { ok: false, error: "IDEMPOTENCY_KEY_REUSED" } as const
       }
 
-      // Two concurrent/double-click requests can both pass the pre-check above; the DB-level
-      // unique constraint on Purchase.idempotencyKey is the real guard. On a unique violation,
-      // treat it as the idempotent duplicate and return the winning row instead of a 500.
-      if (isUniqueConstraintError(transactionError)) {
-        const winningPurchase = await prisma.purchase.findFirst({ where: { userId, idempotencyKey } })
-        if (winningPurchase) {
-          return NextResponse.json({
-            ok: true,
-            data: { purchaseId: winningPurchase.id, settlementStatus: SETTLEMENT_STATUS.PENDING },
-          })
-        }
+      const plan = await tx.packagePlan.findFirst({ where: { id: packagePlanId, active: true } })
+      if (!plan) return { ok: false, error: "INVALID_PACKAGE_PLAN" } as const
+
+      const activePackage = await tx.packagePurchase.findFirst({
+        where: { userId, status: "active", OR: [{ packagePlanId }, { packageId: plan.key }] },
+        select: { id: true },
+      })
+      if (activePackage) return { ok: false, error: "DUPLICATE_ACTIVE_PACKAGE" } as const
+
+      const amount = plan.priceCents ?? 0
+      const metadata = {
+        source: "staff_package_grant", packagePlanId: plan.id, packageId: plan.key, packageLabel: plan.label,
+        packageTotalCredits: plan.totalCredits === null ? "" : String(plan.totalCredits),
+        packageIsUnlimited: String(plan.isUnlimited), packageCadence: plan.cadence ?? "",
+        packageMakeUps: String(plan.makeUps), packageValidDays: String(plan.validDays),
+        paymentChannel: PAYMENT_CHANNEL.CASH, settlementStatus: SETTLEMENT_STATUS.PENDING, outstandingBalance: amount,
+      }
+      const purchase = await tx.purchase.upsert({
+        where: { idempotencyKey },
+        update: {},
+        create: {
+          userId, courseSlug: plan.courseSlug ?? `package:${plan.key}`, courseTitle: plan.label, amount,
+          currency: "usd", status: PURCHASE_STATUS.PENDING, packageId: plan.key, idempotencyKey, metadata,
+        },
+      })
+      const createdMetadata = asObject(purchase.metadata)
+      if (purchase.userId !== userId || purchase.packageId !== plan.key || createdMetadata.packagePlanId !== packagePlanId || createdMetadata.source !== "staff_package_grant") {
+        return { ok: false, error: "IDEMPOTENCY_KEY_REUSED" } as const
       }
 
-      throw transactionError
+      await writeStudentDataAudit({
+        targetUserId: userId, staffClerkId: authResult.userId, staffName: authResult.staffName,
+        entity: "package", entityId: purchase.id, field: "cash_package_grant",
+        valueAfter: { outcome: "CREATED", packagePlanId, purchaseId: purchase.id }, reason, ipAddress: getClientIp(req),
+      }, tx)
+      return { ok: true, purchaseId: purchase.id, replayed: false } as const
+    })
+
+    if (!result.ok) {
+      await writeStudentDataAudit({
+        targetUserId: userId, staffClerkId: authResult.userId, staffName: authResult.staffName,
+        entity: "package", field: "cash_package_grant", valueAfter: { outcome: result.error }, reason, ipAddress: getClientIp(req),
+      })
+      return NextResponse.json({ error: result.error }, { status: result.error === "INVALID_PACKAGE_PLAN" ? 400 : 409 })
     }
 
-    return NextResponse.json(
-      { ok: true, data: { purchaseId: result.id, settlementStatus: SETTLEMENT_STATUS.PENDING } },
-      { status: 201 }
-    )
+    return NextResponse.json({ ok: true, data: { purchaseId: result.purchaseId, replayed: result.replayed } }, { status: result.replayed ? 200 : 201 })
   } catch (error) {
-    console.error("Package grant error:", error)
+    console.error("Cash package grant error:", error)
+    await writeStudentDataAudit({
+      targetUserId: userId, staffClerkId: authResult.userId, staffName: authResult.staffName,
+      entity: "package", field: "cash_package_grant", valueAfter: { outcome: "FAILED" }, reason, ipAddress: getClientIp(req),
+    })
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

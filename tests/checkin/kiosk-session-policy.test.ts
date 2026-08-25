@@ -19,22 +19,14 @@ describe("kiosk session policy", () => {
     ).toBe(false)
   })
 
-  it("suppresses the current Clerk session when completion has no kiosk session id", () => {
+  it("suppresses the currently active session when completion falls back to the current clerk session", () => {
     expect(
       resolveSuppressedClerkSessionIdOnCompletion({
-        activeSessionId: "sess_customer",
+        activeSessionId: null,
         isSignedIn: true,
         kioskClerkSessionId: null,
       })
     ).toBe(CURRENT_CLERK_SESSION_SUPPRESSION)
-
-    expect(
-      resolveSuppressedClerkSessionIdOnCompletion({
-        activeSessionId: "sess_staff",
-        isSignedIn: true,
-        kioskClerkSessionId: "sess_customer",
-      })
-    ).toBe("sess_customer")
   })
 
   it("keeps the customer signed out while the current session suppression token is active", () => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { jsonError } from "@/lib/payroll/route-helpers"
 
 export const runtime = "nodejs"
@@ -10,12 +10,22 @@ export async function DELETE(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:unavailability:delete", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:unavailability:delete", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { id } = await context.params
   if (!id) {
@@ -50,6 +60,8 @@ export async function DELETE(
     },
   })
 
+  // Notification stub (log for now)
+  console.log(`Staff unavailability request cancelled: ${updated.id} by staff ${authResult.userId}`)
 
   return NextResponse.json({
     id: updated.id,
@@ -71,12 +83,22 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:unavailability:patch", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:unavailability:patch", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { id } = await context.params
   if (!id) {
@@ -124,6 +146,8 @@ export async function PATCH(
     },
   })
 
+  // Notification stub (log for now)
+  console.log(`Staff unavailability request ${status}: ${updated.id} by staff ${authResult.userId}`)
 
   return NextResponse.json({
     id: updated.id,

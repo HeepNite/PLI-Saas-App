@@ -145,7 +145,6 @@ const isCheckinQrDecisionGatewayResponse = (value: unknown): value is CheckinQrD
     (value.hasExistingPurchaseForSession === undefined || isBoolean(value.hasExistingPurchaseForSession)) &&
     (value.hasAnyActivePackage === undefined || isBoolean(value.hasAnyActivePackage)) &&
     (value.consecutiveOffer === undefined || value.consecutiveOffer === null || isConsecutiveOffer(value.consecutiveOffer)) &&
-    (value.dayOfWeekPurchaseCount === undefined || typeof value.dayOfWeekPurchaseCount === "number") &&
     (value.quickRepeatEligible === undefined || isBoolean(value.quickRepeatEligible)) &&
     (value.lastPurchasePattern === undefined ||
       value.lastPurchasePattern === null ||
@@ -253,7 +252,6 @@ export const parseCheckinQrDecisionGatewayResponse = (
               discountPercent: value.consecutiveOffer.discountPercent,
               hasAttendedFirstClass: value.consecutiveOffer.hasAttendedFirstClass,
             },
-    dayOfWeekPurchaseCount: value.dayOfWeekPurchaseCount,
     quickRepeatEligible: value.quickRepeatEligible,
     lastPurchasePattern:
       value.lastPurchasePattern === undefined

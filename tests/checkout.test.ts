@@ -1,38 +1,10 @@
-import { describe, it, expect, vi } from "vitest"
-import type { CourseData } from "@/constants/courses"
-
-// Courses now live in the DB (CourseCatalog); demoCourses is empty on current
-// develop, so validateCheckoutPayload resolves via getCatalogCourseBySlug.
-// Provide a local catalog fixture and mock the DB-backed lookup.
-const fixtureCourse: CourseData = {
-  slug: "salsa-femenina-matutina",
-  title: "Salsa Femenina Matutina",
-  description: "Morning ladies styling",
-  level: "Beginner",
-  duration: "55 min",
-  schedule: { day: "Mon", time: "11:00", starts: "Ongoing" },
-  location: { address: "54 Coles St, Jersey City, NJ" },
-  instructors: [{ name: "PLI Team", role: "Instructor" }],
-  enrollment: {
-    services: [
-      { id: "dropin", label: "Single class", price: 20 },
-      { id: "new-student", label: "New students", price: 15 },
-    ],
-    packages: [{ id: "pkg-4", label: "4-class pack", price: 70, meta: { totalClasses: 4 } }],
-    addons: [{ id: "shoes", label: "Shoe rental", price: 5 }],
-  },
-}
-
-vi.mock("@/lib/catalog-courses", () => ({
-  getCatalogCourseBySlug: vi.fn(async (slug: string) =>
-    slug === fixtureCourse.slug ? fixtureCourse : null,
-  ),
-}))
-
+import { describe, it, expect } from "vitest"
 import { validateCheckoutPayload } from "@/lib/checkout/validation"
+import { courseRepository } from "@/lib/courses-repository"
 
 const buildPayload = (overrides: Record<string, unknown> = {}) => {
-  const course = fixtureCourse
+  const course = courseRepository.getCourseBySlug("salsa-femenina-matutina")
+  if (!course) throw new Error("Missing demo course")
   const service = course.enrollment.services[0]
   const pkg = course.enrollment.packages[0]
   const addons = course.enrollment.addons?.slice(0, 1) ?? []

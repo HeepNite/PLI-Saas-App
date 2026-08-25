@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
-import { auth } from "@clerk/nextjs/server"
+import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { normalizePersistedPurchaseStatus } from "@/lib/purchase-status"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { normalizePhone } from "@/lib/shared"
-import { getCachedClerkUser } from "@/lib/clerk-users"
-import { pickStripeMetadata, parseIntSafe, normalize } from "@/lib/stripe-metadata"
 
 export const runtime = "nodejs"
 
@@ -19,6 +17,44 @@ const stripe = stripeSecret
     })
   : null
 
+const normalize = (value: string | null | undefined) => {
+  const trimmed = value?.trim()
+  return trimmed && trimmed.length > 0 ? trimmed : undefined
+}
+
+const parseIntSafe = (value: string | undefined) => {
+  if (!value) return undefined
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+const pickMetadata = (metadata?: Stripe.Metadata) => ({
+  courseSlug: normalize(metadata?.courseSlug),
+  courseTitle: normalize(metadata?.courseTitle),
+  packageId: normalize(metadata?.packageId),
+  packageLabel: normalize(metadata?.packageLabel),
+  packageTotalCredits: normalize(metadata?.packageTotalCredits),
+  packageIsUnlimited: normalize(metadata?.packageIsUnlimited),
+  packageCadence: normalize(metadata?.packageCadence),
+  packageMakeUps: normalize(metadata?.packageMakeUps),
+  packageValidDays: normalize(metadata?.packageValidDays),
+  serviceId: normalize(metadata?.serviceId),
+  userId: normalize(metadata?.userId),
+  participants: normalize(metadata?.participants),
+  coupon: normalize(metadata?.coupon),
+  addons: normalize(metadata?.addons),
+  name: normalize(metadata?.name),
+  email: normalize(metadata?.email),
+  phone: normalize(metadata?.phone),
+  phoneRaw: normalize(metadata?.phoneRaw),
+  date: normalize(metadata?.date),
+  time: normalize(metadata?.time),
+  // Consecutive class fields
+  consecutivePriceCents: normalize(metadata?.consecutivePriceCents),
+  consecutiveLinkedCourseSlug: normalize(metadata?.consecutiveLinkedCourseSlug),
+  consecutiveCourseTitle: normalize(metadata?.consecutiveCourseTitle),
+  consecutiveLinkedCourseTime: normalize(metadata?.consecutiveLinkedCourseTime),
+})
 
 type FinalizeBody = {
   paymentIntentId?: string
@@ -67,12 +103,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Payment not succeeded yet" }, { status: 409 })
   }
 
-  const meta = pickStripeMetadata(intent.metadata)
+  const meta = pickMetadata(intent.metadata)
   if (meta.userId && meta.userId !== "guest" && meta.userId !== authResult.userId) {
     return NextResponse.json({ error: "Payment intent user mismatch" }, { status: 403 })
   }
 
-  const clerkUser = await getCachedClerkUser(authResult.userId)
+  const client = await clerkClient()
+  const clerkUser = await client.users.getUser(authResult.userId)
   const email = meta.email || intent.receipt_email || clerkUser.primaryEmailAddress?.emailAddress || undefined
   const phone =
     normalizePhone(meta.phone) ||

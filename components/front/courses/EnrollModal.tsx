@@ -26,7 +26,9 @@ import {
   notifyPaymentsStepReadyForOpenSession,
   shouldFetchConsecutiveOffer,
   shouldIncludePhotoStep,
+  shouldPrefillClerkContact,
   shouldRedirectPersonalCompletion,
+  resolvePostAccountStepIndex,
 } from "@/lib/checkin/enroll-flow"
 import {
   getKioskPaymentTransitionRemainingMs,
@@ -339,7 +341,7 @@ export default function EnrollModal({
     infoStepIndex,
     photoStepIndex,
     packagesStepIndex,
-    promoStepIndex,
+    promotionDecisionStepIndex,
     regularServicePrice,
     regularFallbackLocked,
     effectiveInitialStep,
@@ -642,19 +644,9 @@ export default function EnrollModal({
   }, [hasNewStudentService, isCheckInNewFlow, open, regularFallbackLocked, service, setService])
 
   React.useEffect(() => {
-    // Prefill contact from the signed-in Clerk user. This also covers the
-    // signed-in "checkin-new" case: a never-purchased customer is priced as a
-    // new student ($15) but is still signed in, so their name/email/phone must be
-    // filled from Clerk (the info step is skipped for signed-in users). The
-    // !isSignedIn guard below keeps anonymous new students unprefilled.
-    //
-    // NEVER prefill from Clerk on the shared kiosk terminal: an ambient Clerk
-    // session (a previous customer left signed in) would leak that person's
-    // name/email/phone into the next customer's form. The terminal identifies
-    // customers by phone (kiosk session), not by the browser's Clerk session.
-    if (isKioskTerminalFlow) return
     if (!isLoaded || !isSignedIn || !user) return
     if (!open && !isInline) return
+    if (!shouldPrefillClerkContact({ isCheckInNewFlow, isKioskTerminalFlow })) return
     const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
     const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
     setContact((prev) => ({
@@ -664,7 +656,7 @@ export default function EnrollModal({
       email: prev.email || user.primaryEmailAddress?.emailAddress || "",
       phone: hasPhoneDigits(prev.phone) ? prev.phone : formattedPhone || prev.phone,
     }))
-  }, [isKioskTerminalFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
+  }, [isCheckInNewFlow, isKioskTerminalFlow, isLoaded, isSignedIn, user, open, isInline, setContact])
 
   // No early returns before hooks complete. We will conditionally render at the final return
 
@@ -794,7 +786,6 @@ export default function EnrollModal({
     effectiveConsecutiveOffer,
     isCheckInFlow,
     isKioskTerminalFlow,
-    isProfileBookingFlow,
     isSignedIn,
     processing,
     step,
@@ -919,7 +910,7 @@ export default function EnrollModal({
     photoPolicy,
     photoSaved,
     photoStepIndex,
-    promoStepIndex,
+    promotionDecisionStepIndex,
     packagesStepIndex,
     paymentsStepIndex,
     usesPhasedInfoForm,
@@ -1037,21 +1028,20 @@ export default function EnrollModal({
       const account = preparedAccount || (await requestAccountPreparation())
       if (cancelled || !account) return
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
+      const postAccountStepIndex = resolvePostAccountStepIndex({
+        packagesStepIndex,
+        promotionDecisionStepIndex,
+        paymentsStepIndex,
+      })
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
-      } else if (packagesStepIndex >= 0) {
-        // Packages BEFORE promo (flow order: info → packages → promo → payments).
-        // Checking promo first skipped the packages step for new students.
-        setStep(packagesStepIndex)
-      } else if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
-      } else if (paymentsStepIndex >= 0) {
-        setStep(paymentsStepIndex)
+      } else if (postAccountStepIndex >= 0) {
+        setStep(postAccountStepIndex)
       }
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
+  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promotionDecisionStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
 
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
     isKioskTerminalFlow,

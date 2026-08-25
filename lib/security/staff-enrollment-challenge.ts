@@ -1,6 +1,6 @@
 import { randomInt } from "crypto"
 import { prisma } from "@/lib/prisma"
-import { hashStaffPin, isValidPinHash } from "@/lib/security/staff-pin-auth"
+import { hashPin, isValidPinHash } from "@/lib/security/staff-pin-hash"
 
 /**
  * Single-use SMS OTP enrollment challenge (design v5 ADR 13 fallback —
@@ -8,11 +8,10 @@ import { hashStaffPin, isValidPinHash } from "@/lib/security/staff-pin-auth"
  * apply batch: no server-side SMS sender existed before this PR, and Clerk's
  * `attemptSecondFactorVerification` reverification family is public-beta).
  *
- * Reuses the centralized staff PIN hash module (lib/security/staff-pin-auth.ts,
- * the dual-secret source of truth from #253) so the code is NEVER stored in
- * plaintext — `hashStaffPin`/`isValidPinHash` are digit-length-agnostic (the
- * 4-digit constraint lives in the PIN resolver, not the hash module), so they
- * apply cleanly to a 6-digit OTP too.
+ * Reuses the shared PIN hash module (lib/security/staff-pin-hash.ts) so the
+ * code is NEVER stored in plaintext — `hashPin`/`isValidPinHash` are
+ * digit-length-agnostic (the 4-digit constraint lives in the PIN resolver,
+ * not the hash module), so they apply cleanly to a 6-digit OTP too.
  *
  * Invariant enforced here: at most ONE active (unconsumed + unexpired)
  * challenge per staffUserId at a time. Issuing a new challenge invalidates
@@ -48,7 +47,7 @@ export const issueEnrollmentChallenge = async (staffUserId: string): Promise<Iss
   })
 
   const code = generateSixDigitCode()
-  const codeHash = hashStaffPin(code)
+  const codeHash = hashPin(code)
   const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS)
 
   await prisma.staffEnrollmentChallenge.create({

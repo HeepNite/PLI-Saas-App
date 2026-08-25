@@ -12,26 +12,14 @@ testGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
 type HookState = ReturnType<typeof useStaffPinAdmin>
 
-function HookHarness({
-  canAccessStudentsNav = false,
-  isStudentsView = false,
-  fetchPayments: fetchPaymentsProp,
-  fetchPaymentsMonthlySummary: fetchPaymentsMonthlySummaryProp,
-  onState,
-}: {
-  canAccessStudentsNav?: boolean
-  isStudentsView?: boolean
-  fetchPayments?: () => Promise<void>
-  fetchPaymentsMonthlySummary?: () => Promise<void>
-  onState: (state: HookState) => void
-}) {
-  const fetchPayments = React.useCallback(fetchPaymentsProp ?? (async () => undefined), [fetchPaymentsProp])
-  const fetchPaymentsMonthlySummary = React.useCallback(fetchPaymentsMonthlySummaryProp ?? (async () => undefined), [fetchPaymentsMonthlySummaryProp])
+function HookHarness({ onState }: { onState: (state: HookState) => void }) {
+  const fetchPayments = React.useCallback(async () => undefined, [])
+  const fetchPaymentsMonthlySummary = React.useCallback(async () => undefined, [])
   const handleStaffAuthFailure = React.useCallback(() => false, [])
   const isInsideCriticalClassWindow = React.useCallback(() => false, [])
   const state = useStaffPinAdmin({
-    canAccessStudentsNav,
-    isStudentsView,
+    canAccessStudentsNav: false,
+    isStudentsView: false,
     scheduleEventsByDay: {},
     fetchPayments,
     fetchPaymentsMonthlySummary,
@@ -70,30 +58,13 @@ describe("useStaffPinAdmin", () => {
     vi.restoreAllMocks()
   })
 
-  async function renderHookHarness(props: Partial<React.ComponentProps<typeof HookHarness>> = {}) {
+  async function renderHookHarness() {
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
-    await act(async () => root!.render(<HookHarness {...props} onState={(state) => { latestState = state }} />))
+    await act(async () => root!.render(<HookHarness onState={(state) => { latestState = state }} />))
     return latestState!
   }
-
-  it("does not auto-refresh payments or terminals while the Users nav is active", async () => {
-    const fetchPayments = vi.fn(async () => undefined)
-    const fetchPaymentsMonthlySummary = vi.fn(async () => undefined)
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ items: [] }) as unknown as Response)
-
-    await renderHookHarness({
-      canAccessStudentsNav: true,
-      isStudentsView: false,
-      fetchPayments,
-      fetchPaymentsMonthlySummary,
-    })
-
-    expect(fetchPayments).not.toHaveBeenCalled()
-    expect(fetchPaymentsMonthlySummary).not.toHaveBeenCalled()
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/staff/terminals"))).toBe(false)
-  })
 
   it("loads and prioritizes terminal PIN alerts", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({

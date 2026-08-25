@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
@@ -31,11 +31,17 @@ const prismaRouteError = (error: unknown, fallbackMessage: string) => {
 // ─── GET: Load CourseLinks for a course ─────────────────────────
 
 export async function GET(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:course-links:get", limit: 120, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:course-links:get", getClientIp(req)),
+    limit: 120,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   const { searchParams } = new URL(req.url)
   const courseSlug = (searchParams.get("courseSlug") || "").trim().toLowerCase()
@@ -71,11 +77,17 @@ export async function GET(req: Request) {
 // ─── POST: Create a new CourseLink ─────────────────────────────
 
 export async function POST(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:course-links:post", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:course-links:post", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   let payload: unknown
   try {
@@ -160,11 +172,17 @@ export async function POST(req: Request) {
 // ─── PUT: Update an existing CourseLink ────────────────────────
 
 export async function PUT(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:course-links:put", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:course-links:put", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   let payload: unknown
   try {
@@ -255,11 +273,17 @@ export async function PUT(req: Request) {
 // ─── DELETE: Remove a CourseLink ───────────────────────────────
 
 export async function DELETE(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:course-links:delete", limit: 30, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:course-links:delete", getClientIp(req)),
+    limit: 30,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   let payload: unknown
   try {

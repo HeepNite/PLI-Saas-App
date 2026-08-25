@@ -1,24 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
-import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
-import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 
 export const runtime = "nodejs"
 
-const isPrismaSchemaUnavailableError = (error: unknown) => {
-  if (!error || typeof error !== "object") return false
-  const record = error as { code?: unknown; name?: unknown }
-  return record.name === "PrismaClientKnownRequestError" && (record.code === "P2021" || record.code === "P2022")
-}
-
-const degradedEmptyArrivals = () =>
-  NextResponse.json([], {
-    status: 200,
-    headers: {
-      "Retry-After": "30",
-      "X-Staff-Service-Status": "degraded",
-    },
-  })
+const ALLOWED_ROLES = new Set(["owner", "admin", "front_desk"])
 
 /**
  * GET /api/staff/checkin/web-cash-arrivals?since=<ISO>
@@ -28,12 +16,28 @@ const degradedEmptyArrivals = () =>
  */
 export async function GET(req: NextRequest) {
   try {
-    const authResult = await authorizeStaffPortalSectionRequest("students")
-    if (!authResult.ok) {
+    const rateLimit = consumeRateLimit({
+      key: buildRateLimitKey("staff:checkin:web-cash-arrivals:get", getClientIp(req)),
+      limit: 60,
+      windowMs: 60_000,
+    })
+    if (!rateLimit.ok) {
       return NextResponse.json(
-        { error: authResult.error },
-        { status: authResult.status, ...(authResult.retryAfterSec ? { headers: { "Retry-After": String(authResult.retryAfterSec) } } : {}) }
+        { error: "Too many requests." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
       )
+    }
+
+    const authResult = await auth()
+    if (!authResult.userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const client = await clerkClient()
+    const clerkUser = await client.users.getUser(authResult.userId)
+    const role = extractStaffRoleFromUserMetadata(clerkUser)
+    if (!role || !ALLOWED_ROLES.has(role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const sinceParam = req.nextUrl.searchParams.get("since")
@@ -58,31 +62,19 @@ export async function GET(req: NextRequest) {
       take: 20,
     })
 
-    // Batch-fetch all referenced purchases in a single query (was N+1)
-    const purchaseIds = arrivals
-      .map((a) => {
-        const meta = a.metadata && typeof a.metadata === "object" ? (a.metadata as Record<string, unknown>) : null
-        return typeof meta?.purchaseId === "string" ? meta.purchaseId : null
-      })
-      .filter((id): id is string => Boolean(id))
-
-    const purchases = purchaseIds.length
-      ? await prisma.purchase.findMany({
-          where: { id: { in: purchaseIds } },
-          select: { id: true, status: true, amount: true, metadata: true },
-        })
-      : []
-    const purchaseById = new Map(purchases.map((p) => [p.id, p]))
-
-    const results = arrivals
-      .map((attendance) => {
+    // Filter to only cash-pending: find matching purchase
+    const results = await Promise.all(
+      arrivals.map(async (attendance) => {
         const meta = attendance.metadata && typeof attendance.metadata === "object"
           ? (attendance.metadata as Record<string, unknown>)
           : null
         const purchaseId = typeof meta?.purchaseId === "string" ? meta.purchaseId : null
         if (!purchaseId) return null
 
-        const purchase = purchaseById.get(purchaseId)
+        const purchase = await prisma.purchase.findUnique({
+          where: { id: purchaseId },
+          select: { status: true, amount: true, metadata: true },
+        })
         if (!purchase) return null
 
         const purchaseMeta = purchase.metadata && typeof purchase.metadata === "object"
@@ -95,7 +87,7 @@ export async function GET(req: NextRequest) {
           ? purchaseMeta.settlementStatus
           : ""
 
-        if (paymentChannel !== PAYMENT_CHANNEL.CASH || settlementStatus !== SETTLEMENT_STATUS.PENDING) return null
+        if (paymentChannel !== "cash" || settlementStatus !== "pending") return null
 
         return {
           attendanceId: attendance.id,
@@ -105,14 +97,10 @@ export async function GET(req: NextRequest) {
           checkedInAt: attendance.checkedInAt.toISOString(),
         }
       })
-      .filter(Boolean)
+    )
 
-    return NextResponse.json(results)
+    return NextResponse.json(results.filter(Boolean))
   } catch (error) {
-    if (isPrismaSchemaUnavailableError(error)) {
-      console.warn("Web cash arrivals unavailable because the database schema is not ready", error)
-      return degradedEmptyArrivals()
-    }
     console.error("Web cash arrivals GET failed", error)
     return NextResponse.json({ error: "Unable to fetch arrivals" }, { status: 500 })
   }

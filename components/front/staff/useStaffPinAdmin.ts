@@ -180,9 +180,8 @@ export const useStaffPinAdmin = ({
 
   React.useEffect(() => {
     if (!canAccessStudentsNav) return
-    if (!isStudentsView) return
     void refreshPaymentsBoard()
-  }, [canAccessStudentsNav, isStudentsView, refreshPaymentsBoard])
+  }, [canAccessStudentsNav, refreshPaymentsBoard])
 
   React.useEffect(() => {
     if (typeof window === "undefined") return

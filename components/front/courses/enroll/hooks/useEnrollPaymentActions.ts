@@ -45,7 +45,6 @@ export type UseEnrollPaymentActionsInput = {
   effectiveConsecutiveOffer: ConsecutiveOfferData | null | undefined
   isCheckInFlow: boolean
   isKioskTerminalFlow: boolean
-  isProfileBookingFlow: boolean
   isSignedIn: boolean | undefined
   processing: boolean
   step: number
@@ -86,7 +85,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
     consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
-    isCheckInFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
+    isCheckInFlow, isKioskTerminalFlow, isSignedIn, processing, step,
     paymentsStepIndex, infoStepIndex, regularServiceId, regularServicePrice,
     getToken,
     setService, setStep, setSuccess, setSuccessMessage, setProcessing, setFormError,
@@ -381,83 +380,6 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             setProcessing(false)
             showRegularFallbackPopup(
               `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-            )
-            return
-          }
-          const message =
-            needsSignIn
-              ? t("account_exists_error")
-              : typeof result.data?.error === "string"
-                ? result.data.error
-                : "Error starting card payment."
-          setFormError(needsSignIn ? null : message)
-          setRequiresSignIn(needsSignIn)
-          setExistingAccountDetected(needsSignIn)
-          setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-          setPendingAutoPay(needsSignIn)
-          setProcessing(false)
-          return
-        }
-        if (typeof result.data?.url !== "string" || result.data.url.trim().length === 0) {
-          throw new Error("Checkout session is missing the hosted redirect URL")
-        }
-        setRequiresSignIn(false)
-        setExistingAccountDetected(false)
-        setResumeAfterSignInStep(null)
-        setPendingAutoPay(false)
-        // Full-page redirect to Stripe hosted checkout. Keep `processing` true so the
-        // submit button stays locked while the browser navigates away.
-        window.location.href = result.data.url
-        return
-      } catch (err) {
-        console.error(err)
-        alert("We couldn't start the payment. Please try again.")
-        setProcessing(false)
-      }
-      return
-    }
-
-    // Client profile bookings pay on Stripe's HOSTED checkout page (full-page
-    // redirect) instead of the embedded PaymentElement modal — same reliability
-    // and native Apple Pay / Google Pay as the mobile-QR check-in flow above. The
-    // profile flow is not a check-in, so the purchase is finalized server-side by
-    // the Stripe webhook and there is no post-redirect client callback.
-    if (paymentMethod === "stripe" && isProfileBookingFlow) {
-      try {
-        let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload() })
-        const code = typeof result.data?.code === "string" ? result.data.code : undefined
-        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-          await new Promise((resolve) => window.setTimeout(resolve, 350))
-          const refreshed = await getToken({ skipCache: true })
-          if (refreshed) {
-            token = refreshed
-            result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload() })
-          }
-        }
-        if (!result.res.ok) {
-          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
-          const needsSignIn = !isCheckInFlow && finalCode === "ACCOUNT_EXISTS"
-          const isNewStudentBlocked =
-            finalCode === "NEW_STUDENT_ALREADY" ||
-            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-          if (needsSignIn && isSignedIn) {
-            setFormError(t("account_exists_signed_in"))
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            return
-          }
-          if (isNewStudentBlocked) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
             )
             return
           }

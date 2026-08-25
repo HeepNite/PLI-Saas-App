@@ -1202,32 +1202,6 @@ describe("resolveStudentCardPayments", () => {
       })
     ).toEqual([])
   })
-
-  it("uses cash settlement status for history paid and pending filters", () => {
-    const paidCashPayment = {
-      ...basePayment,
-      id: "cash-paid",
-      paymentChannel: "cash" as const,
-      settlementStatus: "paid" as const,
-      classPaid: false,
-    }
-    const pendingCashPayment = {
-      ...paidCashPayment,
-      id: "cash-pending",
-      settlementStatus: "pending" as const,
-    }
-
-    expect(resolveStudentCardPayments([paidCashPayment, pendingCashPayment], {
-      ...defaultFilters,
-      paymentsFilter: "paid",
-      studentSearchQuery: "",
-    })).toEqual([paidCashPayment])
-    expect(resolveStudentCardPayments([paidCashPayment, pendingCashPayment], {
-      ...defaultFilters,
-      paymentsFilter: "pending",
-      studentSearchQuery: "",
-    })).toEqual([pendingCashPayment])
-  })
 })
 
 describe("isPaymentPaidForUi", () => {

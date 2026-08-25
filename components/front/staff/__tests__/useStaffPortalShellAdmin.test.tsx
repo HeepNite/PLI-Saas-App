@@ -10,12 +10,6 @@ import { useStaffPortalShellAdmin } from "@/components/front/staff/useStaffPorta
 const testGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 testGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
-const getTokenMock = vi.fn<(options?: { skipCache?: boolean }) => Promise<string | null>>()
-
-vi.mock("@clerk/nextjs", () => ({
-  useAuth: () => ({ getToken: getTokenMock }),
-}))
-
 const Icon = () => null
 const navItems: StaffPortalNavItem[] = [
   { key: "users", label: "User Management", icon: Icon },
@@ -106,18 +100,5 @@ describe("useStaffPortalShellAdmin", () => {
 
     expect(handled).toBe(true)
     expect(setError).toHaveBeenCalledWith("Staff session expired. Please validate your PIN again.")
-  })
-
-  it("exposes a stable staffAuthedFetch function alongside handleStaffAuthFailure", async () => {
-    const state = await renderHook()
-
-    expect(typeof state.staffAuthedFetch).toBe("function")
-
-    const firstReference = latestState!.staffAuthedFetch
-    await act(async () => {
-      latestState!.handleNavSelection("students")
-    })
-
-    expect(latestState!.staffAuthedFetch).toBe(firstReference)
   })
 })

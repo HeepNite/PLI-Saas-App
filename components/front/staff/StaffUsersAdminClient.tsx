@@ -15,8 +15,7 @@ import {
 import { demoCourses } from "@/constants/courses"
 import type { StaffRole } from "@/lib/security/staff-role"
 import {
-  type StaffCategory,
-  type StaffSubCategory,
+  type StaffCategory, type StaffSubCategory,
 } from "@/lib/security/staff-category"
 import { useSchoolWizard } from "@/components/front/staff/school"
 import type { StepEnabledContext } from "@/components/front/staff/school"
@@ -171,7 +170,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     activeNavLabel,
     ensureMinimumLoadingTime,
     handleStaffAuthFailure,
-    staffAuthedFetch,
   } = portalShellAdmin
   const assistantAdmin = useStaffAssistantAdmin(activeNavLabel)
   expandAssistantRailRef.current = assistantAdmin.expandRail
@@ -192,7 +190,7 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
   const staffDirectoryAdmin = useStaffDirectoryAdmin({
     canAccessUsersNav,
     canManageClerkSync,
-    shouldFetchClerkSyncHealth: false,
+    shouldFetchClerkSyncHealth: isStudentsView && canManageClerkSync,
     scheduleEventsByDay,
     ensureMinimumLoadingTime,
     handleStaffAuthFailure,
@@ -513,7 +511,6 @@ export default function StaffUsersAdminClient({ currentRole, currentCategory, cu
     updateSettlementBulk,
     refreshPaymentsBoard,
     handleStaffAuthFailure,
-    staffAuthedFetch,
   })
 
   const createStudentAdmin = useStaffCreateStudentAdmin({

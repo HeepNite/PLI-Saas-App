@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
@@ -24,11 +24,22 @@ const inferKindFromMime = (mime: string): MediaKind | null => {
 }
 
 export async function POST(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:courses:upload:post", limit: 40, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:courses:upload:post", getClientIp(req)),
+    limit: 40,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   let formData: FormData
   try {

@@ -36,34 +36,43 @@ export const resolveEnrollInitialStep = (input: ResolveEnrollInitialStepInput) =
   return Math.max(0, Math.min(maxStep, Math.floor(input.initialStep)))
 }
 
+export const resolvePromotionDecisionStepIndex = (stepKeys: readonly EnrollStepKey[]) =>
+  stepKeys.findIndex((key) => key === "promo" || key === "consecutive")
+
+export const resolvePostAccountStepIndex = (input: {
+  packagesStepIndex: number
+  promotionDecisionStepIndex: number
+  paymentsStepIndex: number
+}) => {
+  const orderedStepIndexes = [
+    input.packagesStepIndex,
+    input.promotionDecisionStepIndex,
+    input.paymentsStepIndex,
+  ].filter((index) => index >= 0)
+  return orderedStepIndexes.length > 0 ? Math.min(...orderedStepIndexes) : -1
+}
+
 /**
  * Resolves the step keys for the enrollment flow based on context.
  *
  * For kiosk terminal flows, packages are shown in a dedicated step AFTER
  * user info collection (so we know if they're new/existing for pricing).
- * Kiosk flow: info → [packages] → [consecutive] → payments
- *
- * Check-in flows (kiosk, QR mobile compact, or the default flow when wired
- * through a check-in variant) never include the "photo" step — the photo
- * capability moved to profile self-upload.
+ * Kiosk flow: info → [packages] → payments
+ * Check-in flows never include Photo; profile photo management remains separate.
  */
 export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): EnrollStepKey[] => {
   if (input.isCheckInFlow && input.isKioskTerminalFlow && input.isCheckInNewFlow) {
-    // "I'm new" on kiosk: info → [packages] → [promo] → payments. Packages are
-    // offered when the course has them so a new student can buy a package on the
-    // spot; the promo step only appears when a consecutive-class offer exists.
+    // "I'm new" on kiosk: streamlined flow — the promo step only appears when a
+    // consecutive-class offer is actually available; otherwise go straight to payment.
     return [
       "info",
-      ...(input.hasPackages ? (["packages"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["promo"] as const) : []),
       "payments",
     ] as EnrollStepKey[]
   }
 
   if (input.isCheckInFlow && input.isKioskTerminalFlow) {
-    // Existing customer declining Quick Repeat: full flow with packages.
-    // Check-in flows never show the photo step (users upload a photo from
-    // their profile later).
+    // Existing customer declining Quick Repeat: full flow with packages
     return [
       "info",
       ...(input.hasPackages ? (["packages"] as const) : []),
@@ -75,8 +84,6 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
   if (input.isQrMobileCompactFlow) {
     return [
       ...(input.skipInfoStep ? [] : (["info"] as const)),
-      // Check-in flows never show the photo step, even when wired through
-      // the QR mobile compact experience.
       ...(!input.isCheckInFlow && input.requiresPhotoStep ? (["photo"] as const) : []),
       ...(input.hasPackages ? (["packages"] as const) : []),
       ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
@@ -97,8 +104,6 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
     "party",
     "datetime",
     ...(input.skipInfoStep ? [] : (["info"] as const)),
-    // Check-in flows never show the photo step, even outside the kiosk and
-    // QR mobile compact branches above.
     ...(!input.isCheckInFlow && input.requiresPhotoStep ? (["photo"] as const) : []),
     ...(input.hasConsecutiveOffer ? (["consecutive"] as const) : []),
     "payments",
@@ -111,13 +116,6 @@ export const isCheckInContactGateStep = (input: {
   activeStepKey: EnrollStepKey | ""
 }) => input.isCheckInFlow && input.activeStepKey === "info"
 
-/**
- * The photo step is never part of check-in enrollment flows — users upload
- * a photo from their profile later instead. Kept as a named function (rather
- * than inlining `false` at call sites) so the photo capability itself stays
- * intact and callers keep a single, documented decision point to revert if
- * product ever brings the step back.
- */
 export const shouldIncludePhotoStep = (input: ShouldIncludePhotoStepInput) => {
   void input
   return false
@@ -129,6 +127,11 @@ export const shouldFetchConsecutiveOffer = (input: {
   isProfileBookingFlow: boolean
 }) => input.isQrMobileCompactFlow || input.isCheckInFlow || input.isProfileBookingFlow
 
+export const shouldPrefillClerkContact = (input: {
+  isCheckInNewFlow: boolean
+  isKioskTerminalFlow: boolean
+}) => !(input.isCheckInNewFlow && input.isKioskTerminalFlow)
+
 export const getCheckInSignInModalVariant = (isCheckInFlow: boolean) =>
   isCheckInFlow ? "compact" : "sheet"
 
@@ -139,9 +142,12 @@ export const resolvePostPhotoStepIndex = (input: {
   currentStep: number
   stepsLength: number
 }) => {
-  if (input.packagesStepIndex >= 0) return input.packagesStepIndex
-  if ((input.consecutiveStepIndex ?? -1) >= 0) return input.consecutiveStepIndex ?? -1
-  if (input.paymentsStepIndex >= 0) return input.paymentsStepIndex
+  const postPhotoStepIndex = resolvePostAccountStepIndex({
+    packagesStepIndex: input.packagesStepIndex,
+    promotionDecisionStepIndex: input.consecutiveStepIndex ?? -1,
+    paymentsStepIndex: input.paymentsStepIndex,
+  })
+  if (postPhotoStepIndex >= 0) return postPhotoStepIndex
 
   const maxStep = Math.max(0, input.stepsLength - 1)
   return Math.max(0, Math.min(maxStep, input.currentStep + 1))

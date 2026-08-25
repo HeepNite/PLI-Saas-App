@@ -70,8 +70,6 @@ type Props = {
   historyAttendanceFilter: HistoryAttendanceFilter
   setHistoryAttendanceFilter: (value: HistoryAttendanceFilter) => void
   historyDerivedStats: HistoryDerivedStats
-  isCollectedOrdering: boolean
-  activateCollectedOrdering: () => void
   filteredStudentCardsLength: number
   visiblePaymentIds: string[]
   selectPaymentIds: (ids: string[]) => void
@@ -118,8 +116,6 @@ export default function StaffPaymentsBoardControls({
   historyAttendanceFilter,
   setHistoryAttendanceFilter,
   historyDerivedStats,
-  isCollectedOrdering,
-  activateCollectedOrdering,
   filteredStudentCardsLength,
   visiblePaymentIds,
   selectPaymentIds,
@@ -333,19 +329,7 @@ export default function StaffPaymentsBoardControls({
                     ["Packages", historyDerivedStats.packages, "bg-fuchsia-500/10 text-fuchsia-300"],
                     ["Drop-in", historyDerivedStats.dropIn, "bg-cyan-400/10 text-cyan-200"],
                   ].map(([label, value, tone]) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => {
-                        if (label === "Students") setPaymentsFilter("all")
-                        if (label === "Paid") setPaymentsFilter("paid")
-                        if (label === "Pending") setPaymentsFilter("pending")
-                        if (label === "Packages") setHistoryPaymentMethodFilter("package")
-                        if (label === "Drop-in") setHistoryPaymentMethodFilter("dropin")
-                        if (label === "Collected") activateCollectedOrdering()
-                      }}
-                      className={`flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 text-left shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)] ${label === "Collected" && isCollectedOrdering ? "ring-1 ring-blue-400/70" : ""}`}
-                    >
+                    <div key={label} className="flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)]">
                       <div className={`relative flex h-12 min-w-[3rem] shrink-0 items-center justify-center rounded-full px-2 ${tone}`}>
                         <span className="relative whitespace-nowrap text-[1rem] font-semibold leading-none tracking-[-0.03em] tabular-nums">{value}</span>
                       </div>
@@ -354,7 +338,7 @@ export default function StaffPaymentsBoardControls({
                           <span>{label}</span>
                         </div>
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -366,7 +350,7 @@ export default function StaffPaymentsBoardControls({
         </div>
       ) : null}
 
-      {(paymentCategoryFilter === "cash" || isHistoryMode || (hasGlobalSearchResults && visiblePaymentIds.length > 0)) ? (
+      {(paymentCategoryFilter === "cash" || (hasGlobalSearchResults && visiblePaymentIds.length > 0)) ? (
         <div className="mt-4 flex flex-wrap items-center gap-2.5 md:flex-nowrap">
           <p className="inline-flex min-h-10 min-w-0 flex-1 items-center rounded-lg border border-emerald-500/30 bg-[linear-gradient(145deg,rgba(16,185,129,0.2),rgba(7,45,39,0.48))] px-3 py-2 text-xs leading-snug text-emerald-700 dark:text-emerald-300 md:max-w-[36rem]">
             Confirm payment / Mark pending only changes the internal cash status (does not modify Stripe).
@@ -407,14 +391,14 @@ export default function StaffPaymentsBoardControls({
               >
                 {paymentsBulkBusyAction === "mark_paid" ? "Processing..." : "Mark all paid"}
               </button>
-              {!isHistoryMode ? <button
+              <button
                 type="button"
                 disabled={paymentsBulkBusyAction !== null}
                 onClick={() => onSettlementBulkUpdate("mark_pending", selectedPaymentIds)}
                 className="rounded-lg border border-amber-500/60 bg-amber-500/25 px-4 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/35 disabled:opacity-60 transition-colors"
               >
                 {paymentsBulkBusyAction === "mark_pending" ? "Processing..." : "Mark all pending"}
-              </button> : null}
+              </button>
               <button
                 type="button"
                 onClick={clearSelectedPayments}

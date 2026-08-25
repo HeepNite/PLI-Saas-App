@@ -5,8 +5,7 @@ import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
-import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
-import { asText } from "@/lib/shared"
+import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
 const CHECK_IN_OPEN_WINDOW_MS = 2 * 60 * 60 * 1000
@@ -14,6 +13,11 @@ const CHECK_IN_CLOSE_AFTER_END_MS = 2 * 60 * 60 * 1000
 
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
+
+const normalizeString = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim()
+}
 
 export async function POST(req: Request) {
   try {
@@ -42,7 +46,7 @@ export async function POST(req: Request) {
     }
 
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
-    const attendanceId = asText(payload?.attendanceId)
+    const attendanceId = normalizeString(payload?.attendanceId)
 
     if (!attendanceId) {
       return NextResponse.json({ error: "Invalid check-in payload" }, { status: 400 })
@@ -145,7 +149,7 @@ export async function POST(req: Request) {
       })
     }
 
-    if (attendance.status !== ATTENDANCE_STATUS.SCHEDULED) {
+    if (attendance.status !== "scheduled") {
       return NextResponse.json(
         { error: "Only scheduled classes can be checked in." },
         { status: 400 }
@@ -157,7 +161,7 @@ export async function POST(req: Request) {
         ? (attendance.metadata as Record<string, unknown>)
         : {}
     const hasReservedPackage = Boolean(attendance.packageUsage?.packagePurchaseId)
-    const nextStatus = hasReservedPackage ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
+    const nextStatus = hasReservedPackage ? "checked_in" : "checked_in_no_package"
 
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendance.id },

@@ -49,11 +49,6 @@ const isCashPurchase = (input: {
   )
 }
 
-const isSettledCashPurchase = (input: { metadata: Prisma.JsonValue | null; status: string }) => {
-  const settlementStatus = asText(asObject(input.metadata).settlementStatus).toLowerCase()
-  return settlementStatus === "paid" || input.status.toLowerCase() === "paid"
-}
-
 const buildPackageSyncMetadata = (input: {
   purchase: { courseSlug: string | null }
   metadata: Record<string, unknown>
@@ -199,32 +194,18 @@ export async function POST(req: Request) {
     },
   })
 
+  if (purchases.length === 0) {
+    return NextResponse.json({ ok: true, updatedCount: 0 })
+  }
+
   const settlementStatus = action === "mark_paid" ? "paid" : "pending"
   const settledAt = settlementStatus === "paid" ? new Date().toISOString() : null
   const nextCashPurchaseStatus = settlementStatus === "paid" ? "paid" : "pending"
-  const purchasesById = new Map(purchases.map((purchase) => [purchase.id, purchase]))
-  const skipped: Array<{ id: string; reason: "not_found" | "not_cash" | "already_settled" }> = []
-  const eligiblePurchases = ids.flatMap((id) => {
-    const purchase = purchasesById.get(id)
-    if (!purchase) {
-      skipped.push({ id, reason: "not_found" })
-      return []
-    }
-    if (!isCashPurchase(purchase)) {
-      skipped.push({ id, reason: "not_cash" })
-      return []
-    }
-    if (action === "mark_paid" && isSettledCashPurchase(purchase)) {
-      skipped.push({ id, reason: "already_settled" })
-      return []
-    }
-    return [purchase]
-  })
 
   // When marking as paid, fetch drop-in prices for purchases with amount = 0
   let courseDropInPrices = new Map<string, number>()
   if (action === "mark_paid") {
-    const zeroAmountPurchases = eligiblePurchases.filter((p) => p.amount === 0 && p.courseSlug)
+    const zeroAmountPurchases = purchases.filter((p) => p.amount === 0 && p.courseSlug)
     const courseSlugs = [...new Set(zeroAmountPurchases.map((p) => p.courseSlug).filter(Boolean))] as string[]
     if (courseSlugs.length > 0) {
       const courses = await prisma.courseCatalog.findMany({
@@ -238,7 +219,7 @@ export async function POST(req: Request) {
   }
 
   await prisma.$transaction(
-    eligiblePurchases.map((purchase) => {
+    purchases.map((purchase) => {
       const nextMetadata = buildSettlementMetadata({
         metadata: purchase.metadata,
         settlementStatus,
@@ -266,8 +247,8 @@ export async function POST(req: Request) {
   let syncedPackageCount = 0
   let packageCreditReservedCount = 0
   if (action === "mark_paid") {
-    for (const purchase of eligiblePurchases) {
-      if (!purchase.userId) continue
+    for (const purchase of purchases) {
+      if (!purchase.userId || !isCashPurchase(purchase)) continue
       const metadata = asObject(purchase.metadata)
       const resolvedAttendanceId = await resolveAttendanceIdForCashSettlement({
         purchase,
@@ -323,8 +304,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    updatedCount: eligiblePurchases.length,
-    skipped,
+    updatedCount: purchases.length,
     settlementStatus,
     syncedPackageCount,
     packageCreditReservedCount,

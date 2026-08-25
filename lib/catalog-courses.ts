@@ -312,7 +312,7 @@ export const getCatalogCourseBySlug = async (slug: string): Promise<CourseData |
   }
 }
 
-const getCatalogCourseSlugs = async (): Promise<string[]> => {
+export const getCatalogCourseSlugs = async (): Promise<string[]> => {
   try {
     const rows = await prisma.courseCatalog.findMany({
       select: { slug: true, active: true },

@@ -8,13 +8,10 @@ import {
 // ─── resolvePackageOfferScenario ──────────────────────────────────
 
 describe("resolvePackageOfferScenario", () => {
-  // Deliberately partial bootstrap fixture; individual tests spread and
-  // override fields, so keep it loosely typed.
   const baseBootstrap = {
     context: { courseSlug: "salsa", date: "2026-04-20", time: "19:00" },
     package: null,
     quickCheckout: { serviceId: "dropin", packageId: null },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any
 
   it("returns null when not kiosk terminal flow", async () => {

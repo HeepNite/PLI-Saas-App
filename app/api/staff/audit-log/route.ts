@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
 
@@ -9,11 +9,23 @@ const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 200
 
 export async function GET(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:global-audit-log:get", limit: 60, windowMs: 60_000 },
-    authorize: authorizeOwnerRequest,
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:global-audit-log:get", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  // Global audit log is owner-only
+  const authResult = await authorizeOwnerRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   // Parse query parameters
   const url = new URL(req.url)

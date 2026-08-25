@@ -68,6 +68,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: context.error }, { status: context.status })
     }
 
+    const catalogRow = await prisma.courseCatalog.findUnique({
+      where: { slug: context.courseSlug },
+      select: { title: true, active: true },
+    })
+    if (!catalogRow?.active) {
+      return NextResponse.json({ error: "Course not found" }, { status: 404 })
+    }
+
     const now = new Date()
 
     // ─── Resolve user ────────────────────────────────────────
@@ -98,12 +106,8 @@ export async function POST(req: Request) {
       },
     })
 
-    // ─── Resolve course title (catalog > session > slug) ─────
-    const catalogRow = await prisma.courseCatalog.findUnique({
-      where: { slug: context.courseSlug },
-      select: { title: true },
-    })
-    const courseTitle = session.title || catalogRow?.title || context.courseSlug
+    // ─── Resolve course title (session > catalog > slug) ─────
+    const courseTitle = session.title || catalogRow.title || context.courseSlug
 
     // ─── Check existing Attendance ───────────────────────────
     const existingAttendance = await prisma.attendance.findUnique({

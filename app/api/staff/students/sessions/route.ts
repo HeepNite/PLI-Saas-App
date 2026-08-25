@@ -1,42 +1,33 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
-import { findSelectableClassSessions, isSelectableSessionDateKey, isValidSessionDateKey } from "./selectable-sessions"
-
-export const runtime = "nodejs"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
+import { findSelectableStudentSessions, isSelectableStudentSessionDate } from "./shared"
 
 export async function GET(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:students:sessions:get", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStudentOperationalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:students:sessions:get", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } })
 
-  const requestUrl = new URL(req.url)
-  const date = (requestUrl.searchParams.get("date") || "").trim()
-  const now = new Date()
-  if (date && !isValidSessionDateKey(date)) {
-    return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 })
-  }
-  if (date && !isSelectableSessionDateKey(date, now)) {
+  const auth = await authorizeStudentOperationalRequest()
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  const date = new URL(req.url).searchParams.get("date")?.trim() || ""
+  if (!date || !isSelectableStudentSessionDate(date)) {
     return NextResponse.json({ error: "Date must be today or within the last 14 days." }, { status: 400 })
   }
 
-  const sessions = await findSelectableClassSessions(prisma, now, date || undefined)
+  const sessions = await findSelectableStudentSessions(prisma, date)
 
-  return NextResponse.json({
-    items: sessions.map((session) => {
-      const startsAtMs = session.startsAt.getTime()
-      const endsAtMs = startsAtMs + (session.durationMinutes ?? 60) * 60 * 1000
-      return {
-        id: session.id,
-        courseSlug: session.courseSlug,
-        title: session.title || session.courseSlug,
-        startsAt: session.startsAt.toISOString(),
-        durationMinutes: session.durationMinutes,
-        isCurrent: startsAtMs <= now.getTime() && now.getTime() <= endsAtMs,
-      }
-    }),
-  })
+  return NextResponse.json({ items: sessions.map((session) => ({
+    id: session.id,
+    courseSlug: session.courseSlug,
+    title: session.title,
+    startsAt: session.startsAt.toISOString(),
+    durationMinutes: session.durationMinutes,
+    isCurrent: false,
+  })) })
 }

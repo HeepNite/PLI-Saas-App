@@ -56,11 +56,10 @@ describe("staff profile payment helpers", () => {
         accountNumber: "000123456789",
         accountType: "checking",
       })
-      // Routing/account numbers are now masked to the last 3 digits.
     ).toEqual([
       { label: "Bank", value: "Chase" },
-      { label: "Routing", value: "•••• 021" },
-      { label: "Account", value: "•••• 789", hint: "Checking" },
+      { label: "Routing", value: "021000021" },
+      { label: "Account", value: "000123456789", hint: "Checking" },
     ])
   })
 

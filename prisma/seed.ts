@@ -1,6 +1,3 @@
-// This seed script is intentionally CommonJS (run directly via node), so it
-// uses require()/module.exports rather than ESM imports.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PrismaClient } = require("@prisma/client")
 
 const prisma = new PrismaClient()

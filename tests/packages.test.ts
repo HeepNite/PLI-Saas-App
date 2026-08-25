@@ -103,23 +103,6 @@ describe("packages helpers", () => {
     expect(tx.packageUsageLedger.create).not.toHaveBeenCalled()
   })
 
-  it("reuses the materialized purchase after a concurrent purchase-id create conflict", async () => {
-    const replayed = { id: "package_purchase_1", purchaseId: "purchase_1" }
-    mockPrisma.packagePurchase.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(replayed)
-    mockPrisma.packagePurchase.create.mockRejectedValueOnce(
-      new Prisma.PrismaClientKnownRequestError("Unique constraint", { code: "P2002", clientVersion: "test" })
-    )
-    mockPrisma.packagePlan.findUniqueOrThrow.mockResolvedValue({ id: "plan_1" })
-
-    const result = await syncPackagePurchaseFromPaidPurchase({
-      userId: "user_1", purchaseId: "purchase_1", packagePlanId: "plan_1", source: "cash",
-      metadata: { packageId: "current-plan" },
-    })
-
-    expect(result).toBe(replayed)
-    expect(mockPrisma.packagePurchase.create).toHaveBeenCalledTimes(1)
-  })
-
   it("does not reserve a package purchased after the attendance timestamp", async () => {
     const timestamp = new Date("2026-06-19T23:30:00.000Z")
     const tx = {
@@ -137,5 +120,22 @@ describe("packages helpers", () => {
     expect(tx.packagePurchase.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ purchasedAt: { lte: timestamp } }),
     }))
+  })
+
+  it("reuses the materialized purchase after a concurrent purchase-id create conflict", async () => {
+    const replayed = { id: "package_purchase_1", purchaseId: "purchase_1" }
+    mockPrisma.packagePurchase.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(replayed)
+    mockPrisma.packagePurchase.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint", { code: "P2002", clientVersion: "test" })
+    )
+    mockPrisma.packagePlan.findUniqueOrThrow.mockResolvedValue({ id: "plan_1" })
+
+    const result = await syncPackagePurchaseFromPaidPurchase({
+      userId: "user_1", purchaseId: "purchase_1", packagePlanId: "plan_1", source: "cash",
+      metadata: { packageId: "current-plan" },
+    })
+
+    expect(result).toBe(replayed)
+    expect(mockPrisma.packagePurchase.create).toHaveBeenCalledTimes(1)
   })
 })

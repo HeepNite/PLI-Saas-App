@@ -3,10 +3,8 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
-import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { asObject, asText } from "@/lib/shared"
-import { ATTENDANCE_STATUS, ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
 
 export const runtime = "nodejs"
 
@@ -18,7 +16,7 @@ const MAX_SESSION_IDS = 20
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
-type SessionInfo = { id: string; title: string | null; courseSlug: string; startsAt: Date }
+type SessionInfo = { id: string; title: string | null; courseSlug: string }
 
 /**
  * Fetch all sessions by IDs in one query. Returns a map id → session info.
@@ -26,7 +24,7 @@ type SessionInfo = { id: string; title: string | null; courseSlug: string; start
 async function fetchSessions(tx: Tx, ids: string[]): Promise<Map<string, SessionInfo>> {
   const rows = await tx.classSession.findMany({
     where: { id: { in: ids } },
-    select: { id: true, title: true, courseSlug: true, startsAt: true },
+    select: { id: true, title: true, courseSlug: true },
   })
   const map = new Map<string, SessionInfo>()
   for (const r of rows) map.set(r.id, r)
@@ -44,8 +42,7 @@ async function applyAdd(
   status: string,
   reason: string,
   authResult: { userId: string; staffName: string | null },
-  req: Request,
-  session: SessionInfo
+  req: Request
 ): Promise<{ ok: true; attendanceId: string } | { error: string; status: number }> {
   const existing = await tx.attendance.findUnique({
     where: { userId_sessionId: { userId, sessionId } },
@@ -59,7 +56,7 @@ async function applyAdd(
       userId,
       sessionId,
       status,
-      checkedInAt: session.startsAt,
+      checkedInAt: new Date(),
       metadata: { source: "staff_override" },
     },
   })
@@ -235,8 +232,8 @@ async function applyUpdate(
   })
 
   // Handle credit restoration/consumption based on status change
-  const wasAttended = ATTENDED_CHECKIN_STATUSES.includes(attendance.status)
-  const isAttended = ATTENDED_CHECKIN_STATUSES.includes(status)
+  const wasAttended = ["checked_in", "checked_in_no_package", "checked_out"].includes(attendance.status)
+  const isAttended = ["checked_in", "checked_in_no_package", "checked_out"].includes(status)
 
   if (wasAttended && !isAttended) {
     // Restoring credit: status changed from attended to non-attended
@@ -309,12 +306,22 @@ async function applyUpdate(
 // ─── Route handler ───
 
 export async function PATCH(req: Request, context: { params: Promise<{ userId: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:attendance:patch", limit: 90, windowMs: 60_000 },
-    authorize: () => authorizeOwnerOrAdminRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:attendance:patch", getClientIp(req)),
+    limit: 90,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } }
+    )
+  }
+
+  const authResult = await authorizeOwnerOrAdminRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { userId } = await context.params
   if (!userId) {
@@ -367,7 +374,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
   sessionIds = [...new Set(sessionIds)]
 
   const status = typeof payload.status === "string" ? payload.status : ""
-  const validStatuses: string[] = [ATTENDANCE_STATUS.CHECKED_IN, ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE, ATTENDANCE_STATUS.CHECKED_OUT, ATTENDANCE_STATUS.SCHEDULED, ATTENDANCE_STATUS.NO_SHOW]
+  const validStatuses = ["checked_in", "checked_in_no_package", "checked_out", "scheduled", "no_show"]
   if (action !== "remove" && !validStatuses.includes(status)) {
     return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` }, { status: 400 })
   }
@@ -393,7 +400,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
 
       for (const sid of sessionIds) {
         if (action === "add") {
-          const r = await applyAdd(tx, userId, sid, status, reason, authResult, req, sessionMap.get(sid)!)
+          const r = await applyAdd(tx, userId, sid, status, reason, authResult, req)
           if ("error" in r) return { error: r.error, status: r.status } as const
           results.push({ sessionId: sid, ok: true })
         } else if (action === "remove") {

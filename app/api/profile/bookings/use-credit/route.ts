@@ -8,9 +8,13 @@ import { ensureAttendancePackagePurchase } from "@/lib/purchase-attendance"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { DEFAULT_CLASS_CAPACITY } from "@/lib/bookings"
 import { PURCHASE_SOURCE } from "@/lib/payment-constants"
-import { asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
+
+const normalizeString = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim()
+}
 
 export async function POST(req: Request) {
   try {
@@ -39,9 +43,9 @@ export async function POST(req: Request) {
     }
 
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
-    const courseSlug = asText(payload?.courseSlug)
-    const date = asText(payload?.date)
-    const time = asText(payload?.time)
+    const courseSlug = normalizeString(payload?.courseSlug)
+    const date = normalizeString(payload?.date)
+    const time = normalizeString(payload?.time)
 
     if (!courseSlug || !parseIsoDate(date) || !parseTime24(time)) {
       return NextResponse.json({ error: "Invalid payload: courseSlug, date (YYYY-MM-DD), and time (HH:MM) are required" }, { status: 400 })

@@ -41,7 +41,6 @@ export type UseEnrollActionsInput = {
   isCheckInFlow: boolean
   isKioskTerminalFlow: boolean
   isQrMobileCompactFlow: boolean
-  isProfileBookingFlow: boolean
   isSignedIn: boolean | undefined
   processing: boolean
   identityCheckBusy: boolean
@@ -52,7 +51,7 @@ export type UseEnrollActionsInput = {
   photoPolicy: PhotoPolicy
   photoSaved: boolean
   photoStepIndex: number
-  promoStepIndex: number
+  promotionDecisionStepIndex: number
   packagesStepIndex: number
   paymentsStepIndex: number
   infoStepIndex: number
@@ -123,8 +122,8 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken, checkInContextDate,
     checkInContextTime, checkInContextDuration, consecutiveAccepted, consecutiveAddedCents,
     effectiveConsecutiveOffer, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
-    isProfileBookingFlow, isSignedIn, processing, step, steps,
-    photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, infoStepIndex,
+    isSignedIn, processing, step, steps,
+    photoPolicy, photoSaved, photoStepIndex, promotionDecisionStepIndex, packagesStepIndex, paymentsStepIndex, infoStepIndex,
     skipContactStep, regularServiceId, regularServicePrice, usesPhasedInfoForm, activeStepKey,
     kioskInfoPhase, activeNumericField, preparedAccount, pendingAutoPay, signInPurpose, onCloseAction,
     onExistingUserDetected, kioskQrCheckout,
@@ -165,7 +164,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
     consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
-    isCheckInFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
+    isCheckInFlow, isKioskTerminalFlow, isSignedIn, processing, step,
     paymentsStepIndex, infoStepIndex, regularServiceId, regularServicePrice,
     pendingAutoPay: pendingAutoPay,
     getToken,
@@ -194,7 +193,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
 
   const navigationActions = useEnrollNavigationActions({
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
-    step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
+    step, steps, photoPolicy, photoSaved, photoStepIndex, promotionDecisionStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
     onExistingUserDetected, verifyNewStudent, resetVerification,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,

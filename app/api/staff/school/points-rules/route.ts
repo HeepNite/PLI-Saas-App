@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
@@ -33,11 +33,17 @@ const prismaRouteError = (error: unknown, fallbackMessage: string) => {
 }
 
 export async function GET(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:points-rules:get", limit: 120, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:points-rules:get", getClientIp(req)),
+    limit: 120,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   try {
     const items = await prisma.pointsRule.findMany({
@@ -50,11 +56,17 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:points-rules:post", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:points-rules:post", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   let payload: unknown
   try {

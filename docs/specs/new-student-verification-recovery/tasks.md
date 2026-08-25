@@ -37,7 +37,7 @@ Implement the approved resend-threshold, unprivileged-draft, staff-confirmed pri
 
 - [ ] Preserve existing resend/cooldown behavior and expose `Code did not arrive?` only after the second resend.
 - [ ] Require explicit student action to create the unprivileged draft.
-- [ ] Generate a high-entropy opaque manual assistance code, retain only its verifier, and display it only in a non-URL popup instructing the student to give it to host/staff.
+- [ ] Generate a collision-safe opaque manual assistance code, retain only its verifier and non-secret namespace marker, exhaust a namespace without repeated candidates before rollover, and display it only in a non-URL popup instructing the student to give it to host/staff.
 - [ ] Reject generic errors, client state, prepared Clerk users, and unverified Clerk users as privileged-ticket issuance evidence.
 
 **Complete when:** the second resend enables assistance UX but the client can create only an unprivileged draft.

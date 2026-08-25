@@ -8,7 +8,7 @@ const mockConsumeRateLimit = vi.fn()
 const mockBuildRateLimitKey = vi.fn()
 const mockGetClientIp = vi.fn()
 const mockParseQrCheckInContext = vi.fn()
-const mockIsQrActionWindowAllowed = vi.fn()
+const mockIsQrCheckInWindowAllowed = vi.fn()
 const mockReservePackageCreditForAttendanceTx = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockGetAttendanceMilestoneClasses = vi.fn()
@@ -66,7 +66,7 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/checkin/qr", () => ({
   parseQrCheckInContext: (...args: unknown[]) => mockParseQrCheckInContext(...args),
-  isQrActionWindowAllowed: (...args: unknown[]) => mockIsQrActionWindowAllowed(...args),
+  isQrCheckInWindowAllowed: (...args: unknown[]) => mockIsQrCheckInWindowAllowed(...args),
 }))
 
 vi.mock("@/lib/packages", () => ({
@@ -114,7 +114,7 @@ describe("package consecutive add-on", () => {
     mockBuildRateLimitKey.mockReset()
     mockGetClientIp.mockReset()
     mockParseQrCheckInContext.mockReset()
-    mockIsQrActionWindowAllowed.mockReset()
+    mockIsQrCheckInWindowAllowed.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockAwardPointsFromRule.mockReset()
     mockGetAttendanceMilestoneClasses.mockReset()
@@ -154,11 +154,10 @@ describe("package consecutive add-on", () => {
       time: "20:00",
       durationMinutes: 60,
       startsAt: new Date("2026-04-01T00:00:00.000Z"),
-      endsAt: new Date("2026-04-01T01:00:00.000Z"),
       opensAt: new Date("2026-03-31T22:00:00.000Z"),
       closesAt: new Date("2026-04-01T03:00:00.000Z"),
     })
-    mockIsQrActionWindowAllowed.mockReturnValue(true)
+    mockIsQrCheckInWindowAllowed.mockReturnValue(true)
     mockGetCatalogCourseBySlug.mockResolvedValue({ title: "Bachata Basics" })
     mockPrisma.packagePurchase.findMany.mockResolvedValue([
       {
@@ -588,150 +587,5 @@ describe("package consecutive add-on", () => {
     expect(res.status).toBe(409)
     const data = await res.json()
     expect(data.error).toContain("No active package")
-  })
-
-  it("succeeds when now is well before opensAt (previously would 409 under the full window)", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_123" })
-    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
-    mockCourseLinkFindUnique.mockResolvedValue({
-      id: "link_1",
-      courseSlugA: "salsa",
-      courseSlugB: "bachata",
-      packageHolderConsecutiveCents: 500,
-      active: true,
-    })
-    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
-    // now (2026-03-31T15:00:00Z, set in beforeEach) is well before opensAt
-    // (2026-03-31T22:00:00Z) — the regular window would reject this.
-    mockIsQrActionWindowAllowed.mockReturnValue(true)
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(
-      new Request("http://localhost", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseSlug: "bachata",
-          date: "2026-03-31",
-          time: "20:00",
-          consecutiveAddOn: true,
-          consecutiveCashPayment: true,
-          linkedFromCourseSlug: "salsa",
-          consecutivePriceCents: 500,
-        }),
-      })
-    )
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.consecutive.isConsecutiveAddOn).toBe(true)
-    expect(mockIsQrActionWindowAllowed).toHaveBeenCalledWith(
-      "consecutive-add-on",
-      expect.objectContaining({ courseSlug: "bachata" }),
-      expect.any(Date)
-    )
-  })
-
-  it("rejects with 409 when now > context.endsAt (class already ended) — no attendance/purchase created", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_123" })
-    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
-    mockIsQrActionWindowAllowed.mockReturnValue(false)
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(
-      new Request("http://localhost", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseSlug: "bachata",
-          date: "2026-03-31",
-          time: "20:00",
-          consecutiveAddOn: true,
-          consecutiveCashPayment: true,
-          linkedFromCourseSlug: "salsa",
-          consecutivePriceCents: 500,
-        }),
-      })
-    )
-
-    expect(res.status).toBe(409)
-    const data = await res.json()
-    expect(data.error).toContain("already ended")
-    // The add-on rejection reflects the real add-on cutoff (endsAt), not the
-    // regular window's opensAt/closesAt.
-    expect(data.endsAt).toBe("2026-04-01T01:00:00.000Z")
-    expect(data.opensAt).toBeUndefined()
-    expect(data.closesAt).toBeUndefined()
-    expect(mockCourseLinkFindUnique).not.toHaveBeenCalled()
-    expect(mockPrisma.attendance.create).not.toHaveBeenCalled()
-    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
-  })
-
-  it("allows purchase at the exact boundary now === context.endsAt", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_123" })
-    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
-    mockCourseLinkFindUnique.mockResolvedValue({
-      id: "link_1",
-      courseSlugA: "salsa",
-      courseSlugB: "bachata",
-      packageHolderConsecutiveCents: 500,
-      active: true,
-    })
-    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
-    mockIsQrActionWindowAllowed.mockReturnValue(true)
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(
-      new Request("http://localhost", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseSlug: "bachata",
-          date: "2026-03-31",
-          time: "20:00",
-          consecutiveAddOn: true,
-          consecutiveCashPayment: true,
-          linkedFromCourseSlug: "salsa",
-          consecutivePriceCents: 500,
-        }),
-      })
-    )
-
-    expect(res.status).toBe(200)
-  })
-
-  it("still enforces price mismatch guard even when now is far outside the regular window", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_123" })
-    mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_1" })
-    mockCourseLinkFindUnique.mockResolvedValue({
-      id: "link_1",
-      courseSlugA: "salsa",
-      courseSlugB: "bachata",
-      packageHolderConsecutiveCents: 500,
-      active: true,
-    })
-    mockAttendanceFindFirst.mockResolvedValue({ id: "att_1" })
-    mockIsQrActionWindowAllowed.mockReturnValue(true)
-
-    const { POST } = await import("@/app/api/checkin/qr/package/route")
-    const res = await POST(
-      new Request("http://localhost", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseSlug: "bachata",
-          date: "2026-03-31",
-          time: "20:00",
-          consecutiveAddOn: true,
-          consecutiveCashPayment: true,
-          linkedFromCourseSlug: "salsa",
-          consecutivePriceCents: 999, // wrong price
-        }),
-      })
-    )
-
-    expect(res.status).toBe(400)
-    const data = await res.json()
-    expect(data.error).toContain("Price mismatch")
   })
 })

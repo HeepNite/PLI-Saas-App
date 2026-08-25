@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// NOTE: This suite covers only the staff-portal override route
-// (app/api/staff/students/[userId]/attendance/route.ts). The real-time
-// terminal/kiosk check-in flow lives in a separate route and does not share
-// `applyAdd`/`fetchSessions` — it is unaffected by the checkedInAt fix below
-// and continues to set checkedInAt to the current time at check-in.
-
 const mockAuthorizeOwnerOrAdmin = vi.fn()
 const mockWriteAudit = vi.fn()
 
@@ -57,7 +51,6 @@ const SESSION_ID = "session_1"
 const SESSION_ID_2 = "session_2"
 const SESSION_ID_3 = "session_3"
 const ATTENDANCE_ID = "attendance_1"
-const SESSION_STARTS_AT = new Date("2026-07-10T18:00:00.000Z")
 
 const buildTransactionMock = (result: unknown) => {
   mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => unknown) => {
@@ -98,12 +91,7 @@ describe("PATCH /api/staff/students/[userId]/attendance", () => {
     mockPrisma.classSession.findUnique.mockResolvedValue({ id: SESSION_ID })
     // Default: findMany returns the requested sessions
     mockPrisma.classSession.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => {
-      return (where?.id?.in ?? []).map((id: string) => ({
-        id,
-        title: `Session ${id}`,
-        courseSlug: "test-course",
-        startsAt: SESSION_STARTS_AT,
-      }))
+      return (where?.id?.in ?? []).map((id: string) => ({ id, title: `Session ${id}`, courseSlug: "test-course" }))
     })
   })
 
@@ -227,39 +215,6 @@ describe("PATCH /api/staff/students/[userId]/attendance", () => {
     const data = await res.json()
     expect(data.ok).toBe(true)
     expect(mockPrisma.attendance.create).toHaveBeenCalled()
-  })
-
-  it("add: sets checkedInAt to the session's startsAt, not the click time (legacy sessionId)", async () => {
-    mockPrisma.attendance.findUnique.mockResolvedValue(null)
-    mockPrisma.attendance.create.mockResolvedValue({ id: ATTENDANCE_ID, status: "checked_in" })
-    mockPrisma.packagePurchase.findFirst.mockResolvedValue(null)
-
-    buildTransactionMock({ ok: true, data: { action: "add", processed: 1, results: [{ sessionId: SESSION_ID, ok: true }] } })
-
-    const { PATCH } = await import("@/app/api/staff/students/[userId]/attendance/route")
-    const res = await PATCH(
-      new Request(`http://localhost/api/staff/students/${USER_ID}/attendance`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "add",
-          status: "checked_in",
-          sessionId: SESSION_ID,
-          reason: "Backdated check-in for a past class",
-        }),
-      }),
-      { params: Promise.resolve({ userId: USER_ID }) }
-    )
-
-    expect(res.status).toBe(200)
-    expect(mockPrisma.attendance.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ checkedInAt: SESSION_STARTS_AT }),
-      })
-    )
-    // Not the click time: the fixture startsAt is fixed, `new Date()` at test-run time would differ.
-    const createCallArg = mockPrisma.attendance.create.mock.calls[0][0]
-    expect(createCallArg.data.checkedInAt.getTime()).toBe(SESSION_STARTS_AT.getTime())
   })
 
   it("add: returns 409 when attendance already exists (legacy sessionId)", async () => {
@@ -473,53 +428,6 @@ describe("PATCH /api/staff/students/[userId]/attendance", () => {
     expect(data.data.results).toHaveLength(3)
   })
 
-  it("add: uses each session's own startsAt when adding attendance across multiple sessions", async () => {
-    const startsAtA = new Date("2026-07-08T18:00:00.000Z")
-    const startsAtB = new Date("2026-07-09T18:00:00.000Z")
-    mockPrisma.classSession.findMany.mockResolvedValue([
-      { id: SESSION_ID, title: "Session A", courseSlug: "test-course", startsAt: startsAtA },
-      { id: SESSION_ID_2, title: "Session B", courseSlug: "test-course", startsAt: startsAtB },
-    ])
-    mockPrisma.attendance.findUnique.mockResolvedValue(null)
-    mockPrisma.attendance.create.mockResolvedValue({ id: ATTENDANCE_ID, status: "checked_in" })
-    mockPrisma.packagePurchase.findFirst.mockResolvedValue(null)
-
-    buildTransactionMock({
-      ok: true,
-      data: {
-        action: "add",
-        processed: 2,
-        results: [
-          { sessionId: SESSION_ID, ok: true },
-          { sessionId: SESSION_ID_2, ok: true },
-        ],
-      },
-    })
-
-    const { PATCH } = await import("@/app/api/staff/students/[userId]/attendance/route")
-    const res = await PATCH(
-      new Request(`http://localhost/api/staff/students/${USER_ID}/attendance`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "add",
-          status: "checked_in",
-          sessionIds: [SESSION_ID, SESSION_ID_2],
-          reason: "Backdated bulk add across two different class days",
-        }),
-      }),
-      { params: Promise.resolve({ userId: USER_ID }) }
-    )
-
-    expect(res.status).toBe(200)
-    expect(mockPrisma.attendance.create).toHaveBeenCalledTimes(2)
-    const [firstCallArg, secondCallArg] = mockPrisma.attendance.create.mock.calls.map((call) => call[0])
-    expect(firstCallArg.data.sessionId).toBe(SESSION_ID)
-    expect(firstCallArg.data.checkedInAt.getTime()).toBe(startsAtA.getTime())
-    expect(secondCallArg.data.sessionId).toBe(SESSION_ID_2)
-    expect(secondCallArg.data.checkedInAt.getTime()).toBe(startsAtB.getTime())
-  })
-
   it("add: returns 400 when too many sessionIds (>20)", async () => {
     const manyIds = Array.from({ length: 21 }, (_, i) => `session_${i}`)
 
@@ -683,9 +591,7 @@ describe("PATCH /api/staff/students/[userId]/attendance", () => {
   })
 
   it("returns 404 when some sessions not found in sessionIds", async () => {
-    mockPrisma.classSession.findMany.mockResolvedValue([
-      { id: SESSION_ID, title: "Session 1", courseSlug: "test", startsAt: SESSION_STARTS_AT },
-    ])
+    mockPrisma.classSession.findMany.mockResolvedValue([{ id: SESSION_ID, title: "Session 1", courseSlug: "test" }])
 
     buildTransactionMock({ error: "Session(s) not found: session_99", status: 404 })
 

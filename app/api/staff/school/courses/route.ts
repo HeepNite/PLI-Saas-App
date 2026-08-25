@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { prisma } from "@/lib/prisma"
 import { expandCourseScheduleSlots } from "@/lib/course-schedule-blocks"
 import { doUtcIntervalsOverlapWithBuffer } from "@/lib/class-schedule"
@@ -208,11 +208,17 @@ const roomDelegate = (prisma as typeof prisma & {
 }).room
 
 export async function GET(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:courses:get", limit: 120, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:courses:get", getClientIp(req)),
+    limit: 120,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   try {
     const items = await prisma.courseCatalog.findMany({
@@ -231,11 +237,17 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:courses:post", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:courses:post", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   let payload: unknown
   try {
@@ -446,12 +458,17 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:school:courses:delete", limit: 30, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:school:courses:delete", getClientIp(req)),
+    limit: 30,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) return NextResponse.json({ error: authResult.error }, { status: authResult.status })
 
   // Only owner can delete courses
   if (authResult.role !== "owner") {

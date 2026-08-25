@@ -34,7 +34,7 @@ type UseConsecutiveOfferActionsOptions = {
   currentCheckInCourseSlug: string
   sourceCourses: CourseData[]
   performPackageCheckInApi: () => Promise<PackageCheckInOutcome>
-  openExistingPurchaseFlow: (context: { courseSlug: string; date: string; time: string }) => void
+  openExistingPurchaseFlow: (context: { courseSlug: string; date: string; time: string; durationMinutes?: number }) => void
   handleStationCompletion: () => void | Promise<void>
   hasUsablePackageForCurrentClass: boolean
   isKioskTerminalFlow: boolean
@@ -97,6 +97,7 @@ export function useConsecutiveOfferActions({
         courseSlug: bootstrap.context.courseSlug,
         date: bootstrap.context.date,
         time: bootstrap.context.time,
+        durationMinutes: bootstrap.context.durationMinutes,
       })
       return
     }

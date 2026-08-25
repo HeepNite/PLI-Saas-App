@@ -16,9 +16,6 @@ export const parseIntSafe = (value: string | undefined) => {
  * Single source of truth — used by webhook handler and finalize route.
  */
 export const pickStripeMetadata = (metadata?: Stripe.Metadata | null) => ({
-  specialEventKey: normalize(metadata?.specialEventKey),
-  attemptId: normalize(metadata?.attemptId),
-  lockedAmountCents: normalize(metadata?.lockedAmountCents),
   courseSlug: normalize(metadata?.courseSlug),
   courseTitle: normalize(metadata?.courseTitle),
   date: normalize(metadata?.date),

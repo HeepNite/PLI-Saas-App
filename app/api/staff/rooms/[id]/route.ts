@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { buildRoomLifecycleAuditPayload, canDisableOrReassignRoom, getDisableRoomBlockers } from "@/lib/room-availability"
 import {
   isUniqueConstraintError,
@@ -108,12 +108,19 @@ const loadRoom = async (roomDelegate: RoomDelegate, roomId: string) =>
   })
 
 export async function PUT(req: Request, context: { params: Promise<{ id: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:rooms:put", limit: 60, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:rooms:put", getClientIp(req)),
+    limit: 60,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { id } = await context.params
   const roomId = toRoomId(id)
@@ -203,12 +210,19 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 }
 
 export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:rooms:delete", limit: 30, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:rooms:delete", getClientIp(req)),
+    limit: 30,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const authResult = guard.auth
+  if (!rateLimit.ok) {
+    return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+  }
+
+  const authResult = await authorizeStaffPortalRequest()
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
 
   const { id } = await context.params
   const roomId = toRoomId(id)

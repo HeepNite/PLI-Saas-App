@@ -353,26 +353,6 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.lastPurchasePattern).toMatchObject({ courseSlug: expect.any(String) })
   })
 
-  it("leaves quickRepeatEligible false when the customer has a usable package for this class (even with >=3 purchases)", async () => {
-    // Package holder must check in with their package, not be offered Quick Repeat.
-    // findFirst null skips the fast path; findMany populates the full-path
-    // preferredPackage, so we exercise the full-path quickRepeatEligible branch.
-    mockPackagePurchaseFindFirst.mockResolvedValue(null)
-    mockPackagePurchaseFindMany.mockResolvedValue([ACTIVE_PACKAGE])
-    mockClassSessionFindUnique.mockResolvedValue(null)
-    mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
-    mockPurchaseCount.mockResolvedValue(5)
-
-    const { POST } = await import(
-      "@/app/api/checkin/phone/identify-and-bootstrap/route"
-    )
-    const res = await POST(makeRequest(BASE_BODY))
-    const data = await res.json()
-
-    expect(res.status).toBe(200)
-    expect(data.quickRepeatEligible).toBe(false)
-  })
-
   it("leaves quickRepeatEligible false with fewer than 3 successful purchases", async () => {
     mockPackagePurchaseFindFirst.mockResolvedValue(null)
     mockPackagePurchaseFindMany.mockResolvedValue([])

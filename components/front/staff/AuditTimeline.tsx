@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { Loader2, Clock, DollarSign, Package, CheckCircle2, ChevronDown, ChevronUp, UserCircle } from "lucide-react"
+import { Loader2, Clock, DollarSign, Package, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react"
 import { formatDateTime, formatRelativeTime } from "./staffAdminFormatters"
 
 // ============================================================
@@ -12,7 +12,7 @@ type AuditEntry = {
   id: string
   staffClerkId: string
   staffName: string | null
-  entity: "attendance" | "payment" | "package" | "stats" | "profile"
+  entity: "attendance" | "payment" | "package" | "stats"
   entityId: string | null
   field: string
   valueBefore: unknown
@@ -25,7 +25,7 @@ type AuditTimelineProps = {
   studentId: string
   studentName: string
   initialEntries?: AuditEntry[]
-  entityFilter?: "attendance" | "payment" | "package" | "stats" | "profile" | "all"
+  entityFilter?: "attendance" | "payment" | "package" | "stats" | "all"
   /** Called when entries are loaded and found to be empty — allows parent to hide the timeline */
   onEmpty?: () => void
 }
@@ -44,7 +44,6 @@ const ENTITY_ICONS: Record<AuditEntry["entity"], React.ComponentType<{ className
   payment: DollarSign,
   package: Package,
   stats: CheckCircle2,
-  profile: UserCircle,
 }
 
 const ENTITY_COLORS: Record<AuditEntry["entity"], string> = {
@@ -52,7 +51,6 @@ const ENTITY_COLORS: Record<AuditEntry["entity"], string> = {
   payment: "text-emerald-500",
   package: "text-purple-500",
   stats: "text-amber-500",
-  profile: "text-sky-500",
 }
 
 const ENTITY_BG: Record<AuditEntry["entity"], string> = {
@@ -60,7 +58,6 @@ const ENTITY_BG: Record<AuditEntry["entity"], string> = {
   payment: "bg-emerald-500/10",
   package: "bg-purple-500/10",
   stats: "bg-amber-500/10",
-  profile: "bg-sky-500/10",
 }
 
 function parseJsonValue(value: unknown): ParsedValue {

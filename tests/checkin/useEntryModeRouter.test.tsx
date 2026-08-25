@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { useEntryModeRouter } from "@/components/front/checkin/hooks/useEntryModeRouter"
+import { useCheckInBookingModalFlow } from "@/components/front/checkin/hooks/useCheckInBookingModalFlow"
+import type { CourseData } from "@/constants/courses"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -25,6 +27,7 @@ const defaultParams = (override: Partial<HookParams> = {}): HookParams => ({
   consecutiveOfferSettled: true,
   contextIsValid: true,
   displayLatePaymentQrLink: "https://pay.test/late",
+  durationMinutes: 75,
   effectiveCheckInWindowOpen: true,
   forceRedirectUrl: "/checkin?courseSlug=salsa",
   handlePackageCheckIn: vi.fn(),
@@ -43,6 +46,7 @@ const defaultParams = (override: Partial<HookParams> = {}): HookParams => ({
   resetKioskPinFlow: vi.fn(),
   selectedCourse,
   setBootstrap: vi.fn(),
+  setConsecutiveOfferSettled: vi.fn(),
   setError: vi.fn(),
   setLatePaymentEntryOverride: vi.fn(),
   setMode: vi.fn(),
@@ -93,6 +97,24 @@ describe("useEntryModeRouter", () => {
     expect(params.loadBootstrap).toHaveBeenCalled()
   })
 
+  it("loads an authenticated previous class with its exact promotion source context", async () => {
+    const { params, getResult } = await mount()
+    const previousClass = {
+      courseSlug: "salsa-night-beginner",
+      date: "2026-05-22",
+      time: "20:10",
+      durationMinutes: 55,
+    }
+
+    act(() => getResult().handleExistingClick(previousClass))
+
+    expect(params.setLatePaymentEntryOverride).toHaveBeenCalledWith(previousClass)
+    expect(params.loadBootstrap).toHaveBeenCalledWith({
+      ...previousClass,
+      linkedFromCourseSlug: "salsa-night-beginner",
+    })
+  })
+
   it("opens phone sign-in for unauthenticated non-kiosk existing flow", async () => {
     const { params, getResult } = await mount(defaultParams({ hasActiveClerkSession: false }))
 
@@ -126,14 +148,38 @@ describe("useEntryModeRouter", () => {
     expect(params.setOpenNewBooking).not.toHaveBeenCalled()
   })
 
-  it("preserves the selected past-class context when the bounded offer lookup releases booking", async () => {
-    const selectedPastClass = { courseSlug: "bachata", date: "2026-06-03", time: "18:00" }
-    const { params, getResult } = await mount(defaultParams({ consecutiveOfferSettled: true }))
+  it("uses retained duration in new and existing booking contexts", async () => {
+    const ignored = vi.fn()
+    const previous = { courseSlug: "beginner", date: "2026-05-22", time: "20:10", durationMinutes: 55 }
+    let contexts: unknown
+    function BookingHarness() {
+      const result = useCheckInBookingModalFlow({
+        sourceCourses: [{ slug: "beginner", enrollment: { services: [], packages: [] } } as unknown as CourseData], selectedCourse: null, qrCourse: null,
+        activeDate: "2026-05-22", activeTime: "21:10", durationMinutes: 75,
+        bootstrap: null, hasBootstrapPrefilledContact: false,
+        photoFlowContext: "kiosk_terminal", isKioskTerminalFlow: true,
+        hasUsablePackageForCurrentClass: false, packageOfferSelectedId: null, consecutiveOffer: null,
+        setExistingRegularBookingKey: ignored, setExistingRegularBookingOverride: ignored,
+        setNewBookingOverride: ignored, setOpenNewBooking: ignored, setError: ignored,
+        setSuccess: ignored, setPaymentsModalReady: ignored, setConsecutiveOffer: ignored,
+        setShowConsecutiveOverlay: ignored, setShowConsecutivePaymentSelection: ignored,
+        setShowDuplicatePurchasePopup: ignored, handleStationCompletion: ignored,
+        checkConsecutiveOfferAfterCheckIn: vi.fn().mockResolvedValue(false), refreshConsecutiveOffer: ignored,
+        newBookingOverride: previous, existingRegularBookingOverride: previous,
+      } as Parameters<typeof useCheckInBookingModalFlow>[0])
+      contexts = [result.newBookingCourse?.slug, result.newBookingContext, result.existingRegularBookingContext]
+      return null
+    }
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => root?.render(<BookingHarness />))
 
-    act(() => getResult().handleNewClick(selectedPastClass))
-
-    expect(params.setNewBookingOverride).toHaveBeenCalledWith(selectedPastClass)
-    expect(params.setOpenNewBooking).toHaveBeenCalledWith(true)
+    expect(contexts).toEqual([
+      "beginner",
+      { date: "2026-05-22", time: "20:10", durationMinutes: 55 },
+      { date: "2026-05-22", time: "20:10", durationMinutes: 55 },
+    ])
   })
 
   it("routes late-payment existing flow through override and existing mode", async () => {
@@ -153,68 +199,5 @@ describe("useEntryModeRouter", () => {
     expect(params.checkConsecutiveOfferAfterCheckIn).toHaveBeenCalled()
     expect(params.refreshConsecutiveOffer).toHaveBeenCalled()
     expect(params.handleStationCompletion).toHaveBeenCalled()
-  })
-
-  // ─── PR3: non-kiosk handleBootstrapAction regression — shared handlePackageCheckIn,
-  // single explicit attempt, no kiosk-only overlay/retry state (this hook never
-  // receives packageCheckInFailure/packageCheckInAttempts/retryBackoffActive at all) ───
-
-  describe("handleBootstrapAction (non-kiosk)", () => {
-    it("routes a single explicit tap through the shared handlePackageCheckIn for a package holder", async () => {
-      const { params, getResult } = await mount(
-        defaultParams({
-          isKioskTerminalFlow: false,
-          bootstrap: {
-            context: { courseSlug: "salsa", date: "2026-06-04", time: "20:00" },
-            package: { id: "pkg-1" },
-          } as HookParams["bootstrap"],
-        })
-      )
-
-      act(() => getResult().handleBootstrapAction())
-
-      expect(params.handlePackageCheckIn).toHaveBeenCalledTimes(1)
-      expect(params.openExistingPurchaseFlow).not.toHaveBeenCalled()
-
-      // A second explicit tap is a second single attempt — never an automatic
-      // retry loop; this hook has no attempt counter or backoff state to gate it.
-      act(() => getResult().handleBootstrapAction())
-      expect(params.handlePackageCheckIn).toHaveBeenCalledTimes(2)
-    })
-
-    it("surfaces a closed check-in window via setError — never calls handlePackageCheckIn or a kiosk overlay", async () => {
-      const { params, getResult } = await mount(
-        defaultParams({
-          isKioskTerminalFlow: false,
-          effectiveCheckInWindowOpen: false,
-        })
-      )
-
-      act(() => getResult().handleBootstrapAction())
-
-      expect(params.setError).toHaveBeenCalledWith("The check-in window for this class is closed.")
-      expect(params.handlePackageCheckIn).not.toHaveBeenCalled()
-    })
-
-    it("opens the existing-purchase flow (not handlePackageCheckIn) when the customer has no package", async () => {
-      const { params, getResult } = await mount(
-        defaultParams({
-          isKioskTerminalFlow: false,
-          bootstrap: {
-            context: { courseSlug: "salsa", date: "2026-06-04", time: "20:00" },
-            package: null,
-          } as HookParams["bootstrap"],
-        })
-      )
-
-      act(() => getResult().handleBootstrapAction())
-
-      expect(params.openExistingPurchaseFlow).toHaveBeenCalledWith({
-        courseSlug: "salsa",
-        date: "2026-06-04",
-        time: "20:00",
-      })
-      expect(params.handlePackageCheckIn).not.toHaveBeenCalled()
-    })
   })
 })

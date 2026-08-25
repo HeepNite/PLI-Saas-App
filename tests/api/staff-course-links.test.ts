@@ -51,11 +51,7 @@ describe("CourseLink CRUD API", () => {
   describe("POST /api/staff/school/course-links", () => {
     it("creates a link successfully", async () => {
       mockPrisma.courseCatalog.findUnique.mockImplementation(async ({ where }) => {
-        return {
-          slug: where.slug,
-          title: where.slug === "salsa" ? "Salsa" : "Bachata",
-          availableTimes: where.slug === "salsa" ? ["19:00"] : ["20:00"],
-        }
+        return { slug: where.slug, title: where.slug === "salsa" ? "Salsa" : "Bachata" }
       })
       mockPrisma.courseLink.create.mockResolvedValue({
         id: "link_1",
@@ -113,11 +109,7 @@ describe("CourseLink CRUD API", () => {
     it("rejects duplicate pair (409)", async () => {
       const { Prisma } = await import("@prisma/client")
       mockPrisma.courseCatalog.findUnique.mockImplementation(async ({ where }) => {
-        return {
-          slug: where.slug,
-          title: where.slug === "salsa" ? "Salsa" : "Bachata",
-          availableTimes: where.slug === "salsa" ? ["19:00"] : ["20:00"],
-        }
+        return { slug: where.slug, title: where.slug === "salsa" ? "Salsa" : "Bachata" }
       })
       mockPrisma.courseLink.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "5.0.0" })

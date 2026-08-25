@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
-import { withStaffGuard } from "@/lib/security/with-staff-guard"
+import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import {
   buildRoomLifecycleAuditPayload,
   canDisableOrReassignRoom,
@@ -12,12 +12,15 @@ import { toRoomId } from "../../shared"
 export const runtime = "nodejs"
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
-  const guard = await withStaffGuard(req, {
-    rateLimit: { scope: "staff:rooms:reassign:post", limit: 30, windowMs: 60_000 },
-    authorize: () => authorizeStaffPortalRequest(),
+  const rateLimit = consumeRateLimit({
+    key: buildRateLimitKey("staff:rooms:reassign:post", getClientIp(req)),
+    limit: 30,
+    windowMs: 60_000,
   })
-  if (!guard.ok) return guard.response
-  const auth = guard.auth
+  if (!rateLimit.ok) return NextResponse.json({ error: "Too many requests. Please try again in a moment." }, { status: 429 })
+
+  const auth = await authorizeStaffPortalRequest()
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!canDisableOrReassignRoom({ role: auth.role, category: auth.category })) {
     return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
   }

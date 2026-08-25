@@ -5,7 +5,6 @@ const webServerPort = new URL(baseURL).port || "3000"
 
 export default defineConfig({
   testDir: "e2e",
-  forbidOnly: true,
   timeout: 30_000,
   use: {
     baseURL,

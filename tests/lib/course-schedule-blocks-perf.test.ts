@@ -45,12 +45,10 @@ describe("expandCourseScheduleSlots — performance", () => {
       `${totalSlots} total slots, ${elapsed.toFixed(2)}ms`
     )
 
-    // Assert performance threshold. This is an algorithmic-bound guard, not a
-    // precise timing SLA: locally ~240ms, but a contended CI runner can be
-    // several times slower. Keep the bound generous enough to avoid wall-clock
-    // flakes while still catching an O(courses²)-style regression (which would
-    // be orders of magnitude slower).
-    expect(elapsed).toBeLessThan(2000)
+    // Assert performance threshold (300ms — accounts for cold-start in test runner;
+    // the algorithmic bound is O(courses × days × rules) and 1625 slots in ~240ms
+    // confirms the +90 day horizon prevents unbounded growth)
+    expect(elapsed).toBeLessThan(300)
 
     // Sanity: we should have generated a reasonable number of slots
     // 50 courses × ~2.5 rules × ~13 weeks ≈ 1625 slots
@@ -86,9 +84,7 @@ describe("expandCourseScheduleSlots — performance", () => {
       `[perf] single course daily: ${slots.length} slots in ${elapsed.toFixed(2)}ms`
     )
 
-    // Generous algorithmic-bound guard (see note above) — tolerant of CI
-    // contention while still catching pathological slowdowns.
-    expect(elapsed).toBeLessThan(500)
+    expect(elapsed).toBeLessThan(10)
     // ~13 weeks × 5 days × 3 times = ~195 slots
     expect(slots.length).toBeGreaterThan(150)
   })

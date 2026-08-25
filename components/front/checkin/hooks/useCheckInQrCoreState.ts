@@ -14,6 +14,7 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 import type {
   EntryMode,
+  BootstrapResponse,
   PackageOfferContext,
   CheckInQrClientProps,
 } from "@/components/front/checkin/checkin.types"
@@ -40,10 +41,10 @@ export interface CheckInQrCoreState {
   setMode: React.Dispatch<React.SetStateAction<EntryMode>>
   openNewBooking: boolean
   setOpenNewBooking: React.Dispatch<React.SetStateAction<boolean>>
-  newBookingOverride: { courseSlug: string; date: string; time: string } | null
-  setNewBookingOverride: React.Dispatch<React.SetStateAction<{ courseSlug: string; date: string; time: string } | null>>
-  latePaymentEntryOverride: { courseSlug: string; date: string; time: string } | null
-  setLatePaymentEntryOverride: React.Dispatch<React.SetStateAction<{ courseSlug: string; date: string; time: string } | null>>
+  newBookingOverride: SlotOverride | null
+  setNewBookingOverride: React.Dispatch<React.SetStateAction<SlotOverride | null>>
+  latePaymentEntryOverride: SlotOverride | null
+  setLatePaymentEntryOverride: React.Dispatch<React.SetStateAction<SlotOverride | null>>
 
   // Phone / sign-in
   showPhoneSignIn: boolean
@@ -100,7 +101,7 @@ export interface CheckInQrCoreState {
 
 // ─── Clock / Layout Reducer ───────────────────────────────────────────────────
 
-type SlotOverride = { courseSlug: string; date: string; time: string }
+type SlotOverride = { courseSlug: string; date: string; time: string; durationMinutes?: number }
 
 interface ClockLayoutState {
   internalNowTick: Date

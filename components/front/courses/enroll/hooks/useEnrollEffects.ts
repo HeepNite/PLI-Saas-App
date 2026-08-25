@@ -4,7 +4,7 @@ import type { EnrollmentOption } from "@/constants/courses"
 import type { EnrollmentContact } from "@/components/front/courses/types"
 import { computeCheckInAutofill } from "@/components/front/courses/enroll/model/checkin-autofill"
 import { formatUSPhone, hasPhoneDigits } from "@/components/front/courses/utils/phone"
-import { shouldRedirectPersonalCompletion } from "@/lib/checkin/enroll-flow"
+import { resolvePostAccountStepIndex, shouldRedirectPersonalCompletion } from "@/lib/checkin/enroll-flow"
 import { resolveCheckInServiceSelection } from "@/lib/checkin/new-student-flow"
 import { isPhotoRequiredForAccount } from "@/lib/checkin/photo-context-policy"
 import type { PhotoPolicy } from "@/lib/checkin/photo-context-policy"
@@ -54,7 +54,7 @@ export type UseEnrollEffectsInput = {
   photoSaved: boolean
   photoPolicy: PhotoPolicy
   photoStepIndex: number
-  promoStepIndex: number
+  promotionDecisionStepIndex: number
   packagesStepIndex: number
   paymentsStepIndex: number
   user?: {
@@ -115,7 +115,7 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
     requiresSignIn, existingAccountDetected, resumeAfterSignInStep, resumeContactFlowAfterSignIn,
     pendingAutoPay, isSignedIn, isLoaded, processing, hasNewStudentService, regularFallbackLocked,
     regularServiceId, steps, preparedAccount, photoSaved, photoPolicy, photoStepIndex,
-    promoStepIndex, packagesStepIndex, paymentsStepIndex, user, verificationState, pendingClerkSessionRef,
+    promotionDecisionStepIndex, packagesStepIndex, paymentsStepIndex, user, verificationState, pendingClerkSessionRef,
     stationCompletionTimeoutRef, kioskPaymentTransitionTimeoutRef, kioskPaymentTransitionStartedAtRef,
     getToken, router, setActive, onCompletedAction, requestAccountPreparation, resetVerification,
     advanceFromContactStepRef, handleSubmitRef,
@@ -375,24 +375,22 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
       const account = preparedAccount || (await requestAccountPreparation())
       if (cancelled || !account) return
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
+      const postAccountStepIndex = resolvePostAccountStepIndex({
+        packagesStepIndex,
+        promotionDecisionStepIndex,
+        paymentsStepIndex,
+      })
       if (needsPhoto && photoStepIndex >= 0) {
         setStep(photoStepIndex)
-      } else if (packagesStepIndex >= 0) {
-        // Packages come BEFORE the promo/Deals step (flow order:
-        // info → packages → promo → payments). Checking promo first here made
-        // the post-account navigation skip the packages step entirely.
-        setStep(packagesStepIndex)
-      } else if (promoStepIndex >= 0) {
-        setStep(promoStepIndex)
-      } else if (paymentsStepIndex >= 0) {
-        setStep(paymentsStepIndex)
+      } else if (postAccountStepIndex >= 0) {
+        setStep(postAccountStepIndex)
       }
       resetVerification()
     })()
     return () => { cancelled = true }
   }, [
     verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount,
-    requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex,
+    requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promotionDecisionStepIndex,
     packagesStepIndex, paymentsStepIndex, resetVerification, setStep,
   ])
 }

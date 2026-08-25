@@ -10,8 +10,19 @@ type GetRequestOptions = {
   signal?: AbortSignal
 }
 
-export const TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS = 1_500
+/**
+ * `timeoutMs` and `signal` are mutually exclusive: when `timeoutMs` is set,
+ * `postJson` owns its own `AbortController` and any passed `signal` is
+ * ignored. Today only `requestPackageCheckInApi` passes `timeoutMs`; no
+ * caller passes both.
+ */
+type PostJsonOptions = JsonRequestOptions & {
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
 const PACKAGE_CHECK_IN_TIMEOUT_MS = 12_000
+const TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS = 1_500
 
 const resolveFetch = (fetchImpl?: FetchImpl) => fetchImpl ?? fetch
 
@@ -22,16 +33,17 @@ const buildJsonHeaders = (token?: string | null) => ({
   ...(token ? { Authorization: `Bearer ${token}` } : {}),
 })
 
-const postJson = async (url: string, payload: Record<string, unknown>, options: JsonRequestOptions = {}, timeoutMs?: number) => {
-  const controller = timeoutMs === undefined ? null : new AbortController()
-  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+const postJson = async (url: string, payload: Record<string, unknown>, options: PostJsonOptions = {}) => {
+  const controller = options.timeoutMs !== undefined ? new AbortController() : null
+  const timeout = controller ? setTimeout(() => controller.abort(), options.timeoutMs) : null
+
   try {
     const res = await resolveFetch(options.fetchImpl)(url, {
       method: "POST",
       headers: buildJsonHeaders(options.token),
       credentials: "include",
       body: JSON.stringify(payload),
-      signal: controller?.signal,
+      signal: controller ? controller.signal : options.signal,
     })
     const data = await readJsonOrNull(res)
     return { res, data }
@@ -54,7 +66,7 @@ export const requestPackageCheckInApi = async ({
   fetchImpl,
 }: JsonRequestOptions & {
   payload: Record<string, unknown>
-}) => postJson("/api/checkin/qr/package", payload, { token, fetchImpl }, PACKAGE_CHECK_IN_TIMEOUT_MS)
+}) => postJson("/api/checkin/qr/package", payload, { token, fetchImpl, timeoutMs: PACKAGE_CHECK_IN_TIMEOUT_MS })
 
 export const requestDropInCheckInApi = async ({
   payload,
@@ -108,32 +120,23 @@ export const requestTerminalConsecutiveOfferApi = async ({
   date?: string
   time?: string
 }) => {
-  const controller = new AbortController()
-  const abortFromCaller = () => controller.abort()
-  if (signal?.aborted) abortFromCaller()
-  else signal?.addEventListener("abort", abortFromCaller, { once: true })
-  const startedAt = Date.now()
-  const timeout = setTimeout(() => controller.abort(), TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS)
-  let outcome = "failed"
   const params = new URLSearchParams({ courseSlug })
   if (date) params.set("date", date)
   if (time) params.set("time", time)
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  signal?.addEventListener("abort", abort, { once: true })
+  if (signal?.aborted) abort()
+  const timeout = setTimeout(abort, TERMINAL_CONSECUTIVE_OFFER_TIMEOUT_MS)
+
   try {
     const res = await resolveFetch(fetchImpl)(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
       signal: controller.signal,
     })
     const data = res.ok ? await readJsonOrNull(res) : null
-    outcome = res.ok ? "completed" : "http_error"
     return { res, data }
-  } catch (error) {
-    outcome = controller.signal.aborted ? "aborted" : "failed"
-    throw error
   } finally {
     clearTimeout(timeout)
-    signal?.removeEventListener("abort", abortFromCaller)
-    console.info("[terminal-consecutive-offer-latency] client", {
-      durationMs: Date.now() - startedAt,
-      outcome,
-    })
+    signal?.removeEventListener("abort", abort)
   }
 }
