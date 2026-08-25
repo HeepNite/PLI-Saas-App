@@ -19,7 +19,8 @@ Implement one narrow public purchase slice around the existing Clerk, Stripe, Pu
 
 | Responsibility | Probable path | Notes |
 |---|---|---|
-| Fixed event and promotion policy | `lib/special-salsa-class/config.ts` | Single value source for video, contractual facts, regular/promotional amounts, discount, UTC deadline, and strict boundary resolver. No environment-dependent business values. |
+| Fixed event and promotion policy | `lib/special-salsa-class/config.ts` | Single value source for the H.264/AAC hero MP4, contractual facts, regular/promotional amounts, discount, UTC deadline, and strict boundary resolver. No environment-dependent business values. |
+| Calendar file builder | `lib/special-salsa-class/calendar.ts` | Dependency-free iCalendar serialization from fixed event configuration. |
 | Event/time/capacity policy tests | `tests/lib/special-salsa-class.test.ts` | Prove UTC values, New York display, hold cutoff, countable statuses, and fixed price/capacity. |
 | Landing route | `app/special-salsa-class/page.tsx` | Force-dynamic server shell/metadata plus one initial server time/pricing snapshot shared by announcement and landing. |
 | Confirmation route | `app/special-salsa-class/confirmation/page.tsx` | Server-only Stripe/Purchase read; no PII output and no writes. |
@@ -74,7 +75,7 @@ The configuration should expose typed fields equivalent to:
   courseSlug: "special-salsa-calena-2026-08-30",
   title: "Special Salsa Caleña Class",
   displayTitle: "Salsa de Cali",
-  videoSrc: "/videos/SalsaClass.mp4",
+  videoSrc: "/Videos/special-salsa.mp4",
   timeZone: "America/New_York",
   localDate: "2026-08-30",
   localTime: "16:00",
@@ -235,6 +236,8 @@ The server component accepts `session_id`, retrieves the Checkout Session with t
 
 No state includes contact data, account IDs, Stripe Customer IDs, or raw metadata. The page does not call fulfillment code.
 
+The confirmed component alone exposes an accessible `Add to calendar` download link backed by a data-URI `.ics` file. The calendar helper emits CRLF-delimited RFC 5545 content with a `VTIMEZONE` for `America/New_York`, a 4:00–5:00 PM event interval, `Salsa de Cali` summary, and the public address. No API route or dependency is required.
+
 ### Cancel
 
 The landing reads only `checkout=cancelled` and the opaque attempt ID, announces that payment was not completed, and keeps the form available. A retry with the same attempt and contact fields reuses the open Session; abandoned holds stop counting after 30 minutes.
@@ -306,7 +309,7 @@ Without reading or exposing values, release ownership must verify:
 2. The Stripe endpoint points to `/api/stripe/webhook` in live mode and subscribes to `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.expired`, and `checkout.session.async_payment_failed`.
 3. A controlled live purchase at the currently applicable USD 20 or USD 25 amount reaches the public confirmation page and produces one paid Purchase with the same locked amount, a 40-capacity ClassSession, and one Attendance; any cleanup/refund is performed manually by authorized staff.
 4. Webhook delivery is successful and replay does not duplicate fulfillment.
-5. `/videos/SalsaClass.mp4` returns the intended media with the correct content type from the deployed site.
+5. `/Videos/special-salsa.mp4` returns the intended H.264/AAC media with the correct content type from the deployed site.
 6. Cancel and expired Session behavior releases capacity according to the 30-minute policy.
 
 ## Rollout And Rollback

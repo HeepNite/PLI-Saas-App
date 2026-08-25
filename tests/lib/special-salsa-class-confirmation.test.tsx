@@ -78,11 +78,21 @@ describe("special salsa class public confirmation", () => {
     expect(html).not.toContain("Special Salsa Caleña Class")
     expect(html).not.toContain("America/New_York")
     expect(html).toContain("Eligible refunds are handled manually by PLI staff")
+    expect(html).toContain("Add to calendar")
+    expect(html).toContain('download="salsa-de-cali.ics"')
+    expect(html).toContain("DTSTART%3BTZID%3DAmerica%2FNew_York%3A20260830T160000")
     expect(html).not.toContain("private@example.com")
     expect(html).not.toContain("+12015550123")
     expect(html).not.toContain("cus_private")
     expect(html).not.toContain("clerk_")
     expect(html).not.toContain("<main")
     expect(html).toContain("autofocus=\"\"")
+  })
+
+  it("offers the calendar download only after a reservation is confirmed", () => {
+    const html = renderToStaticMarkup(<SpecialSalsaClassConfirmation state="finalizing" />)
+
+    expect(html).not.toContain("Add to calendar")
+    expect(html).not.toContain("salsa-de-cali.ics")
   })
 })

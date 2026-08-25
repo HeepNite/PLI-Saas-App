@@ -26,7 +26,7 @@ Launch a focused public landing page that lets one person reserve and pay for th
 | Address | `54 Coles St, Jersey City` |
 | Refund deadline | Friday, August 28, 2026 at 4:00 PM `America/New_York` |
 | Refund deadline UTC | `2026-08-28T20:00:00.000Z` |
-| Temporary hero video | `/videos/SalsaClass.mp4` |
+| Hero video | `/Videos/special-salsa.mp4` (H.264/AAC MP4 derivative of the supplied MOV) |
 
 ## Scope
 
@@ -112,6 +112,7 @@ Capacity is 40 paid spots plus unexpired payment holds. Capacity admission must 
 - Choosing Stripe's cancel action must return to the public landing with a clear non-success message and an available retry path.
 - A failed or expired payment must not produce confirmed attendance and must release capacity no later than the configured hold expiry.
 - Public outcome pages must not put name, phone, or email in URLs and must not reveal account existence.
+- Only the durable confirmed state must expose an accessible `Add to calendar` download. It must download an interoperable `.ics` event named `Salsa de Cali`, starting Sunday, August 30, 2026 at 4:00 PM in `America/New_York`, lasting 60 minutes, and located at `54 Coles St, Jersey City`. Finalizing and non-confirmed states must not offer this action.
 
 ### FR-08 — Fulfillment and persistence
 
@@ -174,14 +175,24 @@ And the page shows 60 minutes, the current server-authoritative USD price, and 5
 And the hero action reads Reserve here and opens the named reservation dialog with focus inside
 ```
 
-### Scenario: Temporary video is configured once
+### Scenario: Hero video is configured once
 
 ```gherkin
-Given the event video configuration is /videos/SalsaClass.mp4
+Given the event video configuration is /Videos/special-salsa.mp4
 When the landing renders
 Then the hero uses that source
 And replacing the single configuration value replaces the rendered source
 And checkout behavior is unchanged
+```
+
+### Scenario: Confirmed reservation can be added to a calendar
+
+```gherkin
+Given a paid Stripe Session has a durable successful Purchase
+When the visitor views the public confirmation page
+Then an accessible Add to calendar action downloads an iCalendar file for Salsa de Cali
+And the event starts August 30, 2026 at 4:00 PM America/New_York for 60 minutes at 54 Coles St, Jersey City
+But a finalizing or non-confirmed outcome does not offer the action
 ```
 
 ### Scenario: Existing customer completes guest checkout
