@@ -57,6 +57,7 @@ describe("special salsa class public UI", () => {
     navigationState.router.replace.mockReset()
     vi.restoreAllMocks()
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue()
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined)
   })
 
   afterEach(() => {
@@ -281,6 +282,30 @@ describe("special salsa class public UI", () => {
     expect(html).toContain('aria-haspopup="dialog"')
   })
 
+  it("keeps the portrait hero video fully visible over an inaccessible blurred backdrop", () => {
+    const container = document.createElement("div")
+    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    const mediaPanel = container.querySelector("[data-hero-media]") as HTMLElement
+    const foreground = container.querySelector("[data-hero-video-foreground]") as HTMLVideoElement
+    const backdrop = container.querySelector("[data-hero-video-backdrop]") as HTMLVideoElement
+
+    expect(mediaPanel.className).toContain("h-[380px]")
+    expect(mediaPanel.className).toContain("lg:h-auto")
+    expect(mediaPanel.className).toContain("lg:min-h-[540px]")
+    expect(foreground.getAttribute("aria-label")).toBe("Promotional video for Salsa de Cali")
+    expect(foreground.className).toContain("object-contain")
+    expect(foreground.autoplay).toBe(true)
+    expect(foreground.hasAttribute("muted")).toBe(true)
+    expect(foreground.loop).toBe(true)
+    expect(foreground.playsInline).toBe(true)
+    expect(backdrop.getAttribute("aria-hidden")).toBe("true")
+    expect(backdrop.getAttribute("tabindex")).toBe("-1")
+    expect(backdrop.autoplay).toBe(false)
+    expect(backdrop.className).toContain("object-cover")
+    expect(backdrop.className).toContain("blur-")
+    expect(backdrop.querySelector('source[type="video/mp4"]')?.getAttribute("src")).toBe("/Videos/special-salsa.mp4")
+  })
+
   it("provides an accessible play control when autoplay cannot start", async () => {
     const play = vi.fn().mockRejectedValue(new Error("Autoplay blocked"))
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play)
@@ -304,6 +329,51 @@ describe("special salsa class public UI", () => {
     container.remove()
   })
 
+  it("keeps the decorative backdrop paused for reduced motion users", async () => {
+    const play = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play)
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }))
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+
+    expect(play).not.toHaveBeenCalled()
+
+    await act(async () => root.unmount())
+    container.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it("starts and pauses the decorative backdrop with the foreground play control", async () => {
+    const play = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    const foreground = container.querySelector("[data-hero-video-foreground]") as HTMLVideoElement
+    Object.defineProperty(foreground, "paused", { configurable: true, value: false })
+    await act(async () => foreground.dispatchEvent(new Event("play")))
+
+    expect(play).toHaveBeenCalledTimes(2)
+
+    const backdrop = container.querySelector("[data-hero-video-backdrop]") as HTMLVideoElement
+    const pauseForeground = vi.fn()
+    const pauseBackdrop = vi.fn()
+    Object.defineProperty(foreground, "pause", { configurable: true, value: pauseForeground })
+    Object.defineProperty(backdrop, "pause", { configurable: true, value: pauseBackdrop })
+    await act(async () => (container.querySelector('[data-hero-video-toggle]') as HTMLButtonElement).click())
+
+    expect(pauseForeground).toHaveBeenCalledTimes(1)
+    expect(pauseBackdrop).toHaveBeenCalledTimes(1)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
   it("lets a visitor deliberately enable and disable the hero video sound", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
@@ -311,7 +381,7 @@ describe("special salsa class public UI", () => {
 
     await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
 
-    const video = container.querySelector("video") as HTMLVideoElement
+    const video = container.querySelector("[data-hero-video-foreground]") as HTMLVideoElement
     const soundToggle = container.querySelector('[data-hero-video-sound-toggle]') as HTMLButtonElement
     expect(video.muted).toBe(true)
     expect(soundToggle.getAttribute("aria-label")).toBe("Turn sound on for promotional video")

@@ -26,7 +26,7 @@ Launch a focused public landing page that lets one person reserve and pay for th
 | Address | `54 Coles St, Jersey City` |
 | Refund deadline | Friday, August 28, 2026 at 4:00 PM `America/New_York` |
 | Refund deadline UTC | `2026-08-28T20:00:00.000Z` |
-| Hero video | `/Videos/special-salsa.mp4` (H.264/AAC MP4 derivative of the supplied MOV) |
+| Hero video | `/Videos/special-salsa.mp4` (H.264/AAC MP4 supplied final video) |
 
 ## Scope
 
@@ -75,6 +75,8 @@ On mobile widths below 768 CSS pixels, the quote card must follow the special-ev
 The existing close street-map image must use a map-only 82% brightness treatment so it integrates with the dark PLI facts card while retaining its original colors, recognizable roads, street labels, neighborhood context, and small PLI marker. The filter must apply only to the rendered image: the centered address caption, attribution, date card, surrounding content, Apple Maps link behavior, accessibility, 216 CSS-pixel card dimensions, responsive layout, popup, and checkout behavior remain unchanged.
 
 The final map-footer correction supersedes the earlier detached-attribution placement. `Map data © OpenStreetMap contributors` appears directly below the centered `54 Coles St, Jersey City` address inside the 216 CSS-pixel map card. The map image and address remain one accessible Apple Maps destination, while the OpenStreetMap attribution remains a distinct accessible external link and must not be nested inside the Apple Maps anchor. Exactly one attribution is rendered. The address remains prominent, centered, and on one line at 375 CSS pixels when feasible; the subordinate attribution may wrap only when narrower space requires it. The map image/footer heights may be rebalanced only enough to prevent clipping while preserving the close zoom, small marker, image-only `brightness(0.82)`, equal fact-card height, responsive layout, popup, promotion, and checkout behavior.
+
+The final portrait-video presentation supersedes the earlier cover-cropping instruction: the complete accessible foreground uses `object-contain` and is never cropped, while a separate inaccessible, muted, blurred, enlarged `object-cover` instance of the same video fills the media panel as decoration. Existing autoplay, play/pause, sound-toggle, keyboard, and reduced-motion behavior remain unchanged.
 
 ### FR-03 — Direct guest purchase
 
@@ -128,7 +130,7 @@ All business decisions and formatting calculations must use `America/New_York`, 
 
 ### FR-11 — Accessibility and mobile behavior
 
-The page must be usable without horizontal scrolling at 375, 768, 1024, and 1440 CSS pixels. Dialog form controls require associated labels, errors must be announced, focus must move to the first invalid field or outcome message, and all interactive controls must be keyboard reachable with visible focus. Focus must not escape an open reservation dialog, and the background page must not scroll beneath it. No global floating control may overlap the special landing's dialog inputs or purchase actions. The video must have an accessible name, poster/fallback, inline cover playback, and default to muted, looping autoplay unless reduced motion is requested. A clearly visible in-page button above the video overlays must toggle play/pause, remain keyboard operable with visible focus, and announce its current action and pressed state. An adjacent always-visible sound button must start in the muted state, unmute or mute the same video only after user interaction, and announce its current action and pressed state. If autoplay is rejected, the button must remain available to start playback. Hover and focus states must not shift layout. Information required to purchase must also exist as text and must not depend on video audio.
+The page must be usable without horizontal scrolling at 375, 768, 1024, and 1440 CSS pixels. Dialog form controls require associated labels, errors must be announced, focus must move to the first invalid field or outcome message, and all interactive controls must be keyboard reachable with visible focus. Focus must not escape an open reservation dialog, and the background page must not scroll beneath it. No global floating control may overlap the special landing's dialog inputs or purchase actions. The foreground video must have an accessible name, poster/fallback, inline playback, and default to muted, looping autoplay unless reduced motion is requested. The complete portrait foreground must use `object-contain`, while an inaccessible, muted, blurred, enlarged `object-cover` backdrop of the same video fills the media panel decoratively. A clearly visible in-page button above the video overlays must toggle play/pause, remain keyboard operable with visible focus, and announce its current action and pressed state. An adjacent always-visible sound button must start in the muted state, unmute or mute the same video only after user interaction, and announce its current action and pressed state. If autoplay is rejected, the button must remain available to start playback. Hover and focus states must not shift layout. Information required to purchase must also exist as text and must not depend on video audio.
 
 ### FR-12 — Operational readiness
 
