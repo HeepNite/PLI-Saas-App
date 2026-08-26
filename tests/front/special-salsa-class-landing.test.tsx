@@ -799,4 +799,110 @@ describe("special salsa class public UI", () => {
     container.remove()
     vi.unstubAllGlobals()
   })
+
+  it.each([
+    ["US", "2025550123", "+12025550123"],
+    ["MX", "5512345678", "+525512345678"],
+    ["AR", "91123456789", "+5491123456789"],
+  ])("submits canonical %s phone data without requiring a calling code", async (country, nationalNumber, phone) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Checkout unavailable." }), {
+      status: 409,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("crypto", { randomUUID: vi.fn().mockReturnValue("a6c05f53-2cc6-4a78-a35e-61daf6f13cb2") })
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    await act(async () => (container.querySelector("[data-hero-cta]") as HTMLButtonElement).click())
+    const countryTrigger = document.querySelector('[data-phone-country-trigger]') as HTMLButtonElement
+    await act(async () => countryTrigger.click())
+    const countrySearch = document.querySelector('input[aria-label="Search countries"]') as HTMLInputElement
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+      setter?.call(countrySearch, country)
+      countrySearch.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => (document.querySelector('[role="option"]') as HTMLButtonElement).click())
+    for (const [name, value] of [["name", "Ada Lovelace"], ["phone", nationalNumber], ["email", "ada@example.com"]]) {
+      const input = document.querySelector(`input[name="${name}"]`) as HTMLInputElement
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        setter?.call(input, value)
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    }
+    await act(async () => (document.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({ phone })
+
+    await act(async () => root.unmount())
+    container.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it("retains contaminated pasted phone text and prevents checkout", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    await act(async () => (container.querySelector("[data-hero-cta]") as HTMLButtonElement).click())
+    for (const [name, value] of [["name", "Ada Lovelace"], ["phone", "Call me at 202-555-0123"], ["email", "ada@example.com"]]) {
+      const input = document.querySelector(`input[name="${name}"]`) as HTMLInputElement
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        setter?.call(input, value)
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    }
+
+    await act(async () => (document.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+
+    expect((document.querySelector('input[name="phone"]') as HTMLInputElement).value).toBe("Call me at 202-555-0123")
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await act(async () => root.unmount())
+    container.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it("searches countries by name, ISO code, and calling code before selecting one", async () => {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    await act(async () => (container.querySelector("[data-hero-cta]") as HTMLButtonElement).click())
+
+    const trigger = document.querySelector('[data-phone-country-trigger]') as HTMLButtonElement
+    expect(trigger.textContent).toContain("United States")
+    await act(async () => trigger.click())
+    const search = document.querySelector('input[aria-label="Search countries"]') as HTMLInputElement
+    const setSearch = async (value: string) => {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        setter?.call(search, value)
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    }
+
+    await setSearch("mexico")
+    expect(document.querySelector('[role="option"]')?.textContent).toContain("Mexico")
+    await setSearch("AR")
+    expect(document.querySelector('[role="option"]')?.textContent).toContain("Argentina")
+    await setSearch("52")
+    const mexico = document.querySelector('[role="option"]') as HTMLButtonElement
+    await act(async () => mexico.click())
+
+    expect(trigger.textContent).toContain("Mexico")
+    expect(document.querySelector('[role="listbox"]')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
 })
