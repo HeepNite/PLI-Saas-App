@@ -26,7 +26,7 @@ Launch a focused public landing page that lets one person reserve and pay for th
 | Address | `54 Coles St, Jersey City` |
 | Refund deadline | Friday, August 28, 2026 at 4:00 PM `America/New_York` |
 | Refund deadline UTC | `2026-08-28T20:00:00.000Z` |
-| Temporary hero video | `/videos/SalsaClass.mp4` |
+| Hero video | `/Videos/special-salsa.mp4` (H.264/AAC MP4 derivative of the supplied MOV) |
 
 ## Scope
 
@@ -112,6 +112,7 @@ Capacity is 40 paid spots plus unexpired payment holds. Capacity admission must 
 - Choosing Stripe's cancel action must return to the public landing with a clear non-success message and an available retry path.
 - A failed or expired payment must not produce confirmed attendance and must release capacity no later than the configured hold expiry.
 - Public outcome pages must not put name, phone, or email in URLs and must not reveal account existence.
+- Only the durable confirmed state must expose an accessible `Add to calendar` download. It must download an interoperable `.ics` event named `Salsa de Cali`, starting Sunday, August 30, 2026 at 4:00 PM in `America/New_York`, lasting 60 minutes, and located at `54 Coles St, Jersey City`. Finalizing and non-confirmed states must not offer this action.
 
 ### FR-08 — Fulfillment and persistence
 
@@ -127,7 +128,7 @@ All business decisions and formatting calculations must use `America/New_York`, 
 
 ### FR-11 — Accessibility and mobile behavior
 
-The page must be usable without horizontal scrolling at 375, 768, 1024, and 1440 CSS pixels. Dialog form controls require associated labels, errors must be announced, focus must move to the first invalid field or outcome message, and all interactive controls must be keyboard reachable with visible focus. Focus must not escape an open reservation dialog, and the background page must not scroll beneath it. No global floating control may overlap the special landing's dialog inputs or purchase actions. The video must have an accessible name, visible controls or an equivalent pause mechanism, a poster/fallback, inline playback, cover cropping within its frame, and no forced autoplay when reduced motion is requested. Hover and focus states must not shift layout. Information required to purchase must also exist as text and must not depend on video audio.
+The page must be usable without horizontal scrolling at 375, 768, 1024, and 1440 CSS pixels. Dialog form controls require associated labels, errors must be announced, focus must move to the first invalid field or outcome message, and all interactive controls must be keyboard reachable with visible focus. Focus must not escape an open reservation dialog, and the background page must not scroll beneath it. No global floating control may overlap the special landing's dialog inputs or purchase actions. The video must have an accessible name, poster/fallback, inline cover playback, and default to muted, looping autoplay unless reduced motion is requested. A clearly visible in-page button above the video overlays must toggle play/pause, remain keyboard operable with visible focus, and announce its current action and pressed state. An adjacent always-visible sound button must start in the muted state, unmute or mute the same video only after user interaction, and announce its current action and pressed state. If autoplay is rejected, the button must remain available to start playback. Hover and focus states must not shift layout. Information required to purchase must also exist as text and must not depend on video audio.
 
 ### FR-12 — Operational readiness
 
@@ -174,14 +175,24 @@ And the page shows 60 minutes, the current server-authoritative USD price, and 5
 And the hero action reads Reserve here and opens the named reservation dialog with focus inside
 ```
 
-### Scenario: Temporary video is configured once
+### Scenario: Hero video is configured once
 
 ```gherkin
-Given the event video configuration is /videos/SalsaClass.mp4
+Given the event video configuration is /Videos/special-salsa.mp4
 When the landing renders
 Then the hero uses that source
 And replacing the single configuration value replaces the rendered source
 And checkout behavior is unchanged
+```
+
+### Scenario: Confirmed reservation can be added to a calendar
+
+```gherkin
+Given a paid Stripe Session has a durable successful Purchase
+When the visitor views the public confirmation page
+Then an accessible Add to calendar action downloads an iCalendar file for Salsa de Cali
+And the event starts August 30, 2026 at 4:00 PM America/New_York for 60 minutes at 54 Coles St, Jersey City
+But a finalizing or non-confirmed outcome does not offer the action
 ```
 
 ### Scenario: Existing customer completes guest checkout

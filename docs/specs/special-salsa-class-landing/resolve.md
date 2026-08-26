@@ -22,7 +22,7 @@ One immutable module is the source of truth for:
 
 - stable event key and course slug;
 - stable internal title plus customer-facing `Salsa de Cali` display copy;
-- `/videos/SalsaClass.mp4`;
+- `/Videos/special-salsa.mp4`, an H.264/AAC MP4 derivative of the supplied MOV;
 - `America/New_York` date/time calculations without printing the raw identifier in customer copy;
 - UTC start `2026-08-30T20:00:00.000Z`;
 - UTC refund deadline `2026-08-28T20:00:00.000Z`;
@@ -32,6 +32,10 @@ One immutable module is the source of truth for:
 - `54 Coles St, Jersey City`.
 
 The page, checkout branch, capacity policy, webhook booking policy, and confirmation page read this configuration. A pure policy resolves 2000 cents only for instants strictly before the deadline and 2500 cents at or after it. Replacing the promotional video changes one value only.
+
+### D-02A — Confirmed-only calendar download
+
+The confirmation component creates a dependency-free iCalendar payload from the fixed event configuration. Only the durable `confirmed` state renders an accessible download link named `Add to calendar`; finalizing and non-confirmed states render none. The payload declares `America/New_York`, uses the fixed 4:00–5:00 PM local event interval, and contains only the title and public location.
 
 ### D-03 — Existing checkout endpoint, discriminated request
 
@@ -196,7 +200,7 @@ Client ticking starts from the server-provided instant and targets the canonical
 ## Implementation Preconditions
 
 - The implementation plan in `tasks.md` is accepted and executed in order.
-- The tracked baseline file at `/videos/SalsaClass.mp4` remains the approved temporary promotional asset; release verification confirms its deployed response and playback behavior.
+- The supplied source MOV is retained as the provenance source outside the repository. Its tracked H.264/AAC derivative at `/Videos/special-salsa.mp4` is the approved promotional asset; release verification confirms its deployed response and playback behavior.
 - The event owner approves the exact customer-facing refund wording without changing the deadline.
 - Live Stripe configuration is verified operationally with redacted evidence before traffic is sent to the page.
 - If implementation proves the existing schema cannot enforce the resolved hold contract, stop and update this resolution before creating a migration.

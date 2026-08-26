@@ -4,7 +4,7 @@ import React from "react"
 import Image from "next/image"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { createPortal } from "react-dom"
-import { Clock3, Users, X } from "lucide-react"
+import { Clock3, Pause, Play, Users, Volume2, VolumeX, X } from "lucide-react"
 import {
   SPECIAL_SALSA_CLASS,
   SPECIAL_SALSA_REFUND_POLICY,
@@ -68,13 +68,40 @@ export function SpecialSalsaClassLanding({
   const outcomeRef = React.useRef<HTMLDivElement>(null)
   const soldOutRef = React.useRef<HTMLDivElement>(null)
   const reserveButtonRef = React.useRef<HTMLButtonElement>(null)
+  const videoRef = React.useRef<HTMLVideoElement>(null)
   const dialogOpenerRef = React.useRef<HTMLElement | null>(null)
   const dialogOpenerKindRef = React.useRef<"banner" | "landing">("landing")
   const handledBannerRequestRef = React.useRef(0)
   const queryIntentActiveRef = React.useRef(false)
   const shouldReturnFocusRef = React.useRef(false)
   const shouldFocusSoldOutRef = React.useRef(false)
+  const [videoPlaying, setVideoPlaying] = React.useState(false)
+  const [videoMuted, setVideoMuted] = React.useState(true)
   const pricing = resolveSpecialClassPricing(new Date(nowMs))
+
+  React.useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const syncPlaying = () => setVideoPlaying(!video.paused)
+    const syncMuted = () => setVideoMuted(video.muted)
+    const startPlayback = () => {
+      const playback = video.play()
+      if (playback) void playback.catch(() => setVideoPlaying(false))
+    }
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    video.addEventListener("play", syncPlaying)
+    video.addEventListener("pause", syncPlaying)
+    video.addEventListener("volumechange", syncMuted)
+    syncMuted()
+    if (!prefersReducedMotion) {
+      startPlayback()
+    }
+    return () => {
+      video.removeEventListener("play", syncPlaying)
+      video.removeEventListener("pause", syncPlaying)
+      video.removeEventListener("volumechange", syncMuted)
+    }
+  }, [])
 
   React.useEffect(() => {
     const deadlineMs = SPECIAL_SALSA_CLASS.promotion.deadline.getTime()
@@ -167,6 +194,24 @@ export function SpecialSalsaClassLanding({
     setDialogOpen(true)
   }
 
+  const toggleVideoPlayback = () => {
+    const video = videoRef.current
+    if (!video) return
+    if (!video.paused) {
+      video.pause()
+      return
+    }
+    const playback = video.play()
+    if (playback) void playback.catch(() => setVideoPlaying(false))
+  }
+
+  const toggleVideoSound = () => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = !video.muted
+    setVideoMuted(video.muted)
+  }
+
   const closeReservation = () => {
     if (submitting) return
     if (hasReservationIntent) {
@@ -238,8 +283,11 @@ export function SpecialSalsaClassLanding({
             className="relative h-[350px] min-h-0 overflow-hidden bg-black lg:h-auto lg:min-h-[540px]"
           >
             <video
+              ref={videoRef}
               className="absolute inset-0 h-full w-full object-cover object-center"
-              controls
+              autoPlay
+              muted
+              loop
               playsInline
               preload="metadata"
               poster={SPECIAL_SALSA_CLASS.videoPosterSrc}
@@ -249,6 +297,28 @@ export function SpecialSalsaClassLanding({
               Your browser does not support embedded video. All class details are listed below.
             </video>
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-2/5 bg-gradient-to-t from-black via-black/70 to-transparent" aria-hidden="true" />
+            <div className="absolute bottom-4 right-4 z-30 flex items-center gap-2">
+              <button
+                type="button"
+                data-hero-video-toggle
+                aria-pressed={videoPlaying}
+                aria-label={videoPlaying ? "Pause promotional video" : "Play promotional video"}
+                onClick={toggleVideoPlayback}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-black/75 text-white shadow-lg transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              >
+                {videoPlaying ? <Pause className="h-5 w-5" aria-hidden="true" /> : <Play className="h-5 w-5" aria-hidden="true" />}
+              </button>
+              <button
+                type="button"
+                data-hero-video-sound-toggle
+                aria-pressed={!videoMuted}
+                aria-label={videoMuted ? "Turn sound on for promotional video" : "Mute promotional video"}
+                onClick={toggleVideoSound}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-black/75 text-white shadow-lg transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              >
+                {videoMuted ? <VolumeX className="h-5 w-5" aria-hidden="true" /> : <Volume2 className="h-5 w-5" aria-hidden="true" />}
+              </button>
+            </div>
             <span className="pointer-events-none absolute left-4 top-4 z-20 rounded-full bg-[#E11D48] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.18em] text-white shadow-lg">
               SPECIAL EVENT
             </span>

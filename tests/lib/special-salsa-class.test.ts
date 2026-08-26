@@ -20,7 +20,7 @@ describe("special salsa class policy", () => {
       title: "Special Salsa Caleña Class",
       displayTitle: "Salsa de Cali",
       timeZone: "America/New_York",
-      videoSrc: "/videos/SalsaClass.mp4",
+      videoSrc: "/Videos/special-salsa.mp4",
       amountCents: 2500,
       promotion: {
         amountCents: 2000,

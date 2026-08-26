@@ -885,6 +885,32 @@ Revert only the map-card link/footer composition, focused assertions, and this W
 - Computed mobile/desktop date and map heights remain exactly 216 CSS pixels. The address footer is 36 CSS pixels at both widths; the map image is 154 CSS pixels at 375 and 158 CSS pixels at 1440. Attribution uses 24 CSS pixels over two unclipped lines at 375 and 20 CSS pixels with a 12 CSS-pixel one-line label at 1440.
 - Both viewports render exactly one attribution, zero detached attributions, two sibling external links, zero nested anchors, a one-line centered address, no document overflow, and image-only `brightness(0.82)`. Fresh closed-state screenshot readback confirms the attribution now sits directly below the address inside the dark map footer while the close zoom, small marker, date hierarchy, CTA, and surrounding layout remain visually stable.
 
+## Work Unit 11 — Replace Hero Video And Add Confirmed Calendar Download
+
+### RED
+
+- [x] Add focused tests for the H.264/AAC hero video configuration and rendered MP4 source type.
+- [x] Add focused tests for a confirmed-only accessible `Add to calendar` `.ics` download and its fixed event payload.
+
+### GREEN / REFACTOR
+
+- [x] Transcode the supplied HEVC MOV to a browser-compatible H.264/AAC MP4 using an existing local system tool, then configure the landing from the one fixed video source.
+- [x] Add a dependency-free iCalendar builder and render its download action only for durable confirmed reservations.
+
+### Focused verification
+
+- [x] Run the focused landing, configuration, calendar, and confirmation tests, plus focused ESLint and typecheck.
+
+### Rollback boundary
+
+Revert only the replacement MP4, event video configuration, calendar helper/action, focused tests, and this work unit. Preserve confirmation state resolution and all checkout behavior.
+
+### Implementation evidence
+
+- The supplied 1080×1920 HEVC/AAC MOV is 30.67 seconds long. It was transcoded with installed `ffmpeg` to `public/Videos/special-salsa.mp4` using H.264 High/yuv420p video, AAC-LC audio, and fast-start MP4 metadata; the output is 36.5 MiB.
+- `npm test -- tests/lib/special-salsa-class-calendar.test.ts tests/lib/special-salsa-class.test.ts tests/front/special-salsa-class-landing.test.tsx tests/lib/special-salsa-class-confirmation.test.tsx` — 4 files passed, 42 tests passed.
+- Focused ESLint, `npm run typecheck`, and `git diff --check` — passed with no findings.
+
 ## Rollback Plan
 
 1. Stop advertising/linking the landing.

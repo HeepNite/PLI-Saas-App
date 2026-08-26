@@ -1,0 +1,39 @@
+import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
+
+const CALENDAR_TIME_ZONE = "America/New_York"
+
+const CALENDAR_TIME_ZONE_RULES = [
+  "BEGIN:VTIMEZONE",
+  `TZID:${CALENDAR_TIME_ZONE}`,
+  `X-LIC-LOCATION:${CALENDAR_TIME_ZONE}`,
+  "BEGIN:DAYLIGHT",
+  "TZOFFSETFROM:-0500",
+  "TZOFFSETTO:-0400",
+  "TZNAME:EDT",
+  "DTSTART:20260308T020000",
+  "END:DAYLIGHT",
+  "BEGIN:STANDARD",
+  "TZOFFSETFROM:-0400",
+  "TZOFFSETTO:-0500",
+  "TZNAME:EST",
+  "DTSTART:20261101T020000",
+  "END:STANDARD",
+  "END:VTIMEZONE",
+]
+
+export const createSpecialSalsaCalendarFile = () => [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "PRODID:-//PLI//Special Salsa Class//EN",
+  "CALSCALE:GREGORIAN",
+  ...CALENDAR_TIME_ZONE_RULES,
+  "BEGIN:VEVENT",
+  "UID:special-salsa-class-20260830@pli",
+  `SUMMARY:${SPECIAL_SALSA_CLASS.displayTitle}`,
+  "DTSTART;TZID=America/New_York:20260830T160000",
+  "DTEND;TZID=America/New_York:20260830T170000",
+  `LOCATION:${SPECIAL_SALSA_CLASS.address.replace(",", "\\,")}`,
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n")

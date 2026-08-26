@@ -7,6 +7,7 @@ import {
   SPECIAL_SALSA_REFUND_POLICY,
   formatSpecialClassDateTime,
 } from "@/lib/special-salsa-class/config"
+import { createSpecialSalsaCalendarFile } from "@/lib/special-salsa-class/calendar"
 
 const content = {
   confirmed: {
@@ -34,6 +35,9 @@ const content = {
 export function SpecialSalsaClassConfirmation({ state }: { state: SpecialClassConfirmationState }) {
   const outcome = content[state]
   const Icon = outcome.Icon
+  const calendarDownloadHref = state === "confirmed"
+    ? `data:text/calendar;charset=utf-8,${encodeURIComponent(createSpecialSalsaCalendarFile())}`
+    : null
   return (
     <div className="bg-[#fffaf5] px-4 py-12 text-[#211713] dark:bg-[#160f0d] dark:text-[#fff8f2] sm:px-6 lg:px-8">
       <section className="mx-auto max-w-2xl rounded-2xl border border-[#e8d3c7] bg-white p-6 shadow-xl dark:border-white/15 dark:bg-[#241815] sm:p-10">
@@ -50,6 +54,15 @@ export function SpecialSalsaClassConfirmation({ state }: { state: SpecialClassCo
         </section>
 
         <p className="mt-6 text-sm leading-6">{SPECIAL_SALSA_REFUND_POLICY}</p>
+        {calendarDownloadHref ? (
+          <a
+            href={calendarDownloadHref}
+            download="salsa-de-cali.ics"
+            className="mt-6 inline-flex min-h-11 items-center rounded-lg border border-[var(--brand,#b61616)] px-5 py-3 font-bold text-[var(--brand,#b61616)] outline-none transition-colors hover:bg-[var(--brand,#b61616)] hover:text-white focus-visible:ring-4 focus-visible:ring-[var(--brand,#b61616)]/35"
+          >
+            Add to calendar
+          </a>
+        ) : null}
         <Link href="/special-salsa-class" className="mt-8 inline-flex min-h-11 items-center rounded-lg bg-[var(--brand,#b61616)] px-5 py-3 font-bold text-white outline-none transition-colors hover:bg-[#8f1010] focus-visible:ring-4 focus-visible:ring-[var(--brand,#b61616)]/35">
           Return to class details
         </Link>
