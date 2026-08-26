@@ -69,6 +69,7 @@ export function SpecialSalsaClassLanding({
   const soldOutRef = React.useRef<HTMLDivElement>(null)
   const reserveButtonRef = React.useRef<HTMLButtonElement>(null)
   const videoRef = React.useRef<HTMLVideoElement>(null)
+  const backdropRef = React.useRef<HTMLVideoElement>(null)
   const dialogOpenerRef = React.useRef<HTMLElement | null>(null)
   const dialogOpenerKindRef = React.useRef<"banner" | "landing">("landing")
   const handledBannerRequestRef = React.useRef(0)
@@ -79,29 +80,59 @@ export function SpecialSalsaClassLanding({
   const [videoMuted, setVideoMuted] = React.useState(true)
   const pricing = resolveSpecialClassPricing(new Date(nowMs))
 
+  const syncBackdropPlayback = React.useCallback(() => {
+    const video = videoRef.current
+    const backdrop = backdropRef.current
+    if (!video || !backdrop) return
+    if (video.paused) {
+      backdrop.pause()
+      return
+    }
+    const playback = backdrop.play()
+    if (playback) void playback.catch(() => backdrop.pause())
+  }, [])
+
+  const startVideoPlayback = React.useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    const playback = video.play()
+    if (!playback) {
+      syncBackdropPlayback()
+      return
+    }
+    void playback.then(syncBackdropPlayback).catch(() => {
+      setVideoPlaying(false)
+      backdropRef.current?.pause()
+    })
+  }, [syncBackdropPlayback])
+
+  const pauseVideoPlayback = React.useCallback(() => {
+    videoRef.current?.pause()
+    backdropRef.current?.pause()
+  }, [])
+
   React.useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    const syncPlaying = () => setVideoPlaying(!video.paused)
-    const syncMuted = () => setVideoMuted(video.muted)
-    const startPlayback = () => {
-      const playback = video.play()
-      if (playback) void playback.catch(() => setVideoPlaying(false))
+    const syncPlaying = () => {
+      setVideoPlaying(!video.paused)
+      syncBackdropPlayback()
     }
+    const syncMuted = () => setVideoMuted(video.muted)
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
     video.addEventListener("play", syncPlaying)
     video.addEventListener("pause", syncPlaying)
     video.addEventListener("volumechange", syncMuted)
     syncMuted()
     if (!prefersReducedMotion) {
-      startPlayback()
+      startVideoPlayback()
     }
     return () => {
       video.removeEventListener("play", syncPlaying)
       video.removeEventListener("pause", syncPlaying)
       video.removeEventListener("volumechange", syncMuted)
     }
-  }, [])
+  }, [startVideoPlayback, syncBackdropPlayback])
 
   React.useEffect(() => {
     const deadlineMs = SPECIAL_SALSA_CLASS.promotion.deadline.getTime()
@@ -198,11 +229,10 @@ export function SpecialSalsaClassLanding({
     const video = videoRef.current
     if (!video) return
     if (!video.paused) {
-      video.pause()
+      pauseVideoPlayback()
       return
     }
-    const playback = video.play()
-    if (playback) void playback.catch(() => setVideoPlaying(false))
+    startVideoPlayback()
   }
 
   const toggleVideoSound = () => {
@@ -280,11 +310,25 @@ export function SpecialSalsaClassLanding({
             data-hero-panel
             data-hero-media
             data-hero-video
-            className="relative h-[350px] min-h-0 overflow-hidden bg-black lg:h-auto lg:min-h-[540px]"
+            className="relative h-[380px] min-h-0 overflow-hidden bg-black lg:h-auto lg:min-h-[540px]"
           >
             <video
+              ref={backdropRef}
+              data-hero-video-backdrop
+              className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover object-center opacity-55 blur-2xl"
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              aria-hidden="true"
+              tabIndex={-1}
+            >
+              <source src={SPECIAL_SALSA_CLASS.videoSrc} type="video/mp4" />
+            </video>
+            <video
               ref={videoRef}
-              className="absolute inset-0 h-full w-full object-cover object-center"
+              data-hero-video-foreground
+              className="absolute inset-0 z-10 h-full w-full object-contain object-center"
               autoPlay
               muted
               loop
