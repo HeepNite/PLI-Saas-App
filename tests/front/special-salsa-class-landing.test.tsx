@@ -306,6 +306,26 @@ describe("special salsa class public UI", () => {
     expect(backdrop.querySelector('source[type="video/mp4"]')?.getAttribute("src")).toBe("/Videos/special-salsa.mp4")
   })
 
+  it("keeps hero metadata and keyboard controls on one unobscured bottom overlay row", () => {
+    const container = document.createElement("div")
+    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    const overlay = container.querySelector("[data-hero-video-overlay]") as HTMLElement
+    const metadata = overlay.querySelector("[data-hero-video-metadata]") as HTMLElement
+    const controls = overlay.querySelector("[data-hero-video-controls]") as HTMLElement
+    const gradient = container.querySelector("[data-hero-video-gradient]") as HTMLElement
+
+    expect(overlay.className).toContain("bottom-4")
+    expect(overlay.className).toContain("items-center")
+    expect(overlay.className).toContain("justify-between")
+    expect(metadata.className).toContain("items-center")
+    expect(controls.className).toContain("items-center")
+    expect(controls.querySelectorAll("button")).toHaveLength(2)
+    expect(gradient.className).toContain("h-1/4")
+    expect(gradient.className).toContain("from-black/65")
+    expect(gradient.className).not.toContain("h-2/5")
+    expect(gradient.className).not.toContain("via-black/70")
+  })
+
   it("provides an accessible play control when autoplay cannot start", async () => {
     const play = vi.fn().mockRejectedValue(new Error("Autoplay blocked"))
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play)

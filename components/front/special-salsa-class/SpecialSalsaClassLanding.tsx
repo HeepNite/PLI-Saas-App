@@ -340,42 +340,44 @@ export function SpecialSalsaClassLanding({
               <source src={SPECIAL_SALSA_CLASS.videoSrc} type="video/mp4" />
               Your browser does not support embedded video. All class details are listed below.
             </video>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-2/5 bg-gradient-to-t from-black via-black/70 to-transparent" aria-hidden="true" />
-            <div className="absolute bottom-4 right-4 z-30 flex items-center gap-2">
-              <button
-                type="button"
-                data-hero-video-toggle
-                aria-pressed={videoPlaying}
-                aria-label={videoPlaying ? "Pause promotional video" : "Play promotional video"}
-                onClick={toggleVideoPlayback}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-black/75 text-white shadow-lg transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-              >
-                {videoPlaying ? <Pause className="h-5 w-5" aria-hidden="true" /> : <Play className="h-5 w-5" aria-hidden="true" />}
-              </button>
-              <button
-                type="button"
-                data-hero-video-sound-toggle
-                aria-pressed={!videoMuted}
-                aria-label={videoMuted ? "Turn sound on for promotional video" : "Mute promotional video"}
-                onClick={toggleVideoSound}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-black/75 text-white shadow-lg transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-              >
-                {videoMuted ? <VolumeX className="h-5 w-5" aria-hidden="true" /> : <Volume2 className="h-5 w-5" aria-hidden="true" />}
-              </button>
-            </div>
+            <div data-hero-video-gradient className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/4 bg-gradient-to-t from-black/65 via-black/25 to-transparent" aria-hidden="true" />
             <span className="pointer-events-none absolute left-4 top-4 z-20 rounded-full bg-[#E11D48] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.18em] text-white shadow-lg">
               SPECIAL EVENT
             </span>
-            <div className="pointer-events-none absolute inset-x-4 bottom-12 z-20 flex items-center gap-4 text-xs font-bold text-white sm:text-sm">
-              <span className="inline-flex items-center gap-1.5">
-                <Clock3 className="h-4 w-4 text-[#FB7185]" aria-hidden="true" />
-                <span aria-hidden="true">{SPECIAL_SALSA_CLASS.durationMinutes} min</span>
-                <span className="sr-only">{SPECIAL_SALSA_CLASS.durationMinutes} minutes</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <Users className="h-4 w-4 text-[#FB7185]" aria-hidden="true" />
-                {SPECIAL_SALSA_CLASS.capacity} spots
-              </span>
+            <div data-hero-video-overlay className="absolute inset-x-4 bottom-4 z-30 flex items-center justify-between gap-4">
+              <div data-hero-video-metadata className="pointer-events-none flex items-center gap-4 text-xs font-bold text-white drop-shadow sm:text-sm">
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock3 className="h-4 w-4 text-[#FB7185]" aria-hidden="true" />
+                  <span aria-hidden="true">{SPECIAL_SALSA_CLASS.durationMinutes} min</span>
+                  <span className="sr-only">{SPECIAL_SALSA_CLASS.durationMinutes} minutes</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Users className="h-4 w-4 text-[#FB7185]" aria-hidden="true" />
+                  {SPECIAL_SALSA_CLASS.capacity} spots
+                </span>
+              </div>
+              <div data-hero-video-controls className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  data-hero-video-toggle
+                  aria-pressed={videoPlaying}
+                  aria-label={videoPlaying ? "Pause promotional video" : "Play promotional video"}
+                  onClick={toggleVideoPlayback}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-black/75 text-white shadow-lg transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                >
+                  {videoPlaying ? <Pause className="h-5 w-5" aria-hidden="true" /> : <Play className="h-5 w-5" aria-hidden="true" />}
+                </button>
+                <button
+                  type="button"
+                  data-hero-video-sound-toggle
+                  aria-pressed={!videoMuted}
+                  aria-label={videoMuted ? "Turn sound on for promotional video" : "Mute promotional video"}
+                  onClick={toggleVideoSound}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-black/75 text-white shadow-lg transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                >
+                  {videoMuted ? <VolumeX className="h-5 w-5" aria-hidden="true" /> : <Volume2 className="h-5 w-5" aria-hidden="true" />}
+                </button>
+              </div>
             </div>
           </div>
           <div
