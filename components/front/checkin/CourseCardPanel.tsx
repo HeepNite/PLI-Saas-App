@@ -73,13 +73,6 @@ export function CourseCardPanel({
     if (compact && actionSlot) {
       return (
         <div className="mx-[1.25rem] my-0 mt-3 rounded-2xl border border-white/15 bg-white/[0.02] p-4 lg:p-5">
-          {showPastCourses ? (
-            <PastCoursesList
-              classes={terminalPastClasses || []}
-              onExistingClick={onExistingClick}
-              onNewClick={onNewClick}
-            />
-          ) : (
           <div
             className="grid items-start"
             style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
@@ -106,6 +99,14 @@ export function CourseCardPanel({
               <QrSection qrImage={qrImage} compact={compact} />
             </div>
           </div>
+          {showPastCourses && (
+            <div className="mt-4">
+              <PastCoursesList
+                classes={terminalPastClasses || []}
+                onExistingClick={onExistingClick}
+                onNewClick={onNewClick}
+              />
+            </div>
           )}
         </div>
       )
