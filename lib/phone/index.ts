@@ -109,6 +109,22 @@ export const parseCanonicalPhone = (input: string): PhoneParseResult => {
   }
 }
 
+export const parseServerPhoneInput = (input: string): PhoneParseResult => {
+  const value = input.trim()
+  const canonical = parseCanonicalPhone(value)
+  if (canonical.ok || !value) return canonical
+
+  if (/^\d{10}$/.test(value)) {
+    return parseNationalPhone(value, "US")
+  }
+
+  if (!/^\+1[\d\s().-]+$/.test(value)) return canonical
+
+  const digits = value.replace(/\D/g, "")
+  if (!/^1\d{10}$/.test(digits)) return canonical
+  return parseNationalPhone(digits.slice(1), "US")
+}
+
 export const formatNationalDraft = (input: string, country: CountryCode): string => {
   if (!isSupportedCountry(country)) return ""
 

@@ -48,7 +48,7 @@ vi.mock("@/lib/checkin/kiosk-session", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
-      findFirst: (...args: unknown[]) => mockUserFindFirst(...args),
+      findMany: (...args: unknown[]) => mockUserFindFirst(...args),
     },
     packagePurchase: {
       findFirst: (...args: unknown[]) => mockPackagePurchaseFindFirst(...args),
@@ -146,7 +146,7 @@ const makeRequest = (body: Record<string, unknown>) =>
   })
 
 const BASE_BODY = {
-  phone: "5551112222",
+  phone: "2025550123",
   courseSlug: "salsa",
   date: "2026-06-01",
   time: "11:00",
@@ -190,7 +190,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap — Clerk lookup guards
     mockIsTerminalBlocked.mockResolvedValue({ blocked: false })
     mockCreateKioskIdentificationSession.mockResolvedValue(KIOSK_SESSION)
     mockClearTerminalMisses.mockResolvedValue(undefined)
-    mockUserFindFirst.mockResolvedValue(DB_USER_WITH_CLERK_ID)
+    mockUserFindFirst.mockResolvedValue([DB_USER_WITH_CLERK_ID])
     mockPackagePurchaseFindFirst.mockResolvedValue(null)
     mockPackagePurchaseFindMany.mockResolvedValue([])
     mockPurchaseFindMany.mockResolvedValue([])
