@@ -1,7 +1,8 @@
 import { clerkClient } from "@clerk/nextjs/server"
 import { updateClerkUserIfMissing } from "@/lib/clerk-users"
 import { prisma } from "@/lib/prisma"
-import { isEmail, normalizePhone } from "@/lib/shared"
+import { isEmail } from "@/lib/shared"
+import { buildExactPhoneLookup, parseServerPhoneInput, type ParsedPhone } from "@/lib/phone"
 import { upsertUserByIdentifiers } from "@/lib/users"
 
 type IdentityInput = { name?: string; email?: string; phone?: string }
@@ -31,7 +32,7 @@ type IdentityDependencies = {
     name?: string
     phone?: string
   }) => Promise<{ id: string; clerkId?: string | null; stripeCustomerId?: string | null } | null>
-  findLocalUsers?: (email: string, phone: string) => Promise<Array<{
+  findLocalUsers?: (email: string, phone: ParsedPhone) => Promise<Array<{
     id: string
     clerkId: string | null
     stripeCustomerId: string | null
@@ -54,17 +55,16 @@ export type SpecialClassIdentityResult =
 const normalizeContact = (input: IdentityInput) => {
   const name = input.name?.trim().replace(/\s+/g, " ") || ""
   const email = input.email?.trim().toLowerCase() || ""
-  const phoneDigits = normalizePhone(input.phone) || ""
-  const phone = input.phone?.trim().startsWith("+") && phoneDigits ? `+${phoneDigits}` : ""
+  const parsedPhone = parseServerPhoneInput(input.phone || "")
   if (
     name.length < 2 ||
     name.length > 100 ||
     !isEmail(email) ||
-    !phone ||
-    phoneDigits.length < MIN_E164_DIGITS ||
-    phoneDigits.length > MAX_E164_DIGITS
+    !parsedPhone.ok ||
+    parsedPhone.phone.digits.length < MIN_E164_DIGITS ||
+    parsedPhone.phone.digits.length > MAX_E164_DIGITS
   ) return null
-  return { name, email, phone }
+  return { name, email, phone: parsedPhone.phone.e164, parsedPhone: parsedPhone.phone }
 }
 
 const lookup = async (dependencies: IdentityDependencies, email: string, phone: string) => {
@@ -85,7 +85,7 @@ const getDefaultDependencies = async (): Promise<IdentityDependencies> => {
     users: client.users as unknown as IdentityDependencies["users"],
     upsertLocalUser: upsertUserByIdentifiers,
     findLocalUsers: (email, phone) => prisma.user.findMany({
-      where: { OR: [{ email }, { phone: normalizePhone(phone) }] },
+      where: { OR: [{ email }, { phone: { in: buildExactPhoneLookup(phone).digitCandidates } }] },
       select: { id: true, clerkId: true, stripeCustomerId: true },
     }),
     updateIfMissing: (user, input) =>
@@ -102,7 +102,7 @@ export async function resolveSpecialClassIdentity(
 
   const dependencies = injectedDependencies || await getDefaultDependencies()
   const localMatches = dependencies.findLocalUsers
-    ? await dependencies.findLocalUsers(contact.email, contact.phone)
+    ? await dependencies.findLocalUsers(contact.email, contact.parsedPhone)
     : []
   if (new Set(localMatches.map((user) => user.id)).size > 1) {
     return { ok: false, code: "CONTACT_DETAILS_UNAVAILABLE" }
