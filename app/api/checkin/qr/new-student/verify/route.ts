@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
-import { normalizePhone } from "@/lib/checkout/validation"
+import { buildExactPhoneLookup, parseServerPhoneInput } from "@/lib/phone"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { asText } from "@/lib/shared"
@@ -31,53 +31,6 @@ type VerifyResponse = {
     completedPurchase?: boolean
   }
 }
-
-
-const buildPhoneVariants = (normalizedPhone: string) => {
-  const digits = normalizedPhone.replace(/\D/g, "")
-  if (!digits) return [] as string[]
-  const variants = new Set<string>([digits])
-
-  // Extract last 10 digits as the core US number
-  const last10 = digits.length >= 10 ? digits.slice(-10) : ""
-
-  if (digits.length === 11 && digits.startsWith("1")) {
-    variants.add(digits.slice(1)) // 10-digit without country code
-  } else if (digits.length === 10) {
-    variants.add(`1${digits}`) // 11-digit with country code
-  }
-
-  // Always include last 10 digits to catch formatted variants like "+1 (929) 387-6584"
-  if (last10) {
-    variants.add(last10)
-    variants.add(`1${last10}`)
-  }
-
-  // Include E.164 format (+1XXXXXXXXXX) for direct DB matches
-  if (last10) {
-    variants.add(`+1${last10}`)
-  }
-
-  return [...variants]
-}
-
-const buildPhoneQueryFilters = (phoneVariants: string[]) => {
-  const seen = new Set<string>()
-  const filters: Array<Record<string, unknown>> = []
-  for (const variant of phoneVariants) {
-    if (!variant) continue
-    if (!seen.has(`eq:${variant}`)) {
-      filters.push({ phone: variant })
-      seen.add(`eq:${variant}`)
-    }
-    if (!seen.has(`contains:${variant}`)) {
-      filters.push({ phone: { contains: variant } })
-      seen.add(`contains:${variant}`)
-    }
-  }
-  return filters
-}
-
 const resolveExistingIdentifier = (
   phoneMatch: boolean,
   emailMatch: boolean
@@ -88,14 +41,13 @@ const resolveExistingIdentifier = (
   return undefined
 }
 
-const sessionOwnsVerifiedPhone = async (sessionUserId: string, phoneNormalized: string) => {
+const sessionOwnsVerifiedPhone = async (sessionUserId: string, canonicalPhone: string) => {
   try {
     const client = await clerkClient()
     const sessionUser = await client.users.getUser(sessionUserId)
     return sessionUser.phoneNumbers.some(
       (phone) =>
-        phone.verification?.status === "verified" &&
-        normalizePhone(phone.phoneNumber) === phoneNormalized
+        phone.verification?.status === "verified" && phone.phoneNumber === canonicalPhone
     )
   } catch {
     return false
@@ -127,10 +79,14 @@ export async function POST(req: Request) {
     const phoneInput = asText(payload?.phone)
     const emailInput = asText(payload?.email)
 
-    const phoneNormalized = normalizePhone(phoneInput) || ""
-    const phoneVariants = buildPhoneVariants(phoneNormalized)
+    const phoneResult = phoneInput ? parseServerPhoneInput(phoneInput) : null
+    if (phoneResult && !phoneResult.ok) {
+      return NextResponse.json({ error: "Missing or invalid phone or email" }, { status: 400 })
+    }
+    const parsedPhone = phoneResult?.ok ? phoneResult.phone : null
+    const phoneLookup = parsedPhone ? buildExactPhoneLookup(parsedPhone) : null
 
-    if (!phoneNormalized && !emailInput) {
+    if (!parsedPhone && !emailInput) {
       return NextResponse.json({ error: "Missing or invalid phone or email" }, { status: 400 })
     }
 
@@ -138,40 +94,36 @@ export async function POST(req: Request) {
     const { userId: sessionUserId } = await auth()
 
     // Clerk lookup by phone and/or email
-    const us10Phone = phoneVariants.find((value) => value.length === 10) || ""
-    const clerkLookupPhone = phoneInput.startsWith("+")
-      ? phoneInput
-      : us10Phone
-        ? `+1${us10Phone}`
-        : phoneInput
-
     const existingClerkUser = await findClerkUserByIdentifiers({
-      phone: clerkLookupPhone || undefined,
+      phone: phoneLookup?.e164,
       email: emailInput || undefined,
     })
 
-    // Build DB identity filters from phone variants + email
+    // Build DB identity filters from exact phone candidates and email
     const identityFilters: Array<Record<string, unknown>> = []
-    if (phoneVariants.length > 0) {
-      identityFilters.push(...buildPhoneQueryFilters(phoneVariants))
-    }
+    if (phoneLookup) identityFilters.push({ phone: { in: phoneLookup.digitCandidates } })
     if (existingClerkUser?.id) identityFilters.push({ clerkId: existingClerkUser.id })
     if (emailInput) identityFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
 
-    let existingDbUser = null as null | { id: string; clerkId: string | null; email: string; phone: string | null } | null
+    let existingDbUser = null as null | { id: string; clerkId: string | null; email: string; phone: string | null }
 
     if (identityFilters.length > 0) {
-      existingDbUser = await prisma.user.findFirst({
+      const existingDbUsers = await prisma.user.findMany({
         where: { OR: identityFilters },
         select: { id: true, clerkId: true, email: true, phone: true },
+        take: 2,
       })
+      if (existingDbUsers.length > 1) {
+        return NextResponse.json({ error: "Unable to verify customer identity" }, { status: 409 })
+      }
+      existingDbUser = existingDbUsers[0] || null
     }
 
     const exists = Boolean(existingClerkUser || existingDbUser)
 
     // Determine which identifiers matched
     const phoneMatch = Boolean(
-      existingClerkUser || (existingDbUser?.phone && phoneVariants.length > 0)
+      existingClerkUser || (existingDbUser?.phone && phoneLookup?.digitCandidates.includes(existingDbUser.phone))
     )
     const emailMatch = Boolean(
       existingDbUser?.email && emailInput && existingDbUser.email.toLowerCase() === emailInput.toLowerCase()
@@ -187,7 +139,7 @@ export async function POST(req: Request) {
     const purchaseFilters: Array<Record<string, unknown>> = []
     if (existingClerkUser?.id) purchaseFilters.push({ user: { clerkId: existingClerkUser.id } })
     if (existingDbUser?.id) purchaseFilters.push({ userId: existingDbUser.id })
-    if (phoneVariants.length > 0) purchaseFilters.push(...buildPhoneQueryFilters(phoneVariants))
+    if (phoneLookup) purchaseFilters.push({ phone: { in: phoneLookup.digitCandidates } })
     if (emailInput) purchaseFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
 
 
@@ -226,7 +178,7 @@ export async function POST(req: Request) {
     // session with a verified copy of the submitted phone → eligible (skip SMS).
     const sessionOwnsPhone =
       Boolean(sessionUserId && existingClerkUser?.id === sessionUserId) &&
-      await sessionOwnsVerifiedPhone(sessionUserId as string, phoneNormalized)
+      await sessionOwnsVerifiedPhone(sessionUserId as string, phoneLookup?.e164 || "")
     if (sessionOwnsPhone) {
       const response: VerifyResponse = {
         outcome: "eligible",

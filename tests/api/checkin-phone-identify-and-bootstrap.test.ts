@@ -9,7 +9,8 @@ const mockIsTerminalBlocked = vi.fn()
 const mockClearTerminalMisses = vi.fn()
 const mockRecordTerminalMiss = vi.fn()
 const mockCreateKioskIdentificationSession = vi.fn()
-const mockUserFindFirst = vi.fn()
+const mockUserFindMany = vi.fn()
+const mockUserUpdate = vi.fn()
 const mockPackagePurchaseFindFirst = vi.fn()
 const mockPackagePurchaseFindMany = vi.fn()
 const mockPurchaseFindMany = vi.fn()
@@ -48,7 +49,8 @@ vi.mock("@/lib/checkin/kiosk-session", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
-      findFirst: (...args: unknown[]) => mockUserFindFirst(...args),
+      findMany: (...args: unknown[]) => mockUserFindMany(...args),
+      update: (...args: unknown[]) => mockUserUpdate(...args),
     },
     packagePurchase: {
       findFirst: (...args: unknown[]) => mockPackagePurchaseFindFirst(...args),
@@ -110,7 +112,7 @@ const DB_USER = {
   id: "db_user_1",
   name: "Jane Student",
   email: "student@example.com",
-  phone: "15551112222",
+  phone: "12025550123",
   clerkId: null,
 }
 
@@ -151,7 +153,7 @@ const makeRequest = (body: Record<string, unknown>) =>
   })
 
 const BASE_BODY = {
-  phone: "5551112222",
+  phone: "2025550123",
   courseSlug: "salsa",
   date: "2026-06-01",
   time: "11:00",
@@ -173,7 +175,8 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockClearTerminalMisses.mockReset()
     mockRecordTerminalMiss.mockReset()
     mockCreateKioskIdentificationSession.mockReset()
-    mockUserFindFirst.mockReset()
+    mockUserFindMany.mockReset()
+    mockUserUpdate.mockReset()
     mockPackagePurchaseFindFirst.mockReset()
     mockPackagePurchaseFindMany.mockReset()
     mockPurchaseFindMany.mockReset()
@@ -194,7 +197,7 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockIsTerminalBlocked.mockResolvedValue({ blocked: false })
     mockCreateKioskIdentificationSession.mockResolvedValue(KIOSK_SESSION)
     mockClearTerminalMisses.mockResolvedValue(undefined)
-    mockUserFindFirst.mockResolvedValue(DB_USER)
+    mockUserFindMany.mockResolvedValue([DB_USER])
     mockPackagePurchaseFindFirst.mockResolvedValue(null)
     mockPackagePurchaseFindMany.mockResolvedValue([])
     mockPurchaseFindMany.mockResolvedValue([])
@@ -242,9 +245,75 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.identified).toBe(false)
   })
 
+  it.each([
+    ["+1 (202) 555-0123", ["12025550123", "2025550123"]],
+    ["2025550123", ["12025550123", "2025550123"]],
+    ["+12025550123", ["12025550123", "2025550123"]],
+    ["+525512345678", ["525512345678"]],
+  ])("uses exact candidates for server phone input %s", async (phone, digitCandidates) => {
+    const { POST } = await import(
+      "@/app/api/checkin/phone/identify-and-bootstrap/route"
+    )
+    const res = await POST(makeRequest({ ...BASE_BODY, phone }))
+
+    expect(res.status).toBe(200)
+    expect(mockUserFindMany).toHaveBeenCalledWith({
+      where: { phone: { in: digitCandidates } },
+      select: { id: true, name: true, email: true, phone: true, clerkId: true },
+      take: 2,
+    })
+    expect(JSON.stringify(mockUserFindMany.mock.calls[0]?.[0])).not.toContain("contains")
+  })
+
+  it.each(["525512345678", "+80012345678", "+12005550123"])(
+    "rejects unsupported phone input %s before lookup or terminal state mutation",
+    async (phone) => {
+      const { POST } = await import(
+        "@/app/api/checkin/phone/identify-and-bootstrap/route"
+      )
+      const res = await POST(makeRequest({ ...BASE_BODY, phone }))
+
+      expect(res.status).toBe(400)
+      expect(mockIsTerminalBlocked).not.toHaveBeenCalled()
+      expect(mockUserFindMany).not.toHaveBeenCalled()
+      expect(mockRecordTerminalMiss).not.toHaveBeenCalled()
+    }
+  )
+
+  it("matches an exact legacy US row without rewriting it", async () => {
+    mockUserFindMany.mockResolvedValue([{ ...DB_USER, phone: "2025550123" }])
+
+    const { POST } = await import(
+      "@/app/api/checkin/phone/identify-and-bootstrap/route"
+    )
+    const res = await POST(makeRequest({ ...BASE_BODY, phone: "+12025550123" }))
+
+    expect(res.status).toBe(200)
+    expect(mockUserFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { phone: { in: ["12025550123", "2025550123"] } },
+    }))
+    expect(mockUserUpdate).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when exact canonical and legacy candidates match different users", async () => {
+    mockUserFindMany.mockResolvedValue([
+      DB_USER,
+      { ...DB_USER, id: "db_user_2", phone: "2025550123" },
+    ])
+
+    const { POST } = await import(
+      "@/app/api/checkin/phone/identify-and-bootstrap/route"
+    )
+    const res = await POST(makeRequest({ ...BASE_BODY, phone: "+12025550123" }))
+
+    expect(res.status).toBe(409)
+    expect(mockRecordTerminalMiss).not.toHaveBeenCalled()
+    expect(mockCreateKioskIdentificationSession).not.toHaveBeenCalled()
+  })
+
   // Scenario: unknown phone → 404
   it("returns 404 when phone number is not found", async () => {
-    mockUserFindFirst.mockResolvedValue(null)
+    mockUserFindMany.mockResolvedValue([])
     mockRecordTerminalMiss.mockResolvedValue({
       terminalBlocked: false,
       cooldownActive: false,
@@ -545,5 +614,32 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     expect(data.customer.lastName).toBe("Student")
     expect(data.customer.hasAvatar).toBe(true)
     expect(data.customer.clerkUserId).toBe("clerk_user_1")
+  })
+
+  it("fails closed before terminal state or lookup when phone parsing throws", async () => {
+    vi.doMock("@/lib/phone", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/lib/phone")>()
+      return {
+        ...actual,
+        parseServerPhoneInput: () => {
+          throw new Error("metadata unavailable")
+        },
+      }
+    })
+
+    try {
+      const { POST } = await import(
+        "@/app/api/checkin/phone/identify-and-bootstrap/route"
+      )
+      const res = await POST(makeRequest(BASE_BODY))
+
+      expect(res.status).toBe(500)
+      expect(mockIsTerminalBlocked).not.toHaveBeenCalled()
+      expect(mockUserFindMany).not.toHaveBeenCalled()
+      expect(mockRecordTerminalMiss).not.toHaveBeenCalled()
+    } finally {
+      vi.doUnmock("@/lib/phone")
+      vi.resetModules()
+    }
   })
 })

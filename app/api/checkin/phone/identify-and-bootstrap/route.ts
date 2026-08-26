@@ -9,7 +9,8 @@ import {
 } from "@/lib/security/student-pin"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { resolveKioskPinThrottleSeverity, getKioskPinThrottleMessage } from "@/lib/security/kiosk-pin-throttle"
-import { asRecord, asText, normalizePhone, normalizePhoneDigits } from "@/lib/shared"
+import { asRecord, asText, normalizePhoneDigits } from "@/lib/shared"
+import { buildExactPhoneLookup, parseServerPhoneInput } from "@/lib/phone"
 import { parseQrCheckInContext, isTerminalCheckInAllowed } from "@/lib/checkin/qr"
 import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState, type ClerkUser } from "@/lib/clerk-users"
@@ -25,7 +26,6 @@ import type {
 
 export const runtime = "nodejs"
 
-const MIN_PHONE_DIGITS = 10
 const DUPLICATE_BLOCKING_PURCHASE_STATUSES = [...SUCCESSFUL_PURCHASE_STATUSES, "pending"]
 // Quick Repeat (terminal fast check-in) eligibility: >= 3 successful purchases.
 // Mirrors QUICK_REPEAT_PURCHASE_THRESHOLD in lib/checkin/qr-decision.ts.
@@ -269,10 +269,16 @@ export async function POST(req: Request) {
 
   const payload = asRecord(body)
   const rawPhone = typeof payload?.phone === "string" ? payload.phone.trim() : ""
-  const phone = normalizePhone(rawPhone)
+  let phoneLookup: ReturnType<typeof buildExactPhoneLookup>
+  try {
+    const phoneResult = parseServerPhoneInput(rawPhone)
 
-  if (!phone || phone.length < MIN_PHONE_DIGITS) {
-    return NextResponse.json({ error: "A valid phone number is required." }, { status: 400 })
+    if (!phoneResult.ok) {
+      return NextResponse.json({ error: "A valid phone number is required." }, { status: 400 })
+    }
+    phoneLookup = buildExactPhoneLookup(phoneResult.phone)
+  } catch {
+    return NextResponse.json({ error: "Unable to identify this phone number." }, { status: 500 })
   }
 
   // ─── Parse class context ────────────────────────────────────
@@ -307,11 +313,18 @@ export async function POST(req: Request) {
   }
 
   // ─── Identify user by phone ─────────────────────────────────
-  const phoneCandidates = phone.startsWith("1") ? [phone, phone.slice(1)] : [phone, `1${phone}`]
-  const dbUser = await prisma.user.findFirst({
-    where: { phone: { in: phoneCandidates } },
+  const dbUsers = await prisma.user.findMany({
+    where: { phone: { in: phoneLookup.digitCandidates } },
     select: { id: true, name: true, email: true, phone: true, clerkId: true },
+    take: 2,
   })
+  if (dbUsers.length > 1) {
+    return NextResponse.json(
+      { identified: false, message: "Unable to identify this phone number." },
+      { status: 409 }
+    )
+  }
+  const dbUser = dbUsers[0] || null
 
   if (!dbUser) {
     const now = new Date()
