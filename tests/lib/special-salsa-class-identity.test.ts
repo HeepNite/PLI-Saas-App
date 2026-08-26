@@ -84,11 +84,30 @@ describe("special salsa class identity", () => {
 
   it("rejects invalid contact fields before Clerk lookup", async () => {
     const deps = buildDependencies(null, null)
-    await expect(resolveSpecialClassIdentity({ ...contact, phone: "+1234567" }, deps)).resolves.toEqual({
+    const findLocalUsers = vi.fn()
+    await expect(resolveSpecialClassIdentity({ ...contact, phone: "Call +12015550123" }, { ...deps, findLocalUsers })).resolves.toEqual({
       ok: false,
       code: "INVALID_CONTACT",
     })
     expect(deps.users.getUserList).not.toHaveBeenCalled()
+    expect(deps.users.createUser).not.toHaveBeenCalled()
+    expect(deps.upsertLocalUser).not.toHaveBeenCalled()
+    expect(findLocalUsers).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["Mexico", "+525512345678"],
+    ["Argentina", "+5491123456789"],
+  ])("uses canonical %s E.164 for Clerk and local identity", async (_country, phone) => {
+    const deps = buildDependencies(null, null)
+    const findLocalUsers = vi.fn(async () => [])
+
+    await expect(resolveSpecialClassIdentity({ ...contact, phone }, { ...deps, findLocalUsers })).resolves.toMatchObject({
+      ok: true,
+      phone,
+    })
+    expect(deps.users.createUser).toHaveBeenCalledWith(expect.objectContaining({ phoneNumber: [phone] }))
+    expect(findLocalUsers).toHaveBeenCalledWith(contact.email.toLowerCase(), expect.objectContaining({ e164: phone }))
   })
 
   it.each([
