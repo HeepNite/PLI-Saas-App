@@ -56,12 +56,14 @@ describe("special salsa class public UI", () => {
     navigationState.searchParams = new URLSearchParams()
     navigationState.router.replace.mockReset()
     vi.restoreAllMocks()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue()
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined)
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it("formats the special countdown with readable complete units", () => {
@@ -261,7 +263,7 @@ describe("special salsa class public UI", () => {
     expect(html).toContain('/Videos/special-salsa.mp4')
     expect(html).toContain('type="video/mp4"')
     expect(existsSync(join(process.cwd(), "public/Videos/special-salsa.mp4"))).toBe(true)
-    expect(html).toContain("autoPlay")
+    expect(html).not.toContain("autoPlay")
     expect(html).toContain("muted")
     expect(html).toContain("loop")
     expect(html).toContain("playsInline")
@@ -277,33 +279,31 @@ describe("special salsa class public UI", () => {
     expect(html).toContain("data-hero-video")
     expect(html).toContain("data-hero-details")
     expect(html).toContain("lg:grid-cols-")
-    expect(html).toContain("object-cover")
+    expect(html).not.toContain("data-hero-video-backdrop")
     expect(html).toContain('aria-controls="special-reservation-dialog"')
     expect(html).toContain('aria-haspopup="dialog"')
   })
 
-  it("keeps the portrait hero video fully visible over an inaccessible blurred backdrop", () => {
+  it("renders one uncropped hero video over a non-video visual background", () => {
     const container = document.createElement("div")
     container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
     const mediaPanel = container.querySelector("[data-hero-media]") as HTMLElement
     const foreground = container.querySelector("[data-hero-video-foreground]") as HTMLVideoElement
-    const backdrop = container.querySelector("[data-hero-video-backdrop]") as HTMLVideoElement
+    const background = container.querySelector("[data-hero-video-background]") as HTMLElement
 
     expect(mediaPanel.className).toContain("h-[380px]")
     expect(mediaPanel.className).toContain("lg:h-auto")
     expect(mediaPanel.className).toContain("lg:min-h-[540px]")
     expect(foreground.getAttribute("aria-label")).toBe("Promotional video for Salsa de Cali")
     expect(foreground.className).toContain("object-contain")
-    expect(foreground.autoplay).toBe(true)
+    expect(foreground.autoplay).toBe(false)
     expect(foreground.hasAttribute("muted")).toBe(true)
     expect(foreground.loop).toBe(true)
     expect(foreground.playsInline).toBe(true)
-    expect(backdrop.getAttribute("aria-hidden")).toBe("true")
-    expect(backdrop.getAttribute("tabindex")).toBe("-1")
-    expect(backdrop.autoplay).toBe(false)
-    expect(backdrop.className).toContain("object-cover")
-    expect(backdrop.className).toContain("blur-")
-    expect(backdrop.querySelector('source[type="video/mp4"]')?.getAttribute("src")).toBe("/Videos/special-salsa.mp4")
+    expect(container.querySelectorAll("video")).toHaveLength(1)
+    expect(container.querySelectorAll('source[src="/Videos/special-salsa.mp4"]')).toHaveLength(1)
+    expect(background.getAttribute("aria-hidden")).toBe("true")
+    expect(background.tagName).toBe("DIV")
   })
 
   it("keeps hero metadata and keyboard controls on one unobscured bottom overlay row", () => {
@@ -349,7 +349,7 @@ describe("special salsa class public UI", () => {
     container.remove()
   })
 
-  it("keeps the decorative backdrop paused for reduced motion users", async () => {
+  it("does not autoplay for reduced-motion users but still lets them play explicitly", async () => {
     const play = vi.fn().mockResolvedValue(undefined)
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play)
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }))
@@ -361,12 +361,16 @@ describe("special salsa class public UI", () => {
 
     expect(play).not.toHaveBeenCalled()
 
+    await act(async () => (container.querySelector('[data-hero-video-toggle]') as HTMLButtonElement).click())
+
+    expect(play).toHaveBeenCalledTimes(1)
+
     await act(async () => root.unmount())
     container.remove()
     vi.unstubAllGlobals()
   })
 
-  it("starts and pauses the decorative backdrop with the foreground play control", async () => {
+  it("autoplays once after client-side normal-motion confirmation and pauses the foreground control", async () => {
     const play = vi.fn().mockResolvedValue(undefined)
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play)
     const container = document.createElement("div")
@@ -378,17 +382,13 @@ describe("special salsa class public UI", () => {
     Object.defineProperty(foreground, "paused", { configurable: true, value: false })
     await act(async () => foreground.dispatchEvent(new Event("play")))
 
-    expect(play).toHaveBeenCalledTimes(2)
+    expect(play).toHaveBeenCalledTimes(1)
 
-    const backdrop = container.querySelector("[data-hero-video-backdrop]") as HTMLVideoElement
     const pauseForeground = vi.fn()
-    const pauseBackdrop = vi.fn()
     Object.defineProperty(foreground, "pause", { configurable: true, value: pauseForeground })
-    Object.defineProperty(backdrop, "pause", { configurable: true, value: pauseBackdrop })
     await act(async () => (container.querySelector('[data-hero-video-toggle]') as HTMLButtonElement).click())
 
     expect(pauseForeground).toHaveBeenCalledTimes(1)
-    expect(pauseBackdrop).toHaveBeenCalledTimes(1)
 
     await act(async () => root.unmount())
     container.remove()
@@ -798,5 +798,111 @@ describe("special salsa class public UI", () => {
     await act(async () => root.unmount())
     container.remove()
     vi.unstubAllGlobals()
+  })
+
+  it.each([
+    ["US", "2025550123", "+12025550123"],
+    ["MX", "5512345678", "+525512345678"],
+    ["AR", "91123456789", "+5491123456789"],
+  ])("submits canonical %s phone data without requiring a calling code", async (country, nationalNumber, phone) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Checkout unavailable." }), {
+      status: 409,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("crypto", { randomUUID: vi.fn().mockReturnValue("a6c05f53-2cc6-4a78-a35e-61daf6f13cb2") })
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    await act(async () => (container.querySelector("[data-hero-cta]") as HTMLButtonElement).click())
+    const countryTrigger = document.querySelector('[data-phone-country-trigger]') as HTMLButtonElement
+    await act(async () => countryTrigger.click())
+    const countrySearch = document.querySelector('input[aria-label="Search countries"]') as HTMLInputElement
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+      setter?.call(countrySearch, country)
+      countrySearch.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => (document.querySelector('[role="option"]') as HTMLButtonElement).click())
+    for (const [name, value] of [["name", "Ada Lovelace"], ["phone", nationalNumber], ["email", "ada@example.com"]]) {
+      const input = document.querySelector(`input[name="${name}"]`) as HTMLInputElement
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        setter?.call(input, value)
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    }
+    await act(async () => (document.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({ phone })
+
+    await act(async () => root.unmount())
+    container.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it("retains contaminated pasted phone text and prevents checkout", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    await act(async () => (container.querySelector("[data-hero-cta]") as HTMLButtonElement).click())
+    for (const [name, value] of [["name", "Ada Lovelace"], ["phone", "Call me at 202-555-0123"], ["email", "ada@example.com"]]) {
+      const input = document.querySelector(`input[name="${name}"]`) as HTMLInputElement
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        setter?.call(input, value)
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    }
+
+    await act(async () => (document.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+
+    expect((document.querySelector('input[name="phone"]') as HTMLInputElement).value).toBe("Call me at 202-555-0123")
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await act(async () => root.unmount())
+    container.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it("searches countries by name, ISO code, and calling code before selecting one", async () => {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => root.render(<SpecialSalsaClassLanding remaining={5} />))
+    await act(async () => (container.querySelector("[data-hero-cta]") as HTMLButtonElement).click())
+
+    const trigger = document.querySelector('[data-phone-country-trigger]') as HTMLButtonElement
+    expect(trigger.textContent).toContain("United States")
+    await act(async () => trigger.click())
+    const search = document.querySelector('input[aria-label="Search countries"]') as HTMLInputElement
+    const setSearch = async (value: string) => {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        setter?.call(search, value)
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    }
+
+    await setSearch("mexico")
+    expect(document.querySelector('[role="option"]')?.textContent).toContain("Mexico")
+    await setSearch("AR")
+    expect(document.querySelector('[role="option"]')?.textContent).toContain("Argentina")
+    await setSearch("52")
+    const mexico = document.querySelector('[role="option"]') as HTMLButtonElement
+    await act(async () => mexico.click())
+
+    expect(trigger.textContent).toContain("Mexico")
+    expect(document.querySelector('[role="listbox"]')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+
+    await act(async () => root.unmount())
+    container.remove()
   })
 })
