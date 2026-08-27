@@ -524,7 +524,7 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
         return
       }
       if (data?.updatedCount === 0) {
-        setError("No selected cash payments were updated")
+        setError("No selected payments were eligible for cash settlement")
         return
       }
       await onSuccess?.()
