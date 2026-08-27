@@ -7,15 +7,15 @@
 - [ ] Do not implement a schema migration or new endpoint without returning to spec resolution.
 - [ ] Keep tests in the same work unit as the behavior they verify.
 - [ ] Normalize source before review; each review slice should remain at or below 400 authored changed lines where realistically possible.
-- [ ] Do not activate connected international UI until Work Units 2 and 3 are implemented, tested, deployed, and verified.
+- [ ] Do not activate connected international UI until Work Units 2, 3A, and 3B are implemented, tested, deployed, and verified.
 
 ## Review Workload Forecast
 
 | Field | Forecast |
 | --- | --- |
-| Estimated authored changed lines | **1,820-2,495** additions plus deletions, exactly equal to the sum of Work Units 1-7, including tests and lockfile but excluding generated artifacts |
-| Estimated affected files | 22-32 |
-| 400-line budget risk | High for a single PR; Work Unit 2 is High at 320-400; other slices are Low-to-Medium |
+| Estimated authored changed lines | **2,080-2,865** additions plus deletions, exactly equal to the sum of all eight Work Units (1, 2, 3A, 3B, and 4-7), including tests and lockfile but excluding generated artifacts |
+| Estimated affected files | 24-36 |
+| 400-line budget risk | High for a single PR; Work Units 2 and 3B are High at 320-400 and 300-400; other slices are Low-to-Medium |
 | Chained PRs recommended | Yes, because the exact total substantially exceeds 400 lines and the work has dependency-safe review boundaries |
 | Suggested review time | 30-60 minutes per slice |
 | Size exception | Not justified by current evidence |
@@ -26,25 +26,27 @@
 | --- | ---: |
 | 1. Phone domain and metadata | 220-340 |
 | 2. Backward-compatible exact server transition | 320-400 |
-| 3. Checkout/account conflict server boundary | 300-390 |
+| 3A. Identity resolution and mutation-safety primitives | 260-360 |
+| 3B. Checkout, kiosk, and recovery integration | 300-400 |
 | 4. Reusable tablet phone field | 300-390 |
 | 5. Enrollment and Embedded SMS integration | 320-395 |
 | 6. Returning-student UI integration | 240-340 |
 | 7. Cross-flow acceptance verification | 120-240 |
-| **Exact total** | **1,820-2,495** |
+| **Exact total** | **2,080-2,865** |
 
-Arithmetic: minimum `220 + 320 + 300 + 300 + 320 + 240 + 120 = 1,820`; maximum `340 + 400 + 390 + 390 + 395 + 340 + 240 = 2,495`.
+Arithmetic: minimum `220 + 320 + 260 + 300 + 300 + 320 + 240 + 120 = 2,080`; maximum `340 + 400 + 360 + 400 + 390 + 395 + 340 + 240 = 2,865`.
 
-If Work Unit 2 cannot remain at or below 400 authored lines with tests, split it into consecutive new-student and returning-identification server slices, deploy both before Work Unit 5 or 6, and recalculate this table before implementation. Do not hide the overage.
+If Work Unit 2 cannot remain at or below 400 authored lines with tests, split it into consecutive new-student and returning-identification server slices, deploy both before Work Unit 3A, and recalculate this table before implementation. Do not hide the overage.
 
 ```text
 1. Phone domain and metadata
    -> 2. Backward-compatible exact server transition [DEPLOY]
-      -> 3. Checkout/account conflict server boundary [DEPLOY]
-         -> 4. Reusable tablet phone field (disconnected until 2+3 deployed)
-            -> 5. Enrollment and Embedded SMS activation
-            -> 6. Returning-student UI activation
-               -> 7. Cross-flow acceptance verification
+      -> 3A. Identity resolution and mutation-safety primitives [DEPLOY]
+         -> 3B. Checkout, kiosk, and recovery integration [DEPLOY]
+            -> 4. Reusable tablet phone field (disconnected until 2+3A+3B deployed)
+               -> 5. Enrollment and Embedded SMS activation
+               -> 6. Returning-student UI activation
+                  -> 7. Cross-flow acceptance verification
 ```
 
 ## Work Unit 1 - Phone Domain and Metadata
@@ -99,26 +101,56 @@ npm run typecheck
 npm run lint -- app/api/checkin/qr/new-student/verify app/api/checkin/phone lib/phone tests/api
 ```
 
-**Deployment gate:** Deploy and verify this slice before Work Unit 3 and before any UI activation. Keep the compatibility adapter through UI rollout.
+**Deployment gate:** Deploy and verify this slice before Work Unit 3A and before any UI activation. Keep the compatibility adapter through UI rollout.
 
-**Rollback boundary:** Revert route integration and tests while leaving the unused shared domain intact. Do not activate international UI against the pre-transition server.
+**Rollback boundary:** Revert route integration and tests while leaving the unused shared domain intact. Roll back Work Units 3B and 3A first if present; do not activate international UI against the pre-transition server.
 
-## Work Unit 3 - Checkout/Account Conflict Server Boundary
+## Work Unit 3A - Identity Resolution and Mutation-Safety Primitives
 
-**Goal:** Harden checkout/account preparation before any tablet UI can send canonical international payloads.
+**Goal:** Establish pure exact identity resolution and mutation-safe account primitives before route integration.
 
-**Estimated changed lines:** 300-390.
+**Estimated changed lines:** 260-360.
 
 **Dependencies:** Work Units 1-2; Work Unit 2 MUST be deployed and verified first.
 
-- [ ] Route `/api/checkout/intent` and every `prepareCheckoutAccount` entry through strict shared phone validation.
-- [ ] Perform Clerk email and phone lookup separately and reject different-user results.
-- [ ] Detect multiple or incompatible local identities before account preparation or mutation.
-- [ ] Apply the conflict policy to concurrent uniqueness re-read; never choose a first match implicitly.
-- [ ] Ensure invalid phone, parser/metadata exception, and conflict fail before Clerk/local create, update, link, reuse, SMS preparation, or checkout identity mutation.
-- [ ] Preserve stable, non-sensitive errors and existing auth/rate-limit contracts.
-- [ ] Update recovery draft creation to persist canonical E.164 including `+` and fail before recovery mutation on parser errors.
-- [ ] Add `/api/checkout/intent`, `prepareCheckoutAccount`, Clerk/local conflict, invalid-phone, parser-exception, concurrent re-read, and recovery E.164 tests with explicit zero-mutation assertions.
+- [ ] Create or extract a pure exact Clerk/local identity resolver that consumes complete email and phone snapshots and returns new, coherent reuse, or conflict without writing.
+- [ ] Fetch complete exact Clerk email and phone matches plus all exact local canonical/legacy candidates; reject multiple, split, or incompatible Clerk/local identities without choosing a first result.
+- [ ] Reuse one coherent local-linked Clerk identity with zero Clerk or database writes.
+- [ ] Provide a safe Clerk ensure/create/update entry that cannot perform an email-only mutation before a complete exact email-and-phone conflict re-read.
+- [ ] Apply the same resolver after Clerk and Prisma uniqueness races, validating the actual Clerk ensure/create return identity and the actual Prisma upsert return identity before success.
+- [ ] Add parser, conflict, coherent-reuse, and concurrency tests at resolver/account-helper level, including conflict injected inside the real Clerk ensure/create window and the real Prisma upsert return window, with explicit zero-mutation assertions.
+- [ ] Keep checkout routes, kiosk-session behavior, recovery drafts, and all UI integration out of this unit.
+
+**Focused verification:**
+
+```bash
+npm run test -- tests/checkout-identity.test.ts
+npm run typecheck
+npm run lint -- lib/checkout.ts lib/clerk-users.ts lib/users.ts lib/phone tests/checkout-identity.test.ts
+```
+
+**Deployment gate:** Deploy and verify this primitive slice after Work Unit 2 and before Work Unit 3B. It is not sufficient for UI activation by itself.
+
+**Rollback boundary:** Before Work Unit 3B, revert only the resolver/account-helper primitives and their tests. After Work Unit 3B, roll back 3B first; no route or UI activation may remain dependent on removed primitives.
+
+## Work Unit 3B - Checkout, Kiosk, and Recovery Integration
+
+**Goal:** Integrate Work Unit 3A across checkout, kiosk, and recovery paths and prove mutation safety at real route and persistence windows.
+
+**Estimated changed lines:** 300-400.
+
+**Dependencies:** Work Units 1-3A; Work Units 2 and 3A MUST be deployed and verified first.
+
+- [ ] Route `/api/checkout/intent`, `prepareCheckoutAccount`, and every reachable new-student path through strict shared phone validation and the Work Unit 3A resolver, including authenticated `qr_phone`.
+- [ ] Validate stored kiosk-session phone input through transitional parsing without blindly prepending `+`; preserve compatibility only for exact parser-confirmed legacy US input.
+- [ ] Resolve kiosk sessions without touch, validate complete Clerk/local identity coherence, and touch the session only after successful validation and resolution.
+- [ ] Update recovery draft creation to preserve canonical E.164 including `+` and fail before recovery mutation on invalid input or parser failure.
+- [ ] Preserve stable non-sensitive errors plus existing authorization, rate limits, SMS policy, checkout behavior, and recovery security boundaries.
+- [ ] Add route-level checkout intent and reachable new-student tests that exercise the actual Clerk ensure/create and Prisma upsert return windows, with explicit zero-mutation assertions.
+- [ ] Prove a conflict injected inside the real Clerk ensure/create window and the real Prisma upsert return window cannot produce success or mutation after conflict detection.
+- [ ] Prove a coherent local-linked Clerk identity is reused with zero writes; invalid or conflicting stored kiosk identity causes zero session touch; and valid parser-confirmed US legacy stored identity remains compatible.
+- [ ] Prove parser exception, invalid input, and non-geographic input cause zero Clerk, database, checkout, SMS, and recovery mutation.
+- [ ] Keep all connected international UI activation out of this unit.
 
 **Focused verification:**
 
@@ -126,12 +158,12 @@ npm run lint -- app/api/checkin/qr/new-student/verify app/api/checkin/phone lib/
 npm run test -- tests/checkin/checkout-api-adapter.test.ts tests/checkout-identity.test.ts tests/api/student-recovery.test.ts tests/lib/student-recovery.test.ts
 npm run test:api
 npm run typecheck
-npm run lint -- app/api/checkout/intent app/api/checkin/qr/new-student/recovery-draft lib/checkout.ts lib/clerk-users.ts lib/users.ts lib/phone tests/api tests/lib
+npm run lint -- app/api/checkout/intent app/api/checkin/qr lib/checkout.ts lib/clerk-users.ts lib/users.ts lib/phone tests/api tests/lib tests/checkin
 ```
 
-**Deployment gate:** Deploy and verify this slice after Work Unit 2 and before Work Unit 5 or 6 activates connected UI. Evidence MUST show invalid/conflicting checkout input reaches no identity mutation.
+**Deployment gate:** Deploy and verify this slice after Work Unit 3A and before Work Unit 4 is connected to a live flow or any Work Unit 5+ UI activation. Evidence MUST cover every learned acceptance case above. Work Units 2, 3A, and 3B MUST all remain deployed and verified before UI activation.
 
-**Rollback boundary:** Revert checkout/conflict/recovery integration and tests. Do not activate international UI unless both Work Units 2 and 3 remain deployed.
+**Rollback boundary:** Revert checkout, kiosk-session, recovery integration, and route-level tests while leaving Work Unit 3A primitives and Work Unit 2 compatibility deployed. Do not activate international UI unless Work Units 2, 3A, and 3B remain deployed.
 
 ## Work Unit 4 - Reusable Tablet Phone Field
 
@@ -139,7 +171,7 @@ npm run lint -- app/api/checkout/intent app/api/checkin/qr/new-student/recovery-
 
 **Estimated changed lines:** 300-390.
 
-**Dependencies:** Work Units 1-3. It may be reviewed before deployment completes but MUST remain disconnected until Work Units 2 and 3 are deployed and verified.
+**Dependencies:** Work Units 1-3B. It may be reviewed before deployment completes but MUST remain disconnected until Work Units 2, 3A, and 3B are deployed and verified.
 
 - [ ] Create the controlled repository-native international phone field.
 - [ ] Generate searchable country options supporting name, ISO, and calling-code search.
@@ -159,15 +191,15 @@ npm run lint -- components/front/checkin lib/phone tests/checkin/international-p
 
 **Runtime harness:** At 768x1024, measure 44-by-44 minimum targets and 8-pixel adjacent spacing; verify tap, keyboard, focus return, busy behavior, and no overflow.
 
-**Rollback boundary:** Remove only the field/adapter and tests; Work Units 1-3 remain independently safe for current clients.
+**Rollback boundary:** Remove only the field/adapter and tests; Work Units 1-3B remain independently safe for current clients.
 
 ## Work Unit 5 - Enrollment and Embedded SMS Activation
 
-**Goal:** Connect tablet enrollment and sign-in only after both server boundaries are deployed.
+**Goal:** Connect tablet enrollment and sign-in only after all server boundaries are deployed.
 
 **Estimated changed lines:** 320-395.
 
-**Dependencies:** Work Units 1-4; Work Units 2 and 3 MUST be deployed and verified before activation.
+**Dependencies:** Work Units 1-4; Work Units 2, 3A, and 3B MUST be deployed and verified before activation.
 
 - [ ] Integrate the shared field into tablet `EnrollInfoStep` while preserving phase order, footer ownership, and keypad layout.
 - [ ] Replace `+1 ` initialization, US-only prefill, `isCompleteUSPhone`, and ten-digit assumptions in affected enrollment state.
@@ -186,15 +218,15 @@ npm run lint -- components/front/courses components/front/auth tests/checkin
 
 **Runtime harness:** Exercise US and non-US enrollment through SMS; double-tap while busy and verify one request, exact E.164, and retained input after error.
 
-**Rollback boundary:** Revert enrollment/sign-in integration; deployed Work Units 2-3 continue accepting the restored current US client.
+**Rollback boundary:** Revert enrollment/sign-in integration; deployed Work Units 2-3B continue accepting the restored current US client.
 
 ## Work Unit 6 - Returning-Student UI Activation
 
-**Goal:** Connect returning identification only after both server boundaries are deployed.
+**Goal:** Connect returning identification only after all server boundaries are deployed.
 
 **Estimated changed lines:** 240-340.
 
-**Dependencies:** Work Units 1-4; Work Units 2 and 3 MUST be deployed and verified before activation.
+**Dependencies:** Work Units 1-4; Work Units 2, 3A, and 3B MUST be deployed and verified before activation.
 
 - [ ] Replace `KioskPinModal`'s US-only display with the shared field.
 - [ ] Update `useKioskPinFlow` to submit canonical E.164.
@@ -212,7 +244,7 @@ npm run lint -- components/front/checkin tests/checkin tests/api
 
 **Runtime harness:** Identify US legacy and canonical international fixtures; verify one request under double-tap, no suffix cross-match, and no legacy-row rewrite.
 
-**Rollback boundary:** Revert returning UI/hook changes; deployed Work Units 2-3 continue accepting the restored raw US client.
+**Rollback boundary:** Revert returning UI/hook changes; deployed Work Units 2-3B continue accepting the restored raw US client.
 
 ## Work Unit 7 - Cross-Flow Acceptance Verification
 
@@ -220,7 +252,7 @@ npm run lint -- components/front/checkin tests/checkin tests/api
 
 **Estimated changed lines:** 120-240.
 
-**Dependencies:** Work Units 1-6; deployed evidence for Work Units 2-3 is mandatory.
+**Dependencies:** Work Units 1-6; deployed evidence for Work Units 2, 3A, and 3B is mandatory.
 
 - [ ] Cover current US compatibility, US/non-US enrollment and SMS, and international returning identification.
 - [ ] Verify identical canonical E.164 across tablet flows, shared calling codes, and unresolved-prefill failure.
@@ -241,14 +273,14 @@ npm run test:e2e -- e2e/international-tablet-phone-entry.spec.ts
 
 Run `npm run build` only where documented prerequisites exist; it invokes `prisma generate` and MUST NOT run a migration.
 
-**Rollback boundary:** Revert acceptance-only tests independently; production rollback follows Work Units 6 through 1. Keep both server boundaries until connected UI is rolled back.
+**Rollback boundary:** Revert acceptance-only tests independently; production rollback follows Work Units 6 through 1. Keep Work Units 2, 3A, and 3B deployed until connected UI is rolled back.
 
 ## Completion Checklist
 
 - [ ] Every requirement and acceptance scenario has a test reference.
-- [ ] Work Units 2 and 3 were implemented, tested, deployed, and verified before connected international UI activation.
+- [ ] Work Units 2, 3A, and 3B were implemented, tested, deployed, and verified before connected international UI activation.
 - [ ] `/api/checkout/intent` and `prepareCheckoutAccount` reject invalid/conflicting identity before mutation.
-- [ ] Work-unit arithmetic remains exactly 1,820-2,495.
+- [ ] Work-unit arithmetic remains exactly 2,080-2,865.
 - [ ] No slice exceeds 400 authored lines without explicit approval.
 - [ ] No production route uses international substring matching.
 - [ ] No malformed, conflicting, or parser-failed phone reaches identity mutation.
