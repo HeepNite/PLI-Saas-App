@@ -349,6 +349,31 @@ describe("useStaffPaymentsAdmin", () => {
     expect(captured!.paymentsBulkBusyAction).toBeNull()
   })
 
+  it("keeps the selection and reports when no cash payments were updated", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ updatedCount: 0 }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const onSuccess = vi.fn().mockResolvedValue(undefined)
+    const input = createInput()
+
+    await renderHook(input)
+    await act(async () => {
+      captured!.selectPaymentIds(["p1"])
+    })
+
+    await act(async () => {
+      await captured!.updateSettlementBulk({ action: "mark_paid", ids: ["p1"], onSuccess })
+    })
+
+    expect(onSuccess).not.toHaveBeenCalled()
+    expect(captured!.selectedPaymentIds).toEqual(["p1"])
+    expect(input.setError).toHaveBeenCalledWith("No selected cash payments were updated")
+    expect(captured!.paymentsBulkBusyAction).toBeNull()
+  })
+
   it("debounced history-mode search triggers fetchPayments with the trimmed query after 350ms", async () => {
     vi.useFakeTimers()
     try {
