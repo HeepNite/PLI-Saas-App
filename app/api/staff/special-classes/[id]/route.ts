@@ -44,9 +44,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const definitionChanged = ["title", "description", "currency", "priceCents", "startsAt", "capacity", "durationMinutes", "location", "coverImageUrl"].some((key) => key in body)
   if (definitionChanged && (current.status === "closed" || current.status === "cancelled")) return NextResponse.json({ error: "Terminal special classes cannot be edited" }, { status: 409 })
   if (!Number.isInteger(durationMinutes) || durationMinutes <= 0 || Number.isNaN(startsAt.getTime())) return NextResponse.json({ error: "Invalid special class definition" }, { status: 422 })
-  if (status === "published" && !isPublishableSpecialClass({
-    startsAt, capacity, title, description, currency, priceCents,
-  }, new Date())) return NextResponse.json({ error: "Special class cannot be published" }, { status: 422 })
   const suppliedIdempotencyKey = req.headers.get("x-correlation-id")?.trim()
   if (suppliedIdempotencyKey && suppliedIdempotencyKey.length > 200) return NextResponse.json({ error: "Invalid idempotency key" }, { status: 422 })
   const clientIdempotencyKey = suppliedIdempotencyKey || crypto.randomUUID()
@@ -63,14 +60,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!replayed) throw new Error("SPECIAL_CLASS_NOT_FOUND")
       return { item: replayed, replayed: true }
     }
-    const capacityValidation = await lockAndValidateSpecialClassCapacity(tx, { specialClassId: id, capacity, now: new Date() })
+    const capacityValidation = await lockAndValidateSpecialClassCapacity(tx, { specialClassId: id, capacity: typeof body.capacity === "number" ? body.capacity : undefined, now: new Date() })
     const lockedCurrent = capacityValidation.specialClass
     if (!canTransitionSpecialClass(lockedCurrent.status, status)) throw new Error("INVALID_LIFECYCLE_TRANSITION")
     if (definitionChanged && (lockedCurrent.status === "closed" || lockedCurrent.status === "cancelled")) throw new Error("TERMINAL_CLASS_EDIT")
     if (!capacityValidation.valid) throw new Error("CAPACITY_BELOW_OCCUPANCY")
-    await tx.classSession.update({ where: { id: lockedCurrent.classSessionId }, data: { title, startsAt, durationMinutes, capacity, location } })
+    // Resolve every editable field from the LOCKED row so any field the client did not supply keeps
+    // its freshly committed value instead of a pre-lock snapshot. This prevents two concurrent PATCHes
+    // that each change a disjoint subset of fields from silently clobbering each other's changes.
+    const finalTitle = typeof body.title === "string" ? body.title.trim() : lockedCurrent.title
+    const finalDescription = typeof body.description === "string" ? body.description.trim() : lockedCurrent.description
+    const finalCurrency = typeof body.currency === "string" ? body.currency.trim().toLowerCase() : lockedCurrent.currency
+    const finalPriceCents = typeof body.priceCents === "number" ? body.priceCents : lockedCurrent.priceCents
+    const finalStartsAt = typeof body.startsAt === "string" ? new Date(body.startsAt) : lockedCurrent.classSession.startsAt
+    const finalCapacity = capacityValidation.effectiveCapacity
+    const finalDurationMinutes = typeof body.durationMinutes === "number" ? body.durationMinutes : lockedCurrent.classSession.durationMinutes ?? 60
+    const finalLocation = typeof body.location === "string" ? body.location.trim() || null : lockedCurrent.classSession.location
+    const finalCoverImageUrl = typeof body.coverImageUrl === "string" ? body.coverImageUrl.trim() || null : lockedCurrent.coverImageUrl
+    if (status === "published" && !isPublishableSpecialClass({
+      startsAt: finalStartsAt, capacity: finalCapacity, title: finalTitle, description: finalDescription, currency: finalCurrency, priceCents: finalPriceCents,
+    }, new Date())) throw new Error("NOT_PUBLISHABLE")
+    await tx.classSession.update({ where: { id: lockedCurrent.classSessionId }, data: { title: finalTitle, startsAt: finalStartsAt, durationMinutes: finalDurationMinutes, capacity: finalCapacity, location: finalLocation } })
     const item = await tx.specialClass.update({ where: { id }, data: {
-      status, title, description, currency, priceCents, coverImageUrl,
+      status, title: finalTitle, description: finalDescription, currency: finalCurrency, priceCents: finalPriceCents, coverImageUrl: finalCoverImageUrl,
       publishedAt: status === "published" ? lockedCurrent.publishedAt ?? new Date() : lockedCurrent.publishedAt,
       cancelledAt: status === "cancelled" ? lockedCurrent.cancelledAt ?? new Date() : lockedCurrent.cancelledAt,
     }, include: { classSession: true } })
@@ -85,20 +97,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         location: lockedCurrent.classSession.location,
       },
       afterState: {
-        status, title, description, currency, priceCents, coverImageUrl,
-        publishedAt: item.publishedAt?.toISOString() ?? null, cancelledAt: item.cancelledAt?.toISOString() ?? null, startsAt: startsAt.toISOString(),
-        durationMinutes, capacity, location, occupied: capacityValidation.occupied,
+        status, title: finalTitle, description: finalDescription, currency: finalCurrency, priceCents: finalPriceCents, coverImageUrl: finalCoverImageUrl,
+        publishedAt: item.publishedAt?.toISOString() ?? null, cancelledAt: item.cancelledAt?.toISOString() ?? null, startsAt: finalStartsAt.toISOString(),
+        durationMinutes: finalDurationMinutes, capacity: finalCapacity, location: finalLocation, occupied: capacityValidation.occupied,
       },
       correlationId: crypto.randomUUID(), idempotencyKey: clientIdempotencyKey,
     } })
     return { item, replayed: false }
   }).catch((error) => {
     if (error instanceof Error && error.message === "CAPACITY_BELOW_OCCUPANCY") return null
+    if (error instanceof Error && error.message === "NOT_PUBLISHABLE") return "not_publishable" as const
     if (error instanceof Error && error.message === "IDEMPOTENCY_KEY_REUSED") return "idempotency_conflict" as const
     if (error instanceof Error && ["INVALID_LIFECYCLE_TRANSITION", "TERMINAL_CLASS_EDIT"].includes(error.message)) return "lifecycle_conflict" as const
     throw error
   })
   if (!updated) return NextResponse.json({ error: "Capacity cannot be lower than active reservations" }, { status: 409 })
+  if (updated === "not_publishable") return NextResponse.json({ error: "Special class cannot be published" }, { status: 422 })
   if (updated === "idempotency_conflict") return NextResponse.json({ error: "Idempotency key was already used for a different mutation" }, { status: 409 })
   if (updated === "lifecycle_conflict") return NextResponse.json({ error: "Special class lifecycle changed before this mutation completed" }, { status: 409 })
   return NextResponse.json({ item: updated.item, ...(updated.replayed ? { replayed: true } : {}) })

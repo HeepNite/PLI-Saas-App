@@ -39,7 +39,7 @@ export async function lockSpecialClassBoundary(tx: Prisma.TransactionClient, spe
 
 export async function lockAndValidateSpecialClassCapacity(
   tx: Prisma.TransactionClient,
-  input: { specialClassId: string; capacity: number; now: Date },
+  input: { specialClassId: string; capacity?: number; now: Date },
 ) {
   const specialClass = await lockSpecialClassBoundary(tx, input.specialClassId)
   await tx.purchase.updateMany({ where: { specialClassId: input.specialClassId, status: "pending", holdExpiresAt: { lte: input.now } }, data: { status: "expired" } })
@@ -49,7 +49,11 @@ export async function lockAndValidateSpecialClassCapacity(
       OR: [{ status: { in: ACTIVE_CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: input.now } }],
     },
   })
-  return { specialClass, occupied, currentCapacity: specialClass.classSession.capacity, valid: input.capacity >= occupied }
+  const currentCapacity = specialClass.classSession.capacity
+  // When the caller omits a new capacity, keep the freshly locked value so validation and the
+  // subsequent write operate on the same number instead of a stale pre-lock snapshot.
+  const effectiveCapacity = input.capacity ?? currentCapacity
+  return { specialClass, occupied, currentCapacity, effectiveCapacity, valid: effectiveCapacity >= occupied }
 }
 
 export async function updatePublishedSpecialClassCapacity(db: PrismaClient, input: {
