@@ -34,7 +34,7 @@ export default async function SpecialSalsaClassPage({
     ? params.attempt
     : undefined
   const initialDialogOpen = params?.reserve === "1"
-  const availability = await getSpecialClassAvailability().catch(() => null)
+  const availability = await getSpecialClassAvailability(SPECIAL_SALSA_CLASS.key).catch(() => null)
   const initialNowMs = Date.now()
 
   return (
