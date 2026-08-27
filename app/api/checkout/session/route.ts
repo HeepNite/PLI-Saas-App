@@ -17,13 +17,10 @@ import { resolveSpecialClassIdentity } from "@/lib/checkout/special-class-identi
 import {
   admitSpecialClassReservation,
   failSpecialClassHold,
-  preserveSpecialClassHold,
   updateSpecialClassPurchaseSession,
 } from "@/lib/checkout/special-class-reservation"
 import {
   SPECIAL_SALSA_CLASS,
-  getSpecialClassHoldExpiresAt,
-  isSpecialClassPriceCents,
 } from "@/lib/special-salsa-class/config"
 
 const secret = process.env.STRIPE_SECRET_KEY
@@ -68,22 +65,33 @@ const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
   if (!identity.ok) return specialCheckoutError(identity.code)
 
   const requestNow = new Date()
-  const holdExpiresAt = getSpecialClassHoldExpiresAt(requestNow)
+  const specialClassSlug = typeof body.specialClassSlug === "string" && body.specialClassSlug.trim()
+    ? body.specialClassSlug.trim()
+    : SPECIAL_SALSA_CLASS.key
   const admission = await admitSpecialClassReservation({
     attemptId,
+    specialClassSlug,
     dbUserId: identity.dbUserId,
     email: identity.email,
     name: identity.name,
     phone: identity.phone,
-    holdExpiresAt,
   }, { now: () => requestNow })
   if (!admission.ok) return specialCheckoutError(admission.code)
+  const checkoutClass = admission.specialClass ?? {
+    id: SPECIAL_SALSA_CLASS.key,
+    slug: SPECIAL_SALSA_CLASS.key,
+    title: SPECIAL_SALSA_CLASS.title,
+    description: SPECIAL_SALSA_CLASS.displayTitle,
+    coverImageUrl: null,
+    priceCents: admission.purchase.amount,
+    currency: SPECIAL_SALSA_CLASS.currency,
+    classSessionId: "",
+    session: { courseSlug: SPECIAL_SALSA_CLASS.courseSlug, startsAt: SPECIAL_SALSA_CLASS.startsAt, durationMinutes: SPECIAL_SALSA_CLASS.durationMinutes, capacity: SPECIAL_SALSA_CLASS.capacity, location: SPECIAL_SALSA_CLASS.address },
+  }
   const lockedAmountCents = admission.purchase.amount
-  if (!Number.isInteger(lockedAmountCents) || !isSpecialClassPriceCents(lockedAmountCents)) {
+  if (!Number.isInteger(lockedAmountCents) || lockedAmountCents !== checkoutClass.priceCents) {
     return specialCheckoutError("CHECKOUT_UNAVAILABLE")
   }
-  const expiresAt = Math.floor(admission.holdExpiresAt.getTime() / 1000)
-
   if (admission.purchase.stripeCheckoutSessionId) {
     let existingSession: Stripe.Checkout.Session
     try {
@@ -91,11 +99,10 @@ const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
     } catch {
       return specialCheckoutError("CHECKOUT_IN_PROGRESS")
     }
-    const sharesPersistedExpiry = existingSession.expires_at === expiresAt
     const holdIsActive = Date.now() < admission.holdExpiresAt.getTime()
     const sharesLockedAmount = existingSession.amount_total == null || existingSession.amount_total === lockedAmountCents
-    const sharesLockedCurrency = !existingSession.currency || existingSession.currency.toLowerCase() === SPECIAL_SALSA_CLASS.currency
-    if (existingSession.status === "open" && existingSession.url && sharesPersistedExpiry && sharesLockedAmount && sharesLockedCurrency && holdIsActive) {
+    const sharesLockedCurrency = !existingSession.currency || existingSession.currency.toLowerCase() === checkoutClass.currency
+    if (existingSession.status === "open" && existingSession.url && sharesLockedAmount && sharesLockedCurrency && holdIsActive) {
       return NextResponse.json({
         url: existingSession.url,
         sessionId: existingSession.id,
@@ -106,12 +113,6 @@ const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
       try {
         await stripe!.checkout.sessions.expire(existingSession.id)
       } catch {
-        await preserveSpecialClassHold({
-          purchaseId: admission.purchase.id,
-          sessionId: existingSession.id,
-          currentMetadata: admission.purchase.metadata,
-          holdExpiresAt: new Date(Math.max(admission.holdExpiresAt.getTime(), existingSession.expires_at * 1000)),
-        })
         return specialCheckoutError("CHECKOUT_IN_PROGRESS")
       }
       await failSpecialClassHold(admission.purchase.id)
@@ -134,36 +135,41 @@ const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
       line_items: [{
         quantity: 1,
         price_data: {
-          currency: SPECIAL_SALSA_CLASS.currency,
+          currency: checkoutClass.currency,
           unit_amount: lockedAmountCents,
           product_data: {
-            name: SPECIAL_SALSA_CLASS.title,
-            description: `${SPECIAL_SALSA_CLASS.durationMinutes} minutes • ${SPECIAL_SALSA_CLASS.address}`,
+            name: checkoutClass.title,
+            description: `${checkoutClass.session.durationMinutes ?? 60} minutes • ${checkoutClass.session.location ?? "PLI"}`,
           },
         },
       }],
-      success_url: `${base}/special-salsa-class/confirmation?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${base}/special-salsa-class?checkout=cancelled&attempt=${encodeURIComponent(attemptId)}`,
+      success_url: `${base}/special-classes/${encodeURIComponent(checkoutClass.slug)}/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${base}/special-classes/${encodeURIComponent(checkoutClass.slug)}?checkout=cancelled&attempt=${encodeURIComponent(attemptId)}`,
       ...(identity.stripeCustomerId
         ? { customer: identity.stripeCustomerId }
         : { customer_creation: "always" as const, customer_email: identity.email }),
-      expires_at: expiresAt,
       payment_intent_data: {
+        capture_method: "manual",
         metadata: {
-          specialEventKey: SPECIAL_SALSA_CLASS.key,
+          specialClassId: checkoutClass.id,
+          specialClassSlug: checkoutClass.slug,
+          classSessionId: checkoutClass.classSessionId,
           attemptId,
           lockedAmountCents: String(lockedAmountCents),
+          purchaseId: admission.purchase.id,
         },
       },
       metadata: {
-        specialEventKey: SPECIAL_SALSA_CLASS.key,
+        specialClassId: checkoutClass.id,
+        specialClassSlug: checkoutClass.slug,
+        classSessionId: checkoutClass.classSessionId,
         attemptId,
         lockedAmountCents: String(lockedAmountCents),
-        courseSlug: SPECIAL_SALSA_CLASS.courseSlug,
-        courseTitle: SPECIAL_SALSA_CLASS.title,
-        date: SPECIAL_SALSA_CLASS.localDate,
-        time: SPECIAL_SALSA_CLASS.localTime,
-        serviceId: SPECIAL_SALSA_CLASS.checkoutKind,
+        courseSlug: checkoutClass.session.courseSlug,
+        courseTitle: checkoutClass.title,
+        date: checkoutClass.session.startsAt.toISOString().slice(0, 10),
+        time: checkoutClass.session.startsAt.toISOString().slice(11, 16),
+        serviceId: "special-class",
         userId: identity.clerkUserId,
         participants: "1",
         name: identity.name,
@@ -182,16 +188,10 @@ const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
     await failSpecialClassHold(admission.purchase.id)
     return specialCheckoutError("CHECKOUT_UNAVAILABLE")
   }
-  if (session.expires_at !== expiresAt || Date.now() >= admission.holdExpiresAt.getTime()) {
+  if (Date.now() >= admission.holdExpiresAt.getTime()) {
     try {
       await stripe!.checkout.sessions.expire(session.id)
     } catch {
-      await preserveSpecialClassHold({
-        purchaseId: admission.purchase.id,
-        sessionId: session.id,
-        currentMetadata: admission.purchase.metadata,
-        holdExpiresAt: new Date(Math.max(admission.holdExpiresAt.getTime(), session.expires_at * 1000)),
-      })
       return specialCheckoutError("CHECKOUT_UNAVAILABLE")
     }
     await failSpecialClassHold(admission.purchase.id)
@@ -238,7 +238,7 @@ export async function POST(req: Request) {
   const bodyRecord = body && typeof body === "object" && !Array.isArray(body)
     ? body as Record<string, unknown>
     : {}
-  if (Object.hasOwn(bodyRecord, "checkoutKind") && bodyRecord.checkoutKind === SPECIAL_SALSA_CLASS.checkoutKind) {
+  if (Object.hasOwn(bodyRecord, "checkoutKind") && [SPECIAL_SALSA_CLASS.checkoutKind, "special-class"].includes(String(bodyRecord.checkoutKind))) {
     return handleSpecialClassCheckout(bodyRecord)
   }
 
