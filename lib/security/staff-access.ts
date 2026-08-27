@@ -4,6 +4,7 @@ import type { StaffRole } from "@/lib/security/staff-role"
 export const STAFF_PORTAL_SECTIONS = [
   "users",
   "students",
+  "special_classes",
   "schedule",
   "terminals",
   "reports",
@@ -33,13 +34,13 @@ export const resolveStaffPortalSections = (
   }
 
   if (role === "staff" && category === "front_desk") {
-    return ["students", "terminals", "profile"]
+    return ["students", "special_classes", "terminals", "profile"]
   }
 
   // Guest with subCategory: resolve based on subCategory value
   if (role === "staff" && category === "guest" && subCategory) {
     if (subCategory === "teacher") return ["teacher_dashboard", "profile"]
-    if (subCategory === "front_desk") return ["students", "terminals", "profile"]
+    if (subCategory === "front_desk") return ["students", "special_classes", "terminals", "profile"]
     if (subCategory === "manager") return ["profile"]
     return ["profile"]
   }

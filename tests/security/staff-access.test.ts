@@ -8,9 +8,10 @@ import {
 } from "@/lib/security/staff-access"
 
 describe("staff access helpers", () => {
-  it("keeps front-desk staff scoped to student and terminal areas", () => {
-    expect(resolveStaffPortalSections("staff", "front_desk")).toEqual(["students", "terminals", "profile"])
+  it("keeps front-desk staff scoped to student, special-class, and terminal areas", () => {
+    expect(resolveStaffPortalSections("staff", "front_desk")).toEqual(["students", "special_classes", "terminals", "profile"])
     expect(canAccessStaffPortalSection("staff", "front_desk", "students")).toBe(true)
+    expect(canAccessStaffPortalSection("staff", "front_desk", "special_classes")).toBe(true)
     expect(canAccessStaffPortalSection("staff", "front_desk", "settings")).toBe(false)
   })
 
@@ -27,7 +28,7 @@ describe("staff access helpers", () => {
   })
 
   it("delegates guest front-desk staff to the front-desk portal sections", () => {
-    expect(resolveStaffPortalSections("staff", "guest", "front_desk")).toEqual(["students", "terminals", "profile"])
+    expect(resolveStaffPortalSections("staff", "guest", "front_desk")).toEqual(["students", "special_classes", "terminals", "profile"])
   })
 
   it("falls back to profile-only access for guests without a sub-category", () => {
