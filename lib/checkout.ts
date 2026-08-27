@@ -3,7 +3,7 @@ import "server-only"
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { verifyToken } from "@clerk/backend"
 import { ensureClerkUser, findClerkUserByIdentifiers, resolveAvatarState, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
-import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
+import { resolveTerminalKioskSession, touchKioskIdentificationSession } from "@/lib/checkin/kiosk-session"
 import type { PhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import {
   PREPARED_CHECKOUT_FALLBACK_REASONS,
@@ -12,6 +12,9 @@ import {
   lookupPreparedCheckoutContext,
   snapshotPreparedCheckoutVerification,
 } from "@/lib/checkout/prepared-context"
+import { createCheckoutExactAccountDependencies } from "@/lib/checkout/exact-identity-adapters"
+import { ensureExactAccountIdentity, resolveExactIdentity } from "@/lib/checkout/identity-safety"
+import { buildExactPhoneLookup, parseCanonicalPhone, parseServerPhoneInput, type ParsedPhone } from "@/lib/phone"
 import { prisma } from "@/lib/prisma"
 import { resolveKioskCustomerClerkAuth } from "@/lib/security/kiosk-customer-auth"
 import {
@@ -199,6 +202,34 @@ type PrepareCheckoutInput = {
   phone?: string
 }
 
+const isExactNewStudentFlow = (options: PrepareCheckoutOptions) =>
+  (options.photoContext === "kiosk_terminal" || options.photoContext === "qr_phone") &&
+  Boolean(options.serviceId && NEW_STUDENT_SERVICE_IDS.has(options.serviceId))
+
+const parseExactContact = (
+  input: Pick<PrepareCheckoutInput, "email" | "phone">
+): ApiError | { resolvedEmail: string; phoneRaw: string; phoneNormalized: string; parsedPhone: ParsedPhone } => {
+  const resolvedEmail = input.email?.trim().toLowerCase()
+  let parsed = null
+  try {
+    parsed = parseServerPhoneInput(input.phone || "")
+  } catch {
+    // Fail closed when phone metadata is unavailable.
+  }
+  if (!resolvedEmail || !isEmail(resolvedEmail)) {
+    return { status: 400, error: "Missing or invalid email" } satisfies ApiError
+  }
+  if (!parsed?.ok) {
+    return { status: 400, error: "Missing or invalid phone" } satisfies ApiError
+  }
+  return {
+    resolvedEmail,
+    phoneRaw: input.phone!.trim(),
+    phoneNormalized: parsed.phone.digits,
+    parsedPhone: parsed.phone,
+  }
+}
+
 /** Resolve the active Clerk user and kiosk customer auth, then determine
  *  the effective userId/clerkUser after kiosk-session preference logic. */
 const resolveKioskAwareAuth = async (
@@ -207,7 +238,7 @@ const resolveKioskAwareAuth = async (
   options: PrepareCheckoutOptions
 ) => {
   const authUser = await resolveAuthUser(req, input, {
-    updateClerkProfile: options.photoContext !== "kiosk_terminal",
+    updateClerkProfile: options.photoContext !== "kiosk_terminal" && !isExactNewStudentFlow(options),
   })
   const kioskCustomerAuth =
     options.photoContext === "kiosk_terminal"
@@ -254,7 +285,7 @@ const resolveKioskSessionAccount = async (
 
   const kioskSessionResult = await resolveTerminalKioskSession(options.kioskSessionToken, {
     terminalAuth: options.terminalAuth || undefined,
-    touch: options.touchKioskSession,
+    touch: false,
   })
   if (!kioskSessionResult.ok) {
     return {
@@ -263,16 +294,56 @@ const resolveKioskSessionAccount = async (
     } satisfies ApiError
   }
 
-  const resolvedEmail = kioskSessionResult.session.user.email?.trim()
+  const resolvedEmail = kioskSessionResult.session.user.email?.trim().toLowerCase()
   const phoneRaw = kioskSessionResult.session.user.phone || ""
-  const phoneNormalized = normalizePhone(phoneRaw)
+  const clerkId = kioskSessionResult.session.user.clerkId
+  let parsedPhone: ParsedPhone | null = null
+  let knownClerkUser: ClerkUser | null = null
+  try {
+    const parsed = parseServerPhoneInput(phoneRaw)
+    if (parsed.ok) parsedPhone = parsed.phone
+  } catch {
+    // Recover only through the exact linked Clerk identity below.
+  }
 
-  if (!resolvedEmail || !phoneNormalized) {
+  try {
+    const client = await clerkClient()
+    if (!parsedPhone && clerkId && /^\d+$/.test(phoneRaw.trim())) {
+      knownClerkUser = await client.users.getUser(clerkId)
+      const linkedPhone = knownClerkUser.primaryPhoneNumber?.phoneNumber || ""
+      const linked = parseCanonicalPhone(linkedPhone)
+      if (linked.ok && linked.phone.country !== "US" && linked.phone.digits === phoneRaw.trim()) {
+        parsedPhone = linked.phone
+      }
+    }
+
+    if (!resolvedEmail || !isEmail(resolvedEmail) || !parsedPhone || !clerkId) {
+      throw new Error("Incomplete kiosk identity")
+    }
+    const dependencies = createCheckoutExactAccountDependencies(client, undefined, knownClerkUser)
+    const resolution = resolveExactIdentity(await dependencies.readSnapshot({
+      email: resolvedEmail,
+      phone: buildExactPhoneLookup(parsedPhone),
+    }))
+    if (
+      resolution.kind !== "reused" ||
+      resolution.clerkIdentity.id !== clerkId ||
+      resolution.localIdentity.id !== kioskSessionResult.session.user.id
+    ) {
+      throw new Error("Incoherent kiosk identity")
+    }
+  } catch {
     return {
       status: 409,
       error: "Identified student is missing the required contact data for checkout.",
     } satisfies ApiError
   }
+
+  if (options.touchKioskSession !== false) {
+    await touchKioskIdentificationSession(prisma, kioskSessionResult.session.id)
+  }
+
+  const phoneNormalized = parsedPhone.digits
 
   return {
     userId: null,
@@ -488,6 +559,10 @@ export const prepareCheckoutAccount = async (
   input: PrepareCheckoutInput,
   options: PrepareCheckoutOptions = {}
 ): Promise<ApiError | PreparedCheckoutAccount> => {
+  const exactNewStudentFlow = isExactNewStudentFlow(options)
+  const exactNewStudentIdentity = exactNewStudentFlow ? parseExactContact(input) : null
+  if (exactNewStudentIdentity && "status" in exactNewStudentIdentity) return exactNewStudentIdentity
+
   // Phase 1 — Auth + kiosk customer auth
   const { userId, clerkUser, kioskCustomerAuth, isNewStudentKioskFlow, isStaffOperatingForCustomer } =
     await resolveKioskAwareAuth(req, input, options)
@@ -512,12 +587,15 @@ export const prepareCheckoutAccount = async (
   // Phase 3 — Contact identity + terminal auth guard
   // For new-student kiosk flows, ignore the staff's Clerk user so the
   // new student's form data (email/phone) is used instead of the staff's.
-  const skipStaffIdentity =
-    options.photoContext === "kiosk_terminal" &&
-    options.serviceId != null &&
-    NEW_STUDENT_SERVICE_IDS.has(options.serviceId)
+  const skipStaffIdentity = exactNewStudentFlow
   const identityClerkUser = skipStaffIdentity ? null : clerkUser
-  const identity = resolveContactIdentity({ clerkUser: identityClerkUser, email: input.email, phone: input.phone })
+  const identity = exactNewStudentIdentity
+    ? {
+        resolvedEmail: exactNewStudentIdentity.resolvedEmail,
+        phoneRaw: exactNewStudentIdentity.phoneRaw,
+        phoneNormalized: exactNewStudentIdentity.phoneNormalized,
+      }
+    : resolveContactIdentity({ clerkUser: identityClerkUser, email: input.email, phone: input.phone })
   if ("status" in identity) return identity
 
   const terminalAuthError = await assertKioskTerminalAuthForLookup(
@@ -527,6 +605,54 @@ export const prepareCheckoutAccount = async (
     Boolean(isStaffOperatingForCustomer)
   )
   if (terminalAuthError) return terminalAuthError
+
+  if (exactNewStudentFlow) {
+    if (options.deferUserCreation) {
+      return {
+        userId: null,
+        clerkUser: null,
+        resolvedUserId: null,
+        identity,
+        account: { clerkUserId: null, created: false, requiresSignIn: false, hasAvatar: false },
+      }
+    }
+
+    const creation = { occurred: false }
+    try {
+      const client = await clerkClient()
+      const exactAccount = await ensureExactAccountIdentity({
+        email: identity.resolvedEmail,
+        phone: exactNewStudentIdentity!.parsedPhone.e164,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        name: input.name,
+      }, createCheckoutExactAccountDependencies(client, creation))
+      if (!exactAccount.ok) {
+        return {
+          status: exactAccount.code === "INVALID_CONTACT" ? 400 : 409,
+          error: exactAccount.code === "INVALID_CONTACT"
+            ? "Missing or invalid contact details"
+            : "Contact details are already linked to another account.",
+        } satisfies ApiError
+      }
+      const avatar = await resolveAvatarForAccount(exactAccount.clerkIdentity, null)
+      return {
+        userId: null,
+        clerkUser: avatar.clerkUser,
+        resolvedUserId: exactAccount.clerkIdentity.id,
+        identity,
+        account: {
+          clerkUserId: exactAccount.clerkIdentity.id,
+          created: creation.occurred,
+          requiresSignIn: false,
+          hasAvatar: avatar.hasAvatar,
+        },
+      }
+    } catch (error) {
+      console.warn("Exact checkout account preparation failed", error)
+      return { status: 502, error: "Unable to prepare student account" } satisfies ApiError
+    }
+  }
 
   // Phase 4 — Clerk user resolution
   let resolvedClerkUser = clerkUser
