@@ -29,7 +29,7 @@ describe("special salsa class policy", () => {
       currency: "usd",
       capacity: 40,
       durationMinutes: 60,
-      holdMinutes: 30,
+      holdMinutes: 3,
       address: "54 Coles St, Jersey City",
     })
     expect(SPECIAL_SALSA_CLASS.startsAt.toISOString()).toBe("2026-08-30T20:00:00.000Z")
@@ -74,8 +74,8 @@ describe("special salsa class policy", () => {
     expect(isSpecialClassPurchaseCounted({ status, createdAt: new Date(0) }, new Date())).toBe(true)
   })
 
-  it("counts pending holds only before the exact 30-minute cutoff", () => {
-    const now = new Date("2026-08-23T20:30:00.000Z")
+  it("counts pending holds only before the exact three-minute cutoff", () => {
+    const now = new Date("2026-08-23T20:03:00.000Z")
     expect(
       isSpecialClassPurchaseCounted(
         { status: "pending", createdAt: new Date("2026-08-23T20:00:00.001Z") },
@@ -94,9 +94,9 @@ describe("special salsa class policy", () => {
     const expiresAt = getSpecialClassHoldExpiresAt(new Date("2026-08-23T20:00:00.987Z"))
     const createdAt = getSpecialClassHoldCreatedAt(expiresAt)
 
-    expect(expiresAt.toISOString()).toBe("2026-08-23T20:30:01.000Z")
+    expect(expiresAt.toISOString()).toBe("2026-08-23T20:03:01.000Z")
     expect(createdAt.toISOString()).toBe("2026-08-23T20:00:01.000Z")
-    expect(isSpecialClassPurchaseCounted({ status: "pending", createdAt }, new Date("2026-08-23T20:30:00.999Z"))).toBe(true)
+    expect(isSpecialClassPurchaseCounted({ status: "pending", createdAt }, new Date("2026-08-23T20:03:00.999Z"))).toBe(true)
     expect(isSpecialClassPurchaseCounted({ status: "pending", createdAt }, expiresAt)).toBe(false)
   })
 

@@ -25,7 +25,7 @@ export const SPECIAL_SALSA_CLASS = Object.freeze({
   currency: "usd",
   capacity: 40,
   address: "54 Coles St, Jersey City",
-  holdMinutes: 30,
+  holdMinutes: 3,
 })
 
 export const resolveSpecialClassPricing = (now: Date) => {
