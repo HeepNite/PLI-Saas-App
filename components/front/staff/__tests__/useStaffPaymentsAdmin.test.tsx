@@ -370,7 +370,7 @@ describe("useStaffPaymentsAdmin", () => {
 
     expect(onSuccess).not.toHaveBeenCalled()
     expect(captured!.selectedPaymentIds).toEqual(["p1"])
-    expect(input.setError).toHaveBeenCalledWith("No selected cash payments were updated")
+    expect(input.setError).toHaveBeenCalledWith("No selected payments were eligible for cash settlement")
     expect(captured!.paymentsBulkBusyAction).toBeNull()
   })
 
