@@ -49,9 +49,9 @@ const isCashPurchase = (input: {
   )
 }
 
-const isSettledCashPurchase = (input: { metadata: Prisma.JsonValue | null; status: string }) => {
+const isSettledCashPurchase = (input: { metadata: Prisma.JsonValue | null }) => {
   const settlementStatus = asText(asObject(input.metadata).settlementStatus).toLowerCase()
-  return settlementStatus === "paid" || input.status.toLowerCase() === "paid"
+  return settlementStatus === "paid"
 }
 
 const buildPackageSyncMetadata = (input: {
