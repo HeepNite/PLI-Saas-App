@@ -2,7 +2,7 @@ import "server-only"
 
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { verifyToken } from "@clerk/backend"
-import { ensureClerkUser, findClerkUserByIdentifiers, resolveAvatarState, updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
+import { resolveAvatarState, type ClerkUser } from "@/lib/clerk-users"
 import { resolveTerminalKioskSession, touchKioskIdentificationSession } from "@/lib/checkin/kiosk-session"
 import type { PhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import {
@@ -21,7 +21,7 @@ import {
   authorizeStaffTerminalSession,
   type StaffTerminalSessionAuthResult,
 } from "@/lib/security/staff-terminal"
-import { isEmail, normalizePhone, type ApiError, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
+import { isEmail, type ApiError, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
 import {
   replacePermanentStudentPin,
   assertStudentPinConfirmation,
@@ -85,9 +85,7 @@ export type CheckoutPreparationResolution = {
 }
 
 export const resolveAuthUser = async (
-  req: Request,
-  input: { firstName?: string; lastName?: string; name?: string; phone?: string },
-  options: { updateClerkProfile?: boolean } = {}
+  req: Request
 ) => {
   const authResult = await auth()
   let userId = authResult.userId
@@ -107,14 +105,6 @@ export const resolveAuthUser = async (
     try {
       const client = await clerkClient()
       clerkUser = await client.users.getUser(userId)
-      if (options.updateClerkProfile !== false) {
-        await updateClerkUserIfMissing(clerkUser, {
-          firstName: input.firstName,
-          lastName: input.lastName,
-          name: input.name,
-          phone: input.phone,
-        })
-      }
     } catch {
       // ignore and fallback
     }
@@ -125,60 +115,10 @@ export const resolveAuthUser = async (
 
 export const resolveContactIdentity = (
   input: { clerkUser: ClerkUser | null; email?: string; phone?: string }
-): ApiError | { resolvedEmail: string; phoneRaw: string; phoneNormalized: string } => {
-  const resolvedEmail = input.clerkUser?.primaryEmailAddress?.emailAddress || (isEmail(input.email) ? input.email : undefined)
-  const phoneRaw = input.clerkUser?.primaryPhoneNumber?.phoneNumber || input.phone || ""
-  const phoneNormalized = normalizePhone(phoneRaw)
-
-  if (!resolvedEmail) {
-    return { status: 400, error: "Missing or invalid email" } satisfies ApiError
-  }
-  if (!phoneNormalized) {
-    return { status: 400, error: "Missing or invalid phone" } satisfies ApiError
-  }
-
-  return { resolvedEmail, phoneRaw, phoneNormalized }
-}
-
-export const ensureGuestClerkUser = async (input: {
-  userId?: string
-  resolvedEmail: string
-  phoneRaw: string
-  firstName?: string
-  lastName?: string
-  name?: string
-  phone?: string
-}) => {
-  if (input.userId) {
-    return { ensuredClerkUser: null }
-  }
-
-  const existing = await findClerkUserByIdentifiers({
-    email: input.resolvedEmail,
-    phone: input.phoneRaw || input.phone,
-  })
-  if (existing) {
-    return {
-      status: 409,
-      error: "Account already exists. Please sign in to continue.",
-      code: "ACCOUNT_EXISTS",
-    } satisfies ApiError
-  }
-
-  try {
-    const ensuredClerkUser = await ensureClerkUser({
-      email: input.resolvedEmail,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      name: input.name,
-      phone: input.phone,
-    })
-    return { ensuredClerkUser }
-  } catch (err) {
-    console.warn("Clerk user creation failed", err)
-    return { status: 502, error: "Unable to create user" } satisfies ApiError
-  }
-}
+) => parseExactContact({
+  email: input.email ?? input.clerkUser?.primaryEmailAddress?.emailAddress,
+  phone: input.phone ?? input.clerkUser?.primaryPhoneNumber?.phoneNumber,
+})
 
 // ---------------------------------------------------------------------------
 // prepareCheckoutAccount helpers
@@ -237,9 +177,7 @@ const resolveKioskAwareAuth = async (
   input: PrepareCheckoutInput,
   options: PrepareCheckoutOptions
 ) => {
-  const authUser = await resolveAuthUser(req, input, {
-    updateClerkProfile: options.photoContext !== "kiosk_terminal" && !isExactNewStudentFlow(options),
-  })
+  const authUser = await resolveAuthUser(req)
   const kioskCustomerAuth =
     options.photoContext === "kiosk_terminal"
       ? await resolveKioskCustomerClerkAuth(authUser.userId)
@@ -390,55 +328,6 @@ const assertKioskTerminalAuthForLookup = async (
   return null
 }
 
-/** Resolve (or create) the Clerk user when `allowExistingAccountLookup` is
- *  true and no Clerk user is present in the current session. */
-const resolveClerkUserWithLookup = async (
-  identity: { resolvedEmail: string; phoneRaw: string },
-  input: PrepareCheckoutInput,
-  options: PrepareCheckoutOptions
-): Promise<ApiError | { resolvedClerkUser: ClerkUser | null; created: boolean }> => {
-  const existing = await findClerkUserByIdentifiers({
-    email: identity.resolvedEmail,
-    phone: identity.phoneRaw || input.phone,
-  })
-
-  if (existing) {
-    // Existing Clerk user found — reuse without creating anything.
-    return { resolvedClerkUser: existing, created: false }
-  }
-
-  if (options.deferUserCreation) {
-    // Kiosk new-student prepareOnly: do NOT create Clerk user yet.
-    // SMS verification must complete first. Signal with null so the caller
-    // can return the deferred account early.
-    return { resolvedClerkUser: null, created: false }
-  }
-
-  try {
-    const newUser = await ensureClerkUser({
-      email: identity.resolvedEmail,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      name: input.name,
-      phone: input.phone,
-    })
-    if (newUser) {
-      await upsertUserByIdentifiers({
-        clerkId: newUser.id,
-        email: identity.resolvedEmail,
-        name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
-        phone: input.phone,
-      })
-    }
-    return { resolvedClerkUser: newUser || null, created: Boolean(newUser) }
-  } catch (err) {
-    console.warn("Clerk user creation failed", err)
-    return { status: 502, error: "Unable to create user" } satisfies ApiError
-  }
-}
-
-/** Handle the deferred-creation early-return for the kiosk new-student
- *  prepareOnly path. Returns a PreparedCheckoutAccount or null if not applicable. */
 const buildDeferredAccount = (
   userId: string | null | undefined,
   clerkUser: ClerkUser | null | undefined,
@@ -467,63 +356,6 @@ const buildDeferredAccount = (
       requiresSignIn: false,
       hasAvatar: isKioskNewStudent ? false : Boolean(resolveAvatarState(clerkUser || null).hasAvatar),
     },
-  }
-}
-
-/** For kiosk/QR-phone new-student flows, look up (or create) the student's
- *  Clerk user directly — bypassing ensureGuestClerkUser which 409s on existing
- *  accounts. Also upserts the DB user record. */
-const resolveNewStudentClerkUser = async (
-  identity: { resolvedEmail: string; phoneRaw: string },
-  input: PrepareCheckoutInput
-): Promise<ApiError | { resolvedClerkUser: ClerkUser | null; created: boolean }> => {
-  let studentClerkUser: ClerkUser | null = null
-  try {
-    studentClerkUser = await findClerkUserByIdentifiers({
-      email: identity.resolvedEmail,
-      phone: identity.phoneRaw || input.phone,
-    })
-  } catch (err) {
-    console.error("[checkout] findClerkUserByIdentifiers failed for kiosk new-student", err)
-    return { status: 502, error: "Unable to look up student account" } satisfies ApiError
-  }
-
-  if (studentClerkUser) {
-    try {
-      await upsertUserByIdentifiers({
-        clerkId: studentClerkUser.id,
-        email: identity.resolvedEmail,
-        name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
-        phone: input.phone,
-      })
-    } catch (err) {
-      console.error("[checkout] upsertUserByIdentifiers failed for kiosk new-student", err)
-      return { status: 502, error: "Unable to prepare student account" } satisfies ApiError
-    }
-    return { resolvedClerkUser: studentClerkUser, created: false }
-  }
-
-  // Student's Clerk user not found — create it.
-  try {
-    const newUser = await ensureClerkUser({
-      email: identity.resolvedEmail,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      name: input.name,
-      phone: input.phone,
-    })
-    if (newUser) {
-      await upsertUserByIdentifiers({
-        clerkId: newUser.id,
-        email: identity.resolvedEmail,
-        name: input.name || `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim() || undefined,
-        phone: input.phone,
-      })
-    }
-    return { resolvedClerkUser: newUser || null, created: Boolean(newUser) }
-  } catch (err) {
-    console.warn("Clerk user creation failed for kiosk new-student", err)
-    return { status: 502, error: "Unable to create user" } satisfies ApiError
   }
 }
 
@@ -584,19 +416,15 @@ export const prepareCheckoutAccount = async (
   const kioskSessionAccount = await resolveKioskSessionAccount(options)
   if (kioskSessionAccount !== null) return kioskSessionAccount
 
-  // Phase 3 — Contact identity + terminal auth guard
-  // For new-student kiosk flows, ignore the staff's Clerk user so the
-  // new student's form data (email/phone) is used instead of the staff's.
-  const skipStaffIdentity = exactNewStudentFlow
-  const identityClerkUser = skipStaffIdentity ? null : clerkUser
-  const identity = exactNewStudentIdentity
-    ? {
-        resolvedEmail: exactNewStudentIdentity.resolvedEmail,
-        phoneRaw: exactNewStudentIdentity.phoneRaw,
-        phoneNormalized: exactNewStudentIdentity.phoneNormalized,
-      }
-    : resolveContactIdentity({ clerkUser: identityClerkUser, email: input.email, phone: input.phone })
-  if ("status" in identity) return identity
+  // Phase 3 — Strict contact identity + terminal auth guard
+  const skipAmbientIdentity = exactNewStudentFlow || Boolean(isStaffOperatingForCustomer)
+  const identityClerkUser = skipAmbientIdentity ? null : clerkUser
+  let exactContact: ReturnType<typeof parseExactContact> | null = exactNewStudentIdentity
+  try {
+    exactContact ||= resolveContactIdentity({ clerkUser: identityClerkUser, email: input.email, phone: input.phone })
+  } catch { return { status: 400, error: "Missing or invalid phone" } satisfies ApiError }
+  if ("status" in exactContact) return exactContact
+  const { parsedPhone, ...identity } = exactContact
 
   const terminalAuthError = await assertKioskTerminalAuthForLookup(
     userId,
@@ -654,81 +482,68 @@ export const prepareCheckoutAccount = async (
     }
   }
 
-  // Phase 4 — Clerk user resolution
-  let resolvedClerkUser = clerkUser
-  let created = false
-  const allowExistingAccountLookup = Boolean(options.allowExistingAccountLookup)
-
-  if (!resolvedClerkUser && allowExistingAccountLookup) {
-    const lookupResult = await resolveClerkUserWithLookup(identity, input, options)
-    if ("status" in lookupResult) return lookupResult
-
-    if (!lookupResult.resolvedClerkUser && options.deferUserCreation) {
-      // No existing account, deferred creation — return bare identity for SMS flow.
-      return {
-        userId: null,
-        clerkUser: null,
-        resolvedUserId: null,
-        identity,
-        account: { clerkUserId: null, created: false, requiresSignIn: false, hasAvatar: false },
+  let resolvedClerkUser: ClerkUser | null = null
+  const creation = { occurred: false }
+  try {
+    const client = await clerkClient()
+    const dependencies = createCheckoutExactAccountDependencies(client, creation, identityClerkUser)
+    if (options.deferUserCreation) {
+      const resolution = resolveExactIdentity(await dependencies.readSnapshot({
+        email: identity.resolvedEmail, phone: buildExactPhoneLookup(parsedPhone),
+      }))
+      if (resolution.kind === "conflict") {
+        return { status: 409, error: "Contact details are already linked to another account." } satisfies ApiError
       }
-    }
-
-    resolvedClerkUser = lookupResult.resolvedClerkUser
-    created = lookupResult.created
-  } else {
-    // Safety net: if deferUserCreation is set (kiosk new-student prepareOnly),
-    // never call ensureGuestClerkUser — it 409s on existing accounts.
-    const deferredAccount = buildDeferredAccount(userId, clerkUser, identity, options, isNewStudentKioskFlow)
-    if (deferredAccount) return deferredAccount
-
-    // Full checkout path (deferUserCreation=false): same staff-session guard.
-    // For kiosk/QR-phone new-student, staff identity must not leak into the
-    // resolved account.
-    const isNewStudentWithPreCreatedAccount =
-      (options.photoContext === "kiosk_terminal" || options.photoContext === "qr_phone") &&
-      isNewStudentKioskFlow
-
-    if (isNewStudentWithPreCreatedAccount) {
-      const studentResult = await resolveNewStudentClerkUser(identity, input)
-      if ("status" in studentResult) return studentResult
-      resolvedClerkUser = studentResult.resolvedClerkUser
-      created = studentResult.created
+      resolvedClerkUser = resolution.clerkIdentity
     } else {
-      const guestResult = await ensureGuestClerkUser({
-        userId: userId || undefined,
-        resolvedEmail: identity.resolvedEmail,
-        phoneRaw: identity.phoneRaw,
+      const exactAccount = await ensureExactAccountIdentity({
+        email: identity.resolvedEmail,
+        phone: parsedPhone.e164,
         firstName: input.firstName,
         lastName: input.lastName,
         name: input.name,
-        phone: input.phone,
-      })
-      if ("status" in guestResult && typeof guestResult.status === "number") return guestResult
-      resolvedClerkUser = resolvedClerkUser || guestResult.ensuredClerkUser
-      created = Boolean(guestResult.ensuredClerkUser && !userId)
+      }, dependencies)
+      if (!exactAccount.ok) {
+        return {
+          status: exactAccount.code === "INVALID_CONTACT" ? 400 : 409,
+          error: exactAccount.code === "INVALID_CONTACT"
+            ? "Missing or invalid contact details"
+            : "Contact details are already linked to another account.",
+        } satisfies ApiError
+      }
+      resolvedClerkUser = exactAccount.clerkIdentity
     }
+    const authenticatedClerkId = skipAmbientIdentity ? null : (identityClerkUser?.id || userId)
+    if (authenticatedClerkId && resolvedClerkUser?.id !== authenticatedClerkId) {
+      return { status: 409, error: "Contact details are already linked to another account." } satisfies ApiError
+    }
+  } catch (error) {
+    console.warn("Exact checkout account preparation failed", error)
+    return { status: 502, error: "Unable to prepare account" } satisfies ApiError
+  }
+
+  if (!resolvedClerkUser) {
+    const deferredAccount = buildDeferredAccount(userId, clerkUser, identity, options, isNewStudentKioskFlow)
+    if (deferredAccount) return deferredAccount
   }
 
   // Phase 5 — Avatar refresh + final result assembly
   const { clerkUser: refreshedClerkUser, hasAvatar } = await resolveAvatarForAccount(
     resolvedClerkUser,
-    clerkUser
+    identityClerkUser
   )
   resolvedClerkUser = refreshedClerkUser
 
-  // For kiosk new-student, skip the staff userId — use the student's Clerk ID instead.
-  const shouldSkipStaffUserId = options.photoContext === "kiosk_terminal" && isNewStudentKioskFlow
-  const resolvedUserId = (shouldSkipStaffUserId ? null : userId) || resolvedClerkUser?.id || null
+  const resolvedUserId = (skipAmbientIdentity ? null : userId) || resolvedClerkUser?.id || null
 
   return {
-    userId: userId || null,
+    userId: skipAmbientIdentity ? null : (userId || null),
     clerkUser: resolvedClerkUser || null,
     resolvedUserId,
     identity,
     account: {
       clerkUserId: resolvedUserId,
-      created,
+      created: creation.occurred,
       requiresSignIn: Boolean(!userId && options.photoContext === "qr_phone" && !isNewStudentKioskFlow),
       hasAvatar,
     },

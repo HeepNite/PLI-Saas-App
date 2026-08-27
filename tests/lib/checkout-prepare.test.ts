@@ -52,6 +52,13 @@ vi.mock("@clerk/backend", () => ({
   verifyToken: mockVerifyToken,
 }))
 
+vi.mock("@/lib/phone", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/phone")>()
+  return { ...actual, parseServerPhoneInput(input: string) {
+    const digits = input.replace(/\D/g, "")
+    return actual.parseServerPhoneInput(/^1555\d{7}$/.test(digits) ? `+1202555${digits.slice(-4)}` : input)
+  } }
+})
 vi.mock("@/lib/checkin/kiosk-session", () => ({
   resolveTerminalKioskSession: mockResolveTerminalKioskSession,
   touchKioskIdentificationSession: mockTouchKioskIdentificationSession,
@@ -114,6 +121,14 @@ const makeClerkClient = () => ({
   },
 })
 
+const mockExactAccount = (clerkIdentity: MockClerkUser, outcome: "created" | "reused" = "reused") => {
+  mockEnsureExactAccountIdentity.mockResolvedValue({ ok: true, outcome, clerkIdentity,
+    localIdentity: { id: `local_${clerkIdentity.id}`, clerkId: clerkIdentity.id } })
+  mockCreateCheckoutExactAccountDependencies.mockImplementation((_client, creation) => {
+    if (outcome === "created") creation.occurred = true
+    return { readSnapshot: mockReadExactSnapshot }
+  })
+}
 describe("prepareCheckoutAccount", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -142,6 +157,7 @@ describe("prepareCheckoutAccount", () => {
     client.users.getUserList.mockResolvedValue({ data: [] })
     mockAuth.mockResolvedValue({ userId: clerkUser.id })
     mockClerkClient.mockResolvedValue(client)
+    mockExactAccount(clerkUser)
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -168,6 +184,7 @@ describe("prepareCheckoutAccount", () => {
     client.users.getUserList.mockResolvedValue({ data: [] })
     mockAuth.mockResolvedValue({ userId: clerkUser.id })
     mockClerkClient.mockResolvedValue(client)
+    mockExactAccount(clerkUser)
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -219,7 +236,7 @@ describe("prepareCheckoutAccount", () => {
     expect(client.phoneNumbers.createPhoneNumber).not.toHaveBeenCalled()
   })
 
-  it("still fills missing ambient Clerk profile fields during ordinary signed-in checkout", async () => {
+  it("delegates signed-in profile completion to exact account resolution", async () => {
     const signedInUser = makeClerkUser({
       id: "signed_in_user",
       firstName: null,
@@ -233,6 +250,7 @@ describe("prepareCheckoutAccount", () => {
     client.users.getUser.mockResolvedValue(signedInUser)
     mockAuth.mockResolvedValue({ userId: signedInUser.id })
     mockClerkClient.mockResolvedValue(client)
+    mockExactAccount(signedInUser)
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -243,16 +261,8 @@ describe("prepareCheckoutAccount", () => {
     })
 
     expect("status" in result).toBe(false)
-    expect(client.users.updateUser).toHaveBeenCalledWith(signedInUser.id, {
-      firstName: "Signed",
-      lastName: "Customer",
-    })
-    expect(client.phoneNumbers.createPhoneNumber).toHaveBeenCalledWith({
-      userId: signedInUser.id,
-      phoneNumber: "+15554445555",
-      verified: false,
-      primary: true,
-    })
+    expect(mockEnsureExactAccountIdentity).toHaveBeenCalledWith(expect.objectContaining({
+      phone: "+12025555555", firstName: "Signed", lastName: "Customer" }), expect.anything())
   })
 
   it("returns hasAvatar true when an existing user is found by identifiers", async () => {
@@ -281,6 +291,7 @@ describe("prepareCheckoutAccount", () => {
     })
     mockAuth.mockResolvedValue({ userId: null })
     mockClerkClient.mockResolvedValue(client)
+    mockExactAccount(existingUser)
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -325,6 +336,7 @@ describe("prepareCheckoutAccount", () => {
     })
     mockAuth.mockResolvedValue({ userId: null })
     mockClerkClient.mockResolvedValue(client)
+    mockExactAccount(existingUser)
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -390,6 +402,7 @@ describe("prepareCheckoutAccount", () => {
     })
     mockAuth.mockResolvedValue({ userId: null })
     mockClerkClient.mockResolvedValue(client)
+    mockExactAccount(ambiguousUser)
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -433,6 +446,7 @@ describe("prepareCheckoutAccount", () => {
     client.users.createUser.mockResolvedValue(createdUser)
     mockAuth.mockResolvedValue({ userId: null })
     mockClerkClient.mockResolvedValue(client)
+    mockExactAccount(createdUser, "created")
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
