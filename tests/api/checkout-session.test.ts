@@ -380,13 +380,13 @@ describe("checkout session route", () => {
       ok: true,
       kind: "created",
       idempotencyKey: "special-salsa-class-2026-08-30:c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
-      holdExpiresAt: new Date("2026-08-23T20:30:01.000Z"),
+      holdExpiresAt: new Date("2026-08-23T20:03:01.000Z"),
       purchase: { id: "purchase_special_1", amount: 2000, status: "pending", stripeCheckoutSessionId: null },
     })
     mockCreateCheckoutSession.mockResolvedValueOnce({
       id: "cs_test_123",
       url: "https://stripe.test/session",
-      expires_at: 1_787_517_001,
+      expires_at: 1_787_518_800,
     })
     const { POST } = await import("@/app/api/checkout/session/route")
     const res = await POST(new Request("http://localhost/api/checkout/session", {
@@ -407,21 +407,25 @@ describe("checkout session route", () => {
     expect(res.status).toBe(200)
     expect(mockValidate).not.toHaveBeenCalled()
     expect(mockAdmitSpecialClassReservation).toHaveBeenCalledWith(
-      expect.objectContaining({ holdExpiresAt: new Date("2026-08-23T20:30:01.000Z") }),
+      expect.objectContaining({ specialClassSlug: "special-salsa-class-2026-08-30" }),
       expect.objectContaining({ now: expect.any(Function) }),
     )
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: "payment",
         customer_creation: "always",
-        success_url: "http://localhost:3000/special-salsa-class/confirmation?session_id={CHECKOUT_SESSION_ID}",
-        cancel_url: "http://localhost:3000/special-salsa-class?checkout=cancelled&attempt=c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
-        expires_at: 1_787_517_001,
+        success_url: "http://localhost:3000/special-classes/special-salsa-class-2026-08-30/confirmation?session_id={CHECKOUT_SESSION_ID}",
+        cancel_url: "http://localhost:3000/special-classes/special-salsa-class-2026-08-30?checkout=cancelled&attempt=c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
+        payment_method_types: ["card"],
         payment_intent_data: {
+          capture_method: "manual",
           metadata: {
-            specialEventKey: "special-salsa-class-2026-08-30",
+            specialClassId: "special-salsa-class-2026-08-30",
+            specialClassSlug: "special-salsa-class-2026-08-30",
+            classSessionId: "",
             attemptId: "c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
             lockedAmountCents: "2000",
+            purchaseId: "purchase_special_1",
           },
         },
         line_items: [{
@@ -429,11 +433,12 @@ describe("checkout session route", () => {
           price_data: expect.objectContaining({ currency: "usd", unit_amount: 2000 }),
         }],
         metadata: expect.objectContaining({
-          specialEventKey: "special-salsa-class-2026-08-30",
+          specialClassId: "special-salsa-class-2026-08-30",
+          specialClassSlug: "special-salsa-class-2026-08-30",
           lockedAmountCents: "2000",
           courseSlug: "special-salsa-calena-2026-08-30",
           date: "2026-08-30",
-          time: "16:00",
+          time: "20:00",
         }),
       }),
       { idempotencyKey: "special-salsa-class-2026-08-30:c6c05f53-2cc6-4a78-a35e-61daf6f13cb2" },
@@ -500,7 +505,7 @@ describe("checkout session route", () => {
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled()
   })
 
-  it("expires and releases a recovered Stripe Session whose expiry differs from the persisted hold", async () => {
+  it("reuses a recovered open Stripe Session independently of the internal hold expiry value", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date((1_777_146_200 - 60) * 1000))
     mockAdmitSpecialClassReservation.mockResolvedValueOnce({
@@ -528,12 +533,13 @@ describe("checkout session route", () => {
       }),
     }))
 
-    expect(res.status).toBe(409)
-    expect(mockExpireCheckoutSession).toHaveBeenCalledWith("cs_mismatched")
-    expect(mockFailSpecialClassHold).toHaveBeenCalledWith("purchase_special_1")
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ sessionId: "cs_mismatched", url: "https://stripe.test/mismatched" })
+    expect(mockExpireCheckoutSession).not.toHaveBeenCalled()
+    expect(mockFailSpecialClassHold).not.toHaveBeenCalled()
   })
 
-  it("preserves capacity through the later Stripe expiry when a recovered mismatched Session cannot be expired", async () => {
+  it("never compares a recovered Stripe Session expiry to the internal lease", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date((1_777_146_200 - 60) * 1000))
     mockAdmitSpecialClassReservation.mockResolvedValueOnce({
@@ -555,7 +561,6 @@ describe("checkout session route", () => {
       status: "open",
       expires_at: 1_777_146_260,
     })
-    mockExpireCheckoutSession.mockRejectedValueOnce(new Error("Stripe unavailable"))
     const { POST } = await import("@/app/api/checkout/session/route")
     const res = await POST(new Request("http://localhost/api/checkout/session", {
       method: "POST",
@@ -568,18 +573,16 @@ describe("checkout session route", () => {
       }),
     }))
 
-    expect(res.status).toBe(409)
-    await expect(res.json()).resolves.toMatchObject({ code: "CHECKOUT_IN_PROGRESS" })
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ sessionId: "cs_mismatched" })
+    expect(mockExpireCheckoutSession).not.toHaveBeenCalled()
     expect(mockFailSpecialClassHold).not.toHaveBeenCalled()
-    expect(mockPreserveSpecialClassHold).toHaveBeenCalledWith({
-      purchaseId: "purchase_special_1",
-      sessionId: "cs_mismatched",
-      currentMetadata: { attemptId: "attempt_1", holdExpiresAt: new Date(1_777_146_200 * 1000).toISOString() },
-      holdExpiresAt: new Date(1_777_146_260 * 1000),
-    })
+    expect(mockPreserveSpecialClassHold).not.toHaveBeenCalled()
   })
 
-  it("preserves capacity through the later Stripe expiry when a new mismatched Session cannot be expired", async () => {
+  it("never sends the internal three-minute lease as Stripe expires_at", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date((1_775_958_000 - 60) * 1000))
     mockAdmitSpecialClassReservation.mockResolvedValueOnce({
       ok: true,
       kind: "created",
@@ -598,7 +601,6 @@ describe("checkout session route", () => {
       url: "https://stripe.test/new-mismatched",
       expires_at: 1_775_958_060,
     })
-    mockExpireCheckoutSession.mockRejectedValueOnce(new Error("Stripe unavailable"))
     const { POST } = await import("@/app/api/checkout/session/route")
     const res = await POST(new Request("http://localhost/api/checkout/session", {
       method: "POST",
@@ -611,15 +613,10 @@ describe("checkout session route", () => {
       }),
     }))
 
-    expect(res.status).toBe(500)
-    await expect(res.json()).resolves.toMatchObject({ code: "CHECKOUT_UNAVAILABLE" })
-    expect(mockFailSpecialClassHold).not.toHaveBeenCalled()
-    expect(mockPreserveSpecialClassHold).toHaveBeenCalledWith({
-      purchaseId: "purchase_special_1",
-      sessionId: "cs_new_mismatched",
-      currentMetadata: { attemptId: "attempt_1", holdExpiresAt: new Date(1_775_958_000 * 1000).toISOString() },
-      holdExpiresAt: new Date(1_775_958_060 * 1000),
-    })
+    expect(res.status).toBe(200)
+    const createPayload = mockCreateCheckoutSession.mock.calls[0][0]
+    expect(createPayload).not.toHaveProperty("expires_at")
+    expect(createPayload.payment_intent_data.capture_method).toBe("manual")
   })
 
   it("returns an expired-attempt response without creating a Stripe Session", async () => {

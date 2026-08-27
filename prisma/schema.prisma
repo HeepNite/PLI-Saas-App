@@ -103,6 +103,11 @@ model Purchase {
   parentPurchaseId        String?
   idempotencyKey          String?           @unique
   metadata                Json?
+  specialClassId          String?
+  specialClass            SpecialClass?     @relation(fields: [specialClassId], references: [id], onDelete: SetNull)
+  classSessionId          String?
+  classSession            ClassSession?     @relation("SpecialClassPurchaseSession", fields: [classSessionId], references: [id], onDelete: SetNull)
+  holdExpiresAt           DateTime?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   packagePurchases        PackagePurchase[]
@@ -113,6 +118,8 @@ model Purchase {
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@index([specialClassId, status, holdExpiresAt])
+  @@index([classSessionId])
   @@unique([parentPurchaseId])
 }
 
@@ -306,10 +313,62 @@ model ClassSession {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   attendances     Attendance[]
+  specialClass    SpecialClass?
+  specialPurchases Purchase[] @relation("SpecialClassPurchaseSession")
 
   @@unique([courseSlug, startsAt])
   @@index([courseSlug, startsAt])
   @@index([roomId, startsAt])
+}
+
+model SpecialClass {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  status         String   @default("draft")
+  classSessionId String   @unique
+  classSession   ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Restrict)
+  title          String
+  description    String
+  coverImageUrl  String?
+  currency       String
+  priceCents     Int
+  salesOpenAt    DateTime?
+  salesCloseAt   DateTime?
+  publishedAt    DateTime?
+  cancelledAt    DateTime?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  purchases      Purchase[]
+  auditLogs      SpecialClassAuditLog[]
+
+  @@index([status, salesOpenAt, salesCloseAt])
+  @@index([classSessionId])
+}
+
+model SpecialClassAuditLog {
+  id                String   @id @default(cuid())
+  specialClassId    String
+  specialClass      SpecialClass @relation(fields: [specialClassId], references: [id], onDelete: Cascade)
+  classSessionId    String?
+  purchaseId        String?
+  attendanceId      String?
+  action            String
+  actorClerkUserId  String
+  actorRole         String
+  beforeState       Json?
+  afterState        Json?
+  reason            String?
+  correlationId     String
+  idempotencyKey    String?
+  createdAt         DateTime @default(now())
+
+  @@index([specialClassId, createdAt])
+  @@index([correlationId])
+  @@index([idempotencyKey])
+  @@index([action, createdAt])
+  @@unique([specialClassId, correlationId])
+  @@unique([specialClassId, idempotencyKey])
 }
 
 model RoomReservation {

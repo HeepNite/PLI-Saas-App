@@ -17,6 +17,9 @@ export const parseIntSafe = (value: string | undefined) => {
  */
 export const pickStripeMetadata = (metadata?: Stripe.Metadata | null) => ({
   specialEventKey: normalize(metadata?.specialEventKey),
+  specialClassId: normalize(metadata?.specialClassId),
+  specialClassSlug: normalize(metadata?.specialClassSlug),
+  classSessionId: normalize(metadata?.classSessionId),
   attemptId: normalize(metadata?.attemptId),
   lockedAmountCents: normalize(metadata?.lockedAmountCents),
   courseSlug: normalize(metadata?.courseSlug),

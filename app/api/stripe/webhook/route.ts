@@ -31,6 +31,12 @@ import {
   touchStripeWebhookEventHeartbeat,
 } from "@/lib/stripe/webhook-event-store"
 import { SPECIAL_SALSA_CLASS, isSpecialClassPriceCents } from "@/lib/special-salsa-class/config"
+import {
+  admitSpecialClassAuthorization,
+  finalizeSpecialClassCapture,
+  finalizeSpecialClassNoCapacityCancellation,
+  finalizeSpecialClassPaymentFailure,
+} from "@/lib/special-classes/fulfillment"
 
 export const runtime = "nodejs"
 
@@ -478,13 +484,13 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
   const amount = session.amount_total ?? 0
   const currency = session.currency || "usd"
   const rawMeta = pickStripeMetadata(session.metadata)
-  const specialPurchase = rawMeta.specialEventKey
+  const specialPurchase = rawMeta.specialEventKey || rawMeta.specialClassId
     ? await prisma.purchase.findUnique({
         where: { stripeCheckoutSessionId: session.id },
-        select: { metadata: true, amount: true, currency: true },
+        select: { id: true, metadata: true, amount: true, currency: true, stripePaymentIntentId: true },
       })
     : null
-  if (rawMeta.specialEventKey && !specialPurchase) {
+  if ((rawMeta.specialEventKey || rawMeta.specialClassId) && !specialPurchase) {
     throw new Error("Special event locked Purchase missing")
   }
   const meta = resolveTrustedSpecialMetadata(rawMeta, amount, currency, specialPurchase)
@@ -500,6 +506,26 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
   const paymentIntentId =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id
 
+  if (rawMeta.specialClassId) {
+    if (!paymentIntentId || !specialPurchase) throw new Error("Special class PaymentIntent missing")
+    if (specialPurchase.amount !== amount || specialPurchase.currency.toLowerCase() !== currency.toLowerCase()) {
+      throw new Error("Special class payment contract mismatch")
+    }
+    if (!specialPurchase.stripePaymentIntentId) {
+      await prisma.purchase.update({
+        where: { id: specialPurchase.id },
+        data: { stripePaymentIntentId: paymentIntentId, stripeCheckoutSessionId: session.id },
+      })
+    }
+    const intent = typeof session.payment_intent === "object" && session.payment_intent
+      ? session.payment_intent
+      : await stripe!.paymentIntents.retrieve(paymentIntentId)
+    if (intent.status === "requires_capture" || intent.status === "succeeded" || intent.status === "canceled") {
+      await handleSpecialClassPaymentIntent(intent, eventId)
+    }
+    return
+  }
+
   const user = await resolveUser({
     clerkId,
     email,
@@ -513,7 +539,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
       hasClerkId: Boolean(clerkId),
       hasEmail: Boolean(email),
     })
-    return
+    throw new Error("Stripe webhook user resolution incomplete")
   }
 
   const status = normalizePersistedPurchaseStatus(session.payment_status)
@@ -561,6 +587,14 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
 }
 
 async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
+  const amount = intent.amount ?? 0
+  const currency = intent.currency || "usd"
+  const meta = pickStripeMetadata(intent.metadata)
+  if (meta.specialClassId) {
+    resolveTrustedSpecialMetadata(meta, amount, currency)
+    await handleSpecialClassPaymentIntent(intent, eventId)
+    return
+  }
   // Skip if this payment intent already has a Purchase record — either created by
   // this handler's upsert or by handleCheckoutSession which sets stripePaymentIntentId.
   const existingByIntent = await prisma.purchase.findUnique({
@@ -569,9 +603,6 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string
   })
   if (existingByIntent) return
 
-  const amount = intent.amount ?? 0
-  const currency = intent.currency || "usd"
-  const meta = pickStripeMetadata(intent.metadata)
   if (meta.specialEventKey) {
     resolveTrustedSpecialMetadata(meta, amount, currency)
     return
@@ -595,7 +626,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string
       hasClerkId: Boolean(clerkId),
       hasEmail: Boolean(email),
     })
-    return
+    throw new Error("Stripe webhook user resolution incomplete")
   }
 
   const status = normalizePersistedPurchaseStatus(intent.status)
@@ -626,6 +657,44 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string
   })
 }
 
+async function handleSpecialClassPaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
+  const metadataPurchaseId = intent.metadata.purchaseId?.trim()
+  const purchase = metadataPurchaseId
+    ? await prisma.purchase.findUnique({ where: { id: metadataPurchaseId } })
+    : await prisma.purchase.findUnique({ where: { stripePaymentIntentId: intent.id } })
+  if (!purchase) throw new Error("Special class locked Purchase missing")
+  if (purchase.amount !== intent.amount || purchase.currency.toLowerCase() !== intent.currency.toLowerCase()) {
+    throw new Error("Special class payment contract mismatch")
+  }
+  if (!purchase.stripePaymentIntentId) {
+    await prisma.purchase.update({ where: { id: purchase.id }, data: { stripePaymentIntentId: intent.id } })
+  } else if (purchase.stripePaymentIntentId !== intent.id) {
+    throw new Error("Special class PaymentIntent linkage mismatch")
+  }
+
+  const outcome = await admitSpecialClassAuthorization(prisma, {
+    purchaseId: purchase.id,
+    amount: intent.amount,
+    currency: intent.currency,
+    eventId,
+    source: "stripe_webhook_intent",
+  })
+  if (outcome.kind === "captured") return
+  if (outcome.kind === "capture") {
+    if (intent.status !== "succeeded") {
+      if (intent.status !== "requires_capture") throw new Error(`Special class PaymentIntent is not capturable: ${intent.status}`)
+      await stripe!.paymentIntents.capture(intent.id, {}, { idempotencyKey: `special-class:capture:${purchase.id}` })
+    }
+    await finalizeSpecialClassCapture(prisma, { purchaseId: purchase.id, eventId })
+    return
+  }
+  if (intent.status !== "canceled") {
+    if (intent.status !== "requires_capture") throw new Error(`Special class PaymentIntent is not cancellable: ${intent.status}`)
+    await stripe!.paymentIntents.cancel(intent.id, {}, { idempotencyKey: `special-class:cancel:${purchase.id}` })
+  }
+  await finalizeSpecialClassNoCapacityCancellation(prisma, { purchaseId: purchase.id, eventId })
+}
+
 async function handlePaymentIntentFailure(event: Stripe.Event) {
   const intent = event.data.object as Stripe.PaymentIntent
   const failure = normalizeFailureFromPaymentIntent(intent, event)
@@ -636,11 +705,17 @@ async function handlePaymentIntentFailure(event: Stripe.Event) {
   if (!purchase) return // failure events never create purchases
   if (SUCCESSFUL_PURCHASE_STATUSES.includes(purchase.status)) return // status guard: never downgrade paid
 
+  const failureMetadata = mergeFailureIntoMetadata(purchase.metadata, failure) as Prisma.InputJsonValue
+  if (purchase.specialClassId && purchase.classSessionId) {
+    await finalizeSpecialClassPaymentFailure(prisma, { purchaseId: purchase.id, eventId: event.id, metadata: failureMetadata })
+    return
+  }
+
   await prisma.purchase.update({
     where: { id: purchase.id },
     data: {
       status: "failed",
-      metadata: mergeFailureIntoMetadata(purchase.metadata, failure) as Prisma.InputJsonValue,
+      metadata: failureMetadata,
     },
   })
 }
@@ -706,6 +781,9 @@ export async function POST(req: Request) {
       case "payment_intent.succeeded":
         await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
         break
+      case "payment_intent.amount_capturable_updated":
+        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
+        break
       case "payment_intent.payment_failed":
         await handlePaymentIntentFailure(event)
         break
@@ -729,27 +807,26 @@ export async function POST(req: Request) {
   // processing try/catch above, so a bookkeeping-write failure after real
   // success is never confused with (or triggers the same remediation as) an
   // actual processing failure (design §4 step 6, ADR-4).
-  await markEventCompletedWithRetry(event.id, event.type)
+  const completionRecorded = await markEventCompletedWithRetry(event.id, event.type)
+  if (!completionRecorded) return new NextResponse("Webhook completion could not be recorded", { status: 500 })
 
   return NextResponse.json({ received: true })
 }
 
 const COMPLETION_WRITE_MAX_ATTEMPTS = 3
 
-async function markEventCompletedWithRetry(eventId: string, eventType: string): Promise<void> {
+async function markEventCompletedWithRetry(eventId: string, eventType: string): Promise<boolean> {
   for (let attempt = 1; attempt <= COMPLETION_WRITE_MAX_ATTEMPTS; attempt++) {
     try {
       await completeStripeWebhookEvent(eventId)
-      return
+      return true
     } catch (err) {
       if (attempt < COMPLETION_WRITE_MAX_ATTEMPTS) continue
-      // Business processing already succeeded — this is purely a bookkeeping
-      // write failure. Do NOT return non-2xx to Stripe: that would cause a
-      // retry of an event whose side effects have already landed, risking the
-      // exact duplicate-side-effect class of bug this fix exists to prevent.
-      // Distinct, pageable tag — remediation is manual reconciliation of this
-      // row's status, not a business-logic fix or a reprocess.
+      // Business processing is idempotent, so leave the claim incomplete and
+      // return non-2xx. Stripe can safely retry until completion is durable.
       console.error("stripe_webhook_completion_write_exhausted", { eventId, eventType, err })
+      return false
     }
   }
+  return false
 }

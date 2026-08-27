@@ -27,7 +27,7 @@ const withoutSchema = (databaseUrl: string) => {
   return url.toString()
 }
 
-export const setupIntegrationDb = async (): Promise<IntegrationDbContext> => {
+const setupDb = async (provisionCommand: string): Promise<IntegrationDbContext> => {
   loadEnvForDb()
   const baseUrl = process.env.DATABASE_URL
   if (!baseUrl) {
@@ -37,7 +37,7 @@ export const setupIntegrationDb = async (): Promise<IntegrationDbContext> => {
   const schema = `it_${Date.now()}_${randomUUID().slice(0, 8)}`
   const databaseUrl = withSchema(baseUrl, schema)
 
-  execSync("npx prisma db push --skip-generate", {
+  execSync(provisionCommand, {
     env: {
       ...process.env,
       DATABASE_URL: databaseUrl,
@@ -80,3 +80,5 @@ export const setupIntegrationDb = async (): Promise<IntegrationDbContext> => {
   }
 }
 
+export const setupIntegrationDb = () => setupDb("npx prisma db push --skip-generate")
+export const setupMigratedIntegrationDb = () => setupDb("npx prisma migrate deploy")

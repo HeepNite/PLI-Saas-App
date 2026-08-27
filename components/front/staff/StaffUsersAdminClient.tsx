@@ -4,6 +4,7 @@ import React from "react"
 import { useSearchParams } from "next/navigation"
 import {
   Bot,
+  CalendarPlus,
   CircleDollarSign,
   GraduationCap,
   Monitor,
@@ -76,6 +77,7 @@ import {
 const NAV_ITEMS: StaffPortalNavItem[] = [
   { key: "users", label: "User Management", icon: Users },
   { key: "students", label: "Students", icon: GraduationCap },
+  { key: "special_classes", label: "Special Classes", icon: CalendarPlus },
   { key: "schedule", label: "School", icon: School },
   { key: "terminals", label: "Terminal Manager", icon: Monitor },
   { key: "reports", label: "Reports", icon: CircleDollarSign },

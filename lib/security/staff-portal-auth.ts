@@ -25,6 +25,7 @@ import {
 } from "@/lib/security/staff-access"
 import { prisma } from "@/lib/prisma"
 import { getCachedClerkUser } from "@/lib/clerk-users"
+import { canManageSpecialClassDefinition, canOperateSpecialClassRoster } from "@/lib/special-classes/policy"
 
 const isClerkRateLimitError = (error: unknown): boolean => {
   if (!error || typeof error !== "object") return false
@@ -209,6 +210,24 @@ export const authorizeOwnerOrAdminRequest = async (): Promise<StaffPortalAuthRes
     return { ok: false, status: 403, error: "Owner or Admin role required" }
   }
 
+  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
+}
+
+export const authorizeSpecialClassRosterRequest = async (): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!canOperateSpecialClassRoster(authResult.role, authResult.category, authResult.subCategory)) {
+    return { ok: false, status: 403, error: "Insufficient role" }
+  }
+  return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
+}
+
+export const authorizeSpecialClassDefinitionRequest = async (): Promise<StaffPortalAuthResult> => {
+  const authResult = await authorizeStaffPortalBaseRequest()
+  if (!authResult.ok) return authResult
+  if (!canManageSpecialClassDefinition(authResult.role, authResult.category, authResult.subCategory)) {
+    return { ok: false, status: 403, error: "Owner or Admin role required" }
+  }
   return { ok: true, userId: authResult.userId, role: authResult.role as StaffRole, category: authResult.category, subCategory: authResult.subCategory, staffName: authResult.staffName }
 }
 

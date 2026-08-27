@@ -19,6 +19,7 @@ import StaffAdminUtilityPanels from "./StaffAdminUtilityPanels"
 import StaffAdminModalOverlays from "./StaffAdminModalOverlays"
 import StaffAdminHistoryOverlays from "./StaffAdminHistoryOverlays"
 import StaffAssistantRailContent from "./StaffAssistantRailContent"
+import StaffSpecialClassesPanel from "./StaffSpecialClassesPanel"
 
 export type StaffUsersAdminViewProps = {
   shell: {
@@ -148,6 +149,7 @@ export default function StaffUsersAdminView({
           <StaffSchoolWorkspacePanel {...boards.schoolWorkspace} />
           <StaffPayrollControlPanel {...boards.payrollControl} />
           <StaffStudentsBoardPanel {...boards.studentsBoard} />
+          <StaffSpecialClassesPanel visible={shell.activeNav === "special_classes"} currentRole={statusBanners.currentRole} />
           <StaffReportsPanel {...boards.reports} />
           <StaffApprovalsPanel {...boards.approvals} />
           <StaffTeamCalendarPanel {...boards.teamCalendar} />

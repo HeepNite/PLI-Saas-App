@@ -118,7 +118,13 @@ export const findSelectableClassSessions = (
   const classSessionWindow = dateKey ? getSessionDateWindow(dateKey) : getSelectableSessionWindow(now)
   return Promise.all([
     client.classSession.findMany({
-      where: classSessionWindow,
+      where: {
+        ...classSessionWindow,
+        OR: [
+          { specialClass: { is: null } },
+          { specialClass: { is: { status: { not: "cancelled" } } } },
+        ],
+      },
       select: {
         id: true,
         courseSlug: true,

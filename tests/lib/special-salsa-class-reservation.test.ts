@@ -2,262 +2,58 @@ import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
-import {
-  admitSpecialClassReservation,
-  preserveSpecialClassHold,
-} from "@/lib/checkout/special-class-reservation"
+import { admitSpecialClassReservation } from "@/lib/checkout/special-class-reservation"
+import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
 
-const input = {
-  attemptId: "c6c05f53-2cc6-4a78-a35e-61daf6f13cb2",
-  dbUserId: "db_user_1",
-  email: "ada@example.com",
-  name: "Ada Lovelace",
-  phone: "+12015550123",
-  holdExpiresAt: new Date("2026-08-23T20:30:00.000Z"),
-}
+const now = new Date("2026-08-27T12:00:00.000Z")
+const input = { attemptId: "c6c05f53-2cc6-4a78-a35e-61daf6f13cb2", specialClassSlug: "bachata-workshop", dbUserId: "user-1", email: "ada@example.com", name: "Ada", phone: "+12015550123" }
+const specialClass = { id: "class-1", slug: "bachata-workshop", status: "published", title: "Bachata", description: "Workshop", coverImageUrl: null, priceCents: 2500, currency: "usd", classSessionId: "session-1", salesOpenAt: null, salesCloseAt: null, classSession: { courseSlug: "bachata-workshop", startsAt: new Date("2026-08-28T12:00:00.000Z"), durationMinutes: 60, capacity: 1, location: "PLI" } }
 
-const makeTransaction = (countedSpots = 0) => {
+const makeDb = (overrides: { sameAttempt?: unknown; duplicate?: unknown; occupied?: number; resolvedClass?: typeof specialClass } = {}) => {
   const purchase = {
-    findUnique: vi.fn().mockResolvedValue(null),
-    findFirst: vi.fn().mockResolvedValue(null),
-    count: vi.fn().mockResolvedValue(countedSpots),
-    create: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
-      id: "purchase_1",
-      status: "pending",
-      stripeCheckoutSessionId: null,
-      amount: args.data.amount,
-    })),
-    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    findUnique: vi.fn().mockResolvedValue(overrides.sameAttempt ?? null),
+    findFirst: vi.fn().mockResolvedValue(overrides.duplicate ?? null),
+    count: vi.fn().mockResolvedValue(overrides.occupied ?? 0),
+    create: vi.fn().mockImplementation(async ({ data }) => ({ id: "purchase-1", stripeCheckoutSessionId: null, ...data })),
   }
-  const classSession = { upsert: vi.fn().mockResolvedValue({ id: "session_1" }) }
-  return { purchase, classSession }
+  const tx = { specialClass: { findUnique: vi.fn().mockResolvedValue(overrides.resolvedClass ?? specialClass) }, purchase, $queryRaw: vi.fn().mockResolvedValue([]) }
+  return { tx, db: { $transaction: vi.fn(async (callback) => callback(tx)) } }
 }
 
-describe("special salsa class reservation admission", () => {
-  it("extends the countable hold boundary through a still-open Stripe Session expiry", async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
-
-    await preserveSpecialClassHold({
-      purchaseId: "purchase_1",
-      sessionId: "cs_mismatched",
-      currentMetadata: {
-        specialEventKey: "special-salsa-class-2026-08-30",
-        holdExpiresAt: "2026-08-23T20:30:00.000Z",
-      },
-      holdExpiresAt: new Date("2026-08-23T20:31:00.999Z"),
-    }, {
-      db: { purchase: { updateMany } } as never,
-    })
-
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { id: "purchase_1", status: "pending" },
-      data: {
-        stripeCheckoutSessionId: "cs_mismatched",
-        createdAt: new Date("2026-08-23T20:01:00.000Z"),
-        metadata: {
-          specialEventKey: "special-salsa-class-2026-08-30",
-          holdExpiresAt: "2026-08-23T20:31:00.000Z",
-        },
-      },
-    })
+describe("generic special class reservation admission", () => {
+  it("creates one attendee hold expiring exactly three minutes after admission", async () => {
+    const { tx, db } = makeDb()
+    const result = await admitSpecialClassReservation(input, { db: db as never, now: () => now })
+    expect(result).toMatchObject({ ok: true, kind: "created", holdExpiresAt: new Date("2026-08-27T12:03:00.000Z") })
+    expect(tx.purchase.create).toHaveBeenCalledWith({ data: expect.objectContaining({ participants: 1, specialClassId: "class-1", classSessionId: "session-1", holdExpiresAt: new Date("2026-08-27T12:03:00.000Z") }) })
   })
 
-  it("creates one fixed pending hold inside a serializable transaction", async () => {
-    const tx = makeTransaction()
-    const db = { $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }
-
-    const result = await admitSpecialClassReservation(input, { db: db as never, now: () => new Date("2026-08-23T20:00:00.000Z") })
-
-    expect(result).toMatchObject({
-      ok: true,
-      kind: "created",
-      purchase: { id: "purchase_1" },
-      holdExpiresAt: new Date("2026-08-23T20:30:00.000Z"),
-    })
-    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
-    expect(tx.classSession.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({ capacity: 40, durationMinutes: 60, location: "54 Coles St, Jersey City" }),
-    }))
-    expect(tx.purchase.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        amount: 2000,
-        currency: "usd",
-        status: "pending",
-        participants: 1,
-        createdAt: new Date("2026-08-23T20:00:00.000Z"),
-        metadata: expect.objectContaining({ holdExpiresAt: "2026-08-23T20:30:00.000Z" }),
-      }),
-    }))
+  it("expires stale holds before checking capacity", async () => {
+    const { tx, db } = makeDb()
+    await admitSpecialClassReservation(input, { db: db as never, now: () => now })
+    expect(tx.purchase.updateMany).toHaveBeenCalledWith({ where: { specialClassId: "class-1", status: "pending", holdExpiresAt: { lte: now } }, data: { status: "expired" } })
   })
 
-  it("returns the same hold for the same attempt", async () => {
-    const tx = makeTransaction()
-    tx.purchase.findUnique.mockResolvedValue({
-      id: "purchase_existing",
-      userId: input.dbUserId,
-      courseSlug: "special-salsa-calena-2026-08-30",
-      status: "pending",
-      amount: 2000,
-      stripeCheckoutSessionId: "cs_existing",
-      createdAt: new Date("2026-08-23T20:00:00.000Z"),
-      metadata: { holdExpiresAt: "2026-08-23T20:30:00.000Z" },
-    })
-    const db = { $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }
-
-    const result = await admitSpecialClassReservation(input, {
-      db: db as never,
-      now: () => new Date("2026-08-23T20:29:59.999Z"),
-    })
-
-    expect(result).toMatchObject({
-      ok: true,
-      kind: "existing",
-      purchase: { id: "purchase_existing" },
-      holdExpiresAt: new Date("2026-08-23T20:30:00.000Z"),
-    })
+  it("reuses the same active attempt without another capacity claim", async () => {
+    const holdExpiresAt = new Date("2026-08-27T12:03:00.000Z")
+    const { tx, db } = makeDb({ sameAttempt: { id: "purchase-1", userId: "user-1", specialClassId: "class-1", status: "pending", holdExpiresAt, amount: 2500, stripeCheckoutSessionId: "cs_1" } })
+    const result = await admitSpecialClassReservation(input, { db: db as never, now: () => now })
+    expect(result).toMatchObject({ ok: true, kind: "existing", holdExpiresAt })
     expect(tx.purchase.create).not.toHaveBeenCalled()
   })
 
-  it("preserves a pre-deadline amount when the same attempt is recovered after the deadline", async () => {
-    const tx = makeTransaction()
-    tx.purchase.findUnique.mockResolvedValue({
-      id: "purchase_promotional",
-      userId: input.dbUserId,
-      courseSlug: "special-salsa-calena-2026-08-30",
-      status: "pending",
-      amount: 2000,
-      stripeCheckoutSessionId: "cs_promotional",
-      createdAt: new Date("2026-08-30T13:59:59.000Z"),
-      metadata: { holdExpiresAt: "2026-08-30T14:29:59.000Z" },
-    })
-    const db = { $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }
-
-    const result = await admitSpecialClassReservation({
-      ...input,
-      holdExpiresAt: new Date("2026-08-30T14:30:00.000Z"),
-    }, {
-      db: db as never,
-      now: () => new Date("2026-08-30T14:00:00.000Z"),
-    })
-
-    expect(result).toMatchObject({
-      ok: true,
-      kind: "existing",
-      purchase: { id: "purchase_promotional", amount: 2000 },
-    })
-    expect(tx.purchase.create).not.toHaveBeenCalled()
-    expect(tx.purchase.updateMany).not.toHaveBeenCalled()
+  it("rejects a duplicate attendee and a sold-out session", async () => {
+    const duplicate = makeDb({ duplicate: { status: "paid" } })
+    await expect(admitSpecialClassReservation(input, { db: duplicate.db as never, now: () => now })).resolves.toEqual({ ok: false, code: "ALREADY_REGISTERED" })
+    const soldOut = makeDb({ occupied: 1 })
+    await expect(admitSpecialClassReservation(input, { db: soldOut.db as never, now: () => now })).resolves.toEqual({ ok: false, code: "SOLD_OUT" })
   })
 
-  it("invalidates an expired same-attempt hold instead of recovering it", async () => {
-    const tx = makeTransaction()
-    tx.purchase.findUnique.mockResolvedValue({
-      id: "purchase_expired",
-      userId: input.dbUserId,
-      courseSlug: "special-salsa-calena-2026-08-30",
-      status: "pending",
-      stripeCheckoutSessionId: "cs_expired",
-      createdAt: new Date("2026-08-23T20:00:00.000Z"),
-      metadata: { holdExpiresAt: "2026-08-23T20:30:00.000Z" },
-    })
-    const db = { $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }
-
-    const result = await admitSpecialClassReservation({
-      ...input,
-      holdExpiresAt: new Date("2026-08-23T21:00:00.000Z"),
-    }, {
-      db: db as never,
-      now: () => new Date("2026-08-23T20:30:00.000Z"),
-    })
-
-    expect(result).toEqual({ ok: false, code: "CHECKOUT_EXPIRED" })
-    expect(tx.purchase.updateMany).toHaveBeenCalledWith({
-      where: { id: "purchase_expired", status: "pending" },
-      data: { status: "expired" },
-    })
-    expect(tx.purchase.create).not.toHaveBeenCalled()
-  })
-
-  it.each(["P2002", "P2034"])("retries a concurrent same-attempt %s conflict and returns the existing hold", async (code) => {
-    const tx = makeTransaction()
-    tx.purchase.findUnique.mockResolvedValue({
-      id: "purchase_existing",
-      userId: input.dbUserId,
-      courseSlug: "special-salsa-calena-2026-08-30",
-      status: "pending",
-      stripeCheckoutSessionId: "cs_existing",
-      createdAt: new Date("2026-08-23T20:00:00.000Z"),
-      metadata: { holdExpiresAt: "2026-08-23T20:30:00.000Z" },
-    })
-    const db = {
-      $transaction: vi.fn()
-        .mockRejectedValueOnce(Object.assign(new Error("Retryable reservation conflict"), { code }))
-        .mockImplementationOnce(async (callback: (client: typeof tx) => unknown) => callback(tx)),
-    }
-
-    const result = await admitSpecialClassReservation(input, {
-      db: db as never,
-      now: () => new Date("2026-08-23T20:29:59.999Z"),
-    })
-
-    expect(result).toMatchObject({ ok: true, kind: "existing", purchase: { id: "purchase_existing" } })
-    expect(db.$transaction).toHaveBeenCalledTimes(2)
-    expect(tx.purchase.create).not.toHaveBeenCalled()
-  })
-
-  it("rejects a second active attempt and a completed reservation", async () => {
-    const pendingTx = makeTransaction()
-    pendingTx.purchase.findFirst.mockResolvedValue({ status: "pending" })
-    const pendingDb = { $transaction: vi.fn(async (callback: (client: typeof pendingTx) => unknown) => callback(pendingTx)) }
-    await expect(admitSpecialClassReservation(input, {
-      db: pendingDb as never,
-      now: () => new Date("2026-08-23T20:00:00.000Z"),
-    })).resolves.toEqual({
-      ok: false,
-      code: "CHECKOUT_IN_PROGRESS",
-    })
-
-    const paidTx = makeTransaction()
-    paidTx.purchase.findFirst.mockResolvedValue({ status: "paid" })
-    const paidDb = { $transaction: vi.fn(async (callback: (client: typeof paidTx) => unknown) => callback(paidTx)) }
-    await expect(admitSpecialClassReservation(input, {
-      db: paidDb as never,
-      now: () => new Date("2026-08-23T20:00:00.000Z"),
-    })).resolves.toEqual({
-      ok: false,
-      code: "ALREADY_REGISTERED",
-    })
-  })
-
-  it("admits exactly one of two concurrent requests for the final spot", async () => {
-    let countedSpots = 39
-    let queue = Promise.resolve()
-    const db = {
-      $transaction: vi.fn(<T>(callback: (client: ReturnType<typeof makeTransaction>) => Promise<T>) => {
-        const run = queue.then(async () => {
-          const tx = makeTransaction(countedSpots)
-          tx.purchase.count.mockImplementation(async () => countedSpots)
-          tx.purchase.create.mockImplementation(async () => {
-            countedSpots += 1
-            return { id: `purchase_${countedSpots}`, status: "pending", stripeCheckoutSessionId: null }
-          })
-          return callback(tx)
-        })
-        queue = run.then(() => undefined, () => undefined)
-        return run
-      }),
-    }
-
-    const [first, second] = await Promise.all([
-      admitSpecialClassReservation(input, { db: db as never, now: () => new Date("2026-08-23T20:00:00.000Z") }),
-      admitSpecialClassReservation({ ...input, attemptId: "6f4fdf3c-a910-4f72-b8f0-f5637a101d65", dbUserId: "db_user_2" }, {
-        db: db as never,
-        now: () => new Date("2026-08-23T20:00:00.000Z"),
-      }),
-    ])
-
-    expect([first, second].filter((result) => result.ok)).toHaveLength(1)
-    expect([first, second]).toContainEqual({ ok: false, code: "SOLD_OUT" })
-    expect(countedSpots).toBe(40)
+  it("locks the active Salsa promotion amount server-side for display/charge parity", async () => {
+    const salsaClass = { ...specialClass, id: "salsa-class", slug: SPECIAL_SALSA_CLASS.key, priceCents: SPECIAL_SALSA_CLASS.amountCents, classSession: { ...specialClass.classSession, courseSlug: SPECIAL_SALSA_CLASS.courseSlug } }
+    const { tx, db } = makeDb({ resolvedClass: salsaClass })
+    await admitSpecialClassReservation({ ...input, specialClassSlug: SPECIAL_SALSA_CLASS.key }, { db: db as never, now: () => now })
+    expect(tx.purchase.create).toHaveBeenCalledWith({ data: expect.objectContaining({ amount: SPECIAL_SALSA_CLASS.promotion.amountCents }) })
   })
 })

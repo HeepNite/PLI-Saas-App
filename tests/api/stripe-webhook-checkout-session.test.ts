@@ -19,6 +19,13 @@ const mockStripeWebhookEventUpdate = vi.fn()
 const mockDayOfWeekFindUnique = vi.fn()
 const mockDayOfWeekUpdate = vi.fn()
 const mockDayOfWeekCreate = vi.fn()
+const mockAdmitSpecialClassAuthorization = vi.fn()
+const mockFinalizeSpecialClassCapture = vi.fn()
+const mockFinalizeSpecialClassNoCapacityCancellation = vi.fn()
+const mockFinalizeSpecialClassPaymentFailure = vi.fn()
+const mockRetrievePaymentIntent = vi.fn()
+const mockCapturePaymentIntent = vi.fn()
+const mockCancelPaymentIntent = vi.fn()
 
 const mockPrisma = {
   purchase: {
@@ -70,10 +77,22 @@ vi.mock("@/lib/points/service", () => ({
   awardPointsFromRule: (...args: unknown[]) => mockAwardPointsFromRule(...args),
 }))
 
+vi.mock("@/lib/special-classes/fulfillment", () => ({
+  admitSpecialClassAuthorization: (...args: unknown[]) => mockAdmitSpecialClassAuthorization(...args),
+  finalizeSpecialClassCapture: (...args: unknown[]) => mockFinalizeSpecialClassCapture(...args),
+  finalizeSpecialClassNoCapacityCancellation: (...args: unknown[]) => mockFinalizeSpecialClassNoCapacityCancellation(...args),
+  finalizeSpecialClassPaymentFailure: (...args: unknown[]) => mockFinalizeSpecialClassPaymentFailure(...args),
+}))
+
 vi.mock("stripe", () => ({
   default: class Stripe {
     webhooks = {
       constructEvent: (...args: unknown[]) => mockConstructEvent(...args),
+    }
+    paymentIntents = {
+      retrieve: (...args: unknown[]) => mockRetrievePaymentIntent(...args),
+      capture: (...args: unknown[]) => mockCapturePaymentIntent(...args),
+      cancel: (...args: unknown[]) => mockCancelPaymentIntent(...args),
     }
     constructor() {}
   },
@@ -104,6 +123,13 @@ describe("stripe webhook checkout session persistence", () => {
     mockDayOfWeekFindUnique.mockReset()
     mockDayOfWeekUpdate.mockReset()
     mockDayOfWeekCreate.mockReset()
+    mockAdmitSpecialClassAuthorization.mockReset()
+    mockFinalizeSpecialClassCapture.mockReset()
+    mockFinalizeSpecialClassNoCapacityCancellation.mockReset()
+    mockFinalizeSpecialClassPaymentFailure.mockReset()
+    mockRetrievePaymentIntent.mockReset()
+    mockCapturePaymentIntent.mockReset()
+    mockCancelPaymentIntent.mockReset()
     mockPrisma.$transaction.mockClear()
 
     mockHeaders.mockResolvedValue({
@@ -140,6 +166,74 @@ describe("stripe webhook checkout session persistence", () => {
     mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "pkg_123" })
     mockSyncScheduledAttendanceFromPurchase.mockResolvedValue(undefined)
     mockAwardPointsFromRule.mockResolvedValue(undefined)
+    mockFinalizeSpecialClassCapture.mockResolvedValue({})
+    mockFinalizeSpecialClassNoCapacityCancellation.mockResolvedValue({})
+    mockFinalizeSpecialClassPaymentFailure.mockResolvedValue({})
+    mockCapturePaymentIntent.mockResolvedValue({ id: "pi_special", status: "succeeded" })
+    mockCancelPaymentIntent.mockResolvedValue({ id: "pi_special", status: "canceled" })
+  })
+
+  it("cancels a capturable special-class authorization when capacity is unavailable", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_special_full",
+      type: "payment_intent.amount_capturable_updated",
+      data: { object: { id: "pi_special", status: "requires_capture", amount: 2500, currency: "usd", metadata: { specialClassId: "class_1", purchaseId: "purchase_special" } } },
+    })
+    mockPurchaseFindUnique.mockResolvedValue({ id: "purchase_special", amount: 2500, currency: "usd", stripePaymentIntentId: "pi_special" })
+    mockAdmitSpecialClassAuthorization.mockResolvedValue({ kind: "cancel", purchaseId: "purchase_special", paymentIntentId: "pi_special" })
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const response = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+    expect(response.status).toBe(200)
+    expect(mockCancelPaymentIntent).toHaveBeenCalledWith("pi_special", {}, { idempotencyKey: "special-class:cancel:purchase_special" })
+    expect(mockCapturePaymentIntent).not.toHaveBeenCalled()
+    expect(mockFinalizeSpecialClassNoCapacityCancellation).toHaveBeenCalledWith(mockPrisma, { purchaseId: "purchase_special", eventId: "evt_special_full" })
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) }))
+  })
+
+  it("returns 500 and leaves the event retryable when special-class capture fails", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_special_capture_retry",
+      type: "payment_intent.amount_capturable_updated",
+      data: { object: { id: "pi_special", status: "requires_capture", amount: 2500, currency: "usd", metadata: { specialClassId: "class_1", purchaseId: "purchase_special" } } },
+    })
+    mockPurchaseFindUnique.mockResolvedValue({ id: "purchase_special", amount: 2500, currency: "usd", stripePaymentIntentId: "pi_special" })
+    mockAdmitSpecialClassAuthorization.mockResolvedValue({ kind: "capture", purchaseId: "purchase_special", paymentIntentId: "pi_special" })
+    mockCapturePaymentIntent.mockRejectedValueOnce(new Error("Stripe unavailable"))
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const response = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+    expect(response.status).toBe(500)
+    expect(mockFinalizeSpecialClassCapture).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }))
+    expect(mockStripeWebhookEventUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) }))
+  })
+
+  it("does not complete a paid event when user resolution is incomplete", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_user_retry",
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_user_retry", payment_status: "paid", amount_total: 2000, currency: "usd", customer_details: {}, metadata: { courseSlug: "course" } } },
+    })
+    mockUpsertUserByIdentifiers.mockResolvedValueOnce(null)
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const response = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+    expect(response.status).toBe(500)
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }))
+  })
+
+  it("cancels admitted attendance through the special-class terminal failure finalizer", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_special_payment_failed",
+      type: "payment_intent.payment_failed",
+      created: 1_777_000_000,
+      data: { object: { id: "pi_special", status: "requires_payment_method", amount: 2500, currency: "usd", metadata: { specialClassId: "class_1", purchaseId: "purchase_special" }, last_payment_error: { code: "card_declined", message: "Declined" } } },
+    })
+    mockPurchaseFindUnique.mockResolvedValue({ id: "purchase_special", specialClassId: "class_1", classSessionId: "session_1", status: "capture_pending", metadata: null })
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const response = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))
+    expect(response.status).toBe(200)
+    expect(mockFinalizeSpecialClassPaymentFailure).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({ purchaseId: "purchase_special", eventId: "evt_special_payment_failed" }))
+    expect(mockPurchaseUpdate).not.toHaveBeenCalled()
   })
 
   afterEach(() => {
@@ -1049,7 +1143,7 @@ describe("stripe webhook checkout session persistence", () => {
     expect(mockStripeWebhookEventCreate).not.toHaveBeenCalled()
   })
 
-  it("still returns 200 when the completion write is exhausted after processing already succeeded", async () => {
+  it("returns 500 when the event claim cannot be durably completed", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
     mockConstructEvent.mockReturnValue({
@@ -1076,9 +1170,8 @@ describe("stripe webhook checkout session persistence", () => {
         },
       },
     })
-    // Business processing succeeds (claim, upsert, sync, etc. all resolve via
-    // beforeEach defaults) but every completion-write retry attempt fails —
-    // this must NOT be confused with a processing failure (design §4 step 6).
+    // Business processing succeeds, but the event remains retryable until the
+    // completion claim is durable. Downstream side effects are idempotent.
     mockStripeWebhookEventUpdate.mockRejectedValue(new Error("completion write failed"))
 
     const { POST } = await import("@/app/api/stripe/webhook/route")
@@ -1089,9 +1182,7 @@ describe("stripe webhook checkout session persistence", () => {
       })
     )
 
-    // Business side effects already landed — must still report success to
-    // Stripe so it does not retry an event that already fully processed.
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(500)
     expect(mockPurchaseUpsert).toHaveBeenCalledTimes(1)
     expect(mockStripeWebhookEventUpdate).toHaveBeenCalledTimes(3)
     expect(consoleErrorSpy).toHaveBeenCalledWith(
