@@ -1,4 +1,7 @@
+import React from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import {
   appendCodeDigit,
   appendPhoneDigit,
@@ -9,6 +12,17 @@ import {
 } from "@/lib/checkin/numeric-keypad"
 
 describe("numeric keypad helpers", () => {
+  it("removes keypad press motion for reduced-motion users", () => {
+    const markup = renderToStaticMarkup(React.createElement(KioskNumericKeypad, {
+      onDigit: () => {},
+      onBackspace: () => {},
+      onClear: () => {},
+    }))
+
+    expect(markup).toContain("motion-reduce:transition-none")
+    expect(markup).toContain("motion-reduce:transform-none")
+  })
+
   it("formats phone digits as the kiosk keypad appends them", () => {
     let value = clearPhoneDigits()
     for (const digit of "9293876584") {

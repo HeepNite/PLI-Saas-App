@@ -66,7 +66,7 @@ export default function KioskNumericKeypad({
 
   const getButtonClassName = React.useCallback(
     (key: string) =>
-      `rounded-[1.15rem] border px-3 transition disabled:opacity-50 ${
+      `rounded-[1.15rem] border px-3 transition disabled:opacity-50 motion-reduce:transition-none motion-reduce:transform-none ${
         pressedKey === key || activeKey === key
           ? "border-white/40 bg-white/[0.12] text-white scale-[0.98] shadow-[0_0_0_1px_rgba(255,255,255,0.16)]"
           : "border-white/12 bg-white/[0.04] text-white hover:border-[rgba(182,22,22,0.72)] hover:bg-[rgba(182,22,22,0.12)] hover:text-white"
