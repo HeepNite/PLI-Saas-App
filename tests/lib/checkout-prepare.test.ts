@@ -4,17 +4,27 @@ const {
   mockAuth,
   mockAuthorizeStaffTerminalSession,
   mockClerkClient,
+  mockCreateCheckoutExactAccountDependencies,
+  mockEnsureExactAccountIdentity,
   mockLookupPreparedCheckoutContext,
+  mockReadExactSnapshot,
+  mockResolveExactIdentity,
   mockVerifyToken,
   mockResolveTerminalKioskSession,
+  mockTouchKioskIdentificationSession,
   mockUpsertUserByIdentifiers,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockAuthorizeStaffTerminalSession: vi.fn(),
   mockClerkClient: vi.fn(),
+  mockCreateCheckoutExactAccountDependencies: vi.fn(),
+  mockEnsureExactAccountIdentity: vi.fn(),
   mockLookupPreparedCheckoutContext: vi.fn(),
+  mockReadExactSnapshot: vi.fn(),
+  mockResolveExactIdentity: vi.fn(),
   mockVerifyToken: vi.fn(),
   mockResolveTerminalKioskSession: vi.fn(),
+  mockTouchKioskIdentificationSession: vi.fn(),
   mockUpsertUserByIdentifiers: vi.fn(),
 }))
 
@@ -22,6 +32,15 @@ const {
 // Mock it so the new-user / staff→student paths don't hit real prisma.
 vi.mock("@/lib/users", () => ({
   upsertUserByIdentifiers: mockUpsertUserByIdentifiers,
+}))
+
+vi.mock("@/lib/checkout/exact-identity-adapters", () => ({
+  createCheckoutExactAccountDependencies: mockCreateCheckoutExactAccountDependencies,
+}))
+
+vi.mock("@/lib/checkout/identity-safety", () => ({
+  ensureExactAccountIdentity: mockEnsureExactAccountIdentity,
+  resolveExactIdentity: mockResolveExactIdentity,
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -35,6 +54,7 @@ vi.mock("@clerk/backend", () => ({
 
 vi.mock("@/lib/checkin/kiosk-session", () => ({
   resolveTerminalKioskSession: mockResolveTerminalKioskSession,
+  touchKioskIdentificationSession: mockTouchKioskIdentificationSession,
 }))
 
 vi.mock("@/lib/security/staff-terminal", () => ({
@@ -101,6 +121,10 @@ describe("prepareCheckoutAccount", () => {
     mockResolveTerminalKioskSession.mockReset()
     mockAuthorizeStaffTerminalSession.mockReset()
     mockLookupPreparedCheckoutContext.mockReset()
+    mockReadExactSnapshot.mockReset()
+    mockResolveExactIdentity.mockReset()
+    mockEnsureExactAccountIdentity.mockReset()
+    mockCreateCheckoutExactAccountDependencies.mockReturnValue({ readSnapshot: mockReadExactSnapshot })
     mockUpsertUserByIdentifiers.mockResolvedValue({ id: "db_user_prepare" })
   })
 
@@ -180,7 +204,7 @@ describe("prepareCheckoutAccount", () => {
         email: "student@example.com",
         firstName: "New",
         lastName: "Student",
-        phone: "+1 555 222 3333",
+        phone: "+1 202 555 0123",
       },
       {
         photoContext: "kiosk_terminal",
@@ -465,10 +489,15 @@ describe("prepareCheckoutAccount", () => {
           id: "db_kiosk_user_1",
           clerkId: "customer_clerk_1",
           email: "student@example.com",
-          phone: "+1 555 111 2222",
+          phone: "+1 202 555 0123",
           name: "Student Example",
         },
       },
+    })
+    mockResolveExactIdentity.mockReturnValue({
+      kind: "reused",
+      clerkIdentity: { id: "customer_clerk_1" },
+      localIdentity: { id: "db_kiosk_user_1", clerkId: "customer_clerk_1" },
     })
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
@@ -486,13 +515,14 @@ describe("prepareCheckoutAccount", () => {
     if ("status" in result) throw new Error("Expected prepared checkout account")
     expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("kiosk_session_1", {
       terminalAuth: undefined,
-      touch: undefined,
+      touch: false,
     })
+    expect(mockTouchKioskIdentificationSession).toHaveBeenCalledOnce()
     expect(result.userId).toBeNull()
     expect(result.resolvedUserId).toBe("customer_clerk_1")
     expect(result.identity).toMatchObject({
       resolvedEmail: "student@example.com",
-      phoneNormalized: "15551112222",
+      phoneNormalized: "12025550123",
     })
     expect(result.account).toMatchObject({
       clerkUserId: "customer_clerk_1",
@@ -521,10 +551,15 @@ describe("prepareCheckoutAccount", () => {
           id: "jhon_db_1",
           clerkId: "jhon_clerk_1",
           email: "jhon@doe.com",
-          phone: "+1 555 666 6666",
+          phone: "+1 202 555 0124",
           name: "Jhon Doe",
         },
       },
+    })
+    mockResolveExactIdentity.mockReturnValue({
+      kind: "reused",
+      clerkIdentity: { id: "jhon_clerk_1" },
+      localIdentity: { id: "jhon_db_1", clerkId: "jhon_clerk_1" },
     })
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
@@ -542,13 +577,14 @@ describe("prepareCheckoutAccount", () => {
     if ("status" in result) throw new Error("Expected prepared checkout account")
     expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("jhon_kiosk_session", {
       terminalAuth: undefined,
-      touch: undefined,
+      touch: false,
     })
+    expect(mockTouchKioskIdentificationSession).toHaveBeenCalledOnce()
     expect(result.userId).toBeNull()
     expect(result.resolvedUserId).toBe("jhon_clerk_1")
     expect(result.identity).toMatchObject({
       resolvedEmail: "jhon@doe.com",
-      phoneNormalized: "15556666666",
+      phoneNormalized: "12025550124",
     })
     expect(result.account).toMatchObject({
       clerkUserId: "jhon_clerk_1",
@@ -587,7 +623,7 @@ describe("prepareCheckoutAccount", () => {
       new Request("http://localhost/checkout"),
       {
         email: "newstudent@example.com",
-        phone: "+1 555 222 3333",
+        phone: "+1 202 555 0123",
       },
       {
         photoContext: "kiosk_terminal",
@@ -610,7 +646,7 @@ describe("prepareCheckoutAccount", () => {
 
     // Identity should come from form data, not staff session
     expect(result.identity.resolvedEmail).toBe("newstudent@example.com")
-    expect(result.identity.phoneNormalized).toBe("15552223333")
+    expect(result.identity.phoneNormalized).toBe("12025550123")
   })
 
   it("does not leak blocked-staff clerkUser into new-student prepareOnly", async () => {
@@ -649,7 +685,7 @@ describe("prepareCheckoutAccount", () => {
       new Request("http://localhost/checkout"),
       {
         email: "brandnew@example.com",
-        phone: "+1 555 444 5555",
+        phone: "+1 202 555 0124",
       },
       {
         photoContext: "kiosk_terminal",
@@ -669,7 +705,7 @@ describe("prepareCheckoutAccount", () => {
     expect(result.account.clerkUserId).toBeNull()
     expect(result.account.hasAvatar).toBe(false)
     expect(result.identity.resolvedEmail).toBe("brandnew@example.com")
-    expect(result.identity.phoneNormalized).toBe("15554445555")
+    expect(result.identity.phoneNormalized).toBe("12025550124")
   })
 
   it("full checkout with staff session resolves to STUDENT identity, not staff", async () => {
@@ -695,11 +731,11 @@ describe("prepareCheckoutAccount", () => {
       firstName: "New",
       lastName: "Student",
       primaryEmailAddress: { emailAddress: "newstudent@example.com" },
-      primaryPhoneNumber: { phoneNumber: "+1 555 222 3333" },
+      primaryPhoneNumber: { phoneNumber: "+1 202 555 0123" },
       phoneNumbers: [
         {
           id: "pn_student",
-          phoneNumber: "+15552223333",
+          phoneNumber: "+12025550123",
           verification: { status: "verified" },
         },
       ],
@@ -717,6 +753,12 @@ describe("prepareCheckoutAccount", () => {
     })
     mockAuth.mockResolvedValue({ userId: staffUser.id })
     mockClerkClient.mockResolvedValue(client)
+    mockEnsureExactAccountIdentity.mockResolvedValue({
+      ok: true,
+      outcome: "reused",
+      clerkIdentity: studentClerkUser,
+      localIdentity: { id: "local_student", clerkId: studentClerkUser.id },
+    })
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -724,7 +766,7 @@ describe("prepareCheckoutAccount", () => {
       new Request("http://localhost/checkout"),
       {
         email: "newstudent@example.com",
-        phone: "+1 555 222 3333",
+        phone: "+1 202 555 0123",
       },
       {
         photoContext: "kiosk_terminal",
@@ -743,7 +785,7 @@ describe("prepareCheckoutAccount", () => {
 
     // Identity must come from form data (student), not staff session
     expect(result.identity.resolvedEmail).toBe("newstudent@example.com")
-    expect(result.identity.phoneNormalized).toBe("15552223333")
+    expect(result.identity.phoneNormalized).toBe("12025550123")
 
     // account.clerkUserId must be the student's
     expect(result.account.clerkUserId).toBe("student_clerk_from_prepareonly")
@@ -772,11 +814,11 @@ describe("prepareCheckoutAccount", () => {
       firstName: "New",
       lastName: "Student",
       primaryEmailAddress: { emailAddress: "brandnew2@example.com" },
-      primaryPhoneNumber: { phoneNumber: "+1 555 666 7777" },
+      primaryPhoneNumber: { phoneNumber: "+1 202 555 0124" },
       phoneNumbers: [
         {
           id: "pn_created_student",
-          phoneNumber: "+15556667777",
+          phoneNumber: "+12025550124",
           verification: { status: "unverified" },
         },
       ],
@@ -791,6 +833,12 @@ describe("prepareCheckoutAccount", () => {
     client.users.createUser.mockResolvedValue(createdStudent)
     mockAuth.mockResolvedValue({ userId: staffUser.id })
     mockClerkClient.mockResolvedValue(client)
+    mockEnsureExactAccountIdentity.mockResolvedValue({
+      ok: true,
+      outcome: "created",
+      clerkIdentity: createdStudent,
+      localIdentity: { id: "local_created_student", clerkId: createdStudent.id },
+    })
 
     const { prepareCheckoutAccount } = await import("@/lib/checkout")
 
@@ -800,7 +848,7 @@ describe("prepareCheckoutAccount", () => {
         email: "brandnew2@example.com",
         firstName: "New",
         lastName: "Student",
-        phone: "+1 555 666 7777",
+        phone: "+1 202 555 0124",
       },
       {
         photoContext: "kiosk_terminal",
@@ -819,7 +867,7 @@ describe("prepareCheckoutAccount", () => {
 
     // Identity must come from form data
     expect(result.identity.resolvedEmail).toBe("brandnew2@example.com")
-    expect(result.identity.phoneNormalized).toBe("15556667777")
+    expect(result.identity.phoneNormalized).toBe("12025550124")
 
     // The student's Clerk user should be resolved
     expect(result.clerkUser).not.toBeNull()
@@ -836,6 +884,8 @@ describe("resolveCheckoutPreparation", () => {
     mockAuth.mockReset()
     mockAuth.mockResolvedValue({ userId: null })
     mockClerkClient.mockReset()
+    mockClerkClient.mockResolvedValue(makeClerkClient())
+    mockCreateCheckoutExactAccountDependencies.mockReturnValue({ readSnapshot: mockReadExactSnapshot })
     process.env.PREPARED_CHECKOUT_CONTEXT = "0"
     mockVerifyToken.mockResolvedValue({ data: {} })
     mockResolveTerminalKioskSession.mockResolvedValue({
@@ -845,10 +895,15 @@ describe("resolveCheckoutPreparation", () => {
           id: "db_kiosk_user_1",
           clerkId: "customer_clerk_1",
           email: "student@example.com",
-          phone: "+1 555 111 2222",
+          phone: "+1 202 555 0123",
           name: "Student Example",
         },
       },
+    })
+    mockResolveExactIdentity.mockReturnValue({
+      kind: "reused",
+      clerkIdentity: { id: "customer_clerk_1" },
+      localIdentity: { id: "db_kiosk_user_1", clerkId: "customer_clerk_1" },
     })
   })
 
@@ -887,7 +942,7 @@ describe("resolveCheckoutPreparation", () => {
     expect(mockLookupPreparedCheckoutContext).not.toHaveBeenCalled()
     expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("kiosk_session_1", {
       terminalAuth: undefined,
-      touch: undefined,
+      touch: false,
     })
   })
 })
