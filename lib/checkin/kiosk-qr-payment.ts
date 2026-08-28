@@ -94,6 +94,9 @@ export const shouldPauseKioskInactivityForQrPhase = (phase: KioskQrCheckoutPhase
 export const buildKioskCheckoutQrImageUrl = (url: string, size = 260) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=png&data=${encodeURIComponent(url)}`
 
+export const buildSpecialClassReservationQrUrl = (slug: string) =>
+  `/special-classes/${encodeURIComponent(slug)}`
+
 export const isKioskInfoFastPathEligible = (input: KioskFastPathEligibilityInput) => {
   if (!input.isKioskTerminalFlow || !input.isCheckInExistingFlow) {
     return false

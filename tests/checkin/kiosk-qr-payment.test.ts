@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildSpecialClassReservationQrUrl,
   createEmptyKioskQrCheckoutState,
   getKioskPaymentTransitionMessage,
   isKioskCardFastPathEligible,
@@ -14,6 +15,13 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 
 describe("kiosk QR payment helpers", () => {
+  it("builds a special-class reservation URL without using the checkout-session API", () => {
+    const url = buildSpecialClassReservationQrUrl("special-salsa-class-2026-08-30")
+
+    expect(url).toBe("/special-classes/special-salsa-class-2026-08-30")
+    expect(url).not.toContain("/api/checkout/session")
+  })
+
   it("enables the early info skip for kiosk existing customers with valid prefill", () => {
     expect(
       isKioskInfoFastPathEligible({
