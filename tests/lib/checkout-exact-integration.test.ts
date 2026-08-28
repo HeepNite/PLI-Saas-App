@@ -28,6 +28,14 @@ const client = () => ({ users: {
   getUser: vi.fn(), getUserList: vi.fn(), createUser: vi.fn(), updateUser: vi.fn(),
 }, phoneNumbers: { createPhoneNumber: vi.fn() } })
 type Client = ReturnType<typeof client>
+const expectNoWrites = (clerk: Client) => {
+  expect([clerk.users.createUser, clerk.users.updateUser, clerk.phoneNumbers.createPhoneNumber,
+    mocks.localUpsert, mocks.legacyUpsert].map((write) => write.mock.calls.length)).toEqual([0, 0, 0, 0, 0])
+}
+const authenticate = (clerk: Client, authenticated: User) => {
+  clerk.users.getUser.mockResolvedValue(authenticated); mocks.auth.mockResolvedValue({ userId: authenticated.id })
+  mocks.clerkClient.mockResolvedValue(clerk)
+}
 const connect = (clerk: Client, emailMatches: User[], phoneMatches: User[], localMatches: Array<{ id: string; clerkId: string | null }> = []) => {
   clerk.users.getUserList.mockImplementation(async (filter: { emailAddress?: string[] }) => {
     const data = filter.emailAddress ? emailMatches : phoneMatches
@@ -110,6 +118,60 @@ describe("checkout exact identity integration", () => {
     expect(mocks.legacyUpsert).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["invalid", () => ({ email: "auth@example.com", phone: "not-a-phone" })],
+    ["non-geographic", () => ({ email: "auth@example.com", phone: "+80012345678" })],
+    ["parser-error", () => ({ email: "auth@example.com", get phone(): string { throw new Error("unavailable") } })],
+  ])("rejects authenticated %s phone input before any write", async (_case, input) => {
+    const authenticated = user("clerk_auth", "auth@example.com", "+12025550123")
+    const clerk = client(); authenticate(clerk, authenticated)
+    const result = await prepare(input(), {})
+    expect(result).toMatchObject({ status: 400 })
+    expectNoWrites(clerk)
+  })
+  it("reuses a coherent authenticated exact identity with zero writes", async () => {
+    const authenticated = user("clerk_auth", "auth@example.com", "+12025550123")
+    const clerk = client()
+    connect(clerk, [authenticated], [authenticated], [{ id: "local_auth", clerkId: authenticated.id }])
+    authenticate(clerk, authenticated)
+    const result = await prepare({ email: "auth@example.com", phone: "+12025550123" }, {})
+    expect(result).toMatchObject({ resolvedUserId: authenticated.id, account: { created: false } })
+    expect(clerk.users.getUserList).toHaveBeenCalledTimes(2)
+    expect(mocks.localFindMany).toHaveBeenCalledTimes(2)
+    expectNoWrites(clerk)
+  })
+  it("creates an unauthenticated identity only after complete reads and validates the returned identity", async () => {
+    const created = user("clerk_created", "new@example.com", "+12025550123")
+    const local = { id: "local_created", clerkId: created.id }
+    const clerk = client()
+    let clerkState: User | null = null
+    let localState: typeof local | null = null
+    clerk.users.getUserList.mockImplementation(async () => {
+      const data = clerkState ? [clerkState] : []; return { data, totalCount: data.length }
+    })
+    clerk.users.createUser.mockImplementation(async () => (clerkState = created))
+    mocks.localFindMany.mockImplementation(async () => localState ? [localState] : [])
+    mocks.localUpsert.mockImplementation(async () => (localState = local))
+    mocks.clerkClient.mockResolvedValue(clerk)
+    const result = await prepare({ email: "new@example.com", phone: "+12025550123" }, {})
+    expect(result).toMatchObject({ resolvedUserId: created.id, account: { clerkUserId: created.id, created: true } })
+    expect(clerk.users.createUser.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.localFindMany.mock.invocationCallOrder[1])
+    expect(mocks.localUpsert).toHaveBeenCalledOnce()
+    expect(mocks.legacyUpsert).not.toHaveBeenCalled()
+  })
+  it("rejects a deferred split identity after complete reads with zero writes", async () => {
+    const clerk = client()
+    connect(clerk, [user("clerk_email", "student@example.com", "+12025550124")],
+      [user("clerk_phone", "other@example.com", "+12025550123")])
+    mocks.clerkClient.mockResolvedValue(clerk)
+    const result = await prepare({ email: "student@example.com", phone: "+12025550123" }, {
+      allowExistingAccountLookup: true, deferUserCreation: true,
+    })
+    expect(result).toMatchObject({ status: 409 })
+    expect(clerk.users.getUserList).toHaveBeenCalledTimes(2)
+    expect(mocks.localFindMany).toHaveBeenCalledTimes(2)
+    expectNoWrites(clerk)
+  })
   it("isolates authenticated staff identity in qr_phone new-student checkout", async () => {
     const staff = user("clerk_staff", "staff@example.com", "+12025550999")
     const student = user("clerk_student", "student@example.com", "+12025550123")
