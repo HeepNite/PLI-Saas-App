@@ -59,6 +59,15 @@ export const matchesStripeStatus = (
   if (row.paymentChannel === "cash") {
     return filter === "paid" ? row.settlementStatus === "paid" : row.settlementStatus !== "paid"
   }
+  // Package-funded attendance owes nothing, and a purchased package settles with
+  // its own purchase, so neither may surface under Pending.
+  if (row.paymentChannel === "package_credit") {
+    return filter === "paid" ? isPaymentPaidForUi(row) : false
+  }
+  if (row.purchaseCategory === "package") {
+    const isPaidPackageRow = row.classPaid || Boolean(row.fundingPayment)
+    return filter === "paid" ? isPaidPackageRow : !isPaidPackageRow
+  }
   if (filter === "paid") return isPaymentPaidForUi(row)
   return !isPaymentPaidForUi(row)
 }

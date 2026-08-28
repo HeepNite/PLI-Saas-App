@@ -225,6 +225,19 @@ describe("useStaffStudentsBoardAdmin", () => {
     expect(state.historyReadableRange).toBe("Wed 25 Mar 26 → Thu 26 Mar 26")
   })
 
+  it("exposes every unsettled history cash payment for selection even when the latest row is not cash", async () => {
+    const state = await renderHook(createOptions({
+      isHistoryMode: true,
+      paymentCategoryFilter: "history",
+      payments: [
+        payment({ id: "cash-old", settlementStatus: "pending", createdAt: "2026-03-25T10:00:00.000Z" }),
+        payment({ id: "card-latest", paymentChannel: "card", classPaid: true, createdAt: "2026-03-25T18:00:00.000Z" }),
+      ],
+    }))
+
+    expect(state.visiblePaymentIds).toEqual(["cash-old"])
+  })
+
   it("keeps history card aggregates and detail payments within the active filter scope", async () => {
     const state = await renderHook(createOptions({
       isHistoryMode: true,
