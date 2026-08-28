@@ -1150,6 +1150,42 @@ describe("resolveStudentCardPayments", () => {
     ).toEqual([])
   })
 
+  it("excludes package-funded attendance from the pending filter", () => {
+    const packageCreditRow = { ...basePayment, id: "pay-credit", paymentChannel: "package_credit" as const, packageId: "pkg-1" }
+
+    expect(
+      resolveStudentCardPayments([packageCreditRow], {
+        ...defaultFilters,
+        paymentsFilter: "pending",
+        studentSearchQuery: "",
+      })
+    ).toEqual([])
+  })
+
+  it("excludes a paid package purchase from the pending filter", () => {
+    const paidPackagePurchase = { ...basePayment, id: "pay-pkg", purchaseCategory: "package" as const, classPaid: true }
+
+    expect(
+      resolveStudentCardPayments([paidPackagePurchase], {
+        ...defaultFilters,
+        paymentsFilter: "pending",
+        studentSearchQuery: "",
+      })
+    ).toEqual([])
+  })
+
+  it("keeps unsettled cash rows under the pending filter", () => {
+    const cashPending = { ...basePayment, id: "pay-cash", paymentChannel: "cash" as const }
+
+    expect(
+      resolveStudentCardPayments([cashPending], {
+        ...defaultFilters,
+        paymentsFilter: "pending",
+        studentSearchQuery: "",
+      })
+    ).toEqual([cashPending])
+  })
+
   it("keeps the status filter when the searched student already matches it", () => {
     const paidPayment = { ...basePayment, id: "pay-2", classPaid: true }
 

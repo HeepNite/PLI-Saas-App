@@ -89,10 +89,14 @@ export function PaymentStudentCard({
     ),
   ]
   const studentOpenIds = getOpenPaymentIds(student.allPayments)
-  const isHistoryCashSettlement = cardVariant.context === "history" && payment.paymentChannel === "cash" && payment.settlementStatus !== "paid"
+  const historyCashOpenIds =
+    cardVariant.context === "history"
+      ? student.allPayments.filter((p) => p.paymentChannel === "cash" && p.settlementStatus !== "paid").map((p) => p.id)
+      : []
+  const isHistoryCashSettlement = cardVariant.context === "history" && historyCashOpenIds.length > 0
   const studentSelectableIds =
     isHistoryCashSettlement
-      ? [payment.id]
+      ? historyCashOpenIds
       : studentOpenIds.length > 0
       ? studentOpenIds
       : student.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
@@ -103,7 +107,7 @@ export function PaymentStudentCard({
   return (
     <article
       className={`relative rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-4 text-white ${
-        payment.paymentChannel === "cash" ? "pt-9" : ""
+        isHistoryCashSettlement || payment.paymentChannel === "cash" ? "pt-9" : ""
       }`}
     >
       {isHistoryCashSettlement || (cardVariant.context !== "history" && payment.paymentChannel === "cash") ? (
@@ -113,19 +117,21 @@ export function PaymentStudentCard({
               type="button"
               onClick={() =>
                 onSettlementBulkUpdate(
-                  payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid",
-                  payment.settlementStatus === "paid"
-                    ? [payment.id]
-                    : getOpenPaymentIds(student.allPayments),
+                  !isHistoryCashSettlement && payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid",
+                  isHistoryCashSettlement
+                    ? studentSelectableIds
+                    : payment.settlementStatus === "paid"
+                      ? [payment.id]
+                      : getOpenPaymentIds(student.allPayments),
                 )
               }
               className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
-                payment.settlementStatus === "paid"
+                !isHistoryCashSettlement && payment.settlementStatus === "paid"
                   ? "bg-amber-500/30 border border-amber-500/50 text-amber-200 hover:bg-amber-500/40"
                   : "bg-emerald-500/30 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/40"
               }`}
             >
-              {payment.settlementStatus === "paid" ? "Mark pending" : "Mark paid"}
+              {!isHistoryCashSettlement && payment.settlementStatus === "paid" ? "Mark pending" : "Mark paid"}
             </button>
             <button
               type="button"

@@ -72,6 +72,7 @@ type Props = {
   historyDerivedStats: HistoryDerivedStats
   isCollectedOrdering: boolean
   activateCollectedOrdering: () => void
+  deactivateCollectedOrdering: () => void
   filteredStudentCardsLength: number
   visiblePaymentIds: string[]
   selectPaymentIds: (ids: string[]) => void
@@ -120,6 +121,7 @@ export default function StaffPaymentsBoardControls({
   historyDerivedStats,
   isCollectedOrdering,
   activateCollectedOrdering,
+  deactivateCollectedOrdering,
   filteredStudentCardsLength,
   visiblePaymentIds,
   selectPaymentIds,
@@ -332,7 +334,20 @@ export default function StaffPaymentsBoardControls({
                     ["Collected", `$${Math.round(historyDerivedStats.totalCollected / 100)}`, "bg-blue-500/10 text-blue-400"],
                     ["Packages", historyDerivedStats.packages, "bg-fuchsia-500/10 text-fuchsia-300"],
                     ["Drop-in", historyDerivedStats.dropIn, "bg-cyan-400/10 text-cyan-200"],
-                  ].map(([label, value, tone]) => (
+                  ].map(([label, value, tone]) => {
+                    const isActiveCard =
+                      label === "Students"
+                        ? paymentsFilter === "all" && !isCollectedOrdering
+                        : label === "Paid"
+                          ? paymentsFilter === "paid"
+                          : label === "Pending"
+                            ? paymentsFilter === "pending"
+                            : label === "Packages"
+                              ? historyPaymentMethodFilter === "package"
+                              : label === "Drop-in"
+                                ? historyPaymentMethodFilter === "dropin"
+                                : isCollectedOrdering
+                    return (
                     <button
                       key={label}
                       type="button"
@@ -343,8 +358,9 @@ export default function StaffPaymentsBoardControls({
                         if (label === "Packages") setHistoryPaymentMethodFilter("package")
                         if (label === "Drop-in") setHistoryPaymentMethodFilter("dropin")
                         if (label === "Collected") activateCollectedOrdering()
+                        else deactivateCollectedOrdering()
                       }}
-                      className={`flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 text-left shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)] ${label === "Collected" && isCollectedOrdering ? "ring-1 ring-blue-400/70" : ""}`}
+                      className={`flex items-center gap-3 rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.025))] px-3 py-2.5 text-left shadow-[0_12px_24px_-22px_rgba(0,0,0,0.85)] ${isActiveCard ? (label === "Collected" ? "ring-1 ring-blue-400/70" : "ring-1 ring-[var(--brand,#b61616)]/70") : ""}`}
                     >
                       <div className={`relative flex h-12 min-w-[3rem] shrink-0 items-center justify-center rounded-full px-2 ${tone}`}>
                         <span className="relative whitespace-nowrap text-[1rem] font-semibold leading-none tracking-[-0.03em] tabular-nums">{value}</span>
@@ -355,7 +371,8 @@ export default function StaffPaymentsBoardControls({
                         </div>
                       </div>
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
               {historyFrom && historyTo && filteredStudentCardsLength === 0 && (

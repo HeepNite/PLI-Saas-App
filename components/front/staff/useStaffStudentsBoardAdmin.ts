@@ -25,6 +25,7 @@ import {
 } from "./staffPaymentCardPresentation"
 import {
   buildCurrentMonthStudentsSummary,
+  matchesStripeStatus,
   resolveDirectClassRevenueCents,
   resolveStudentCardPayments,
 } from "./staffPaymentFilters"
@@ -226,7 +227,9 @@ export function useStaffStudentsBoardAdmin({
     if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(filteredStudentCards.flatMap((item) => {
       if (isHistoryMode) {
-        return item.latestPayment.paymentChannel === "cash" && item.latestPayment.settlementStatus !== "paid" ? [item.latestPayment.id] : []
+        return item.allPayments
+          .filter((p) => p.paymentChannel === "cash" && p.settlementStatus !== "paid")
+          .map((p) => p.id)
       }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
@@ -278,7 +281,9 @@ export function useStaffStudentsBoardAdmin({
     if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(paginatedStudentCards.flatMap((item) => {
       if (isHistoryMode) {
-        return item.latestPayment.paymentChannel === "cash" && item.latestPayment.settlementStatus !== "paid" ? [item.latestPayment.id] : []
+        return item.allPayments
+          .filter((p) => p.paymentChannel === "cash" && p.settlementStatus !== "paid")
+          .map((p) => p.id)
       }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
@@ -330,12 +335,11 @@ export function useStaffStudentsBoardAdmin({
     const paidCount = filteredStudentCards.filter((item) => isHistoryPaymentPaid(item.latestPayment)).length
     const checkedInCount = filteredStudentCards.filter((item) => item.allPayments.some(isCompletedClassEvidence)).length
     const totalCollected = filteredStudentCards.reduce((sum, item) => sum + resolveDirectClassRevenueCents(item.allPayments), 0)
-    const pendingCount = filteredStudentCards.filter((item) => {
-      if (!isHistoryPaymentPaid(item.latestPayment)) return true
-      if (item.latestPayment.paymentChannel === "cash") return false
-      const balance = "outstandingBalance" in item && typeof item.outstandingBalance === "number" ? item.outstandingBalance : item.latestPayment.outstandingBalance
-      return typeof balance === "number" && balance > 0
-    }).length
+    // Count exactly the students the Pending status filter would keep, so
+    // clicking the Pending card never disagrees with the list it filters.
+    const pendingCount = filteredStudentCards.filter((item) =>
+      item.allPayments.some((payment) => matchesStripeStatus(payment, "pending"))
+    ).length
     const packages = scopedPayments.filter((p) => p.purchaseCategory === "package").length
     const dropIn = scopedPayments.filter((p) => p.purchaseCategory === "dropin").length
     return { studentCount, paidCount, pendingCount, totalCollected, checkedInCount, packages, dropIn }
@@ -534,6 +538,7 @@ export function useStaffStudentsBoardAdmin({
     cashSelectedCount,
     isCollectedOrdering,
     activateCollectedOrdering: () => setIsCollectedOrdering(true),
+    deactivateCollectedOrdering: () => setIsCollectedOrdering(false),
     historyDerivedStats,
     studentsSummary,
     todayDateIso,
