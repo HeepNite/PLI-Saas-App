@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
+import { CAPACITY_STATUSES } from "@/lib/special-classes/policy"
 
-const ACTIVE_CAPACITY_STATUSES = ["paid", "succeeded", "completed", "capture_pending"]
 const MAX_SERIALIZABLE_ATTEMPTS = 3
 
 const isRetryableConflict = (error: unknown) => {
@@ -46,7 +46,7 @@ export async function lockAndValidateSpecialClassCapacity(
   const occupied = await tx.purchase.count({
     where: {
       specialClassId: input.specialClassId,
-      OR: [{ status: { in: ACTIVE_CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: input.now } }],
+      OR: [{ status: { in: CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: input.now } }],
     },
   })
   const currentCapacity = specialClass.classSession.capacity

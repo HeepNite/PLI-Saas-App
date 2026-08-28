@@ -3,6 +3,10 @@ import type { StaffRole } from "@/lib/security/staff-role"
 
 export const SPECIAL_CLASS_HOLD_MS = 3 * 60_000
 
+// Single source of truth for the statuses that count as an occupied seat
+// across every special-class capacity/occupancy query site.
+export const CAPACITY_STATUSES = ["paid", "succeeded", "completed", "capture_pending"]
+
 const PAID_STATUSES = new Set(["paid", "succeeded", "completed"])
 
 export const isCountedSpecialClassPurchase = (
