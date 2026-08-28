@@ -142,6 +142,10 @@ describe("GET /api/staff/students/sessions", () => {
           gte: new Date("2026-04-17T04:00:00.000Z"),
           lt: new Date("2026-05-02T04:00:00.000Z"),
         },
+        OR: [
+          { specialClass: { is: null } },
+          { specialClass: { is: { status: { not: "cancelled" } } } },
+        ],
       },
       select: {
         id: true,
@@ -304,7 +308,20 @@ describe("GET /api/staff/students/sessions", () => {
           gte: new Date("2026-04-30T04:00:00.000Z"),
           lt: new Date("2026-05-01T04:00:00.000Z"),
         },
+        OR: [
+          { specialClass: { is: null } },
+          { specialClass: { is: { status: { not: "cancelled" } } } },
+        ],
       },
+      select: {
+        id: true,
+        courseSlug: true,
+        title: true,
+        startsAt: true,
+        durationMinutes: true,
+      },
+      orderBy: { startsAt: "desc" },
+      take: 50,
     }))
     expect(body.items.map((session: { id: string }) => session.id)).toEqual(["session_prior_day"])
   })
