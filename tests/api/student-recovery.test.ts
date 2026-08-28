@@ -13,8 +13,13 @@ vi.mock("@/lib/student-recovery", () => ({
   issueRecoveryTicket: (...args: unknown[]) => mockIssueTicket(...args),
   normalizeRecoveryCode: (...args: unknown[]) => mockNormalizeCode(...args),
 }))
-vi.mock("@/lib/checkout/validation", () => ({ normalizePhone: (value: string) => value === "+15551234567" ? value : null }))
-
+vi.mock("@/lib/phone", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/phone")>()
+  return { ...actual, parseServerPhoneInput: (value: string) => {
+    if (value === "parser-exception") throw new Error("metadata unavailable")
+    return actual.parseServerPhoneInput(value)
+  } }
+})
 const post = (url: string, body: unknown) => new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
 
 describe("student recovery API boundaries", () => {
@@ -27,9 +32,23 @@ describe("student recovery API boundaries", () => {
   it("returns only the opaque draft code to the student", async () => {
     mockIssueDraft.mockResolvedValue("PLI-1234")
     const { POST } = await import("@/app/api/checkin/qr/new-student/recovery-draft/route")
-    const response = await POST(post("http://localhost/recovery", { phone: "+15551234567", email: "student@example.com", name: "Student", source: "qr_mobile" }))
+    const response = await POST(post("http://localhost/recovery", { phone: "+1 202 555 0123", email: "student@example.com", name: "Student", source: "qr_mobile" }))
     expect(response.status).toBe(201)
     await expect(response.json()).resolves.toEqual({ code: "PLI-1234" })
+    expect(mockIssueDraft).toHaveBeenCalledWith(
+      { phone: "+12025550123", email: "student@example.com", name: "Student" },
+      "qr_mobile",
+    )
+  })
+
+  it("rejects invalid and non-geographic phones before recovery persistence", async () => {
+    const { POST } = await import("@/app/api/checkin/qr/new-student/recovery-draft/route")
+
+    for (const phone of ["not-a-phone", "+80012345678", "parser-exception"]) {
+      const response = await POST(post("http://localhost/recovery", { phone, source: "qr_mobile" }))
+      expect(response.status).toBe(400)
+    }
+    expect(mockIssueDraft).not.toHaveBeenCalled()
   })
 
   it.each([

@@ -11,8 +11,11 @@ import {
   formatSpecialClassTime,
   resolveSpecialClassPricing,
 } from "@/lib/special-salsa-class/config"
+import { formatNationalDraft, getPhoneCountryCatalog, isNationalPhoneDraft, parseCanonicalPhone, parseNationalPhone } from "@/lib/phone"
 
 type FieldName = "name" | "phone" | "email"
+type SelectedCountry = ReturnType<typeof getPhoneCountryCatalog>[number]["country"]
+type PhoneCountryOption = ReturnType<typeof getPhoneCountryCatalog>[number] & { name: string }
 type FieldErrors = Partial<Record<FieldName, string>>
 type FieldRefs = Record<FieldName, React.RefObject<HTMLInputElement | null>>
 
@@ -23,11 +26,21 @@ export type BannerReservationRequest = {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/
+const countryNames = new Intl.DisplayNames(["en"], { type: "region" })
+const priorityCountries = new Set<SelectedCountry>(["US", "MX", "AR"])
+const toPhoneCountryOption = (entry: ReturnType<typeof getPhoneCountryCatalog>[number]): PhoneCountryOption => ({
+  ...entry,
+  name: countryNames.of(entry.country) || entry.country,
+})
+const compareCountries = (left: PhoneCountryOption, right: PhoneCountryOption) => {
+  const priority = Number(priorityCountries.has(right.country)) - Number(priorityCountries.has(left.country))
+  return priority || left.name.localeCompare(right.name)
+}
 const validate = (values: Record<FieldName, string>): FieldErrors => {
   const errors: FieldErrors = {}
   if (values.name.trim().length < 2) errors.name = "Please enter your name."
-  if (!/^\+[1-9]\d{7,14}$/.test(values.phone.replace(/[\s()-]/g, ""))) {
-    errors.phone = "Please enter a valid phone number including country code."
+  if (!parseCanonicalPhone(values.phone).ok) {
+    errors.phone = "Please enter a valid phone number."
   }
   if (!EMAIL_PATTERN.test(values.email.trim())) errors.email = "Please enter a valid email address."
   return errors
@@ -50,6 +63,10 @@ export function SpecialSalsaClassLanding({
   const router = useRouter()
   const searchParams = useSearchParams()
   const [values, setValues] = React.useState<Record<FieldName, string>>({ name: "", phone: "", email: "" })
+  const [selectedCountry, setSelectedCountry] = React.useState<SelectedCountry>("US")
+  const [phoneDraft, setPhoneDraft] = React.useState("")
+  const [countryPickerOpen, setCountryPickerOpen] = React.useState(false)
+  const [countrySearch, setCountrySearch] = React.useState("")
   const [errors, setErrors] = React.useState<FieldErrors>({})
   const [outcome, setOutcome] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
@@ -69,7 +86,6 @@ export function SpecialSalsaClassLanding({
   const soldOutRef = React.useRef<HTMLDivElement>(null)
   const reserveButtonRef = React.useRef<HTMLButtonElement>(null)
   const videoRef = React.useRef<HTMLVideoElement>(null)
-  const backdropRef = React.useRef<HTMLVideoElement>(null)
   const dialogOpenerRef = React.useRef<HTMLElement | null>(null)
   const dialogOpenerKindRef = React.useRef<"banner" | "landing">("landing")
   const handledBannerRequestRef = React.useRef(0)
@@ -79,52 +95,38 @@ export function SpecialSalsaClassLanding({
   const [videoPlaying, setVideoPlaying] = React.useState(false)
   const [videoMuted, setVideoMuted] = React.useState(true)
   const pricing = resolveSpecialClassPricing(new Date(nowMs))
-
-  const syncBackdropPlayback = React.useCallback(() => {
-    const video = videoRef.current
-    const backdrop = backdropRef.current
-    if (!video || !backdrop) return
-    if (video.paused) {
-      backdrop.pause()
-      return
-    }
-    const playback = backdrop.play()
-    if (playback) void playback.catch(() => backdrop.pause())
-  }, [])
+  const phoneCountries = React.useMemo(() => getPhoneCountryCatalog().map(toPhoneCountryOption).sort(compareCountries), [])
+  const selectedCountryOption = phoneCountries.find((entry) => entry.country === selectedCountry)!
+  const filteredPhoneCountries = phoneCountries.filter(({ country, callingCode, name }) => {
+    const query = countrySearch.trim().toLowerCase().replace(/^\+/, "")
+    return !query || name.toLowerCase().includes(query) || country.toLowerCase().includes(query) || callingCode.includes(query)
+  })
 
   const startVideoPlayback = React.useCallback(() => {
     const video = videoRef.current
     if (!video) return
     const playback = video.play()
-    if (!playback) {
-      syncBackdropPlayback()
-      return
-    }
-    void playback.then(syncBackdropPlayback).catch(() => {
+    if (!playback) return
+    void playback.catch(() => {
       setVideoPlaying(false)
-      backdropRef.current?.pause()
     })
-  }, [syncBackdropPlayback])
+  }, [])
 
   const pauseVideoPlayback = React.useCallback(() => {
     videoRef.current?.pause()
-    backdropRef.current?.pause()
   }, [])
 
   React.useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    const syncPlaying = () => {
-      setVideoPlaying(!video.paused)
-      syncBackdropPlayback()
-    }
+    const syncPlaying = () => setVideoPlaying(!video.paused)
     const syncMuted = () => setVideoMuted(video.muted)
-    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    const motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)")
     video.addEventListener("play", syncPlaying)
     video.addEventListener("pause", syncPlaying)
     video.addEventListener("volumechange", syncMuted)
     syncMuted()
-    if (!prefersReducedMotion) {
+    if (motionPreference && !motionPreference.matches) {
       startVideoPlayback()
     }
     return () => {
@@ -132,7 +134,7 @@ export function SpecialSalsaClassLanding({
       video.removeEventListener("pause", syncPlaying)
       video.removeEventListener("volumechange", syncMuted)
     }
-  }, [startVideoPlayback, syncBackdropPlayback])
+  }, [startVideoPlayback])
 
   React.useEffect(() => {
     const deadlineMs = SPECIAL_SALSA_CLASS.promotion.deadline.getTime()
@@ -216,6 +218,41 @@ export function SpecialSalsaClassLanding({
   const onChange = (field: FieldName) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setValues((current) => ({ ...current, [field]: event.target.value }))
     setErrors((current) => ({ ...current, [field]: undefined }))
+  }
+
+  const updatePhone = (draft: string, country: SelectedCountry) => {
+    if (draft.startsWith("+")) {
+      const canonical = parseCanonicalPhone(draft)
+      if (canonical.ok) {
+        setSelectedCountry(canonical.phone.country)
+        setPhoneDraft(canonical.phone.nationalDisplay)
+        setValues((current) => ({ ...current, phone: canonical.phone.e164 }))
+        setErrors((current) => ({ ...current, phone: undefined }))
+        return
+      }
+    }
+
+    if (!isNationalPhoneDraft(draft)) {
+      setPhoneDraft(draft)
+      setValues((current) => ({ ...current, phone: "" }))
+      setErrors((current) => ({ ...current, phone: undefined }))
+      return
+    }
+
+    const formatted = formatNationalDraft(draft, country)
+    const parsed = parseNationalPhone(formatted, country)
+    setPhoneDraft(formatted)
+    setValues((current) => ({ ...current, phone: parsed.ok ? parsed.phone.e164 : "" }))
+    setErrors((current) => ({ ...current, phone: undefined }))
+  }
+
+  const onPhoneChange = (event: React.ChangeEvent<HTMLInputElement>) => updatePhone(event.target.value, selectedCountry)
+
+  const selectCountry = (country: SelectedCountry) => {
+    setSelectedCountry(country)
+    updatePhone(phoneDraft, country)
+    setCountrySearch("")
+    setCountryPickerOpen(false)
   }
 
   const openReservation = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -312,24 +349,15 @@ export function SpecialSalsaClassLanding({
             data-hero-video
             className="relative h-[380px] min-h-0 overflow-hidden bg-black lg:h-auto lg:min-h-[540px]"
           >
-            <video
-              ref={backdropRef}
-              data-hero-video-backdrop
-              className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover object-center opacity-55 blur-2xl"
-              muted
-              loop
-              playsInline
-              preload="metadata"
+            <div
+              data-hero-video-background
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(225,29,72,0.2),_transparent_55%),linear-gradient(135deg,_#18181b,_#000)]"
               aria-hidden="true"
-              tabIndex={-1}
-            >
-              <source src={SPECIAL_SALSA_CLASS.videoSrc} type="video/mp4" />
-            </video>
+            />
             <video
               ref={videoRef}
               data-hero-video-foreground
               className="absolute inset-0 z-10 h-full w-full object-contain object-center"
-              autoPlay
               muted
               loop
               playsInline
@@ -485,6 +513,15 @@ export function SpecialSalsaClassLanding({
           outcomeRef={outcomeRef}
           soldOutRef={soldOutRef}
           onChange={onChange}
+          phoneDraft={phoneDraft}
+          selectedCountryOption={selectedCountryOption}
+          filteredPhoneCountries={filteredPhoneCountries}
+          countryPickerOpen={countryPickerOpen}
+          countrySearch={countrySearch}
+          onPhoneChange={onPhoneChange}
+          onCountryPickerOpenChange={setCountryPickerOpen}
+          onCountrySearchChange={setCountrySearch}
+          onCountrySelect={selectCountry}
           onSubmit={onSubmit}
           onClose={closeReservation}
         />,
@@ -507,6 +544,15 @@ function ReservationDialog({
   outcomeRef,
   soldOutRef,
   onChange,
+  phoneDraft,
+  selectedCountryOption,
+  filteredPhoneCountries,
+  countryPickerOpen,
+  countrySearch,
+  onPhoneChange,
+  onCountryPickerOpenChange,
+  onCountrySearchChange,
+  onCountrySelect,
   onSubmit,
   onClose,
 }: {
@@ -522,10 +568,21 @@ function ReservationDialog({
   outcomeRef: React.RefObject<HTMLDivElement | null>
   soldOutRef: React.RefObject<HTMLDivElement | null>
   onChange: (field: FieldName) => (event: React.ChangeEvent<HTMLInputElement>) => void
+  phoneDraft: string
+  selectedCountryOption: PhoneCountryOption
+  filteredPhoneCountries: PhoneCountryOption[]
+  countryPickerOpen: boolean
+  countrySearch: string
+  onPhoneChange: (event: React.ChangeEvent<HTMLInputElement>) => void
+  onCountryPickerOpenChange: React.Dispatch<React.SetStateAction<boolean>>
+  onCountrySearchChange: React.Dispatch<React.SetStateAction<string>>
+  onCountrySelect: (country: SelectedCountry) => void
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
   onClose: () => void
 }) {
   const dialogRef = React.useRef<HTMLDivElement>(null)
+  const countryTriggerRef = React.useRef<HTMLButtonElement>(null)
+  const countryPickerWasOpen = React.useRef(false)
 
   React.useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -544,6 +601,11 @@ function ReservationDialog({
       refs.name.current?.focus({ preventScroll: true })
     })
   }, [cancelledAttemptId, outcomeRef, refs.name])
+
+  React.useEffect(() => {
+    if (countryPickerWasOpen.current && !countryPickerOpen) countryTriggerRef.current?.focus()
+    countryPickerWasOpen.current = countryPickerOpen
+  }, [countryPickerOpen])
 
   React.useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -639,6 +701,51 @@ function ReservationDialog({
                 return (
                   <div key={field}>
                     <label htmlFor={`special-${field}`} className="mb-1.5 block text-sm font-bold">{labels[field]}</label>
+                    {field === "phone" && (
+                      <div className="relative mb-2">
+                        <button
+                          ref={countryTriggerRef}
+                          type="button"
+                          data-phone-country-trigger
+                          aria-haspopup="listbox"
+                          aria-expanded={countryPickerOpen}
+                          aria-controls="special-phone-country-options"
+                          disabled={submitting}
+                          onClick={() => onCountryPickerOpenChange((open) => !open)}
+                          className="flex min-h-12 w-full items-center justify-between rounded-lg border border-white/25 bg-black px-3 py-2 text-left text-base text-[#F8FAFC] outline-none transition-colors focus:border-[#E11D48] focus:ring-2 focus:ring-[#E11D48]"
+                        >
+                          <span>{selectedCountryOption.name} (+{selectedCountryOption.callingCode})</span>
+                          <span aria-hidden="true">⌄</span>
+                        </button>
+                        {countryPickerOpen && (
+                          <div className="absolute z-10 mt-1 w-full rounded-lg border border-white/25 bg-[#09090b] p-2 shadow-xl">
+                            <input
+                              autoFocus
+                              aria-label="Search countries"
+                              value={countrySearch}
+                              onChange={(event) => onCountrySearchChange(event.target.value)}
+                              className="min-h-11 w-full rounded-md border border-white/25 bg-black px-3 text-base text-[#F8FAFC] outline-none focus:border-[#E11D48] focus:ring-2 focus:ring-[#E11D48]"
+                            />
+                            <div id="special-phone-country-options" role="listbox" aria-label="Countries" className="mt-2 max-h-52 overflow-y-auto">
+                              {filteredPhoneCountries.map(({ country, callingCode, name }) => (
+                                <button
+                                  key={country}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={selectedCountryOption.country === country}
+                                  onClick={() => onCountrySelect(country)}
+                                  className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-sm text-[#F8FAFC] hover:bg-white/10 focus:bg-white/10 focus:outline-none"
+                                >
+                                  <span>{name} ({country})</span>
+                                  <span>+{callingCode}</span>
+                                </button>
+                              ))}
+                              {filteredPhoneCountries.length === 0 && <p className="px-3 py-2 text-sm text-slate-300">No countries found.</p>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <input
                       ref={refs[field]}
                       id={`special-${field}`}
@@ -646,8 +753,8 @@ function ReservationDialog({
                       type={field === "email" ? "email" : "text"}
                       inputMode={field === "phone" ? "tel" : undefined}
                       autoComplete={autoComplete[field]}
-                      value={values[field]}
-                      onChange={onChange(field)}
+                      value={field === "phone" ? phoneDraft : values[field]}
+                      onChange={field === "phone" ? onPhoneChange : onChange(field)}
                       required
                       aria-required="true"
                       aria-invalid={errors[field] ? "true" : "false"}

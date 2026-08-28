@@ -125,6 +125,8 @@ export const parseServerPhoneInput = (input: string): PhoneParseResult => {
   return parseNationalPhone(digits.slice(1), "US")
 }
 
+export const isNationalPhoneDraft = (input: string) => /^[\d\s().-]*$/.test(input)
+
 export const formatNationalDraft = (input: string, country: CountryCode): string => {
   if (!isSupportedCountry(country)) return ""
 

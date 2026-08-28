@@ -620,7 +620,16 @@ describe("POST /api/staff/students", () => {
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({ attendanceId: "attendance_1", purchaseId: "purchase_1" })
     expect(mockPrisma.classSession.findMany).toHaveBeenCalledWith({
-      where: { startsAt: { gte: expect.any(Date), lt: expect.any(Date) } },
+      where: {
+        startsAt: {
+          gte: new Date("2026-04-17T04:00:00.000Z"),
+          lt: new Date("2026-05-02T04:00:00.000Z"),
+        },
+        OR: [
+          { specialClass: { is: null } },
+          { specialClass: { is: { status: { not: "cancelled" } } } },
+        ],
+      },
       select: { id: true, courseSlug: true, title: true, startsAt: true, durationMinutes: true },
       orderBy: { startsAt: "desc" },
       take: 50,
@@ -670,7 +679,14 @@ describe("POST /api/staff/students", () => {
           gte: new Date("2026-04-30T04:00:00.000Z"),
           lt: new Date("2026-05-01T04:00:00.000Z"),
         },
+        OR: [
+          { specialClass: { is: null } },
+          { specialClass: { is: { status: { not: "cancelled" } } } },
+        ],
       },
+      select: { id: true, courseSlug: true, title: true, startsAt: true, durationMinutes: true },
+      orderBy: { startsAt: "desc" },
+      take: 50,
     }))
     expect(mockPrisma.attendance.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ sessionId: "session_prior_day" }),
