@@ -15,6 +15,7 @@ const mockPackagePurchaseFindFirst = vi.fn()
 const mockCourseCatalogFindUnique = vi.fn()
 const mockCourseCatalogFindMany = vi.fn()
 const mockCourseLinkFindMany = vi.fn()
+const mockSpecialClassFindUnique = vi.fn()
 const mockPackagePurchaseUpdate = vi.fn()
 const mockPackagePurchaseUpdateMany = vi.fn()
 const mockPackageUsageLedgerCreate = vi.fn()
@@ -40,6 +41,7 @@ vi.mock("@/lib/prisma", () => ({
       findMany: (...args: unknown[]) => mockCourseCatalogFindMany(...args),
     },
     courseLink: { findMany: (...args: unknown[]) => mockCourseLinkFindMany(...args) },
+    specialClass: { findUnique: (...args: unknown[]) => mockSpecialClassFindUnique(...args) },
     attendance: {
       findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
       create: (...args: unknown[]) => mockAttendanceCreate(...args),
@@ -108,6 +110,7 @@ function setupDefaults() {
   mockCourseCatalogFindUnique.mockResolvedValue(null)
   mockCourseCatalogFindMany.mockResolvedValue([])
   mockCourseLinkFindMany.mockResolvedValue([])
+  mockSpecialClassFindUnique.mockResolvedValue(null)
   mockPackagePurchaseFindFirst.mockResolvedValue(null)
   mockPackagePurchaseUpdateMany.mockResolvedValue({ count: 1 })
   mockPackageUsageLedgerFindUnique.mockResolvedValue(null)
@@ -156,6 +159,7 @@ function setupDefaults() {
 describe("POST /api/checkin/qr/client-phone", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.clearAllMocks()
     setupDefaults()
   })
 
@@ -252,6 +256,122 @@ describe("POST /api/checkin/qr/client-phone", () => {
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("already_checked_in")
+  })
+
+  it("checks in a special-class purchase without metadata.date when it belongs to the resolved session", async () => {
+    mockPurchaseFindMany.mockResolvedValue([
+      {
+        id: "special_purchase_1",
+        status: "capture_pending",
+        amount: 2500,
+        courseSlug: "salsa-night",
+        specialClassId: "special_class_1",
+        classSessionId: session.id,
+        metadata: {},
+      },
+    ])
+    mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1", status: "published", classSessionId: session.id })
+    mockAttendanceUpdate.mockResolvedValue({ id: "att_scheduled", status: "checked_in", checkedInAt: NOW, metadata: {} })
+    mockAttendanceFindUnique.mockResolvedValue({ id: "att_scheduled", status: "scheduled", checkedInAt: session.startsAt, packageUsage: null })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest(defaultBody))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("checked_in")
+    expect(mockAttendanceUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "att_scheduled" },
+      data: expect.objectContaining({ status: "checked_in" }),
+    }))
+  })
+
+  it("checks in a cash_pending special-class purchase", async () => {
+    mockPurchaseFindMany.mockResolvedValue([
+      {
+        id: "special_purchase_cash",
+        status: "cash_pending",
+        amount: 2500,
+        courseSlug: "salsa-night",
+        specialClassId: "special_class_1",
+        classSessionId: session.id,
+        metadata: {},
+      },
+    ])
+    mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1", status: "published", classSessionId: session.id })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest(defaultBody))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("checked_in")
+    expect(data.cashPending).toBe(true)
+  })
+
+  it("does not check in a special-class purchase when its class is cancelled", async () => {
+    mockPurchaseFindMany.mockResolvedValue([
+      {
+        id: "special_purchase_cancelled",
+        status: "capture_pending",
+        amount: 2500,
+        courseSlug: "salsa-night",
+        specialClassId: "special_class_1",
+        classSessionId: session.id,
+        metadata: {},
+      },
+    ])
+    mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1", status: "cancelled", classSessionId: session.id })
+    mockAttendanceFindUnique.mockResolvedValue({ id: "att_scheduled", status: "scheduled", checkedInAt: session.startsAt, packageUsage: null })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest(defaultBody))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("rejected")
+    expect(data.message).toMatch(/not available/i)
+    expect(mockAttendanceUpdate).not.toHaveBeenCalled()
+  })
+
+  it("does not check in a linked special-class purchase for a different canonical session", async () => {
+    mockPurchaseFindMany.mockResolvedValue([
+      {
+        id: "special_purchase_wrong_session",
+        status: "paid",
+        amount: 2500,
+        courseSlug: "salsa-night",
+        specialClassId: "special_class_1",
+        classSessionId: "session_other",
+        metadata: { date: "2026-06-11" },
+      },
+    ])
+    mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1", status: "published", classSessionId: "session_other" })
+    mockAttendanceFindUnique.mockResolvedValue({ id: "att_scheduled", status: "scheduled", checkedInAt: session.startsAt, packageUsage: null })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest(defaultBody))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("rejected")
+    expect(data.message).toMatch(/not available/i)
+    expect(mockAttendanceUpdate).not.toHaveBeenCalled()
+  })
+
+  it("returns already_checked_in for an existing special-class attendance without mutating it", async () => {
+    mockAttendanceFindUnique.mockResolvedValue({
+      id: "att_special_checked_in", status: "checked_in", checkedInAt: NOW, packageUsage: null,
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest(defaultBody))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("already_checked_in")
+    expect(mockAttendanceCreate).not.toHaveBeenCalled()
+    expect(mockAttendanceUpdate).not.toHaveBeenCalled()
   })
 
   // The QR time gate was intentionally removed (commit 19c0c1f). A valid

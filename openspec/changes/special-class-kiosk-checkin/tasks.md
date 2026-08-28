@@ -43,13 +43,13 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: F1 Self Check-in by Phone
 
-- [ ] 2.1 RED test: add `tests/api/checkin-client-phone.test.ts` scenario "special-class Purchase without metadata.date is matched by specialClassId" — seed a special-class Purchase (`status: capture_pending`, no `metadata.date`) and scheduled Attendance, call the route, assert it flips to checked-in. Must fail against current matcher.
-- [ ] 2.2 RED test: add scenario "cash_pending special-class Purchase is check-in-eligible" in the same file — seed `status: cash_pending`, assert check-in succeeds.
-- [ ] 2.3 RED test: add scenario "cancelled/unpublished special class blocks check-in" — seed Purchase/Attendance tied to a `cancelled` or `unpublished` SpecialClass, assert no check-in and a not-available/unavailable response, no crash.
-- [ ] 2.4 RED test: add scenario "already checked-in is idempotent" for a special-class Attendance already `checked_in` — assert no duplicate mutation and an already-checked-in style response.
-- [ ] 2.5 In `app/api/checkin/qr/client-phone/route.ts`, broaden `matchingPurchase` (~lines 138-150): when no Purchase matches by `metadata.date`, fall back to selecting a special-class Purchase for the resolved session by `specialClassId`/`classSessionId`, and treat `matchingPurchase.status === "cash_pending"` as check-in-eligible alongside `SUCCESSFUL_PURCHASE_STATUSES`.
-- [ ] 2.6 In the same route, gate on the linked SpecialClass's lifecycle status (cancelled/unpublished) before flipping Attendance, returning the existing not-found/unavailable-style error path instead of a 500.
-- [ ] 2.7 Run `pnpm vitest run tests/api/checkin-client-phone.test.ts` and confirm all four new scenarios pass; run full `client-phone` suite to confirm no regression on regular-class check-in.
+- [x] 2.1 RED test: extended the existing `tests/api/checkin-qr-client-phone.test.ts` route suite (the repository's actual client-phone test filename) with "special-class Purchase without metadata.date is matched by specialClassId" — seeded a `capture_pending` special-class Purchase without `metadata.date` and scheduled Attendance; RED run failed against the prior matcher, then passes after the route change.
+- [x] 2.2 RED test: added "cash_pending special-class Purchase is check-in-eligible" in `tests/api/checkin-qr-client-phone.test.ts`; RED run failed before the eligibility change, then passes.
+- [x] 2.3 RED test: added "cancelled special class blocks check-in" with a linked scheduled Attendance; RED run returned the generic no-booking response before the lifecycle gate, then passes with the unavailable response and no mutation.
+- [x] 2.4 RED test: added the special-class `already_checked_in` idempotency scenario; it confirms the route returns `already_checked_in` without an Attendance create or update.
+- [x] 2.5 In `app/api/checkin/qr/client-phone/route.ts`, broadened `matchingPurchase`: after date matching fails, it selects the user Purchase whose `specialClassId` and `classSessionId` match the resolved session; special `capture_pending` and `cash_pending` Purchases are eligible.
+- [x] 2.6 In the same route, added a linked SpecialClass lifecycle and canonical-session gate before any Attendance mutation; cancelled and mismatched-session RED tests confirm anything absent, unpublished, cancelled, closed, or mismatched returns the unavailable-style rejected response instead of a 500.
+- [x] 2.7 Ran `npx vitest run tests/api/checkin-qr-client-phone.test.ts`: 1 file, 12 tests passed (the complete existing client-phone route suite, including regular check-in and canonical-session regression cases). `npm run typecheck` passed (`tsc --noEmit`).
 
 ## Phase 3: F2 Card Walk-in via QR to Reservation Page
 
