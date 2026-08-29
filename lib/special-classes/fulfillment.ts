@@ -1,8 +1,8 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { lockSpecialClassBoundary, runSpecialClassSerializableTransaction } from "@/lib/special-classes/management"
+import { CAPACITY_STATUSES } from "@/lib/special-classes/policy"
 
-const CAPACITY_STATUSES = ["paid", "succeeded", "completed", "capture_pending"]
 const MAX_SERIALIZABLE_ATTEMPTS = 3
 
 type AuthorizationInput = {

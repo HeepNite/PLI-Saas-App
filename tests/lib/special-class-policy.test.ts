@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  CAPACITY_STATUSES,
   SPECIAL_CLASS_HOLD_MS,
   canManageSpecialClassDefinition,
   canOperateSpecialClassRoster,
@@ -9,6 +10,10 @@ import {
 } from "@/lib/special-classes/policy"
 
 describe("special class policy", () => {
+  it("exposes a single shared capacity-status list for every occupancy site", () => {
+    expect(CAPACITY_STATUSES).toEqual(["paid", "succeeded", "completed", "capture_pending"])
+  })
+
   it("counts paid purchases and only unexpired pending holds", () => {
     const now = new Date("2026-08-26T12:00:00.000Z")
 

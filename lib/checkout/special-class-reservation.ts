@@ -1,9 +1,8 @@
 import { Prisma, type Purchase } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { SPECIAL_CLASS_HOLD_MS } from "@/lib/special-classes/policy"
+import { CAPACITY_STATUSES, SPECIAL_CLASS_HOLD_MS } from "@/lib/special-classes/policy"
 import { SPECIAL_SALSA_CLASS, resolveSpecialClassPricing } from "@/lib/special-salsa-class/config"
 
-const PAID_STATUSES = ["paid", "succeeded", "completed", "capture_pending"]
 const MAX_SERIALIZABLE_ATTEMPTS = 3
 
 type ReservationInput = {
@@ -81,7 +80,7 @@ export async function admitSpecialClassReservation(
           if (sameAttempt.userId !== input.dbUserId || sameAttempt.specialClassId !== specialClass.id) {
             return { ok: false as const, code: "CHECKOUT_IN_PROGRESS" as const }
           }
-          if (PAID_STATUSES.includes(sameAttempt.status)) return { ok: false as const, code: "ALREADY_REGISTERED" as const }
+          if (CAPACITY_STATUSES.includes(sameAttempt.status)) return { ok: false as const, code: "ALREADY_REGISTERED" as const }
           if (sameAttempt.status === "pending" && sameAttempt.holdExpiresAt && sameAttempt.holdExpiresAt > now) {
             return {
               ok: true as const,
@@ -99,11 +98,11 @@ export async function admitSpecialClassReservation(
           where: {
             userId: input.dbUserId,
             specialClassId: specialClass.id,
-            OR: [{ status: { in: PAID_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
+            OR: [{ status: { in: CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
           },
         })
         if (duplicate) {
-          return PAID_STATUSES.includes(duplicate.status)
+          return CAPACITY_STATUSES.includes(duplicate.status)
             ? { ok: false as const, code: "ALREADY_REGISTERED" as const }
             : { ok: false as const, code: "CHECKOUT_IN_PROGRESS" as const }
         }
@@ -111,7 +110,7 @@ export async function admitSpecialClassReservation(
         const occupied = await tx.purchase.count({
           where: {
             specialClassId: specialClass.id,
-            OR: [{ status: { in: PAID_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
+            OR: [{ status: { in: CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
           },
         })
         if (occupied >= specialClass.classSession.capacity) return { ok: false as const, code: "SOLD_OUT" as const }
@@ -186,7 +185,7 @@ export const getSpecialClassAvailability = async (slug: string, now = new Date()
   await prisma.purchase.updateMany({ where: { specialClassId: specialClass.id, status: "pending", holdExpiresAt: { lte: now } }, data: { status: "expired" } })
   const [held, paid] = await Promise.all([
     prisma.purchase.count({ where: { specialClassId: specialClass.id, status: "pending", holdExpiresAt: { gt: now } } }),
-    prisma.purchase.count({ where: { specialClassId: specialClass.id, status: { in: PAID_STATUSES } } }),
+    prisma.purchase.count({ where: { specialClassId: specialClass.id, status: { in: CAPACITY_STATUSES } } }),
   ])
   const remaining = Math.max(specialClass.classSession.capacity - held - paid, 0)
   return { remaining, soldOut: remaining === 0, held, paid, capacity: specialClass.classSession.capacity }

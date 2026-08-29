@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma"
-
-const PAID_STATUSES = ["paid", "succeeded", "completed", "capture_pending"]
+import { CAPACITY_STATUSES } from "@/lib/special-classes/policy"
 
 export async function expireSpecialClassHolds(specialClassId: string, now = new Date()) {
   return prisma.purchase.updateMany({
@@ -15,7 +14,7 @@ export async function getSpecialClassDetail(id: string, now = new Date()) {
   if (!specialClass) return null
   const [held, paid, checkedIn, roster] = await Promise.all([
     prisma.purchase.count({ where: { specialClassId: id, status: "pending", holdExpiresAt: { gt: now } } }),
-    prisma.purchase.count({ where: { specialClassId: id, status: { in: PAID_STATUSES } } }),
+    prisma.purchase.count({ where: { specialClassId: id, status: { in: CAPACITY_STATUSES } } }),
     prisma.attendance.count({ where: { sessionId: specialClass.classSessionId, status: { in: ["checked_in", "checked_in_no_package"] } } }),
     prisma.purchase.findMany({
       where: { specialClassId: id },
