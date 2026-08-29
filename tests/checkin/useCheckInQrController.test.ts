@@ -3,10 +3,10 @@ import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
 import { getQuickRepeatSpecialClassReservationUrl } from "@/components/front/checkin/hooks/useCheckInQrController"
 
 describe("useCheckInQrController card QR selection", () => {
-  it("uses the special-class reservation page instead of the checkout-session API", () => {
+  it("uses the international Special Salsa reservation page instead of the checkout-session API", () => {
     const url = getQuickRepeatSpecialClassReservationUrl(SPECIAL_SALSA_CLASS.courseSlug)
 
-    expect(url).toBe(`/special-classes/${SPECIAL_SALSA_CLASS.key}`)
+    expect(url).toBe("/special-salsa-class?reserve=1")
     expect(url).not.toContain("/api/checkout/session")
   })
 

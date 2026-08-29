@@ -1,5 +1,6 @@
 import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
 import { EMAIL_REGEX } from "@/lib/shared"
+import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
 
 export const KIOSK_QR_POLL_INTERVAL_MS = 3_000
 export const KIOSK_PAYMENT_TRANSITION_MIN_MS = 900
@@ -95,7 +96,9 @@ export const buildKioskCheckoutQrImageUrl = (url: string, size = 260) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=png&data=${encodeURIComponent(url)}`
 
 export const buildSpecialClassReservationQrUrl = (slug: string) =>
-  `/special-classes/${encodeURIComponent(slug)}`
+  slug === SPECIAL_SALSA_CLASS.key
+    ? "/special-salsa-class?reserve=1"
+    : `/special-classes/${encodeURIComponent(slug)}`
 
 export const isKioskInfoFastPathEligible = (input: KioskFastPathEligibilityInput) => {
   if (!input.isKioskTerminalFlow || !input.isCheckInExistingFlow) {

@@ -5,14 +5,14 @@
 Reuse-first. The canonical `ClassSession` already unifies special and regular classes, so all three capabilities are additive edits on shipped paths — no changes to the online special-class purchase path or the regular-class kiosk flow.
 
 - **F1 (self check-in)**: already class-type-agnostic. `client-phone/route.ts` resolves Attendance by `userId_sessionId` (line 109) and matches Purchase by `courseSlug` + `metadata.date` (lines 138-150). A special-class Purchase carries `courseSlug` (`special-salsa-calena-2026-08-30`) plus `specialClassId`/`classSessionId`, and `admitSpecialClassAuthorization` already created a `SCHEDULED` Attendance at Stripe authorization. One gap: `matchingPurchase` requires `metadata.date` but the special-class Purchase is written by the reservation path, which may not set `metadata.date`. Fix = broaden the match to also select by `specialClassId` presence for the resolved session (see File Changes).
-- **F2 (card walk-in)**: kiosk sends nothing that triggers the special branch. Point the kiosk QR at the existing reservation page instead of the generic checkout session — the customer self-enters name/email/phone there, which is exactly the web flow already verified end-to-end. This sidesteps the `attemptId` (UUID) + email hard requirement (`session/route.ts:58-64`) entirely.
+- **F2 (card walk-in)**: kiosk sends nothing that triggers the special branch. Point the kiosk QR at the existing reservation page instead of the generic checkout session — the customer self-enters name/email/phone there, which is exactly the web flow already verified end-to-end. This sidesteps the `attemptId` (UUID) + email hard requirement (`session/route.ts:58-64`) entirely. The configured Special Salsa QR MUST use `/special-salsa-class?reserve=1`: mobile smoke found that its generic slug route renders `PublicSpecialClass` with a plain phone field, while the landing route reuses the international country selector and E.164 normalization.
 - **F3 (cash walk-in)**: cash route creates a pending Purchase with no special-class linkage or Attendance (lines 301-348). Add a serializable admission that links the class, creates a checked-in Attendance, and marks the seat with a dedicated status so every capacity query counts it.
 
 ## Architecture Decisions
 
 ### Decision: F2 kiosk QR points at the reservation page, not `/api/checkout/session`
 
-**Choice**: Kiosk card walk-in QR encodes `/special-classes/[slug]` (or `/special-salsa-class`), not a pre-created Stripe session.
+**Choice**: The configured Special Salsa kiosk QR encodes `/special-salsa-class?reserve=1`; other special-class slugs retain `/special-classes/[slug]`. Neither encodes a pre-created Stripe session.
 **Alternatives**: (a) kiosk pre-collects details and calls `handleSpecialClassCheckout` with a synthesized `attemptId`+email; (b) relax the UUID/email requirement for `photoContext: kiosk_terminal`.
 **Rationale**: The reservation page is the verified web flow with hold/pricing/capacity already wired. Reusing it means zero change to `handleSpecialClassCheckout`, no synthetic-identity data-quality risk, and the customer supplies a real email on their own phone. The Stripe webhook then creates the Attendance as it does online. Rejected (a)/(b) because they duplicate identity logic and weaken audit data for a one-off kiosk case.
 
@@ -90,5 +90,5 @@ No schema migration. `cash_pending` is a new value in the existing free-form `Pu
 
 ## Open Questions
 
-- [ ] PRODUCT: Cash walk-in without email — reservation page (F2) collects email, but the cash path (F3) may accept a no-email walk-in. Confirm receipts/audit tolerate a synthesized/placeholder email for cash seats (proposal Business Rule). Default assumption: cash seat stores whatever kiosk collected; email optional for cash, required for card.
-- [ ] PRODUCT: Should a `cash_pending` seat auto-release if the class starts and the customer never settled, or does it stay counted until staff settle/void? Design assumes it stays counted (no expiry) — confirm.
+- [x] PRODUCT: Email is optional for cash walk-ins. It remains required for card payments through the reservation-page flow.
+- [x] PRODUCT: `cash_pending` never auto-expires. It occupies capacity until staff explicitly settles or voids it, and a `cash_pending` → `paid` transition does not change occupancy.
