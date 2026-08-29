@@ -287,7 +287,15 @@ export default function StaffTerminalShell({
     ? terminalPastClasses.slice(0, currentSlotIndex)
     : []
 
-  const activeCompletedClass = selectedCompletedClass ?? terminalPastClasses[0] ?? null
+  const activeCompletedClass = selectedCompletedClass
+    ?? terminalPastClasses[currentSlotIndex]
+    ?? terminalPastClasses[terminalPastClasses.length - 1]
+    ?? null
+  const selectablePastClasses = activeCompletedClass
+    ? terminalPastClasses.filter(({ courseSlug, time }) => (
+      courseSlug !== activeCompletedClass.courseSlug || time !== activeCompletedClass.time
+    ))
+    : terminalPastClasses
 
   // Loading state
   if (loading) {
@@ -318,7 +326,7 @@ export default function StaffTerminalShell({
           terminalLocation={terminal.location || ""}
           qrPathOverride="/checkin"
           selectedCourseSlug={activeCompletedClass.courseSlug}
-          terminalPastClasses={terminalPastClasses}
+          terminalPastClasses={selectablePastClasses}
           selectedTerminalPastClass={activeCompletedClass}
           onTerminalPastClassSelect={setSelectedCompletedClass}
           simulatedNowTick={simulatedNow ?? undefined}
