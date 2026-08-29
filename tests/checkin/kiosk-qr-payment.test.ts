@@ -15,11 +15,13 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 
 describe("kiosk QR payment helpers", () => {
-  it("builds a special-class reservation URL without using the checkout-session API", () => {
-    const url = buildSpecialClassReservationQrUrl("special-salsa-class-2026-08-30")
+  it("routes the configured Salsa class through the international reservation flow while preserving generic slugs", () => {
+    const salsaUrl = buildSpecialClassReservationQrUrl("special-salsa-class-2026-08-30")
+    const genericUrl = buildSpecialClassReservationQrUrl("another-special-class")
 
-    expect(url).toBe("/special-classes/special-salsa-class-2026-08-30")
-    expect(url).not.toContain("/api/checkout/session")
+    expect(salsaUrl).toBe("/special-salsa-class?reserve=1")
+    expect(genericUrl).toBe("/special-classes/another-special-class")
+    expect(salsaUrl).not.toContain("/api/checkout/session")
   })
 
   it("enables the early info skip for kiosk existing customers with valid prefill", () => {
