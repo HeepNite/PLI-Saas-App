@@ -10,10 +10,12 @@ import { useKioskFlowCompletion } from "@/components/front/checkin/useKioskFlowC
 import { useKioskPinFlow } from "@/components/front/checkin/useKioskPinFlow"
 import { useCheckInQrShellProps } from "@/components/front/checkin/hooks/useCheckInQrShellProps"
 import {
+  buildSpecialClassReservationQrUrl,
   createEmptyKioskQrCheckoutState,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
 import { requestCheckoutSessionApi } from "@/lib/checkin/checkin-qr-api"
+import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
 import { useConsecutiveOfferUiHandlers } from "@/components/front/checkin/hooks/useConsecutiveOfferUiHandlers"
 import { useKioskQrCheckoutPoller } from "@/components/front/checkin/hooks/useKioskQrCheckoutPoller"
 import { useCheckInPackageFlow } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
@@ -33,6 +35,11 @@ import type {
 import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrShell"
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
+
+export const getQuickRepeatSpecialClassReservationUrl = (courseSlug: string) =>
+  courseSlug === SPECIAL_SALSA_CLASS.courseSlug
+    ? buildSpecialClassReservationQrUrl(SPECIAL_SALSA_CLASS.key)
+    : null
 
 /**
  * Orchestrates the full CheckIn QR flow and assembles all props for
@@ -515,6 +522,22 @@ export function useCheckInQrController({
     const baseAmountCentsCard = lastPurchasePattern?.amount ?? 0
     if (baseAmountCentsCard <= 0) {
       setError("Unable to determine amount for card payment.")
+      setQuickRepeatProcessing(false)
+      return
+    }
+
+    const specialClassReservationUrl = getQuickRepeatSpecialClassReservationUrl(context.courseSlug)
+    if (specialClassReservationUrl) {
+      setQuickRepeatQrCheckout({
+        phase: "qr_ready",
+        sessionId: null,
+        url: specialClassReservationUrl,
+        expiresAt: null,
+        awaitingWebhook: false,
+        purchaseId: null,
+        paymentStatus: null,
+        error: null,
+      })
       setQuickRepeatProcessing(false)
       return
     }

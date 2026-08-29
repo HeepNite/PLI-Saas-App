@@ -53,11 +53,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: F2 Card Walk-in via QR to Reservation Page
 
-- [ ] 3.1 RED test: add `tests/lib/kiosk-qr-payment.test.ts` (or extend existing) asserting a new helper (e.g. `buildSpecialClassReservationQrUrl(slug)`) returns `/special-classes/{slug}` and does not call `/api/checkout/session`.
-- [ ] 3.2 In `lib/checkin/kiosk-qr-payment.ts`, add the helper that returns the special-class reservation-page URL for a given slug; keep the existing QR image builder (`buildKioskCheckoutQrImageUrl`) unchanged and reusable for both URL sources.
-- [ ] 3.3 RED test: extend `components/front/checkin/hooks/__tests__` (or create `tests/front/useCheckInQrController.test.ts`) asserting that for a special-class session the controller builds the QR from the reservation URL, not from `sessionPayload` -> `/api/checkout/session` (~lines 531-556).
-- [ ] 3.4 In `components/front/checkin/hooks/useCheckInQrController.ts`, branch on special-class session context to call the new reservation-URL helper instead of building `sessionPayload` and calling `requestCheckoutSessionApi`.
-- [ ] 3.5 Run `pnpm vitest run tests/front/useCheckInQrController.test.ts tests/lib/kiosk-qr-payment.test.ts` and confirm regular-class kiosk QR path (existing `/api/checkout/session` flow) is unchanged.
+- [x] 3.1 RED/GREEN: extended `tests/checkin/kiosk-qr-payment.test.ts` to assert `buildSpecialClassReservationQrUrl(slug)` returns `/special-classes/{slug}` without the checkout-session API; RED failed before the helper existed, then passed.
+- [x] 3.2 Added `buildSpecialClassReservationQrUrl` in `lib/checkin/kiosk-qr-payment.ts`; `buildKioskCheckoutQrImageUrl` remains unchanged and reusable for both URL sources.
+- [x] 3.3 RED/GREEN: added `tests/checkin/useCheckInQrController.test.ts`, which verifies the special Salsa class selects its reservation URL and a regular course remains eligible for the existing checkout-session path; RED failed before the selector existed, then passed.
+- [x] 3.4 In `components/front/checkin/hooks/useCheckInQrController.ts`, branch the Quick Repeat card QR on the configured special-class course to present the reservation URL without creating a checkout session; the regular session-payload flow is unchanged.
+- [x] 3.5 Ran `npx vitest run tests/checkin/useCheckInQrController.test.ts tests/checkin/kiosk-qr-payment.test.ts`: 2 files / 49 tests passed. The controller selector returns `null` for regular classes, retaining the existing `sessionPayload` -> `/api/checkout/session` path. `npm run typecheck` passed; targeted ESLint reported 0 errors (9 pre-existing warnings in the controller).
 
 ## Phase 4: F3 Cash Walk-in with `cash_pending`
 
