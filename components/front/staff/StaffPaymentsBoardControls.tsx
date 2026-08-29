@@ -239,7 +239,13 @@ export default function StaffPaymentsBoardControls({
           <div className="relative shrink-0">
             <select
               value={paymentsFilter}
-              onChange={(event) => setPaymentsFilter(event.target.value as "all" | "pending" | "paid")}
+              onChange={(event) => {
+                if (isHistoryMode) {
+                  setHistoryPaymentMethodFilter("all")
+                  setHistoryAttendanceFilter("all")
+                }
+                setPaymentsFilter(event.target.value as "all" | "pending" | "paid")
+              }}
               className="h-9 cursor-pointer appearance-none rounded-full border border-black/20 bg-[linear-gradient(145deg,rgba(255,255,255,0.9),rgba(241,241,252,0.76))] px-3.5 pr-8 text-xs font-medium text-black shadow-[0_10px_22px_-18px_rgba(0,0,0,0.85)] focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-[linear-gradient(145deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:text-white"
             >
               <option value="all">All</option>
@@ -352,6 +358,13 @@ export default function StaffPaymentsBoardControls({
                       key={label}
                       type="button"
                       onClick={() => {
+                        // Status views prevail alone: picking one clears the
+                        // pay-method/attendance combos so Pending is always the
+                        // whole pending set, never an accidental intersection.
+                        if (label === "Students" || label === "Paid" || label === "Pending") {
+                          setHistoryPaymentMethodFilter("all")
+                          setHistoryAttendanceFilter("all")
+                        }
                         if (label === "Students") setPaymentsFilter("all")
                         if (label === "Paid") setPaymentsFilter("paid")
                         if (label === "Pending") setPaymentsFilter("pending")

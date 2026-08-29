@@ -72,6 +72,17 @@ export const matchesStripeStatus = (
   return !isPaymentPaidForUi(row)
 }
 
+// A row staff can settle with cash in History: an unsettled cash payment, or an
+// unpaid booking that never started any payment (channel "unknown"). Card rows
+// stay on the Stripe path and package-credit attendance owes nothing.
+export const isOpenCashSettlementRow = (
+  row: Pick<PaymentRow, "paymentChannel" | "settlementStatus" | "classPaid">
+) => {
+  if (row.settlementStatus === "paid") return false
+  if (row.paymentChannel === "cash") return true
+  return row.paymentChannel === "unknown" && !row.classPaid
+}
+
 export const matchesStudentSearchQuery = (
   row: Pick<PaymentRow, "customerName" | "customerEmail" | "customerPhone" | "courseTitle" | "courseSlug" | "location" | "activePackage">,
   searchTerm: string
