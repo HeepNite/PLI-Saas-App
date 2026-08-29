@@ -148,6 +148,7 @@ const createControls = (): StaffStudentsBoardPanelProps["controls"] => ({
   },
   isCollectedOrdering: false,
   activateCollectedOrdering: vi.fn(),
+  deactivateCollectedOrdering: vi.fn(),
   filteredStudentCardsLength: 0,
   visiblePaymentIds: [],
   selectPaymentIds: vi.fn(),
