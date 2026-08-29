@@ -42,6 +42,32 @@ describe("public special class", () => {
     expect(renderToStaticMarkup(<PublicSpecialClass item={{ ...base, availability: { capacity: 10, remaining: 1 } }} />)).toContain("held for up to three minutes")
   })
 
+  it("renders the special-class start time consistently across host timezones", () => {
+    const specialItem = {
+      slug: "public-class",
+      title: "Public class",
+      description: "Description",
+      coverImageUrl: null,
+      priceCents: 2500,
+      currency: "usd",
+      session: { startsAt: "2026-08-30T20:00:00.000Z", durationMinutes: 60, location: "Studio", capacity: 10 },
+      availability: { capacity: 10, remaining: 1 },
+    }
+    const previousTimeZone = process.env.TZ
+
+    try {
+      process.env.TZ = "UTC"
+      const serverMarkup = renderToStaticMarkup(<PublicSpecialClass item={specialItem} />)
+      process.env.TZ = "America/New_York"
+      const browserMarkup = renderToStaticMarkup(<PublicSpecialClass item={specialItem} />)
+
+      expect(serverMarkup).toContain("Sunday, August 30, 2026 at 4:00 PM")
+      expect(browserMarkup).toBe(serverMarkup)
+    } finally {
+      process.env.TZ = previousTimeZone
+    }
+  })
+
   it("publishes the active Salsa promotion price instead of the persisted base price", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"))

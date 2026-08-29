@@ -2,6 +2,7 @@
 
 import React from "react"
 import { formatNationalDraft, getPhoneCountryCatalog, isNationalPhoneDraft, parseCanonicalPhone, parseNationalPhone } from "@/lib/phone"
+import { formatSpecialClassDateTime } from "@/lib/special-salsa-class/config"
 
 type PublicSpecialClassProps = {
   item: {
@@ -58,7 +59,7 @@ export default function PublicSpecialClass({ item }: PublicSpecialClassProps) {
       <h1 className="mt-2 text-4xl font-black">{item.title}</h1>
       <p className="mt-4 text-zinc-600 dark:text-zinc-300">{item.description}</p>
       <dl className="mt-6 grid gap-3 sm:grid-cols-3">
-        <div><dt className="text-xs uppercase text-zinc-500">Starts</dt><dd className="font-bold">{new Date(item.session.startsAt).toLocaleString()}</dd></div>
+        <div><dt className="text-xs uppercase text-zinc-500">Starts</dt><dd className="font-bold">{formatSpecialClassDateTime(new Date(item.session.startsAt))}</dd></div>
         <div><dt className="text-xs uppercase text-zinc-500">Location</dt><dd className="font-bold">{item.session.location ?? "PLI"}</dd></div>
         <div><dt className="text-xs uppercase text-zinc-500">Availability</dt><dd className="font-bold">{remaining} of {item.session.capacity}</dd></div>
       </dl>
