@@ -22,6 +22,7 @@ import {
   splitCustomerName,
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
+import { isOpenCashSettlementRow } from "@/components/front/staff/staffPaymentFilters"
 import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
@@ -89,10 +90,9 @@ export function PaymentStudentCard({
     ),
   ]
   const studentOpenIds = getOpenPaymentIds(student.allPayments)
-  const historyCashOpenIds =
-    cardVariant.context === "history"
-      ? student.allPayments.filter((p) => p.paymentChannel === "cash" && p.settlementStatus !== "paid").map((p) => p.id)
-      : []
+  const historyOpenRows =
+    cardVariant.context === "history" ? student.allPayments.filter(isOpenCashSettlementRow) : []
+  const historyCashOpenIds = historyOpenRows.map((p) => p.id)
   const isHistoryCashSettlement = cardVariant.context === "history" && historyCashOpenIds.length > 0
   const studentSelectableIds =
     isHistoryCashSettlement
@@ -358,6 +358,24 @@ export function PaymentStudentCard({
               </span>
             </span>
           </p>
+        ) : null}
+        {historyOpenRows.length > 0 ? (
+          <div className="w-full border-b border-amber-500/35 pb-2 text-amber-200/90">
+            <p className="inline-flex w-full items-center justify-between gap-2">
+              <span>Pending payments</span>
+              <span className="font-semibold">
+                {formatMoney(historyOpenRows.reduce((sum, row) => sum + row.amount, 0), payment.currency)}
+              </span>
+            </p>
+            {historyOpenRows.slice(0, 6).map((row) => (
+              <p key={`open-row-${row.id}`} className="mt-0.5 inline-flex w-full items-center justify-between gap-2 text-[11px] text-amber-100/75">
+                <span className="truncate">{row.courseTitle || row.courseSlug || "Class"}</span>
+                <span className="shrink-0">
+                  {formatMoney(row.amount, row.currency)} · {row.paymentChannel === "cash" ? "cash pending" : "unpaid"}
+                </span>
+              </p>
+            ))}
+          </div>
         ) : null}
         <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
           <span>Purchased courses</span>

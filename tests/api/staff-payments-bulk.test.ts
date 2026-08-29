@@ -392,4 +392,103 @@ describe("staff payments bulk route", () => {
       skipped: [{ id: "purchase_inconsistent_1", reason: "not_cash" }],
     })
   })
+
+  it("converts an unpaid unknown-channel booking to settled cash on mark_paid", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      {
+        id: "purchase_web_unpaid",
+        userId: "user_6",
+        courseSlug: "beginner-rueda",
+        packageId: null,
+        amount: 2000,
+        status: "pending",
+        createdAt: new Date("2026-08-10T12:00:00.000Z"),
+        metadata: {},
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", ids: ["purchase_web_unpaid"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.update).toHaveBeenCalledTimes(1)
+    const updateArg = mockPrisma.purchase.update.mock.calls[0][0]
+    expect(updateArg.data.status).toBe("paid")
+    expect(updateArg.data.metadata).toMatchObject({ paymentChannel: "cash", settlementStatus: "paid" })
+    expect(await res.json()).toMatchObject({ updatedCount: 1, skipped: [] })
+  })
+
+  it("does not convert unknown-channel bookings on mark_pending", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      {
+        id: "purchase_web_unpaid",
+        userId: "user_6",
+        courseSlug: "beginner-rueda",
+        packageId: null,
+        amount: 2000,
+        status: "pending",
+        createdAt: new Date("2026-08-10T12:00:00.000Z"),
+        metadata: {},
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_pending", ids: ["purchase_web_unpaid"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.update).not.toHaveBeenCalled()
+    expect(await res.json()).toMatchObject({
+      updatedCount: 0,
+      skipped: [{ id: "purchase_web_unpaid", reason: "not_cash" }],
+    })
+  })
+
+  it("does not convert package-credit rows on mark_paid", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      {
+        id: "purchase_pkg_credit",
+        userId: "user_7",
+        courseSlug: "salsa-evening",
+        packageId: null,
+        amount: 0,
+        status: "pending",
+        createdAt: new Date("2026-08-10T12:00:00.000Z"),
+        metadata: { paymentChannel: "package_credit" },
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", ids: ["purchase_pkg_credit"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.update).not.toHaveBeenCalled()
+    expect(await res.json()).toMatchObject({
+      updatedCount: 0,
+      skipped: [{ id: "purchase_pkg_credit", reason: "not_cash" }],
+    })
+  })
 })
