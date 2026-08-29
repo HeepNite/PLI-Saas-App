@@ -5,16 +5,16 @@ export const SPECIAL_CLASS_HOLD_MS = 3 * 60_000
 
 // Single source of truth for the statuses that count as an occupied seat
 // across every special-class capacity/occupancy query site.
-export const CAPACITY_STATUSES = ["paid", "succeeded", "completed", "capture_pending"]
+export const CAPACITY_STATUSES = ["paid", "succeeded", "completed", "capture_pending", "cash_pending"]
 
-const PAID_STATUSES = new Set(["paid", "succeeded", "completed"])
+const OCCUPIED_STATUSES = new Set(CAPACITY_STATUSES)
 
 export const isCountedSpecialClassPurchase = (
   purchase: { status: string; holdExpiresAt: Date | null },
   now: Date,
 ) => {
   const status = purchase.status.trim().toLowerCase()
-  if (PAID_STATUSES.has(status)) return true
+  if (OCCUPIED_STATUSES.has(status)) return true
   return status === "pending" && purchase.holdExpiresAt !== null && purchase.holdExpiresAt > now
 }
 

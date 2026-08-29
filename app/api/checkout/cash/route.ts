@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
+import { admitSpecialClassCashWalkIn } from "@/lib/special-classes/fulfillment"
 
 export const runtime = "nodejs"
 
@@ -60,6 +61,17 @@ export async function POST(req: Request) {
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
   const cashNote = normalizeCashNote((body as Record<string, unknown>)?.cashNote)
+  const requestContext = body as Record<string, unknown>
+  const checkoutKind = typeof requestContext.checkoutKind === "string"
+    ? requestContext.checkoutKind.trim()
+    : ""
+  const specialClassId = typeof requestContext.specialClassId === "string"
+    ? requestContext.specialClassId.trim()
+    : ""
+  const isSpecialClassCheckout = checkoutKind === "special-salsa-class"
+  if ((checkoutKind || specialClassId) && (!isSpecialClassCheckout || !specialClassId)) {
+    return NextResponse.json({ error: "Invalid special-class checkout context" }, { status: 400 })
+  }
 
   const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
@@ -116,6 +128,59 @@ export async function POST(req: Request) {
 
   if (!dbUser) {
     return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
+  }
+
+  if (isSpecialClassCheckout) {
+    const now = new Date()
+    const admission = await admitSpecialClassCashWalkIn(prisma, {
+      specialClassId,
+      dbUserId: dbUser.id,
+      source: "kiosk_cash_walk_in",
+      eventId: crypto.randomUUID(),
+      now,
+    })
+    if ("code" in admission) {
+      const error = admission.code === "SOLD_OUT"
+        ? "This special class is sold out"
+        : admission.code === "ALREADY_CHECKED_IN"
+          ? "This person is already checked in"
+          : "This special class is not available"
+      return NextResponse.json({ error, code: admission.code }, { status: 409 })
+    }
+
+    const postCommitEffects = [
+      { name: "prepared_checkout_cleanup", result: clearPreparedCheckoutAfterSuccess({ terminalAuth, kioskSessionToken, validation }) },
+      ...(photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && effectiveSession.date
+        ? [{ name: "day_of_week_counter", result: incrementDayOfWeekCounter(dbUser.id, new Date(`${effectiveSession.date}T12:00:00.000Z`)) }]
+        : []),
+    ]
+    const postCommitResults = await Promise.allSettled(postCommitEffects.map((effect) => effect.result))
+    postCommitResults.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error("Special-class cash checkout post-commit effect failed", { effect: postCommitEffects[index]?.name, error: result.reason })
+      }
+    })
+    console.info("[staff-terminal-checkout-latency] checkout-cash", {
+      segment: "cash_special_class",
+      source,
+      fallbackReason: fallbackReason || null,
+      durationMs: Date.now() - startedAt,
+      reusedUserId: userId || null,
+    })
+    return NextResponse.json({
+      ok: true,
+      purchaseId: admission.purchaseId,
+      attendanceId: admission.attendanceId,
+      packagePurchaseId: null,
+      paymentMethod: "onsite",
+      paymentStatus: "cash_pending",
+      migration: {
+        target: "card",
+        recommended: true,
+        message: "Cash check-in recorded. Staff must settle payment later.",
+      },
+      account,
+    })
   }
 
   // Prevent duplicate purchases for the same user + class + date/time (drop-in only)

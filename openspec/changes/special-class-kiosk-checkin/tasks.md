@@ -61,15 +61,15 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: F3 Cash Walk-in with `cash_pending`
 
-- [ ] 4.1 RED test: extend `tests/integration/special-salsa-class-capacity.test.ts` (create if absent) — "cash walk-in is checked in immediately, Purchase stays cash_pending" — call `admitSpecialClassCashWalkIn`, assert Purchase status `cash_pending` and Attendance `CHECKED_IN` created together.
-- [ ] 4.2 RED test: same file — "sold out cash walk-in rejected, no oversell" — seed 40/40 occupied (mixing paid/held/cash_pending), assert `admitSpecialClassCashWalkIn` returns `{ code: "SOLD_OUT" }` and creates nothing.
-- [ ] 4.3 RED test: same file — "concurrent card hold and cash check-in at last seat: only one wins" — run `admitSpecialClassReservation` and `admitSpecialClassCashWalkIn` concurrently at 39/40, assert exactly one succeeds.
-- [ ] 4.4 RED test: same file — "settling cash_pending to paid does not change occupied count" — assert capacity count before/after the status transition is identical.
-- [ ] 4.5 RED test: same file — "duplicate cash check-in for an already checked-in person is rejected" — seed existing checked-in Attendance (any funding state), assert no second Purchase/Attendance created.
-- [ ] 4.6 RED test: same file — "cancelled/unpublished special class rejects cash admission" — assert `{ code: "NOT_AVAILABLE" }`.
-- [ ] 4.7 In `lib/special-classes/fulfillment.ts`, add `admitSpecialClassCashWalkIn(db, input)`: serializable transaction using `lockSpecialClassBoundary` + `FOR UPDATE` (mirroring `admitSpecialClassAuthorization`), under-cap check against shared `CAPACITY_STATUSES`, create Purchase `status: "cash_pending"` + Attendance `CHECKED_IN` atomically, audit-log entry keyed `${eventId}:cash_walk_in`.
-- [ ] 4.8 In `app/api/checkout/cash/route.ts`, detect special-class context in the body (`checkoutKind`/`specialClassId`) and route to `admitSpecialClassCashWalkIn` instead of the plain pending-Purchase create (~lines 301-348); map `SOLD_OUT`/`NOT_AVAILABLE` to the existing error-response shape.
-- [ ] 4.9 Run `pnpm vitest run tests/integration/special-salsa-class-capacity.test.ts` and confirm all Phase 4 scenarios pass; re-run Phase 1 policy test to confirm `cash_pending` behaves identically across all 4 occupancy sites end-to-end.
+- [x] 4.1 RED/GREEN: added cash admission coverage asserting the `cash_pending` Purchase and `CHECKED_IN` Attendance are created atomically.
+- [x] 4.2 RED/GREEN: seeded a 40-seat paid/held/cash-pending mix and verified cash admission returns `SOLD_OUT` without writes.
+- [x] 4.3 RED/GREEN: verified a concurrent card hold and cash admission at 39/40 produces exactly one winner.
+- [x] 4.4 RED/GREEN: verified a `cash_pending` to `paid` settlement preserves the capacity count and attendance.
+- [x] 4.5 RED/GREEN: verified existing checked-in Attendance rejects a duplicate cash admission without another Purchase or Attendance.
+- [x] 4.6 RED/GREEN: verified draft and cancelled special classes return `NOT_AVAILABLE`.
+- [x] 4.7 Added serializable `admitSpecialClassCashWalkIn` with the shared class-boundary lock, occupancy guard, atomic `cash_pending` Purchase plus `CHECKED_IN` Attendance, and idempotent audit entry.
+- [x] 4.8 Routed body-provided `checkoutKind` plus `specialClassId` cash requests through the admission helper; `SOLD_OUT`, `NOT_AVAILABLE`, and duplicate check-in use the existing 409 error-response shape while regular cash checkout remains unchanged.
+- [x] 4.9 Passed the focused capacity, policy, and cash-route suite: 3 files / 23 tests; TypeScript typecheck passed and targeted ESLint has zero errors.
 
 ## Phase 5: Cross-cutting Verification
 

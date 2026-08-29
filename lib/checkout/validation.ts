@@ -45,6 +45,8 @@ export type CheckoutBody = {
   kioskCurrentCourseDate?: string
   /** Authoritative current class time from kiosk context (HH:MM) */
   kioskCurrentCourseTime?: string
+  checkoutKind?: string
+  specialClassId?: string
 }
 
 export type CheckoutValidation = {
