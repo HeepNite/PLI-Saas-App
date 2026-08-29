@@ -107,4 +107,86 @@ describe("StaffTerminalShell rotation context", () => {
       expect.objectContaining({ date: "2026-05-22" })
     )
   })
+
+  it("keeps the 9:10 PM Friday class current at 11:01 PM and excludes the selected class from past courses", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T03:01:00.000Z"))
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        date: "2026-05-22",
+        classes: [
+          {
+            ...beginnerClass,
+            slug: "salsa-night-beginner",
+            title: "Salsa Beginner / Open Level",
+            availableTimes: ["20:10"],
+          },
+          {
+            ...beginnerClass,
+            slug: "salsa-night-advance-beginner-rueda",
+            title: "Advance Beginner Rueda",
+            durationMinutes: 55,
+            availableTimes: ["21:10"],
+          },
+        ],
+      }),
+    }))
+
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root?.render(
+        <StaffTerminalShell terminal={{
+          id: "terminal-1",
+          slug: "front-desk",
+          name: "Front Desk",
+          location: "Studio",
+          defaultCourseSlug: null,
+        }} />
+      )
+      await Promise.resolve()
+    })
+
+    expect(captured.props).toMatchObject({
+      forcedCourseSlug: "salsa-night-advance-beginner-rueda",
+      forcedClassContext: {
+        courseSlug: "salsa-night-advance-beginner-rueda",
+        date: "2026-05-22",
+        time: "21:10",
+      },
+      terminalPastClasses: [
+        expect.objectContaining({
+          courseSlug: "salsa-night-beginner",
+          date: "2026-05-22",
+          time: "20:10",
+        }),
+      ],
+    })
+
+    const selectPastClass = captured.props?.onTerminalPastClassSelect as ((selection: {
+      courseSlug: string
+      time: string
+    }) => void)
+
+    await act(async () => {
+      selectPastClass({ courseSlug: "salsa-night-beginner", time: "20:10" })
+    })
+
+    expect(captured.props).toMatchObject({
+      forcedCourseSlug: "salsa-night-beginner",
+      selectedTerminalPastClass: {
+        courseSlug: "salsa-night-beginner",
+        time: "20:10",
+      },
+      terminalPastClasses: [
+        expect.objectContaining({
+          courseSlug: "salsa-night-advance-beginner-rueda",
+          time: "21:10",
+        }),
+      ],
+    })
+  })
 })
