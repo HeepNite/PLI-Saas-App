@@ -191,12 +191,24 @@ function selectionReducer(state: SelectionState, action: SelectionAction): Selec
 }
 
 function popoverReducer(state: PopoverState, action: PopoverAction): PopoverState {
+  // Anchor updates must bail out when nothing changed: cards attach anchors via
+  // inline ref callbacks that re-fire on every render, so returning a new state
+  // object for an identical anchor re-renders forever (Maximum update depth).
   switch (action.type) {
     case "POPOVER/SET_PAYMENT_HISTORY":
+      if (state.paymentHistoryAnchor === action.anchor && state.paymentHistoryStudentId === action.studentId) return state
       return { ...state, paymentHistoryAnchor: action.anchor, paymentHistoryStudentId: action.studentId }
     case "POPOVER/SET_ATTENDANCE_HISTORY":
+      if (state.attendanceHistoryAnchor === action.anchor && state.attendanceHistoryStudentId === action.studentId) return state
       return { ...state, attendanceHistoryAnchor: action.anchor, attendanceHistoryStudentId: action.studentId }
     case "POPOVER/SET_AUDIT_HISTORY":
+      if (
+        state.auditHistoryAnchor === action.anchor &&
+        state.auditHistoryStudentId === action.studentId &&
+        state.auditHistoryStudentName === action.studentName
+      ) {
+        return state
+      }
       return {
         ...state,
         auditHistoryAnchor: action.anchor,
