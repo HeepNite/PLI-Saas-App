@@ -9,6 +9,7 @@ const mockUpsertUser = vi.fn()
 const mockClearPreparedCheckout = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
 const mockPurchaseCreate = vi.fn()
+const mockAdmitSpecialClassCashWalkIn = vi.fn()
 
 const mockDayOfWeekFindUnique = vi.fn()
 const mockDayOfWeekCreate = vi.fn()
@@ -50,6 +51,10 @@ vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
 }))
 
+vi.mock("@/lib/special-classes/fulfillment", () => ({
+  admitSpecialClassCashWalkIn: (...args: unknown[]) => mockAdmitSpecialClassCashWalkIn(...args),
+}))
+
 describe("checkout cash route", () => {
   beforeEach(() => {
     mockValidate.mockReset()
@@ -59,6 +64,7 @@ describe("checkout cash route", () => {
     mockUpsertUser.mockReset()
     mockPrisma.purchase.findFirst.mockReset()
     mockPrisma.purchase.create.mockReset()
+    mockAdmitSpecialClassCashWalkIn.mockReset()
     mockPrisma.$transaction.mockClear()
     mockDayOfWeekFindUnique.mockReset()
     mockDayOfWeekCreate.mockReset()
@@ -161,6 +167,97 @@ describe("checkout cash route", () => {
         },
       },
     })
+  })
+
+  it("routes special-class cash checkout to atomic cash admission", async () => {
+    mockValidate.mockResolvedValueOnce({ currency: "eur", serviceId: "dropin", safeParticipants: 1, date: "2026-02-10", time: "11:00" })
+    mockAdmitSpecialClassCashWalkIn.mockResolvedValue({ purchaseId: "special_purchase_1", attendanceId: "attendance_1" })
+    const { POST } = await import("@/app/api/checkout/cash/route")
+
+    const res = await POST(
+      new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkoutKind: "special-salsa-class", specialClassId: "special_class_1" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ ok: true, purchaseId: "special_purchase_1", paymentStatus: "cash_pending" })
+    expect(mockAdmitSpecialClassCashWalkIn).toHaveBeenCalledWith(
+      mockPrisma,
+      {
+        specialClassId: "special_class_1",
+        dbUserId: "db_user_1",
+        source: "kiosk_cash_walk_in",
+        eventId: expect.any(String),
+        now: expect.any(Date),
+      },
+    )
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("returns committed special-class admission when both post-commit effects reject", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    mockAdmitSpecialClassCashWalkIn.mockResolvedValue({ purchaseId: "special_purchase_1", attendanceId: "attendance_1" })
+    mockClearPreparedCheckout.mockRejectedValue(new Error("cleanup failed"))
+    mockDayOfWeekCreate.mockRejectedValue(new Error("counter failed"))
+    const { POST } = await import("@/app/api/checkout/cash/route")
+
+    const res = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ checkoutKind: "special-salsa-class", specialClassId: "special_class_1", photoContext: "kiosk_terminal" }),
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ ok: true, purchaseId: "special_purchase_1" })
+    expect(mockClearPreparedCheckout).toHaveBeenCalledOnce()
+    expect(mockDayOfWeekCreate).toHaveBeenCalledOnce()
+    expect(consoleError).toHaveBeenCalledTimes(2)
+    expect(consoleError).toHaveBeenCalledWith(
+      "Special-class cash checkout post-commit effect failed",
+      expect.objectContaining({ effect: "prepared_checkout_cleanup", error: expect.any(Error) }),
+    )
+    expect(consoleError).toHaveBeenCalledWith(
+      "Special-class cash checkout post-commit effect failed",
+      expect.objectContaining({ effect: "day_of_week_counter", error: expect.any(Error) }),
+    )
+    consoleError.mockRestore()
+  })
+
+  it("rejects another checkout kind with a special-class ID before checkout side effects", async () => {
+    const { POST } = await import("@/app/api/checkout/cash/route")
+
+    const res = await POST(
+      new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkoutKind: "another-kind", specialClassId: "special_class_1" }),
+      })
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid special-class checkout context" })
+    expect(mockAdmitSpecialClassCashWalkIn).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("rejects special-class checkout without a special-class ID before checkout side effects", async () => {
+    const { POST } = await import("@/app/api/checkout/cash/route")
+
+    const res = await POST(
+      new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkoutKind: "special-salsa-class" }),
+      })
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid special-class checkout context" })
+    expect(mockAdmitSpecialClassCashWalkIn).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
   })
 
   it("passes kiosk photo context to account preparation", async () => {

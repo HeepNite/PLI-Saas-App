@@ -14,6 +14,18 @@ type AuthorizationInput = {
   now?: Date
 }
 
+type CashWalkInInput = {
+  specialClassId: string
+  dbUserId: string
+  source: string
+  eventId: string
+  now?: Date
+}
+
+export type SpecialClassCashWalkInOutcome =
+  | { purchaseId: string; attendanceId: string }
+  | { code: "SOLD_OUT" | "NOT_AVAILABLE" | "ALREADY_CHECKED_IN" }
+
 export type SpecialClassAuthorizationOutcome =
   | { kind: "capture"; purchaseId: string; paymentIntentId: string | null }
   | { kind: "cancel"; purchaseId: string; paymentIntentId: string | null }
@@ -38,6 +50,8 @@ const audit = (tx: Prisma.TransactionClient, data: {
   beforeState: Prisma.InputJsonValue
   afterState: Prisma.InputJsonValue
   eventId: string
+  actorClerkUserId?: string
+  actorRole?: string
 }) => tx.specialClassAuditLog.upsert({
   where: { specialClassId_idempotencyKey: { specialClassId: data.specialClassId, idempotencyKey: `${data.eventId}:${data.action}` } },
   update: {},
@@ -47,8 +61,8 @@ const audit = (tx: Prisma.TransactionClient, data: {
     purchaseId: data.purchaseId,
     attendanceId: data.attendanceId,
     action: data.action,
-    actorClerkUserId: "stripe-webhook",
-    actorRole: "system",
+    actorClerkUserId: data.actorClerkUserId ?? "stripe-webhook",
+    actorRole: data.actorRole ?? "system",
     beforeState: data.beforeState,
     afterState: data.afterState,
     correlationId: crypto.randomUUID(),
@@ -169,6 +183,89 @@ export async function admitSpecialClassAuthorization(
     }
   }
   throw new Error("Unable to admit special class authorization")
+}
+
+export async function admitSpecialClassCashWalkIn(
+  db: PrismaClient,
+  input: CashWalkInInput,
+): Promise<SpecialClassCashWalkInOutcome> {
+  const now = input.now ?? new Date()
+  return runSpecialClassSerializableTransaction(db, async (tx) => {
+    const specialClass = await lockSpecialClassBoundary(tx, input.specialClassId)
+    if (
+      specialClass.status !== "published" ||
+      specialClass.classSession.startsAt <= now ||
+      (specialClass.salesOpenAt && specialClass.salesOpenAt > now) ||
+      (specialClass.salesCloseAt && specialClass.salesCloseAt <= now)
+    ) {
+      return { code: "NOT_AVAILABLE" }
+    }
+
+    await tx.purchase.updateMany({
+      where: { specialClassId: specialClass.id, status: "pending", holdExpiresAt: { lte: now } },
+      data: { status: "expired" },
+    })
+    const existingAttendance = await tx.attendance.findUnique({
+      where: { userId_sessionId: { userId: input.dbUserId, sessionId: specialClass.classSessionId } },
+    })
+    if (existingAttendance) return { code: "ALREADY_CHECKED_IN" }
+
+    const duplicatePurchase = await tx.purchase.findFirst({
+      where: {
+        userId: input.dbUserId,
+        specialClassId: specialClass.id,
+        OR: [{ status: { in: CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
+      },
+    })
+    if (duplicatePurchase) return { code: "ALREADY_CHECKED_IN" }
+
+    const occupied = await tx.purchase.count({
+      where: {
+        specialClassId: specialClass.id,
+        OR: [{ status: { in: CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
+      },
+    })
+    if (occupied >= specialClass.classSession.capacity) return { code: "SOLD_OUT" }
+
+    const purchase = await tx.purchase.create({
+      data: {
+        userId: input.dbUserId,
+        courseSlug: specialClass.classSession.courseSlug,
+        courseTitle: specialClass.title,
+        amount: specialClass.priceCents,
+        currency: specialClass.currency,
+        status: "cash_pending",
+        participants: 1,
+        serviceId: "special-class",
+        idempotencyKey: `special-class-cash:${specialClass.id}:${input.eventId}`,
+        specialClassId: specialClass.id,
+        classSessionId: specialClass.classSessionId,
+        metadata: { source: input.source, paymentMethod: "onsite", paymentChannel: "cash", settlementStatus: "pending", settledAt: null },
+      },
+    })
+    const attendance = await tx.attendance.create({
+      data: {
+        userId: input.dbUserId,
+        sessionId: specialClass.classSessionId,
+        status: ATTENDANCE_STATUS.CHECKED_IN,
+        checkedInAt: now,
+        metadata: { source: input.source, purchaseId: purchase.id, specialClassId: specialClass.id },
+      },
+    })
+    await audit(tx, {
+      specialClassId: specialClass.id,
+      classSessionId: specialClass.classSessionId,
+      purchaseId: purchase.id,
+      attendanceId: attendance.id,
+      action: "cash_walk_in_admitted",
+      beforeState: { purchaseStatus: null, attendance: null },
+      afterState: { purchaseStatus: "cash_pending", attendance: attendanceSnapshot(attendance) },
+      eventId: input.eventId,
+      actorClerkUserId: "kiosk-cash-walk-in",
+      actorRole: "system",
+    })
+    return { purchaseId: purchase.id, attendanceId: attendance.id }
+  })
 }
 
 export async function finalizeSpecialClassCapture(db: PrismaClient, input: { purchaseId: string; eventId: string }) {

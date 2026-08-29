@@ -11,13 +11,14 @@ import {
 
 describe("special class policy", () => {
   it("exposes a single shared capacity-status list for every occupancy site", () => {
-    expect(CAPACITY_STATUSES).toEqual(["paid", "succeeded", "completed", "capture_pending"])
+    expect(CAPACITY_STATUSES).toEqual(["paid", "succeeded", "completed", "capture_pending", "cash_pending"])
   })
 
   it("counts paid purchases and only unexpired pending holds", () => {
     const now = new Date("2026-08-26T12:00:00.000Z")
 
     expect(isCountedSpecialClassPurchase({ status: "paid", holdExpiresAt: null }, now)).toBe(true)
+    expect(isCountedSpecialClassPurchase({ status: "cash_pending", holdExpiresAt: null }, now)).toBe(true)
     expect(isCountedSpecialClassPurchase({ status: "pending", holdExpiresAt: new Date(now.getTime() + 1) }, now)).toBe(true)
     expect(isCountedSpecialClassPurchase({ status: "pending", holdExpiresAt: now }, now)).toBe(false)
     expect(isCountedSpecialClassPurchase({ status: "expired", holdExpiresAt: new Date(now.getTime() + 1) }, now)).toBe(false)
