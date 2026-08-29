@@ -143,18 +143,38 @@ export async function POST(req: Request) {
       orderBy: { createdAt: "desc" },
     })
 
-    const matchingPurchase = purchases.find((p) => {
+    const purchaseMatchingDate = purchases.find((p) => {
       const meta = asRecord(p.metadata)
       const purchaseDate = asText(meta?.date)
       return purchaseDate === context.date
     })
+    const matchingPurchase = purchaseMatchingDate ?? purchases.find((purchase) =>
+      Boolean(purchase.specialClassId) && purchase.classSessionId === session.id
+    )
 
     if (matchingPurchase) {
+      const hasSpecialClassLink = Boolean(matchingPurchase.specialClassId)
+      const isSpecialClassPurchase = hasSpecialClassLink && matchingPurchase.classSessionId === session.id
+      if (hasSpecialClassLink) {
+        const specialClass = await prisma.specialClass.findUnique({
+          where: { id: matchingPurchase.specialClassId! },
+          select: { status: true, classSessionId: true },
+        })
+        if (!isSpecialClassPurchase || !specialClass || specialClass.status !== "published" || specialClass.classSessionId !== session.id) {
+          return NextResponse.json({
+            status: "rejected",
+            message: "This special class is not available for check-in. Please contact the front desk.",
+          })
+        }
+      }
+
       const meta = asRecord(matchingPurchase.metadata)
       const paymentChannel = asText(meta?.paymentChannel)
       const settlementStatus = asText(meta?.settlementStatus)
       const isPaid = SUCCESSFUL_PURCHASE_STATUSES.includes(matchingPurchase.status)
-      const isCashPending = paymentChannel === PAYMENT_CHANNEL.CASH && (matchingPurchase.status === SETTLEMENT_STATUS.PENDING || settlementStatus === SETTLEMENT_STATUS.PENDING)
+        || (isSpecialClassPurchase && matchingPurchase.status === "capture_pending")
+      const isCashPending = (paymentChannel === PAYMENT_CHANNEL.CASH && (matchingPurchase.status === SETTLEMENT_STATUS.PENDING || settlementStatus === SETTLEMENT_STATUS.PENDING))
+        || (isSpecialClassPurchase && matchingPurchase.status === "cash_pending")
 
       if (!isPaid && !isCashPending) {
         return NextResponse.json({
