@@ -74,5 +74,5 @@ Chain strategy: stacked-to-main
 ## Phase 5: Cross-cutting Verification
 
 - [x] 5.1 Run full suite `pnpm vitest run` to catch regressions across kiosk, checkout, and special-classes domains.
-- [ ] 5.2 Manual/E2E smoke: redeployed Special Salsa kiosk QR opens `/special-salsa-class?reserve=1` -> Stripe Checkout -> webhook creates Attendance (per design's Testing Strategy manual pass); record result in the PR description, not in this file. Mobile smoke found the generic slug route rendered `PublicSpecialClass` with a plain phone input, so the correction reuses the landing flow's international country selector while generic slugs retain their existing route.
+- [ ] 5.2 Manual/E2E smoke: redeployed Special Salsa kiosk QR opens `/special-classes/${SPECIAL_SALSA_CLASS.key}` -> Stripe Checkout -> webhook creates Attendance (per design's Testing Strategy manual pass); record result in the PR description, not in this file. `PublicSpecialClass` preserves its generic reservation UI and reuses the international phone catalog and E.164 normalization contract.
 - [x] 5.3 Update `openspec/changes/special-class-kiosk-checkin/design.md` Open Questions checklist once PRODUCT confirms cash-walk-in email policy and no-settlement expiry behavior (no code change if defaults hold).

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
 import {
   buildSpecialClassReservationQrUrl,
   createEmptyKioskQrCheckoutState,
@@ -15,11 +16,11 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 
 describe("kiosk QR payment helpers", () => {
-  it("routes the configured Salsa class through the international reservation flow while preserving generic slugs", () => {
-    const salsaUrl = buildSpecialClassReservationQrUrl("special-salsa-class-2026-08-30")
+  it("routes the configured Salsa class through its generic reservation URL", () => {
+    const salsaUrl = buildSpecialClassReservationQrUrl(SPECIAL_SALSA_CLASS.key)
     const genericUrl = buildSpecialClassReservationQrUrl("another-special-class")
 
-    expect(salsaUrl).toBe("/special-salsa-class?reserve=1")
+    expect(salsaUrl).toBe(`/special-classes/${SPECIAL_SALSA_CLASS.key}`)
     expect(genericUrl).toBe("/special-classes/another-special-class")
     expect(salsaUrl).not.toContain("/api/checkout/session")
   })
