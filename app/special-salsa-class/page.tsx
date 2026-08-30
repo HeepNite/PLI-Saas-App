@@ -40,6 +40,7 @@ export default async function SpecialSalsaClassPage({
   return (
     <SpecialSalsaClassExperience
       remaining={availability?.remaining ?? null}
+      onlineCapacity={availability?.capacity ?? SPECIAL_SALSA_CLASS.webQuota}
       cancelledAttemptId={cancelledAttemptId}
       initialNowMs={initialNowMs}
       initialDialogOpen={initialDialogOpen}

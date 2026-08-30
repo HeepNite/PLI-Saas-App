@@ -7,12 +7,14 @@ import type { BannerReservationRequest } from "@/components/front/special-salsa-
 
 export function SpecialSalsaClassExperience({
   remaining,
+  onlineCapacity,
   cancelledAttemptId,
   initialNowMs,
   initialDialogOpen,
   reservationHref,
 }: {
   remaining: number | null
+  onlineCapacity: number
   cancelledAttemptId?: string
   initialNowMs: number
   initialDialogOpen: boolean
@@ -39,6 +41,7 @@ export function SpecialSalsaClassExperience({
     >
       <SpecialSalsaClassLanding
         remaining={remaining}
+        onlineCapacity={onlineCapacity}
         cancelledAttemptId={cancelledAttemptId}
         initialNowMs={initialNowMs}
         initialDialogOpen={initialDialogOpen}

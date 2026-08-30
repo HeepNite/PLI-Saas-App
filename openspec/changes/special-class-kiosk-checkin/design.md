@@ -33,6 +33,11 @@ Reuse-first. The canonical `ClassSession` already unifies special and regular cl
 **Choice**: Wrap cash special-class admission in a serializable transaction using `lockSpecialClassBoundary` + `FOR UPDATE`, mirroring `admitSpecialClassAuthorization`, with the same under-cap check before creating the seat.
 **Rationale**: The 40-cap must hold across concurrent kiosk cash, online card, and held seats. Reusing the existing lock pattern guarantees one serialization point per special class.
 
+### Decision: Canonical web quota does not overload venue capacity
+
+**Choice**: Add `webQuota: 17` to `SPECIAL_SALSA_CLASS` while retaining `capacity: 40`. Under the existing serializable `ClassSession` lock, web reservation admission checks both total occupancy against venue capacity and non-cash web occupancy against the canonical quota. Cash admission continues to check total occupancy only. A purchase counts as web unless it carries the server-owned special-class cash idempotency prefix; `paymentChannel: cash` remains audit metadata. Prefix exclusion preserves legacy/backfilled web purchases whose metadata may be absent.
+**Rationale**: This makes the eight remaining online seats real inventory without blocking walk-ins or misrepresenting the physical venue limit. Availability and public copy expose the effective online capacity, constrained by both limits.
+
 ## Data Flow
 
     F1  phone → client-phone/route → find Attendance(userId_sessionId)|Purchase(specialClassId)
@@ -58,6 +63,9 @@ Reuse-first. The canonical `ClassSession` already unifies special and regular cl
 | `lib/special-classes/read-model.ts` | Modify | F3: `paid` count (line 18) and `available` (line 33) must include `cash_pending` so roster/metrics and sold-out display are correct. |
 | `lib/checkout/special-class-reservation.ts` | Modify | F3: occupancy counts (lines 102/114) use shared `CAPACITY_STATUSES` so online reservation sees cash seats. |
 | `lib/special-classes/policy.ts` | Modify | Export shared `CAPACITY_STATUSES = ["paid","succeeded","completed","capture_pending","cash_pending"]`. |
+| `lib/special-salsa-class/config.ts` | Modify | Declare the canonical 17-seat web quota separately from the 40-seat venue capacity. |
+| `components/front/special-salsa-class/SpecialSalsaClassLanding.tsx` | Modify | Replace hardcoded venue-capacity scarcity text with computed online availability/capacity. |
+| `components/front/special-classes/PublicSpecialClass.tsx` | Modify | Label generic availability as online inventory and use the availability capacity rather than venue capacity. |
 
 ## Interfaces / Contracts
 

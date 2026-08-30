@@ -24,6 +24,7 @@ export const SPECIAL_SALSA_CLASS = Object.freeze({
   }),
   currency: "usd",
   capacity: 40,
+  webQuota: 17,
   address: "54 Coles St, Jersey City",
   holdMinutes: 3,
 })

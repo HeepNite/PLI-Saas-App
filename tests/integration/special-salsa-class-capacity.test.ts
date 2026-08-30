@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
-import { admitSpecialClassReservation } from "@/lib/checkout/special-class-reservation"
+import { admitSpecialClassReservation, getSpecialClassAvailability } from "@/lib/checkout/special-class-reservation"
 import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
 import { setupIntegrationDb } from "./db-test-utils"
 import { updatePublishedSpecialClassCapacity } from "@/lib/special-classes/management"
@@ -52,12 +52,13 @@ describe("special class PostgreSQL capacity invariants", () => {
       })),
     )
 
-    const session = await prisma.classSession.create({ data: { courseSlug: SPECIAL_SALSA_CLASS.courseSlug, title: SPECIAL_SALSA_CLASS.title, startsAt: SPECIAL_SALSA_CLASS.startsAt, capacity: 40 } })
-    const specialClass = await prisma.specialClass.create({ data: { slug: SPECIAL_SALSA_CLASS.key, status: "published", classSessionId: session.id, title: SPECIAL_SALSA_CLASS.title, description: "Capacity race", currency: "usd", priceCents: 2500, createdBy: "test" } })
+    const slug = `venue-race-${randomUUID()}`
+    const session = await prisma.classSession.create({ data: { courseSlug: slug, title: SPECIAL_SALSA_CLASS.title, startsAt: SPECIAL_SALSA_CLASS.startsAt, capacity: 40 } })
+    const specialClass = await prisma.specialClass.create({ data: { slug, status: "published", classSessionId: session.id, title: SPECIAL_SALSA_CLASS.title, description: "Capacity race", currency: "usd", priceCents: 2500, createdBy: "test" } })
     await prisma.purchase.createMany({
       data: users.slice(0, 39).map((user, index) => ({
         userId: user.id,
-        courseSlug: SPECIAL_SALSA_CLASS.courseSlug,
+        courseSlug: slug,
         courseTitle: SPECIAL_SALSA_CLASS.title,
         amount: SPECIAL_SALSA_CLASS.amountCents,
         currency: SPECIAL_SALSA_CLASS.currency,
@@ -67,7 +68,7 @@ describe("special class PostgreSQL capacity invariants", () => {
         phone: `1201555${String(index).padStart(4, "0")}`,
         participants: 1,
         serviceId: SPECIAL_SALSA_CLASS.checkoutKind,
-        idempotencyKey: `${SPECIAL_SALSA_CLASS.key}:seed-${index}`,
+        idempotencyKey: `${slug}:seed-${index}`,
         createdAt: now,
         metadata: {
           specialEventKey: SPECIAL_SALSA_CLASS.key,
@@ -81,7 +82,7 @@ describe("special class PostgreSQL capacity invariants", () => {
 
     const reserve = (userIndex: number, attemptId: string) => admitSpecialClassReservation({
       attemptId,
-      specialClassSlug: SPECIAL_SALSA_CLASS.key,
+      specialClassSlug: slug,
       dbUserId: users[userIndex].id,
       email: users[userIndex].email || `special-capacity-${userIndex}@example.com`,
       name: users[userIndex].name || `Capacity User ${userIndex}`,
@@ -105,6 +106,33 @@ describe("special class PostgreSQL capacity invariants", () => {
         holdExpiresAt: { gt: now },
       },
     })).resolves.toBe(40)
+  }, 120_000)
+
+  it("admits exactly the 17th concurrent web seat while preserving cash walk-ins below venue capacity", async () => {
+    const users = await Promise.all(Array.from({ length: 19 }, (_, index) => createCashUser(`web-quota-${index}`)))
+    const session = await prisma.classSession.create({ data: { courseSlug: SPECIAL_SALSA_CLASS.courseSlug, title: SPECIAL_SALSA_CLASS.title, startsAt: SPECIAL_SALSA_CLASS.startsAt, capacity: 40 } })
+    const specialClass = await prisma.specialClass.create({ data: { slug: SPECIAL_SALSA_CLASS.key, status: "published", classSessionId: session.id, title: SPECIAL_SALSA_CLASS.title, description: "Web quota race", currency: "usd", priceCents: 2500, createdBy: "test" } })
+    await prisma.purchase.createMany({
+      data: users.slice(0, 16).map((user, index) => ({
+        userId: user.id, courseSlug: session.courseSlug, courseTitle: specialClass.title, amount: 2500, currency: "usd", status: "paid", participants: 1,
+        idempotencyKey: `legacy-web-${index}`, specialClassId: specialClass.id, classSessionId: session.id,
+      })),
+    })
+    const reserve = (index: number) => admitSpecialClassReservation({
+      attemptId: randomUUID(), specialClassSlug: SPECIAL_SALSA_CLASS.key, dbUserId: users[index].id,
+      email: users[index].email, name: users[index].name || "Web customer", phone: `+1201555${String(index).padStart(4, "0")}`,
+    }, { db: prisma as never, now: () => now })
+
+    await expect(getSpecialClassAvailability(SPECIAL_SALSA_CLASS.key, now, prisma as never)).resolves.toMatchObject({ capacity: 17, remaining: 1 })
+    await expect(admitCash(specialClass.id, users[18].id)).resolves.toHaveProperty("purchaseId")
+    await expect(getSpecialClassAvailability(SPECIAL_SALSA_CLASS.key, now, prisma as never)).resolves.toMatchObject({ capacity: 17, remaining: 1 })
+
+    const results = await Promise.all([reserve(16), reserve(17)])
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1)
+    expect(results).toContainEqual({ ok: false, code: "SOLD_OUT" })
+    await expect(prisma.purchase.count({ where: { specialClassId: specialClass.id, status: "paid" } })).resolves.toBe(16)
+    await expect(prisma.purchase.count({ where: { specialClassId: specialClass.id } })).resolves.toBe(18)
   }, 120_000)
 
   it("serializes a published capacity reduction with checkout admission", async () => {

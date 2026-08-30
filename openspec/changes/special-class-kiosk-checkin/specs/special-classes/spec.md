@@ -42,3 +42,27 @@ The system MUST enforce the capacity cap atomically across all seat-occupying st
 - WHEN a card walk-in's Stripe hold and a staff cash check-in are attempted at nearly the same time
 - THEN only one of the two MUST succeed in occupying the last seat
 - AND the other attempt MUST be rejected as sold out
+
+### Requirement: Online quota is distinct from venue capacity
+
+The current Special Salsa class MUST limit paid web purchases plus active web holds to 17 while preserving the 40-person venue capacity for in-person cash walk-ins. Public availability MUST report the smaller of remaining web quota and remaining venue capacity, and MUST identify that inventory as online availability.
+
+#### Scenario: Nine paid web purchases leave eight online spots
+
+- GIVEN the class has 9 paid web purchases and no active holds
+- WHEN public availability is requested
+- THEN it MUST report 8 of 17 online spots remaining
+
+#### Scenario: Cash walk-ins do not consume online quota
+
+- GIVEN the online quota is full but venue capacity remains
+- WHEN a cash walk-in is admitted at the school
+- THEN the walk-in MUST be admitted subject only to venue capacity
+- AND online availability MUST remain sold out
+
+#### Scenario: Concurrent web attempts cannot exceed the online quota
+
+- GIVEN 16 web seats are occupied
+- WHEN two web reservations race for the next seat
+- THEN exactly one MUST acquire the 17th web seat
+- AND the other MUST be rejected as sold out

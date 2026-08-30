@@ -1,6 +1,6 @@
 import { Prisma, type Purchase } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { CAPACITY_STATUSES, SPECIAL_CLASS_HOLD_MS } from "@/lib/special-classes/policy"
+import { CAPACITY_STATUSES, SPECIAL_CLASS_CASH_PURCHASE_FILTER, SPECIAL_CLASS_HOLD_MS } from "@/lib/special-classes/policy"
 import { SPECIAL_SALSA_CLASS, resolveSpecialClassPricing } from "@/lib/special-salsa-class/config"
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3
@@ -36,6 +36,14 @@ export type ReservationResult =
   | { ok: false; code: "NOT_AVAILABLE" | "CHECKOUT_EXPIRED" | "CHECKOUT_IN_PROGRESS" | "ALREADY_REGISTERED" | "SOLD_OUT" }
 
 export const getSpecialClassIdempotencyKey = (slug: string, attemptId: string) => `special-class:${slug}:${attemptId}`
+
+const occupiedPurchaseWhere = (specialClassId: string, now: Date): Prisma.PurchaseWhereInput => ({
+  specialClassId,
+  OR: [{ status: { in: CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
+})
+
+const getOnlineCapacity = (slug: string, venueCapacity: number) =>
+  Math.min(slug === SPECIAL_SALSA_CLASS.key ? SPECIAL_SALSA_CLASS.webQuota : venueCapacity, venueCapacity)
 
 const retryable = (error: unknown) => {
   if (!error || typeof error !== "object") return false
@@ -107,13 +115,15 @@ export async function admitSpecialClassReservation(
             : { ok: false as const, code: "CHECKOUT_IN_PROGRESS" as const }
         }
 
-        const occupied = await tx.purchase.count({
-          where: {
-            specialClassId: specialClass.id,
-            OR: [{ status: { in: CAPACITY_STATUSES } }, { status: "pending", holdExpiresAt: { gt: now } }],
-          },
-        })
+        const occupied = await tx.purchase.count({ where: occupiedPurchaseWhere(specialClass.id, now) })
         if (occupied >= specialClass.classSession.capacity) return { ok: false as const, code: "SOLD_OUT" as const }
+        const onlineCapacity = getOnlineCapacity(slug, specialClass.classSession.capacity)
+        if (onlineCapacity < specialClass.classSession.capacity) {
+          const webOccupied = await tx.purchase.count({
+            where: { ...occupiedPurchaseWhere(specialClass.id, now), NOT: SPECIAL_CLASS_CASH_PURCHASE_FILTER },
+          })
+          if (webOccupied >= onlineCapacity) return { ok: false as const, code: "SOLD_OUT" as const }
+        }
 
         const holdExpiresAt = new Date(now.getTime() + SPECIAL_CLASS_HOLD_MS)
         const priceCents = slug === SPECIAL_SALSA_CLASS.key
@@ -179,14 +189,16 @@ export const failSpecialClassHold = (purchaseId: string) =>
 export const releaseSpecialClassHold = (purchaseId: string) =>
   prisma.purchase.updateMany({ where: { id: purchaseId, status: "pending" }, data: { status: "released" } })
 
-export const getSpecialClassAvailability = async (slug: string, now = new Date()) => {
-  const specialClass = await prisma.specialClass.findUnique({ where: { slug }, include: { classSession: true } })
+export const getSpecialClassAvailability = async (slug: string, now = new Date(), db: typeof prisma = prisma) => {
+  const specialClass = await db.specialClass.findUnique({ where: { slug }, include: { classSession: true } })
   if (!specialClass) return null
-  await prisma.purchase.updateMany({ where: { specialClassId: specialClass.id, status: "pending", holdExpiresAt: { lte: now } }, data: { status: "expired" } })
-  const [held, paid] = await Promise.all([
-    prisma.purchase.count({ where: { specialClassId: specialClass.id, status: "pending", holdExpiresAt: { gt: now } } }),
-    prisma.purchase.count({ where: { specialClassId: specialClass.id, status: { in: CAPACITY_STATUSES } } }),
+  await db.purchase.updateMany({ where: { specialClassId: specialClass.id, status: "pending", holdExpiresAt: { lte: now } }, data: { status: "expired" } })
+  const [occupied, held, paid] = await Promise.all([
+    db.purchase.count({ where: occupiedPurchaseWhere(specialClass.id, now) }),
+    db.purchase.count({ where: { specialClassId: specialClass.id, NOT: SPECIAL_CLASS_CASH_PURCHASE_FILTER, status: "pending", holdExpiresAt: { gt: now } } }),
+    db.purchase.count({ where: { specialClassId: specialClass.id, NOT: SPECIAL_CLASS_CASH_PURCHASE_FILTER, status: { in: CAPACITY_STATUSES } } }),
   ])
-  const remaining = Math.max(specialClass.classSession.capacity - held - paid, 0)
-  return { remaining, soldOut: remaining === 0, held, paid, capacity: specialClass.classSession.capacity }
+  const capacity = getOnlineCapacity(slug, specialClass.classSession.capacity)
+  const remaining = Math.max(Math.min(capacity - held - paid, specialClass.classSession.capacity - occupied), 0)
+  return { remaining, soldOut: remaining === 0, held, paid, capacity }
 }

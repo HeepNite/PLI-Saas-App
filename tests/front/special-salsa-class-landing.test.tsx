@@ -251,7 +251,7 @@ describe("special salsa class public UI", () => {
   })
 
   it("renders fixed textual facts and the dialog trigger without an inline form", () => {
-    const html = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    const html = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={8} onlineCapacity={17} />)
     expect(html).toContain("Salsa de Cali")
     expect(html).toContain('aria-label="Promotional video for Salsa de Cali"')
     expect(html).toContain("Sunday, August 30, 2026")
@@ -282,11 +282,13 @@ describe("special salsa class public UI", () => {
     expect(html).not.toContain("data-hero-video-backdrop")
     expect(html).toContain('aria-controls="special-reservation-dialog"')
     expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain("8 of 17 online spots remaining")
+    expect(html).not.toContain("8 of 40")
   })
 
   it("renders one uncropped hero video over a non-video visual background", () => {
     const container = document.createElement("div")
-    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={17} />)
     const mediaPanel = container.querySelector("[data-hero-media]") as HTMLElement
     const foreground = container.querySelector("[data-hero-video-foreground]") as HTMLVideoElement
     const background = container.querySelector("[data-hero-video-background]") as HTMLElement
@@ -308,7 +310,7 @@ describe("special salsa class public UI", () => {
 
   it("keeps hero metadata and keyboard controls on one unobscured bottom overlay row", () => {
     const container = document.createElement("div")
-    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={17} />)
     const overlay = container.querySelector("[data-hero-video-overlay]") as HTMLElement
     const metadata = overlay.querySelector("[data-hero-video-metadata]") as HTMLElement
     const controls = overlay.querySelector("[data-hero-video-controls]") as HTMLElement
@@ -425,7 +427,7 @@ describe("special salsa class public UI", () => {
 
   it("renders one joined course card with media and details and no external form", () => {
     const container = document.createElement("div")
-    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={17} />)
     const hero = container.querySelector("[data-special-hero]") as HTMLElement
     const panels = Array.from(hero.children).filter((child) => child.hasAttribute("data-hero-panel"))
 
@@ -438,7 +440,7 @@ describe("special salsa class public UI", () => {
     expect(hero.textContent).toContain("SPECIAL EVENT")
     expect(hero.textContent).toContain("SALSA CLASS")
     expect(hero.textContent).toContain("60 min")
-    expect(hero.textContent).toContain("40 spots")
+    expect(hero.textContent).toContain("17 online spots")
     expect(hero.textContent).toContain("$25")
     expect(hero.textContent).not.toContain("View details")
     expect(hero.textContent).not.toMatch(/rating|reviews?|stars?|instructor|level|popular|open group/i)
@@ -446,7 +448,7 @@ describe("special salsa class public UI", () => {
 
   it("orders responsive facts before the price and sole hero action", () => {
     const container = document.createElement("div")
-    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={17} />)
     const details = container.querySelector("[data-hero-details]") as HTMLElement
     const factsRow = details.querySelector("[data-event-facts-row]") as HTMLElement
     const purchaseRow = details.querySelector("[data-purchase-row]") as HTMLElement
@@ -529,7 +531,7 @@ describe("special salsa class public UI", () => {
 
   it("renders a dominant August 30 date representation without a conventional calendar grid", () => {
     const container = document.createElement("div")
-    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={40} />)
+    container.innerHTML = renderToStaticMarkup(<SpecialSalsaClassLanding remaining={17} />)
     const calendar = container.querySelector("[data-date-card]") as HTMLElement
     const visual = calendar.querySelector("[data-date-representation]") as HTMLElement
     const eventTime = calendar.querySelector("time") as HTMLTimeElement
@@ -602,7 +604,7 @@ describe("special salsa class public UI", () => {
     expect(dialog.getAttribute("aria-labelledby")).toBe("special-reservation-title")
     expect(dialog.getAttribute("aria-describedby")).toBe("special-reservation-description")
     expect(document.getElementById("special-reservation-title")?.textContent).toBe("Reserve your spot")
-    expect(document.getElementById("special-reservation-description")?.textContent).toContain("40 spots")
+    expect(document.getElementById("special-reservation-description")?.textContent).toContain("5 of 17 online spots")
     expect(document.activeElement).toBe(document.querySelector('input[name="name"]'))
     expect(document.body.style.overflow).toBe("hidden")
 
