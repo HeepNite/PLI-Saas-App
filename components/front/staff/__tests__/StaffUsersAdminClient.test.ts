@@ -633,7 +633,7 @@ describe("resolveAttendanceHistoryRows", () => {
 })
 
 describe("resolvePaymentHistoryRows", () => {
-  it("uses NY-today payment createdAt in daily mode and excludes older timeline rows", () => {
+  it("keeps NY-today payments and earlier payments for today's classes in daily mode", () => {
     const dailyRow = {
       id: "today_1",
       userId: "user_1",
@@ -667,7 +667,7 @@ describe("resolvePaymentHistoryRows", () => {
       currentDateNY: "2026-05-05",
     })
 
-    expect(rows.map((row) => row.id)).toEqual(["today_1"])
+    expect(rows.map((row) => row.id)).toEqual(["today_1", "april_1", "may_1"])
   })
 
   it("uses user history rows in history mode", () => {

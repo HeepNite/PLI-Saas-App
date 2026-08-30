@@ -82,6 +82,7 @@ type StaffPaymentRowContext = {
   dbPhoneByUserId: Map<string, string>
   avatarByUserId: Map<string, string>
   courseLocationBySlug: Map<string | null, string | null>
+  dropInPriceBySlug: Map<string | null, number>
   pointsByUser: Map<string, number>
   pointsHistoryByUser: Map<string, unknown[]>
   attendanceById: Map<string, AttendanceRow>
@@ -242,6 +243,10 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     pointsBalance: context.pointsByUser.get(item.userId) || 0,
     pointsHistory: context.pointsHistoryByUser.get(item.userId) || [],
     classPaid: isPaid,
+    // Effective price to collect for zero-amount unpaid bookings (the bulk
+    // settlement route charges the course drop-in price for these).
+    dueAmountCents:
+      purchase.amount === 0 && !isPaid ? context.dropInPriceBySlug.get(courseSlug) ?? null : null,
     attendanceId: resolvedAttendance?.id ?? null,
     checkInStatus,
     checkInAt: resolvedAttendance?.checkedInAt ?? null,

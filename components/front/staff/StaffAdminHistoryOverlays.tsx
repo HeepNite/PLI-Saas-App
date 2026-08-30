@@ -81,6 +81,9 @@ export default function StaffAdminHistoryOverlays({
     currentDateNY,
   }).filter((payment) => {
     if (isHistoryMode) return true
+    // A payment belongs in today's popover when it was made today OR it pays
+    // for today's class (e.g. a special-class seat bought days in advance).
+    if (payment.classDate === currentDateNY) return true
     const createdAtNyIso = /^\d{4}-\d{2}-\d{2}$/.test(payment.createdAt)
       ? payment.createdAt
       : resolveHistoryDateIso(new Date(payment.createdAt), "America/New_York")

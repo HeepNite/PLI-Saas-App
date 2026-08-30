@@ -110,6 +110,7 @@ export type PaymentRow = {
     milestone: number | null
   }>
   classPaid: boolean
+  dueAmountCents?: number | null
   attendanceId: string | null
   checkInStatus: "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
   checkInAt: string | null
