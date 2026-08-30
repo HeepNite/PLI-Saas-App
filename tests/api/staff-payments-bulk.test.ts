@@ -8,6 +8,8 @@ const mockPrisma = {
   purchase: {
     findMany: vi.fn(),
     update: vi.fn(),
+    create: vi.fn(),
+    findUnique: vi.fn(),
   },
   courseCatalog: {
     findMany: vi.fn(),
@@ -17,6 +19,8 @@ const mockPrisma = {
   },
   attendance: {
     upsert: vi.fn(),
+    findMany: vi.fn(),
+    update: vi.fn(),
   },
   $transaction: vi.fn(),
 }
@@ -45,6 +49,10 @@ describe("staff payments bulk route", () => {
     mockPrisma.courseCatalog.findMany.mockReset()
     mockPrisma.classSession.upsert.mockReset()
     mockPrisma.attendance.upsert.mockReset()
+    mockPrisma.attendance.findMany.mockReset()
+    mockPrisma.attendance.update.mockReset()
+    mockPrisma.purchase.create.mockReset()
+    mockPrisma.purchase.findUnique.mockReset()
     mockPrisma.$transaction.mockReset()
 
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
@@ -53,7 +61,13 @@ describe("staff payments bulk route", () => {
     mockPrisma.courseCatalog.findMany.mockResolvedValue([])
     mockPrisma.classSession.upsert.mockResolvedValue({ id: "session_1" })
     mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1" })
-    mockPrisma.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops))
+    mockPrisma.attendance.findMany.mockResolvedValue([])
+    mockPrisma.attendance.update.mockResolvedValue({ id: "att_1" })
+    mockPrisma.purchase.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "created_purchase_1", ...data }))
+    mockPrisma.purchase.findUnique.mockResolvedValue(null)
+    mockPrisma.$transaction.mockImplementation(async (arg: Promise<unknown>[] | ((tx: typeof mockPrisma) => Promise<unknown>)) =>
+      typeof arg === "function" ? arg(mockPrisma) : Promise.all(arg)
+    )
     mockSyncPackagePurchase.mockResolvedValue(null)
     mockReservePackageCredit.mockResolvedValue(null)
   })
@@ -489,6 +503,135 @@ describe("staff payments bulk route", () => {
     expect(await res.json()).toMatchObject({
       updatedCount: 0,
       skipped: [{ id: "purchase_pkg_credit", reason: "not_cash" }],
+    })
+  })
+
+  it("creates a settled cash purchase for an attendance-only debt on mark_paid", async () => {
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "attendance_1",
+        userId: "user_9",
+        metadata: {},
+        session: { courseSlug: "beginner-rueda", title: "Beginner Rueda", startsAt: new Date("2026-08-30T20:00:00.000Z") },
+      },
+    ])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      { slug: "beginner-rueda", dropInPriceCents: 2000 },
+    ])
+
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", ids: ["att-attendance_1"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    const createArg = mockPrisma.purchase.create.mock.calls[0][0]
+    expect(createArg.data).toMatchObject({
+      userId: "user_9",
+      courseSlug: "beginner-rueda",
+      amount: 2000,
+      status: "paid",
+    })
+    expect(createArg.data.metadata).toMatchObject({ paymentChannel: "cash", settlementStatus: "paid", attendanceId: "attendance_1" })
+    expect(mockPrisma.attendance.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "attendance_1" },
+        data: expect.objectContaining({ metadata: expect.objectContaining({ purchaseId: "created_purchase_1" }) }),
+      })
+    )
+    expect(await res.json()).toMatchObject({ updatedCount: 1, skipped: [] })
+  })
+
+  it("isolates a failing attendance settlement without aborting the batch", async () => {
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "attendance_boom",
+        userId: "user_9",
+        metadata: {},
+        session: { courseSlug: "beginner-rueda", title: "Beginner Rueda", startsAt: new Date("2026-08-30T20:00:00.000Z") },
+      },
+      {
+        id: "attendance_ok",
+        userId: "user_10",
+        metadata: {},
+        session: { courseSlug: "beginner-rueda", title: "Beginner Rueda", startsAt: new Date("2026-08-30T20:00:00.000Z") },
+      },
+    ])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      { slug: "beginner-rueda", dropInPriceCents: 2000 },
+    ])
+    mockPrisma.purchase.create
+      .mockRejectedValueOnce(new Error("db blip"))
+      .mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "created_purchase_2", ...data }))
+
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", ids: ["att-attendance_boom", "att-attendance_ok"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      updatedCount: 1,
+      skipped: [{ id: "att-attendance_boom", reason: "settlement_failed" }],
+    })
+  })
+
+  it("does not settle attendance-only debts on mark_pending", async () => {
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_pending", ids: ["att-attendance_1"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    expect(await res.json()).toMatchObject({
+      updatedCount: 0,
+      skipped: [{ id: "att-attendance_1", reason: "not_cash" }],
+    })
+  })
+
+  it("skips attendance-only debts whose linked purchase is already settled", async () => {
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "attendance_1",
+        userId: "user_9",
+        metadata: { purchaseId: "purchase_linked_1" },
+        session: { courseSlug: "beginner-rueda", title: "Beginner Rueda", startsAt: new Date("2026-08-30T20:00:00.000Z") },
+      },
+    ])
+    mockPrisma.purchase.findUnique.mockResolvedValue({
+      id: "purchase_linked_1",
+      status: "paid",
+      metadata: { settlementStatus: "paid" },
+    })
+
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", ids: ["att-attendance_1"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    expect(await res.json()).toMatchObject({
+      updatedCount: 0,
+      skipped: [{ id: "att-attendance_1", reason: "already_settled" }],
     })
   })
 })

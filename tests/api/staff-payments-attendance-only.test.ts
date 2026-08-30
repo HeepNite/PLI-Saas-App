@@ -213,6 +213,77 @@ describe("staff payments route - attendance only", () => {
     })
   })
 
+  it("surfaces the real linked purchase for a class-day attendance whose purchase is outside the query window", async () => {
+    const today = new Date("2026-03-20T18:00:00.000Z")
+
+    const mockAttendance = {
+      id: "attendance_special",
+      userId: "user_special",
+      status: "scheduled",
+      checkedInAt: today,
+      checkedOutAt: null,
+      session: {
+        courseSlug: "special-salsa-calena",
+        startsAt: today,
+        title: "Special Salsa Caleña Class",
+      },
+      user: {
+        id: "user_special",
+        name: "Special Student",
+        email: "special@example.com",
+        phone: "+1 555 7777",
+        clerkId: "clerk_special",
+      },
+      metadata: { purchaseId: "special_purchase_1", specialClassId: "sc_1" },
+      packageUsage: null,
+    }
+
+    mockPrisma.attendance.findMany.mockResolvedValue([mockAttendance])
+    mockPrisma.purchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) => {
+      if (where && "id" in where) {
+        return [{
+          id: "special_purchase_1",
+          userId: "user_special",
+          courseSlug: "special-salsa-calena",
+          courseTitle: "Special Salsa Caleña Class",
+          name: "Special Student",
+          email: "special@example.com",
+          phone: "+1 555 7777",
+          packageId: null,
+          serviceId: "special-class",
+          amount: 2000,
+          currency: "usd",
+          status: "paid",
+          metadata: { specialClassSlug: "special-salsa-calena", lockedAmountCents: "2000" },
+          stripePaymentIntentId: "pi_special",
+          stripeCheckoutSessionId: "cs_special",
+          createdAt: new Date("2026-03-10T15:00:00.000Z"),
+          updatedAt: new Date("2026-03-10T15:00:00.000Z"),
+        }]
+      }
+      return []
+    })
+    mockPrisma.user.findMany.mockResolvedValue([
+      { id: "user_special", clerkId: "clerk_special", name: "Special Student" }
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      id: "special_purchase_1",
+      userId: "user_special",
+      courseSlug: "special-salsa-calena",
+      amount: 2000,
+      classPaid: true,
+      checkInStatus: "scheduled",
+      attendanceId: "attendance_special",
+    })
+  })
+
   it("deduplicates attendance-only rows when a today purchase is already linked", async () => {
     const today = new Date("2026-03-20T18:00:00.000Z")
 

@@ -256,6 +256,9 @@ export const resolvePaymentHistoryRows = (input: {
     const studentRows = input.payments.filter((payment) => payment.userId === input.paymentHistoryStudentId)
     if (!input.currentDateNY) return studentRows
     return studentRows.filter((payment) => {
+      // A payment belongs in today's popover when it was made today OR it pays
+      // for today's class (e.g. a special-class seat bought days in advance).
+      if (payment.classDate === input.currentDateNY) return true
       const createdAtNyIso = resolveCreatedAtNyIso(payment.createdAt)
       return createdAtNyIso === input.currentDateNY
     })
