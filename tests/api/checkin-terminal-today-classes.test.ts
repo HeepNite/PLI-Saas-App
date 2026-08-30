@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockCourseCatalogFindMany = vi.fn()
+const mockSpecialClassFindMany = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     courseCatalog: {
       findMany: (...args: unknown[]) => mockCourseCatalogFindMany(...args),
+    },
+    specialClass: {
+      findMany: (...args: unknown[]) => mockSpecialClassFindMany(...args),
     },
   },
 }))
@@ -48,6 +52,8 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     mockCourseCatalogFindMany.mockReset()
+    mockSpecialClassFindMany.mockReset()
+    mockSpecialClassFindMany.mockResolvedValue([])
     resetNestGatewayEnv()
     consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined)
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
@@ -91,6 +97,34 @@ describe("GET /api/checkin/terminal/today-classes", () => {
     expect(data.classes).toHaveLength(1)
     expect(data.classes[0].slug).toBe("bachata-nocturna")
     expect(data.classes[0].availableTimes).toEqual(["20:00", "21:00"])
+  })
+
+  it("returns a published special class using its session context and purchase identity", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-03-24T16:00:00.000Z"))
+    mockCourseCatalogFindMany.mockResolvedValue([
+      createCourse({ slug: "special-session", availableTimes: ["12:00", "20:00"] }),
+    ])
+    mockSpecialClassFindMany.mockResolvedValue([{
+      slug: "special-salsa-tuesday", status: "published", cancelledAt: null,
+      title: "Special Salsa Tuesday", coverImageUrl: "/special.jpg", priceCents: 3500, currency: "usd",
+      classSession: { courseSlug: "special-session", startsAt: new Date("2026-03-25T00:00:00.000Z"), durationMinutes: 90 },
+    }])
+
+    const { GET } = await import("@/app/api/checkin/terminal/today-classes/route")
+    const res = await GET(createRequest())
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockSpecialClassFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      status: "published", cancelledAt: null,
+      classSession: { startsAt: { gte: new Date("2026-03-24T04:00:00.000Z"), lt: new Date("2026-03-25T04:00:00.000Z") } },
+    }) }))
+    expect(data.classes).toEqual([
+      expect.objectContaining({ slug: "special-session", availableTimes: ["12:00"] }),
+      expect.objectContaining({ kind: "special", slug: "special-session", specialClassSlug: "special-salsa-tuesday",
+        title: "Special Salsa Tuesday", availableTimes: ["20:00"], dropInPriceCents: 3500, currency: "usd" }),
+    ])
   })
 
   it("excludes inactive courses", async () => {

@@ -14,7 +14,7 @@ import {
 } from "@/lib/checkin/existing-customer-flow"
 import { shouldShowKioskResolvingOverlay, shouldShowPackageCheckInFailureOverlay } from "@/lib/checkin/kiosk-qr-payment"
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
-import type { BootstrapResponse, PackageOfferContext } from "@/components/front/checkin/checkin.types"
+import type { BootstrapResponse, CheckInQrClientProps, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
 
 type UseCheckInDisplayDataArgs = {
@@ -31,6 +31,7 @@ type UseCheckInDisplayDataArgs = {
     date: string
     time: string
   }
+  forcedCoursePresentation?: CheckInQrClientProps["forcedCoursePresentation"]
   terminalTodayOnly?: boolean
   selectedCourseSlug?: string
   nowTick: Date
@@ -63,6 +64,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     forcedDeviceMode,
     forcedCourseSlug,
     forcedClassContext,
+    forcedCoursePresentation,
     terminalTodayOnly,
     selectedCourseSlug,
     nowTick,
@@ -182,41 +184,53 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   const completionMode = isStationDeviceFlow ? "station" as const : "personal" as const
 
   // ─── Check-in display course ────────────────────────────────
-  const checkInDisplayCourse = selectedCourse || qrCourse
+  const catalogDisplayCourse = selectedCourse || qrCourse
+  const checkInDisplayCourse = forcedCoursePresentation
+    ? { title: forcedCoursePresentation.title }
+    : catalogDisplayCourse
   const qrPath = qrPathOverride?.trim() || pathname
 
   const currentHomeCourse = React.useMemo(
     () =>
-      homeCourses.find((course) => course.slug === (checkInDisplayCourse?.slug || "")) ||
+      homeCourses.find((course) => course.slug === (catalogDisplayCourse?.slug || "")) ||
       homeCourses.find((course) => course.slug === activeCourseSlug) ||
       null,
-    [activeCourseSlug, checkInDisplayCourse?.slug]
+    [activeCourseSlug, catalogDisplayCourse?.slug]
   )
 
   const checkInCardImage =
+    forcedCoursePresentation?.imageUrl ||
     currentHomeCourse?.image ||
-    checkInDisplayCourse?.heroMedia?.image ||
-    checkInDisplayCourse?.instructors?.[0]?.photo ||
+    catalogDisplayCourse?.heroMedia?.image ||
+    catalogDisplayCourse?.instructors?.[0]?.photo ||
     "/images/hero-menu/live-academy.JPG"
   const checkInCardTeacher =
     currentHomeCourse?.teacher ||
-    checkInDisplayCourse?.instructors?.map((item) => item.name).filter(Boolean).join(" / ") ||
+    catalogDisplayCourse?.instructors?.map((item) => item.name).filter(Boolean).join(" / ") ||
     "PLI Team"
-  const checkInCardDuration = currentHomeCourse?.duration || checkInDisplayCourse?.duration || "55 min"
+  const checkInCardDuration = forcedCoursePresentation?.durationMinutes
+    ? `${forcedCoursePresentation.durationMinutes} min`
+    : currentHomeCourse?.duration || catalogDisplayCourse?.duration || "55 min"
   const checkInCardStudents =
+    forcedCoursePresentation?.level ||
     (typeof currentHomeCourse?.students === "string" && currentHomeCourse.students) ||
     (typeof currentHomeCourse?.students === "number" ? `${currentHomeCourse.students}` : "") ||
     "Open level"
-  const checkInCardBadge = currentHomeCourse?.badge || "Check-in presencial"
-  const checkInCardCategory = currentHomeCourse?.category || toCategoryLabel(checkInDisplayCourse?.slug || activeCourseSlug)
+  const checkInCardBadge = forcedCoursePresentation ? "Special class" : currentHomeCourse?.badge || "Check-in presencial"
+  const checkInCardCategory = forcedCoursePresentation?.category || currentHomeCourse?.category || toCategoryLabel(catalogDisplayCourse?.slug || activeCourseSlug)
   const checkInCardDescription =
+    (forcedCoursePresentation ? "Special class at PLI." : null) ||
     currentHomeCourse?.description ||
-    checkInDisplayCourse?.description ||
+    catalogDisplayCourse?.description ||
     "Class activa en el establecimiento."
+  const checkInCardPriceLabel = forcedCoursePresentation
+    ? `${new Intl.NumberFormat("en-US", { style: "currency", currency: forcedCoursePresentation.currency }).format(forcedCoursePresentation.priceCents / 100)} special class`
+    : undefined
 
   // ─── QR links ───────────────────────────────────────────────
   const checkInQrLink = React.useMemo(() => {
     if (!origin || !contextIsValid) return ""
+    if (forcedCoursePresentation) return `${origin}/special-classes/${forcedCoursePresentation.specialClassSlug}`
     const params = new URLSearchParams()
     params.set("courseSlug", activeCourseSlug)
     params.set("date", activeDate)
@@ -224,7 +238,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     params.set("durationMinutes", String(60))
     params.set("fromQr", "1")
     return `${origin}${qrPath}?${params.toString()}`
-  }, [activeCourseSlug, activeDate, activeTime, contextIsValid, origin, qrPath])
+  }, [activeCourseSlug, activeDate, activeTime, contextIsValid, forcedCoursePresentation, origin, qrPath])
 
   const checkInQrImage = React.useMemo(() => {
     if (!checkInQrLink) return ""
@@ -476,6 +490,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     checkInCardBadge,
     checkInCardCategory,
     checkInCardDescription,
+    checkInCardPriceLabel,
     checkInQrLink,
     checkInQrImage,
 

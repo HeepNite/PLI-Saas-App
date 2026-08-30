@@ -3,7 +3,7 @@
 import React, { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it } from "vitest"
-import type { BootstrapResponse, PackageOfferContext } from "@/components/front/checkin/checkin.types"
+import type { BootstrapResponse, CheckInQrClientProps, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import { useCheckInDisplayData } from "@/components/front/checkin/useCheckInDisplayData"
 import { demoCourses, type CourseData } from "@/constants/courses"
 
@@ -27,6 +27,7 @@ const renderDisplay = async ({
   packageOfferContext = null,
   sourceCourses = demoCourses,
   nowTick = new Date("2026-04-02T18:00:00.000Z"),
+  forcedCoursePresentation,
 }: {
   shellVariant: "qr" | "terminal"
   search?: string
@@ -41,6 +42,7 @@ const renderDisplay = async ({
   packageOfferContext?: PackageOfferContext
   sourceCourses?: CourseData[]
   nowTick?: Date
+  forcedCoursePresentation?: CheckInQrClientProps["forcedCoursePresentation"]
 }) => {
   let snapshot: DisplaySnapshot | null = null
 
@@ -58,6 +60,7 @@ const renderDisplay = async ({
       searchParams,
       forcedDeviceMode: undefined,
       forcedCourseSlug,
+      forcedCoursePresentation,
       nowTick,
       origin: "https://pli.test",
       isCompactViewport: false,
@@ -289,6 +292,29 @@ describe("useCheckInDisplayData", () => {
     expect(snap.checkInQrLink).toContain("courseSlug=salsa-nocturno")
     expect(snap.checkInQrLink).toContain("date=2026-04-02")
     expect(snap.checkInQrLink).toContain("time=20%3A10")
+  })
+
+  it("uses special-class presentation and purchase URL without replacing F1 session context", async () => {
+    const rendered = await renderDisplay({
+      shellVariant: "terminal",
+      search: "courseSlug=special-session&date=2026-03-24&time=20%3A00",
+      forcedCourseSlug: "special-session",
+      sourceCourses: [],
+      forcedCoursePresentation: {
+        kind: "special", title: "Special Salsa Tuesday", imageUrl: "/special.jpg", durationMinutes: 90,
+        category: "Special class", level: null, specialClassSlug: "special-salsa-tuesday", priceCents: 3500, currency: "usd",
+      },
+    })
+    root = rendered.root
+    container = rendered.container
+
+    const snap = rendered.getSnapshot()
+    expect(snap.activeCourseSlug).toBe("special-session")
+    expect(snap.checkInDisplayCourse?.title).toBe("Special Salsa Tuesday")
+    expect(snap.checkInCardImage).toBe("/special.jpg")
+    expect(snap.checkInCardDuration).toBe("90 min")
+    expect(snap.checkInCardPriceLabel).toBe("$35.00 special class")
+    expect(snap.checkInQrLink).toBe("https://pli.test/special-classes/special-salsa-tuesday")
   })
 
   it("does not jump to a future class when the terminal course has no slot today", async () => {

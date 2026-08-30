@@ -21,7 +21,9 @@ type TerminalSummary = {
 }
 
 type TodayClassItem = {
+  kind?: "special"
   slug: string
+  specialClassSlug?: string
   title: string
   category: string | null
   level: string | null
@@ -31,6 +33,7 @@ type TodayClassItem = {
   dropInPriceCents: number | null
   firstClassPriceCents: number | null
   coverImageUrl: string | null
+  currency?: string
 }
 
 type TodayClassSlot = {
@@ -370,6 +373,17 @@ export default function StaffTerminalShell({
             time: currentSlot.time,
             durationMinutes: currentSlot.item.durationMinutes ?? 55,
           }}
+          forcedCoursePresentation={currentSlot.item.kind === "special" && currentSlot.item.specialClassSlug && currentSlot.item.dropInPriceCents !== null && currentSlot.item.currency ? {
+            kind: "special",
+            title: currentSlot.item.title,
+            imageUrl: currentSlot.item.coverImageUrl,
+            durationMinutes: currentSlot.item.durationMinutes,
+            category: currentSlot.item.category,
+            level: currentSlot.item.level,
+            specialClassSlug: currentSlot.item.specialClassSlug,
+            priceCents: currentSlot.item.dropInPriceCents,
+            currency: currentSlot.item.currency,
+          } : undefined}
           shellVariant="terminal"
           terminalName={terminal.name}
           terminalLocation={terminal.location || ""}

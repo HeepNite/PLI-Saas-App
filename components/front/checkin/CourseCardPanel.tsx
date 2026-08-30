@@ -34,6 +34,7 @@ interface CourseCardPanelProps {
   students: string
   description: string
   teacher: string
+  priceLabel?: string
   displayDate: string
   displayTime: string
   qrImage?: string
@@ -55,6 +56,7 @@ export function CourseCardPanel({
   students,
   description,
   teacher,
+  priceLabel,
   displayDate,
   displayTime,
   qrImage,
@@ -87,6 +89,7 @@ export function CourseCardPanel({
                 students={students}
                 description={description}
                 teacher={teacher}
+                priceLabel={priceLabel}
                 displayDate={displayDate}
                 displayTime={displayTime}
                 variant="split"
@@ -133,6 +136,7 @@ export function CourseCardPanel({
               students={students}
               description={description}
               teacher={teacher}
+              priceLabel={priceLabel}
               displayDate={displayDate}
               displayTime={displayTime}
               variant="split"
@@ -162,6 +166,7 @@ export function CourseCardPanel({
         students={students}
         description={description}
         teacher={teacher}
+        priceLabel={priceLabel}
         displayDate={displayDate}
         displayTime={displayTime}
         variant="compact"
@@ -400,6 +405,7 @@ function CourseCardContent({
   students,
   description,
   teacher,
+  priceLabel,
   displayDate,
   displayTime,
   variant,
@@ -413,6 +419,7 @@ function CourseCardContent({
   students: string
   description: string
   teacher: string
+  priceLabel?: string
   displayDate: string
   displayTime: string
   variant: "split" | "compact"
@@ -461,12 +468,18 @@ function CourseCardContent({
                 {courseTitle}
               </h3>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {priceLabel ? (
+                  <span className="rounded-full border border-white/15 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/85">
+                    {priceLabel}
+                  </span>
+                ) : (<>
                 <span className="rounded-full border border-white/15 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/85">
                   $20 drop-in
                 </span>
                 <span className="rounded-full border border-emerald-300/25 bg-emerald-400/[0.10] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-100/90">
                   $15 first time
                 </span>
+                </>)}
               </div>
               <p className={`mt-2 text-white/75 ${isSplit ? "text-sm" : "text-xs sm:text-sm"}`}>{classDateTimeLabel}</p>
             </div>

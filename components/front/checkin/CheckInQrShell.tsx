@@ -64,6 +64,7 @@ export type CheckInQrShellProps = {
   checkInCardStudents: string
   checkInCardDescription: string
   checkInCardTeacher: string
+  checkInCardPriceLabel?: string
   checkInDisplayDate: string
   checkInDisplayTime: string
   checkInQrImage: string
@@ -226,6 +227,7 @@ export function CheckInQrShell({
   checkInCardStudents,
   checkInCardDescription,
   checkInCardTeacher,
+  checkInCardPriceLabel,
   checkInDisplayDate,
   checkInDisplayTime,
   checkInQrImage,
@@ -394,6 +396,7 @@ export function CheckInQrShell({
                 students={checkInCardStudents}
                 description={checkInCardDescription}
                 teacher={checkInCardTeacher}
+                priceLabel={checkInCardPriceLabel}
                 displayDate={checkInDisplayDate}
                 displayTime={checkInDisplayTime}
                 qrImage={checkInQrImage}
@@ -416,6 +419,7 @@ export function CheckInQrShell({
                 students={checkInCardStudents}
                 description={checkInCardDescription}
                 teacher={checkInCardTeacher}
+                priceLabel={checkInCardPriceLabel}
                 displayDate={checkInDisplayDate}
                 displayTime={checkInDisplayTime}
                 compact={isTerminal}

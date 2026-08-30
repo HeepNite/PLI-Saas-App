@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { buildTodayTerminalClasses } from "@/lib/checkin/terminal-current-class"
+import { buildTodayTerminalClasses, getTerminalDayRange } from "@/lib/checkin/terminal-current-class"
 import {
   CHECKIN_TODAY_CLASSES_ERROR_STATUS,
   createCheckinTodayClassesErrorResponse,
@@ -12,20 +12,32 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 export const runtime = "nodejs"
 
 const getTodayClassesFromNext = async (now: Date) => {
-  const activeCourses = await prisma.courseCatalog.findMany({
-    where: { active: true },
-    orderBy: [{ createdAt: "asc" }],
-    take: 100,
-  })
+  const [activeCourses, specialClasses] = await Promise.all([
+    prisma.courseCatalog.findMany({
+      where: { active: true },
+      orderBy: [{ createdAt: "asc" }],
+      take: 100,
+    }),
+    prisma.specialClass.findMany({
+      where: {
+        status: "published",
+        cancelledAt: null,
+        classSession: { startsAt: getTerminalDayRange(now) },
+      },
+      include: { classSession: true },
+      orderBy: { classSession: { startsAt: "asc" } },
+      take: 100,
+    }),
+  ])
 
-  return createCheckinTodayClassesResponse({ classes: buildTodayTerminalClasses(activeCourses, now), now })
+  return createCheckinTodayClassesResponse({ classes: buildTodayTerminalClasses(activeCourses, now, specialClasses), now })
 }
 
 /**
  * GET /api/checkin/terminal/today-classes
  *
- * Returns all active CourseCatalog entries that have classes scheduled for today
- * using the same terminal current-class source used by staff fast actions.
+ * Returns active CourseCatalog schedules and published Special Classes for the
+ * current terminal day using the shared current-class projection.
  */
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req)

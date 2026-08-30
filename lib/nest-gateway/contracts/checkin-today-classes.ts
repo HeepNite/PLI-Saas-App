@@ -6,7 +6,9 @@ export const CHECKIN_TODAY_CLASSES_ERROR_MESSAGE = "Unable to fetch today's clas
 export const CHECKIN_TODAY_CLASSES_ERROR_STATUS = 500
 
 export type CheckinTodayClassesClassDto = {
+  kind?: "special"
   slug: string
+  specialClassSlug?: string
   title: string
   category: string | null
   level: string | null
@@ -16,6 +18,7 @@ export type CheckinTodayClassesClassDto = {
   dropInPriceCents: number | null
   firstClassPriceCents: number | null
   coverImageUrl: string | null
+  currency?: string
 }
 
 export type CheckinTodayClassesResponse = {
@@ -39,7 +42,9 @@ const getMonBasedWeekdayInTerminalZone = (date: Date) => {
 export const mapTerminalClassItemToTodayClassesDto = (
   item: Pick<
     TerminalClassItem,
+    | "kind"
     | "slug"
+    | "specialClassSlug"
     | "title"
     | "category"
     | "level"
@@ -49,6 +54,7 @@ export const mapTerminalClassItemToTodayClassesDto = (
     | "dropInPriceCents"
     | "firstClassPriceCents"
     | "coverImageUrl"
+    | "currency"
   >
 ): CheckinTodayClassesClassDto => ({
   slug: item.slug,
@@ -61,6 +67,9 @@ export const mapTerminalClassItemToTodayClassesDto = (
   dropInPriceCents: item.dropInPriceCents,
   firstClassPriceCents: item.firstClassPriceCents,
   coverImageUrl: item.coverImageUrl,
+  ...(item.kind === "special" && item.specialClassSlug && item.currency
+    ? { kind: "special" as const, specialClassSlug: item.specialClassSlug, currency: item.currency }
+    : {}),
 })
 
 export const createCheckinTodayClassesResponse = ({
@@ -95,6 +104,9 @@ export const createCheckinTodayClassesClassDto = (value: CheckinTodayClassesClas
   dropInPriceCents: value.dropInPriceCents,
   firstClassPriceCents: value.firstClassPriceCents,
   coverImageUrl: value.coverImageUrl,
+  ...(value.kind === "special" && value.specialClassSlug && value.currency
+    ? { kind: "special" as const, specialClassSlug: value.specialClassSlug, currency: value.currency }
+    : {}),
 })
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null
@@ -107,7 +119,9 @@ const isCheckinTodayClassesClassDto = (value: unknown): value is CheckinTodayCla
   if (!isRecord(value)) return false
 
   return (
+    (value.kind === undefined || value.kind === "special") &&
     typeof value.slug === "string" &&
+    (value.specialClassSlug === undefined || typeof value.specialClassSlug === "string") &&
     typeof value.title === "string" &&
     isNullableString(value.category) &&
     isNullableString(value.level) &&
@@ -117,7 +131,9 @@ const isCheckinTodayClassesClassDto = (value: unknown): value is CheckinTodayCla
     typeof value.dayLabel === "string" &&
     isNullableNumber(value.dropInPriceCents) &&
     isNullableNumber(value.firstClassPriceCents) &&
-    isNullableString(value.coverImageUrl)
+    isNullableString(value.coverImageUrl) &&
+    (value.currency === undefined || typeof value.currency === "string") &&
+    (value.kind !== "special" || (typeof value.specialClassSlug === "string" && typeof value.currency === "string"))
   )
 }
 

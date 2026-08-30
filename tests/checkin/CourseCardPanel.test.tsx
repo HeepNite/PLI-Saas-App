@@ -25,7 +25,7 @@ describe("CourseCardPanel", () => {
     vi.restoreAllMocks()
   })
 
-  it("shows the current 21:10 class with the retained 20:10 class", async () => {
+  it("shows the current priced class with the retained 20:10 class", async () => {
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -43,6 +43,7 @@ describe("CourseCardPanel", () => {
           teacher="Mariana"
           displayDate="2026-05-22"
           displayTime="21:10"
+          priceLabel="$35.00 special class"
           qrImage="/qr/bachata-intermediate-2110.png"
           compact
           actionSlot={<button type="button">Start current check-in</button>}
@@ -68,5 +69,8 @@ describe("CourseCardPanel", () => {
     expect(container.textContent).toContain("Salsa Fundamentals")
     expect(container.textContent).toContain("8:10 PM")
     expect(container.querySelector('img[alt="Salsa Fundamentals QR code"]')).not.toBeNull()
+    expect(container.textContent).toContain("$35.00 special class")
+    expect(container.textContent).not.toContain("$20 drop-in")
+    expect(container.textContent).not.toContain("$15 first time")
   })
 })
