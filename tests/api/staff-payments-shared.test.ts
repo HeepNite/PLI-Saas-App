@@ -47,7 +47,7 @@ describe("staff payments shared helpers", () => {
     expect(selected.get("user_1")?.packageId).toBe("pkg_new")
   })
 
-  it("reduces outstanding balance from open purchases only", () => {
+  it("reduces outstanding balance from genuine open obligations only", () => {
     const balances = buildOutstandingBalanceByUser([
       {
         userId: "user_1",
@@ -75,7 +75,7 @@ describe("staff payments shared helpers", () => {
       },
     ])
 
-    expect(balances.get("user_1")).toBe(4900)
+    expect(balances.get("user_1")).toBe(3100)
   })
 
   it("excludes settled cash purchases from outstanding balance", () => {
@@ -159,6 +159,20 @@ describe("staff payments shared helpers", () => {
       status: "succeeded", stripePaymentIntentId: "pi_1", stripeCheckoutSessionId: null,
     }).isOpen).toBe(false)
   })
+
+  it.each(["expired", "failed", "cancelled", "canceled", "refunded"])(
+    "treats terminal unpaid card status %s as closed",
+    (status) => {
+      expect(isOpenPurchase({
+        userId: "u1",
+        amount: 1000,
+        metadata: { paymentChannel: "card", settlementStatus: "pending" },
+        status,
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_terminal",
+      }).isOpen).toBe(false)
+    }
+  )
 
   it("classifies inconsistent stripe+cash metadata rows as card", () => {
     expect(
