@@ -21,7 +21,7 @@ const createCourse = (overrides: Partial<Record<string, unknown>> = {}) => ({
 
 describe("backend today-classes contract", () => {
   it("builds the public today-classes response from active course data", async () => {
-    const service = new TodayClassesService(async () => [createCourse()])
+    const service = new TodayClassesService(async () => [createCourse()], async () => [])
 
     await expect(service.getTodayClasses(new Date("2026-03-24T16:00:00.000Z"))).resolves.toEqual({
       date: "2026-03-24",
@@ -41,6 +41,19 @@ describe("backend today-classes contract", () => {
           coverImageUrl: "https://example.com/bachata.jpg",
         },
       ],
+    })
+  })
+
+  it("uses the same special-class projection as the Next fallback", async () => {
+    const service = new TodayClassesService(async () => [], async () => [{
+      slug: "special-salsa-tuesday", status: "published", cancelledAt: null,
+      title: "Special Salsa Tuesday", coverImageUrl: "/special.jpg", priceCents: 3500, currency: "usd",
+      classSession: { courseSlug: "special-session", startsAt: new Date("2026-03-25T00:00:00.000Z"), durationMinutes: 90 },
+    }])
+
+    await expect(service.getTodayClasses(new Date("2026-03-24T16:00:00.000Z"))).resolves.toMatchObject({
+      classes: [{ kind: "special", slug: "special-session", specialClassSlug: "special-salsa-tuesday",
+        title: "Special Salsa Tuesday", availableTimes: ["20:00"], dropInPriceCents: 3500, currency: "usd" }],
     })
   })
 

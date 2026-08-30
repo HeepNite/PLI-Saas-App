@@ -56,6 +56,7 @@ export type UseCheckInQrShellPropsInput = {
   checkInCardStudents: string
   checkInCardDescription: string
   checkInCardTeacher: string
+  checkInCardPriceLabel?: string
   checkInDisplayDate: string
   checkInDisplayTime: string
   checkInQrImage: string

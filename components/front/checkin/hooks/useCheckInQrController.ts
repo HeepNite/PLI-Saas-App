@@ -51,6 +51,7 @@ export function useCheckInQrController({
   forcedDeviceMode,
   forcedCourseSlug = "",
   forcedClassContext,
+  forcedCoursePresentation,
   terminalTodayOnly,
   selectedCourseSlug,
   hideQrPanel = false,
@@ -311,6 +312,7 @@ export function useCheckInQrController({
     forcedDeviceMode,
     forcedCourseSlug,
     forcedClassContext,
+    forcedCoursePresentation,
     terminalTodayOnly,
     selectedCourseSlug,
     nowTick,
@@ -366,6 +368,7 @@ export function useCheckInQrController({
     checkInCardBadge,
     checkInCardCategory,
     checkInCardDescription,
+    checkInCardPriceLabel,
     checkInQrImage,
     bootstrapCourseImage,
     bootstrapCardCategory,
@@ -380,6 +383,9 @@ export function useCheckInQrController({
     latePaymentCourse,
     latePaymentQrImage,
   } = display
+  const specialClassPurchasePath = forcedCoursePresentation
+    ? `/special-classes/${forcedCoursePresentation.specialClassSlug}`
+    : null
 
   const hasUsablePackageForCurrentClass = Boolean(
     bootstrap?.package &&
@@ -882,6 +888,7 @@ export function useCheckInQrController({
     checkInCardDuration,
     checkInCardStudents,
     checkInCardDescription,
+    checkInCardPriceLabel,
     checkInCardTeacher,
     checkInDisplayDate,
     checkInDisplayTime,
@@ -901,8 +908,12 @@ export function useCheckInQrController({
     hideEntrySelection,
     mode,
     isKioskTerminalFlow,
-    onExistingClick: handleExistingClick,
-    onNewClick: handleNewClick,
+    onExistingClick: specialClassPurchasePath
+      ? () => handleExistingClick({ courseSlug: activeCourseSlug, date: activeDate, time: activeTime })
+      : handleExistingClick,
+    onNewClick: specialClassPurchasePath
+      ? () => window.location.assign(specialClassPurchasePath)
+      : handleNewClick,
     showKioskPinPanel,
     returnedFromNewStudentFlow,
     kioskPinPanelCopy: { title: "Enter your phone number", description: "Enter your 10-digit US phone number to continue." },

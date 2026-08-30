@@ -119,6 +119,17 @@ export type CheckInQrClientProps = {
     time: string
     durationMinutes?: number
   }
+  forcedCoursePresentation?: {
+    kind: "special"
+    title: string
+    imageUrl: string | null
+    durationMinutes: number | null
+    category: string | null
+    level: string | null
+    specialClassSlug: string
+    priceCents: number
+    currency: string
+  }
   selectedCourseSlug?: string
   hideQrPanel?: boolean
   shellVariant?: "qr" | "terminal"

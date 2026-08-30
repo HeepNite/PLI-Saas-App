@@ -48,6 +48,37 @@ describe("terminal current class helpers", () => {
     expect(classes[0].availableTimes).toEqual(["21:00"])
   })
 
+  it("projects today's published special class and replaces a matching catalog slot", () => {
+    const now = new Date("2026-06-20T03:30:00.000Z") // Friday 11:30 PM ET
+
+    const classes = buildTodayTerminalClasses([
+      course({ slug: "salsa-special", availableTimes: ["19:00", "22:00"] }),
+    ], now, [
+      {
+        slug: "special-salsa-night", status: "published", cancelledAt: null,
+        title: "Special Salsa Night", coverImageUrl: "/special-salsa.jpg", priceCents: 3500, currency: "usd",
+        classSession: { courseSlug: "salsa-special", startsAt: new Date("2026-06-20T02:00:00.000Z"), durationMinutes: 90 },
+      },
+      { slug: "draft", status: "draft", cancelledAt: null, title: "Draft", coverImageUrl: null, priceCents: 3500, currency: "usd", classSession: { courseSlug: "draft", startsAt: new Date("2026-06-20T01:00:00.000Z"), durationMinutes: 60 } },
+      { slug: "cancelled", status: "published", cancelledAt: now, title: "Cancelled", coverImageUrl: null, priceCents: 3500, currency: "usd", classSession: { courseSlug: "cancelled", startsAt: new Date("2026-06-20T01:00:00.000Z"), durationMinutes: 60 } },
+      { slug: "tomorrow", status: "published", cancelledAt: null, title: "Tomorrow", coverImageUrl: null, priceCents: 3500, currency: "usd", classSession: { courseSlug: "tomorrow", startsAt: new Date("2026-06-20T04:00:00.000Z"), durationMinutes: 60 } },
+    ])
+
+    expect(classes).toEqual([
+      expect.objectContaining({ slug: "salsa-special", availableTimes: ["19:00"] }),
+      expect.objectContaining({
+        kind: "special",
+        slug: "salsa-special",
+        specialClassSlug: "special-salsa-night",
+        title: "Special Salsa Night",
+        availableTimes: ["22:00"],
+        date: "2026-06-19",
+        dropInPriceCents: 3500,
+        currency: "usd",
+      }),
+    ])
+  })
+
   it("resolves the same rotating current class as the terminal", () => {
     const now = new Date("2026-06-19T23:46:00.000Z") // 7:46 PM ET
     const classes = buildTodayTerminalClasses([

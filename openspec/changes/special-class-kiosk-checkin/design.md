@@ -11,6 +11,11 @@ Reuse-first. The canonical `ClassSession` already unifies special and regular cl
 
 ## Architecture Decisions
 
+### Decision: Project Special Classes into the existing terminal class model
+
+**Choice**: The shared Next/Nest today-classes projection adds an explicit `special` discriminant plus `specialClassSlug` and currency only for Special Class rows. `ClassSession.courseSlug` remains the F1 context, while `SpecialClass.slug` selects the existing public purchase route. A special slot replaces an identical CourseCatalog slug/time slot; all other regular slots remain unchanged.
+**Rationale**: This preserves the existing StaffTerminalShell rotation and Current Course component instead of creating a parallel card or check-in contract.
+
 ### Decision: F2 kiosk QR points at the reservation page, not `/api/checkout/session`
 
 **Choice**: The configured Special Salsa kiosk QR encodes `/special-classes/${SPECIAL_SALSA_CLASS.key}`, as do other special-class slugs. `PublicSpecialClass` keeps the generic reservation interface and uses the existing international phone domain contract. Neither encodes a pre-created Stripe session.

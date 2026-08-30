@@ -6,6 +6,19 @@ Make the kiosk check-in flow handle special classes: card buyers reserve by QR a
 
 ## Requirements
 
+### Requirement: Today's special class appears on the staff tablet
+
+The system MUST include each published, non-cancelled Special Class whose ClassSession starts within the current America/New_York day in the existing Current Course rotation.
+
+#### Scenario: Special class uses the existing tablet card and flows
+
+- GIVEN a published Special Class is scheduled today
+- WHEN staff view the tablet terminal
+- THEN the existing card shows its title, image, duration, date/time, and effective price without duplicating a matching CourseCatalog slot
+- AND the existing-customer action keeps the ClassSession course context for F1 check-in
+- AND the new-customer action and QR use `/special-classes/{slug}`
+- AND regular CourseCatalog behavior remains unchanged
+
 ### Requirement: Special-class self check-in by phone
 
 The system MUST let an online buyer with a paid special-class reservation check in at the kiosk by entering their phone number, flipping their existing scheduled Attendance to checked-in.

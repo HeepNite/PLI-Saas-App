@@ -76,3 +76,10 @@ Chain strategy: stacked-to-main
 - [x] 5.1 Run full suite `pnpm vitest run` to catch regressions across kiosk, checkout, and special-classes domains.
 - [ ] 5.2 Manual/E2E smoke: redeployed Special Salsa kiosk QR opens `/special-classes/${SPECIAL_SALSA_CLASS.key}` -> test-mode Stripe Checkout -> webhook creates a paid Purchase plus `SCHEDULED` Attendance; exercise F1 phone self-check-in separately before claiming `CHECKED_IN`, and record results in the PR description. `PublicSpecialClass` preserves its generic reservation UI and reuses the international phone catalog and E.164 normalization contract.
 - [x] 5.3 Update `openspec/changes/special-class-kiosk-checkin/design.md` Open Questions checklist once PRODUCT confirms cash-walk-in email policy and no-settlement expiry behavior (no code change if defaults hold).
+
+## Phase 6: Staff Tablet Current Course Card
+
+- [x] 6.1 RED/GREEN: cover published/current-day projection, lifecycle exclusion, slot deduplication, and Next/Nest DTO parity.
+- [x] 6.2 Reuse StaffTerminalShell rotation and Current Course UI with Special Class presentation and effective price.
+- [x] 6.3 Keep F1 on `ClassSession.courseSlug`; route the new-customer action and QR to `/special-classes/{slug}`.
+- [x] 6.4 Verify focused projection/API/backend/card tests plus targeted typecheck, lint, and diff checks. Task 5.2 remains pending until its real smoke passes.
