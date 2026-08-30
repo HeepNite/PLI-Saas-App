@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { getDateKeyInTimeZone, getStartOfDayNY, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { TODAY_MODE_TAKE_LIMIT, type StaffPaymentsRequest } from "@/app/api/staff/payments/payments-request"
 import { getStaffPaymentsTodaySessionBounds } from "@/app/api/staff/payments/payments-time"
-import { asObject, asText, attendanceSlotKey } from "@/app/api/staff/payments/shared"
+import { asObject, asText, attendanceSlotKey, normalizeSettlementStatus } from "@/app/api/staff/payments/shared"
 import { ATTENDED_CHECKIN_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { SETTLEMENT_STATUS } from "@/lib/payment-constants"
 import {
@@ -11,6 +11,7 @@ import {
   buildPurchaseAllDedupKeys,
   filterPurchasesByClassDateRange,
   isTodayScopedPurchase,
+  toDateIso,
 } from "@/app/api/staff/payments/payments-loader-purchase"
 
 export type StandaloneAttendanceItem = EnrichedPurchase
@@ -166,6 +167,7 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
   )
 
   const standaloneItems: StandaloneAttendanceItem[] = []
+  const standaloneCandidates: Array<{ att: (typeof todayAttendances)[number]; linkedPurchaseId: string }> = []
   const todayAttendanceByPurchaseId = new Map<string, TodayAttendanceRow>()
   const dedupedCompletedTodayByUser = new Map<string, Set<string>>()
   const attendedRowsTodayByUser = new Map<string, number>()
@@ -213,44 +215,84 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
     })()
 
     if (!isAlreadyCoveredByPurchase && !isStandaloneStaffFastActionAttendance(attendanceMetadata)) {
-      const packageId = att.packageUsage?.packagePurchase?.packageId || ""
+      standaloneCandidates.push({ att, linkedPurchaseId })
+    }
+  }
+
+  // Attendance rows linked to a purchase outside the board's query window
+  // (e.g. a special-class purchase bought days before the class, which has no
+  // synthetic $0 row of its own here) must surface the REAL purchase — amount,
+  // status, settlement — instead of a synthetic $0 row.
+  const missingLinkedIds = [...new Set(
+    standaloneCandidates.map((c) => c.linkedPurchaseId).filter((id): id is string => Boolean(id))
+  )]
+  const linkedPurchases = missingLinkedIds.length
+    ? await prisma.purchase.findMany({ where: { id: { in: missingLinkedIds } } })
+    : []
+  const linkedPurchaseById = new Map(linkedPurchases.map((purchase) => [purchase.id, purchase]))
+
+  for (const { att, linkedPurchaseId } of standaloneCandidates) {
+    const packageId = att.packageUsage?.packagePurchase?.packageId || ""
+    const linkedPurchase = linkedPurchaseId ? linkedPurchaseById.get(linkedPurchaseId) : undefined
+
+    if (linkedPurchase) {
+      const linkedMetadata = asObject(linkedPurchase.metadata)
       standaloneItems.push({
-        purchase: {
-          id: `att-${att.id}`,
-          userId: att.userId,
-          courseSlug: att.session.courseSlug,
-          courseTitle: att.session.title || att.session.courseSlug,
-          amount: 0,
-          currency: "usd",
-          status: "none",
-          name: att.user.name,
-          email: att.user.email,
-          phone: att.user.phone,
-          stripePaymentIntentId: null,
-          stripeCheckoutSessionId: null,
-          metadata: {
-            attendanceId: att.id,
-            packageId,
-            packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
-          },
-          createdAt: att.checkedInAt,
-          updatedAt: att.checkedInAt,
-        } as unknown as EnrichedPurchase["purchase"],
-        id: `att-${att.id}`,
+        purchase: linkedPurchase as EnrichedPurchase["purchase"],
+        id: linkedPurchase.id,
         metadata: {
+          ...linkedMetadata,
           attendanceId: att.id,
           packageId,
           packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
         },
         userId: att.userId,
-        settlementStatus: SETTLEMENT_STATUS.PENDING,
-        settlementNote: "",
-        settledAt: null,
-        classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.checkedInAt) : todayNY,
+        settlementStatus: normalizeSettlementStatus(linkedMetadata.settlementStatus),
+        settlementNote: asText(linkedMetadata.settlementNote),
+        settledAt: toDateIso(linkedMetadata.settledAt),
+        classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.session.startsAt) : todayNY,
         classTime: getTimeKeyInTimeZone(att.session.startsAt),
         classStartsAt: att.session.startsAt,
       })
+      continue
     }
+
+    standaloneItems.push({
+      purchase: {
+        id: `att-${att.id}`,
+        userId: att.userId,
+        courseSlug: att.session.courseSlug,
+        courseTitle: att.session.title || att.session.courseSlug,
+        amount: 0,
+        currency: "usd",
+        status: "none",
+        name: att.user.name,
+        email: att.user.email,
+        phone: att.user.phone,
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+        metadata: {
+          attendanceId: att.id,
+          packageId,
+          packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
+        },
+        createdAt: att.checkedInAt,
+        updatedAt: att.checkedInAt,
+      } as unknown as EnrichedPurchase["purchase"],
+      id: `att-${att.id}`,
+      metadata: {
+        attendanceId: att.id,
+        packageId,
+        packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
+      },
+      userId: att.userId,
+      settlementStatus: SETTLEMENT_STATUS.PENDING,
+      settlementNote: "",
+      settledAt: null,
+      classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.checkedInAt) : todayNY,
+      classTime: getTimeKeyInTimeZone(att.session.startsAt),
+      classStartsAt: att.session.startsAt,
+    })
   }
 
   return {

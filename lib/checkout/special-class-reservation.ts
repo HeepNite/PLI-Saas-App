@@ -1,5 +1,6 @@
 import { Prisma, type Purchase } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { getDateKeyInTimeZone } from "@/lib/class-schedule"
 import { CAPACITY_STATUSES, SPECIAL_CLASS_HOLD_MS } from "@/lib/special-classes/policy"
 import { SPECIAL_SALSA_CLASS, resolveSpecialClassPricing } from "@/lib/special-salsa-class/config"
 
@@ -136,7 +137,15 @@ export async function admitSpecialClassReservation(
             specialClassId: specialClass.id,
             classSessionId: specialClass.classSessionId,
             holdExpiresAt,
-            metadata: { specialClassSlug: slug, attemptId: input.attemptId, lockedAmountCents: String(priceCents) },
+            metadata: {
+              specialClassSlug: slug,
+              attemptId: input.attemptId,
+              lockedAmountCents: String(priceCents),
+              // Class-day key: the staff payments board scopes daily/history
+              // queries by metadata.date, so without it this purchase is
+              // invisible on the board once createdAt falls out of "today".
+              date: getDateKeyInTimeZone(specialClass.classSession.startsAt),
+            },
           },
         })
         return {
