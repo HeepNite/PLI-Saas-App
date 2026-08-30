@@ -364,14 +364,14 @@ export function PaymentStudentCard({
             <p className="inline-flex w-full items-center justify-between gap-2">
               <span>Pending payments</span>
               <span className="font-semibold">
-                {formatMoney(historyOpenRows.reduce((sum, row) => sum + row.amount, 0), payment.currency)}
+                {formatMoney(historyOpenRows.reduce((sum, row) => sum + (row.amount || row.dueAmountCents || 0), 0), payment.currency)}
               </span>
             </p>
             {historyOpenRows.slice(0, 6).map((row) => (
               <p key={`open-row-${row.id}`} className="mt-0.5 inline-flex w-full items-center justify-between gap-2 text-[11px] text-amber-100/75">
                 <span className="truncate">{row.courseTitle || row.courseSlug || "Class"}</span>
                 <span className="shrink-0">
-                  {formatMoney(row.amount, row.currency)} · {row.paymentChannel === "cash" ? "cash pending" : "unpaid"}
+                  {formatMoney(row.amount || row.dueAmountCents || 0, row.currency)} · {row.paymentChannel === "cash" ? "cash pending" : "unpaid"}
                 </span>
               </p>
             ))}

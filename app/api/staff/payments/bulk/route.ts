@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
-import { buildSessionStartsAt } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getDateKeyInTimeZone } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText, isCompletedPaymentStatus, normalizePaymentChannel } from "@/app/api/staff/payments/shared"
@@ -200,13 +200,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 })
   }
 
-  const ids = normalizePurchaseIds(payload.ids)
-  if (ids.length === 0) {
+  const allIds = normalizePurchaseIds(payload.ids)
+  if (allIds.length === 0) {
     return NextResponse.json({ error: "No purchases selected" }, { status: 400 })
   }
-  if (ids.length > 500) {
+  if (allIds.length > 500) {
     return NextResponse.json({ error: "Too many purchases in one bulk request" }, { status: 400 })
   }
+
+  // The board renders attendance-only debts (a class attended or booked with no
+  // purchase record) with synthetic "att-<attendanceId>" ids.
+  const attendanceIds = allIds.filter((id) => id.startsWith("att-")).map((id) => id.slice(4))
+  const ids = allIds.filter((id) => !id.startsWith("att-"))
 
   const purchases = await prisma.purchase.findMany({
     where: { id: { in: ids } },
@@ -229,7 +234,7 @@ export async function POST(req: Request) {
   const settledAt = settlementStatus === "paid" ? new Date().toISOString() : null
   const nextCashPurchaseStatus = settlementStatus === "paid" ? "paid" : "pending"
   const purchasesById = new Map(purchases.map((purchase) => [purchase.id, purchase]))
-  const skipped: Array<{ id: string; reason: "not_found" | "not_cash" | "already_settled" }> = []
+  const skipped: Array<{ id: string; reason: "not_found" | "not_cash" | "already_settled" | "settlement_failed" }> = []
   const convertToCashIds = new Set<string>()
   const eligiblePurchases = ids.flatMap((id) => {
     const purchase = purchasesById.get(id)
@@ -354,9 +359,109 @@ export async function POST(req: Request) {
     }
   }
 
+  // Settle attendance-only debts: collecting cash for a class that never had a
+  // purchase record creates the settled cash purchase (course drop-in price)
+  // and links it back to the attendance so the board folds them together.
+  let attendanceSettledCount = 0
+  if (attendanceIds.length > 0) {
+    if (action !== "mark_paid") {
+      for (const attendanceId of attendanceIds) {
+        skipped.push({ id: `att-${attendanceId}`, reason: "not_cash" })
+      }
+    } else {
+      const attendances = await prisma.attendance.findMany({
+        where: { id: { in: attendanceIds } },
+        select: {
+          id: true,
+          userId: true,
+          metadata: true,
+          session: { select: { courseSlug: true, title: true, startsAt: true } },
+        },
+      })
+      const attendanceById = new Map(attendances.map((attendance) => [attendance.id, attendance]))
+      const attendanceCourseSlugs = [
+        ...new Set(attendances.map((attendance) => attendance.session?.courseSlug).filter((slug): slug is string => Boolean(slug))),
+      ]
+      const attendanceCourses = attendanceCourseSlugs.length
+        ? await prisma.courseCatalog.findMany({
+            where: { slug: { in: attendanceCourseSlugs } },
+            select: { slug: true, dropInPriceCents: true },
+          })
+        : []
+      const attendanceDropInPriceBySlug = new Map(
+        attendanceCourses
+          .filter((course) => course.dropInPriceCents !== null && course.dropInPriceCents > 0)
+          .map((course) => [course.slug, course.dropInPriceCents!])
+      )
+
+      for (const attendanceId of attendanceIds) {
+        const attendance = attendanceById.get(attendanceId)
+        const attendanceUserId = attendance?.userId
+        if (!attendance || !attendanceUserId) {
+          skipped.push({ id: `att-${attendanceId}`, reason: "not_found" })
+          continue
+        }
+        const attendanceMetadata = asObject(attendance.metadata)
+        const linkedPurchaseId = asText(attendanceMetadata.purchaseId)
+        if (linkedPurchaseId) {
+          const linkedPurchase = await prisma.purchase.findUnique({
+            where: { id: linkedPurchaseId },
+            select: { id: true, status: true, metadata: true },
+          })
+          if (linkedPurchase && (isCompletedPaymentStatus(linkedPurchase.status) || isSettledCashPurchase(linkedPurchase))) {
+            skipped.push({ id: `att-${attendanceId}`, reason: "already_settled" })
+            continue
+          }
+        }
+        const courseSlug = attendance.session?.courseSlug
+        if (!courseSlug) {
+          skipped.push({ id: `att-${attendanceId}`, reason: "not_found" })
+          continue
+        }
+        // Create + link atomically: a purchase left unlinked would escape the
+        // already_settled replay guard and duplicate on the next attempt. One
+        // failing attendance never aborts the rest of the batch.
+        try {
+          await prisma.$transaction(async (tx) => {
+            const createdPurchase = await tx.purchase.create({
+              data: {
+                userId: attendanceUserId,
+                courseSlug,
+                courseTitle: attendance.session?.title || courseSlug,
+                amount: attendanceDropInPriceBySlug.get(courseSlug) || 0,
+                currency: "usd",
+                status: "paid",
+                participants: 1,
+                metadata: {
+                  paymentChannel: "cash",
+                  settlementStatus: "paid",
+                  settledAt,
+                  settlementUpdatedBy: authResult.userId,
+                  attendanceId: attendance.id,
+                  ...(attendance.session?.startsAt ? { date: getDateKeyInTimeZone(attendance.session.startsAt) } : {}),
+                },
+              },
+            })
+            await tx.attendance.update({
+              where: { id: attendance.id },
+              data: { metadata: { ...attendanceMetadata, purchaseId: createdPurchase.id } },
+            })
+          })
+          attendanceSettledCount += 1
+        } catch (error) {
+          console.warn("Unable to settle attendance-only debt", {
+            attendanceId: attendance.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          skipped.push({ id: `att-${attendanceId}`, reason: "settlement_failed" })
+        }
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
-    updatedCount: eligiblePurchases.length,
+    updatedCount: eligiblePurchases.length + attendanceSettledCount,
     skipped,
     settlementStatus,
     syncedPackageCount,
