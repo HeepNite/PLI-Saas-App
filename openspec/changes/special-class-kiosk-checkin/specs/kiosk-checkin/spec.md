@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Make the kiosk check-in flow handle special classes the same way it handles regular classes: online buyers self-check-in by phone, and walk-ins can purchase on the spot by card (QR → Stripe Hosted Checkout) or cash, and be admitted immediately.
+Make the kiosk check-in flow handle special classes: card buyers reserve by QR and self-check-in separately by phone, while cash walk-ins purchase and are admitted immediately.
 
 ## Requirements
 
@@ -41,13 +41,13 @@ The system MUST let an online buyer with a paid special-class reservation check 
 
 ### Requirement: Special-class card walk-in via QR → Hosted Checkout
 
-The system MUST let a walk-in at the kiosk scan a special-class QR code, pay by card on their own phone through Stripe Hosted Checkout, and be checked in once payment succeeds, without oversell.
+The system MUST let a walk-in scan a special-class QR code, complete Stripe Hosted Checkout on their phone, and receive a paid Purchase plus `SCHEDULED` Attendance without oversell; only F1 phone self-check-in may transition that Attendance to `CHECKED_IN`.
 
-#### Scenario: Walk-in completes card payment and is checked in
+#### Scenario: Walk-in completes card payment and receives a scheduled reservation
 
 - GIVEN a special class has open capacity
 - WHEN a walk-in scans the kiosk QR, completes Stripe Hosted Checkout with a card, and payment succeeds
-- THEN the system creates a paid Purchase and a checked-in Attendance for that walk-in on that `ClassSession`
+- THEN the system creates a paid Purchase and `SCHEDULED` Attendance for that walk-in on that `ClassSession`; repeat F1 check-in creates neither duplicate
 - AND the seat counts toward capacity
 
 #### Scenario: Kiosk shows sold out before payment starts

@@ -34,7 +34,7 @@ Reuse-first. The canonical `ClassSession` already unifies special and regular cl
                                     → flip Attendance CHECKED_IN (idempotent)
 
     F2  kiosk → QR(reservation page URL) → customer phone → /special-classes/[slug]
-              → /api/checkout/session (special branch) → Stripe → webhook → Attendance
+              → /api/checkout/session (special branch) → Stripe → webhook → Purchase(paid) + Attendance(SCHEDULED) → F1 phone → CHECKED_IN
 
     F3  kiosk cash → /api/checkout/cash (special ctx) ──serializable──┐
               under-cap check → Purchase(cash_pending, specialClassId,│classSessionId)

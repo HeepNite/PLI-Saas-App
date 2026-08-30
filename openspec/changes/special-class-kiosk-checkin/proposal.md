@@ -8,7 +8,7 @@ Special Classes have a kiosk QR but do not fully behave like regular classes. Tw
 
 ### In Scope
 - **F1 Self check-in**: phone-identify check-in selects the special-class Attendance/Purchase and marks the buyer checked-in.
-- **F2 Card walk-in (QR→Hosted Checkout)**: kiosk controller sends `checkoutKind`/`specialClassId` so `/api/checkout/session` routes to `handleSpecialClassCheckout`; resolve walk-in identity (email/`attemptId`).
+- **F2 Card reservation (QR→Hosted Checkout)**: kiosk QR opens the public reservation page; Stripe webhook creates a paid Purchase plus `SCHEDULED` Attendance, and F1 phone self-check-in is the only transition to `CHECKED_IN`.
 - **F3 Cash walk-in**: link special class, create checked-in Attendance immediately, and make capacity counting include the occupied pending-cash seat. Purchase stays `pending` for staff settlement.
 
 ### Out of Scope / Non-Goals
@@ -29,7 +29,6 @@ Special Classes have a kiosk QR but do not fully behave like regular classes. Tw
 
 Reuse-first — the canonical `ClassSession` already unifies special and regular classes.
 - **F1**: verify `app/api/checkin/qr/client-phone/route.ts` resolves the special-class Attendance (via `userId_sessionId`, already created by `admitSpecialClassAuthorization` at Stripe authorization); fix Purchase selection if the special-class purchase is missed.
-- **F2**: add `checkoutKind`/`specialClassId` to the kiosk QR payload (`useCheckInQrController.ts` ~531-554) so `/api/checkout/session:241-242` calls `handleSpecialClassCheckout`; design a walk-in identity path for the hard-required `attemptId` (UUID) and email (`route.ts:58-64`). Stripe webhook already creates the Attendance.
 - **F3**: in `app/api/checkout/cash/route.ts:301-348` set `specialClassId`/`classSessionId`, create checked-in Attendance on the spot, and extend capacity counting in `lib/special-classes/fulfillment.ts` (`CAPACITY_STATUSES` line 5 / the `OR` at line 120) to count the pending-cash seat.
 
 ## Affected Areas
@@ -37,8 +36,7 @@ Reuse-first — the canonical `ClassSession` already unifies special and regular
 | Area | Impact | Description |
 |------|--------|-------------|
 | `app/api/checkin/qr/client-phone/route.ts` | Modified | Ensure special-class Purchase/Attendance selection (F1) |
-| `components/front/checkin/hooks/useCheckInQrController.ts` | Modified | Send special-class checkout payload (F2) |
-| `app/api/checkout/session/route.ts` | Modified | Walk-in identity/email for special-class card path (F2) |
+| `components/front/checkin/hooks/useCheckInQrController.ts` | Modified | Point the special-class kiosk QR at the public reservation page (F2) |
 | `app/api/checkout/cash/route.ts` | Modified | Link class, create Attendance, mark pending-cash (F3) |
 | `lib/special-classes/fulfillment.ts` | Modified | Count pending-cash seat in capacity (F3) |
 
@@ -79,7 +77,7 @@ Changes are additive branches on existing routes; revert the F1/F2/F3 commits (f
 ## Success Criteria
 
 - [ ] Online buyer checks in via phone at the special-class kiosk.
-- [ ] Card walk-in completes purchase via QR and is checked in.
+- [ ] Card buyer completes purchase via QR; webhook creates a paid Purchase plus `SCHEDULED` Attendance, then F1 phone self-check-in transitions it to `CHECKED_IN` idempotently.
 - [ ] Cash walk-in is checked in immediately; Purchase stays pending for staff settlement.
 - [ ] Special-class capacity (40) never oversells across paid/pending-cash/held seats.
 
