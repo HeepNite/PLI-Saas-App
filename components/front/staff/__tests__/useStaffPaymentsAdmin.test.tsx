@@ -484,5 +484,15 @@ describe("useStaffPaymentsAdmin", () => {
 
     expect(captured!.paymentHistoryStudentId).toBe("user-1")
     expect(captured!.paymentHistoryAnchor).toBe(button)
+
+    // Closing clears both fields in one handler; a stale-closure combined
+    // dispatch used to resurrect the student id and reopen the popover forever.
+    await act(async () => {
+      captured!.setPaymentHistoryStudentId(null)
+      captured!.setPaymentHistoryAnchor(null)
+    })
+
+    expect(captured!.paymentHistoryStudentId).toBeNull()
+    expect(captured!.paymentHistoryAnchor).toBeNull()
   })
 })

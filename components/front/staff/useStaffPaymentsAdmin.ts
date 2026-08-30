@@ -106,9 +106,13 @@ type SelectionAction =
   | { type: "SELECTION/SET_CHECKOUT_MENU_ID"; id: string | null }
 
 type PopoverAction =
-  | { type: "POPOVER/SET_PAYMENT_HISTORY"; anchor: HTMLElement | null; studentId: string | null }
-  | { type: "POPOVER/SET_ATTENDANCE_HISTORY"; anchor: HTMLElement | null; studentId: string | null }
-  | { type: "POPOVER/SET_AUDIT_HISTORY"; anchor: HTMLElement | null; studentId: string | null; studentName: string | null }
+  | { type: "POPOVER/SET_PAYMENT_HISTORY_ANCHOR"; value: React.SetStateAction<HTMLElement | null> }
+  | { type: "POPOVER/SET_PAYMENT_HISTORY_STUDENT_ID"; value: React.SetStateAction<string | null> }
+  | { type: "POPOVER/SET_ATTENDANCE_HISTORY_ANCHOR"; value: React.SetStateAction<HTMLElement | null> }
+  | { type: "POPOVER/SET_ATTENDANCE_HISTORY_STUDENT_ID"; value: React.SetStateAction<string | null> }
+  | { type: "POPOVER/SET_AUDIT_HISTORY_ANCHOR"; value: React.SetStateAction<HTMLElement | null> }
+  | { type: "POPOVER/SET_AUDIT_HISTORY_STUDENT_ID"; value: React.SetStateAction<string | null> }
+  | { type: "POPOVER/SET_AUDIT_HISTORY_STUDENT_NAME"; value: React.SetStateAction<string | null> }
   | { type: "POPOVER/SET_USER_HISTORY_PAYMENTS"; payments: PaymentRow[] }
   | { type: "POPOVER/SET_USER_HISTORY_LOADING"; loading: boolean }
 
@@ -190,31 +194,52 @@ function selectionReducer(state: SelectionState, action: SelectionAction): Selec
   }
 }
 
+const resolvePopoverValue = <T,>(value: React.SetStateAction<T>, current: T): T =>
+  typeof value === "function" ? (value as (prev: T) => T)(current) : value
+
 function popoverReducer(state: PopoverState, action: PopoverAction): PopoverState {
-  // Anchor updates must bail out when nothing changed: cards attach anchors via
-  // inline ref callbacks that re-fire on every render, so returning a new state
-  // object for an identical anchor re-renders forever (Maximum update depth).
+  // Each field updates independently and resolves updaters against the CURRENT
+  // reducer state — combined actions built from same-render closures let one
+  // setter resurrect a sibling field's stale value (a closed popover reopened
+  // itself). Bail out when nothing changed: cards attach anchors via inline ref
+  // callbacks that re-fire on every render, so returning a new state object for
+  // an identical anchor re-renders forever (Maximum update depth).
   switch (action.type) {
-    case "POPOVER/SET_PAYMENT_HISTORY":
-      if (state.paymentHistoryAnchor === action.anchor && state.paymentHistoryStudentId === action.studentId) return state
-      return { ...state, paymentHistoryAnchor: action.anchor, paymentHistoryStudentId: action.studentId }
-    case "POPOVER/SET_ATTENDANCE_HISTORY":
-      if (state.attendanceHistoryAnchor === action.anchor && state.attendanceHistoryStudentId === action.studentId) return state
-      return { ...state, attendanceHistoryAnchor: action.anchor, attendanceHistoryStudentId: action.studentId }
-    case "POPOVER/SET_AUDIT_HISTORY":
-      if (
-        state.auditHistoryAnchor === action.anchor &&
-        state.auditHistoryStudentId === action.studentId &&
-        state.auditHistoryStudentName === action.studentName
-      ) {
-        return state
-      }
-      return {
-        ...state,
-        auditHistoryAnchor: action.anchor,
-        auditHistoryStudentId: action.studentId,
-        auditHistoryStudentName: action.studentName,
-      }
+    case "POPOVER/SET_PAYMENT_HISTORY_ANCHOR": {
+      const anchor = resolvePopoverValue(action.value, state.paymentHistoryAnchor)
+      if (anchor === state.paymentHistoryAnchor) return state
+      return { ...state, paymentHistoryAnchor: anchor }
+    }
+    case "POPOVER/SET_PAYMENT_HISTORY_STUDENT_ID": {
+      const studentId = resolvePopoverValue(action.value, state.paymentHistoryStudentId)
+      if (studentId === state.paymentHistoryStudentId) return state
+      return { ...state, paymentHistoryStudentId: studentId }
+    }
+    case "POPOVER/SET_ATTENDANCE_HISTORY_ANCHOR": {
+      const anchor = resolvePopoverValue(action.value, state.attendanceHistoryAnchor)
+      if (anchor === state.attendanceHistoryAnchor) return state
+      return { ...state, attendanceHistoryAnchor: anchor }
+    }
+    case "POPOVER/SET_ATTENDANCE_HISTORY_STUDENT_ID": {
+      const studentId = resolvePopoverValue(action.value, state.attendanceHistoryStudentId)
+      if (studentId === state.attendanceHistoryStudentId) return state
+      return { ...state, attendanceHistoryStudentId: studentId }
+    }
+    case "POPOVER/SET_AUDIT_HISTORY_ANCHOR": {
+      const anchor = resolvePopoverValue(action.value, state.auditHistoryAnchor)
+      if (anchor === state.auditHistoryAnchor) return state
+      return { ...state, auditHistoryAnchor: anchor }
+    }
+    case "POPOVER/SET_AUDIT_HISTORY_STUDENT_ID": {
+      const studentId = resolvePopoverValue(action.value, state.auditHistoryStudentId)
+      if (studentId === state.auditHistoryStudentId) return state
+      return { ...state, auditHistoryStudentId: studentId }
+    }
+    case "POPOVER/SET_AUDIT_HISTORY_STUDENT_NAME": {
+      const studentName = resolvePopoverValue(action.value, state.auditHistoryStudentName)
+      if (studentName === state.auditHistoryStudentName) return state
+      return { ...state, auditHistoryStudentName: studentName }
+    }
     case "POPOVER/SET_USER_HISTORY_PAYMENTS":
       return { ...state, userHistoryPayments: action.payments }
     case "POPOVER/SET_USER_HISTORY_LOADING":
@@ -581,54 +606,32 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
   }, [])
 
   const setPaymentHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
-    const anchor = typeof value === "function" ? value(popover.paymentHistoryAnchor) : value
-    dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY", anchor, studentId: popover.paymentHistoryStudentId })
-  }, [popover.paymentHistoryAnchor, popover.paymentHistoryStudentId])
+    dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY_ANCHOR", value })
+  }, [])
 
   const setPaymentHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
-    const studentId = typeof value === "function" ? value(popover.paymentHistoryStudentId) : value
-    dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY", anchor: popover.paymentHistoryAnchor, studentId })
-  }, [popover.paymentHistoryAnchor, popover.paymentHistoryStudentId])
+    dispatchPopover({ type: "POPOVER/SET_PAYMENT_HISTORY_STUDENT_ID", value })
+  }, [])
 
   const setAttendanceHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
-    const anchor = typeof value === "function" ? value(popover.attendanceHistoryAnchor) : value
-    dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY", anchor, studentId: popover.attendanceHistoryStudentId })
-  }, [popover.attendanceHistoryAnchor, popover.attendanceHistoryStudentId])
+    dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY_ANCHOR", value })
+  }, [])
 
   const setAttendanceHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
-    const studentId = typeof value === "function" ? value(popover.attendanceHistoryStudentId) : value
-    dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY", anchor: popover.attendanceHistoryAnchor, studentId })
-  }, [popover.attendanceHistoryAnchor, popover.attendanceHistoryStudentId])
+    dispatchPopover({ type: "POPOVER/SET_ATTENDANCE_HISTORY_STUDENT_ID", value })
+  }, [])
 
   const setAuditHistoryAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>> = React.useCallback((value) => {
-    const anchor = typeof value === "function" ? value(popover.auditHistoryAnchor) : value
-    dispatchPopover({
-      type: "POPOVER/SET_AUDIT_HISTORY",
-      anchor,
-      studentId: popover.auditHistoryStudentId,
-      studentName: popover.auditHistoryStudentName,
-    })
-  }, [popover.auditHistoryStudentId, popover.auditHistoryStudentName])
+    dispatchPopover({ type: "POPOVER/SET_AUDIT_HISTORY_ANCHOR", value })
+  }, [])
 
   const setAuditHistoryStudentId: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
-    const studentId = typeof value === "function" ? value(popover.auditHistoryStudentId) : value
-    dispatchPopover({
-      type: "POPOVER/SET_AUDIT_HISTORY",
-      anchor: popover.auditHistoryAnchor,
-      studentId,
-      studentName: popover.auditHistoryStudentName,
-    })
-  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentId, popover.auditHistoryStudentName])
+    dispatchPopover({ type: "POPOVER/SET_AUDIT_HISTORY_STUDENT_ID", value })
+  }, [])
 
   const setAuditHistoryStudentName: React.Dispatch<React.SetStateAction<string | null>> = React.useCallback((value) => {
-    const studentName = typeof value === "function" ? value(popover.auditHistoryStudentName) : value
-    dispatchPopover({
-      type: "POPOVER/SET_AUDIT_HISTORY",
-      anchor: popover.auditHistoryAnchor,
-      studentId: popover.auditHistoryStudentId,
-      studentName,
-    })
-  }, [popover.auditHistoryAnchor, popover.auditHistoryStudentId, popover.auditHistoryStudentName])
+    dispatchPopover({ type: "POPOVER/SET_AUDIT_HISTORY_STUDENT_NAME", value })
+  }, [])
 
   return {
     // State
