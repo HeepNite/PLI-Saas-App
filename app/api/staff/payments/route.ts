@@ -5,7 +5,7 @@ import { parseStaffPaymentsRequest } from "@/app/api/staff/payments/payments-req
 import { buildStaffPaymentResponseRow } from "@/app/api/staff/payments/payments-row"
 import { getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
 import { loadStaffPaymentsData } from "@/app/api/staff/payments/payments-loader"
-import { isCompletedPaymentStatus } from "@/app/api/staff/payments/shared"
+import { isCompletedPaymentStatus, isTerminalUnpaidCardAttempt } from "@/app/api/staff/payments/shared"
 import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 
 export const runtime = "nodejs"
@@ -47,7 +47,18 @@ export async function GET(req: Request) {
   const { scopedPurchases, historyTruncated, classOptions, rowContext } =
     await loadStaffPaymentsData(paymentsRequest, todayWindow)
 
-  const mapped = scopedPurchases.map((item) => buildStaffPaymentResponseRow(item, {
+  const boardPurchases = paymentsRequest.mode === "userHistory"
+    ? scopedPurchases
+    : scopedPurchases.filter((item) => !isTerminalUnpaidCardAttempt({
+        userId: item.userId,
+        amount: item.purchase.amount,
+        metadata: item.metadata,
+        status: item.purchase.status,
+        stripePaymentIntentId: item.purchase.stripePaymentIntentId,
+        stripeCheckoutSessionId: item.purchase.stripeCheckoutSessionId,
+      }))
+
+  const mapped = boardPurchases.map((item) => buildStaffPaymentResponseRow(item, {
     mode: paymentsRequest.mode,
     ...rowContext,
   }))
