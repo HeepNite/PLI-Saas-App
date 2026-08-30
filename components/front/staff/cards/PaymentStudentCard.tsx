@@ -73,8 +73,15 @@ export function PaymentStudentCard({
         ? `${Math.max(0, payment.activePackage.remainingCredits || 0)} of ${payment.activePackage.totalCredits} remaining`
         : `${Math.max(0, payment.activePackage.remainingCredits || 0)} credits remaining`
     : "—"
+  // The student's outstanding balance is GLOBAL (any date). History is a
+  // range-scoped report: showing the global debt there contradicts the range's
+  // Pending count (e.g. July shows "$20 owed" for an August booking while
+  // Pending is 0). In History the range-scoped "Pending payments" block is the
+  // source of truth, so the global balance row only renders outside History.
   const outstandingBalanceLabel =
-    typeof payment.outstandingBalance === "number" && payment.outstandingBalance > 0
+    cardVariant.context !== "history" &&
+    typeof payment.outstandingBalance === "number" &&
+    payment.outstandingBalance > 0
       ? formatMoney(payment.outstandingBalance, payment.currency)
       : null
   const paidEntries =
