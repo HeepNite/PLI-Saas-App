@@ -163,6 +163,22 @@ export type OutstandingBalancePurchase = {
   stripeCheckoutSessionId: string | null
 }
 
+const TERMINAL_UNPAID_CARD_STATUSES = new Set(["expired", "failed", "cancelled", "canceled", "refunded"])
+
+export const isTerminalUnpaidCardAttempt = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
+  const paymentChannel = normalizePaymentChannel({
+    metadata: purchase.metadata,
+    status: purchase.status,
+    stripePaymentIntentId: purchase.stripePaymentIntentId,
+    stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
+  })
+  const settlementStatus = normalizeSettlementStatus(asObject(purchase.metadata).settlementStatus)
+
+  return paymentChannel === PAYMENT_CHANNEL.CARD
+    && settlementStatus !== SETTLEMENT_STATUS.PAID
+    && TERMINAL_UNPAID_CARD_STATUSES.has(asText(purchase.status).toLowerCase())
+}
+
 export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
   const paymentChannel = normalizePaymentChannel({
     metadata: purchase.metadata,
@@ -175,7 +191,10 @@ export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(pur
   return {
     paymentChannel,
     settlementStatus,
-    isOpen: settlementStatus !== SETTLEMENT_STATUS.PAID && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === PAYMENT_CHANNEL.CASH),
+    isOpen:
+      settlementStatus !== SETTLEMENT_STATUS.PAID
+      && !isTerminalUnpaidCardAttempt(purchase)
+      && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === PAYMENT_CHANNEL.CASH),
   }
 }
 
