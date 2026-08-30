@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { lockSpecialClassBoundary, runSpecialClassSerializableTransaction } from "@/lib/special-classes/management"
-import { CAPACITY_STATUSES } from "@/lib/special-classes/policy"
+import { CAPACITY_STATUSES, SPECIAL_CLASS_CASH_IDEMPOTENCY_PREFIX } from "@/lib/special-classes/policy"
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3
 
@@ -237,7 +237,7 @@ export async function admitSpecialClassCashWalkIn(
         status: "cash_pending",
         participants: 1,
         serviceId: "special-class",
-        idempotencyKey: `special-class-cash:${specialClass.id}:${input.eventId}`,
+        idempotencyKey: `${SPECIAL_CLASS_CASH_IDEMPOTENCY_PREFIX}${specialClass.id}:${input.eventId}`,
         specialClassId: specialClass.id,
         classSessionId: specialClass.classSessionId,
         metadata: { source: input.source, paymentMethod: "onsite", paymentChannel: "cash", settlementStatus: "pending", settledAt: null },

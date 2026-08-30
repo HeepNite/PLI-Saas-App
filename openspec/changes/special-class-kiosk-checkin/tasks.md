@@ -83,3 +83,11 @@ Chain strategy: stacked-to-main
 - [x] 6.2 Reuse StaffTerminalShell rotation and Current Course UI with Special Class presentation and effective price.
 - [x] 6.3 Keep F1 on `ClassSession.courseSlug`; route the new-customer action and QR to `/special-classes/{slug}`.
 - [x] 6.4 Verify focused projection/API/backend/card tests plus targeted typecheck, lint, and diff checks. Task 5.2 remains pending until its real smoke passes.
+
+## Phase 7: Current Special Salsa Web Quota
+
+- [x] 7.1 RED/GREEN: cover 9 paid web seats leaving 8 of 17, active versus expired/failed/released holds, cash exclusion, and venue-capacity fallback.
+- [x] 7.2 RED/GREEN: verify concurrent web admission stops at 17 while cash walk-in remains available below venue capacity.
+- [x] 7.3 Add canonical `webQuota: 17`; enforce web and venue limits under the existing lock without changing `ClassSession.capacity` or cash admission.
+- [x] 7.4 Render computed, explicitly online availability on canonical and generic public pages.
+- [x] 7.5 Run focused capacity/reservation/public landing/cash tests, typecheck, targeted ESLint, and `git diff --check`.

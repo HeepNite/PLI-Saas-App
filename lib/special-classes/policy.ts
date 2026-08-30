@@ -6,6 +6,10 @@ export const SPECIAL_CLASS_HOLD_MS = 3 * 60_000
 // Single source of truth for the statuses that count as an occupied seat
 // across every special-class capacity/occupancy query site.
 export const CAPACITY_STATUSES = ["paid", "succeeded", "completed", "capture_pending", "cash_pending"]
+export const SPECIAL_CLASS_CASH_IDEMPOTENCY_PREFIX = "special-class-cash:"
+export const SPECIAL_CLASS_CASH_PURCHASE_FILTER = {
+  idempotencyKey: { startsWith: SPECIAL_CLASS_CASH_IDEMPOTENCY_PREFIX },
+}
 
 const OCCUPIED_STATUSES = new Set(CAPACITY_STATUSES)
 

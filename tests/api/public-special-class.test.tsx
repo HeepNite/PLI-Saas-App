@@ -40,6 +40,7 @@ describe("public special class", () => {
     const base = { slug: item.slug, title: item.title, description: item.description, coverImageUrl: null, priceCents: item.priceCents, currency: item.currency, session: { startsAt: item.classSession.startsAt.toISOString(), durationMinutes: 60, location: "Studio", capacity: 10 } }
     expect(renderToStaticMarkup(<PublicSpecialClass item={{ ...base, availability: { capacity: 10, remaining: 0 } }} />)).toContain("Sold out")
     expect(renderToStaticMarkup(<PublicSpecialClass item={{ ...base, availability: { capacity: 10, remaining: 1 } }} />)).toContain("held for up to three minutes")
+    expect(renderToStaticMarkup(<PublicSpecialClass item={{ ...base, availability: { capacity: 8, remaining: 3 } }} />)).toContain("3 of 8 online spots")
   })
 
   it("renders the special-class start time consistently across host timezones", () => {

@@ -48,12 +48,14 @@ const validate = (values: Record<FieldName, string>): FieldErrors => {
 
 export function SpecialSalsaClassLanding({
   remaining,
+  onlineCapacity = SPECIAL_SALSA_CLASS.webQuota,
   cancelledAttemptId,
   initialNowMs = SPECIAL_SALSA_CLASS.promotion.deadline.getTime(),
   initialDialogOpen = false,
   bannerReservationRequest = null,
 }: {
   remaining: number | null
+  onlineCapacity?: number
   cancelledAttemptId?: string
   initialNowMs?: number
   initialDialogOpen?: boolean
@@ -381,7 +383,7 @@ export function SpecialSalsaClassLanding({
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <Users className="h-4 w-4 text-[#FB7185]" aria-hidden="true" />
-                  {SPECIAL_SALSA_CLASS.capacity} spots
+                  {onlineCapacity} online spots
                 </span>
               </div>
               <div data-hero-video-controls className="flex shrink-0 items-center gap-2">
@@ -493,7 +495,7 @@ export function SpecialSalsaClassLanding({
               </button>
             </div>
             <p className="mt-4 text-xs font-semibold text-slate-300 sm:text-sm">
-              {remaining === null ? "Limited to 40 guests." : `${remaining} of 40 spots remaining.`}
+              {remaining === null ? `Online availability is limited to ${onlineCapacity} spots.` : `${remaining} of ${onlineCapacity} online spots remaining.`}
             </p>
             <p className="mt-3 text-xs leading-5 text-slate-400">{SPECIAL_SALSA_REFUND_POLICY}</p>
           </div>
@@ -502,6 +504,7 @@ export function SpecialSalsaClassLanding({
       {portalReady && dialogOpen && createPortal(
         <ReservationDialog
           remaining={remaining}
+          onlineCapacity={onlineCapacity}
           cancelledAttemptId={cancelledAttemptId}
           values={values}
           errors={errors}
@@ -533,6 +536,7 @@ export function SpecialSalsaClassLanding({
 
 function ReservationDialog({
   remaining,
+  onlineCapacity,
   cancelledAttemptId,
   values,
   errors,
@@ -557,6 +561,7 @@ function ReservationDialog({
   onClose,
 }: {
   remaining: number | null
+  onlineCapacity: number
   cancelledAttemptId?: string
   values: Record<FieldName, string>
   errors: FieldErrors
@@ -665,7 +670,7 @@ function ReservationDialog({
           <div>
             <h2 id="special-reservation-title" className="text-xl font-extrabold sm:text-2xl">Reserve your spot</h2>
             <p id="special-reservation-description" className="mt-1 text-sm leading-5 text-slate-300">
-              {remaining === null ? "Limited to 40 spots. Enter your contact details to continue." : `${remaining} of 40 spots remaining. Enter your contact details to continue.`}
+              {remaining === null ? `Online availability is limited to ${onlineCapacity} spots. Enter your contact details to continue.` : `${remaining} of ${onlineCapacity} online spots remaining. Enter your contact details to continue.`}
             </p>
           </div>
           <button
@@ -690,7 +695,7 @@ function ReservationDialog({
           {soldOut ? (
             <div ref={soldOutRef} data-sold-out tabIndex={-1} className="rounded-xl border-2 border-[var(--brand,#b61616)] p-5 outline-none focus-visible:ring-4 focus-visible:ring-[var(--brand,#b61616)]/30" role="status">
               <h3 className="text-xl font-bold">Sold out</h3>
-              <p className="mt-2">All 40 spots are currently paid or held.</p>
+              <p className="mt-2">All {onlineCapacity} online spots are currently paid or held. Walk-in availability may remain at the school.</p>
               <button type="button" disabled className="mt-4 min-h-11 w-full cursor-not-allowed rounded-lg bg-neutral-400 px-4 py-3 font-bold text-white">Sold out</button>
             </div>
           ) : (
