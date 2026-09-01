@@ -14,9 +14,9 @@ In payment-board History mode, authorized staff can complete a displayed unresol
 
 ## Requirements
 
-### R1 — History selection exposes only eligible cash records
+### R1 — History selection exposes only eligible settlement records
 
-History mode MUST offer selection only when the displayed purchase record is both cash-channel and unresolved. A card or Stripe-backed row MUST not render a settlement selection control, even when the student has an outstanding balance.
+History mode MUST offer selection only when the displayed purchase record is both cash-channel and unresolved, or when the displayed row is an unresolved synthetic attendance debt. A card, Stripe-backed, or ordinary unknown-channel purchase row MUST not render a settlement selection control, even when the student has an outstanding balance.
 
 #### Scenario: Displayed unresolved cash payment
 - GIVEN History mode displays a cash purchase whose settlement state is unresolved
@@ -30,7 +30,7 @@ History mode MUST offer selection only when the displayed purchase record is bot
 
 ### R2 — Eligibility is exact-record based
 
-The board and API MUST determine eligibility from each purchase record, not from a student-level outstanding balance, aggregate card state, or another purchase belonging to the same user.
+The board and API MUST determine eligibility from the exact submitted record, not from a student-level outstanding balance, aggregate card state, or another purchase belonging to the same user. A synthetic `att-<attendanceId>` row is a distinct attendance-only debt input and MUST NOT make an ordinary unknown-channel purchase eligible.
 
 #### Scenario: Student has mixed payment history
 - GIVEN a student has an unresolved cash purchase and a separate card purchase
@@ -39,9 +39,9 @@ The board and API MUST determine eligibility from each purchase record, not from
 
 ### R3 — Server settlement boundary protects non-cash and settled records
 
-The existing bulk settlement endpoint MUST independently load and validate submitted purchase IDs before mutating them. It MUST mutate only records that are cash-channel and unresolved for a completion request.
+The existing bulk settlement endpoint MUST separate synthetic attendance IDs from purchase IDs and independently load and validate each input. It MUST mutate only persisted purchases that are cash-channel and unresolved for a completion request. On `mark_paid`, a valid attendance-only debt MAY create a settled cash purchase and link it to the attendance atomically.
 
-For a request containing missing, non-cash, Stripe-backed, or already-settled records, the endpoint MUST deterministically skip those records, report the result using the bulk response, and perform no mutation for them. A skipped record MUST not affect the update count or downstream package/attendance settlement work.
+For a request containing missing, non-cash, Stripe-backed, or already-settled records, the endpoint MUST deterministically skip those records and report the result using the bulk response. A skipped record MUST not affect the update count or receive another settlement mutation. Missing, non-cash, and Stripe-backed records MUST NOT run downstream settlement work. An already-settled cash retry MAY rerun the existing idempotent attendance, package-sync, and credit side effects to recover from a prior partial failure, but MUST preserve the original settlement audit metadata.
 
 #### Scenario: Forged or stale card ID
 - GIVEN a staff-authorized request includes a card or Stripe-backed purchase ID
@@ -51,7 +51,17 @@ For a request containing missing, non-cash, Stripe-backed, or already-settled re
 #### Scenario: Already-settled cash ID
 - GIVEN a cash purchase was settled after the History board was loaded
 - WHEN staff submits its stale ID as a completion request
-- THEN the endpoint skips it without repeating settlement side effects.
+- THEN the endpoint skips another settlement mutation and update count, while existing idempotent attendance, package-sync, and credit side effects may run to repair a prior partial failure without rewriting settlement audit metadata.
+
+#### Scenario: Attendance-only debt
+- GIVEN History displays an unresolved synthetic `att-<attendanceId>` row with no linked settled purchase
+- WHEN staff completes that exact row
+- THEN the endpoint creates and links one settled cash purchase using the class drop-in price; a failure is isolated to that attendance and reported as `settlement_failed`.
+
+#### Scenario: Ordinary unknown-channel purchase
+- GIVEN History displays an unresolved purchase whose channel is unknown, such as `web-unpaid`
+- WHEN settlement eligibility is evaluated
+- THEN the row is not selectable and the endpoint does not convert or mutate it as cash.
 
 ### R4 — Completion refreshes the History board
 
@@ -111,9 +121,10 @@ Clicking Collected when it is already active is idempotent: it keeps the same or
 ## Acceptance checklist
 
 - [ ] History mode can select and complete a displayed unresolved cash purchase.
+- [ ] History mode can select and complete an unresolved synthetic attendance debt without making ordinary unknown-channel purchases eligible.
 - [ ] Card/Stripe records never display settlement selection controls.
 - [ ] Eligibility uses the submitted purchase record, not the user's aggregate balance.
-- [ ] Non-cash, missing, and already-settled records are deterministically skipped without mutation or side effects.
+- [ ] Non-cash and missing records are deterministically skipped without mutation or side effects; already-settled cash retries preserve settlement audit metadata while allowing existing idempotent fix-forward side effects.
 - [ ] The active History results refresh and selections reconcile after the request.
 - [ ] Existing authorized cash settlement behavior remains covered by tests.
 - [ ] Students, Paid, Pending, Packages, and Drop-in apply their confirmed existing board filters.
