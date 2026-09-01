@@ -12,6 +12,7 @@ type UseStudentGlobalSearchOptions = {
   query: string
   isHistoryMode: boolean
   hasClientMatches: boolean
+  allowGlobalSearch?: boolean
   onAuthFailure?: (status: number) => boolean
 }
 
@@ -19,6 +20,7 @@ export const useStudentGlobalSearch = ({
   query,
   isHistoryMode,
   hasClientMatches,
+  allowGlobalSearch = true,
   onAuthFailure,
 }: UseStudentGlobalSearchOptions) => {
   const [searchResultCards, setSearchResultCards] = React.useState<StudentProfileCard[] | null>(null)
@@ -82,7 +84,7 @@ export const useStudentGlobalSearch = ({
     }
 
     const trimmedQuery = query.trim()
-    if (trimmedQuery.length < 2 || isHistoryMode) {
+    if (trimmedQuery.length < 2 || isHistoryMode || !allowGlobalSearch) {
       resetSearchState()
       return
     }
@@ -102,7 +104,7 @@ export const useStudentGlobalSearch = ({
         searchDebounceRef.current = null
       }
     }
-  }, [hasClientMatches, isHistoryMode, query, resetSearchState, triggerGlobalSearch])
+  }, [allowGlobalSearch, hasClientMatches, isHistoryMode, query, resetSearchState, triggerGlobalSearch])
 
   return {
     searchResultCards,

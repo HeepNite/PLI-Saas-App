@@ -20,6 +20,7 @@ const createPayment = (overrides: Partial<PaymentRow> = {}): PaymentRow => ({
   userId: "user-1",
   courseSlug: "bachata",
   courseTitle: "Bachata Basics",
+  isSpecialEvent: false,
   customerName: "Jane Student",
   customerEmail: "jane@example.com",
   customerPhone: "555-0100",

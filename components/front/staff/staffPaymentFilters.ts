@@ -3,6 +3,7 @@ import { isCompletedClassEvidence, isPaymentPaidForUi } from "./paymentState"
 import type {
   HistoryAttendanceFilter,
   HistoryContentFilterInput,
+  HistoryEventKindFilter,
   HistoryPaymentMethodFilter,
   PackageFormState,
   PackagePlanStatus,
@@ -31,7 +32,7 @@ export const resolveDirectClassRevenueCents = <
 }
 
 export const matchesPaymentCategory = (
-  row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory">,
+  row: Pick<PaymentRow, "paymentChannel" | "purchaseCategory" | "isSpecialEvent">,
   category: PaymentCategoryFilter
 ) => {
   if (category === "all") return true
@@ -40,6 +41,7 @@ export const matchesPaymentCategory = (
   if (category === "card") return row.paymentChannel === "card" || row.paymentChannel === "unknown"
   if (category === "packages") return row.purchaseCategory === "package"
   if (category === "dropin") return row.purchaseCategory === "dropin"
+  if (category === "special") return row.isSpecialEvent
   return true
 }
 
@@ -130,6 +132,7 @@ export const matchesHistoryContentFilters = (
     classKey: string
     paymentMethodFilter: HistoryPaymentMethodFilter
     attendanceFilter: HistoryAttendanceFilter
+    eventKindFilter: HistoryEventKindFilter
     paymentsFilter: "all" | "pending" | "paid"
   }
 ) => {
@@ -137,6 +140,7 @@ export const matchesHistoryContentFilters = (
     (!filters.classKey || row.courseSlug === filters.classKey) &&
     matchesHistoryPaymentMethod(row, filters.paymentMethodFilter) &&
     matchesHistoryAttendanceFilter(row, filters.attendanceFilter) &&
+    (filters.eventKindFilter === "all" || row.isSpecialEvent) &&
     matchesStripeStatus(row, filters.paymentsFilter)
   )
 }
@@ -148,6 +152,7 @@ export const resolveStudentCardPayments = (
     historyClassKey: string
     historyPaymentMethodFilter: HistoryPaymentMethodFilter
     historyAttendanceFilter: HistoryAttendanceFilter
+    historyEventKindFilter: HistoryEventKindFilter
     paymentCategoryFilter: PaymentCategoryFilter
     paymentsFilter: "all" | "pending" | "paid"
     studentSearchQuery: string
@@ -159,6 +164,7 @@ export const resolveStudentCardPayments = (
         classKey: options.historyClassKey,
         paymentMethodFilter: options.historyPaymentMethodFilter,
         attendanceFilter: options.historyAttendanceFilter,
+        eventKindFilter: options.historyEventKindFilter,
         paymentsFilter: "all",
       })
     }

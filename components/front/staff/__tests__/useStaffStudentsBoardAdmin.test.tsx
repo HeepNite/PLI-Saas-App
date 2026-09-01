@@ -32,6 +32,7 @@ const payment = (overrides: Partial<PaymentRow> = {}): PaymentRow => ({
   serviceId: null,
   paymentChannel: "cash",
   purchaseCategory: "dropin",
+  isSpecialEvent: false,
   amount: 2500,
   currency: "usd",
   paymentStatus: "paid",
@@ -79,6 +80,7 @@ const createOptions = (overrides: Partial<HookOptions> = {}): HookOptions => ({
   historyClassKey: "",
   historyPaymentMethodFilter: "all",
   historyAttendanceFilter: "all",
+  historyEventKindFilter: "all",
   historyFrom: "2026-03-25",
   historyTo: "2026-03-25",
   paymentCategoryFilter: "cash",
@@ -223,6 +225,24 @@ describe("useStaffStudentsBoardAdmin", () => {
     expect(state.historyDerivedStats).toMatchObject({ studentCount: 2, checkedInCount: 2, packages: 1, dropIn: 1 })
     expect(state.studentsSummary).toMatchObject({ totalStudents: 7, checkedInStudents: 5, totalRevenueCents: 12000 })
     expect(state.historyReadableRange).toBe("Wed 25 Mar 26 → Thu 26 Mar 26")
+  })
+
+  it("includes a daily student card when at least one row is Special", async () => {
+    const payments = [
+      payment({ id: "special", isSpecialEvent: true }),
+      payment({ id: "regular", isSpecialEvent: false }),
+    ]
+    const state = await renderHook(createOptions({
+      paymentCategoryFilter: "special",
+      payments,
+    }))
+
+    expect(state.filteredStudentCards).toHaveLength(1)
+    expect(state.filteredStudentCards[0].allPayments).toHaveLength(2)
+
+    const searched = await rerender(createOptions({ paymentCategoryFilter: "special", payments, studentSearchQuery: "missing" }))
+    expect(searched.filteredStudentCards).toHaveLength(0)
+    expect(searched.displayedStudentCards).toHaveLength(0)
   })
 
   it("exposes every unsettled history cash payment for selection even when the latest row is not cash", async () => {

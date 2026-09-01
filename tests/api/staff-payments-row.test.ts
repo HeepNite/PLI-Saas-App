@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { buildSpecialEventBySlug } from "@/app/api/staff/payments/payments-loader-auxiliary"
 import { buildStaffPaymentResponseRow } from "@/app/api/staff/payments/payments-row"
 
 const purchaseCreatedAt = new Date("2026-02-10T14:00:00.000Z")
@@ -47,6 +48,7 @@ const emptyContext = {
   avatarByUserId: new Map<string, string>(),
   courseLocationBySlug: new Map<string | null, string | null>(),
   dropInPriceBySlug: new Map<string | null, number>(),
+  isSpecialEventBySlug: new Map<string, boolean>(),
   pointsByUser: new Map<string, number>(),
   pointsHistoryByUser: new Map<string, unknown[]>(),
   attendanceById: new Map(),
@@ -65,6 +67,14 @@ const emptyContext = {
 }
 
 describe("buildStaffPaymentResponseRow", () => {
+  it("projects only the semantic special-event classification", () => {
+    expect(buildStaffPaymentResponseRow(baseItem, {
+      ...emptyContext,
+      isSpecialEventBySlug: new Map([["salsa", true]]),
+    }).isSpecialEvent).toBe(true)
+    expect(buildStaffPaymentResponseRow(baseItem, emptyContext).isSpecialEvent).toBe(false)
+  })
+
   it("maps customer, payment and default student state for a visible payment row", () => {
     const row = buildStaffPaymentResponseRow(baseItem, {
       ...emptyContext,
@@ -203,5 +213,16 @@ describe("buildStaffPaymentResponseRow", () => {
     expect(row.attendanceId).toBe("attendance_123")
     expect(row.checkInStatus).toBe("checked_in")
     expect(row.packageClassNumber).toBe(3)
+  })
+})
+
+describe("buildSpecialEventBySlug", () => {
+  it.each([
+    [{ mode: "special_event", rules: [] }, true],
+    [{ mode: "regular", rules: [] }, false],
+    [{ mode: "special_event" }, false],
+    [null, false],
+  ])("classifies parsed schedule rules and fails closed for %j", (scheduleRules, expected) => {
+    expect(buildSpecialEventBySlug([{ slug: "course", scheduleRules }]).get("course")).toBe(expected)
   })
 })

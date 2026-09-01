@@ -33,6 +33,7 @@ import {
 import { resolveHistoryDateIso } from "./staffAdminFormatters"
 import type {
   HistoryAttendanceFilter,
+  HistoryEventKindFilter,
   HistoryPaymentMethodFilter,
   PaymentCategoryFilter,
   PaymentRow,
@@ -73,6 +74,7 @@ type UseStaffStudentsBoardAdminOptions = {
   historyClassKey: string
   historyPaymentMethodFilter: HistoryPaymentMethodFilter
   historyAttendanceFilter: HistoryAttendanceFilter
+  historyEventKindFilter: HistoryEventKindFilter
   historyFrom: string
   historyTo: string
   paymentCategoryFilter: PaymentCategoryFilter
@@ -100,6 +102,7 @@ export function useStaffStudentsBoardAdmin({
   historyClassKey,
   historyPaymentMethodFilter,
   historyAttendanceFilter,
+  historyEventKindFilter,
   historyFrom,
   historyTo,
   paymentCategoryFilter,
@@ -140,6 +143,7 @@ export function useStaffStudentsBoardAdmin({
           historyClassKey,
           historyPaymentMethodFilter,
           historyAttendanceFilter,
+          historyEventKindFilter,
           paymentCategoryFilter,
           paymentsFilter,
           studentSearchQuery: "",
@@ -153,7 +157,7 @@ export function useStaffStudentsBoardAdmin({
         }
       })
       .filter((item): item is (typeof studentCards)[number] => Boolean(item))
-  }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentCards])
+  }, [historyAttendanceFilter, historyClassKey, historyEventKindFilter, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentCards])
 
   const filteredStudentCards = React.useMemo(() => {
     const cards = boardContextStudentCards
@@ -163,6 +167,7 @@ export function useStaffStudentsBoardAdmin({
           historyClassKey,
           historyPaymentMethodFilter,
           historyAttendanceFilter,
+          historyEventKindFilter,
           paymentCategoryFilter,
           paymentsFilter,
           studentSearchQuery,
@@ -187,6 +192,7 @@ export function useStaffStudentsBoardAdmin({
           historyClassKey,
           historyPaymentMethodFilter,
           historyAttendanceFilter,
+          historyEventKindFilter,
           paymentCategoryFilter,
           paymentsFilter,
           studentSearchQuery,
@@ -194,7 +200,7 @@ export function useStaffStudentsBoardAdmin({
       }))
       .sort((left, right) => right.spend - left.spend || left.index - right.index)
       .map(({ item }) => item)
-  }, [boardContextStudentCards, historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isCollectedOrdering, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentSearchQuery])
+  }, [boardContextStudentCards, historyAttendanceFilter, historyClassKey, historyEventKindFilter, historyPaymentMethodFilter, isCollectedOrdering, isHistoryMode, paymentCategoryFilter, paymentsFilter, studentSearchQuery])
 
   const {
     searchResultCards,
@@ -205,6 +211,7 @@ export function useStaffStudentsBoardAdmin({
     query: studentSearchQuery,
     isHistoryMode,
     hasClientMatches: filteredStudentCards.length > 0,
+    allowGlobalSearch: paymentCategoryFilter !== "special",
     onAuthFailure: handleStaffAuthFailure,
   })
 
@@ -265,7 +272,7 @@ export function useStaffStudentsBoardAdmin({
     return searchResultCards.slice(start, start + PAGE_SIZE)
   }, [currentPage, searchResultCards])
 
-  const shouldPreservePaymentBoard = !isHistoryMode && studentSearchQuery.trim().length >= 2 && filteredStudentCards.length === 0 && searchResultCards === null
+  const shouldPreservePaymentBoard = paymentCategoryFilter !== "special" && !isHistoryMode && studentSearchQuery.trim().length >= 2 && filteredStudentCards.length === 0 && searchResultCards === null
 
   const displayedStudentCards = React.useMemo<Array<(typeof studentCards)[number] | StudentProfileCard>>(() => {
     if (searchResultCards !== null) return paginatedSearchResultCards
@@ -301,7 +308,7 @@ export function useStaffStudentsBoardAdmin({
 
   React.useEffect(() => {
     setCurrentPage(1)
-  }, [historyAttendanceFilter, historyClassKey, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, searchResultCards, studentSearchQuery])
+  }, [historyAttendanceFilter, historyClassKey, historyEventKindFilter, historyPaymentMethodFilter, isHistoryMode, paymentCategoryFilter, paymentsFilter, searchResultCards, studentSearchQuery])
 
   // Check which displayed students have audit entries in the current month.
   // Runs for all callers that can view the Change history button (owner, admin,

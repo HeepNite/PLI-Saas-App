@@ -1038,6 +1038,7 @@ describe("matchesHistoryContentFilters", () => {
     purchaseCategory: "dropin" as const,
     packageId: null,
     classPaid: true,
+    isSpecialEvent: true,
     checkInStatus: "checked_out" as const,
   }
 
@@ -1047,6 +1048,7 @@ describe("matchesHistoryContentFilters", () => {
         classKey: "bachata-int",
         paymentMethodFilter: "all",
         attendanceFilter: "all",
+        eventKindFilter: "all",
         paymentsFilter: "all",
       })
     ).toBe(true)
@@ -1056,6 +1058,7 @@ describe("matchesHistoryContentFilters", () => {
         classKey: "salsa-beginners",
         paymentMethodFilter: "all",
         attendanceFilter: "all",
+        eventKindFilter: "all",
         paymentsFilter: "all",
       })
     ).toBe(false)
@@ -1067,6 +1070,7 @@ describe("matchesHistoryContentFilters", () => {
         classKey: "",
         paymentMethodFilter: "card",
         attendanceFilter: "attended",
+        eventKindFilter: "all",
         paymentsFilter: "paid",
       })
     ).toBe(true)
@@ -1076,9 +1080,27 @@ describe("matchesHistoryContentFilters", () => {
         classKey: "",
         paymentMethodFilter: "cash",
         attendanceFilter: "all",
+        eventKindFilter: "all",
         paymentsFilter: "all",
       })
     ).toBe(false)
+  })
+
+  it("composes the independent Special event-kind filter", () => {
+    expect(matchesHistoryContentFilters(row, {
+      classKey: "bachata-int",
+      paymentMethodFilter: "card",
+      attendanceFilter: "attended",
+      eventKindFilter: "special",
+      paymentsFilter: "paid",
+    })).toBe(true)
+    expect(matchesHistoryContentFilters({ ...row, isSpecialEvent: false }, {
+      classKey: "",
+      paymentMethodFilter: "all",
+      attendanceFilter: "all",
+      eventKindFilter: "special",
+      paymentsFilter: "all",
+    })).toBe(false)
   })
 })
 
@@ -1111,6 +1133,7 @@ describe("resolveStudentCardPayments", () => {
     activePackage: null,
     paymentChannel: "card",
     purchaseCategory: "dropin",
+    isSpecialEvent: false,
     classPaid: false,
     attendanceId: null,
     checkInAt: null,
@@ -1137,9 +1160,23 @@ describe("resolveStudentCardPayments", () => {
     historyClassKey: "",
     historyPaymentMethodFilter: "all" as const,
     historyAttendanceFilter: "all" as const,
+    historyEventKindFilter: "all" as const,
     paymentCategoryFilter: "history" as const,
     paymentsFilter: "paid" as const,
   }
+
+  it("keeps only locally matching Special rows while preserving text search", () => {
+    const special = { ...basePayment, id: "special", isSpecialEvent: true, customerName: "Ana Special" }
+    const regular = { ...basePayment, id: "regular", customerName: "Ana Regular" }
+
+    expect(resolveStudentCardPayments([special, regular], {
+      ...defaultFilters,
+      isHistoryMode: false,
+      paymentCategoryFilter: "special",
+      paymentsFilter: "all",
+      studentSearchQuery: "special",
+    })).toEqual([special])
+  })
 
   it("does not restore a searched History student excluded by the paid filter", () => {
     expect(

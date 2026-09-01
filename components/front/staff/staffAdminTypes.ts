@@ -78,6 +78,7 @@ export type PaymentRow = {
   userId: string
   courseSlug: string
   courseTitle: string
+  isSpecialEvent: boolean
   customerName: string
   customerEmail: string
   customerPhone: string
@@ -161,11 +162,13 @@ export type PaymentsApiSummary = {
   paidStripe: number
 }
 
-export type PaymentCategoryFilter = "all" | "cash" | "card" | "packages" | "dropin" | "history"
+export type PaymentCategoryFilter = "all" | "cash" | "card" | "packages" | "dropin" | "special" | "history"
 export type HistoryPaymentMethodFilter = "all" | "cash" | "card" | "package" | "dropin"
 export type HistoryAttendanceFilter = "all" | "attended" | "scheduled" | "no_attendance"
+export type HistoryEventKindFilter = "all" | "special"
 export type HistoryContentFilterInput = {
   courseSlug: string
+  isSpecialEvent: boolean
   paymentChannel: "cash" | "card" | "unknown" | "package_credit"
   purchaseCategory: "package" | "dropin" | "other"
   packageId: string | null
