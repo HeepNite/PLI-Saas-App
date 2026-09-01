@@ -83,6 +83,7 @@ type StaffPaymentRowContext = {
   avatarByUserId: Map<string, string>
   courseLocationBySlug: Map<string | null, string | null>
   dropInPriceBySlug: Map<string | null, number>
+  isSpecialEventBySlug: Map<string, boolean>
   pointsByUser: Map<string, number>
   pointsHistoryByUser: Map<string, unknown[]>
   attendanceById: Map<string, AttendanceRow>
@@ -215,6 +216,7 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     userId: item.userId,
     courseSlug,
     courseTitle: purchase.courseTitle || courseSlug,
+    isSpecialEvent: courseSlug ? context.isSpecialEventBySlug.get(courseSlug) === true : false,
     customerName: resolveCanonicalName(
       context.clerkNameByUserId.get(item.userId),
       context.dbNameByUserId.get(item.userId),

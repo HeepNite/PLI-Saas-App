@@ -63,6 +63,7 @@ const createPaymentRow = (overrides: Partial<PaymentRow> = {}): PaymentRow => ({
   userId: "user-1",
   courseSlug: "bjj-fundamentals",
   courseTitle: "BJJ Fundamentals",
+  isSpecialEvent: false,
   customerName: "Test Student",
   customerEmail: "student@example.com",
   customerPhone: "",
@@ -137,6 +138,8 @@ const createControls = (): StaffStudentsBoardPanelProps["controls"] => ({
   setHistoryPaymentMethodFilter: vi.fn(),
   historyAttendanceFilter: "all",
   setHistoryAttendanceFilter: vi.fn(),
+  historyEventKindFilter: "all",
+  setHistoryEventKindFilter: vi.fn(),
   historyDerivedStats: {
     studentCount: 0,
     paidCount: 0,
@@ -197,6 +200,7 @@ const createBuildInput = (
     historyTo: "",
     historyPaymentMethodFilter: "all",
     historyAttendanceFilter: "all",
+    historyEventKindFilter: "all",
     historyClassKey: "",
     historyClassOptions: [],
     isHistorySearchLoading: false,
@@ -209,6 +213,7 @@ const createBuildInput = (
     setHistoryTo: vi.fn(),
     setHistoryPaymentMethodFilter: vi.fn(),
     setHistoryAttendanceFilter: vi.fn(),
+    setHistoryEventKindFilter: vi.fn(),
     setHistoryClassKey: vi.fn(),
     setPaymentHistoryAnchor: vi.fn(),
     setPaymentHistoryStudentId: vi.fn(),
@@ -902,6 +907,12 @@ describe("StaffStudentsBoardPanel", () => {
       cardFilterButton!.click()
     })
     expect(onPaymentCategoryChange).toHaveBeenCalledWith("card")
+
+    const specialFilterButton = Array.from(node.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Special",
+    )
+    await act(async () => specialFilterButton!.click())
+    expect(onPaymentCategoryChange).toHaveBeenCalledWith("special")
   })
 
   it("keeps history mode when package and drop-in history stats apply their payment filters", async () => {
@@ -936,5 +947,10 @@ describe("StaffStudentsBoardPanel", () => {
     expect(setHistoryPaymentMethodFilter).toHaveBeenNthCalledWith(1, "package")
     expect(setHistoryPaymentMethodFilter).toHaveBeenNthCalledWith(2, "dropin")
     expect(onPaymentCategoryChange).not.toHaveBeenCalled()
+
+    const eventKind = node.querySelector('select[aria-label="History event kind"]') as HTMLSelectElement
+    eventKind.value = "special"
+    await act(async () => eventKind.dispatchEvent(new Event("change", { bubbles: true })))
+    expect(controls.setHistoryEventKindFilter).toHaveBeenCalledWith("special")
   })
 })

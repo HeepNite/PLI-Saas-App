@@ -15,6 +15,7 @@ import {
   type AuxiliaryData,
   type StudentPinSummary,
   buildStudentPinMap,
+  buildSpecialEventBySlug,
   loadAttendanceDerivedExtras,
   loadActivePackageClassesUsed,
   loadAuxiliaryData,
@@ -36,6 +37,7 @@ export type StaffPaymentsLoadResult = {
     avatarByUserId: Map<string, string>
     courseLocationBySlug: Map<string | null, string | null>
     dropInPriceBySlug: Map<string | null, number>
+    isSpecialEventBySlug: Map<string, boolean>
     pointsByUser: Map<string, number>
     pointsHistoryByUser: Map<string, Array<{
       id: string
@@ -216,6 +218,7 @@ export const loadStaffPaymentsData = async (
 
   const courseLocationBySlug = new Map<string | null, string | null>()
   const dropInPriceBySlug = new Map<string | null, number>()
+  const isSpecialEventBySlug = buildSpecialEventBySlug(locations)
   for (const row of locations) {
     courseLocationBySlug.set(row.slug, row.location || null)
     if (typeof row.dropInPriceCents === "number" && row.dropInPriceCents > 0) {
@@ -335,6 +338,7 @@ export const loadStaffPaymentsData = async (
       avatarByUserId,
       courseLocationBySlug,
       dropInPriceBySlug,
+      isSpecialEventBySlug,
       pointsByUser,
       pointsHistoryByUser,
       attendanceById,

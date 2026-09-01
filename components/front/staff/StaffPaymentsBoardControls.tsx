@@ -17,6 +17,7 @@ import CalendarPicker from "@/components/front/ui/CalendarPicker"
 import { formatMoney } from "./staffAdminFormatters"
 import type {
   HistoryAttendanceFilter,
+  HistoryEventKindFilter,
   HistoryPaymentMethodFilter,
   PaymentCategoryFilter,
 } from "./staffAdminTypes"
@@ -69,6 +70,8 @@ type Props = {
   setHistoryPaymentMethodFilter: (value: HistoryPaymentMethodFilter) => void
   historyAttendanceFilter: HistoryAttendanceFilter
   setHistoryAttendanceFilter: (value: HistoryAttendanceFilter) => void
+  historyEventKindFilter: HistoryEventKindFilter
+  setHistoryEventKindFilter: (value: HistoryEventKindFilter) => void
   historyDerivedStats: HistoryDerivedStats
   isCollectedOrdering: boolean
   activateCollectedOrdering: () => void
@@ -91,6 +94,7 @@ const PAYMENT_CATEGORIES: Array<readonly [PaymentCategoryFilter, string]> = [
   ["card", "Card"],
   ["packages", "Packages"],
   ["dropin", "Drop-in"],
+  ["special", "Special"],
   ["history", "History"],
 ]
 
@@ -118,6 +122,8 @@ export default function StaffPaymentsBoardControls({
   setHistoryPaymentMethodFilter,
   historyAttendanceFilter,
   setHistoryAttendanceFilter,
+  historyEventKindFilter,
+  setHistoryEventKindFilter,
   historyDerivedStats,
   isCollectedOrdering,
   activateCollectedOrdering,
@@ -283,7 +289,7 @@ export default function StaffPaymentsBoardControls({
                 </span>
               </div>
 
-              <div className="grid w-full grid-cols-1 gap-2 rounded-lg py-2 mb-3 sm:grid-cols-3">
+              <div className="grid w-full grid-cols-1 gap-2 rounded-lg py-2 mb-3 sm:grid-cols-4">
                 <div className="relative min-w-0">
                   <select
                     value={historyClassKey}
@@ -297,6 +303,19 @@ export default function StaffPaymentsBoardControls({
                         {option.title}
                       </option>
                     ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
+                </div>
+
+                <div className="relative min-w-0">
+                  <select
+                    aria-label="History event kind"
+                    value={historyEventKindFilter}
+                    onChange={(event) => setHistoryEventKindFilter(event.target.value as HistoryEventKindFilter)}
+                    className="h-10 w-full appearance-none rounded-md border border-white/15 bg-white/[0.08] px-2.5 pr-7 text-xs text-white/80 focus:outline-none focus:ring-1 focus:ring-[var(--brand,#b61616)]/50"
+                  >
+                    <option value="all">All events</option>
+                    <option value="special">Special</option>
                   </select>
                   <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/40" />
                 </div>

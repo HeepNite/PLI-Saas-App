@@ -15,7 +15,7 @@ const createJsonResponse = (payload: unknown, ok = true, status = ok ? 200 : 500
     json: vi.fn().mockResolvedValue(payload),
   }) as unknown as Response
 
-const renderHarness = async (initial: { query: string; isHistoryMode?: boolean; hasClientMatches?: boolean } = { query: "" }) => {
+const renderHarness = async (initial: { query: string; isHistoryMode?: boolean; hasClientMatches?: boolean; allowGlobalSearch?: boolean } = { query: "" }) => {
   let snapshot: HookSnapshot | null = null
   let setQuery = (_value: string) => {}
   let setHistoryMode = (_value: boolean) => {}
@@ -34,7 +34,7 @@ const renderHarness = async (initial: { query: string; isHistoryMode?: boolean; 
     setHistoryMode = updateHistoryMode
     setHasClientMatches = updateHasClientMatches
 
-    snapshot = useStudentGlobalSearch({ query, isHistoryMode, hasClientMatches })
+    snapshot = useStudentGlobalSearch({ query, isHistoryMode, hasClientMatches, allowGlobalSearch: initial.allowGlobalSearch ?? true })
     return null
   }
 
@@ -116,6 +116,16 @@ describe("useStudentGlobalSearch", () => {
     await act(async () => {
       vi.advanceTimersByTime(350)
     })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("does not bypass a restricted board category with profile fallback", async () => {
+    const rendered = await renderHarness({ query: "ana", allowGlobalSearch: false })
+    root = rendered.root
+    container = rendered.container
+
+    await act(async () => vi.advanceTimersByTime(350))
+
     expect(fetch).not.toHaveBeenCalled()
   })
 

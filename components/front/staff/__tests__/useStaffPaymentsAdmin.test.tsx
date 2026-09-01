@@ -146,6 +146,7 @@ describe("useStaffPaymentsAdmin", () => {
     expect(captured!.historyTo).toBe("")
     expect(captured!.historyPaymentMethodFilter).toBe("all")
     expect(captured!.historyAttendanceFilter).toBe("all")
+    expect(captured!.historyEventKindFilter).toBe("all")
     expect(captured!.historyClassKey).toBe("")
     expect(captured!.historyClassOptions).toEqual([])
   })

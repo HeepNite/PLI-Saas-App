@@ -12,6 +12,7 @@ import {
   type StudentPinStatusValue,
 } from "@/lib/security/student-pin"
 import { ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
+import { parseScheduleRules } from "@/lib/schedule-rules"
 import { type EnrichedPurchase, type StaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-loader-purchase"
 import { type TodayAttendanceRow } from "@/app/api/staff/payments/payments-loader-attendance"
 
@@ -30,6 +31,13 @@ type AuxiliaryDataInput = {
   todayWindow: StaffPaymentsTodayWindow
   scopedPurchases: EnrichedPurchase[]
 }
+
+export const buildSpecialEventBySlug = (
+  rows: Array<{ slug: string; scheduleRules: unknown }>,
+) => new Map(rows.map((row) => [
+  row.slug,
+  parseScheduleRules(row.scheduleRules)?.mode === "special_event",
+]))
 
 /**
  * Run all auxiliary queries (points, packages, attendances, users, pins) in
@@ -170,9 +178,9 @@ export const loadAuxiliaryData = async (input: AuxiliaryDataInput) => {
     courseSlugs.length
       ? prisma.courseCatalog.findMany({
           where: { slug: { in: courseSlugs } },
-          select: { slug: true, location: true, dropInPriceCents: true },
+          select: { slug: true, location: true, dropInPriceCents: true, scheduleRules: true },
         })
-      : Promise.resolve([] as Array<{ slug: string; location: string | null; dropInPriceCents: number | null }>),
+      : Promise.resolve([] as Array<{ slug: string; location: string | null; dropInPriceCents: number | null; scheduleRules: unknown }>),
     (() => {
       const withSlot = scopedPurchases.filter((item) => item.classStartsAt)
       if (!withSlot.length || !userIds.length || !courseSlugs.length) {

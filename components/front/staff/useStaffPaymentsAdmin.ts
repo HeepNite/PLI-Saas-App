@@ -8,6 +8,7 @@ import {
 import type {
   HistoryAttendanceFilter,
   HistoryClassOption,
+  HistoryEventKindFilter,
   HistoryPaymentMethodFilter,
   PaymentCategoryFilter,
   PaymentRow,
@@ -52,6 +53,7 @@ type FilterState = {
   historyTo: string
   historyPaymentMethodFilter: HistoryPaymentMethodFilter
   historyAttendanceFilter: HistoryAttendanceFilter
+  historyEventKindFilter: HistoryEventKindFilter
   historyClassKey: string
   historyClassOptions: HistoryClassOption[]
   isHistorySearchLoading: boolean
@@ -93,6 +95,7 @@ type FilterAction =
   | { type: "FILTER/SET_HISTORY_TO"; value: string }
   | { type: "FILTER/SET_HISTORY_PAYMENT_METHOD"; value: HistoryPaymentMethodFilter }
   | { type: "FILTER/SET_HISTORY_ATTENDANCE"; value: HistoryAttendanceFilter }
+  | { type: "FILTER/SET_HISTORY_EVENT_KIND"; value: HistoryEventKindFilter }
   | { type: "FILTER/SET_HISTORY_CLASS_KEY"; value: string }
   | { type: "FILTER/SET_HISTORY_CLASS_OPTIONS"; options: HistoryClassOption[] }
   | { type: "FILTER/SET_HISTORY_SEARCH_LOADING"; loading: boolean }
@@ -153,6 +156,7 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
         historyTo: "",
         historyPaymentMethodFilter: "all",
         historyAttendanceFilter: "all",
+        historyEventKindFilter: "all",
         historyClassKey: "",
         historyClassOptions: [],
       }
@@ -164,6 +168,8 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       return { ...state, historyPaymentMethodFilter: action.value }
     case "FILTER/SET_HISTORY_ATTENDANCE":
       return { ...state, historyAttendanceFilter: action.value }
+    case "FILTER/SET_HISTORY_EVENT_KIND":
+      return { ...state, historyEventKindFilter: action.value }
     case "FILTER/SET_HISTORY_CLASS_KEY":
       return { ...state, historyClassKey: action.value }
     case "FILTER/SET_HISTORY_CLASS_OPTIONS":
@@ -294,6 +300,7 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     historyTo: "",
     historyPaymentMethodFilter: "all",
     historyAttendanceFilter: "all",
+    historyEventKindFilter: "all",
     historyClassKey: "",
     historyClassOptions: [],
     isHistorySearchLoading: false,
@@ -597,6 +604,10 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     dispatchFilter({ type: "FILTER/SET_HISTORY_ATTENDANCE", value })
   }, [])
 
+  const setHistoryEventKindFilter = React.useCallback((value: HistoryEventKindFilter) => {
+    dispatchFilter({ type: "FILTER/SET_HISTORY_EVENT_KIND", value })
+  }, [])
+
   const setHistoryClassKey = React.useCallback((value: string) => {
     dispatchFilter({ type: "FILTER/SET_HISTORY_CLASS_KEY", value })
   }, [])
@@ -647,6 +658,7 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     historyTo: filter.historyTo,
     historyPaymentMethodFilter: filter.historyPaymentMethodFilter,
     historyAttendanceFilter: filter.historyAttendanceFilter,
+    historyEventKindFilter: filter.historyEventKindFilter,
     historyClassKey: filter.historyClassKey,
     historyClassOptions: filter.historyClassOptions,
     isHistorySearchLoading: filter.isHistorySearchLoading,
@@ -668,6 +680,7 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
     setHistoryTo,
     setHistoryPaymentMethodFilter,
     setHistoryAttendanceFilter,
+    setHistoryEventKindFilter,
     setHistoryClassKey,
     setCheckoutMenuPaymentId,
     setPaymentHistoryAnchor,
