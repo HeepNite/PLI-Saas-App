@@ -54,32 +54,6 @@ const isSettledCashPurchase = (input: { metadata: Prisma.JsonValue | null }) => 
   return settlementStatus === "paid"
 }
 
-// mark_paid also covers unpaid bookings that never started any payment
-// (channel "unknown"): staff collected the money in cash, so the purchase
-// converts to a settled cash purchase. Rows with Stripe evidence stay on the
-// Stripe path (a live intent could still complete and double-charge), and
-// mark_pending stays cash-only because only cash settlements can be reverted.
-const resolveBulkEligibility = (
-  purchase: {
-    metadata: Prisma.JsonValue | null
-    status: string
-    stripePaymentIntentId: string | null
-    stripeCheckoutSessionId: string | null
-  },
-  action: SettlementAction
-): "cash" | "convert_to_cash" | null => {
-  const channel = normalizePaymentChannel({
-    metadata: purchase.metadata,
-    status: purchase.status,
-    stripePaymentIntentId: purchase.stripePaymentIntentId,
-    stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
-  })
-  if (channel === "cash") return "cash"
-  if (action !== "mark_paid") return null
-  if (channel !== "unknown") return null
-  return isCompletedPaymentStatus(purchase.status) ? null : "convert_to_cash"
-}
-
 const buildPackageSyncMetadata = (input: {
   purchase: { courseSlug: string | null }
   metadata: Record<string, unknown>
@@ -108,6 +82,7 @@ const resolveAttendanceIdForCashSettlement = async (input: {
   settlementStatus: "paid" | "pending"
   settledAt: string | null
   settlementUpdatedBy: string
+  preserveSettlementMetadata?: boolean
 }) => {
   const existingAttendanceId = asText(input.metadata.attendanceId)
   if (existingAttendanceId) return existingAttendanceId
@@ -159,12 +134,14 @@ const resolveAttendanceIdForCashSettlement = async (input: {
       where: { id: input.purchase.id },
       data: {
         metadata: {
-          ...buildSettlementMetadata({
-            metadata: input.purchase.metadata,
-            settlementStatus: input.settlementStatus,
-            settledAt: input.settledAt,
-            settlementUpdatedBy: input.settlementUpdatedBy,
-          }),
+          ...(input.preserveSettlementMetadata
+            ? input.metadata
+            : buildSettlementMetadata({
+                metadata: input.purchase.metadata,
+                settlementStatus: input.settlementStatus,
+                settledAt: input.settledAt,
+                settlementUpdatedBy: input.settlementUpdatedBy,
+              })),
           attendanceId: attendance.id,
         },
       },
@@ -235,23 +212,22 @@ export async function POST(req: Request) {
   const nextCashPurchaseStatus = settlementStatus === "paid" ? "paid" : "pending"
   const purchasesById = new Map(purchases.map((purchase) => [purchase.id, purchase]))
   const skipped: Array<{ id: string; reason: "not_found" | "not_cash" | "already_settled" | "settlement_failed" }> = []
-  const convertToCashIds = new Set<string>()
+  const retryableSettledPurchases: typeof purchases = []
   const eligiblePurchases = ids.flatMap((id) => {
     const purchase = purchasesById.get(id)
     if (!purchase) {
       skipped.push({ id, reason: "not_found" })
       return []
     }
-    const eligibility = resolveBulkEligibility(purchase, action)
-    if (!eligibility) {
+    if (!isCashPurchase(purchase)) {
       skipped.push({ id, reason: "not_cash" })
       return []
     }
     if (action === "mark_paid" && isSettledCashPurchase(purchase)) {
       skipped.push({ id, reason: "already_settled" })
+      retryableSettledPurchases.push(purchase)
       return []
     }
-    if (eligibility === "convert_to_cash") convertToCashIds.add(purchase.id)
     return [purchase]
   })
 
@@ -273,18 +249,14 @@ export async function POST(req: Request) {
 
   await prisma.$transaction(
     eligiblePurchases.map((purchase) => {
-      const isConversion = convertToCashIds.has(purchase.id)
-      const nextMetadata: Prisma.InputJsonObject = {
-        ...buildSettlementMetadata({
-          metadata: purchase.metadata,
-          settlementStatus,
-          settledAt,
-          settlementUpdatedBy: authResult.userId,
-        }),
-        ...(isConversion ? { paymentChannel: "cash" } : {}),
-      }
+      const nextMetadata = buildSettlementMetadata({
+        metadata: purchase.metadata,
+        settlementStatus,
+        settledAt,
+        settlementUpdatedBy: authResult.userId,
+      })
       const data: Prisma.PurchaseUpdateInput = { metadata: nextMetadata }
-      if (isConversion || isCashPurchase(purchase)) {
+      if (isCashPurchase(purchase)) {
         data.status = nextCashPurchaseStatus
       }
       // Fix zero-amount purchases when marking as paid
@@ -304,7 +276,7 @@ export async function POST(req: Request) {
   let syncedPackageCount = 0
   let packageCreditReservedCount = 0
   if (action === "mark_paid") {
-    for (const purchase of eligiblePurchases) {
+    for (const purchase of [...eligiblePurchases, ...retryableSettledPurchases]) {
       if (!purchase.userId) continue
       const metadata = asObject(purchase.metadata)
       const resolvedAttendanceId = await resolveAttendanceIdForCashSettlement({
@@ -313,6 +285,7 @@ export async function POST(req: Request) {
         settlementStatus,
         settledAt,
         settlementUpdatedBy: authResult.userId,
+        preserveSettlementMetadata: isSettledCashPurchase(purchase),
       })
 
       const packageSyncMetadata = buildPackageSyncMetadata({ purchase, metadata })

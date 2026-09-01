@@ -238,17 +238,18 @@ describe("useStaffStudentsBoardAdmin", () => {
     expect(state.visiblePaymentIds).toEqual(["cash-old"])
   })
 
-  it("exposes unpaid unknown-channel bookings for history cash selection", async () => {
+  it("selects synthetic attendance debt but excludes unpaid unknown-channel bookings", async () => {
     const state = await renderHook(createOptions({
       isHistoryMode: true,
       paymentCategoryFilter: "history",
       payments: [
+        payment({ id: "att-attendance-1", paymentChannel: "unknown", classPaid: false, settlementStatus: "pending" }),
         payment({ id: "web-unpaid", paymentChannel: "unknown", classPaid: false, settlementStatus: "pending" }),
         payment({ id: "card-paid", userId: "student-2", customerName: "Grace Hopper", paymentChannel: "card", classPaid: true, settlementStatus: "paid" }),
       ],
     }))
 
-    expect(state.visiblePaymentIds).toEqual(["web-unpaid"])
+    expect(state.visiblePaymentIds).toEqual(["att-attendance-1"])
   })
 
   it("keeps history card aggregates and detail payments within the active filter scope", async () => {
