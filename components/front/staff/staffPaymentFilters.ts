@@ -47,6 +47,8 @@ export const matchesStripeStatus = (
   row: {
     classPaid: PaymentRow["classPaid"]
     purchaseCategory: PaymentRow["purchaseCategory"]
+    paymentChannel?: PaymentRow["paymentChannel"]
+    settlementStatus?: PaymentRow["settlementStatus"]
     fundingPayment?: PaymentRow["fundingPayment"]
     checkInStatus?: PaymentRow["checkInStatus"]
     packageId?: PaymentRow["packageId"]
@@ -54,6 +56,9 @@ export const matchesStripeStatus = (
   filter: "all" | "pending" | "paid"
 ) => {
   if (filter === "all") return true
+  if (row.paymentChannel === "cash") {
+    return filter === "paid" ? row.settlementStatus === "paid" : row.settlementStatus !== "paid"
+  }
   if (filter === "paid") return isPaymentPaidForUi(row)
   return !isPaymentPaidForUi(row)
 }
@@ -151,7 +156,8 @@ export const resolveStudentCardPayments = (
   if (searchMatchedPayments.length === 0) return []
 
   const statusMatchedPayments = searchMatchedPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
-  return statusMatchedPayments.length > 0 ? statusMatchedPayments : searchMatchedPayments
+  if (statusMatchedPayments.length > 0 || options.isHistoryMode) return statusMatchedPayments
+  return searchMatchedPayments
 }
 
 export const buildPaymentsRequestSearchParams = (input: {

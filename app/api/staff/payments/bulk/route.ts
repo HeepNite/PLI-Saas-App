@@ -49,6 +49,11 @@ const isCashPurchase = (input: {
   )
 }
 
+const isSettledCashPurchase = (input: { metadata: Prisma.JsonValue | null }) => {
+  const settlementStatus = asText(asObject(input.metadata).settlementStatus).toLowerCase()
+  return settlementStatus === "paid"
+}
+
 const buildPackageSyncMetadata = (input: {
   purchase: { courseSlug: string | null }
   metadata: Record<string, unknown>
@@ -77,6 +82,7 @@ const resolveAttendanceIdForCashSettlement = async (input: {
   settlementStatus: "paid" | "pending"
   settledAt: string | null
   settlementUpdatedBy: string
+  preserveSettlementMetadata?: boolean
 }) => {
   const existingAttendanceId = asText(input.metadata.attendanceId)
   if (existingAttendanceId) return existingAttendanceId
@@ -128,12 +134,14 @@ const resolveAttendanceIdForCashSettlement = async (input: {
       where: { id: input.purchase.id },
       data: {
         metadata: {
-          ...buildSettlementMetadata({
-            metadata: input.purchase.metadata,
-            settlementStatus: input.settlementStatus,
-            settledAt: input.settledAt,
-            settlementUpdatedBy: input.settlementUpdatedBy,
-          }),
+          ...(input.preserveSettlementMetadata
+            ? input.metadata
+            : buildSettlementMetadata({
+                metadata: input.purchase.metadata,
+                settlementStatus: input.settlementStatus,
+                settledAt: input.settledAt,
+                settlementUpdatedBy: input.settlementUpdatedBy,
+              })),
           attendanceId: attendance.id,
         },
       },
@@ -194,18 +202,34 @@ export async function POST(req: Request) {
     },
   })
 
-  if (purchases.length === 0) {
-    return NextResponse.json({ ok: true, updatedCount: 0 })
-  }
-
   const settlementStatus = action === "mark_paid" ? "paid" : "pending"
   const settledAt = settlementStatus === "paid" ? new Date().toISOString() : null
   const nextCashPurchaseStatus = settlementStatus === "paid" ? "paid" : "pending"
+  const purchasesById = new Map(purchases.map((purchase) => [purchase.id, purchase]))
+  const skipped: Array<{ id: string; reason: "not_found" | "not_cash" | "already_settled" }> = []
+  const retryableSettledPurchases: typeof purchases = []
+  const eligiblePurchases = ids.flatMap((id) => {
+    const purchase = purchasesById.get(id)
+    if (!purchase) {
+      skipped.push({ id, reason: "not_found" })
+      return []
+    }
+    if (!isCashPurchase(purchase)) {
+      skipped.push({ id, reason: "not_cash" })
+      return []
+    }
+    if (action === "mark_paid" && isSettledCashPurchase(purchase)) {
+      skipped.push({ id, reason: "already_settled" })
+      retryableSettledPurchases.push(purchase)
+      return []
+    }
+    return [purchase]
+  })
 
   // When marking as paid, fetch drop-in prices for purchases with amount = 0
   let courseDropInPrices = new Map<string, number>()
   if (action === "mark_paid") {
-    const zeroAmountPurchases = purchases.filter((p) => p.amount === 0 && p.courseSlug)
+    const zeroAmountPurchases = eligiblePurchases.filter((p) => p.amount === 0 && p.courseSlug)
     const courseSlugs = [...new Set(zeroAmountPurchases.map((p) => p.courseSlug).filter(Boolean))] as string[]
     if (courseSlugs.length > 0) {
       const courses = await prisma.courseCatalog.findMany({
@@ -219,7 +243,7 @@ export async function POST(req: Request) {
   }
 
   await prisma.$transaction(
-    purchases.map((purchase) => {
+    eligiblePurchases.map((purchase) => {
       const nextMetadata = buildSettlementMetadata({
         metadata: purchase.metadata,
         settlementStatus,
@@ -247,8 +271,8 @@ export async function POST(req: Request) {
   let syncedPackageCount = 0
   let packageCreditReservedCount = 0
   if (action === "mark_paid") {
-    for (const purchase of purchases) {
-      if (!purchase.userId || !isCashPurchase(purchase)) continue
+    for (const purchase of [...eligiblePurchases, ...retryableSettledPurchases]) {
+      if (!purchase.userId) continue
       const metadata = asObject(purchase.metadata)
       const resolvedAttendanceId = await resolveAttendanceIdForCashSettlement({
         purchase,
@@ -256,6 +280,7 @@ export async function POST(req: Request) {
         settlementStatus,
         settledAt,
         settlementUpdatedBy: authResult.userId,
+        preserveSettlementMetadata: isSettledCashPurchase(purchase),
       })
 
       const packageSyncMetadata = buildPackageSyncMetadata({ purchase, metadata })
@@ -304,7 +329,8 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    updatedCount: purchases.length,
+    updatedCount: eligiblePurchases.length,
+    skipped,
     settlementStatus,
     syncedPackageCount,
     packageCreditReservedCount,

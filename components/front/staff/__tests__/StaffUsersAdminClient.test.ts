@@ -1141,13 +1141,13 @@ describe("resolveStudentCardPayments", () => {
     paymentsFilter: "paid" as const,
   }
 
-  it("falls back to the searched student when status filter would otherwise hide them", () => {
+  it("does not restore a searched History student excluded by the paid filter", () => {
     expect(
       resolveStudentCardPayments([basePayment], {
         ...defaultFilters,
         studentSearchQuery: "jane",
       })
-    ).toEqual([basePayment])
+    ).toEqual([])
   })
 
   it("keeps the status filter when the searched student already matches it", () => {
@@ -1159,6 +1159,18 @@ describe("resolveStudentCardPayments", () => {
         studentSearchQuery: "jane",
       })
     ).toEqual([paidPayment])
+  })
+
+  it("does not restore a searched History student excluded by the pending filter", () => {
+    const paidPayment = { ...basePayment, id: "pay-paid", classPaid: true }
+
+    expect(
+      resolveStudentCardPayments([paidPayment], {
+        ...defaultFilters,
+        paymentsFilter: "pending",
+        studentSearchQuery: "jane",
+      })
+    ).toEqual([])
   })
 
   it("still returns nothing when the search does not match the student", () => {
