@@ -21,6 +21,7 @@ const baseItem = {
   classStartsAt,
   purchase: {
     id: "purchase_123",
+    specialClassId: null,
     packageId: null,
     serviceId: "drop-in",
     courseSlug: "salsa",
@@ -67,6 +68,30 @@ const emptyContext = {
 }
 
 describe("buildStaffPaymentResponseRow", () => {
+  it("classifies a canonically linked SpecialClass purchase without a catalog match", () => {
+    const row = buildStaffPaymentResponseRow({
+      ...baseItem,
+      purchase: { ...baseItem.purchase, specialClassId: "special_class_123" },
+    }, emptyContext)
+
+    expect(row.isSpecialEvent).toBe(true)
+  })
+
+  it("keeps a synthetic attendance-only purchase without SpecialClass linkage non-Special", () => {
+    const row = buildStaffPaymentResponseRow({
+      ...baseItem,
+      purchase: {
+        ...baseItem.purchase,
+        id: "att-attendance_123",
+        amount: 0,
+        status: "none",
+        specialClassId: undefined,
+      },
+    }, emptyContext)
+
+    expect(row.isSpecialEvent).toBe(false)
+  })
+
   it("projects only the semantic special-event classification", () => {
     expect(buildStaffPaymentResponseRow(baseItem, {
       ...emptyContext,

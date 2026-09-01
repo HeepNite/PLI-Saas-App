@@ -25,6 +25,7 @@ type PaymentRowSource = {
   classStartsAt: Date | null
   purchase: {
     id: string
+    specialClassId?: string | null
     packageId: string | null
     serviceId: string | null
     courseSlug: string | null
@@ -216,7 +217,9 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     userId: item.userId,
     courseSlug,
     courseTitle: purchase.courseTitle || courseSlug,
-    isSpecialEvent: courseSlug ? context.isSpecialEventBySlug.get(courseSlug) === true : false,
+    isSpecialEvent:
+      Boolean(purchase.specialClassId) ||
+      (courseSlug ? context.isSpecialEventBySlug.get(courseSlug) === true : false),
     customerName: resolveCanonicalName(
       context.clerkNameByUserId.get(item.userId),
       context.dbNameByUserId.get(item.userId),

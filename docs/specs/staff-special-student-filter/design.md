@@ -4,7 +4,7 @@
 
 1. The auxiliary catalog lookup selects `slug`, existing pricing fields, and `scheduleRules`.
 2. The loader parses each rule set and stores `isSpecialEvent` by slug.
-3. The row builder projects that semantic boolean to the client.
+3. The row builder combines canonical `Purchase.specialClassId` linkage with the catalog boolean and projects only `isSpecialEvent` to the client.
 4. Shared row predicates enforce Today and History filtering.
 
 ## UI state
@@ -15,4 +15,4 @@
 
 ## Verification
 
-Use focused API row/loader and staff filter/hook tests, then relevant suites, typecheck, lint, and diff checks.
+Use a focused row regression proving SpecialClass linkage works without a catalog match while preserving catalog-special and ordinary-row coverage, then relevant suites, typecheck, lint, and diff checks.
