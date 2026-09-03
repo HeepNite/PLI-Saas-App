@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { execSync } from "node:child_process"
+import { cpSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { basename, join, resolve } from "node:path"
 import { PrismaClient } from "@prisma/client"
 import dotenv from "dotenv"
 
@@ -36,15 +39,6 @@ const setupDb = async (provisionCommand: string): Promise<IntegrationDbContext> 
 
   const schema = `it_${Date.now()}_${randomUUID().slice(0, 8)}`
   const databaseUrl = withSchema(baseUrl, schema)
-
-  execSync(provisionCommand, {
-    env: {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-    },
-    stdio: "pipe",
-  })
-
   const prisma = new PrismaClient({
     datasources: {
       db: {
@@ -52,11 +46,10 @@ const setupDb = async (provisionCommand: string): Promise<IntegrationDbContext> 
       },
     },
   })
-
-  await prisma.$connect()
-
   const cleanup = async () => {
-    await prisma.$disconnect()
+    let disconnectError: unknown
+    try { await prisma.$disconnect() } catch (error) { disconnectError = error }
+    if (!/^it_\d+_[0-9a-f]{8}$/.test(schema)) throw new Error("Refusing to drop a non-integration schema.")
     const admin = new PrismaClient({
       datasources: {
         db: {
@@ -70,6 +63,16 @@ const setupDb = async (provisionCommand: string): Promise<IntegrationDbContext> 
     } finally {
       await admin.$disconnect()
     }
+    if (disconnectError) throw disconnectError
+  }
+
+  let ready = false
+  try {
+    execSync(provisionCommand, { env: { ...process.env, DATABASE_URL: databaseUrl }, stdio: "pipe" })
+    await prisma.$connect()
+    ready = true
+  } finally {
+    if (!ready) await cleanup()
   }
 
   return {
@@ -82,3 +85,28 @@ const setupDb = async (provisionCommand: string): Promise<IntegrationDbContext> 
 
 export const setupIntegrationDb = () => setupDb("npx prisma db push --skip-generate")
 export const setupMigratedIntegrationDb = () => setupDb("npx prisma migrate deploy")
+
+export const setupMigrationRehearsalDb = async (latestMigration: string) => {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "pli-prisma-"))
+  const temporaryPrisma = join(temporaryRoot, "prisma")
+  try {
+    cpSync(resolve("prisma"), temporaryPrisma, {
+      recursive: true,
+      filter: (source) => basename(source) !== latestMigration,
+    })
+    const context = await setupDb(`npx prisma migrate deploy --schema "${join(temporaryPrisma, "schema.prisma")}"`)
+    return {
+      ...context,
+      deployLatest: () => execSync("npx prisma migrate deploy", {
+        env: { ...process.env, DATABASE_URL: context.databaseUrl },
+        stdio: "pipe",
+      }),
+      cleanup: async () => {
+        try { await context.cleanup() } finally { rmSync(temporaryRoot, { recursive: true, force: true }) }
+      },
+    }
+  } catch (error) {
+    rmSync(temporaryRoot, { recursive: true, force: true })
+    throw error
+  }
+}

@@ -170,13 +170,42 @@ model CourseCatalog {
   availableTimes       String[]
   scheduleRules        Json?
   active               Boolean  @default(true)
+  specialClassOperationsEnabled Boolean  @default(false)
+  specialClassCapacity          Int?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   mediaAssets          CourseMedia[]
+  specialClassSlots             CourseCatalogSpecialClassSlot[]
+  authoringOperations           CourseCatalogAuthoringOperation[]
 
   @@index([kind])
   @@index([active])
   @@index([defaultRoomId])
+}
+
+model CourseCatalogSpecialClassSlot {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courseCatalogId String
+  courseCatalog   CourseCatalog @relation(fields: [courseCatalogId], references: [id], onDelete: Cascade)
+  startsAt        DateTime
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  specialClass    SpecialClass?
+
+  @@unique([courseCatalogId, startsAt])
+  @@index([courseCatalogId])
+}
+
+model CourseCatalogAuthoringOperation {
+  operationId    String        @id @db.Uuid
+  courseCatalogId String
+  courseCatalog  CourseCatalog @relation(fields: [courseCatalogId], references: [id], onDelete: Cascade)
+  payloadHash    String
+  resultSummary  Json
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([courseCatalogId, createdAt])
 }
 
 model CourseMedia {
@@ -327,6 +356,8 @@ model SpecialClass {
   status         String   @default("draft")
   classSessionId String   @unique
   classSession   ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Restrict)
+  authoringSlotId String?  @unique @db.Uuid
+  authoringSlot   CourseCatalogSpecialClassSlot? @relation(fields: [authoringSlotId], references: [id], onDelete: SetNull)
   title          String
   description    String
   coverImageUrl  String?

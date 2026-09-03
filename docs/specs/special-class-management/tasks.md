@@ -8,6 +8,8 @@ B-01, B-02, and B-03 are resolved. The user explicitly accepted this four-work-u
 
 **Forecast:** 330-390 authored lines. **Risk:** medium. **Start:** existing operational schema, no CourseCatalog link. **Finish:** additive identity and pure policies, no route/UI behavior.
 
+**Status:** Complete. WU1 closed at 389 authored lines after unit, static, and empty/populated disposable-schema migration tests passed on 2026-09-03.
+
 **Dependencies:** Accepted specification and explicit acceptance of this plan; no implementation dependency.
 
 ### TDD order
@@ -143,7 +145,7 @@ Record environment, commands, IDs/counts (not PII), exact results, and rollback 
 
 - [x] Product decisions B-01, B-02, and B-03 recorded in `requirements.md` and `resolve.md`.
 - [x] This implementation plan explicitly accepted.
-- [ ] Empty/populated migration rehearsal and non-destructive rollback evidence recorded.
+- [x] Empty/populated migration rehearsal and non-destructive rollback evidence recorded.
 - [ ] Focused unit/API/PostgreSQL/component tests pass in their owning work units.
 - [ ] Existing checkout, webhook, roster, Salsa, public, attendance, and terminal regressions pass.
 - [ ] Typecheck, lint, Prisma validation, and operational smoke pass with exact results.
