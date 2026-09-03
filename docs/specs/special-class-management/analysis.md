@@ -1,47 +1,64 @@
 # Special Classes Management — Analysis
 
-## Existing reusable contracts
+## Reconciliation result
 
-| Area | Evidence | Reuse decision |
+The repository already has the operational Special Class aggregate. The missing capability is an explicit, stable projection from the existing Course Studio authoring aggregate. Reusing the current standalone definition form would preserve two writers and cannot safely reconcile multiple slots.
+
+## Current evidence
+
+| Contract | Repository evidence | Consequence |
 |---|---|---|
-| Canonical session | `ClassSession` has unique `(courseSlug, startsAt)`, capacity, location, room, and `Attendance[]` | Reuse as the only operational session and capacity owner. |
-| Attendance | `Attendance` is unique on `(userId, sessionId)` | Reuse for paid reservation fulfillment and kiosk check-in. |
-| Payments | `Purchase` already has status, amount, currency, Stripe IDs, idempotency key, metadata, and participant count | Reuse as the reservation/hold record; do not add a payment system. |
-| Capacity precedent | `lib/checkout/special-class-reservation.ts` uses serializable transactions and bounded `P2002`/`P2034` retry | Generalize/revise this policy; replace its Salsa-only time-based `createdAt` hold with explicit three-minute expiry. |
-| Public checkout | `POST /api/checkout/session` already has a special-class discriminator and Stripe integration | Extend through a generic special-class discriminator/identifier while preserving ordinary checkout. |
-| Webhook | `app/api/stripe/webhook/route.ts` owns signed, idempotent fulfillment | Extend its existing special reservation branch; it remains fulfillment authority. |
-| Staff authorization | `authorizeStaffPortalRequest`, `authorizeStaffPortalSectionRequest`, `StaffRole`, `isStaffAdminRole` | Create a section-specific policy with owner/admin write and owner/admin/staff roster scopes. |
-| Staff UI | Existing `/api/staff/*` guarded routes and staff panels | Add one bounded Special Classes section; do not expose it in student/teacher surfaces. |
-| Kiosk | Kiosk selects/checks in `ClassSession` and uses existing attendance uniqueness | No special kiosk flow; ensure the canonical session satisfies selection criteria. |
+| Seven-step authoring | `components/front/staff/school/school-wizard-configs.ts` defines Info, Prices, Media, Schedule, Relations, Preview, Publish; `StaffCourseStudioPanel.tsx` renders those steps. | Extend this wizard; do not add another form. |
+| Course identity | `prisma/schema.prisma:153-180`: `CourseCatalog.id`, unique `slug`, authoring fields, JSON `scheduleRules`, and `active`; no Special Class relation. | Use `id` as source identity and add an explicit child relation. |
+| Operational identity | `prisma/schema.prisma:303-347`: `ClassSession` is unique on `(courseSlug, startsAt)`; `SpecialClass` has unique `slug` and unique required `classSessionId`. | Each authoring slot must map one-to-one to one existing aggregate pair. |
+| Attendance/payment | `Purchase.specialClassId/classSessionId/holdExpiresAt`; `Attendance` unique `(userId, sessionId)`; `SpecialClassAuditLog` has per-class correlation/idempotency uniqueness. | Preserve existing money, capacity, audit, and attendance services. |
+| Slot shape | `CourseScheduleSlot` contains only optional date/weekday and time. `scheduleRules.specialEvents` groups `{date,times}`. `getCourseSlotKey` uses date/time text. | Date/time is mutable presentation data, not durable identity. |
+| Concrete-date parser | `deriveSpecialEventsFromScheduleSlots` persists concrete date/time values. | Reuse normalization but return/store stable slot IDs separately. |
+| Expansion gotcha | `lib/course-schedule-blocks.ts:64-138` ignores `specialEvents`; without weekly rules it may use `availableWeekdays/availableTimes` fallback for up to 90 days. | Never use it to materialize Special Classes; parse concrete events directly. |
+| Kind coupling | `SPECIAL_EVENT_COURSE_KINDS` and `useStaffCoursesAdmin` derive special-event UI from kind. | Operations must be driven by the explicit switch, not kind. |
+| Save contract | `useStaffCoursesCRUD.saveCourseCatalog` POSTs the full form; the route performs a slug-keyed `courseCatalog.upsert` without a transaction. | Add ID-based, idempotent synchronization and keep the existing route surface. |
+| Partial-write hazard | `toggleCourseActive` POSTs only slug/title/kind/active, while the route normalizes missing fields and overwrites the row. | The authoring change must use explicit commands/patch semantics, not reuse full-replacement parsing for partial actions. |
+| Publication gap | `publish_now`, `coming_soon`, and `launch_date` appear only in route normalization and staff preview/form code. | Keep projections draft until explicit Publish; add no scheduler. |
+| Duplicate writer | `StaffSpecialClassesPanel` POSTs create payloads and PATCHes definition fields alongside lifecycle/roster actions. | Remove definition creation/editing while retaining operational controls. |
+| Authorization | Course writes use broad `authorizeStaffPortalRequest`; Special Class definitions use `authorizeSpecialClassDefinitionRequest` (owner/admin), roster uses the narrower operational policy. | Any enabled or already-linked authoring mutation must require the definition policy. |
+| Locking | `runSpecialClassSerializableTransaction` retries three times; `lockSpecialClassBoundary` locks ClassSession then SpecialClass. | Synchronization must compose with this order and never update operational rows outside it. |
 
-## Current gaps and conflicts
+## Selected data direction
 
-1. The implemented Salsa flow is fixed in `SPECIAL_SALSA_CLASS`, uses a 30-minute hold, and derives availability from `Purchase.courseSlug`; it cannot manage arbitrary staff-created special classes.
-2. `ClassSession` has no direct relationship to a special-class definition. A safe reusable module needs an explicit one-to-one link rather than inferred metadata or duplicated capacity.
-3. `Purchase` has no explicit `sessionId` or `holdExpiresAt`. Encoding expiry in JSON metadata and `createdAt` is insufficient for precise three-minute holds, indexed cleanup, auditability, or reusable capacity queries.
-4. Existing attendance supports the canonical roster/check-in relation but does not express reservation/payment lifecycle independently. `Purchase` remains the correct source for that lifecycle.
-5. Existing staff roles are `owner`, `admin`, and `staff`; product language maps front desk to `staff`. Teachers/students are not staff roles and must be denied by server authorization.
+Add a `CourseCatalogSpecialClassSlot` child row with a database-generated ID, `courseCatalogId`, and canonical `startsAt`. Link `SpecialClass.authoringSlotId` as nullable and unique. Add `@@unique([courseCatalogId, startsAt])` to reject duplicate concrete slots. This is smaller and safer than embedding UUID strings in JSON or matching by slug/date.
 
-## Constraints
+`scheduleRules.specialEvents` remains the existing calendar serialization. For operations-enabled courses, the child rows are the identity authority and API responses hydrate slot IDs for later edits. The CourseCatalog aggregate therefore remains the authoring source without making mutable JSON the relational key.
 
-- The existing special Salsa path is already operational. Its active purchases/session/attendances must be preserved and brought under the generic module without capacity duplication.
-- A paid historical Salsa purchase may have no explicit special-class record or `holdExpiresAt`; migration/backfill must be deterministic and idempotent.
-- Stripe network calls must remain outside the serializable database transaction. The transaction admits/reuses the hold; Stripe creation then uses the same idempotency key; failures transition the hold safely.
-- Public endpoints must not leak attendee contact information, internal IDs, or account existence.
+Add additive CourseCatalog fields for `specialClassOperationsEnabled` (default false) and nullable shared capacity. Add a small authoring-operation receipt keyed by operation UUID and payload hash so a lost-response retry is distinguishable from a conflicting reuse.
 
-## Risks and mitigations
+## Projection ownership
 
-| Risk | Mitigation |
+- Course Studio owns shared definition copy/media and concrete authoring slots.
+- A draft generated projection may continue following shared defaults.
+- Published/closed/cancelled Special Classes own operational price, capacity, lifecycle, purchases, attendance, and audit history independently.
+- Existing public checkout, webhook fulfillment, read model, roster mutations, and kiosk queries remain consumers of `SpecialClass`/`ClassSession`; they do not read CourseCatalog authoring JSON.
+
+## Risks and controls
+
+| Risk | Control |
 |---|---|
-| Overselling under concurrent checkout | Serializable admission, bounded retry, active-hold expiry predicate, real PostgreSQL concurrency test. |
-| Capacity disagreement between web and kiosk | One `ClassSession`, session-linked purchases, and derived summary queries only. |
-| Webhook retries duplicate attendance | Existing Stripe-event idempotency plus `Attendance(userId, sessionId)` uniqueness. |
-| Delayed expiry job holds spots too long | Admission/read path expires stale holds synchronously; scheduled cleanup is only a timely optimization. |
-| Staff data exposure | Section-specific server authorization and roster response minimization. |
-| Salsa migration alters historical money/attendance | Backfill only additive links/metadata; never recalculate amount, status, or attendance. |
+| Duplicate projections after retry | Database slot ID, one-to-one relation, composite uniqueness, operation receipt, serializable retry. |
+| Recurring explosion from one event | Dedicated concrete-event parser; no weekly fallback or 90-day expander. |
+| Lost operational overrides | Shared drop-in price/capacity synchronize only while projections are draft; published values change through operations. First-class/discount fields remain CourseCatalog-only. |
+| Silent history corruption | Reject move/removal/disable when any affected session has a hold, purchase, or attendance; require explicit operational closure/cancellation. |
+| Partial course data loss | ID-based command parsing with full save versus narrow active-toggle contracts. |
+| Unauthorized materialization | Existing owner/admin Special Class definition authorizer on enabled/linked mutations. |
+| Partial fan-out | One serializable transaction for CourseCatalog, slots, projections, and audit; no external calls. |
+| Legacy accidental adoption | Default false/null and no heuristic backfill. |
 
-## Recommended model direction
+## Migration/backfill conclusion
 
-Introduce a generic `SpecialClass` aggregate that owns public/commercial/lifecycle metadata and references one `ClassSession`. Link reservation purchases to the same special class and session, with an indexed explicit hold expiry. Keep `ClassSession.capacity` authoritative and keep `Attendance` unchanged as the attendance/check-in record.
+This change needs an additive migration, not an inferred data backfill. Existing courses remain disabled; existing standalone Special Classes remain unlinked. Any future adoption tool must be separately approved, dry-run first, and reject anything other than an explicit operator-selected one-to-one relationship.
 
-This is a required schema evolution, not a new payment system.
+## Resolved product policy
+
+- B-01 selects the drop-in price only; first-class/discount values are never projected in this delivery.
+- B-02 rejects moving/removing committed slots and disabling operations when any affected session has a hold, purchase, or attendance.
+- B-03 keeps generated sessions draft until explicit manual Publish; delayed CourseCatalog metadata does not schedule operational publication.
+
+No product ambiguity remains for this delivery. Implementation awaits explicit acceptance of `tasks.md`.
