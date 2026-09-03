@@ -2,105 +2,125 @@
 
 ## Resolution status
 
-`RESOLVED — READY FOR IMPLEMENTATION PLAN EXECUTION`
+`RESOLVED — IMPLEMENTATION PLAN ACCEPTED; WU1 AUTHORIZED`
 
-## Decisions
+## Resolved decisions
 
-### D-01 — Aggregate and canonical identity
+### D-01 — One authoring surface
 
-Add a `SpecialClass` record with a required, unique `classSessionId` relation to `ClassSession`. It owns lifecycle, public copy/media, checkout configuration, and sales controls. `ClassSession` remains the sole owner of start, duration, room/location, and capacity.
+The existing Course Studio is the only definition writer. Its seven steps and visual language remain. `StaffSpecialClassesPanel` becomes operational: list/detail, lifecycle, roster, payments, capacity, attendance, audit, and navigation back to Course Studio.
 
-`Purchase` receives nullable `specialClassId`, nullable `classSessionId`, and nullable `holdExpiresAt` fields. The two IDs are written from the resolved `SpecialClass`, must agree with its canonical session, and are indexed for capacity/roster queries. `Purchase.participants` is fixed to `1` for this module.
+### D-02 — Explicit activation
 
-### D-02 — Lifecycle states
+Add `CourseCatalog.specialClassOperationsEnabled Boolean @default(false)`. The switch, never `kind`, controls projection behavior. Enabling it requires concrete future slots, positive shared capacity, valid shared price, description, duration, location/room validity, and publishable media/state.
 
-- `SpecialClass.status`: `draft | published | closed | cancelled`.
-- Reservation `Purchase.status` continues using existing terminal/payment vocabulary. Module-specific reservation state is derived from status plus `holdExpiresAt`; no second reservation table is introduced.
-- Attendance continues using its current status model. A paid reservation creates/reuses one scheduled/check-in-capable attendance according to existing booking conventions.
+### D-03 — Stable slot identity
 
-### D-03 — Capacity formula and holds
-
-At one captured transaction timestamp, a special class is full when:
+Add `CourseCatalogSpecialClassSlot`:
 
 ```text
-count(Purchase where specialClassId = X and
-  (status is durable-paid OR (status = pending AND holdExpiresAt > now)))
->= ClassSession.capacity
+id                  String   primary key, database generated
+courseCatalogId     String   required FK -> CourseCatalog(id)
+startsAt            DateTime required canonical school-timezone instant
+createdAt/updatedAt DateTime
+unique(courseCatalogId, startsAt)
 ```
 
-The hold expires exactly three minutes after successful admission. `holdExpiresAt`, rather than `createdAt`, decides whether it counts. Expiring a hold is an idempotent conditional transition from `pending` to `expired`; reads/admissions must exclude it even if asynchronous cleanup is late.
+Add nullable unique `SpecialClass.authoringSlotId` referencing that row. `CourseCatalog` owns the child collection. Legacy standalone Special Classes keep `authoringSlotId = null`.
 
-### D-04 — Atomic admission and Stripe recovery
+Mutable title/slug/date/time values are never identity. `scheduleRules.specialEvents` remains a compatibility/calendar view; the relational slot ID is authoritative for synchronization.
 
-The reservation service performs identity resolution before admission, then a bounded-retry serializable transaction that:
+### D-04 — Source and projection identity
 
-1. loads the published, future, non-cancelled special class and canonical session;
-2. expires the caller's stale same-attempt hold if present;
-3. recovers a valid same-attempt hold or rejects a duplicate attendee reservation;
-4. expires stale holds relevant to the capacity query;
-5. counts the formula in D-03 and creates one pending `Purchase` with an immutable expiry and idempotency key;
-6. commits before Stripe is called.
+- `CourseCatalog.id` identifies create-versus-update after the first save.
+- `CourseCatalogSpecialClassSlot.id` identifies add/move/remove intent.
+- `SpecialClass.id` and `ClassSession.id` remain operational identity.
+- Existing uniqueness on session, public slug, one-to-one session, purchases, and attendance remains.
+- Existing CourseCatalog slug edits are rejected once projections exist unless a later accepted change defines an atomic slug-rewrite contract. Public Special Class slugs remain stable either way.
 
-Stripe Session creation/recovery uses that purchase's idempotency key and persisted amount/currency. The special-class branch uses manual capture and eligible card methods only. The internal three-minute `holdExpiresAt` is never passed as Stripe Checkout `expires_at`; Stripe expiry is omitted or independently valid under Stripe's limits. A Stripe failure marks only the still-pending hold failed.
+### D-05 — Public slugs
 
-When Stripe reports that the PaymentIntent authorization is capturable, fulfillment uses a bounded-retry serializable transaction to lock/reload the linked Purchase, SpecialClass, and canonical ClassSession. It validates the immutable Purchase amount/currency and participant/session links. An unexpired original hold is admitted; an expired hold is re-admitted only when the D-03 occupancy formula remains below capacity. Successful admission creates/reuses canonical Attendance and records an admission audit before the PaymentIntent is captured exactly once.
+On first materialization, generate a valid slug from a bounded CourseCatalog slug prefix plus the full stable slot-row ID. Persist it once. Do not regenerate it when title, CourseCatalog slug, date, or time changes. Collision is a transaction conflict, never a date-based lookup or silent suffix retry.
 
-If capacity is unavailable, fulfillment creates no Attendance, persists terminal `no_capacity` state and audit, and cancels the PaymentIntent authorization. Capture/cancel/user-resolution failures are transient: the event claim remains incomplete so Stripe can retry. The claim becomes complete only after either admitted attendance plus successful capture or durable no-capacity state plus successful authorization cancellation. Authorization alone never counts as paid or occupied capacity.
+Legacy Salsa retains its current slug and behavior.
 
-### D-05 — API contracts
+### D-06 — Shared defaults and mapping
 
-Reuse the existing checkout endpoint with an additive request:
+- Existing drop-in USD price is the shared initial `SpecialClass.priceCents` for every generated slot. First-class and discount fields remain CourseCatalog-only with no precedence or expiry behavior in this delivery.
+- Add nullable `CourseCatalog.specialClassCapacity`; show it in Schedule only when operations are enabled.
+- New projections receive shared price/capacity. Existing draft projections may track shared changes. Published or terminal sessions keep independent operational values; later changes use existing Special Class operations.
+- Map title and description to SpecialClass; title, slot instant, duration, location, default room, and capacity to ClassSession; cover image and price/currency to SpecialClass.
+- Do not project kind, category, level, preview video, recurrence, Relations-step links, first-class price, or discounts without an accepted requirement.
 
-```json
-{ "checkoutKind": "special-class", "specialClassSlug": "<public-slug>", "attemptId": "<UUID>", "name": "...", "phone": "...", "email": "..." }
-```
+### D-07 — Draft and publish synchronization
 
-The server resolves class, price, currency, session, capacity, and expiry. It rejects/ignores all browser-supplied overrides.
+The Publish step exposes commands in the existing button language, not a new wizard:
 
-Add staff-only routes under `/api/staff/special-classes`:
+- **Save draft:** save CourseCatalog plus stable slots and create/update only draft projections. Draft projections are not public, reservable, or kiosk-visible.
+- **Publish:** validate the complete aggregate, synchronize, and transition every eligible draft projection to published in the same transaction.
 
-| Contract | Authorization | Purpose |
+Published/closed/cancelled sessions are not silently reverted to draft by later CourseCatalog saves. All generated sessions remain draft until explicit Publish. Coming-soon/launch-date values remain CourseCatalog metadata and never auto-publish operational sessions; no scheduler is added.
+
+### D-08 — Idempotency and retry
+
+Add a compact authoring-operation receipt with globally unique operation UUID, CourseCatalog relation, normalized payload hash, result summary, and timestamps.
+
+1. Client creates one UUID per Save Draft/Publish intent and reuses it only when retrying that intent.
+2. Server normalizes and hashes the complete command.
+3. Existing UUID + same hash returns the stored result without writing or auditing again.
+4. Existing UUID + different hash returns `409 IDEMPOTENCY_KEY_REUSED`.
+5. A new command runs in `Serializable` isolation with the existing maximum three attempts for `P2002`, `P2034`, or SQL `40001`.
+6. Retry exhaustion returns `409 AUTHORING_CONFLICT`; unexpected errors return the existing redacted `500` shape.
+
+### D-09 — Synchronization algorithm
+
+Within one transaction:
+
+1. lock or create CourseCatalog by stable ID/operation receipt;
+2. lock its authoring slots in stable-ID order;
+3. normalize concrete date/time entries directly in the school timezone;
+4. create new slot rows; update existing rows by ID; reject move/removal/disable when any affected session has a hold, purchase, or attendance;
+5. for each affected row in ID order, lock ClassSession then SpecialClass through the existing boundary;
+6. validate room collision, lifecycle, capacity, and committed-history constraints;
+7. create/update the canonical pairs and one audit entry per changed projection;
+8. persist CourseCatalog, compatibility `scheduleRules`, receipt result, and commit.
+
+No Stripe/network call occurs in this transaction. Any failure rolls back the complete authoring command.
+
+### D-10 — Slot edits
+
+- Add creates one slot and one aggregate pair.
+- An uncommitted move updates `startsAt` on the same slot and ClassSession, preserving all IDs and public slug.
+- Explicit removal/disable is allowed only when every affected generated session has no hold, purchase, or attendance; it executes atomically and is recorded in the authoring operation receipt/audit outcome.
+- Duplicate starts, occupied room conflicts, past publish times, stale source revision, and lifecycle conflicts return observable `409`/`422` errors.
+- Any hold, purchase, or attendance blocks slot move/removal and disabling operations. Closure/cancellation must be explicit through operations; there is no silent delete, cancel, detach, or rebind.
+
+### D-11 — Authorization and audit
+
+Any request that enables operations or edits an already-linked course uses `authorizeSpecialClassDefinitionRequest` (owner/admin) plus existing rate limiting. Operational reads/actions retain `authorizeSpecialClassRosterRequest`.
+
+Use the established lock order: CourseCatalog, authoring slots by ID, canonical ClassSession/SpecialClass boundaries by slot ID, then Attendance and Purchase rows when needed. Every changed projection records actor, role, source/slot/session identifiers, before/after state, operation UUID, and correlation ID without PII or payment secrets.
+
+### D-12 — Duplicate-writer deprecation
+
+- Remove the panel create form and definition fields.
+- Linked rows expose **Open in School Builder**.
+- Initial publish for linked drafts occurs in Course Studio; operational close/cancel and permitted per-session price/capacity actions remain in the operations panel.
+- Standalone legacy rows remain readable and operational, labelled as standalone, with no inferred authoring link.
+- Deprecate browser use of `POST /api/staff/special-classes`; do not remove legacy/backfill data paths until caller evidence proves they are unused.
+
+### D-13 — Migration and rollback
+
+Migration is additive: default operations false, nullable capacity/relation, new slot/receipt tables and indexes. It performs no title/slug/date heuristic matching and changes no existing Salsa or standalone records.
+
+Application rollback disables new synchronization and authoring controls but retains rows, links, receipts, audits, purchases, sessions, and attendance. Once populated, the additive schema is not dropped as an operational rollback. Existing webhook fulfillment remains enabled until open payment states are terminal.
+
+## Resolved product decisions
+
+| ID | Decision | Delivery consequence |
 |---|---|---|
-| `GET /api/staff/special-classes` | owner/admin/staff | Paginated operational list and derived summaries. |
-| `POST /api/staff/special-classes` | owner/admin | Create draft plus canonical session. |
-| `GET/PATCH /api/staff/special-classes/:id` | GET owner/admin/staff; PATCH owner/admin | Detail and allowed lifecycle/definition changes. |
-| `GET /api/staff/special-classes/:id/roster` | owner/admin/staff | Minimal authorized roster. |
-| `POST /api/staff/special-classes/:id/roster/:attendanceId/actions` | owner/admin/staff | Supported attendance/check-in/cancellation action, idempotency key, reason when required. |
+| B-01 | Base price only | Project drop-in price; keep first-class/discount fields CourseCatalog-only. |
+| B-02 | Reject mutation after commitments | Any hold, purchase, or attendance blocks move/removal/disable; closure/cancellation stays operational. |
+| B-03 | Draft only/manual publish | Only explicit Publish transitions generated sessions; no scheduler. |
 
-All routes use existing staff guards, validation, response/error conventions, rate limiting, and audit pattern. Public queries return presentation/availability only and never roster data.
-
-Published capacity changes use the same serializable locking boundary as checkout admission. A change cannot commit below active paid occupancy plus unexpired holds. Cancelled classes are excluded from kiosk selection and reject roster check-in.
-
-### D-06 — Staff and kiosk UI boundaries
-
-The staff panel gets a Special Classes navigation entry and bounded list/detail/roster screens. It uses the staff API only. The public site gets generic published-special-class pages that call existing checkout. Kiosk receives no special module UI: it sees the canonical `ClassSession` through normal selection and check-in surfaces.
-
-### D-07 — Audit and observability
-
-Create a dedicated `SpecialClassAuditLog` or extend the repository's equivalent audit storage with: special class/session/purchase/attendance reference, action, actor Clerk ID/role, prior/next state snapshots, reason, correlation ID, and timestamp. Never log contact values, Stripe secrets, or raw webhook bodies.
-
-Emit structured, redacted events/counters for admission outcome, hold expiry/release, payment fulfillment, capacity conflict, roster mutation, and authorization denial. Alerting thresholds are operational configuration, not a product behavior change.
-
-### D-08 — Migration and backfill
-
-1. Add nullable relations/expiry and the new `SpecialClass`/audit model in a backward-compatible migration.
-2. Create the Salsa `SpecialClass` linked to its existing canonical `(courseSlug, startsAt)` session. If no session exists, create it once with the existing Salsa values.
-3. Backfill identifiable Salsa purchases with the special class/session relation only when existing links are absent or already match. Any conflicting class/session binding aborts reconciliation; the backfill never silently rebinds records. Preserve amount, status, Stripe IDs, timestamps, and metadata; assign no new hold to historical/paid purchases.
-4. Validate paid count, active occupancy, existing attendance/session identity, and canonical session capacity before enabling generic writes. A mismatch is a reported conflict, not a repair guess.
-5. Only after validation, require the new links for all newly created special-class purchases in application logic.
-
-The backfill is dry-run capable, idempotent, chunked, and records reconciliation output without PII.
-
-### D-09 — Rollback
-
-Each work unit is deployable independently. Roll back by disabling new special-class creation/publication and the `checkoutKind: special-class` branch while retaining webhook fulfillment and existing records until all open Stripe sessions/holds are terminal. Never delete paid purchases, canonical sessions, attendances, or audit records as rollback.
-
-## Non-decisions intentionally deferred
-
-- Refund eligibility and automatic refund execution.
-- Waitlist behavior.
-- Multi-attendee reservations.
-- Package-credit eligibility for special classes.
-- Teacher access to roster data.
-
-These are explicit non-goals, not blockers for the specified first delivery.
+Product policy is complete. The user explicitly accepted `tasks.md`; WU1 implementation is authorized.
