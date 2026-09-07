@@ -3,6 +3,8 @@ import { QrDecisionController } from "./checkin/qr-decision.controller"
 import { TodayClassesController } from "./checkin/today-classes.controller"
 import { HealthController } from "./health/health.controller"
 import { ConnectionTokenController } from "./terminal/connection-token.controller"
+import { NativeConnectionTokenController } from "./terminal/native-connection-token.controller"
+import { NativeReaderAuthorizationError } from "./terminal/native-reader-auth.service"
 import { PaymentIntentsController } from "./terminal/payment-intents.controller"
 import { INTERNAL_AUTH_HEADER } from "@/lib/nest-gateway/auth"
 import type { CheckinQrDecisionGatewayRequest } from "@/lib/nest-gateway/contracts/checkin-qr-decision"
@@ -29,6 +31,7 @@ export type BackendRequestHandler = (request: Request) => Promise<Response>
 type BackendControllers = {
   connectionTokenController?: Pick<ConnectionTokenController, "post">
   healthController?: Pick<HealthController, "getHealth">
+  nativeConnectionTokenController?: Pick<NativeConnectionTokenController, "post">
   paymentIntentsController?: Pick<PaymentIntentsController, "post">
   qrDecisionController?: Pick<QrDecisionController, "getQrDecision">
   todayClassesController?: Pick<TodayClassesController, "getTodayClasses">
@@ -38,6 +41,7 @@ export const createBackendRequestHandler = (
   {
     connectionTokenController = new ConnectionTokenController(),
     healthController = new HealthController(),
+    nativeConnectionTokenController = new NativeConnectionTokenController(),
     paymentIntentsController = new PaymentIntentsController(),
     qrDecisionController = new QrDecisionController(),
     todayClassesController = new TodayClassesController(),
@@ -88,6 +92,20 @@ export const createBackendRequestHandler = (
       }
 
       return Response.json(await connectionTokenController.post(connectionTokenRequest), { status: OK_STATUS })
+    }
+
+    if (request.method === "POST" && pathname === "/terminal/native/connection-token") {
+      try {
+        return Response.json(await nativeConnectionTokenController.post(request), { status: OK_STATUS })
+      } catch (error) {
+        if (error instanceof NativeReaderAuthorizationError) {
+          const headers = error.retryAfterSec
+            ? { "Retry-After": String(error.retryAfterSec) }
+            : undefined
+          return Response.json({ error: error.message }, { status: error.status, headers })
+        }
+        throw error
+      }
     }
 
     if (request.method === "POST" && pathname === "/internal/terminal/payment-intents") {
