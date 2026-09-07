@@ -34,7 +34,7 @@ type BackendControllers = {
   connectionTokenController?: Pick<ConnectionTokenController, "post">
   healthController?: Pick<HealthController, "getHealth">
   nativeConnectionTokenController?: Pick<NativeConnectionTokenController, "post">
-  nativePaymentJobsController?: Pick<NativePaymentJobsController, "post">
+  nativePaymentJobsController?: Pick<NativePaymentJobsController, "get" | "observe" | "post" | "retry">
   paymentIntentsController?: Pick<PaymentIntentsController, "post">
   qrDecisionController?: Pick<QrDecisionController, "getQrDecision">
   todayClassesController?: Pick<TodayClassesController, "getTodayClasses">
@@ -115,6 +115,33 @@ export const createBackendRequestHandler = (
     if (request.method === "POST" && pathname === "/terminal/native/jobs") {
       try {
         return Response.json(await nativePaymentJobsController.post(request), { status: OK_STATUS })
+      } catch (error) {
+        if (error instanceof NativeReaderAuthorizationError) {
+          const headers = error.retryAfterSec ? { "Retry-After": String(error.retryAfterSec) } : undefined
+          return Response.json({ error: error.message }, { status: error.status, headers })
+        }
+        if (error instanceof NativePaymentJobCreationError) {
+          return Response.json({ error: error.message }, { status: error.status })
+        }
+        throw error
+      }
+    }
+
+    const nativeJobRoute = pathname.match(/^\/terminal\/native\/jobs\/([^/]+)(?:\/(retry|observations))?$/)
+    const nativeJobAction = nativeJobRoute?.[2]
+    const isNativeJobRequest = Boolean(nativeJobRoute) && (
+      (request.method === "GET" && !nativeJobAction) ||
+      (request.method === "POST" && (nativeJobAction === "retry" || nativeJobAction === "observations"))
+    )
+    if (nativeJobRoute && isNativeJobRequest) {
+      try {
+        const jobId = nativeJobRoute[1]
+        const result = !nativeJobAction
+          ? await nativePaymentJobsController.get(request, jobId)
+          : nativeJobAction === "retry"
+            ? await nativePaymentJobsController.retry(request, jobId)
+            : await nativePaymentJobsController.observe(request, jobId)
+        return Response.json(result, { status: OK_STATUS })
       } catch (error) {
         if (error instanceof NativeReaderAuthorizationError) {
           const headers = error.retryAfterSec ? { "Retry-After": String(error.retryAfterSec) } : undefined
