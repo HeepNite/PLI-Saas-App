@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
-import { authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
+import { authorizeSpecialClassDefinitionRequest, authorizeStaffPortalRequest } from "@/lib/security/staff-portal-auth"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { prisma } from "@/lib/prisma"
 import { expandCourseScheduleSlots } from "@/lib/course-schedule-blocks"
 import { doUtcIntervalsOverlapWithBuffer } from "@/lib/class-schedule"
 import { findAvailableRoomsForSlot } from "@/lib/room-availability"
+import { SpecialClassAuthoringError, synchronizeSpecialClassAuthoring } from "@/lib/special-classes/authoring-sync"
 
 export const runtime = "nodejs"
 
@@ -14,6 +15,7 @@ const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const LEGACY_COURSE_MEDIA_PREFIX = "/uploads/course-media/"
+const AUTHORING_FORM_FIELDS = ["slug", "title", "kind", "category", "description", "coverImageUrl", "previewVideoUrl", "dropInPriceCents", "firstClassPriceCents", "level", "durationMinutes", "location", "defaultRoomId", "availableWeekdays", "availableTimes", "scheduleRules", "active", "specialClassOperationsEnabled", "specialClassCapacity"]
 
 type CourseScheduleRuleEntry = {
   weekday: number
@@ -245,6 +247,43 @@ export async function POST(req: Request) {
   }
 
   const body = payload as Record<string, unknown>
+  if (body.command === "set_active") {
+    const courseCatalogId = typeof body.courseCatalogId === "string" ? body.courseCatalogId : ""
+    const expectedUpdatedAt = typeof body.expectedUpdatedAt === "string" ? new Date(body.expectedUpdatedAt) : null
+    if (!courseCatalogId || !expectedUpdatedAt || Number.isNaN(expectedUpdatedAt.getTime()) || typeof body.active !== "boolean") {
+      return NextResponse.json({ error: "Invalid set_active command." }, { status: 400 })
+    }
+    try {
+      const [linked] = await prisma.courseCatalog.findMany({ where: { id: courseCatalogId, specialClassSlots: { some: {} } }, select: { id: true }, take: 1 })
+      if (linked) {
+        const auth = await authorizeSpecialClassDefinitionRequest()
+        if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+      }
+      const updated = await prisma.courseCatalog.updateMany({ where: { id: courseCatalogId, updatedAt: expectedUpdatedAt }, data: { active: body.active } })
+      if (updated.count !== 1) return NextResponse.json({ error: "AUTHORING_CONFLICT", code: "AUTHORING_CONFLICT" }, { status: 409 })
+      const item = await prisma.courseCatalog.findUnique({ where: { id: courseCatalogId } })
+      return NextResponse.json({ ok: true, item, message: `Course ${body.active ? "activated" : "deactivated"}.` })
+    } catch (error) { return prismaRouteError(error, "Unable to update course status.") }
+  }
+  const bodyFields = Object.keys(body)
+  if (bodyFields.includes("active") && bodyFields.every((field) => ["slug", "title", "kind", "active"].includes(field))) {
+    return NextResponse.json({ error: "Use the explicit set_active command." }, { status: 400 })
+  }
+  const authoringCommand = body.authoringCommand && typeof body.authoringCommand === "object"
+    ? body.authoringCommand as Record<string, unknown>
+    : null
+  const hasAuthoringFields = Object.prototype.hasOwnProperty.call(body, "specialClassOperationsEnabled") || Object.prototype.hasOwnProperty.call(body, "specialClassCapacity")
+  let definitionAuth: Awaited<ReturnType<typeof authorizeSpecialClassDefinitionRequest>> | null = null
+  if (authoringCommand || hasAuthoringFields) {
+    definitionAuth = await authorizeSpecialClassDefinitionRequest()
+    if (!definitionAuth.ok) return NextResponse.json({ error: definitionAuth.error }, { status: definitionAuth.status })
+    if (!authoringCommand) return NextResponse.json({ error: "Use a complete explicit authoring command." }, { status: 400 })
+    const completeForm = AUTHORING_FORM_FIELDS.every((field) => Object.prototype.hasOwnProperty.call(body, field))
+    const validIntent = authoringCommand.intent === "save_draft" || authoringCommand.intent === "publish"
+    if (!completeForm || !validIntent || typeof authoringCommand.operationId !== "string" || !UUID_REGEX.test(authoringCommand.operationId) || !Array.isArray(authoringCommand.concreteSlots)) {
+      return NextResponse.json({ error: "Invalid or incomplete authoring command." }, { status: 400 })
+    }
+  }
   const slug = toSlug(body.slug, 80)
   const title = toSafeText(body.title, 120)
   const kindRaw = toSafeText(body.kind, 30).toLowerCase()
@@ -269,12 +308,24 @@ export async function POST(req: Request) {
     ? (scheduleRules as Prisma.InputJsonValue)
     : Prisma.JsonNull
   const active = typeof body.active === "boolean" ? body.active : true
+  const hasSpecialClassOperationsEnabled = Object.prototype.hasOwnProperty.call(body, "specialClassOperationsEnabled")
+  const hasSpecialClassCapacity = Object.prototype.hasOwnProperty.call(body, "specialClassCapacity")
+  const specialClassOperationsEnabled = body.specialClassOperationsEnabled === true
+  const specialClassCapacity = toOptionalInt(body.specialClassCapacity, 1, 10_000)
 
   if (!slug || slug.length < 3) {
     return NextResponse.json({ error: "Slug is required (min 3 chars)." }, { status: 400 })
   }
   if (!title) {
     return NextResponse.json({ error: "Title is required." }, { status: 400 })
+  }
+  if (!authoringCommand) {
+    const [linked] = await prisma.courseCatalog.findMany({ where: { slug, specialClassSlots: { some: {} } }, select: { id: true }, take: 1 })
+    if (linked) {
+      const auth = await authorizeSpecialClassDefinitionRequest()
+      if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: "Use a complete explicit authoring command." }, { status: 400 })
+    }
   }
   if (coverImageUrl?.startsWith("blob:")) {
     return NextResponse.json({ error: "Invalid cover image URL. Upload the image before saving." }, { status: 400 })
@@ -305,6 +356,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Default room not found or inactive." }, { status: 404 })
     }
 
+    if (!authoringCommand) {
     // --- Schedule conflict check for room assignment ---
     const BUFFER_MINUTES = 15
     const windowStart = new Date()
@@ -387,6 +439,30 @@ export async function POST(req: Request) {
       }
     }
     // --- End schedule conflict check ---
+    }
+  }
+
+  if (authoringCommand && definitionAuth?.ok) {
+    const concreteSlots = authoringCommand.concreteSlots as Array<Record<string, unknown>>
+    if (concreteSlots.some((slot) => !slot || typeof slot !== "object" || typeof slot.date !== "string" || typeof slot.time !== "string" || (slot.id !== undefined && typeof slot.id !== "string"))) {
+      return NextResponse.json({ error: "Invalid concrete slots." }, { status: 400 })
+    }
+    try {
+      const result = await synchronizeSpecialClassAuthoring(prisma, {
+        operationId: authoringCommand.operationId as string,
+        intent: authoringCommand.intent as "save_draft" | "publish",
+        ...(typeof authoringCommand.courseCatalogId === "string" ? { courseCatalogId: authoringCommand.courseCatalogId } : {}),
+        ...(typeof authoringCommand.expectedUpdatedAt === "string" ? { expectedUpdatedAt: authoringCommand.expectedUpdatedAt } : {}),
+        course: { slug, title, kind, category, description, coverImageUrl, previewVideoUrl, dropInPriceCents, firstClassPriceCents, level, durationMinutes, location, defaultRoomId: defaultRoomIdResult.value ?? null, availableWeekdays, availableTimes, scheduleRules, active, specialClassOperationsEnabled, specialClassCapacity },
+        concreteSlots: concreteSlots.map(({ id, date, time }) => ({ ...(typeof id === "string" ? { id } : {}), date: date as string, time: time as string })),
+        actorClerkUserId: definitionAuth.userId,
+        actorRole: definitionAuth.role,
+      })
+      return NextResponse.json({ ok: true, ...result, message: authoringCommand.intent === "publish" ? "Course published." : "Course draft saved." })
+    } catch (error) {
+      if (error instanceof SpecialClassAuthoringError) return NextResponse.json({ error: error.code, code: error.code }, { status: error.status })
+      return prismaRouteError(error, "Unable to save course.")
+    }
   }
 
   const createData = {
@@ -407,6 +483,8 @@ export async function POST(req: Request) {
     availableTimes,
     scheduleRules: scheduleRulesInput,
     active,
+    ...(hasSpecialClassOperationsEnabled ? { specialClassOperationsEnabled } : {}),
+    ...(hasSpecialClassCapacity ? { specialClassCapacity } : {}),
   } as Prisma.CourseCatalogUncheckedCreateInput
 
   const updateData = {
@@ -426,6 +504,8 @@ export async function POST(req: Request) {
     availableTimes,
     scheduleRules: scheduleRulesInput,
     active,
+    ...(hasSpecialClassOperationsEnabled ? { specialClassOperationsEnabled } : {}),
+    ...(hasSpecialClassCapacity ? { specialClassCapacity } : {}),
   } as Prisma.CourseCatalogUncheckedUpdateInput
 
   try {
