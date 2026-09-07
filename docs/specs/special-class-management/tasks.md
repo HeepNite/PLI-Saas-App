@@ -74,6 +74,14 @@ WU3 remains blocked until both units are integrated. Neither unit includes UI wo
 - **Failure injection:** Every write stage rolls back; uncommitted removal/disable is receipted, while committed or terminal mutation is rejected.
 - **Authored size:** 384 additions plus deletions, including its allocated 12 lines of this evidence block.
 
+#### WU2b — Course route contract
+
+- **Status:** Complete and verified.
+- **Scope:** Existing route wiring, authoring-bypass closure, definition authorization, complete commands, active command, and HTTP translation.
+- **Verification:** course security, existing school route, and existing Special Class API suites — 3 files, 40 tests passed; typecheck passed.
+- **HTTP contract:** Typed failures retain their mappings; unexpected synchronizer details are redacted from the generic `500` response.
+- **Authored size:** 184 additions plus deletions, including its allocated 8 lines of this evidence block.
+
 ## Work Unit 3 — Extend the seven-step wizard
 
 **Forecast:** 340-390 authored lines. **Risk:** medium. **Start:** backend capability has no UI entry. **Finish:** existing Course Studio owns switch, stable concrete slots, shared capacity, preview, and explicit draft/publish commands.
