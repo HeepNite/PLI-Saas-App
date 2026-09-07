@@ -62,6 +62,18 @@ B-01, B-02, and B-03 are resolved. The user explicitly accepted this four-work-u
 - Failure injection after each write stage must leave no partial slot/projection/audit/receipt state.
 - Rollback boundary: disable enabled-command handling while retaining reads, webhook fulfillment, additive data, and operations-off course saves.
 
+### Approved WU2 delivery split — 2026-09-03
+
+WU3 remains blocked until both units are integrated. Neither unit includes UI work or delivery actions.
+
+#### WU2a — Transactional synchronization
+
+- **Status:** Complete and verified.
+- **Scope:** Transactional synchronization, durable removal/disable outcomes, terminal lifecycle protection, reusable conflict policy, and PostgreSQL proof.
+- **Verification:** isolated PostgreSQL authoring, race, policy, and migration suites — 4 files, 29 tests passed; typecheck passed.
+- **Failure injection:** Every write stage rolls back; uncommitted removal/disable is receipted, while committed or terminal mutation is rejected.
+- **Authored size:** 384 additions plus deletions, including its allocated 12 lines of this evidence block.
+
 ## Work Unit 3 — Extend the seven-step wizard
 
 **Forecast:** 340-390 authored lines. **Risk:** medium. **Start:** backend capability has no UI entry. **Finish:** existing Course Studio owns switch, stable concrete slots, shared capacity, preview, and explicit draft/publish commands.
