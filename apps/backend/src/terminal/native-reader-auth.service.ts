@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit } from "@/lib/security/rate-limit"
 
 export const NATIVE_CONNECTION_TOKEN_SCOPE = "terminal:connection-token"
+export const NATIVE_PAYMENT_JOB_CREATE_SCOPE = "terminal:payment-jobs:create"
 
 const RATE_LIMIT_WINDOW_MS = 60_000
 const IP_RATE_LIMIT = 60
