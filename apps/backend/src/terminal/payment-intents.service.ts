@@ -39,7 +39,7 @@ export const createStripeTerminalPaymentIntent = async (
       amount: input.amount,
       currency: input.currency,
       payment_method_types: ["card_present"],
-      receipt_email: input.receiptEmail,
+      ...(input.receiptEmail.trim() ? { receipt_email: input.receiptEmail } : {}),
       metadata: input.metadata,
     },
     {
