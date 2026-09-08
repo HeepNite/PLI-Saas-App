@@ -91,6 +91,7 @@ describe("staff school courses route security", () => {
         coverImageUrl: "/api/staff/school/courses/media/media_1",
         previewVideoUrl: null,
         createdAt: new Date("2026-05-07T00:00:00.000Z"),
+        specialClassSlots: [{ id: "slot_1", startsAt: new Date("2030-06-01T14:00:00.000Z"), specialClass: { id: "special_1", classSessionId: "session_1", slug: "stable-slug", status: "draft" } }],
       },
     ])
 
@@ -102,6 +103,7 @@ describe("staff school courses route security", () => {
     expect(data.items[0].coverImageUrl).toBeNull()
     expect(data.items[0].previewVideoUrl).toBeNull()
     expect(data.items[1].coverImageUrl).toBe("/api/staff/school/courses/media/media_1")
+    expect(data.items[1].authoringSlots).toEqual([{ id: "slot_1", date: "2030-06-01", time: "10:00", specialClassId: "special_1", classSessionId: "session_1", specialClassSlug: "stable-slug", status: "draft" }])
   })
 
   it("returns 429 when POST rate limit is exceeded", async () => {

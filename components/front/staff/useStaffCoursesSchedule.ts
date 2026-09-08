@@ -36,7 +36,7 @@ const loadShortcutsFromStorage = (): string[] => {
 }
 
 export type StaffCoursesScheduleInput = {
-  isSpecialEventCourse: boolean
+  usesConcreteSchedule: boolean
   externalSpecialEventSlotMap: Map<string, { title: string; slug: string }[]>
   externalRecurringSlotsMap: Map<string, { title: string; slug: string }[]>
   externalSpecialEventSlots: Array<{ date: string; time: string; title: string; slug: string }>
@@ -45,7 +45,7 @@ export type StaffCoursesScheduleInput = {
 
 export const useStaffCoursesSchedule = (input: StaffCoursesScheduleInput) => {
   const {
-    isSpecialEventCourse,
+    usesConcreteSchedule,
     externalSpecialEventSlotMap,
     externalRecurringSlotsMap,
     externalSpecialEventSlots,
@@ -153,7 +153,7 @@ export const useStaffCoursesSchedule = (input: StaffCoursesScheduleInput) => {
     const time = normalizeClockTime(courseScheduleTime)
     if (!time) return
 
-    if (isSpecialEventCourse) {
+    if (usesConcreteSchedule) {
       const dates = courseScheduleDates.length > 0 ? courseScheduleDates : []
       if (dates.length === 0) {
         setSchoolError("Select at least one date in the calendar to connect the event time slot.")
@@ -218,7 +218,7 @@ export const useStaffCoursesSchedule = (input: StaffCoursesScheduleInput) => {
     courseScheduleDates,
     courseScheduleTime,
     getSpecialEventConflictReason,
-    isSpecialEventCourse,
+    usesConcreteSchedule,
     quickScheduleTimes,
     setSchoolError,
   ])

@@ -16,6 +16,8 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const LEGACY_COURSE_MEDIA_PREFIX = "/uploads/course-media/"
 const AUTHORING_FORM_FIELDS = ["slug", "title", "kind", "category", "description", "coverImageUrl", "previewVideoUrl", "dropInPriceCents", "firstClassPriceCents", "level", "durationMinutes", "location", "defaultRoomId", "availableWeekdays", "availableTimes", "scheduleRules", "active", "specialClassOperationsEnabled", "specialClassCapacity"]
+const SCHOOL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" })
+const SCHOOL_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
 
 type CourseScheduleRuleEntry = {
   weekday: number
@@ -219,12 +221,14 @@ export async function GET(req: Request) {
   try {
     const items = await prisma.courseCatalog.findMany({
       orderBy: [{ createdAt: "desc" }],
+      include: { specialClassSlots: { orderBy: { startsAt: "asc" }, include: { specialClass: { select: { id: true, classSessionId: true, slug: true, status: true } } } } },
     })
     return NextResponse.json({
-      items: items.map((item) => ({
+      items: items.map(({ specialClassSlots, ...item }) => ({
         ...item,
         coverImageUrl: normalizeCourseMediaUrl(item.coverImageUrl),
         previewVideoUrl: normalizeCourseMediaUrl(item.previewVideoUrl),
+        authoringSlots: (specialClassSlots || []).map(({ id, startsAt, specialClass }) => ({ id, date: SCHOOL_DATE_FORMATTER.format(startsAt), time: SCHOOL_TIME_FORMATTER.format(startsAt), ...(specialClass ? { specialClassId: specialClass.id, classSessionId: specialClass.classSessionId, specialClassSlug: specialClass.slug, status: specialClass.status } : {}) })),
       })),
     })
   } catch (error) {

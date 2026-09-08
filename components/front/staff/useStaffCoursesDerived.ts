@@ -76,7 +76,7 @@ export type StaffCoursesDerivedInput = {
   courseForm: CourseFormState
   courseScheduleSlots: CourseScheduleSlot[]
   schoolCourses: SchoolCourseRow[]
-  isSpecialEventCourse: boolean
+  usesConcreteSchedule: boolean
   courseLocalImagePreview: string
   courseLocalVideoPreview: string
   // Pre-computed conflict maps (owned by main hook to avoid circular deps)
@@ -92,7 +92,7 @@ export const useStaffCoursesDerived = (input: StaffCoursesDerivedInput) => {
     courseForm,
     courseScheduleSlots,
     schoolCourses,
-    isSpecialEventCourse,
+    usesConcreteSchedule,
     courseLocalImagePreview,
     courseLocalVideoPreview,
     externalRecurringSlotsMap,
@@ -244,7 +244,7 @@ export const useStaffCoursesDerived = (input: StaffCoursesDerivedInput) => {
 
   // ─── Computed from pre-built conflict maps ───────────────────────
   const regularSlotsBlockedByEvents = React.useMemo(() => {
-    if (isSpecialEventCourse) return [] as Array<{ date: string; time: string; title: string }>
+    if (usesConcreteSchedule) return [] as Array<{ date: string; time: string; title: string }>
     const recurringSlots = courseScheduleSlots.filter(
       (slot): slot is CourseScheduleSlot & { weekday: number } =>
         typeof slot.weekday === "number" && slot.weekday >= 0 && slot.weekday <= 6
@@ -266,7 +266,7 @@ export const useStaffCoursesDerived = (input: StaffCoursesDerivedInput) => {
       }
     }
     return entries.sort((a, b) => `${a.date}|${a.time}`.localeCompare(`${b.date}|${b.time}`))
-  }, [courseScheduleSlots, externalSpecialEventSlots, isSpecialEventCourse])
+  }, [courseScheduleSlots, externalSpecialEventSlots, usesConcreteSchedule])
 
   const regularScheduleWarningMessage = React.useMemo(() => {
     if (regularSlotsBlockedByEvents.length === 0) return null
