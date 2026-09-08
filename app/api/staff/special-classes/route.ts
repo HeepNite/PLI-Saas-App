@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { isPublishableSpecialClass } from "@/lib/special-classes/policy"
 import {
   authorizeSpecialClassDefinitionRequest,
   authorizeSpecialClassRosterRequest,
@@ -19,6 +18,7 @@ const summarize = (specialClass: {
   priceCents: number
   currency: string
   classSession: { id: string; startsAt: Date; capacity: number }
+  authoringSlot: { courseCatalog: { id: string; title: string } } | null
   purchases: { status: string; holdExpiresAt: Date | null }[]
   attendances: { status: string }[]
 }, now: Date) => {
@@ -33,6 +33,7 @@ const summarize = (specialClass: {
     priceCents: specialClass.priceCents,
     currency: specialClass.currency,
     session: specialClass.classSession,
+    authoringCourse: specialClass.authoringSlot?.courseCatalog ?? null,
     capacity: specialClass.classSession.capacity,
     held,
     paid,
@@ -51,6 +52,7 @@ export async function GET(req: Request) {
   const classes = await prisma.specialClass.findMany({
     include: {
       classSession: true,
+      authoringSlot: { select: { courseCatalog: { select: { id: true, title: true } } } },
       purchases: { select: { status: true, holdExpiresAt: true } },
       auditLogs: { take: 0 },
     },
@@ -67,72 +69,8 @@ export async function POST(req: Request) {
     authorize: authorizeSpecialClassDefinitionRequest,
   })
   if (!guard.ok) return guard.response
-  let body: Record<string, unknown>
-  try {
-    body = await req.json() as Record<string, unknown>
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
-  const slug = typeof body.slug === "string" ? body.slug.trim().toLowerCase() : ""
-  const title = typeof body.title === "string" ? body.title.trim() : ""
-  const description = typeof body.description === "string" ? body.description.trim() : ""
-  const startsAt = typeof body.startsAt === "string" ? new Date(body.startsAt) : new Date(0)
-  const capacity = typeof body.capacity === "number" ? body.capacity : 0
-  const priceCents = typeof body.priceCents === "number" ? body.priceCents : 0
-  const currency = typeof body.currency === "string" ? body.currency.trim().toLowerCase() : ""
-  if (!/^[a-z0-9-]{3,100}$/.test(slug) || !isPublishableSpecialClass({ startsAt, capacity, title, description, currency, priceCents }, new Date())) {
-    return NextResponse.json({ error: "Invalid special class definition" }, { status: 422 })
-  }
-  const courseSlug = typeof body.courseSlug === "string" && body.courseSlug.trim() ? body.courseSlug.trim() : `special-${slug}`
-  const durationMinutes = typeof body.durationMinutes === "number" && Number.isInteger(body.durationMinutes) && body.durationMinutes > 0 ? body.durationMinutes : 60
-  const location = typeof body.location === "string" ? body.location.trim() || null : null
-  const coverImageUrl = typeof body.coverImageUrl === "string" ? body.coverImageUrl.trim() || null : null
-  const idempotencyKey = req.headers.get("x-correlation-id")?.trim() || null
-  if (idempotencyKey && idempotencyKey.length > 200) return NextResponse.json({ error: "Invalid idempotency key" }, { status: 422 })
-  try {
-    const specialClass = await prisma.$transaction(async (tx) => {
-      const session = await tx.classSession.create({ data: { courseSlug, title, startsAt, durationMinutes, capacity, location } })
-      const item = await tx.specialClass.create({
-        data: { slug, title, description, coverImageUrl, currency, priceCents, classSessionId: session.id, createdBy: guard.auth.userId },
-        include: { classSession: true },
-      })
-      await tx.specialClassAuditLog.create({ data: {
-        specialClassId: item.id, classSessionId: session.id, action: "class_created",
-        actorClerkUserId: guard.auth.userId, actorRole: guard.auth.role,
-        afterState: {
-          specialClass: {
-            id: item.id,
-            slug: item.slug,
-            status: item.status,
-            classSessionId: session.id,
-            title: item.title,
-            description: item.description,
-            coverImageUrl: item.coverImageUrl,
-            currency: item.currency,
-            priceCents: item.priceCents,
-            salesOpenAt: item.salesOpenAt?.toISOString() ?? null,
-            salesCloseAt: item.salesCloseAt?.toISOString() ?? null,
-            publishedAt: item.publishedAt?.toISOString() ?? null,
-            cancelledAt: item.cancelledAt?.toISOString() ?? null,
-            createdBy: item.createdBy,
-          },
-          classSession: {
-            id: session.id,
-            courseSlug: session.courseSlug,
-            title: session.title,
-            startsAt: session.startsAt.toISOString(),
-            durationMinutes: session.durationMinutes,
-            capacity: session.capacity,
-            location: session.location,
-          },
-        },
-        correlationId: crypto.randomUUID(),
-        idempotencyKey,
-      } })
-      return item
-    })
-    return NextResponse.json({ item: { ...specialClass, capacity: specialClass.classSession.capacity } }, { status: 201 })
-  } catch {
-    return NextResponse.json({ error: "A special class with this session or slug already exists." }, { status: 409 })
-  }
+  return NextResponse.json(
+    { error: "Create Special Classes in Course Studio." },
+    { status: 405, headers: { Allow: "GET" } },
+  )
 }
