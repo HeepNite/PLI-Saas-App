@@ -96,9 +96,27 @@ describe("StaffCourseMainInfoStep", () => {
     expect(setCourseForm).toHaveBeenCalledTimes(1)
   })
 
+  it("exposes an explicitly labelled Special Class operations switch", async () => {
+    const setCourseForm = vi.fn()
+    const node = await renderStep(createProps({ setCourseForm }))
+    const operations = node.querySelector<HTMLInputElement>('input[name="specialClassOperationsEnabled"]')
+
+    expect(operations?.checked).toBe(false)
+    expect(node.querySelector(`label[for="${operations?.id}"]`)?.textContent).toContain("Enable Special Class operations")
+    expect(operations?.classList.contains("focus-visible:ring-2")).toBe(true)
+    await act(async () => operations?.click())
+    expect(setCourseForm).toHaveBeenCalledOnce()
+  })
+
   it("renders slug conflict actions", async () => {
     const props = createProps({ courseSlugConflict: { exists: true, suggestion: "salsa-basics-2", existingTitle: "Salsa Basics" } })
     const node = await renderStep(props)
+    const slug = node.querySelector<HTMLInputElement>('input[name="courseSlug"]')
+    const conflict = node.querySelector("#course-slug-conflict")
+
+    expect(slug?.getAttribute("aria-invalid")).toBe("true")
+    expect(slug?.getAttribute("aria-describedby")).toBe("course-slug-conflict")
+    expect(conflict?.getAttribute("role")).toBe("alert")
 
     await act(async () => {
       Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Use suggestion")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))

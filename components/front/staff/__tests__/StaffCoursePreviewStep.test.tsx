@@ -61,6 +61,7 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
   defaultRoomName: "Studio A",
   scheduleTimes: ["10:00"],
   scheduleCalendarValues: ["2026-06-01"],
+  concreteSlotCount: 2,
   formatUsdInputLabel: (value) => `$${value}`,
   formatClockLabel: (value) => value,
   getCourseScheduleDateTooltip: () => undefined,
@@ -104,6 +105,8 @@ describe("StaffCoursePreviewStep", () => {
     expect(node.textContent).toContain("Default room: Studio A")
     expect(node.textContent).toContain("Anniversary Week")
     expect(node.querySelector('[data-testid="calendar"]')?.textContent).toContain("2026-06-01")
+    expect(node.textContent).toContain("2 generated sessions")
+    expect(node.textContent).toContain("remain draft until you select Publish")
   })
 
   it("wires hover state for home preview", async () => {
@@ -125,4 +128,5 @@ describe("StaffCoursePreviewStep", () => {
     expect(node.textContent).toContain("Course review")
     expect(node.querySelector('[data-testid="calendar"]')).toBeNull()
   })
+
 })

@@ -29,6 +29,7 @@ type StaffCoursePreviewStepProps = {
   defaultRoomName: string
   scheduleTimes: string[]
   scheduleCalendarValues: string[]
+  concreteSlotCount: number
   formatUsdInputLabel: (value: string) => string
   formatClockLabel: (value: string) => string
   getCourseScheduleDateTooltip: (date: string) => string | undefined
@@ -51,6 +52,7 @@ export default function StaffCoursePreviewStep({
   defaultRoomName,
   scheduleTimes,
   scheduleCalendarValues,
+  concreteSlotCount,
   formatUsdInputLabel,
   formatClockLabel,
   getCourseScheduleDateTooltip,
@@ -61,6 +63,11 @@ export default function StaffCoursePreviewStep({
   return (
     <div className="text-xs">
       <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">{selectedCourseKindReviewLabel}</p>
+      {courseForm.specialClassOperationsEnabled ? (
+        <p className="mt-2 rounded-md border border-black/10 px-3 py-2 text-black/70 dark:border-white/10 dark:text-white/70">
+          {concreteSlotCount} generated session{concreteSlotCount === 1 ? "" : "s"} will remain draft until you select Publish.
+        </p>
+      ) : null}
       {schoolLoading ? (
         <div className="mt-2 animate-pulse space-y-2">
           <div className="h-16 rounded-md bg-black/10 dark:bg-white/10" />

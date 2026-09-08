@@ -97,17 +97,19 @@ The user approved one bounded delivery split on 2026-09-07. WU3b depends on WU3a
 - **Authored size:** 288 additions plus deletions, including allocated evidence, partial test fixtures, and intermediate compatibility churn.
 - **Rollback boundary:** Remove client authoring state/hydration/command construction and the additive GET projection; preserve WU1/WU2 schema, synchronization, authorization, durable data, and operations-off course saves.
 
-### Files and symbols
+### WU3b — Wizard controls and accessibility
 
-- `components/front/staff/staffAdminTypes.ts`: `CourseFormState`, `CourseScheduleSlot`, `SchoolCourseRow`, command response types.
-- `components/front/staff/useStaffCoursesAdmin.ts`: initial/hydrated operations state; derive concrete scheduling from switch.
-- `components/front/staff/useStaffCoursesCRUD.ts`: `saveCourseCatalog`, retry-stable operation ID, ID-based edits, explicit commands.
-- `components/front/staff/StaffCourseMainInfoStep.tsx`: operations switch.
-- `components/front/staff/StaffCourseScheduleStep.tsx`: concrete slots/shared capacity.
-- `components/front/staff/StaffCoursePreviewStep.tsx`, `StaffCoursePublishStep.tsx`, `StaffCourseStudioPanel.tsx`.
-- Existing focused tests under `components/front/staff/__tests__/` for each touched component/hook and schedule helpers.
+**Status:** Complete and verified. **Risk:** medium. **Start:** WU3a state/commands exist without visual controls. **Finish:** the existing seven-step Course Studio exposes the complete accessible authoring workflow.
 
-### Gate and rollback
+- **Scope:** Info switch; Prices explanation; Schedule concrete dates/shared capacity; Preview count/manual-publication copy; Save Draft/Publish controls; Studio/error presentation; exact seven-step order; labels, error linkage/announcement, visible focus, keyboard use, and async failure focus retention.
+- **Dependencies:** WU3a integrated and its focused gate passing.
+- **TDD/evidence:** Original RED contributed four component failures. Gap RED: 4 accessibility failures while exact order and async rerender behavior already passed. Applying WU3b to the verified WU3a intermediate typechecks, reproduces the final code/test candidate byte-for-byte, and passes 8 component files/32 tests plus the combined 11-file/63-test matrix.
+- **Accessibility proof:** The slug conflict is an announced alert linked by `aria-describedby`; new switch/capacity/action controls use the existing `focus-visible:ring-2` convention; both Save Draft and Publish retain/restore focus through an asynchronous error rerender, whose generic error is assertively announced.
+- **Files:** `StaffCourseMainInfoStep.tsx`; `StaffCoursePricingStep.tsx`; `StaffCourseScheduleStep.tsx`; `StaffCoursePreviewStep.tsx`; `StaffCoursePublishStep.tsx`; `StaffCourseStudioPanel.tsx`; `school/SchoolWizardPanel.tsx`; their focused test hunks after the five WU3a-allocated four-line initializers; new `SchoolWizardPanel.test.tsx`; and the final builder hunks.
+- **Authored size:** 271 additions plus deletions, including allocated evidence, the new test, and intermediate-to-final builder churn.
+- **Rollback boundary:** Hide/remove only WU3b controls, copy, focus/error semantics, and component tests; retain WU3a state/commands and all generated operational data.
+
+### Combined gate and allocation
 
 - Combined WU3 matrix: 11 files, 63 tests passed; typecheck and `git diff --check` passed.
 - Regression: WU2b API 40/40; WU2a integration/race 15/15; WU1 policy/migration 14/14, with database suites serialized against guarded disposable schemas.
@@ -115,8 +117,6 @@ The user approved one bounded delivery split on 2026-09-07. WU3b depends on WU3a
 - Shared path: WU3a changes 2 lines in `buildStaffSchoolWorkspaceProps.ts` to destructure `usesConcreteSchedule: isSpecialEventCourse`, retaining the existing Studio prop and omitting Publish callbacks. WU3b then spends 7 intermediate-to-final changed lines to remove the alias, rename the Studio prop, add preview count, and add Publish callbacks. The final combined file remains behaviorally unchanged; the extra 2 lines are counted as delivery churn.
 - Shared path: this `tasks.md` evidence allocates 22 changed lines to WU3a and 22 to WU3b.
 - WU4 gate: blocked until both slices are integrated; no WU4 implementation or operational smoke belongs to either WU3 slice.
-- Focused Vitest component/hook suite, typecheck, and accessibility assertions for labels, errors, keyboard use, and focus retention.
-- Rollback boundary: hide new controls and commands; existing seven-step CourseCatalog authoring remains. Do not remove generated operational data.
 
 ## Work Unit 4 — Remove duplicate authoring and verify operations
 

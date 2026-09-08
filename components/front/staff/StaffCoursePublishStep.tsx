@@ -11,6 +11,8 @@ type StaffCoursePublishStepProps = {
   onCopyCourseLink: () => void
   onShareCourse: (platform: CourseSharePlatform) => void
   onResetCourseBuilder: () => void
+  onSaveDraft: () => void
+  onPublish: () => void
 }
 
 const SHARE_ACTIONS: Array<{ platform: CourseSharePlatform; label: string }> = [
@@ -30,6 +32,8 @@ export default function StaffCoursePublishStep({
   onCopyCourseLink,
   onShareCourse,
   onResetCourseBuilder,
+  onSaveDraft,
+  onPublish,
 }: StaffCoursePublishStepProps) {
   if (!visible) return null
 
@@ -53,7 +57,7 @@ export default function StaffCoursePublishStep({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
+      <div className="mt-4 grid grid-cols-3 gap-2">
         <button
           type="button"
           onClick={onResetCourseBuilder}
@@ -63,11 +67,20 @@ export default function StaffCoursePublishStep({
           Reset
         </button>
         <button
-          type="submit"
+          type="button"
+          onClick={onSaveDraft}
           disabled={disabled}
-          className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60"
+          className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand,#b61616)] focus-visible:ring-offset-2 disabled:opacity-60"
         >
-          {schoolBusy === "course" ? "Saving..." : "Save course"}
+          {schoolBusy === "course" ? "Saving..." : "Save Draft"}
+        </button>
+        <button
+          type="button"
+          onClick={onPublish}
+          disabled={disabled}
+          className="inline-flex w-full items-center justify-center rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand,#b61616)] focus-visible:ring-offset-2 disabled:opacity-60"
+        >
+          {schoolBusy === "course" ? "Publishing..." : "Publish"}
         </button>
       </div>
     </>

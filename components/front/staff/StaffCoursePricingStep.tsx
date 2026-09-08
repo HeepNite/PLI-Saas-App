@@ -31,6 +31,7 @@ export default function StaffCoursePricingStep({ visible, courseForm, setCourseF
   return (
     <div className="space-y-2">
       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Prices and special discounts</span>
+      {courseForm.specialClassOperationsEnabled ? <p className="text-xs text-black/55 dark:text-white/55">Drop-in is the shared initial Special Class price; first-class and discounts remain course-only.</p> : null}
       <div className="grid grid-cols-2 gap-3">
         <input
           name="courseDropInPrice"
