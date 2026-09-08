@@ -32,7 +32,11 @@ const createCourse = (overrides: Partial<SchoolCourseRow> = {}): SchoolCourseRow
   availableTimes: ["10:00"],
   scheduleRules: null,
   active: true,
+  updatedAt: "2026-01-01T00:00:00.000Z",
   createdAt: "2026-01-01T00:00:00.000Z",
+  specialClassOperationsEnabled: false,
+  specialClassCapacity: null,
+  authoringSlots: [],
   ...overrides,
 })
 
@@ -107,6 +111,63 @@ describe("useStaffCoursesAdmin", () => {
     expect(captured!.courseScheduleSlots).toEqual([{ weekday: 1, recurring: true, time: "10:00" }])
     expect(captured!.courseRecurringWeekdays).toEqual([])
     expect(captured!.courseMirrorEnabled).toBe(false)
+    expect(captured!.courseForm.specialClassOperationsEnabled).toBe(false)
+    await act(async () => {
+      captured!.setCourseForm((previous) => ({ ...previous, kind: "workshop" }))
+    })
+    expect(captured!.courseForm.specialClassOperationsEnabled).toBe(false)
+  })
+
+  it("hydrates stable authoring identity and concrete slot IDs", async () => {
+    await renderHook()
+    const course = createCourse({
+      updatedAt: "2030-01-02T00:00:00.000Z",
+      specialClassOperationsEnabled: true,
+      specialClassCapacity: 12,
+      authoringSlots: [{ id: "slot-1", date: "2030-06-01", time: "10:00", specialClassId: "special-1", classSessionId: "session-1", specialClassSlug: "stable-slug", status: "draft" }],
+    })
+
+    await act(async () => captured!.loadCourseIntoForm(course))
+
+    expect(captured!.courseForm).toMatchObject({ courseCatalogId: "course-1", expectedUpdatedAt: course.updatedAt, specialClassOperationsEnabled: true, specialClassCapacity: "12" })
+    expect(captured!.courseScheduleSlots).toEqual([expect.objectContaining({ id: "slot-1", specialClassId: "special-1", date: "2030-06-01", time: "10:00" })])
+  })
+
+  it("requires capacity only when operations are enabled", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    const input = await renderHook()
+    await act(async () => {
+      captured!.setCourseForm((previous) => ({ ...previous, specialClassOperationsEnabled: true }))
+    })
+    await act(async () => {
+      await captured!.saveCourseCatalog({ preventDefault: vi.fn() } as unknown as React.FormEvent)
+    })
+
+    expect(input.setSchoolError).toHaveBeenCalledWith("Enter a positive shared capacity for Special Class operations.")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("reuses an operation ID after transport failure and rotates it after a semantic change", async () => {
+    const successfulResponse = { ok: true, json: vi.fn().mockResolvedValue({ courseCatalogId: "course-1", revision: "2030-01-02T00:00:00.000Z", projections: [] }) }
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("lost response")).mockRejectedValueOnce(new Error("lost response")).mockResolvedValue(successfulResponse)
+    vi.stubGlobal("fetch", fetchMock)
+    const input = await renderHook()
+    await act(async () => {
+      captured!.setCourseForm((previous) => ({ ...previous, slug: "salsa-special", title: "Salsa Special", description: "One night class", dropInPriceCents: "25", durationMinutes: "55", location: "Room A", specialClassOperationsEnabled: true, specialClassCapacity: "12" }))
+      captured!.setCourseScheduleSlots([{ date: "2030-06-01", time: "10:00" }])
+    })
+
+    await act(async () => captured!.saveCourseCatalog({ preventDefault: vi.fn() } as unknown as React.FormEvent, "publish"))
+    await act(async () => captured!.saveCourseCatalog({ preventDefault: vi.fn() } as unknown as React.FormEvent, "publish"))
+    const firstId = JSON.parse(fetchMock.mock.calls[0][1].body).authoringCommand.operationId
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).authoringCommand.operationId).toBe(firstId)
+    expect(input.setSchoolError).toHaveBeenLastCalledWith("Network error while saving course.")
+
+    await act(async () => captured!.setCourseForm((previous) => ({ ...previous, title: "Changed title" })))
+    await act(async () => captured!.saveCourseCatalog({ preventDefault: vi.fn() } as unknown as React.FormEvent, "publish"))
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).authoringCommand.operationId).not.toBe(firstId)
+    await act(async () => captured!.saveCourseCatalog({ preventDefault: vi.fn() } as unknown as React.FormEvent, "publish"))
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body).authoringCommand.operationId).not.toBe(JSON.parse(fetchMock.mock.calls[2][1].body).authoringCommand.operationId)
   })
 
   it("detects slug conflicts and applies the suggested slug", async () => {

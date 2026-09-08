@@ -49,6 +49,8 @@ export type StaffCoursesAdminInput = {
 }
 
 const createInitialCourseForm = (): CourseFormState => ({
+  courseCatalogId: null,
+  expectedUpdatedAt: null,
   slug: "",
   title: "",
   kind: "course",
@@ -69,6 +71,8 @@ const createInitialCourseForm = (): CourseFormState => ({
   specialDiscountPrice: "",
   availableTimesCsv: "",
   active: true,
+  specialClassOperationsEnabled: false,
+  specialClassCapacity: "",
 })
 
 export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
@@ -95,7 +99,8 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
 
   const courseFormFieldsRef = React.useRef<HTMLDivElement>(null)
 
-  const isSpecialEventCourse = SPECIAL_EVENT_COURSE_KINDS.has(courseForm.kind)
+  const kindUsesConcreteSchedule = SPECIAL_EVENT_COURSE_KINDS.has(courseForm.kind)
+  const usesConcreteSchedule = courseForm.specialClassOperationsEnabled || kindUsesConcreteSchedule
 
   // ─── External conflict maps (inline — no schedule slots needed) ──
   // These only depend on courseForm.slug + schoolCourses, so they can be
@@ -175,7 +180,7 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
 
   // ─── Schedule sub-hook ───────────────────────────────────────────
   const schedule = useStaffCoursesSchedule({
-    isSpecialEventCourse,
+    usesConcreteSchedule,
     externalSpecialEventSlotMap,
     externalRecurringSlotsMap,
     externalSpecialEventSlots,
@@ -187,7 +192,7 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
     courseForm,
     courseScheduleSlots: schedule.courseScheduleSlots,
     schoolCourses,
-    isSpecialEventCourse,
+    usesConcreteSchedule,
     courseLocalImagePreview: upload.courseLocalImagePreview,
     courseLocalVideoPreview: upload.courseLocalVideoPreview,
     externalRecurringSlotsMap,
@@ -201,6 +206,7 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
   const crud = useStaffCoursesCRUD({
     schoolCourses,
     courseForm,
+    usesConcreteSchedule,
     setCourseForm,
     courseScheduleSlots: schedule.courseScheduleSlots,
     setCourseScheduleSlots: schedule.setCourseScheduleSlots,
@@ -271,6 +277,8 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
         : ""
     setCourseForm((prev) => ({
       ...prev,
+      courseCatalogId: selected.id,
+      expectedUpdatedAt: selected.updatedAt || null,
       slug: selected.slug,
       title: selected.title,
       kind: selected.kind,
@@ -291,10 +299,12 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
       specialDiscountPrice,
       availableTimesCsv: selected.availableTimes.join(","),
       active: selected.active,
+      specialClassOperationsEnabled: selected.specialClassOperationsEnabled ?? false,
+      specialClassCapacity: selected.specialClassCapacity?.toString() || "",
     }))
     schedule.setCourseWeekdays(defaultWeekdays)
     schedule.setCourseRecurringWeekdays(defaultWeekdays)
-    schedule.setCourseScheduleSlots(scheduleSlotsFromRules)
+    schedule.setCourseScheduleSlots(selected.authoringSlots?.length ? selected.authoringSlots : scheduleSlotsFromRules)
     schedule.setCourseRepeatAllMonth(parsedRules?.repeatAllMonth ?? true)
     schedule.setCourseRecurrenceMode(parsedRules?.recurrenceMode || "indefinite")
     schedule.setCourseRecurrenceEndsAt(parsedRules?.recurrenceEndsAt || "")
@@ -363,7 +373,7 @@ export const useStaffCoursesAdmin = (input: StaffCoursesAdminInput) => {
     courseFormFieldsRef,
 
     // derived
-    isSpecialEventCourse,
+    usesConcreteSchedule,
     scheduleDerivedData: derivedFull.scheduleDerivedData,
     scheduleCalendarMap: derivedFull.scheduleCalendarMap,
     previewMediaUrl: derivedFull.previewMediaUrl,

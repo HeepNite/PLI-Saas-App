@@ -15,6 +15,8 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
   visible: true,
   courseEditingSlug: "salsa-basics",
   courseForm: {
+    courseCatalogId: null,
+    expectedUpdatedAt: null,
     slug: "salsa-basics",
     title: "Salsa Basics",
     kind: "course",
@@ -35,6 +37,8 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
     specialDiscountPrice: "",
     availableTimesCsv: "",
     active: true,
+    specialClassOperationsEnabled: false,
+    specialClassCapacity: "",
   },
   setCourseForm: vi.fn(),
   ...overrides,

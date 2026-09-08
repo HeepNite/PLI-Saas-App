@@ -35,6 +35,10 @@ const courseForm: CourseFormState = {
   specialDiscountPrice: "",
   availableTimesCsv: "",
   active: true,
+  courseCatalogId: null,
+  expectedUpdatedAt: null,
+  specialClassOperationsEnabled: false,
+  specialClassCapacity: "",
 }
 
 const createProps = (overrides: Partial<Props> = {}): Props => ({

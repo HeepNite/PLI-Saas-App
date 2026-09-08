@@ -130,7 +130,7 @@ export function buildStaffSchoolWorkspaceProps({
     courseVideoInputRef,
     scheduleTimePickerRef,
     courseFormFieldsRef,
-    isSpecialEventCourse,
+    usesConcreteSchedule: isSpecialEventCourse,
     scheduleDerivedData,
     scheduleCalendarMap,
     previewMediaUrl,

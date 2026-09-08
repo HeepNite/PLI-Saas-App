@@ -84,16 +84,18 @@ WU3 remains blocked until both units are integrated. Neither unit includes UI wo
 
 ## Work Unit 3 — Extend the seven-step wizard
 
-**Forecast:** 340-390 authored lines. **Risk:** medium. **Start:** backend capability has no UI entry. **Finish:** existing Course Studio owns switch, stable concrete slots, shared capacity, preview, and explicit draft/publish commands.
+The user approved one bounded delivery split on 2026-09-07. WU3b depends on WU3a; WU4 remains blocked until both slices are integrated and green.
 
-**Dependencies:** WU2 synchronization contract and API tests passing.
+### WU3a — Wizard state and commands
 
-### TDD order
+**Status:** Complete and verified. **Risk:** medium. **Start:** WU2 commands have no Course Studio state/wiring. **Finish:** stable authoring state, hydration, scheduling derivation, and explicit commands are available without new visual controls.
 
-1. RED: form/hook tests prove switch default false, course kind never activates operations, all kinds can use concrete slots when enabled, slot IDs survive hydration/edit, and capacity is required only when enabled.
-2. RED: component tests prove unchanged seven-step order, capacity in Schedule, drop-in-only shared price in Prices, preview count, delayed metadata stays draft, and Save Draft/Publish operation-ID reuse after transport failure.
-3. GREEN: extend state/payload/hydration and existing step components only.
-4. REFACTOR: remove `isSpecialEventCourse` as an operations discriminator while preserving non-operational schedule presentation.
+- **Scope:** Types; operations default/hydration; stable CourseCatalog, revision, slot and projection IDs; concrete scheduling derivation; authoring payloads; `save_draft`, `publish`, and `set_active`; retry-stable operation IDs; additive Course GET hydration.
+- **Dependencies:** WU2a synchronization and WU2b route contract complete and passing.
+- **TDD/evidence:** Original RED contributed the five hook failures for defaults, hydration, capacity gating, and retry identity. The reconstructed WU3a intermediate typechecks and its hook, schedule-helper, and Course API suites pass — 3 files, 31 tests. Targeted ESLint for `useStaffCoursesCRUD.ts` passes without warnings.
+- **Files:** `app/api/staff/school/courses/route.ts`; `staffAdminTypes.ts`; `useStaffCoursesAdmin.ts`; `useStaffCoursesCRUD.ts`; `useStaffCoursesDerived.ts`; `useStaffCoursesSchedule.ts`; `useStaffCoursesAdmin.test.tsx`; `StaffCourseMediaStep.test.tsx`; `tests/api/staff-school-courses-security.test.ts`; the four required `CourseFormState` initializer lines in each of five WU3b component test files; and the compatibility-alias hunk in `buildStaffSchoolWorkspaceProps.ts`.
+- **Authored size:** 288 additions plus deletions, including allocated evidence, partial test fixtures, and intermediate compatibility churn.
+- **Rollback boundary:** Remove client authoring state/hydration/command construction and the additive GET projection; preserve WU1/WU2 schema, synchronization, authorization, durable data, and operations-off course saves.
 
 ### Files and symbols
 
@@ -107,6 +109,12 @@ WU3 remains blocked until both units are integrated. Neither unit includes UI wo
 
 ### Gate and rollback
 
+- Combined WU3 matrix: 11 files, 63 tests passed; typecheck and `git diff --check` passed.
+- Regression: WU2b API 40/40; WU2a integration/race 15/15; WU1 policy/migration 14/14, with database suites serialized against guarded disposable schemas.
+- Focused ESLint has zero candidate-caused warnings; five pre-existing warnings remain outside the added behavior.
+- Shared path: WU3a changes 2 lines in `buildStaffSchoolWorkspaceProps.ts` to destructure `usesConcreteSchedule: isSpecialEventCourse`, retaining the existing Studio prop and omitting Publish callbacks. WU3b then spends 7 intermediate-to-final changed lines to remove the alias, rename the Studio prop, add preview count, and add Publish callbacks. The final combined file remains behaviorally unchanged; the extra 2 lines are counted as delivery churn.
+- Shared path: this `tasks.md` evidence allocates 22 changed lines to WU3a and 22 to WU3b.
+- WU4 gate: blocked until both slices are integrated; no WU4 implementation or operational smoke belongs to either WU3 slice.
 - Focused Vitest component/hook suite, typecheck, and accessibility assertions for labels, errors, keyboard use, and focus retention.
 - Rollback boundary: hide new controls and commands; existing seven-step CourseCatalog authoring remains. Do not remove generated operational data.
 
