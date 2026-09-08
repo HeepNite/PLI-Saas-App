@@ -83,7 +83,7 @@ export function SchoolWizardPanel({
 
       {/* Feedback */}
       {error && (
-        <p className="mt-3 rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
+        <p role="alert" aria-live="assertive" className="mt-3 rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm text-[var(--brand,#ff4b4b)]">
           {error}
         </p>
       )}

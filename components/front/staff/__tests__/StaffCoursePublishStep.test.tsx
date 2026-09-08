@@ -20,6 +20,8 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
   onCopyCourseLink: vi.fn(),
   onShareCourse: vi.fn(),
   onResetCourseBuilder: vi.fn(),
+  onSaveDraft: vi.fn(),
+  onPublish: vi.fn(),
   ...overrides,
 })
 
@@ -52,11 +54,29 @@ describe("StaffCoursePublishStep", () => {
   it("allows saving the draft course from publish before it is persisted", async () => {
     const node = await renderStep(createProps({ courseEditingSlug: null }))
     const copyButton = Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Copy link")
-    const saveButton = Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Save course")
+    const saveButton = Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Save Draft")
 
     expect(node.textContent).toContain("Publish on social")
     expect(copyButton?.disabled).toBe(true)
     expect(saveButton?.disabled).toBe(false)
+  })
+
+  it("exposes separate keyboard-focusable Save Draft and Publish commands", async () => {
+    const props = createProps()
+    const node = await renderStep(props)
+    const saveDraft = Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Save Draft")!
+    const publish = Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Publish")!
+
+    saveDraft.focus()
+    await act(async () => saveDraft.click())
+    publish.focus()
+    await act(async () => publish.click())
+
+    expect(props.onSaveDraft).toHaveBeenCalledOnce()
+    expect(props.onPublish).toHaveBeenCalledOnce()
+    expect(document.activeElement).toBe(publish)
+    expect(saveDraft.classList.contains("focus-visible:ring-2")).toBe(true)
+    expect(publish.classList.contains("focus-visible:ring-2")).toBe(true)
   })
 
   it("renders social actions and wires copy/share/reset callbacks", async () => {

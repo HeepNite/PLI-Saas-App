@@ -14,7 +14,7 @@ type Props = React.ComponentProps<typeof StaffCourseScheduleStep>
 const createProps = (overrides: Partial<Props> = {}): Props => ({
   visible: true,
   schoolLoading: false,
-  isSpecialEventCourse: false,
+  usesConcreteSchedule: false,
   courseForm: {
     slug: "salsa-basics",
     title: "Salsa Basics",
@@ -126,11 +126,14 @@ describe("StaffCourseScheduleStep", () => {
     expect(props.addCourseScheduleSlot).toHaveBeenCalledTimes(1)
   })
 
-  it("renders special event dates and adds the selected date", async () => {
-    const props = createProps({ isSpecialEventCourse: true })
+  it("renders concrete dates for any course with operations enabled", async () => {
+    const props = createProps({
+      usesConcreteSchedule: true,
+      courseForm: { ...createProps().courseForm, kind: "course", specialClassOperationsEnabled: true },
+    })
     const node = await renderStep(props)
 
-    expect(node.textContent).toContain("Special event mode")
+    expect(node.textContent).toContain("Concrete schedule")
     expect(node.textContent).toContain("Event dates")
     expect(node.textContent).toContain("Time slot for event dates")
 
@@ -140,6 +143,10 @@ describe("StaffCourseScheduleStep", () => {
 
     expect(props.setCourseScheduleDates).toHaveBeenCalledOnce()
     expect(props.setCourseScheduleDate).toHaveBeenCalledWith("")
+    const capacity = node.querySelector<HTMLInputElement>('input[name="specialClassCapacity"]')
+    expect(capacity?.required).toBe(true)
+    expect(node.querySelector(`label[for="${capacity?.id}"]`)?.textContent).toContain("Shared capacity")
+    expect(capacity?.classList.contains("focus-visible:ring-2")).toBe(true)
   })
 
   it("renders launch-date publication controls from the extracted form state", async () => {

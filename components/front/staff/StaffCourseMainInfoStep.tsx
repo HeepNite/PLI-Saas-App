@@ -37,6 +37,13 @@ export default function StaffCourseMainInfoStep({
   return (
     <div className="space-y-3">
       <span className="block text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">Course main information</span>
+      <div className="rounded-md border border-black/10 p-3 dark:border-white/10">
+        <label htmlFor="special-class-operations" className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-black dark:text-white">
+          <input id="special-class-operations" name="specialClassOperationsEnabled" type="checkbox" checked={courseForm.specialClassOperationsEnabled} onChange={(event) => updateCourseField("specialClassOperationsEnabled", event.target.checked)} className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand,#b61616)] focus-visible:ring-offset-2" />
+          Enable Special Class operations
+        </label>
+        <p className="mt-1 text-xs text-black/55 dark:text-white/55">Creates one independent operational session for each concrete date and time.</p>
+      </div>
       <CourseSlugConflictAlert
         courseSlug={courseForm.slug}
         conflict={courseSlugConflict}
@@ -45,9 +52,12 @@ export default function StaffCourseMainInfoStep({
       />
       <div className="grid grid-cols-2 gap-3">
         <input
+          id="course-slug"
           name="courseSlug"
           value={courseForm.slug}
           onChange={(event) => updateCourseField("slug", event.target.value)}
+          aria-invalid={courseSlugConflict.exists || undefined}
+          aria-describedby={courseSlugConflict.exists ? "course-slug-conflict" : undefined}
           placeholder="slug (e.g., salsa-feminine-morning)"
           className={`${COURSE_SLUG_FIELD_CLASS} ${
             courseSlugConflict.exists ? "border-amber-500 dark:border-amber-400" : "border-black/15 dark:border-white/15"
@@ -142,7 +152,7 @@ function CourseSlugConflictAlert({
   if (!conflict.exists) return null
 
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 dark:border-amber-400/30 dark:bg-amber-900/20">
+    <div id="course-slug-conflict" role="alert" className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 dark:border-amber-400/30 dark:bg-amber-900/20">
       <p className="text-xs text-amber-800 dark:text-amber-200">
         The slug <span className="font-semibold">&quot;{courseSlug}&quot;</span> already exists for{" "}
         <span className="font-semibold">&quot;{conflict.existingTitle}&quot;</span>.

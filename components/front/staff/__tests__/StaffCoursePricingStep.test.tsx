@@ -78,11 +78,12 @@ describe("StaffCoursePricingStep", () => {
   })
 
   it("renders price fields and disables discount price when no discount is selected", async () => {
-    const node = await renderStep(createProps())
+    const node = await renderStep(createProps({ courseForm: { ...createProps().courseForm, specialClassOperationsEnabled: true } }))
 
     expect(node.textContent).toContain("Prices and special discounts")
     expect(node.querySelector<HTMLInputElement>('input[name="courseDropInPrice"]')?.value).toBe("20")
     expect(node.querySelector<HTMLInputElement>('input[name="courseSpecialDiscountPrice"]')?.disabled).toBe(true)
+    expect(node.textContent).toContain("Drop-in is the shared initial Special Class price")
   })
 
   it("renders custom label and wires discount type changes", async () => {

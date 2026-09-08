@@ -58,7 +58,7 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
     onLocalImageChange: vi.fn(),
     onLocalVideoChange: vi.fn(),
   },
-  isSpecialEventCourse: false,
+  usesConcreteSchedule: false,
   mainInfo: {
     courseForm,
     setCourseForm: dispatch<CourseFormState>(),
@@ -156,6 +156,7 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
     defaultRoomName: "None",
     scheduleTimes: [],
     scheduleCalendarValues: [],
+    concreteSlotCount: 0,
     formatUsdInputLabel: (value) => `$${value}`,
     formatClockLabel: (value) => value,
     getCourseScheduleDateTooltip: () => undefined,
@@ -169,6 +170,8 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
     onCopyCourseLink: vi.fn(),
     onShareCourse: vi.fn(),
     onResetCourseBuilder: vi.fn(),
+    onSaveDraft: vi.fn(),
+    onPublish: vi.fn(),
   },
   ...overrides,
 })
