@@ -37,6 +37,11 @@ vi.mock("@/components/front/staff/StaffTeacherAssignmentPanel", () => ({ default
 vi.mock("@/components/front/staff/StaffSchoolWorkspacePanel", () => ({ default: () => <div data-testid="school-workspace" /> }))
 vi.mock("@/components/front/staff/StaffPayrollControlPanel", () => ({ default: () => <div data-testid="payroll-control" /> }))
 vi.mock("@/components/front/staff/StaffStudentsBoardPanel", () => ({ default: () => <div data-testid="students-board" /> }))
+vi.mock("@/components/front/staff/StaffSpecialClassesPanel", () => ({
+  default: ({ visible, onOpenCourseStudio }: { visible: boolean; onOpenCourseStudio: (courseCatalogId: string) => void }) => visible
+    ? <button type="button" data-testid="open-course-studio" onClick={() => onOpenCourseStudio("course_1")}>Open course studio</button>
+    : null,
+}))
 vi.mock("@/components/front/staff/StaffReportsPanel", () => ({ default: () => <div data-testid="reports-panel" /> }))
 vi.mock("@/components/front/staff/StaffApprovalsPanel", () => ({ default: () => <div data-testid="approvals-panel" /> }))
 vi.mock("@/components/front/staff/StaffTeamCalendarPanel", () => ({ default: () => <div data-testid="team-calendar" /> }))
@@ -151,6 +156,20 @@ describe("StaffUsersAdminView", () => {
     })
 
     expect(props.actions.onOpenAssistantConfig).toHaveBeenCalledTimes(1)
+  })
+
+  it("opens a linked Special Class source course in School Builder", async () => {
+    const props = createProps()
+    const course = { id: "course_1" }
+    const onEditCourse = vi.fn()
+    props.shell.activeNav = "special_classes"
+    props.boards.schoolWorkspace = { courseCatalog: { schoolCourses: [course], onEditCourse } } as never
+    const node = await renderView(props)
+
+    await act(async () => node.querySelector<HTMLButtonElement>("[data-testid='open-course-studio']")?.click())
+
+    expect(props.shell.handleNavSelection).toHaveBeenCalledWith("schedule")
+    expect(onEditCourse).toHaveBeenCalledWith(course)
   })
 
   it("uses a two-column desktop grid when no assistant rail column is reserved", async () => {

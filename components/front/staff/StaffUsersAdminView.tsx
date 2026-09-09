@@ -88,6 +88,13 @@ export default function StaffUsersAdminView({
   formatters,
   statusBanners,
 }: StaffUsersAdminViewProps) {
+  const openCourseStudio = (courseCatalogId: string) => {
+    const course = boards.schoolWorkspace.courseCatalog.schoolCourses.find((item) => item.id === courseCatalogId)
+    if (!course) return
+    shell.handleNavSelection("schedule")
+    boards.schoolWorkspace.courseCatalog.onEditCourse(course)
+  }
+
   return (
     <>
       <div
@@ -149,7 +156,7 @@ export default function StaffUsersAdminView({
           <StaffSchoolWorkspacePanel {...boards.schoolWorkspace} />
           <StaffPayrollControlPanel {...boards.payrollControl} />
           <StaffStudentsBoardPanel {...boards.studentsBoard} />
-          <StaffSpecialClassesPanel visible={shell.activeNav === "special_classes"} currentRole={statusBanners.currentRole} />
+          <StaffSpecialClassesPanel visible={shell.activeNav === "special_classes"} currentRole={statusBanners.currentRole} onOpenCourseStudio={openCourseStudio} />
           <StaffReportsPanel {...boards.reports} />
           <StaffApprovalsPanel {...boards.approvals} />
           <StaffTeamCalendarPanel {...boards.teamCalendar} />
