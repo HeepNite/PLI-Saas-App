@@ -189,44 +189,48 @@ const createPromoCash = async (input: { userId: string; linkedCourseSlug: string
   const linkedClass = resolveCurrentTerminalClass([{ ...linkedToday, availableTimes: [time] }], input.now)
   if (!linkedClass) return { error: "Unable to resolve linked class", status: 409 as const }
 
-  const result = await runSerializableTransaction(async (tx) => {
-    const session = await tx.classSession.upsert({
-      where: { courseSlug_startsAt: { courseSlug: linkedClass.slug, startsAt: linkedClass.startsAt } },
-      update: { title: linkedClass.title, durationMinutes: linkedClass.durationMinutes ?? 60 },
-      create: { courseSlug: linkedClass.slug, title: linkedClass.title, startsAt: linkedClass.startsAt, durationMinutes: linkedClass.durationMinutes ?? 60 },
+  let result
+  try {
+    result = await runSerializableTransaction(async (tx) => {
+      const session = await tx.classSession.upsert({
+        where: { courseSlug_startsAt: { courseSlug: linkedClass.slug, startsAt: linkedClass.startsAt } },
+        update: { title: linkedClass.title, durationMinutes: linkedClass.durationMinutes ?? 60 },
+        create: { courseSlug: linkedClass.slug, title: linkedClass.title, startsAt: linkedClass.startsAt, durationMinutes: linkedClass.durationMinutes ?? 60 },
+      })
+      const existingAttendance = await tx.attendance.findUnique({ where: { userId_sessionId: { userId: input.userId, sessionId: session.id } } })
+      const attendance = existingAttendance || await tx.attendance.create({
+        data: {
+          userId: input.userId,
+          sessionId: session.id,
+          status: "checked_in_no_package",
+          checkedInAt: input.now,
+          metadata: { source: "staff_fast_action_promo", linkedFromCourseSlug: input.linkedFromCourseSlug, qrDate: linkedClass.date, qrTime: linkedClass.time },
+        },
+      })
+      const slotMatch = await resolveSlotPurchase(tx, { userId: input.userId, courseSlug: linkedClass.slug, date: linkedClass.date, time: linkedClass.time, attendanceId: attendance.id })
+      if (slotMatch?.settled) throw new Error(COMPLETED_PURCHASE_ERROR)
+      const purchase = slotMatch
+        ? await backfillAttendanceId(tx, slotMatch.purchase, attendance.id)
+        : await tx.purchase.create({
+            data: {
+              userId: input.userId,
+              courseSlug: linkedClass.slug,
+              courseTitle: linkedClass.title,
+              amount: input.priceCents,
+              currency: "usd",
+              status: "pending",
+              participants: 1,
+              metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: PURCHASE_SOURCE.KIOSK, source: "staff_fast_action_promo", date: linkedClass.date, time: linkedClass.time, attendanceId: attendance.id, linkedFromCourseSlug: input.linkedFromCourseSlug },
+            },
+          })
+      return { attendance, purchase }
     })
-    const existingAttendance = await tx.attendance.findUnique({ where: { userId_sessionId: { userId: input.userId, sessionId: session.id } } })
-    const attendance = existingAttendance || await tx.attendance.create({
-      data: {
-        userId: input.userId,
-        sessionId: session.id,
-        status: "checked_in_no_package",
-        checkedInAt: input.now,
-        metadata: { source: "staff_fast_action_promo", linkedFromCourseSlug: input.linkedFromCourseSlug, qrDate: linkedClass.date, qrTime: linkedClass.time },
-      },
-    })
-    const existingPurchase = await tx.purchase.findFirst({
-      where: {
-        userId: input.userId,
-        courseSlug: linkedClass.slug,
-        AND: [{ metadata: { path: ["attendanceId"], equals: attendance.id } }, { metadata: { path: ["paymentChannel"], equals: "cash" } }],
-      },
-      orderBy: { createdAt: "asc" },
-    })
-    const purchase = existingPurchase || await tx.purchase.create({
-      data: {
-        userId: input.userId,
-        courseSlug: linkedClass.slug,
-        courseTitle: linkedClass.title,
-        amount: input.priceCents,
-        currency: "usd",
-        status: "pending",
-        participants: 1,
-        metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: PURCHASE_SOURCE.KIOSK, source: "staff_fast_action_promo", date: linkedClass.date, time: linkedClass.time, attendanceId: attendance.id, linkedFromCourseSlug: input.linkedFromCourseSlug },
-      },
-    })
-    return { attendance, purchase }
-  })
+  } catch (error) {
+    if (error instanceof Error && error.message === COMPLETED_PURCHASE_ERROR) {
+      return { error: COMPLETED_PURCHASE_MESSAGE, status: 409 as const, code: "completed_purchase" as const }
+    }
+    throw error
+  }
   return { mode: "promo_cash" as const, attendanceId: result.attendance.id, purchaseId: result.purchase.id, outstandingBalanceAddedCents: isOpenCashPurchase(result.purchase) }
 }
 
@@ -253,7 +257,7 @@ export async function POST(req: Request) {
       priceCents: Number(promo.priceCents),
       now,
     })
-    if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status })
+    if ("error" in result) return NextResponse.json({ error: result.error, ...("code" in result ? { code: result.code } : {}) }, { status: result.status })
     return NextResponse.json(result)
   }
 
@@ -319,7 +323,7 @@ export async function POST(req: Request) {
         now,
       })
     : null
-  if (promoResult && "error" in promoResult) return NextResponse.json({ error: promoResult.error }, { status: promoResult.status })
+  if (promoResult && "error" in promoResult) return NextResponse.json({ error: promoResult.error, ...("code" in promoResult ? { code: promoResult.code } : {}) }, { status: promoResult.status })
   const purchase = "purchase" in result ? result.purchase : null
   const packagePurchase = "packagePurchase" in result ? result.packagePurchase : null
   return NextResponse.json({
