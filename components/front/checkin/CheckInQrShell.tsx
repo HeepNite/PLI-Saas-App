@@ -67,9 +67,10 @@ export type CheckInQrShellProps = {
   checkInDisplayDate: string
   checkInDisplayTime: string
   checkInQrImage: string
+  terminalActiveClass?: TerminalPastClass
   terminalPastClasses?: TerminalPastClass[]
-  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
-  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
+  selectedTerminalPastClass?: TerminalPastClass | null
+  onTerminalPastClassSelect?: (selection: TerminalPastClass) => void
 
   // Context / QR prompt
   showContextWarning: boolean
@@ -229,6 +230,7 @@ export function CheckInQrShell({
   checkInDisplayDate,
   checkInDisplayTime,
   checkInQrImage,
+  terminalActiveClass,
   terminalPastClasses,
   selectedTerminalPastClass,
   onTerminalPastClassSelect,
@@ -386,11 +388,11 @@ export function CheckInQrShell({
           <div className={`${isTerminal ? "mt-8 min-h-0 overflow-hidden" : "mt-6"} flex flex-1 flex-col justify-center`}>
             {showCourseCardPanel && showQrPanel && (
               <CourseCardPanel
-                cardImage={checkInCardImage}
-                courseTitle={checkInDisplayCourse?.title || "Current course"}
-                category={checkInCardCategory}
+                cardImage={terminalActiveClass?.imageUrl || checkInCardImage}
+                courseTitle={terminalActiveClass?.title || checkInDisplayCourse?.title || "Current course"}
+                category={terminalActiveClass?.category || checkInCardCategory}
                 badge={checkInCardBadge}
-                duration={checkInCardDuration}
+                duration={terminalActiveClass?.durationMinutes ? `${terminalActiveClass.durationMinutes} min` : checkInCardDuration}
                 students={checkInCardStudents}
                 description={checkInCardDescription}
                 teacher={checkInCardTeacher}

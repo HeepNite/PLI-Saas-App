@@ -125,9 +125,10 @@ export type CheckInQrClientProps = {
   terminalName?: string
   terminalLocation?: string
   qrPathOverride?: string
+  terminalActiveClass?: TerminalPastClass
   terminalPastClasses?: TerminalPastClass[]
-  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
-  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
+  selectedTerminalPastClass?: TerminalPastClass | null
+  onTerminalPastClassSelect?: (selection: TerminalPastClass) => void
   /** When false, allows terminal recommendation to look ahead to future days. Default: true for terminal. */
   terminalTodayOnly?: boolean
   /** Optional simulated time override for test mode (e.g. kiosk rotation testing) */
