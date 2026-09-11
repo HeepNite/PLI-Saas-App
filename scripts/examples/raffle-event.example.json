@@ -1,0 +1,20 @@
+{
+  "slug": "ple-launch-2026-09-12",
+  "title": "PLE Launch Night",
+  "brand": "PLE",
+  "eventDate": "2026-09-12",
+  "excludePreviousWinners": true,
+  "videoUrl": "/raffle/draw.mp4",
+  "draws": [
+    {
+      "order": 1,
+      "prizeLabel": "Grand Prize — free month",
+      "drawAt": "2026-09-12T23:30:00-04:00"
+    },
+    {
+      "order": 2,
+      "prizeLabel": "Runner-up — free class pack",
+      "drawAt": "2026-09-12T23:45:00-04:00"
+    }
+  ]
+}
