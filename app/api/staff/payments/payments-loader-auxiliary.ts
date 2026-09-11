@@ -170,9 +170,9 @@ export const loadAuxiliaryData = async (input: AuxiliaryDataInput) => {
     courseSlugs.length
       ? prisma.courseCatalog.findMany({
           where: { slug: { in: courseSlugs } },
-          select: { slug: true, location: true },
+          select: { slug: true, location: true, dropInPriceCents: true },
         })
-      : Promise.resolve([] as Array<{ slug: string; location: string | null }>),
+      : Promise.resolve([] as Array<{ slug: string; location: string | null; dropInPriceCents: number | null }>),
     (() => {
       const withSlot = scopedPurchases.filter((item) => item.classStartsAt)
       if (!withSlot.length || !userIds.length || !courseSlugs.length) {

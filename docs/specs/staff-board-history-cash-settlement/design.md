@@ -19,26 +19,27 @@ Use the current payment-board state hook, card presentation component, and `POST
 3. Represent Collected as board ordering state, independent of the existing filter state. Clicking it must not update any filter, query scope, selection, or payment state.
 4. Apply the existing filters first. When Collected ordering is active, derive each visible student's accumulated spend from the payment rows included in that filtered scope, then perform a stable descending sort by the established money value.
 5. Preserve pre-sort board order for equal accumulated amounts and retain zero-spend students when the active filter includes them. The Collected active style and active filter style must be independently observable.
-6. Keep summary filtering and ordering separate from History settlement eligibility: every completion path still derives eligibility from the exact persisted unresolved cash record and the API validates it again.
+6. Keep summary filtering and ordering separate from History settlement eligibility: every completion path derives eligibility from the exact persisted unresolved cash record or unresolved synthetic attendance row, and the API validates it again.
 
 ## API design
 
 1. Retain request parsing, staff guard, authorization, rate limit, and the 500-ID limit.
-2. Load the submitted purchases by ID, then classify each exact record from persisted channel and settlement state.
+2. Separate synthetic `att-<attendanceId>` inputs from purchase IDs. Load submitted purchases by ID, then classify each exact purchase from persisted channel and settlement state.
 3. Build the transaction update list from eligible cash records only. Do not create an update for any skipped record.
-4. Limit zero-amount adjustment, package synchronization, attendance creation, and credit reservation to the same eligible-record list.
-5. Return actual updated count plus deterministic skip information so the client can refresh and reconcile without treating skipped records as settled.
+4. Limit zero-amount adjustment and settlement mutation to the eligible-record list. Missing, non-cash, and Stripe-backed records run no downstream work. Already-settled cash retries may join a separate fix-forward list for the existing idempotent attendance, package-sync, and credit side effects, while preserving their settlement audit metadata.
+5. Preserve the attendance-only path for `mark_paid`: resolve attendance and drop-in price, then create the settled cash purchase and link the attendance in one transaction. Isolate failures per attendance.
+6. Return actual updated count plus deterministic skip information so the client can refresh and reconcile without treating skipped records as settled.
 
 ## Test design
 
 | Layer | Coverage |
 | --- | --- |
-| Client unit/component | History renders a selectable control for an unresolved cash row; it does not render one for card/Stripe rows with an outstanding balance; selection survives History pruning only for eligible cash IDs. |
-| Client integration/hook | Completing an eligible History selection posts only its purchase ID, refreshes the active History query on success, and clears/reconciles the selection. |
+| Client unit/component | History renders a selectable control for unresolved cash and synthetic attendance rows; it does not render one for card/Stripe or ordinary unknown-channel rows; selection survives History pruning only for eligible IDs. |
+| Client integration/hook | Completing an eligible History selection posts only its exact purchase or synthetic attendance ID, refreshes the active History query on success, and clears/reconciles the selection. |
 | Client summary controls | Students sets all; Paid and Pending set the existing status filters; Packages and Drop-in set the existing category filters. Collected changes no filter or selection and activates descending accumulated-spend ordering. |
 | Client ordering | Collected orders only the current filtered visible scope; filter changes recompute the ordering. Equal spend preserves pre-sort order, zero-spend students remain visible after positive-spend students, and filter/Collected active styles remain independent. |
-| API route | Eligible unresolved cash records are updated and retain existing cash side effects. |
-| API route safety | Missing, card, Stripe-backed, and already-settled IDs are skipped; they receive no status, metadata, amount, package, or attendance mutation; response counts and skip reasons are deterministic. |
+| API route | Eligible unresolved cash records are updated and retain existing cash side effects; synthetic attendance debt creates and atomically links one settled cash purchase. |
+| API route safety | Missing, card, and Stripe-backed IDs receive no status, metadata, amount, package, or attendance mutation. Already-settled cash IDs receive no settlement mutation or update count, preserve settlement audit metadata, and may rerun existing idempotent fix-forward side effects. Response counts and skip reasons are deterministic. |
 | Regression | A mixed batch updates only eligible cash records and does not use a user's outstanding balance to select or mutate a different record. |
 
 ## Verification constraints

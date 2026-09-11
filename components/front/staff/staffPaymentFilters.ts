@@ -72,6 +72,15 @@ export const matchesStripeStatus = (
   return !isPaymentPaidForUi(row)
 }
 
+// Synthetic attendance debt is settled by creating a cash purchase in the bulk route.
+// Ordinary unknown-channel purchases remain outside the cash-settlement boundary.
+export const isOpenCashSettlementRow = (
+  row: Pick<PaymentRow, "id" | "paymentChannel" | "settlementStatus">
+) => {
+  if (row.settlementStatus === "paid") return false
+  return row.paymentChannel === "cash" || row.id.startsWith("att-")
+}
+
 export const matchesStudentSearchQuery = (
   row: Pick<PaymentRow, "customerName" | "customerEmail" | "customerPhone" | "courseTitle" | "courseSlug" | "location" | "activePackage">,
   searchTerm: string

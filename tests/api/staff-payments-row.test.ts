@@ -46,6 +46,7 @@ const emptyContext = {
   dbPhoneByUserId: new Map<string, string>(),
   avatarByUserId: new Map<string, string>(),
   courseLocationBySlug: new Map<string | null, string | null>(),
+  dropInPriceBySlug: new Map<string | null, number>(),
   pointsByUser: new Map<string, number>(),
   pointsHistoryByUser: new Map<string, unknown[]>(),
   attendanceById: new Map(),
@@ -72,6 +73,7 @@ describe("buildStaffPaymentResponseRow", () => {
       dbPhoneByUserId: new Map([["user_123", "555-0100"]]),
       pointsByUser: new Map([["user_123", 12]]),
       courseLocationBySlug: new Map([["salsa", "Studio A"]]),
+      dropInPriceBySlug: new Map<string | null, number>(),
     })
 
     expect(row).toMatchObject({
@@ -96,6 +98,24 @@ describe("buildStaffPaymentResponseRow", () => {
         needsEnrollment: false,
       },
     })
+  })
+
+  it("exposes the course drop-in price as dueAmountCents for unpaid zero-amount rows", () => {
+    const row = buildStaffPaymentResponseRow(
+      {
+        ...baseItem,
+        settlementStatus: "pending",
+        purchase: { ...baseItem.purchase, amount: 0, status: "pending" },
+      },
+      {
+        ...emptyContext,
+        dropInPriceBySlug: new Map<string | null, number>([["salsa", 2000]]),
+      }
+    )
+
+    expect(row.amount).toBe(0)
+    expect(row.dueAmountCents).toBe(2000)
+    expect(row.classPaid).toBe(false)
   })
 
   it("preserves a paid cash settlement despite a separate outstanding balance", () => {

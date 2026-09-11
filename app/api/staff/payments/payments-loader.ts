@@ -35,6 +35,7 @@ export type StaffPaymentsLoadResult = {
     dbPhoneByUserId: Map<string, string>
     avatarByUserId: Map<string, string>
     courseLocationBySlug: Map<string | null, string | null>
+    dropInPriceBySlug: Map<string | null, number>
     pointsByUser: Map<string, number>
     pointsHistoryByUser: Map<string, Array<{
       id: string
@@ -214,8 +215,12 @@ export const loadStaffPaymentsData = async (
   )
 
   const courseLocationBySlug = new Map<string | null, string | null>()
+  const dropInPriceBySlug = new Map<string | null, number>()
   for (const row of locations) {
     courseLocationBySlug.set(row.slug, row.location || null)
+    if (typeof row.dropInPriceCents === "number" && row.dropInPriceCents > 0) {
+      dropInPriceBySlug.set(row.slug, row.dropInPriceCents)
+    }
   }
 
   const packagePurchaseIdByPurchaseId = new Map<string, string>()
@@ -329,6 +334,7 @@ export const loadStaffPaymentsData = async (
       dbPhoneByUserId,
       avatarByUserId,
       courseLocationBySlug,
+      dropInPriceBySlug,
       pointsByUser,
       pointsHistoryByUser,
       attendanceById,
