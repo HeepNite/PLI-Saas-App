@@ -163,8 +163,23 @@ export type OutstandingBalancePurchase = {
   stripeCheckoutSessionId: string | null
 }
 
-const TERMINAL_UNPAID_CARD_STATUSES = new Set(["expired", "failed", "cancelled", "canceled", "refunded"])
+// Stripe/kiosk-terminal statuses for a card attempt that never completed — no money ever moved.
+// Both "cancelled" and "canceled" spellings appear in stored purchase data.
+const NEVER_COMPLETED_CARD_ATTEMPT_STATUSES = new Set(["expired", "failed", "cancelled", "canceled"])
 
+const isNeverCompletedCardAttempt = (paymentChannel: PaymentChannel, settlementStatus: SettlementStatus, status: unknown) =>
+  paymentChannel === PAYMENT_CHANNEL.CARD
+  && settlementStatus !== SETTLEMENT_STATUS.PAID
+  && NEVER_COMPLETED_CARD_ATTEMPT_STATUSES.has(asText(status).toLowerCase())
+
+const isRefundedCard = (paymentChannel: PaymentChannel, status: unknown) =>
+  paymentChannel === PAYMENT_CHANNEL.CARD && asText(status).toLowerCase() === PURCHASE_STATUS.REFUNDED
+
+/**
+ * A card attempt where no money ever moved (expired, failed, cancelled/canceled while unpaid).
+ * This is the ONLY predicate the staff payments board filter uses to hide rows —
+ * refunded card purchases are money that did move, so they stay visible there.
+ */
 export const isTerminalUnpaidCardAttempt = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
   const paymentChannel = normalizePaymentChannel({
     metadata: purchase.metadata,
@@ -174,9 +189,19 @@ export const isTerminalUnpaidCardAttempt = <TPurchase extends OutstandingBalance
   })
   const settlementStatus = normalizeSettlementStatus(asObject(purchase.metadata).settlementStatus)
 
-  return paymentChannel === PAYMENT_CHANNEL.CARD
-    && settlementStatus !== SETTLEMENT_STATUS.PAID
-    && TERMINAL_UNPAID_CARD_STATUSES.has(asText(purchase.status).toLowerCase())
+  return isNeverCompletedCardAttempt(paymentChannel, settlementStatus, purchase.status)
+}
+
+/** A card purchase that was refunded — money moved and then moved back; it is not outstanding debt. */
+export const isRefundedCardPurchase = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
+  const paymentChannel = normalizePaymentChannel({
+    metadata: purchase.metadata,
+    status: purchase.status,
+    stripePaymentIntentId: purchase.stripePaymentIntentId,
+    stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
+  })
+
+  return isRefundedCard(paymentChannel, purchase.status)
 }
 
 export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
@@ -193,7 +218,8 @@ export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(pur
     settlementStatus,
     isOpen:
       settlementStatus !== SETTLEMENT_STATUS.PAID
-      && !isTerminalUnpaidCardAttempt(purchase)
+      && !isNeverCompletedCardAttempt(paymentChannel, settlementStatus, purchase.status)
+      && !isRefundedCard(paymentChannel, purchase.status)
       && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === PAYMENT_CHANNEL.CASH),
   }
 }

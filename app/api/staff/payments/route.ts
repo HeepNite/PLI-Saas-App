@@ -47,6 +47,8 @@ export async function GET(req: Request) {
   const { scopedPurchases, historyTruncated, classOptions, rowContext } =
     await loadStaffPaymentsData(paymentsRequest, todayWindow)
 
+  // Hide never-completed card attempts (expired/failed/cancelled while unpaid) from the board.
+  // Refunded card purchases are money that did move, so they stay visible.
   const boardPurchases = paymentsRequest.mode === "userHistory"
     ? scopedPurchases
     : scopedPurchases.filter((item) => !isTerminalUnpaidCardAttempt({
