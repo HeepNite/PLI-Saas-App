@@ -66,7 +66,8 @@ export async function runRaffleSeed(config: RaffleSeedConfig, deps: RunRaffleSee
   const { prisma: db, logger, rotateToken, baseUrl } = deps
 
   const existingEvent = await db.raffleEvent.findUnique({ where: { slug: config.slug } })
-  const shouldGenerateToken = !existingEvent || rotateToken
+  // Empty string counts as "no usable token" — never mistaken for "already set" forever.
+  const shouldGenerateToken = rotateToken || !existingEvent?.screenTokenHash
   const tokenPlan = shouldGenerateToken ? generateRaffleScreenToken() : null
 
   const eventDate = nyMidnightUtc(config.eventDate)
@@ -80,7 +81,13 @@ export async function runRaffleSeed(config: RaffleSeedConfig, deps: RunRaffleSee
       eventDate,
       excludePreviousWinners: config.excludePreviousWinners,
       videoUrl: config.videoUrl,
-      screenTokenHash: tokenPlan?.hash ?? "",
+      // Guard on `existingEvent`, not just `tokenPlan` — this object is built eagerly either way.
+      screenTokenHash:
+        !existingEvent && !tokenPlan
+          ? (() => {
+              throw new Error("[raffle-seed] refusing to create an event without a screen token")
+            })()
+          : (tokenPlan?.hash ?? ""),
     },
     update: {
       title: config.title,
@@ -91,6 +98,13 @@ export async function runRaffleSeed(config: RaffleSeedConfig, deps: RunRaffleSee
       ...(tokenPlan ? { screenTokenHash: tokenPlan.hash } : {}),
     },
   })
+
+  // Print the raw token now, before a draw write can interrupt the run — never re-printable.
+  if (tokenPlan) {
+    logger.log(
+      `[raffle-seed] tablet URL (raw token shown once, never re-printable): ${baseUrl}/api/raffle/${event.slug}/screen-session?key=${tokenPlan.raw}`
+    )
+  }
 
   const existingDraws = await db.raffleDraw.findMany({ where: { eventId: event.id } })
   const plan = planDrawUpserts(config.draws, existingDraws)

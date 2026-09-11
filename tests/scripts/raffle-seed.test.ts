@@ -74,6 +74,16 @@ describe("runRaffleSeed", () => {
     expect(log.mock.calls.some((call) => String(call[0]).includes("already set"))).toBe(true)
   })
 
+  it("generates a new token when the existing event has an empty screenTokenHash", async () => {
+    const db = createMockDb({ existingEvent: { id: "event-1", screenTokenHash: "" } })
+    const log = vi.fn()
+
+    await runRaffleSeed(config, { prisma: db, logger: { log, warn: vi.fn(), error: vi.fn() }, rotateToken: false, baseUrl: "https://example.com" })
+
+    const upsertArgs = db.raffleEvent.upsert.mock.calls[0][0]
+    expect(upsertArgs.update.screenTokenHash).toMatch(/^[0-9a-f]{64}$/)
+  })
+
   it("forces a new token when --rotate-token is set even if one already exists", async () => {
     const db = createMockDb({ existingEvent: { id: "event-1", screenTokenHash: "existing-hash" } })
     const log = vi.fn()
