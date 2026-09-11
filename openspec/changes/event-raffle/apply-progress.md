@@ -131,15 +131,59 @@ into a controlled `<input>` from raw DOM requires writing through the native `HT
 setter before dispatching `"input"` — assigning `.value` directly is silently ignored by React's controlled-input
 change detection in this mount style.
 
+## PR4a — Draw domain + draw/session/state routes (`feat/event-raffle-4a-draw-api`, targets `feat/event-raffle-3b-entry-page-tests`)
+
+Three work-unit commits, each pairing a module (or module group) with its own tests so the branch can be
+split at a commit boundary if needed:
+
+| Commit | Content | Files | Authored lines |
+|---|---|---|---|
+| `fbd2f02` | Draw domain | `lib/raffle/draw.ts`, `tests/lib/raffle/draw.test.ts` | 283 |
+| `d1cf050` | Screen token + winner masking + screen state | `lib/raffle/{screen-token,winner-view,screen-state}.ts` + their tests | 265 |
+| `5754f3e` | Route handlers | `app/api/raffle/[slug]/{screen-session,screen-state}/route.ts`, `app/api/raffle/[slug]/draws/[drawId]/draw/route.ts` + their tests | 442 |
+
+**Total authored diff vs `feat/event-raffle-3b-entry-page-tests`** (excl. lockfile/openspec): 13 files, 990
+insertions, 0 deletions — well over the 400-line budget and over `tasks.md`'s own PR4a estimate (230–300).
+This was expected: `design.md` itself flagged "PR4 as one unit forecast 350–400+" as the reason for the
+4a/4b split, and the apply prompt for this pass said the slice "will likely exceed" budget. No task scope
+grew beyond 4a.1–4a.9; per the apply-time instruction no test/comment/docs content was trimmed to fit.
+Commits 1 and 2 individually clear the 400-line budget; commit 3 (all three routes + their tests) is 442
+lines, ~10% over on its own. Two next steps are available and neither was taken unilaterally: (a) split
+commit 3 into its own `feat/event-raffle-4a2-draw-routes`-style sub-branch (or split the three routes across
+two smaller commits/branches), or (b) accept `size:exception` for the whole `feat/event-raffle-4a-draw-api`
+branch, or for just its third commit. Nothing was pushed and no PR was opened.
+
+**Design decision on test file layout**: `tasks.md`'s 4a.8/4a.9 name only `tests/api/raffle-draw.test.ts`
+and `tests/api/raffle-screen.test.ts`, mixing domain-level cases (runDraw claim/replay/exclusion behavior,
+`screenTokenMatches`, `toWinnerView`, `currentDrawId`) with route-level HTTP-status mapping. Per the
+apply-time work-unit-commits instruction ("keep each module's tests in the same commit as that module"),
+domain-level cases were split into `tests/lib/raffle/{draw,screen-token,winner-view,screen-state}.test.ts`
+(committed alongside their modules in commits 1–2) and only the route HTTP-mapping cases stayed in
+`tests/api/{raffle-draw,raffle-screen}.test.ts` (commit 3). All cases named in 4a.8/4a.9 are covered; none
+were dropped.
+
+**`runDraw` typing convention**: `lib/raffle/draw.ts` types its transaction parameter as `Prisma.TransactionClient`
+(not a narrow interface), matching `reservePackageCreditForAttendanceTx` in `lib/packages.ts`. Its test builds
+a plain mock object and casts it `as never` at each call site — this is the established convention in this
+repo (see `tests/packages.test.ts`), not a narrow-interface pattern like `MigrateTransactionClient` in
+`scripts/migrate-clerk-instance.ts` (which is cast with `prisma as unknown as MigratePrismaClient` at its own
+call site, confirming direct structural assignment of the real Prisma client to a hand-rolled narrow type is
+not relied on in this codebase either).
+
+**Verification**:
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run tests/lib/raffle tests/api` → 1147/1147 passed (111 test files)
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
+
 ## Task Status
 
 - [x] 1.1–1.6 (PR1, all sub-slices 1a/1b/1c) — see `tasks.md` for per-task PR attribution.
 - [x] 2.1–2.5 (PR2, public entry API) — see above; budget/branch-split decision pending.
 - [x] 3.1–3.3 (PR3, public entry page) — see above; budget/split decision pending.
-- [ ] PR4a — Draw domain + routes (4a.1–4a.9) — not started.
+- [x] 4a.1–4a.9 (PR4a, draw domain + routes) — see above; budget/branch-split decision pending.
 - [ ] PR4b — Screen UI (4b.1–4b.4) — not started.
 
 ## Worktree end state
 
-Checked out on `feat/event-raffle-3-entry-page` (tip `f8db3e0`, base `feat/event-raffle-2b-entry-route` tip
-`9f466bd`). No branches pushed; nothing opened as a PR.
+Checked out on `feat/event-raffle-4a-draw-api` (tip `5754f3e`, base `feat/event-raffle-3b-entry-page-tests`).
+No branches pushed; nothing opened as a PR.
