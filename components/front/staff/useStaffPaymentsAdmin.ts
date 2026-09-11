@@ -560,6 +560,10 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
         setError(typeof data?.error === "string" ? data.error : "Failed to update settlement in bulk")
         return
       }
+      if (data?.updatedCount === 0) {
+        setError("No selected payments were eligible for cash settlement")
+        return
+      }
       await onSuccess?.()
       dispatchSelection({ type: "SELECTION/DESELECT_IDS", ids })
     } catch {

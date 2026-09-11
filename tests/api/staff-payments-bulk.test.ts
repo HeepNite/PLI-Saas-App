@@ -217,6 +217,36 @@ describe("staff payments bulk route", () => {
     expect(mockSyncPackagePurchase).not.toHaveBeenCalled()
   })
 
+  it("updates a cash purchase marked paid when its settlement metadata remains pending", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      {
+        id: "purchase_cash_paid_but_pending_settlement",
+        userId: "user_2",
+        courseSlug: "salsa-evening",
+        packageId: null,
+        amount: 2500,
+        status: "paid",
+        createdAt: new Date("2026-03-01T12:00:00.000Z"),
+        metadata: { paymentChannel: "cash", settlementStatus: "pending" },
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    const { POST } = await import("@/app/api/staff/payments/bulk/route")
+    const res = await POST(
+      new Request("http://localhost/api/staff/payments/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", ids: ["purchase_cash_paid_but_pending_settlement"] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.update).toHaveBeenCalledTimes(1)
+    expect(await res.json()).toMatchObject({ updatedCount: 1, skipped: [] })
+  })
+
   it("is idempotent when package credit was already reserved", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       {

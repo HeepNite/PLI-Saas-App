@@ -156,7 +156,11 @@ export const resolveStudentCardPayments = (
   if (searchMatchedPayments.length === 0) return []
 
   const statusMatchedPayments = searchMatchedPayments.filter((payment) => matchesStripeStatus(payment, options.paymentsFilter))
-  return statusMatchedPayments.length > 0 ? statusMatchedPayments : searchMatchedPayments
+  // History must honor the Paid/Pending filter exactly, so an empty result stays empty;
+  // outside History, search keeps the matched student visible even when the status
+  // filter excludes every one of their payments.
+  if (statusMatchedPayments.length > 0 || options.isHistoryMode) return statusMatchedPayments
+  return searchMatchedPayments
 }
 
 export const buildPaymentsRequestSearchParams = (input: {
