@@ -60,7 +60,7 @@ describe("runRaffleSeed", () => {
     expect(db.raffleEvent.upsert).toHaveBeenCalledTimes(1)
     const upsertArgs = db.raffleEvent.upsert.mock.calls[0][0]
     expect(upsertArgs.create.screenTokenHash).toMatch(/^[0-9a-f]{64}$/)
-    expect(log.mock.calls.some((call) => String(call[0]).includes("tablet URL"))).toBe(true)
+    expect(log.mock.calls.filter((call) => String(call[0]).includes("tablet URL"))).toHaveLength(1)
   })
 
   it("does not regenerate the token when the event already has one and --rotate-token is not set", async () => {
@@ -92,7 +92,7 @@ describe("runRaffleSeed", () => {
 
     const upsertArgs = db.raffleEvent.upsert.mock.calls[0][0]
     expect(upsertArgs.update.screenTokenHash).toMatch(/^[0-9a-f]{64}$/)
-    expect(log.mock.calls.some((call) => String(call[0]).includes("tablet URL"))).toBe(true)
+    expect(log.mock.calls.filter((call) => String(call[0]).includes("tablet URL"))).toHaveLength(1)
   })
 
   it("skips and reports a drawn draw while updating an open one on re-seed", async () => {

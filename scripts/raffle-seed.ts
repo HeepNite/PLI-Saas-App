@@ -134,11 +134,7 @@ export async function runRaffleSeed(config: RaffleSeedConfig, deps: RunRaffleSee
   logger.log(`[raffle-seed] event "${event.slug}" ready.`)
   logger.log(`[raffle-seed] public URL: ${baseUrl}/raffle/${event.slug}`)
 
-  if (tokenPlan) {
-    logger.log(
-      `[raffle-seed] tablet URL (raw token shown once, never re-printable): ${baseUrl}/api/raffle/${event.slug}/screen-session?key=${tokenPlan.raw}`
-    )
-  } else {
+  if (!tokenPlan) {
     logger.log(
       "[raffle-seed] screen token already set — re-run with --rotate-token to issue a new tablet URL (the raw token cannot be re-printed once generated)."
     )
