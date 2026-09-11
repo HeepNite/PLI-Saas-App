@@ -9,7 +9,7 @@ const mockFindConsecutiveLinkBetween = vi.fn()
 const mockTx = {
   classSession: { upsert: vi.fn() },
   attendance: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-  purchase: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+  purchase: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
 }
 
 const mockPrisma = {
@@ -17,7 +17,7 @@ const mockPrisma = {
   attendance: { findUnique: vi.fn() },
   courseCatalog: { findMany: vi.fn(), findUnique: vi.fn() },
   packagePurchase: { findMany: vi.fn() },
-  purchase: { findFirst: vi.fn(), findMany: vi.fn() },
+  purchase: { findMany: vi.fn() },
   user: { findUnique: vi.fn() },
   courseLink: { findMany: vi.fn() },
   $transaction: vi.fn(async (callback: (tx: typeof mockTx) => unknown) => callback(mockTx)),
@@ -82,7 +82,6 @@ describe("POST /api/staff/students/fast-class-action", () => {
     mockPrisma.classSession.findUnique.mockReset().mockResolvedValue(null)
     mockPrisma.attendance.findUnique.mockReset().mockResolvedValue(null)
     mockPrisma.packagePurchase.findMany.mockReset().mockResolvedValue([])
-    mockPrisma.purchase.findFirst.mockReset().mockResolvedValue(null)
     mockPrisma.purchase.findMany.mockReset().mockResolvedValue([])
     mockPrisma.user.findUnique.mockReset().mockResolvedValue({ id: "user_1", email: "student@example.com", name: "Student", phone: "15551234567" })
     mockPrisma.courseLink.findMany.mockReset().mockResolvedValue([])
@@ -91,7 +90,6 @@ describe("POST /api/staff/students/fast-class-action", () => {
     mockTx.attendance.findUnique.mockReset().mockResolvedValue(null)
     mockTx.attendance.create.mockReset().mockResolvedValue({ id: "attendance_1", status: "checked_in_no_package" })
     mockTx.attendance.update.mockReset()
-    mockTx.purchase.findFirst.mockReset().mockResolvedValue(null)
     mockTx.purchase.findMany.mockReset().mockResolvedValue([])
     mockTx.purchase.create.mockReset().mockResolvedValue({ id: "purchase_1", amount: 2000 })
     mockTx.purchase.update.mockReset()
@@ -518,7 +516,11 @@ describe("POST /api/staff/students/fast-class-action", () => {
       availableTimes: ["20:00"],
     })
     mockTx.attendance.findUnique.mockResolvedValue({ id: "promo_attendance_existing", status: "checked_in_no_package" })
-    mockTx.purchase.findFirst.mockResolvedValue({ id: "promo_purchase_existing", amount: 1000 })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "promo_purchase_existing", userId: "user_1", amount: 1000, status: "pending",
+      metadata: { paymentChannel: "cash", settlementStatus: "pending", attendanceId: "promo_attendance_existing" },
+      stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
 
     const res = await postFastAction({
       userId: "user_1",
@@ -539,9 +541,10 @@ describe("POST /api/staff/students/fast-class-action", () => {
     })
     expect(mockTx.attendance.create).not.toHaveBeenCalled()
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.update).not.toHaveBeenCalled()
   })
 
-  it("does not create a new promo balance when accepted promo was already paid", async () => {
+  it("blocks the promo add-on with completed_purchase when its linked slot was already paid", async () => {
     mockFindConsecutiveLinkBetween.mockResolvedValue({
       courseSlugA: "salsa-beginner",
       courseSlugB: "bachata-beginner",
@@ -554,7 +557,46 @@ describe("POST /api/staff/students/fast-class-action", () => {
       availableTimes: ["20:00"],
     })
     mockTx.attendance.findUnique.mockResolvedValue({ id: "promo_attendance_existing", status: "checked_in_no_package" })
-    mockTx.purchase.findFirst.mockResolvedValue({ id: "promo_purchase_paid", amount: 1000, status: "paid" })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "promo_purchase_paid", userId: "user_1", amount: 1000, status: "paid",
+      metadata: { paymentChannel: "cash" }, stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
+
+    const res = await postFastAction({
+      userId: "user_1",
+      acceptConsecutive: true,
+      promo: {
+        linkedCourseSlug: "bachata-beginner",
+        linkedFromCourseSlug: "salsa-beginner",
+        priceCents: 1000,
+      },
+    })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      code: "completed_purchase",
+      error: "This student already has a completed purchase for this class.",
+    })
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("creates a new promo purchase when only a card-pending purchase exists for the linked slot", async () => {
+    mockFindConsecutiveLinkBetween.mockResolvedValue({
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "bachata-beginner",
+      active: true,
+    })
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({
+      ...course,
+      slug: "bachata-beginner",
+      title: "Bachata Beginner",
+      availableTimes: ["20:00"],
+    })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "promo_purchase_card_pending", userId: "user_1", amount: 1000, status: "pending",
+      metadata: {}, stripePaymentIntentId: null, stripeCheckoutSessionId: "cs_456",
+    }])
+    mockTx.purchase.create.mockResolvedValue({ id: "promo_purchase_1", amount: 1000 })
 
     const res = await postFastAction({
       userId: "user_1",
@@ -567,13 +609,7 @@ describe("POST /api/staff/students/fast-class-action", () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body).toMatchObject({
-      mode: "promo_cash",
-      attendanceId: "promo_attendance_existing",
-      purchaseId: "promo_purchase_paid",
-    })
-    expect(body.outstandingBalanceAddedCents).toBeUndefined()
-    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+    await expect(res.json()).resolves.toMatchObject({ mode: "promo_cash", purchaseId: "promo_purchase_1" })
+    expect(mockTx.purchase.create).toHaveBeenCalled()
   })
 })
