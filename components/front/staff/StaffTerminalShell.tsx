@@ -256,6 +256,8 @@ export default function StaffTerminalShell({
       const date = fetchDateKeyRef.current ?? getStudioDateKey(effectiveNow)
       return sortTerminalSessions(todayClasses.flatMap((cls) => cls.availableTimes.map((time) => ({
         courseSlug: cls.slug,
+        kind: cls.kind,
+        specialClassSlug: cls.specialClassSlug,
         title: cls.title,
         date,
         time,
@@ -263,6 +265,8 @@ export default function StaffTerminalShell({
         level: cls.level,
         category: cls.category,
         imageUrl: cls.coverImageUrl,
+        dropInPriceCents: cls.dropInPriceCents,
+        currency: cls.currency,
         qrImageUrl: buildCheckInQrImageUrl({ origin, courseSlug: cls.slug, date, time, durationMinutes: cls.durationMinutes ?? 60 }),
       }))))
     },
@@ -399,16 +403,16 @@ export default function StaffTerminalShell({
             time: currentSession.time,
             durationMinutes: currentSession.durationMinutes ?? 55,
           }}
-          forcedCoursePresentation={currentSlot.item.kind === "special" && currentSlot.item.specialClassSlug && currentSlot.item.dropInPriceCents !== null && currentSlot.item.currency ? {
+          forcedCoursePresentation={currentSession.kind === "special" && currentSession.specialClassSlug && currentSession.dropInPriceCents !== null && currentSession.currency ? {
             kind: "special",
-            title: currentSlot.item.title,
-            imageUrl: currentSlot.item.coverImageUrl,
-            durationMinutes: currentSlot.item.durationMinutes,
-            category: currentSlot.item.category,
-            level: currentSlot.item.level,
-            specialClassSlug: currentSlot.item.specialClassSlug,
-            priceCents: currentSlot.item.dropInPriceCents,
-            currency: currentSlot.item.currency,
+            title: currentSession.title,
+            imageUrl: currentSession.imageUrl,
+            durationMinutes: currentSession.durationMinutes,
+            category: currentSession.category,
+            level: currentSession.level,
+            specialClassSlug: currentSession.specialClassSlug,
+            priceCents: currentSession.dropInPriceCents,
+            currency: currentSession.currency,
           } : undefined}
           shellVariant="terminal"
           terminalName={terminal.name}
@@ -459,11 +463,15 @@ export default function StaffTerminalShell({
 }
 
 type TerminalSession = TerminalSessionIdentity & {
+  kind?: "special"
+  specialClassSlug?: string
   title: string
   durationMinutes: number | null
   level: string | null
   category: string | null
   imageUrl: string | null
+  dropInPriceCents: number | null
+  currency?: string
   qrImageUrl: string
 }
 
