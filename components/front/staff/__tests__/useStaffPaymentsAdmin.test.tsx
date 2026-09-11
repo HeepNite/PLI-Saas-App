@@ -411,4 +411,63 @@ describe("useStaffPaymentsAdmin", () => {
       vi.useRealTimers()
     }
   })
+
+  it("opening a history popover with a card-style inline anchor ref does not loop renders", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ items: [] }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    currentInput = createInput()
+
+    // Mirrors PaymentStudentCard: an inline ref callback re-attaches on every
+    // render and re-dispatches the anchor while the popover is open.
+    function CardLikeHarness() {
+      captured = useStaffPaymentsAdmin(currentInput)
+      const admin = captured
+      return (
+        <button
+          ref={(el) => {
+            if (el && admin.paymentHistoryStudentId === "user-1") {
+              admin.setPaymentHistoryAnchor(el)
+            }
+          }}
+          onClick={() => {
+            admin.setPaymentHistoryStudentId("user-1")
+            admin.setAttendanceHistoryStudentId(null)
+            admin.setAttendanceHistoryAnchor(null)
+          }}
+        >
+          Pmt History
+        </button>
+      )
+    }
+
+    await act(async () => {
+      root!.render(<CardLikeHarness />)
+    })
+
+    const button = container.querySelector("button")!
+    await act(async () => {
+      button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }))
+    })
+
+    expect(captured!.paymentHistoryStudentId).toBe("user-1")
+    expect(captured!.paymentHistoryAnchor).toBe(button)
+
+    // Closing clears both fields in one handler; a stale-closure combined
+    // dispatch used to resurrect the student id and reopen the popover forever.
+    await act(async () => {
+      captured!.setPaymentHistoryStudentId(null)
+      captured!.setPaymentHistoryAnchor(null)
+    })
+
+    expect(captured!.paymentHistoryStudentId).toBeNull()
+    expect(captured!.paymentHistoryAnchor).toBeNull()
+  })
 })
