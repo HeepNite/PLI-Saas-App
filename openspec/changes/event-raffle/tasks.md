@@ -42,17 +42,26 @@ PR1 was split into three chained slices during apply because its authored diff (
 
 ## PR2 — Public entry API (targets `feat/event-raffle-1-schema`)
 
-- [ ] 2.1 Create `lib/raffle/entry-validation.ts`: `parseRaffleEntryInput(body: unknown)` — trims `name` (2–60 chars, must contain a non-digit), resolves `phone` via `parseNationalPhone` (default country `US`), returns `{ ok: true, value } | { ok: false, status }`. Implements: D1. Spec: Public Entry Submission.
-- [ ] 2.2 Create `lib/raffle/event-window.ts`: pure `isRaffleEventClosed(eventDate, now)` per D11 (`RAFFLE_EVENT_GRACE_MS = 24h`). Implements: D1, D11. Spec: Public Entry Submission / *Event closed*.
-- [ ] 2.3 Create `lib/raffle/entry.ts`: `createRaffleEntry(db, input)` — loads event by slug, applies `isRaffleEventClosed`, inserts, catches Prisma `P2002` → `already_entered`. Implements: D1. Spec: Public Entry Submission / *New entry accepted*, *Duplicate phone is not an error*.
-- [ ] 2.4 Create `app/api/raffle/[slug]/entries/route.ts` (`export const runtime = "nodejs"`): rate-limit by IP (`raffle:entry:ip`, 10/60s) then by parsed `e164` (`raffle:entry:phone`, 5/300s) using `consumeRateLimit` / `buildRateLimitKey` / `getClientIp`; on 429 include `Retry-After`; map domain result to `201 entered` / `200 already_entered` / `400` validator statuses / `404 event_not_found` / `410 event_closed`. Implements: D1, D10, D11. Spec: Public Entry Submission (all scenarios).
-- [ ] 2.5 Write `tests/api/raffle-entries.test.ts` (mocked Prisma): valid entry → 201 with stored `e164`; each validator rejection; name 1 char / 61 chars rejected; missing `country` defaults to `US`; duplicate phone → 200 `already_entered`, no second row; unknown slug → 404; `isRaffleEventClosed` open/closed boundary; closed event → 410; 429 carries `Retry-After` (set `ENABLE_RATE_LIMIT_IN_TESTS=1`). Implements: D1, D10, D11. Spec: Public Entry Submission (all scenarios), Raffle Data Model / *Duplicate phone constrained at the database*.
+Implemented on branch `feat/event-raffle-2-entry-api` (from tip `feat/event-raffle-1c-seed-cli`), two work-unit
+commits: `29314f4` (domain helpers + tests, also adds `lib/raffle/slug.ts`/`isRaffleSlug` per apply-time
+implementation contract, shared later by PR4a's screen-token exchange) and `c96544a` (route + its test). See
+`apply-progress.md` for the line-count note: authored diff is 459 lines, over the 400-line budget and over this
+section's own PR2 estimate (190–250); no task scope grew — the overage comes from thorough test coverage plus
+the added slug validator, and per the apply-time instruction no test/comment/docs content was trimmed to fit.
+Decision on whether to further split into `2a`/`2b` chained branches or accept `size:exception` is deferred to
+the orchestrator (see apply-progress.md).
+
+- [x] 2.1 Create `lib/raffle/entry-validation.ts`: `parseRaffleEntryInput(body: unknown)` — trims `name` (2–60 chars, must contain a non-digit), resolves `phone` via `parseNationalPhone` (default country `US`), returns `{ ok: true, value } | { ok: false, status }`. Implements: D1. Spec: Public Entry Submission.
+- [x] 2.2 Create `lib/raffle/event-window.ts`: pure `isRaffleEventClosed(eventDate, now)` per D11 (`RAFFLE_EVENT_GRACE_MS = 24h`). Implements: D1, D11. Spec: Public Entry Submission / *Event closed*.
+- [x] 2.3 Create `lib/raffle/entry.ts`: `createRaffleEntry(db, input)` — loads event by slug, applies `isRaffleEventClosed`, inserts, catches Prisma `P2002` → `already_entered`. Implements: D1. Spec: Public Entry Submission / *New entry accepted*, *Duplicate phone is not an error*.
+- [x] 2.4 Create `app/api/raffle/[slug]/entries/route.ts` (`export const runtime = "nodejs"`): rate-limit by IP (`raffle:entry:ip`, 10/60s) then by parsed `e164` (`raffle:entry:phone`, 5/300s) using `consumeRateLimit` / `buildRateLimitKey` / `getClientIp`; on 429 include `Retry-After`; map domain result to `201 entered` / `200 already_entered` / `400` validator statuses / `404 event_not_found` / `410 event_closed`. Implements: D1, D10, D11. Spec: Public Entry Submission (all scenarios).
+- [x] 2.5 Write `tests/api/raffle-entries.test.ts` (mocked Prisma): valid entry → 201 with stored `e164`; each validator rejection; name 1 char / 61 chars rejected; missing `country` defaults to `US`; duplicate phone → 200 `already_entered`, no second row; unknown slug → 404; `isRaffleEventClosed` open/closed boundary; closed event → 410; 429 carries `Retry-After` (set `ENABLE_RATE_LIMIT_IN_TESTS=1`). Implements: D1, D10, D11. Spec: Public Entry Submission (all scenarios), Raffle Data Model / *Duplicate phone constrained at the database*.
 
 ### Verification
 
-- `npx tsc --noEmit`
-- `npx vitest run tests/api/raffle-entries.test.ts`
-- `npm run lint`
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run tests/lib/raffle tests/api/raffle-entries.test.ts` → 49/49 passed
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
 
 ---
 
