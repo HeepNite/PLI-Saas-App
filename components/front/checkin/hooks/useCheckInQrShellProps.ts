@@ -60,8 +60,9 @@ export type UseCheckInQrShellPropsInput = {
   checkInDisplayTime: string
   checkInQrImage: string
   terminalPastClasses?: TerminalPastClass[]
-  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
-  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
+  terminalActiveClass?: TerminalPastClass
+  selectedTerminalPastClass?: TerminalPastClass | null
+  onTerminalPastClassSelect?: (selection: TerminalPastClass) => void
 
   // Context / QR prompt
   showContextWarning: boolean
