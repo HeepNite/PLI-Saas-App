@@ -93,6 +93,7 @@ export function CourseCardPanel({
                       students={students}
                       description={description}
                       teacher={teacher}
+                      priceLabel={priceLabel}
                       displayDate={displayDate}
                       displayTime={displayTime}
                       variant="split"
