@@ -4,6 +4,8 @@ import {
   buildOutstandingBalanceByUser,
   isCompletedPaymentStatus,
   isOpenPurchase,
+  isRefundedCardPurchase,
+  isTerminalUnpaidCardAttempt,
   normalizePaymentChannel,
   normalizePurchaseSource,
   selectActivePackagesByUser,
@@ -47,7 +49,7 @@ describe("staff payments shared helpers", () => {
     expect(selected.get("user_1")?.packageId).toBe("pkg_new")
   })
 
-  it("reduces outstanding balance from open purchases only", () => {
+  it("reduces outstanding balance from genuine open obligations only", () => {
     const balances = buildOutstandingBalanceByUser([
       {
         userId: "user_1",
@@ -75,7 +77,7 @@ describe("staff payments shared helpers", () => {
       },
     ])
 
-    expect(balances.get("user_1")).toBe(4900)
+    expect(balances.get("user_1")).toBe(3100)
   })
 
   it("excludes settled cash purchases from outstanding balance", () => {
@@ -158,6 +160,94 @@ describe("staff payments shared helpers", () => {
       metadata: { paymentChannel: "card", settlementStatus: "pending" },
       status: "succeeded", stripePaymentIntentId: "pi_1", stripeCheckoutSessionId: null,
     }).isOpen).toBe(false)
+  })
+
+  it.each(["expired", "failed", "cancelled", "canceled", "refunded"])(
+    "treats terminal unpaid card status %s as closed",
+    (status) => {
+      expect(isOpenPurchase({
+        userId: "u1",
+        amount: 1000,
+        metadata: { paymentChannel: "card", settlementStatus: "pending" },
+        status,
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_terminal",
+      }).isOpen).toBe(false)
+    }
+  )
+
+  it.each(["expired", "failed", "cancelled", "canceled"])(
+    "flags a never-completed card attempt with status %s as terminal and closed",
+    (status) => {
+      const purchase = {
+        userId: "u1",
+        amount: 1000,
+        metadata: { paymentChannel: "card", settlementStatus: "pending" },
+        status,
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_never_completed",
+      }
+
+      expect(isTerminalUnpaidCardAttempt(purchase)).toBe(true)
+      expect(isOpenPurchase(purchase).isOpen).toBe(false)
+    }
+  )
+
+  it("does not classify a refunded card purchase as a terminal unpaid attempt, but marks it refunded and closed", () => {
+    const purchase = {
+      userId: "u1",
+      amount: 1000,
+      metadata: { paymentChannel: "card", settlementStatus: "pending" },
+      status: "refunded",
+      stripePaymentIntentId: null,
+      stripeCheckoutSessionId: "cs_refunded",
+    }
+
+    expect(isTerminalUnpaidCardAttempt(purchase)).toBe(false)
+    expect(isRefundedCardPurchase(purchase)).toBe(true)
+    expect(isOpenPurchase(purchase).isOpen).toBe(false)
+  })
+
+  it("does not flag a cash purchase with status expired as a terminal card attempt, keeping it open", () => {
+    const purchase = {
+      userId: "u1",
+      amount: 1000,
+      metadata: { paymentChannel: "cash", settlementStatus: "pending" },
+      status: "expired",
+      stripePaymentIntentId: null,
+      stripeCheckoutSessionId: null,
+    }
+
+    expect(isTerminalUnpaidCardAttempt(purchase)).toBe(false)
+    expect(isOpenPurchase(purchase).isOpen).toBe(true)
+  })
+
+  it("does not flag a card purchase already settled as paid, even with a never-completed status", () => {
+    const purchase = {
+      userId: "u1",
+      amount: 1000,
+      metadata: { paymentChannel: "card", settlementStatus: "paid" },
+      status: "expired",
+      stripePaymentIntentId: null,
+      stripeCheckoutSessionId: "cs_already_paid",
+    }
+
+    expect(isTerminalUnpaidCardAttempt(purchase)).toBe(false)
+  })
+
+  it("excludes refunded card rows from outstanding balance", () => {
+    const balances = buildOutstandingBalanceByUser([
+      {
+        userId: "user_refunded",
+        amount: 4500,
+        metadata: { paymentChannel: "card", settlementStatus: "pending" },
+        status: "refunded",
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_refunded_balance",
+      },
+    ])
+
+    expect(balances.get("user_refunded")).toBeUndefined()
   })
 
   it("classifies inconsistent stripe+cash metadata rows as card", () => {

@@ -298,6 +298,208 @@ describe("staff payments route", () => {
     })
   })
 
+  it.each(["expired", "failed", "cancelled", "canceled"])(
+    "excludes a %s-only card history from board debt and purchased rows",
+    async (status) => {
+      mockPrisma.purchase.findMany.mockResolvedValue([
+        {
+          ...buildPurchase({
+            id: `card_${status}_only`,
+            userId: "user_never_completed",
+            amount: 2500,
+            status,
+            metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
+          }),
+          stripePaymentIntentId: null,
+          stripeCheckoutSessionId: `cs_${status}_only`,
+        },
+      ])
+
+      const { GET } = await import("@/app/api/staff/payments/route")
+      const res = await GET(new Request("http://localhost/api/staff/payments"))
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(data.items).toEqual([])
+      expect(data.summary).toEqual({
+        totalItems: 0,
+        totalCollected: 0,
+        pendingSettlement: 0,
+        paidSettlement: 0,
+        pendingStripe: 0,
+        paidStripe: 0,
+      })
+    }
+  )
+
+  it("keeps a refunded card purchase visible on the board without counting it as cash-pending debt", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      {
+        ...buildPurchase({
+          id: "card_refunded_today",
+          userId: "user_refunded_today",
+          amount: 2500,
+          status: "refunded",
+          metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
+        }),
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_refunded_today",
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual([
+      expect.objectContaining({
+        id: "card_refunded_today",
+        paymentStatus: "refunded",
+        outstandingBalance: null,
+      }),
+    ])
+    // outstandingBalance is the debt indicator this fix controls: a refund is not outstanding debt.
+    // The cash settlement counters never count a card row either way.
+    expect(data.summary.pendingSettlement).toBe(0)
+    expect(data.summary.paidSettlement).toBe(0)
+  })
+
+  it("counts a successful retry once without retaining an older expired attempt", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "card_paid_retry",
+        userId: "user_retry",
+        amount: 2500,
+        status: "paid",
+        createdAt: "2026-03-20T16:00:00.000Z",
+        metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "paid" },
+      }),
+      {
+        ...buildPurchase({
+          id: "card_expired_attempt",
+          userId: "user_retry",
+          amount: 2500,
+          status: "expired",
+          createdAt: "2026-03-20T15:00:00.000Z",
+          metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
+        }),
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_expired_attempt",
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual([
+      expect.objectContaining({
+        id: "card_paid_retry",
+        outstandingBalance: null,
+        classPaid: true,
+      }),
+    ])
+    expect(data.summary).toMatchObject({
+      totalItems: 1,
+      totalCollected: 2500,
+      pendingStripe: 0,
+      paidStripe: 1,
+    })
+  })
+
+  it("keeps a genuine cash-pending history outstanding", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "cash_pending_obligation",
+        userId: "user_cash_pending",
+        amount: 3100,
+        status: "pending",
+        metadata: { date: "2026-03-20", paymentChannel: "cash", settlementStatus: "pending" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual([
+      expect.objectContaining({
+        id: "cash_pending_obligation",
+        outstandingBalance: 3100,
+        settlementStatus: "pending",
+      }),
+    ])
+    expect(data.summary).toMatchObject({
+      totalItems: 1,
+      totalCollected: 0,
+      pendingSettlement: 1,
+      pendingStripe: 0,
+    })
+  })
+
+  it("keeps paid-only history revenue unchanged", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "card_paid_only",
+        userId: "user_paid_only",
+        amount: 4200,
+        status: "paid",
+        metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "paid" },
+      }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual([
+      expect.objectContaining({
+        id: "card_paid_only",
+        outstandingBalance: null,
+        classPaid: true,
+      }),
+    ])
+    expect(data.summary).toMatchObject({
+      totalItems: 1,
+      totalCollected: 4200,
+      pendingStripe: 0,
+      paidStripe: 1,
+    })
+  })
+
+  it("keeps terminal attempts visible in a student's payment history without debt", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      {
+        ...buildPurchase({
+          id: "card_expired_history_detail",
+          userId: "user_expired_history",
+          amount: 2500,
+          status: "expired",
+          metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
+        }),
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_expired_history_detail",
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?userId=user_expired_history"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toEqual([
+      expect.objectContaining({
+        id: "card_expired_history_detail",
+        paymentStatus: "expired",
+        outstandingBalance: null,
+      }),
+    ])
+  })
+
   it("does not flag consumed provisional PINs as active on the staff board", async () => {
     mockPrisma.studentPinCredential.findMany.mockResolvedValue([
       {
