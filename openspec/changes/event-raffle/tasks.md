@@ -5,7 +5,9 @@ Chained PRs recommended: Yes
 Chain strategy: feature-branch-chain
 400-line budget risk: Low
 
-Branch chain: `codex/develop` ← `feat/event-raffle-1-schema` ← `feat/event-raffle-2-entry-api` ← `feat/event-raffle-3-entry-page` ← `feat/event-raffle-4a-draw-api` ← `feat/event-raffle-4b-screen-ui`
+Branch chain: `codex/develop` ← `feat/event-raffle-1a-schema` ← `feat/event-raffle-1b-seed-plan` ← `feat/event-raffle-1c-seed-cli` ← `feat/event-raffle-2-entry-api` ← `feat/event-raffle-3-entry-page` ← `feat/event-raffle-4a-draw-api` ← `feat/event-raffle-4b-screen-ui`
+
+PR1 was split into three chained slices during apply because its authored diff (834 changed lines) exceeded the 400-line budget: `feat/event-raffle-1a-schema` (schema + migration, targets `codex/develop`), `feat/event-raffle-1b-seed-plan` (`lib/raffle/seed-plan.ts` pure helpers + their unit tests, targets 1a), `feat/event-raffle-1c-seed-cli` (`scripts/raffle-seed.ts` CLI + example config + `package.json` entry + CLI-level tests, targets 1b). See `apply-progress.md` for per-branch line counts and verification.
 
 ### Suggested Work Units
 
@@ -19,14 +21,14 @@ Branch chain: `codex/develop` ← `feat/event-raffle-1-schema` ← `feat/event-r
 
 ---
 
-## PR1 — Schema + migration + seed script (targets `codex/develop`)
+## PR1 — Schema + migration + seed script (split into PR1a/1b/1c, see branch chain note above)
 
-- [ ] 1.1 Add `RaffleEvent`, `RaffleEntry`, `RaffleDraw` models to `prisma/schema.prisma` exactly as the D9 snippet (String cuid ids, `status` as `String`, `@@unique([eventId, phoneE164])`, `@@unique([eventId, order])`). Implements: D9. Spec: Raffle Data Model / *Duplicate phone constrained at the database*.
-- [ ] 1.2 Generate the migration with `npx prisma migrate dev --name add_raffle_models --create-only`, then review the emitted `prisma/migrations/<timestamp>_add_raffle_models/migration.sql` for additive-only DDL (no `ALTER` on existing tables). Implements: D9. Spec: Raffle Data Model.
-- [ ] 1.3 Create `scripts/raffle-seed.ts` (`npx tsx scripts/raffle-seed.ts <config.json> [--base-url ...] [--rotate-token]`): upsert event by `slug`; generate `screenTokenHash` only when absent; `--rotate-token` forces and prints a new raw token (never persisted in plaintext, never reprintable later); upsert draws by `@@unique([eventId, order])`, skip-and-report any draw whose status is not `open`; print public URL and tablet `?key=` URL using `--base-url ?? NEXT_PUBLIC_SITE_URL ?? VERCEL_URL ?? http://localhost:3000`. Implements: D8. Spec: Raffle Seed Script.
-- [ ] 1.4 Add `"raffle:seed": "tsx scripts/raffle-seed.ts"` to `package.json` scripts. Implements: D8. Spec: Raffle Seed Script.
-- [ ] 1.5 Add `scripts/examples/raffle-event.example.json` matching the D8 config shape (`slug`, `title`, `brand`, `eventDate`, `excludePreviousWinners`, `videoUrl`, `draws[]`). Implements: D8.
-- [ ] 1.6 Write `tests/scripts/raffle-seed.test.ts` (mocked Prisma client): `eventDate` normalization to the America/New_York midnight boundary used by D11; re-running the seed is idempotent (no duplicate event/draw rows); a `drawn` draw is skipped and reported, an `open` draw is updated; token generated only when `screenTokenHash` is absent; `--rotate-token` forces regeneration and prints the raw value once. Implements: D8, D11. Spec: Raffle Seed Script / *Re-seed preserves drawn draws*.
+- [x] 1.1 Add `RaffleEvent`, `RaffleEntry`, `RaffleDraw` models to `prisma/schema.prisma` exactly as the D9 snippet (String cuid ids, `status` as `String`, `@@unique([eventId, phoneE164])`, `@@unique([eventId, order])`). Implements: D9. Spec: Raffle Data Model / *Duplicate phone constrained at the database*. (PR1a)
+- [x] 1.2 Generate the migration with `npx prisma migrate dev --name add_raffle_models --create-only`, then review the emitted `prisma/migrations/<timestamp>_add_raffle_models/migration.sql` for additive-only DDL (no `ALTER` on existing tables). Implements: D9. Spec: Raffle Data Model. (PR1a — generated via `prisma migrate diff --script` since no live DB was available; reviewed by hand as additive-only)
+- [x] 1.3 Create `scripts/raffle-seed.ts` (`npx tsx scripts/raffle-seed.ts <config.json> [--base-url ...] [--rotate-token]`): upsert event by `slug`; generate `screenTokenHash` only when absent; `--rotate-token` forces and prints a new raw token (never persisted in plaintext, never reprintable later); upsert draws by `@@unique([eventId, order])`, skip-and-report any draw whose status is not `open`; print public URL and tablet `?key=` URL using `--base-url ?? NEXT_PUBLIC_SITE_URL ?? VERCEL_URL ?? http://localhost:3000`. Implements: D8. Spec: Raffle Seed Script. (pure helpers in PR1b, thin CLI in PR1c)
+- [x] 1.4 Add `"raffle:seed": "tsx scripts/raffle-seed.ts"` to `package.json` scripts. Implements: D8. Spec: Raffle Seed Script. (PR1c)
+- [x] 1.5 Add `scripts/examples/raffle-event.example.json` matching the D8 config shape (`slug`, `title`, `brand`, `eventDate`, `excludePreviousWinners`, `videoUrl`, `draws[]`). Implements: D8. (PR1c)
+- [x] 1.6 Write `tests/scripts/raffle-seed.test.ts` (mocked Prisma client): `eventDate` normalization to the America/New_York midnight boundary used by D11; re-running the seed is idempotent (no duplicate event/draw rows); a `drawn` draw is skipped and reported, an `open` draw is updated; token generated only when `screenTokenHash` is absent; `--rotate-token` forces regeneration and prints the raw value once. Implements: D8, D11. Spec: Raffle Seed Script / *Re-seed preserves drawn draws*. (pure-helper cases moved to `tests/lib/raffle/seed-plan.test.ts` in PR1b; CLI-level cases stay in `tests/scripts/raffle-seed.test.ts` in PR1c)
 
 ### Verification
 
