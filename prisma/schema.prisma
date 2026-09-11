@@ -1069,3 +1069,55 @@ model StaffEnrollmentChallenge {
   @@index([staffUserId])
   @@index([expiresAt])
 }
+
+// Brand-agnostic (PLE|PLI) on-site raffle: unauthenticated attendees submit
+// name + phone via a QR-linked page; staff run fair, idempotent draws on a
+// token-gated tablet screen. See openspec/changes/event-raffle/design.md D9.
+model RaffleEvent {
+  id                     String        @id @default(cuid())
+  slug                   String        @unique
+  brand                  String        @default("PLE")
+  title                  String
+  eventDate              DateTime
+  excludePreviousWinners Boolean       @default(true)
+  screenTokenHash        String
+  videoUrl               String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  entries                RaffleEntry[]
+  draws                  RaffleDraw[]
+}
+
+model RaffleEntry {
+  id           String       @id @default(cuid())
+  eventId      String
+  event        RaffleEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name         String
+  phoneE164    String
+  phoneCountry String
+  createdAt    DateTime     @default(now())
+  wonDraws     RaffleDraw[]
+
+  @@unique([eventId, phoneE164])
+  @@index([eventId, createdAt])
+}
+
+model RaffleDraw {
+  id               String       @id @default(cuid())
+  eventId          String
+  event            RaffleEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  order            Int
+  prizeLabel       String
+  drawAt           DateTime?
+  status           String       @default("open") // open | drawing | drawn
+  drawingStartedAt DateTime?
+  winnerEntryId    String?
+  winnerEntry      RaffleEntry? @relation(fields: [winnerEntryId], references: [id], onDelete: SetNull)
+  drawnAt          DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([eventId, order])
+  @@index([eventId, status])
+  @@index([winnerEntryId])
+}
