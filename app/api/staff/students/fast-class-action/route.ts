@@ -8,7 +8,8 @@ import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { authorizeStudentOperationalRequest } from "@/lib/security/staff-portal-auth"
-import { PURCHASE_SOURCE } from "@/lib/payment-constants"
+import { PURCHASE_SOURCE, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { isCompletedPaymentStatus, isPendingProcessablePurchase, normalizeSettlementStatus } from "@/app/api/staff/payments/shared"
 import { asObject, asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
@@ -16,8 +17,68 @@ export const runtime = "nodejs"
 const DEFAULT_DROP_IN_CENTS = 2000
 const SERIALIZABLE_RETRY_ATTEMPTS = 3
 const isOpenCashPurchase = (purchase: { status: string; amount: number }) => purchase.status !== "paid" ? purchase.amount : undefined
-const PENDING_PAYMENT_MESSAGE = "You still have a pending payment. Please resolve it first."
 const COMPLETED_PURCHASE_MESSAGE = "This student already has a completed purchase for this class."
+const COMPLETED_PURCHASE_ERROR = "COMPLETED_PURCHASE"
+
+// "expired" is written by stripe/webhook/route.ts for terminal checkout sessions; PURCHASE_STATUS has no EXPIRED key
+const IGNORED_PURCHASE_STATUSES: string[] = [PURCHASE_STATUS.FAILED, PURCHASE_STATUS.REFUNDED, "expired"]
+
+type ClassSlot = { userId: string; courseSlug: string; date: string; time: string; attendanceId?: string }
+type SlotPurchaseClient = Pick<Prisma.TransactionClient, "purchase">
+type SlotPurchaseRow = {
+  id: string
+  userId: string
+  amount: number
+  status: string
+  metadata: unknown
+  stripePaymentIntentId: string | null
+  stripeCheckoutSessionId: string | null
+}
+
+const SLOT_PURCHASE_SELECT = {
+  id: true, userId: true, amount: true, status: true, metadata: true,
+  stripePaymentIntentId: true, stripeCheckoutSessionId: true,
+} as const
+
+const buildSlotPurchaseWhere = (slot: ClassSlot) => ({
+  userId: slot.userId,
+  courseSlug: slot.courseSlug,
+  status: { notIn: IGNORED_PURCHASE_STATUSES },
+  OR: [
+    { AND: [
+      { metadata: { path: ["date"], equals: slot.date } },
+      { metadata: { path: ["time"], equals: slot.time } },
+    ] },
+    ...(slot.attendanceId ? [{ metadata: { path: ["attendanceId"], equals: slot.attendanceId } }] : []),
+  ],
+})
+
+// Module-local: paid on any channel — completed status, or staff settlement flag.
+const isSettledPurchase = (purchase: { status: string; metadata: unknown }) =>
+  isCompletedPaymentStatus(purchase.status) ||
+  normalizeSettlementStatus(asObject(purchase.metadata).settlementStatus) === SETTLEMENT_STATUS.PAID
+
+const resolveSlotPurchase = async (db: SlotPurchaseClient, slot: ClassSlot) => {
+  const purchases: SlotPurchaseRow[] = await db.purchase.findMany({
+    where: buildSlotPurchaseWhere(slot),
+    orderBy: { createdAt: "asc" },
+    select: SLOT_PURCHASE_SELECT,
+  })
+  const paid = purchases.find(isSettledPurchase)
+  if (paid) return { purchase: paid, settled: true as const }
+  const reusable = purchases.find(isPendingProcessablePurchase)
+  return reusable ? { purchase: reusable, settled: false as const } : null
+}
+
+const backfillAttendanceId = async (tx: Prisma.TransactionClient, purchase: SlotPurchaseRow, attendanceId: string) => {
+  const metadata = asObject(purchase.metadata)
+  if (metadata.attendanceId === attendanceId) return purchase
+  return tx.purchase.update({
+    where: { id: purchase.id },
+    data: { metadata: { ...metadata, attendanceId } as Prisma.InputJsonObject },
+  })
+}
+
 const isSerializableConflict = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
 
@@ -85,38 +146,9 @@ const resolveCurrentClass = async (now: Date) => {
 }
 
 const resolveExistingClassPurchaseBlock = async (userId: string, currentClass: NonNullable<Awaited<ReturnType<typeof resolveCurrentClass>>>) => {
-  const session = await prisma.classSession.findUnique({
-    where: { courseSlug_startsAt: { courseSlug: currentClass.slug, startsAt: currentClass.startsAt } },
-    select: { id: true },
-  })
-  if (!session) return null
-
-  const attendance = await prisma.attendance.findUnique({
-    where: { userId_sessionId: { userId, sessionId: session.id } },
-    select: { id: true },
-  })
-  if (!attendance) return null
-
-  const purchase = await prisma.purchase.findFirst({
-    where: {
-      userId,
-      courseSlug: currentClass.slug,
-      AND: [
-        { metadata: { path: ["attendanceId"], equals: attendance.id } },
-        {
-          OR: [
-            { metadata: { path: ["paymentChannel"], equals: "cash" } },
-            { metadata: { path: ["paymentChannel"], equals: "package_credit" } },
-          ],
-        },
-      ],
-    },
-    orderBy: { createdAt: "asc" },
-    select: { status: true },
-  })
-  if (!purchase) return null
-  if (purchase.status === "paid") return { code: "completed_purchase", message: COMPLETED_PURCHASE_MESSAGE }
-  return { code: "pending_payment", message: PENDING_PAYMENT_MESSAGE }
+  const match = await resolveSlotPurchase(prisma, { userId, courseSlug: currentClass.slug, date: currentClass.date, time: currentClass.time })
+  if (!match?.settled) return null
+  return { code: "completed_purchase", message: COMPLETED_PURCHASE_MESSAGE }
 }
 
 const buildPromoOffer = async (input: {
@@ -243,33 +275,41 @@ export async function POST(req: Request) {
     return NextResponse.json({ mode, promoOffer, previewOnly: true })
   }
 
-  const result = await runSerializableTransaction(async (tx) => {
-    const session = await tx.classSession.upsert({
-      where: { courseSlug_startsAt: { courseSlug: currentClass.slug, startsAt: currentClass.startsAt } },
-      update: { title: currentClass.title, durationMinutes: currentClass.durationMinutes ?? 60 },
-      create: { courseSlug: currentClass.slug, title: currentClass.title, startsAt: currentClass.startsAt, durationMinutes: currentClass.durationMinutes ?? 60 },
-    })
-    const existingAttendance = await tx.attendance.findUnique({ where: { userId_sessionId: { userId: user.id, sessionId: session.id } } })
-    const attendance = existingAttendance
-      ? await tx.attendance.update({ where: { id: existingAttendance.id }, data: { status: selectedPackage ? "checked_in" : "checked_in_no_package", checkedInAt: now } })
-      : await tx.attendance.create({ data: { userId: user.id, sessionId: session.id, status: selectedPackage ? "checked_in" : "checked_in_no_package", checkedInAt: now, metadata: { source: "staff_fast_action", date: currentClass.date, time: currentClass.time } } })
+  let result
+  try {
+    result = await runSerializableTransaction(async (tx) => {
+      const session = await tx.classSession.upsert({
+        where: { courseSlug_startsAt: { courseSlug: currentClass.slug, startsAt: currentClass.startsAt } },
+        update: { title: currentClass.title, durationMinutes: currentClass.durationMinutes ?? 60 },
+        create: { courseSlug: currentClass.slug, title: currentClass.title, startsAt: currentClass.startsAt, durationMinutes: currentClass.durationMinutes ?? 60 },
+      })
+      const existingAttendance = await tx.attendance.findUnique({ where: { userId_sessionId: { userId: user.id, sessionId: session.id } } })
+      const attendance = existingAttendance
+        ? await tx.attendance.update({ where: { id: existingAttendance.id }, data: { status: selectedPackage ? "checked_in" : "checked_in_no_package", checkedInAt: now } })
+        : await tx.attendance.create({ data: { userId: user.id, sessionId: session.id, status: selectedPackage ? "checked_in" : "checked_in_no_package", checkedInAt: now, metadata: { source: "staff_fast_action", date: currentClass.date, time: currentClass.time } } })
 
-    if (selectedPackage) {
-      const reserveResult = await reservePackageCreditForAttendanceTx(tx, { packagePurchaseId: selectedPackage.id, userId: user.id, attendanceId: attendance.id, courseSlug: currentClass.slug, at: now, reason: "STAFF_FAST_SIGN_IN" })
-      const packagePurchase = reserveResult.packagePurchase || selectedPackage
-      await ensureAttendancePackagePurchase(tx, { attendanceId: attendance.id, userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, email: user.email || null, name: user.name || null, phone: user.phone || null, packageId: packagePurchase.packageId, packagePurchaseId: packagePurchase.id, source: "staff_fast_sign_in", purchaseSource: PURCHASE_SOURCE.KIOSK, date: currentClass.date, time: currentClass.time })
-      return { attendance, packagePurchase }
+      if (selectedPackage) {
+        const reserveResult = await reservePackageCreditForAttendanceTx(tx, { packagePurchaseId: selectedPackage.id, userId: user.id, attendanceId: attendance.id, courseSlug: currentClass.slug, at: now, reason: "STAFF_FAST_SIGN_IN" })
+        const packagePurchase = reserveResult.packagePurchase || selectedPackage
+        await ensureAttendancePackagePurchase(tx, { attendanceId: attendance.id, userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, email: user.email || null, name: user.name || null, phone: user.phone || null, packageId: packagePurchase.packageId, packagePurchaseId: packagePurchase.id, source: "staff_fast_sign_in", purchaseSource: PURCHASE_SOURCE.KIOSK, date: currentClass.date, time: currentClass.time })
+        return { attendance, packagePurchase }
+      }
+
+      const slotMatch = await resolveSlotPurchase(tx, { userId: user.id, courseSlug: currentClass.slug, date: currentClass.date, time: currentClass.time, attendanceId: attendance.id })
+      if (slotMatch?.settled) throw new Error(COMPLETED_PURCHASE_ERROR)
+      const purchase = slotMatch
+        ? await backfillAttendanceId(tx, slotMatch.purchase, attendance.id)
+        : await tx.purchase.create({
+            data: { userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, amount: currentClass.dropInPriceCents || DEFAULT_DROP_IN_CENTS, currency: "usd", status: "pending", email: user.email || null, name: user.name || null, phone: user.phone || null, participants: 1, metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: PURCHASE_SOURCE.KIOSK, source: "staff_fast_pay", date: currentClass.date, time: currentClass.time, attendanceId: attendance.id } },
+          })
+      return { attendance, purchase }
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === COMPLETED_PURCHASE_ERROR) {
+      return NextResponse.json({ error: COMPLETED_PURCHASE_MESSAGE, code: "completed_purchase", mode }, { status: 409 })
     }
-
-    const existingPurchase = await tx.purchase.findFirst({
-      where: { userId: user.id, courseSlug: currentClass.slug, AND: [{ metadata: { path: ["attendanceId"], equals: attendance.id } }, { metadata: { path: ["paymentChannel"], equals: "cash" } }] },
-      orderBy: { createdAt: "asc" },
-    })
-    const purchase = existingPurchase || await tx.purchase.create({
-      data: { userId: user.id, courseSlug: currentClass.slug, courseTitle: currentClass.title, amount: currentClass.dropInPriceCents || DEFAULT_DROP_IN_CENTS, currency: "usd", status: "pending", email: user.email || null, name: user.name || null, phone: user.phone || null, participants: 1, metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: PURCHASE_SOURCE.KIOSK, source: "staff_fast_pay", date: currentClass.date, time: currentClass.time, attendanceId: attendance.id } },
-    })
-    return { attendance, purchase }
-  })
+    throw error
+  }
   const promoResult = body.includeConsecutive === true && promoOffer
     ? await createPromoCash({
         userId: user.id,
