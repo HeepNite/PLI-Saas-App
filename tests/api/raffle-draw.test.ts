@@ -156,6 +156,19 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
     expect(mockPrisma.$transaction).not.toHaveBeenCalled()
   })
 
+  it("rejects a valid URL key when the screen cookie is missing", async () => {
+    const res = await POST(
+      new NextRequest(
+        `http://localhost/api/raffle/s1/draws/draw_1/draw?key=${RAW_TOKEN}`,
+        { method: "POST" }
+      ),
+      routeParams("s1", "draw_1")
+    )
+
+    expect(res.status).toBe(404)
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+  })
+
   it("returns 404 when the screen cookie does not match the event's token", async () => {
     const res = await postDraw("s1", "draw_1", "wrong-raw-token")
 

@@ -47,7 +47,7 @@ export async function POST(
   const event = await prisma.raffleEvent.findUnique({ where: { slug } })
   if (!event) return notFound()
 
-  const rawToken = req.cookies.get(screenCookieName(slug))?.value
+  const rawToken = req.cookies.get(screenCookieName(slug))?.value ?? ""
   if (!rawToken || !screenTokenMatches(rawToken, event.screenTokenHash)) return notFound()
 
   let result: Awaited<ReturnType<typeof runDraw>>

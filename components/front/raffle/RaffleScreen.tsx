@@ -54,7 +54,7 @@ export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps)
   // Reset to `false` the moment a draw starts, set back on the video's `ended`.
   const [videoEnded, setVideoEnded] = useState(true)
   const paused = state.phase === "drawing" || state.phase === "reveal"
-  const { data } = useRaffleScreenState(slug, paused)
+  const { data, error: pollError } = useRaffleScreenState(slug, paused)
 
   useEffect(() => {
     if (data) dispatch({ type: "poll_success", payload: data })
@@ -118,7 +118,13 @@ export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps)
       entryUrl={selectEntryUrl(state)}
       videoUrl={selectVideoUrl(state)}
       winner={state.winner}
-      error={state.error}
+      error={
+        state.error ??
+        // A screen that cannot reach the server must say so instead of
+        // sitting at 0:00 with no prize and no button, which reads as a
+        // frozen page. Only shown while no state has ever arrived.
+        (pollError && !data ? `No se pudo leer el estado del sorteo (${pollError}). Reabrí el enlace con la clave.` : null)
+      }
       onDraw={handleDraw}
       onNextDraw={handleNextDraw}
       onVideoEnded={handleVideoEnded}
