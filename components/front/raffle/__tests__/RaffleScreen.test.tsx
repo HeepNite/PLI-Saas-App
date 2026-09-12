@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import RaffleScreen, { resolveDrawFailureMessage } from "@/components/front/raffle/RaffleScreen"
+import { DRAW_ANIMATION_MS } from "@/components/front/raffle/RaffleScreenSeams"
 
 const testGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 testGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -157,9 +158,167 @@ describe("RaffleScreen", () => {
     await act(async () => {
       await Promise.resolve()
     })
+    // No video is playable under jsdom, so the draw animation stands in for
+    // it; the reveal waits for that animation exactly as it would for the
+    // video's `ended`.
+    expect(node.textContent).not.toContain("Jane Doe")
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DRAW_ANIMATION_MS)
+    })
 
     expect(node.textContent).toContain("Jane Doe")
     expect(node.textContent).toContain("1234")
+  })
+
+  it("reveals only after both the video ends and the draw response arrive — video ends first", async () => {
+    let resolveDraw: () => void = () => {}
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Promise((resolve) => {
+          resolveDraw = () =>
+            resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+            })
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => screenStateResponse() })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    // Genuine (never-settling) playback, so the overlay only fires `onEnded`
+    // when the test explicitly dispatches the native `ended` event below.
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => new Promise<void>(() => {}))
+
+    const node = await render()
+    await flushPoll()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    const drawButton = node.querySelector("button") as HTMLButtonElement
+    await act(async () => {
+      drawButton.dispatchEvent(new Event("click", { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    const video = node.querySelector("video") as HTMLVideoElement
+    await act(async () => {
+      video.dispatchEvent(new Event("ended"))
+    })
+    // Video finished, but the draw response has not arrived yet — no reveal.
+    expect(node.textContent).not.toContain("Jane Doe")
+
+    await act(async () => {
+      resolveDraw()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(node.textContent).toContain("Jane Doe")
+  })
+
+  it("reveals only after both the video ends and the draw response arrive — draw response first", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+          })
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => screenStateResponse() })
+      })
+    )
+    // Genuine (never-settling) playback, so the reveal must wait for the
+    // explicit `ended` dispatch below even though the draw already resolved.
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => new Promise<void>(() => {}))
+
+    const node = await render()
+    await flushPoll()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    const drawButton = node.querySelector("button") as HTMLButtonElement
+    await act(async () => {
+      drawButton.dispatchEvent(new Event("click", { bubbles: true }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // Draw response already arrived, but the video is still "playing" — no reveal.
+    expect(node.textContent).not.toContain("Jane Doe")
+
+    const video = node.querySelector("video") as HTMLVideoElement
+    await act(async () => {
+      video.dispatchEvent(new Event("ended"))
+    })
+    expect(node.textContent).toContain("Jane Doe")
+  })
+
+  it("a refused play() still reveals the winner once the animation finishes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+          })
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => screenStateResponse() })
+      })
+    )
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() =>
+      Promise.reject(new Error("NotAllowedError"))
+    )
+
+    const node = await render()
+    await flushPoll()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    const drawButton = node.querySelector("button") as HTMLButtonElement
+    await act(async () => {
+      drawButton.dispatchEvent(new Event("click", { bubbles: true }))
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DRAW_ANIMATION_MS)
+    })
+
+    expect(node.textContent).toContain("Jane Doe")
+  })
+
+  it("shows the draw overlay only while a draw is in progress", async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        // Never resolves in this test — only the phase transition matters.
+        return new Promise(() => {})
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => screenStateResponse() })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const node = await render()
+    await flushPoll()
+    expect(node.querySelector('[data-testid="raffle-draw-animation"]')).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+    const drawButton = node.querySelector("button") as HTMLButtonElement
+    await act(async () => {
+      drawButton.dispatchEvent(new Event("click", { bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(node.querySelector('[data-testid="raffle-draw-animation"]')).not.toBeNull()
   })
 
   it("shows a retry-able error on a draw failure without breaking the machine", async () => {

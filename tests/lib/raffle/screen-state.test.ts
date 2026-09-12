@@ -13,9 +13,13 @@ import { loadScreenState } from "@/lib/raffle/screen-state"
 
 const NOW = new Date("2026-09-12T20:00:00.000Z")
 
-const eventRow = (draws: Array<{ id: string; order: number; status: string; winnerEntry?: unknown }>) => ({
+const eventRow = (
+  draws: Array<{ id: string; order: number; status: string; winnerEntry?: unknown }>,
+  overrides: Record<string, unknown> = {}
+) => ({
   slug: "s1",
   title: "PLE Launch Night",
+  videoUrl: null,
   _count: { entries: 42 },
   draws: draws.map((draw) => ({
     prizeLabel: "Grand Prize",
@@ -23,6 +27,7 @@ const eventRow = (draws: Array<{ id: string; order: number; status: string; winn
     winnerEntry: null,
     ...draw,
   })),
+  ...overrides,
 })
 
 describe("loadScreenState", () => {
@@ -93,5 +98,25 @@ describe("loadScreenState", () => {
     expect(state?.entryCount).toBe(42)
     expect(state?.now).toBe(NOW)
     expect(state?.event.entryUrl).toBe("http://localhost:3000/raffle/s1")
+  })
+
+  it("falls back to the shared draw video when the event has not set its own", async () => {
+    mockPrisma.raffleEvent.findUnique.mockResolvedValue(
+      eventRow([{ id: "draw_1", order: 1, status: "open" }], { videoUrl: null })
+    )
+
+    const state = await loadScreenState(mockPrisma as never, "s1", NOW)
+
+    expect(state?.event.videoUrl).toBe("/raffle/draw.mp4")
+  })
+
+  it("uses the event's own draw video when it has set one", async () => {
+    mockPrisma.raffleEvent.findUnique.mockResolvedValue(
+      eventRow([{ id: "draw_1", order: 1, status: "open" }], { videoUrl: "/raffle/ple-launch.mp4" })
+    )
+
+    const state = await loadScreenState(mockPrisma as never, "s1", NOW)
+
+    expect(state?.event.videoUrl).toBe("/raffle/ple-launch.mp4")
   })
 })

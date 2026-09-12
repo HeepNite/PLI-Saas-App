@@ -13,13 +13,21 @@ export type RaffleScreenDraw = {
 
 export type RaffleScreenState = {
   now: Date
-  event: { slug: string; title: string; entryUrl: string }
+  event: { slug: string; title: string; entryUrl: string; videoUrl: string }
   entryCount: number
   currentDrawId: string | null
   draws: RaffleScreenDraw[]
 }
 
 const OPEN_OR_DRAWING = new Set(["open", "drawing"])
+
+/**
+ * Shared draw-video fallback for events that never set their own
+ * `RaffleEvent.videoUrl` — see the placeholder committed at this path and
+ * `components/front/raffle/raffleScreenMachine.ts`'s matching client-side
+ * default (used only before the first poll lands).
+ */
+export const DEFAULT_RAFFLE_VIDEO_URL = "/raffle/draw.mp4"
 
 /**
  * Screen polling payload (design.md D1). `currentDrawId` is the lowest
@@ -57,7 +65,7 @@ export const loadScreenState = async (
 
   return {
     now,
-    event: { slug: event.slug, title: event.title, entryUrl },
+    event: { slug: event.slug, title: event.title, entryUrl, videoUrl: event.videoUrl ?? DEFAULT_RAFFLE_VIDEO_URL },
     entryCount: event._count.entries,
     currentDrawId: currentDraw?.id ?? null,
     draws,

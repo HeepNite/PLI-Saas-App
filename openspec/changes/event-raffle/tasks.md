@@ -29,7 +29,7 @@ PR1 was split into three chained slices during apply because its authored diff (
 | 3 | Public entry page | PR3 | `npx vitest run components/front/raffle/__tests__/RaffleEntryForm.test.tsx` | Visit `http://localhost:3000/raffle/<slug>` in a browser | Remove `app/raffle/[slug]/page.tsx` + `RaffleEntryForm.tsx`; API from PR2 untouched |
 | 4a | Draw domain + draw/session/state routes | PR4a | `npx vitest run tests/api/raffle-draw.test.ts tests/api/raffle-screen.test.ts` | `curl` the `screen-session`, `screen-state`, then `draw` routes against a seeded event and cookie jar | Remove the 3 new routes + `lib/raffle/{draw,screen-token,screen-state,winner-view}.ts`; entries untouched |
 | 4b1 | Screen shell: page, container, state machine, polling, countdown, Draw, text reveal, closing state | PR4b1 | `npx vitest run components/front/raffle/__tests__/RaffleScreen.test.tsx components/front/raffle/__tests__/raffleScreenMachine.test.ts` | Open `http://localhost:3000/staff/raffle/<slug>/screen?key=<token>` on a browser/tablet | Remove screen page + `RaffleScreen*`/`raffleScreenMachine.ts`/`useRaffleScreenState.ts`; PR4a APIs untouched |
-| 4b2 | Fullscreen draw video overlay + QR panel with offline fallback | PR4b2 | TBD (not started) | TBD (not started) | Revert `RaffleScreenSeams.tsx`'s two stubs; PR4b1 shell untouched |
+| 4b2 | Fullscreen draw video overlay + QR panel with offline fallback | PR4b2 (shipped as branch `feat/event-raffle-4c1-draw-video`, targets `feat/event-raffle-4b5-screen-route` — see branch-chain note below) | `npx vitest run components/front/raffle` | Open `http://localhost:3000/staff/raffle/<slug>/screen?key=<token>` on a browser/tablet and tap Draw | Revert the three `feat/event-raffle-4c1-draw-video` commits (`RaffleScreenSeams.tsx`'s two seam bodies, the `videoUrl` wiring through `raffleScreenMachine.ts`/`RaffleScreen.tsx`/`RaffleScreenView.tsx`, and `lib/raffle/screen-state.ts`'s `videoUrl` field); the PR4b1 shell and PR4a APIs are untouched |
 
 ---
 
@@ -154,13 +154,77 @@ separate phase — a failed draw returns to `ready` with `error` set, so the sam
 
 - [x] 4b.1 Create `app/staff/raffle/[slug]/screen/page.tsx` (server component): redirect any request carrying `?key=` to the URL /api/raffle/[slug]/screen-session?key=...; when no valid cookie and no `key`, `notFound()`; else render `<RaffleScreen slug />`. Implements: D2. Spec: Screen Token Authorization. (PR4b1)
 - [x] 4b.2 Create `components/front/raffle/RaffleScreen.tsx` (client container): state machine `waiting → ready → drawing → reveal → between_draws → finished` per D6 (see naming-deviation note above); polls `useRaffleScreenState(slug)` every 5s, paused during `drawing`/`reveal`; clock-drift offset `Date.parse(payload.now) - Date.now()`; reveal gated behind the injectable `isRevealReady` signal (always-ready in this slice); POST failure → back to `ready` with `error` set, retry is the same Draw button. Implements: D6. Spec: Screen Display State, Draw Execution / *Double tap yields one winner* (client half). (PR4b1)
-- [ ] 4b.3 Create presentational components: countdown display, QR renderer (`api.qrserver.com` `<img>` with `onError` fallback to local `qrcode` canvas render), fullscreen `<video preload="auto" playsInline muted>` overlay, winner reveal card (`••• ••• <phoneLast4>` + Next draw button), closing/finished card. Implements: D6. Spec: Screen Display State, QR Code Rendering, Draw Execution. **Split**: countdown display, winner reveal card, and closing card shipped in PR4b1 (`RaffleScreenView.tsx`). The QR renderer and video overlay are named seams only (`RaffleScreenSeams.tsx`'s `RaffleQrPanel` / `RaffleDrawVideoOverlay`, both stubs) — **PR4b2** implements their real bodies.
-- [x] 4b.4 Write `components/front/raffle/__tests__/RaffleScreen.test.tsx`: countdown reaching zero shows the Draw button and sends nothing automatically; a successful draw reveals the winner; a draw failure renders its error and the same Draw button retries without breaking the machine; `currentDrawId === null` renders the closing state; polling updates the entry count. Implements: D6. Spec: Screen Display State / *Countdown reaches zero*. **Not covered here (PR4b2)**: "reveal fires only when `videoEnded && drawResult`" (no video yet — reveal is gated by `isRevealReady`, tested via `raffleScreenMachine.test.ts`'s `reveal_ready`/`draw_response_received` cases) and "QR `onError` swaps to the local canvas render" (no real QR renderer yet). (PR4b1)
+- [x] 4b.3 Create presentational components: countdown display, QR renderer (`api.qrserver.com` `<img>` with `onError` fallback to local `qrcode` canvas render), fullscreen `<video preload="auto" playsInline muted>` overlay, winner reveal card (`••• ••• <phoneLast4>` + Next draw button), closing/finished card. Implements: D6. Spec: Screen Display State, QR Code Rendering, Draw Execution. **Split**: countdown display, winner reveal card, and closing card shipped in PR4b1 (`RaffleScreenView.tsx`). The QR renderer and video overlay were named seams only through PR4b1; this pass (`feat/event-raffle-4c1-draw-video`) implements their real bodies in `RaffleScreenSeams.tsx` — see the PR4c section below.
+- [x] 4b.4 Write `components/front/raffle/__tests__/RaffleScreen.test.tsx`: countdown reaching zero shows the Draw button and sends nothing automatically; a successful draw reveals the winner; a draw failure renders its error and the same Draw button retries without breaking the machine; `currentDrawId === null` renders the closing state; polling updates the entry count. Implements: D6. Spec: Screen Display State / *Countdown reaches zero*. (PR4b1) **The two cases deferred at PR4b1 time are now covered** (`feat/event-raffle-4c1-draw-video`): "reveal fires only when the video ends and the draw response arrives" is covered by two new `RaffleScreen.test.tsx` cases (video-ends-first and response-first) plus a rejected-`play()` case; "QR `onError` swaps to the local canvas render" is covered by `RaffleScreenSeams.test.tsx`'s new `RaffleQrPanel` describe block.
 
 ### Verification (PR4b1)
 
 - `npx tsc --noEmit` → clean, no output
 - `npx vitest run components/front/raffle/__tests__/RaffleScreen.test.tsx components/front/raffle/__tests__/raffleScreenMachine.test.ts` → 33/33 passed
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
+
+---
+
+## PR4c — Fullscreen draw video overlay + QR panel (branch `feat/event-raffle-4c1-draw-video`, targets `feat/event-raffle-4b5-screen-route`)
+
+Completes the two seams PR4b1 left in place (4b.3's `RaffleQrPanel`/`RaffleDrawVideoOverlay` stubs) and the
+two 4b.4 test cases PR4b1 deferred, closing out the whole PR4b slice. The branch chain PR4b1 was implemented
+on was later regrouped by the coordinator into `feat/event-raffle-4b1-poll-hook` ← `4b2-screen-machine` ←
+`4b3-screen-view` ← `4b4-screen-container` ← `4b5-screen-route` (see `apply-progress.md`); `4b5-screen-route`
+is this pass's actual base. Three work-unit commits, each independently under the 400-line budget except the
+first (see per-commit note):
+
+| Commit | Content | Files | Authored lines |
+|---|---|---|---|
+| 1 | Video overlay | `RaffleScreenSeams.tsx` (video half), `RaffleScreenView.tsx`, `RaffleScreen.tsx`, `raffleScreenMachine.ts` (`selectVideoUrl`), `hooks/useRaffleScreenState.ts` (type), `__tests__/RaffleScreen.test.tsx`, new `__tests__/RaffleScreenSeams.test.tsx` (video half) | 482 |
+| 2 | QR panel | `RaffleScreenSeams.tsx` (QR half), `__tests__/RaffleScreenSeams.test.tsx` (QR half), `package.json` (+`qrcode`/`@types/qrcode`) | 167 (excl. lockfile) |
+| 3 | Expose `videoUrl` through screen state | `lib/raffle/screen-state.ts`, `tests/lib/raffle/screen-state.test.ts` | 39 |
+
+Commit 1 (482 lines) is over the general 400-line PR budget on its own — the overage is the fullscreen
+video overlay's real implementation (mount-from-start, `hidden`-toggle visibility, rejected/absent-`play()`
+handling) plus its container wiring (the new `videoEnded` state and `revealReady` gate in `RaffleScreen.tsx`)
+plus thorough test coverage for both (ordering in either direction, a rejected `play()`, hidden/visible).
+No test/comment content was trimmed to fit, per the apply-time instruction. Commits 2 and 3 individually
+clear budget by a wide margin.
+
+**Budget note (unresolved, needs a maintainer/orchestrator decision, same pattern as every prior PR in this
+change)**: total authored diff vs `feat/event-raffle-4b5-screen-route` (excl. the lockfile, `openspec/`, and
+the pre-existing binary `public/raffle/draw.mp4`) is **684 changed lines** (605 insertions, 79 deletions)
+across the three commits — over the apply prompt's own "well under 600" instruction for this slice, before
+counting this documentation update on top. No task scope grew beyond 4b.3 and 4b.4's two deferred test
+cases; the overage is thorough test coverage (both ordering directions of the reveal gate, the rejected/absent
+`play()` cases, the QR fallback, hidden/visible) that the apply prompt explicitly said not to trim. The three
+commits are already a clean, independently-revertable split (see the per-commit table above); commit 1
+alone (482 lines) is the one still over the general 400-line PR budget. Two next steps are available and
+neither was taken unilaterally: (a) split commit 1 into its own `feat/event-raffle-4c1a-video-overlay`-style
+sub-branch, or (b) accept `size:exception` for the whole `feat/event-raffle-4c1-draw-video` branch (or just
+its first commit). Nothing was pushed and no PR was opened either way.
+
+**Implementation notes**:
+- The video overlay is mounted unconditionally in every `RaffleScreenView` phase branch (not only `drawing`)
+  so playback buffering starts on the very first render; visibility toggles via the `hidden` attribute.
+- A `play()` call that returns a rejected promise, or that does not return a promise at all (jsdom's
+  `HTMLMediaElement.play()` stub, and the only realistic non-spec-compliant case), is treated as an immediate
+  `ended` so a video that cannot actually play never blocks the reveal. This also means the browser tests
+  that predate this pass and never mock `play()` keep passing unmodified: jsdom's stub always resolves the
+  reveal instantly, exactly as it did before this pass, and the new ordering tests explicitly mock
+  `HTMLMediaElement.prototype.play` to control the timing being asserted.
+- `RaffleScreen.tsx`'s `isRevealReady` prop is unchanged in shape but its *default* behavior changed: it now
+  tracks the video's own `ended` event via internal state instead of always returning `true`. This is the
+  intentional completion of the "gates the winner reveal behind an injectable readiness signal" design —
+  `raffleScreenMachine.ts` itself was not touched.
+- `RaffleQrPanel`'s `entryUrl` prop is unchanged. On the remote image's `onError` it lazily `import()`s the
+  `qrcode` package (only loaded once a failure actually happens) and draws onto a `<canvas>`; the URL is
+  always rendered as text underneath.
+- `lib/raffle/screen-state.ts`'s `RaffleScreenState.event.videoUrl` is always a resolved string (the event's
+  own, else the shared fallback video path committed alongside PR4c1); the client type marks it optional
+  only so the pre-existing `raffleScreenMachine.test.ts`/`RaffleScreen.test.tsx` fixtures that predate this
+  field keep compiling without being touched.
+
+### Verification (PR4c)
+
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run components/front/raffle tests/lib/raffle tests/api` → 1218/1218 passed (115 test files)
 - `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
 
 ---
