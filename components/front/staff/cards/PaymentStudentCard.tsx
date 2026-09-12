@@ -22,7 +22,7 @@ import {
   splitCustomerName,
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
-import { isOpenCashSettlementRow } from "@/components/front/staff/staffPaymentFilters"
+import { isOpenSettlementRow } from "@/components/front/staff/staffPaymentFilters"
 import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
@@ -33,6 +33,9 @@ type PaymentStudentCardProps = StudentCardsGridProps & {
   student: PaymentBackedStudentCard
 }
 
+// row.amount === 0 means unrecorded; falls back to dueAmountCents (course drop-in price), null if unset.
+export const resolvePendingRowAmountCents = (row: Pick<PaymentRow, "amount" | "dueAmountCents">): number | null =>
+  row.amount > 0 ? row.amount : row.dueAmountCents ?? null
 function PaymentClerkBanner({ payment }: { payment: PaymentRow }) {
   return <ClerkSyncUserBanner userId={payment.userId ?? null} />
 }
@@ -98,12 +101,12 @@ export function PaymentStudentCard({
   ]
   const studentOpenIds = getOpenPaymentIds(student.allPayments)
   const historyOpenRows =
-    cardVariant.context === "history" ? student.allPayments.filter(isOpenCashSettlementRow) : []
-  const historyCashOpenIds = historyOpenRows.map((p) => p.id)
-  const isHistoryCashSettlement = cardVariant.context === "history" && historyCashOpenIds.length > 0
+    cardVariant.context === "history" ? student.allPayments.filter(isOpenSettlementRow) : []
+  const historyOpenSettlementIds = historyOpenRows.map((p) => p.id)
+  const isHistorySettlementSelection = cardVariant.context === "history" && historyOpenSettlementIds.length > 0
   const studentSelectableIds =
-    isHistoryCashSettlement
-      ? historyCashOpenIds
+    isHistorySettlementSelection
+      ? historyOpenSettlementIds
       : studentOpenIds.length > 0
       ? studentOpenIds
       : student.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
@@ -114,18 +117,18 @@ export function PaymentStudentCard({
   return (
     <article
       className={`relative rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-4 text-white ${
-        isHistoryCashSettlement || payment.paymentChannel === "cash" ? "pt-9" : ""
+        isHistorySettlementSelection || payment.paymentChannel === "cash" ? "pt-9" : ""
       }`}
     >
-      {isHistoryCashSettlement || (cardVariant.context !== "history" && payment.paymentChannel === "cash") ? (
+      {isHistorySettlementSelection || (cardVariant.context !== "history" && payment.paymentChannel === "cash") ? (
         isSelected ? (
           <div className="absolute right-3 top-3 z-10 flex items-center gap-1">
             <button
               type="button"
               onClick={() =>
                 onSettlementBulkUpdate(
-                  !isHistoryCashSettlement && payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid",
-                  isHistoryCashSettlement
+                  !isHistorySettlementSelection && payment.settlementStatus === "paid" ? "mark_pending" : "mark_paid",
+                  isHistorySettlementSelection
                     ? studentSelectableIds
                     : payment.settlementStatus === "paid"
                       ? [payment.id]
@@ -133,12 +136,12 @@ export function PaymentStudentCard({
                 )
               }
               className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
-                !isHistoryCashSettlement && payment.settlementStatus === "paid"
+                !isHistorySettlementSelection && payment.settlementStatus === "paid"
                   ? "bg-amber-500/30 border border-amber-500/50 text-amber-200 hover:bg-amber-500/40"
                   : "bg-emerald-500/30 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/40"
               }`}
             >
-              {!isHistoryCashSettlement && payment.settlementStatus === "paid" ? "Mark pending" : "Mark paid"}
+              {!isHistorySettlementSelection && payment.settlementStatus === "paid" ? "Mark pending" : "Mark paid"}
             </button>
             <button
               type="button"
@@ -371,17 +374,22 @@ export function PaymentStudentCard({
             <p className="inline-flex w-full items-center justify-between gap-2">
               <span>Pending payments</span>
               <span className="font-semibold">
-                {formatMoney(historyOpenRows.reduce((sum, row) => sum + (row.amount || row.dueAmountCents || 0), 0), payment.currency)}
+                {formatMoney(historyOpenRows.reduce((sum, row) => sum + (resolvePendingRowAmountCents(row) ?? 0), 0), payment.currency)}
               </span>
             </p>
-            {historyOpenRows.slice(0, 6).map((row) => (
-              <p key={`open-row-${row.id}`} className="mt-0.5 inline-flex w-full items-center justify-between gap-2 text-[11px] text-amber-100/75">
-                <span className="truncate">{row.courseTitle || row.courseSlug || "Class"}</span>
-                <span className="shrink-0">
-                  {formatMoney(row.amount || row.dueAmountCents || 0, row.currency)} · {row.paymentChannel === "cash" ? "cash pending" : "unpaid"}
-                </span>
-              </p>
-            ))}
+            {historyOpenRows.slice(0, 6).map((row) => {
+              const pendingAmountCents = resolvePendingRowAmountCents(row)
+              return (
+                <p key={`open-row-${row.id}`} className="mt-0.5 inline-flex w-full items-center justify-between gap-2 text-[11px] text-amber-100/75">
+                  <span className="truncate">{row.courseTitle || row.courseSlug || "Class"}</span>
+                  <span className="shrink-0">
+                    {pendingAmountCents === null
+                      ? "Price not set · unpaid"
+                      : `${formatMoney(pendingAmountCents, row.currency)} · ${row.paymentChannel === "cash" ? "cash pending" : "unpaid"}`}
+                  </span>
+                </p>
+              )
+            })}
           </div>
         ) : null}
         <p className="inline-flex w-full items-center justify-between gap-2 text-white/75">
