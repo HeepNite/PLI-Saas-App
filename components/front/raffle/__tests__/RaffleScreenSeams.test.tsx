@@ -4,10 +4,13 @@ import React, { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { RaffleDrawVideoOverlay } from "@/components/front/raffle/RaffleScreenSeams"
+import { RaffleDrawVideoOverlay, RaffleQrPanel } from "@/components/front/raffle/RaffleScreenSeams"
 
 const testGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 testGlobal.IS_REACT_ACT_ENVIRONMENT = true
+
+const toCanvasMock = vi.fn().mockResolvedValue(undefined)
+vi.mock("qrcode", () => ({ toCanvas: toCanvasMock }))
 
 describe("RaffleDrawVideoOverlay", () => {
   let root: Root | null = null
@@ -94,5 +97,82 @@ describe("RaffleDrawVideoOverlay", () => {
       root!.render(<RaffleDrawVideoOverlay videoUrl="/raffle/draw.mp4" active={true} onEnded={onEnded} />)
     })
     expect(playSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("RaffleQrPanel", () => {
+  let root: Root | null = null
+  let container: HTMLDivElement | null = null
+
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    toCanvasMock.mockClear()
+  })
+
+  afterEach(async () => {
+    if (root) await act(async () => root?.unmount())
+    container?.remove()
+    root = null
+    container = null
+  })
+
+  it("renders a placeholder when there is no entry URL yet", async () => {
+    await act(async () => {
+      root!.render(<RaffleQrPanel entryUrl={null} />)
+    })
+    expect(container!.querySelector('[data-testid="raffle-qr-placeholder"]')).not.toBeNull()
+    expect(container!.querySelector("img")).toBeNull()
+  })
+
+  it("renders the api.qrserver.com image and the URL as text", async () => {
+    const entryUrl = "https://pli.test/raffle/ple-launch"
+    await act(async () => {
+      root!.render(<RaffleQrPanel entryUrl={entryUrl} />)
+    })
+    const img = container!.querySelector("img") as HTMLImageElement
+    expect(img.src).toBe(`https://api.qrserver.com/v1/create-qr-code/?size=160x160&format=png&data=${encodeURIComponent(entryUrl)}`)
+    expect(container!.textContent).toContain(entryUrl)
+  })
+
+  it("swaps to a locally rendered canvas when the remote image fails to load", async () => {
+    const entryUrl = "https://pli.test/raffle/ple-launch"
+    await act(async () => {
+      root!.render(<RaffleQrPanel entryUrl={entryUrl} />)
+    })
+    const img = container!.querySelector("img") as HTMLImageElement
+
+    await act(async () => {
+      img.dispatchEvent(new Event("error"))
+      await Promise.resolve()
+    })
+
+    expect(container!.querySelector("img")).toBeNull()
+    const canvas = container!.querySelector('[data-testid="raffle-qr-canvas"]')
+    expect(canvas).not.toBeNull()
+    expect(toCanvasMock).toHaveBeenCalledWith(canvas, entryUrl, expect.objectContaining({ width: 160 }))
+    // The URL stays visible as text even after the fallback renders.
+    expect(container!.textContent).toContain(entryUrl)
+  })
+
+  it("resets to the remote image and clears the failure flag when the URL changes", async () => {
+    const firstUrl = "https://pli.test/raffle/first"
+    await act(async () => {
+      root!.render(<RaffleQrPanel entryUrl={firstUrl} />)
+    })
+    const img = container!.querySelector("img") as HTMLImageElement
+    await act(async () => {
+      img.dispatchEvent(new Event("error"))
+      await Promise.resolve()
+    })
+    expect(container!.querySelector('[data-testid="raffle-qr-canvas"]')).not.toBeNull()
+
+    const secondUrl = "https://pli.test/raffle/second"
+    await act(async () => {
+      root!.render(<RaffleQrPanel entryUrl={secondUrl} />)
+    })
+    expect(container!.querySelector("img")).not.toBeNull()
+    expect(container!.querySelector('[data-testid="raffle-qr-canvas"]')).toBeNull()
   })
 })

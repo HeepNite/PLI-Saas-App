@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 export type RaffleDrawVideoOverlayProps = {
   /** The event's own draw video if set, otherwise the shared placeholder — see `lib/raffle/screen-state.ts`. */
@@ -72,22 +72,79 @@ export function RaffleDrawVideoOverlay({ videoUrl, active, onEnded }: RaffleDraw
   )
 }
 
+const QR_IMAGE_SIZE_PX = 160
+
 /**
- * PR4b2 seam — the public-URL QR code (design.md's QR Code Rendering
- * requirement: `api.qrserver.com` `<img>` with an `onError` fallback to a
- * local `qrcode` canvas render). This slice renders a placeholder region
- * only, sized like the real QR will be, so the surrounding layout does not
- * shift once PR4b2 fills it in.
+ * Same `api.qrserver.com` image-endpoint pattern as
+ * `StaffTerminalShell.tsx`'s `buildCheckInQrImageUrl` (not imported/
+ * modified — that helper is kiosk check-in specific).
+ */
+function buildRaffleQrImageUrl(entryUrl: string): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${QR_IMAGE_SIZE_PX}x${QR_IMAGE_SIZE_PX}&format=png&data=${encodeURIComponent(entryUrl)}`
+}
+
+/**
+ * The public-URL QR code (design.md's QR Code Rendering requirement).
+ * Primary render is the `api.qrserver.com` image endpoint; on its `onError`
+ * it falls back to a locally generated QR drawn onto a `<canvas>` with the
+ * `qrcode` package, imported lazily so that dependency is only loaded once
+ * the remote image has actually failed. The URL is always shown as text
+ * underneath so a phone can still reach it even if both render paths fail.
  */
 export function RaffleQrPanel({ entryUrl }: { entryUrl: string | null }) {
+  const [remoteFailed, setRemoteFailed] = useState(false)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  useEffect(() => {
+    setRemoteFailed(false)
+  }, [entryUrl])
+
+  useEffect(() => {
+    if (!remoteFailed || !entryUrl || !canvasRef.current) return
+    const canvas = canvasRef.current
+    let cancelled = false
+    import("qrcode").then((QRCode) => {
+      if (cancelled) return
+      QRCode.toCanvas(canvas, entryUrl, { width: QR_IMAGE_SIZE_PX, margin: 1 }).catch(() => {})
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [remoteFailed, entryUrl])
+
+  if (!entryUrl) {
+    return (
+      <div
+        data-testid="raffle-qr-placeholder"
+        aria-hidden="true"
+        className="flex h-40 w-40 items-center justify-center rounded-lg border border-dashed border-white/20 text-xs text-white/40"
+      >
+        QR
+      </div>
+    )
+  }
+
   return (
-    <div
-      data-testid="raffle-qr-placeholder"
-      data-entry-url={entryUrl ?? undefined}
-      aria-hidden="true"
-      className="flex h-40 w-40 items-center justify-center rounded-lg border border-dashed border-white/20 text-xs text-white/40"
-    >
-      QR
+    <div className="flex flex-col items-center gap-2">
+      {remoteFailed ? (
+        <canvas
+          ref={canvasRef}
+          width={QR_IMAGE_SIZE_PX}
+          height={QR_IMAGE_SIZE_PX}
+          data-testid="raffle-qr-canvas"
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={buildRaffleQrImageUrl(entryUrl)}
+          alt="Scan to enter the raffle"
+          width={QR_IMAGE_SIZE_PX}
+          height={QR_IMAGE_SIZE_PX}
+          onError={() => setRemoteFailed(true)}
+          data-testid="raffle-qr-image"
+        />
+      )}
+      <p className="max-w-[12rem] break-all text-xs text-white/50">{entryUrl}</p>
     </div>
   )
 }
