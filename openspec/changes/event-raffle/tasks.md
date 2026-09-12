@@ -7,6 +7,12 @@ Chain strategy: feature-branch-chain
 
 Branch chain: `codex/develop` ← `feat/event-raffle-1a-schema` ← `feat/event-raffle-1b-seed-plan` ← `feat/event-raffle-1c-seed-cli` ← `feat/event-raffle-2-entry-api` ← `feat/event-raffle-3-entry-page` ← `feat/event-raffle-4a-draw-api` ← `feat/event-raffle-4b-screen-ui`
 
+Actual chain as of the PR4a apply pass (PR2 and PR3 were each further split, same pattern as PR1 —
+see their sections below for detail): `codex/develop` ← `feat/event-raffle-1a-schema` ←
+`feat/event-raffle-1b-seed-plan` ← `feat/event-raffle-1c-seed-cli` ← `feat/event-raffle-2a-entry-domain` ←
+`feat/event-raffle-2b-entry-route` ← `feat/event-raffle-3a-entry-page` ← `feat/event-raffle-3b-entry-page-tests`
+← `feat/event-raffle-4a-draw-api` (this pass) ← `feat/event-raffle-4b-screen-ui` (not started).
+
 PR1 was split into three chained slices during apply because its authored diff (834 changed lines) exceeded the 400-line budget: `feat/event-raffle-1a-schema` (schema + migration, targets `codex/develop`), `feat/event-raffle-1b-seed-plan` (`lib/raffle/seed-plan.ts` pure helpers + their unit tests, targets 1a), `feat/event-raffle-1c-seed-cli` (`scripts/raffle-seed.ts` CLI + example config + `package.json` entry + CLI-level tests, targets 1b). See `apply-progress.md` for per-branch line counts and verification.
 
 ### Suggested Work Units
@@ -87,23 +93,38 @@ accept `size:exception` for one PR. Nothing pushed, no PR opened.
 
 ---
 
-## PR4a — Draw domain + draw/session/state routes (targets `feat/event-raffle-3-entry-page`)
+## PR4a — Draw domain + draw/session/state routes (targets `feat/event-raffle-3b-entry-page-tests`)
 
-- [ ] 4a.1 Create `lib/raffle/screen-token.ts`: `generateScreenToken()`, `hashScreenToken(raw)` (SHA-256), `screenTokenMatches(raw, hash)` via `crypto.timingSafeEqual` on two 32-byte hashed buffers, `screenCookieName(slug)` (`pli_raffle_screen_<slug>`), `isRaffleSlug(value)` (the regex ^[a-z0-9-]{1,64}$), `SCREEN_COOKIE_MAX_AGE_SEC` (36h). Implements: D2. Spec: Screen Token Authorization.
-- [ ] 4a.2 Create `lib/raffle/winner-view.ts`: `toWinnerView(entry)` → `{ name, phoneLast4 }` (last 4 digits only, never the full `phoneE164`). Implements: D5. Spec: Draw Execution.
-- [ ] 4a.3 Create `lib/raffle/draw.ts`: `runDraw(tx, { drawId, now })` — `updateMany` claim guard with `RaffleDraw.drawingStartedAt` and `DRAW_CLAIM_TIMEOUT_MS = 60_000` (D3); on `count === 0` re-read and return `drawn` (idempotent replay) or `in_progress`; on claim success load eligible entries (exclude prior winners when `excludePreviousWinners`, D4), pick via `crypto.randomInt`, persist `winnerEntryId` / `drawnAt` / `status: "drawn"`; on zero eligible reset the claimed row to `open` / `drawingStartedAt: null` and return `no_eligible_entries`. Implements: D3, D4, D5. Spec: Draw Execution (all scenarios).
-- [ ] 4a.4 Create `lib/raffle/screen-state.ts`: `loadScreenState(db, slug)` → `{ now, event, entryCount, currentDrawId, draws[] }`; `currentDrawId` is the lowest `order` with status `open` / `drawing`. Implements: D1. Spec: Screen Display State.
-- [ ] 4a.5 Create `app/api/raffle/[slug]/screen-session/route.ts` (`GET`, `runtime = "nodejs"`): `isRaffleSlug` → load event (404 if absent) → `screenTokenMatches` (404 if not) → set cookie (`httpOnly`, `secure`, `sameSite: "strict"`, `path` = site root, `maxAge` per D2) → `302` to the URL /staff/raffle/[slug]/screen with `Referrer-Policy: no-referrer`, `Cache-Control: no-store`; rate-limited (`raffle:draw`-scale, D10). Implements: D2. Spec: Screen Token Authorization / *Valid key issues cookie*.
-- [ ] 4a.6 Create `app/api/raffle/[slug]/screen-state/route.ts` (`GET`, cookie-gated, `runtime = "nodejs"`): 404 on missing/invalid cookie; else return `loadScreenState` payload via `toWinnerView` for any drawn entries; rate-limited (`raffle:screen-state`, 240/60s). Implements: D1, D2, D5, D10. Spec: Screen Display State, Screen Token Authorization / *No cookie and no key*.
-- [ ] 4a.7 Create `app/api/raffle/[slug]/draws/[drawId]/draw/route.ts` (`POST`, cookie-gated, `runtime = "nodejs"`): rate-limited (`raffle:draw`, 20/60s); `prisma.$transaction(tx => runDraw(tx, { drawId, now }), { maxWait: 5000, timeout: 10000 })`; map `drawn` → `200`, `no_eligible_entries` → `409`, `in_progress` → `409 draw_in_progress`, missing draw/cookie → `404`. Implements: D2, D3, D4, D5, D10. Spec: Draw Execution (all scenarios), Screen Token Authorization.
-- [ ] 4a.8 Write `tests/api/raffle-draw.test.ts` (mocked Prisma, `vi.spyOn` on `crypto.randomInt`): `runDraw` picks the stubbed index; replay on a `drawn` draw returns the same winner; lost claim → `in_progress`; stale `drawing` older than 60s is reclaimed; prior winners excluded when the flag is on, included when off; zero eligible → `no_eligible_entries` and the row resets to `open`; route maps each status to its HTTP code; `toWinnerView` never returns the full phone. Implements: D3, D4, D5. Spec: Draw Execution (all scenarios).
-- [ ] 4a.9 Write `tests/api/raffle-screen.test.ts` (mocked Prisma): `screenTokenMatches` accepts the right token and rejects a wrong one of equal and unequal length; `screen-session` sets the cookie and 302s, bad key → 404; `screen-state` without cookie → 404; `currentDrawId` is the lowest open/drawing order. Implements: D1, D2. Spec: Screen Token Authorization (both scenarios), Screen Display State.
+Implemented on branch `feat/event-raffle-4a-draw-api`, three work-unit commits: `fbd2f02` (draw domain
+`lib/raffle/draw.ts` + `tests/lib/raffle/draw.test.ts`, 283 lines), `d1cf050` (screen token verification +
+winner masking + screen state — `lib/raffle/{screen-token,winner-view,screen-state}.ts` + their tests, 265
+lines), `5754f3e` (the three route handlers + their tests, 442 lines). Test coverage was split into more
+granular files than the two named in tasks.md (`tests/lib/raffle/{draw,screen-token,winner-view,screen-state}.test.ts`
+for domain-level cases, `tests/api/{raffle-draw,raffle-screen}.test.ts` for route-level HTTP mapping) so each
+commit carries only the tests for the module it introduces, per the apply-time work-unit-commits instruction.
+Total authored diff vs the branch base is 990 lines, over the 400-line budget and over this section's own
+PR4a estimate (230–300) — expected upfront (design.md: "PR4 as one unit forecast 350–400+", and the apply
+prompt itself flagged this slice as likely exceeding budget). No task scope grew beyond 4a.1–4a.9; per the
+apply-time instruction no test content was trimmed to fit. Commits 1 and 2 individually clear the 400-line
+budget (283 and 265 lines); commit 3 (routes + their tests) is 442 lines, slightly over. See
+`apply-progress.md` for the full per-commit breakdown. Branch-split vs `size:exception` decision deferred to
+the orchestrator, same pattern as PR2/PR3. Nothing pushed, no PR opened.
+
+- [x] 4a.1 Create `lib/raffle/screen-token.ts`: `generateScreenToken()`, `hashScreenToken(raw)` (SHA-256), `screenTokenMatches(raw, hash)` via `crypto.timingSafeEqual` on two 32-byte hashed buffers, `screenCookieName(slug)` (`pli_raffle_screen_<slug>`), `isRaffleSlug(value)` (the regex ^[a-z0-9-]{1,64}$), `SCREEN_COOKIE_MAX_AGE_SEC` (36h). Implements: D2. Spec: Screen Token Authorization.
+- [x] 4a.2 Create `lib/raffle/winner-view.ts`: `toWinnerView(entry)` → `{ name, phoneLast4 }` (last 4 digits only, never the full `phoneE164`). Implements: D5. Spec: Draw Execution.
+- [x] 4a.3 Create `lib/raffle/draw.ts`: `runDraw(tx, { drawId, now })` — `updateMany` claim guard with `RaffleDraw.drawingStartedAt` and `DRAW_CLAIM_TIMEOUT_MS = 60_000` (D3); on `count === 0` re-read and return `drawn` (idempotent replay) or `in_progress`; on claim success load eligible entries (exclude prior winners when `excludePreviousWinners`, D4), pick via `crypto.randomInt`, persist `winnerEntryId` / `drawnAt` / `status: "drawn"`; on zero eligible reset the claimed row to `open` / `drawingStartedAt: null` and return `no_eligible_entries`. Implements: D3, D4, D5. Spec: Draw Execution (all scenarios).
+- [x] 4a.4 Create `lib/raffle/screen-state.ts`: `loadScreenState(db, slug)` → `{ now, event, entryCount, currentDrawId, draws[] }`; `currentDrawId` is the lowest `order` with status `open` / `drawing`. Implements: D1. Spec: Screen Display State.
+- [x] 4a.5 Create `app/api/raffle/[slug]/screen-session/route.ts` (`GET`, `runtime = "nodejs"`): `isRaffleSlug` → load event (404 if absent) → `screenTokenMatches` (404 if not) → set cookie (`httpOnly`, `secure`, `sameSite: "strict"`, `path` = site root, `maxAge` per D2) → `302` to the URL /staff/raffle/[slug]/screen with `Referrer-Policy: no-referrer`, `Cache-Control: no-store`; rate-limited (`raffle:draw`-scale, D10). Implements: D2. Spec: Screen Token Authorization / *Valid key issues cookie*.
+- [x] 4a.6 Create `app/api/raffle/[slug]/screen-state/route.ts` (`GET`, cookie-gated, `runtime = "nodejs"`): 404 on missing/invalid cookie; else return `loadScreenState` payload via `toWinnerView` for any drawn entries; rate-limited (`raffle:screen-state`, 240/60s). Implements: D1, D2, D5, D10. Spec: Screen Display State, Screen Token Authorization / *No cookie and no key*.
+- [x] 4a.7 Create `app/api/raffle/[slug]/draws/[drawId]/draw/route.ts` (`POST`, cookie-gated, `runtime = "nodejs"`): rate-limited (`raffle:draw`, 20/60s); `prisma.$transaction(tx => runDraw(tx, { drawId, now }), { maxWait: 5000, timeout: 10000 })`; map `drawn` → `200`, `no_eligible_entries` → `409`, `in_progress` → `409 draw_in_progress`, missing draw/cookie → `404`. Implements: D2, D3, D4, D5, D10. Spec: Draw Execution (all scenarios), Screen Token Authorization.
+- [x] 4a.8 Write `tests/api/raffle-draw.test.ts` (mocked Prisma, `vi.spyOn` on `crypto.randomInt`): `runDraw` picks the stubbed index; replay on a `drawn` draw returns the same winner; lost claim → `in_progress`; stale `drawing` older than 60s is reclaimed; prior winners excluded when the flag is on, included when off; zero eligible → `no_eligible_entries` and the row resets to `open`; route maps each status to its HTTP code; `toWinnerView` never returns the full phone. Implements: D3, D4, D5. Spec: Draw Execution (all scenarios). (domain-level cases moved to `tests/lib/raffle/draw.test.ts` and `tests/lib/raffle/winner-view.test.ts`; `tests/api/raffle-draw.test.ts` covers the route's HTTP-status mapping)
+- [x] 4a.9 Write `tests/api/raffle-screen.test.ts` (mocked Prisma): `screenTokenMatches` accepts the right token and rejects a wrong one of equal and unequal length; `screen-session` sets the cookie and 302s, bad key → 404; `screen-state` without cookie → 404; `currentDrawId` is the lowest open/drawing order. Implements: D1, D2. Spec: Screen Token Authorization (both scenarios), Screen Display State. (`screenTokenMatches` and `currentDrawId` unit cases moved to `tests/lib/raffle/screen-token.test.ts` and `tests/lib/raffle/screen-state.test.ts`; `tests/api/raffle-screen.test.ts` covers the two routes' HTTP-status mapping)
 
 ### Verification
 
-- `npx tsc --noEmit`
-- `npx vitest run tests/api/raffle-draw.test.ts tests/api/raffle-screen.test.ts`
-- `npm run lint`
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run tests/lib/raffle tests/api` → 1147/1147 passed (111 test files)
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
 
 ---
 
