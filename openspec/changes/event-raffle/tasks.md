@@ -65,17 +65,25 @@ the orchestrator (see apply-progress.md).
 
 ---
 
-## PR3 — Public entry page (targets `feat/event-raffle-2-entry-api`)
+## PR3 — Public entry page (targets `feat/event-raffle-2b-entry-route`, actual base tip `9f466bd`)
 
-- [ ] 3.1 Create `app/raffle/[slug]/page.tsx` (server component): load event by `slug`, `notFound()` when absent, render `<RaffleEntryForm slug eventTitle />`. Implements: D7. Spec: Public Entry Page (both scenarios).
-- [ ] 3.2 Create `components/front/raffle/RaffleEntryForm.tsx` (client): `idle → submitting → { entered | already_entered | closed | error }` states; mobile-first Tailwind; `inputMode="tel"`; country select defaulting to `US`; posts to `POST /api/raffle/[slug]/entries`. Implements: D1, D7. Spec: Public Entry Submission / *New entry accepted*, *Duplicate phone is not an error*, *Event closed*.
-- [ ] 3.3 Write `components/front/raffle/__tests__/RaffleEntryForm.test.tsx`: submits parsed name/phone values; renders `already_entered`, `event_closed`, and `error` states; success state hides the form. Implements: D7. Spec: Public Entry Page, Public Entry Submission.
+Implemented on branch `feat/event-raffle-3-entry-page`, two work-unit commits: `e8079a9` (page + form, 260
+authored lines) and `f8db3e0` (tests, 220 authored lines). Total authored diff is 480 lines, over the
+400-line budget and over this section's own PR3 estimate (140–200); no task scope grew beyond 3.1–3.3 — the
+overage is thorough state-mapping/mount test coverage plus jsdom-mount plumbing, and per the apply-time
+instruction no test content was trimmed to fit. Each commit individually clears the 400-line budget, so the
+orchestrator can split the branch at the `e8079a9`/`f8db3e0` boundary if the whole slice needs two PRs, or
+accept `size:exception` for one PR. Nothing pushed, no PR opened.
+
+- [x] 3.1 Create `app/raffle/[slug]/page.tsx` (server component): load event by `slug`, `notFound()` when absent, render `<RaffleEntryForm slug eventTitle />`. Implements: D7. Spec: Public Entry Page (both scenarios).
+- [x] 3.2 Create `components/front/raffle/RaffleEntryForm.tsx` (client): `idle → submitting → { entered | already_entered | closed | error }` states; mobile-first Tailwind; `inputMode="tel"`; country select defaulting to `US`; posts to `POST /api/raffle/[slug]/entries`. Implements: D1, D7. Spec: Public Entry Submission / *New entry accepted*, *Duplicate phone is not an error*, *Event closed*. (also passes `initiallyClosed` computed server-side by page.tsx via `isRaffleEventClosed`, so the page doesn't flash the form for an already-closed event before the first fetch)
+- [x] 3.3 Write `components/front/raffle/__tests__/RaffleEntryForm.test.tsx`: submits parsed name/phone values; renders `already_entered`, `event_closed`, and `error` states; success state hides the form; also covers inline field-error rendering and the outcome/payload pure-helper mappings directly. Implements: D7. Spec: Public Entry Page, Public Entry Submission.
 
 ### Verification
 
-- `npx tsc --noEmit`
-- `npx vitest run components/front/raffle/__tests__/RaffleEntryForm.test.tsx`
-- `npm run lint`
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run components/front/raffle/__tests__/RaffleEntryForm.test.tsx` → 16/16 passed
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
 
 ---
 

@@ -100,15 +100,46 @@ chained sub-branches (same pattern PR1 used for 1a/1b/1c), or (b) keep the singl
 branch and accept `size:exception` for this PR. Nothing was pushed and no PR was opened either way, so this is
 purely a delivery-boundary decision, not a rework.
 
+## PR3 — Public entry page (`feat/event-raffle-3-entry-page`, targets `feat/event-raffle-2b-entry-route` tip `9f466bd`)
+
+Two work-unit commits:
+
+| File | Action |
+|---|---|
+| `app/raffle/[slug]/page.tsx` | Created — server component; `isRaffleSlug` guard, loads `RaffleEvent` by slug (`title`, `eventDate`), `notFound()` when absent, computes `closed` via `isRaffleEventClosed` and passes it as `initiallyClosed` |
+| `components/front/raffle/RaffleEntryForm.tsx` | Created — client form; self-contained state (`idle\|submitting\|entered\|already_entered\|closed\|error`); exports pure `resolveRaffleEntrySubmitOutcome(httpStatus, body)` and `buildRaffleEntryPayload(name, phone, country)` helpers (same "export pure functions from the component file" pattern as `StaffTerminalShell.tsx`); country `<select>` built from `getPhoneCountryCatalog()` (reuses `lib/phone` conventions, does not import/modify `InternationalPhoneField` since that component is kiosk-specific — dark theme + on-screen numeric keypad — not a fit for a mobile visitor's own keyboard) |
+| `components/front/raffle/__tests__/RaffleEntryForm.test.tsx` | Created — 16 tests: 8 on the pure helpers (outcome mapping for every API status, payload trimming) + 8 mounted (`createRoot`/`act`, same pattern as `AddPackageForm.test.tsx`, `// @vitest-environment jsdom` override since the repo's default Vitest environment is `node`): submits trimmed name/phone to `/api/raffle/[slug]/entries`, hides the form on `entered`/`already_entered`/`event_closed`, `initiallyClosed` skips the first fetch, inline field error keeps the form visible, generic/network error shows retry with the form intact |
+
+**Diff vs `feat/event-raffle-2b-entry-route`** (excl. lockfile/openspec): 3 files, 480 insertions — over the
+400-line budget and over `tasks.md`'s own PR3 estimate (140–200). Per the apply-time instruction ("do not
+trim tests to fit"), no test/comment content was cut. Split into 2 commits so the orchestrator has a clean
+boundary if the slice needs 2 PRs instead of 1 (each commit alone clears budget):
+
+- `e8079a9` — page + form: 2 files, 260 insertions
+- `f8db3e0` — tests: 1 file, 220 insertions
+
+**Verification**:
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run components/front/raffle/__tests__/RaffleEntryForm.test.tsx` → 16/16 passed
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
+
+**Note on jsdom mounting**: `vitest.config.ts`'s default `environment` is `"node"`, not `jsdom`. Per-file
+`// @vitest-environment jsdom` overrides it (already used by
+`components/front/staff/student-override/__tests__/AddPackageForm.test.tsx`), so the component was tested by
+actually mounting it (`react-dom/client` `createRoot` + `act`), not only via pure-function extraction. Typing
+into a controlled `<input>` from raw DOM requires writing through the native `HTMLInputElement.prototype.value`
+setter before dispatching `"input"` — assigning `.value` directly is silently ignored by React's controlled-input
+change detection in this mount style.
+
 ## Task Status
 
 - [x] 1.1–1.6 (PR1, all sub-slices 1a/1b/1c) — see `tasks.md` for per-task PR attribution.
 - [x] 2.1–2.5 (PR2, public entry API) — see above; budget/branch-split decision pending.
-- [ ] PR3 — Public entry page (3.1–3.3) — not started.
+- [x] 3.1–3.3 (PR3, public entry page) — see above; budget/split decision pending.
 - [ ] PR4a — Draw domain + routes (4a.1–4a.9) — not started.
 - [ ] PR4b — Screen UI (4b.1–4b.4) — not started.
 
 ## Worktree end state
 
-Checked out on `feat/event-raffle-2-entry-api` (tip `c96544a`, base `feat/event-raffle-1c-seed-cli` tip
-`41150dc`). No branches pushed; nothing opened as a PR.
+Checked out on `feat/event-raffle-3-entry-page` (tip `f8db3e0`, base `feat/event-raffle-2b-entry-route` tip
+`9f466bd`). No branches pushed; nothing opened as a PR.
