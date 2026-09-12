@@ -4,7 +4,13 @@ import React, { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { RaffleDrawVideoOverlay, RaffleQrPanel } from "@/components/front/raffle/RaffleScreenSeams"
+import {
+  DRAW_ANIMATION_MS,
+  RaffleDrawVideoOverlay,
+  RaffleQrPanel,
+} from "@/components/front/raffle/RaffleScreenSeams"
+
+const playable = () => vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
 
 const testGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 testGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -35,6 +41,7 @@ describe("RaffleDrawVideoOverlay", () => {
   }
 
   it("is hidden outside a draw and visible while one is active", async () => {
+    playable()
     const onEnded = vi.fn()
     await act(async () => {
       root!.render(<RaffleDrawVideoOverlay videoUrl="/raffle/draw.mp4" active={false} onEnded={onEnded} />)
@@ -47,19 +54,52 @@ describe("RaffleDrawVideoOverlay", () => {
     expect(findVideo().hidden).toBe(false)
   })
 
-  it("treats jsdom's unimplemented play() (no promise returned) as finished immediately", async () => {
+  it("falls back to the animation when play() returns no promise", async () => {
     // jsdom's HTMLMediaElement.play() logs "not implemented" and returns
     // undefined rather than a Promise — the real-browser contract always
-    // returns one, so a non-promise return means playback cannot actually
-    // start here, and must not block the reveal.
+    // returns one, so a non-promise return means playback cannot start
+    // here, and the animation must take over instead of blocking.
+    vi.useFakeTimers()
     const onEnded = vi.fn()
     await act(async () => {
       root!.render(<RaffleDrawVideoOverlay videoUrl="/raffle/draw.mp4" active={true} onEnded={onEnded} />)
     })
+    expect(container!.querySelector('[data-testid="raffle-draw-animation"]')).not.toBeNull()
+    expect(onEnded).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(DRAW_ANIMATION_MS)
+    })
     expect(onEnded).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
   })
 
-  it("treats a rejected play() promise as finished immediately, without blocking on `ended`", async () => {
+  it("runs the animation when the event has no video at all", async () => {
+    vi.useFakeTimers()
+    const onEnded = vi.fn()
+    await act(async () => {
+      root!.render(<RaffleDrawVideoOverlay videoUrl="" active={true} onEnded={onEnded} />)
+    })
+    expect(container!.querySelector("video")).toBeNull()
+    expect(container!.querySelector('[data-testid="raffle-draw-animation"]')).not.toBeNull()
+
+    await act(async () => {
+      vi.advanceTimersByTime(DRAW_ANIMATION_MS)
+    })
+    expect(onEnded).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+
+  it("renders nothing outside a draw when there is no usable video", async () => {
+    const onEnded = vi.fn()
+    await act(async () => {
+      root!.render(<RaffleDrawVideoOverlay videoUrl="" active={false} onEnded={onEnded} />)
+    })
+    expect(container!.querySelector('[data-testid="raffle-draw-animation"]')).toBeNull()
+    expect(onEnded).not.toHaveBeenCalled()
+  })
+
+  it("falls back to the animation when play() is refused", async () => {
     vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() =>
       Promise.reject(new Error("NotAllowedError"))
     )
@@ -70,7 +110,7 @@ describe("RaffleDrawVideoOverlay", () => {
     await act(async () => {
       await Promise.resolve()
     })
-    expect(onEnded).toHaveBeenCalledTimes(1)
+    expect(container!.querySelector('[data-testid="raffle-draw-animation"]')).not.toBeNull()
   })
 
   it("waits for the native `ended` event while play() is genuinely in progress", async () => {

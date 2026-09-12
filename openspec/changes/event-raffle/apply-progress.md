@@ -223,18 +223,75 @@ means here: the machine never leaves its six enumerated phases).
 - `npx vitest run tests/lib/raffle tests/api components/front/raffle` → 1200/1200 passed (114 test files, full regression sweep)
 - `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
 
+**Correction carried forward (2026-09-12, from Engram `sdd/event-raffle/apply-progress`, id 7029)**: the
+`feat/event-raffle-4b1-screen-shell` branch recorded above no longer exists. The coordinator regrouped PR4b1
+into the chain `feat/event-raffle-4b1-poll-hook` ← `4b2-screen-machine` ← `4b3-screen-view` ←
+`4b4-screen-container` ← `4b5-screen-route`, and a post-review correction commit (`afe7c19`,
+"fix(raffle): tick the screen countdown and gate ready on a real draw") landed on `4b5-screen-route`,
+fixing two reliability findings (`R3-countdown-frozen-between-polls`, `R3-tick-promotes-ready-without-draw`)
+that are now visible in `raffleScreenMachine.ts`'s `tick` case and `RaffleScreen.test.tsx`'s two mounted
+tests referencing those tags. `4b5-screen-route` is the real, current base for everything below.
+
+## PR4c — Fullscreen draw video overlay + QR panel (branch `feat/event-raffle-4c1-draw-video`, targets `feat/event-raffle-4b5-screen-route`)
+
+Completes 4b.3's two remaining seams (`RaffleQrPanel`, `RaffleDrawVideoOverlay` in
+`components/front/raffle/RaffleScreenSeams.tsx`) and 4b.4's two deferred test cases, closing out the PR4b
+slice. Three work-unit commits:
+
+| Commit | Content | Files | Authored lines |
+|---|---|---|---|
+| `5d7aee4` | Video overlay | `RaffleScreenSeams.tsx` (video half), `RaffleScreenView.tsx`, `RaffleScreen.tsx`, `raffleScreenMachine.ts` (`selectVideoUrl`), `hooks/useRaffleScreenState.ts` (type), `__tests__/RaffleScreen.test.tsx`, new `__tests__/RaffleScreenSeams.test.tsx` (video half) | 482 |
+| `d894718` | QR panel | `RaffleScreenSeams.tsx` (QR half), `__tests__/RaffleScreenSeams.test.tsx` (QR half), `package.json`/lockfile (+`qrcode`/`@types/qrcode`) | 167 (excl. lockfile) |
+| `a5b8066` | Expose `videoUrl` through screen state | `lib/raffle/screen-state.ts`, `tests/lib/raffle/screen-state.test.ts` | 39 |
+
+Total authored diff vs `feat/event-raffle-4b5-screen-route` (excl. lockfile, `openspec/`, and the
+pre-existing binary `public/raffle/draw.mp4`): **684 changed lines** (605 insertions, 79 deletions), over
+the apply prompt's "well under 600" instruction for this slice, and commit `5d7aee4` alone (482 lines) is
+over the general 400-line PR budget. Same pattern as every prior PR in this change: the overage is thorough
+test coverage (reveal-gate ordering in both directions, a rejected/absent `play()`, the QR onError fallback,
+hidden/visible) that the apply-time instruction explicitly said not to trim; no task scope grew beyond
+4b.3/4b.4. Two next steps are available and neither was taken unilaterally: (a) split `5d7aee4` into its own
+`feat/event-raffle-4c1a-video-overlay`-style sub-branch, or (b) accept `size:exception` for the whole
+`feat/event-raffle-4c1-draw-video` branch (or just that one commit). Nothing was pushed and no PR was opened.
+
+**Design decisions worth flagging for review**:
+- The video overlay is mounted unconditionally across every `RaffleScreenView` phase (not only `drawing`)
+  so buffering starts on first render; visibility toggles via the `hidden` attribute, never mount/unmount.
+- A `play()` that rejects, or that returns something other than a promise (jsdom's unimplemented stub, the
+  only realistic non-spec-compliant case observed), is treated as an immediate `ended`. This is why every
+  pre-existing `RaffleScreen.test.tsx` case that never mocks `play()` still passes unmodified — jsdom's
+  stub resolves the reveal instantly, exactly as before this pass — while the three new ordering-focused
+  tests explicitly mock `HTMLMediaElement.prototype.play` to control the timing under test.
+- `RaffleScreen.tsx`'s `isRevealReady` prop keeps its shape but its *default* behavior changed: it now
+  tracks the video's `ended` event via new internal state instead of always returning `true`.
+  `raffleScreenMachine.ts` itself was not touched, per the apply-time instruction.
+- `lib/raffle/screen-state.ts`'s `videoUrl` field is always a resolved string server-side; the client
+  (`hooks/useRaffleScreenState.ts`) type marks it optional only so the pre-existing
+  `raffleScreenMachine.test.ts`/`RaffleScreen.test.tsx` fixtures that predate the field keep compiling
+  without being touched.
+
+**Verification**:
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run components/front/raffle tests/lib/raffle tests/api` → 1218/1218 passed (115 test files)
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
+
 ## Task Status
 
 - [x] 1.1–1.6 (PR1, all sub-slices 1a/1b/1c) — see `tasks.md` for per-task PR attribution.
 - [x] 2.1–2.5 (PR2, public entry API) — see above; budget/branch-split decision pending.
 - [x] 3.1–3.3 (PR3, public entry page) — see above; budget/split decision pending.
 - [x] 4a.1–4a.9 (PR4a, draw domain + routes) — see above; budget/branch-split decision pending.
-- [x] 4b.1, 4b.2, 4b.4 (PR4b1, screen shell) — see above; budget/branch-split decision pending.
-- [ ] 4b.3 partially done: countdown display, winner reveal card, closing card shipped in PR4b1; QR renderer
-  and video overlay are named seams only, deferred to PR4b2.
-- [ ] PR4b2 — fullscreen draw video overlay + QR panel with offline fallback — not started.
+- [x] 4b.1, 4b.2, 4b.4 (PR4b1, screen shell) — see above; budget/branch-split decision pending; PR4b1
+  further corrected on `4b5-screen-route` per the note above (countdown-tick fix).
+- [x] 4b.3 (PR4c) — QR renderer and video overlay now implemented for real; countdown display, winner
+  reveal card, and closing card were already shipped in PR4b1.
+- [x] PR4c — fullscreen draw video overlay + QR panel with offline fallback — done; budget/branch-split
+  decision pending (see PR4c section above).
 
 ## Worktree end state
 
-Checked out on `feat/event-raffle-4b1-screen-shell` (tip: this pass's 4 commits, base
-`feat/event-raffle-4a4-draw-route`). No branches pushed; nothing opened as a PR.
+Checked out on `feat/event-raffle-4c1-draw-video` (tip: this pass's 3 commits `5d7aee4`/`d894718`/`a5b8066`,
+base `feat/event-raffle-4b5-screen-route`, which itself carries the countdown-tick correction commit
+`afe7c19` described above). No branches pushed; nothing opened as a PR. This closes out every task in
+`tasks.md`'s PR4b/PR4c scope (4b.1–4b.4); the change's only remaining open items are the budget-vs-
+`size:exception`/branch-split decisions noted for PR2, PR3, PR4a, PR4b1, and this PR4c pass.
