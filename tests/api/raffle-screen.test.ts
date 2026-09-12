@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { hashScreenToken, screenCookieName } from "@/lib/raffle/screen-token"
+import {
+  hashScreenToken,
+  screenCookieName,
+  SCREEN_COOKIE_MAX_AGE_SEC,
+} from "@/lib/raffle/screen-token"
 
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
@@ -38,8 +42,10 @@ describe("GET /api/raffle/[slug]/screen-session", () => {
     const cookie = res.cookies.get(screenCookieName("s1"))
     expect(cookie?.value).toBe(RAW_TOKEN)
     expect(cookie?.httpOnly).toBe(true)
-    // Lax so the cookie survives arriving from another app; see the route.
-    expect(cookie?.sameSite).toBe("lax")
+    expect(cookie?.secure).toBe(true)
+    expect(cookie?.sameSite).toBe("strict")
+    expect(cookie?.path).toBe("/")
+    expect(cookie?.maxAge).toBe(SCREEN_COOKIE_MAX_AGE_SEC)
   })
 
   it("returns 404 for a wrong key", async () => {
@@ -87,6 +93,15 @@ describe("GET /api/raffle/[slug]/screen-state", () => {
 
   it("returns 404 when the screen cookie is missing", async () => {
     const res = await screenState(new NextRequest("http://localhost/api/raffle/s1/screen-state"), routeParams("s1"))
+
+    expect(res.status).toBe(404)
+  })
+
+  it("rejects a valid URL key when the screen cookie is missing", async () => {
+    const res = await screenState(
+      new NextRequest(`http://localhost/api/raffle/s1/screen-state?key=${RAW_TOKEN}`),
+      routeParams("s1")
+    )
 
     expect(res.status).toBe(404)
   })

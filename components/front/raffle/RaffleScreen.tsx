@@ -34,9 +34,6 @@ export function resolveDrawFailureMessage(httpStatus: number, apiStatus: string 
 
 type RaffleScreenProps = {
   slug: string
-  /** Present when the screen was opened straight from its link; forwarded on
-   * every request so the screen works without relying on the cookie. */
-  screenKey?: string
   /**
    * Injectable reveal-readiness override (design.md D6), mainly for tests.
    * When omitted, readiness tracks the fullscreen draw video's own `ended`
@@ -51,13 +48,13 @@ type RaffleScreenProps = {
  * countdown tick. Renders nothing itself — `RaffleScreenView` is the
  * presentational half (container/presentational split, per repo convention).
  */
-export default function RaffleScreen({ slug, screenKey, isRevealReady }: RaffleScreenProps) {
+export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps) {
   const [state, dispatch] = useReducer(raffleScreenReducer, initialRaffleScreenMachineState)
   // Starts `true`: no draw is in flight yet, so there is nothing to wait on.
   // Reset to `false` the moment a draw starts, set back on the video's `ended`.
   const [videoEnded, setVideoEnded] = useState(true)
   const paused = state.phase === "drawing" || state.phase === "reveal"
-  const { data, error: pollError } = useRaffleScreenState(slug, paused, screenKey)
+  const { data, error: pollError } = useRaffleScreenState(slug, paused)
 
   useEffect(() => {
     if (data) dispatch({ type: "poll_success", payload: data })
@@ -92,8 +89,7 @@ export default function RaffleScreen({ slug, screenKey, isRevealReady }: RaffleS
     setVideoEnded(false)
     dispatch({ type: "draw_tapped" })
     try {
-      const drawQuery = screenKey ? `?key=${encodeURIComponent(screenKey)}` : ""
-      const res = await fetch(`/api/raffle/${encodeURIComponent(slug)}/draws/${currentDraw.id}/draw${drawQuery}`, {
+      const res = await fetch(`/api/raffle/${encodeURIComponent(slug)}/draws/${currentDraw.id}/draw`, {
         method: "POST",
       })
       const body = (await res.json().catch(() => null)) as DrawApiBody

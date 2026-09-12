@@ -47,10 +47,7 @@ export async function POST(
   const event = await prisma.raffleEvent.findUnique({ where: { slug } })
   if (!event) return notFound()
 
-  // Cookie first; the URL key is the fallback for a screen opened straight
-  // from its link, where the cookie may not have survived the navigation.
-  const rawToken =
-    req.cookies.get(screenCookieName(slug))?.value ?? req.nextUrl.searchParams.get("key") ?? ""
+  const rawToken = req.cookies.get(screenCookieName(slug))?.value ?? ""
   if (!rawToken || !screenTokenMatches(rawToken, event.screenTokenHash)) return notFound()
 
   let result: Awaited<ReturnType<typeof runDraw>>

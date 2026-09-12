@@ -295,3 +295,33 @@ base `feat/event-raffle-4b5-screen-route`, which itself carries the countdown-ti
 `afe7c19` described above). No branches pushed; nothing opened as a PR. This closes out every task in
 `tasks.md`'s PR4b/PR4c scope (4b.1–4b.4); the change's only remaining open items are the budget-vs-
 `size:exception`/branch-split decisions noted for PR2, PR3, PR4a, PR4b1, and this PR4c pass.
+
+## Focused remediation — screen cookie boundary and generated lint output (2026-09-12)
+
+Authorized all-done remediation for failed evidence
+`sha256:414644b2e4c8850d2658f8682cf4a2c4dca860b1125e1d5b5c8aedb24f60deab`; no runtime-ledger action was
+performed. Restored the D2 flow: the tablet link redirects to `screen-session`, the exchange sets the
+event cookie with `HttpOnly`, `Secure`, `SameSite=Strict`, root path and 36-hour max age, and the clean screen
+plus state/draw APIs accept only that cookie. Client requests no longer carry the raw key. ESLint now ignores
+only generated `.next-dev-*` trees while application source remains linted.
+
+### TDD Cycle Evidence
+
+| Task | Test files | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| Cookie-only raffle screen access | `tests/pages/raffle-screen-page.test.tsx`, `tests/api/raffle-screen.test.ts`, `tests/api/raffle-draw.test.ts` | Integration | 6 files, 86/86 passed | 4 expected failures across redirect, Strict flag, and query-only rejection | 24 relevant tests passed in the 26-test focused run | Link redirect, valid cookie, missing cookie, state query key, and draw query key paths covered | 26/26 focused tests remained green after test cleanup |
+| Generated Next.js lint exclusion | `tests/config/eslint-ignore.test.ts` | Integration | Existing lint failure captured in prior verify report | Generated `.next-dev-*` path was not ignored | Generated path ignored | Real `app/(pages)/page.tsx` remains non-ignored | 26/26 combined focused tests remained green |
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command | `npx vitest run tests/pages/raffle-screen-page.test.tsx tests/api/raffle-screen.test.ts tests/api/raffle-draw.test.ts tests/config/eslint-ignore.test.ts` → exit 0, 4 files and 26 tests passed |
+| Final bounded regression | `npx vitest run tests/api/raffle-screen.test.ts tests/api/raffle-draw.test.ts components/front/raffle tests/pages/raffle-screen-page.test.tsx tests/config/eslint-ignore.test.ts` → exit 0, 8 files and 93 tests passed |
+| Runtime harness | No external-app browser/tablet harness was authorized. The integration tests prove the application redirect/exchange/clean-cookie contract; browser-specific cross-app `SameSite=Strict` redirect behavior remains unverified. |
+| Static checks | `npm run typecheck` → exit 0; `npm run lint` → exit 0 with 116 pre-existing warnings and no errors |
+| Rollback boundary | Revert the screen page/session/state/draw route changes, the client key-removal changes, `.next-dev-*` ESLint ignore, and four regression-test edits/additions; the pre-existing `tsconfig.json` diff and prior `verify-report.md` remain untouched. |
+
+Implementation-only source delta is 172 changed lines (134 additions, 38 deletions), excluding the pre-existing
+`tsconfig.json` diff and OpenSpec artifacts. This keeps the remediation within the remaining 286-line review
+headroom. The prior failing verify report remains intact; this entry does not claim the whole feature passes.
