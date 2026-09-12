@@ -175,15 +175,66 @@ not relied on in this codebase either).
 - `npx vitest run tests/lib/raffle tests/api` → 1147/1147 passed (111 test files)
 - `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
 
+**Correction found at the start of this pass**: the worktree's actual branches are `feat/event-raffle-4a1-draw-domain`
+→ `feat/event-raffle-4a2-screen-domain` → `feat/event-raffle-4a3-screen-routes` → `feat/event-raffle-4a4-draw-route`,
+not the single `feat/event-raffle-4a-draw-api` recorded above — PR4a's three commits (`fbd2f02`/`d1cf050`/`5754f3e`)
+were further split across those four branches in a pass after this section was written, without a matching
+apply-progress update. This pass did not redo that documentation; it only records the correction so PR4b1 targets
+the real tip (`feat/event-raffle-4a4-draw-route`).
+
+## PR4b1 — Screen shell (`feat/event-raffle-4b1-screen-shell`, targets `feat/event-raffle-4a4-draw-route`)
+
+Scope per the apply prompt: the tablet screen page, container, state machine, polling, countdown, Draw
+button, winner reveal as text, and the closing state — explicitly **not** the fullscreen MP4 video overlay
+or the QR panel (PR4b2). Four work-unit commits, each independently under the 400-line budget:
+
+| Commit | Content | Files | Authored lines |
+|---|---|---|---|
+| 1 | Screen state machine | `components/front/raffle/raffleScreenMachine.ts` + `__tests__/raffleScreenMachine.test.ts` | 355 |
+| 2 | Presentational view + PR4b2 seams | `components/front/raffle/RaffleScreenView.tsx`, `RaffleScreenSeams.tsx` | 140 |
+| 3 | Polling hook + container | `components/front/raffle/hooks/useRaffleScreenState.ts`, `RaffleScreen.tsx` + `__tests__/RaffleScreen.test.tsx` | 370 |
+| 4 | Screen route | `app/staff/raffle/[slug]/screen/page.tsx` | 40 |
+
+**Total authored diff vs `feat/event-raffle-4a4-draw-route`** (excl. lockfile/openspec): 8 files, 905
+insertions, 0 deletions — over the apply prompt's own ~700-line target for this slice (though every
+individual commit above clears the general 400-line PR budget by a wide margin). The overage is not scope
+creep: 4b.1/4b.2/4b.4 map 1:1 to the assigned scope, and no test/comment content was trimmed to fit (the
+apply prompt explicitly forbade that). It comes from (a) the container/presentational split producing 4
+production files instead of 1–2, and (b) thorough reducer-branch coverage in `raffleScreenMachine.test.ts`
+(23 tests covering every transition, including no-op guards) plus 10 tests in `RaffleScreen.test.tsx` (5 on
+the pure `resolveDrawFailureMessage` mapping, 5 mounted). No further honest scope narrowing was available
+within the assigned 4b.1/4b.2/4b.4 tasks — the video/QR seams already carved out per the prompt are only
+34 lines of stubs. Two next steps are available and neither was taken unilaterally: (a) split this branch's
+four commits into `feat/event-raffle-4b1a-screen-machine` / `feat/event-raffle-4b1b-screen-container` chained
+sub-branches, or (b) accept `size:exception` for the whole `feat/event-raffle-4b1-screen-shell` branch.
+Nothing was pushed and no PR was opened.
+
+**Design deviations from `tasks.md`'s original 4b.2/4b.4 wording (both pre-approved by the apply prompt)**:
+the design diagram's `drawing_video` phase is `drawing` here (no video in this slice); the reveal is gated
+by an injectable `isRevealReady` signal (default: always ready) instead of a hardcoded
+`videoEnded && drawResult` check, so PR4b2 can wire the video's `ended` event to that same signal without
+touching `raffleScreenMachine.ts`; `error` is not a separate phase — a failed draw returns to `ready` with
+`error` set, so the same Draw button retries (this is what "allows retry without breaking the machine"
+means here: the machine never leaves its six enumerated phases).
+
+**Verification**:
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run components/front/raffle/__tests__/RaffleScreen.test.tsx components/front/raffle/__tests__/raffleScreenMachine.test.ts` → 33/33 passed
+- `npx vitest run tests/lib/raffle tests/api components/front/raffle` → 1200/1200 passed (114 test files, full regression sweep)
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
+
 ## Task Status
 
 - [x] 1.1–1.6 (PR1, all sub-slices 1a/1b/1c) — see `tasks.md` for per-task PR attribution.
 - [x] 2.1–2.5 (PR2, public entry API) — see above; budget/branch-split decision pending.
 - [x] 3.1–3.3 (PR3, public entry page) — see above; budget/split decision pending.
 - [x] 4a.1–4a.9 (PR4a, draw domain + routes) — see above; budget/branch-split decision pending.
-- [ ] PR4b — Screen UI (4b.1–4b.4) — not started.
+- [x] 4b.1, 4b.2, 4b.4 (PR4b1, screen shell) — see above; budget/branch-split decision pending.
+- [ ] 4b.3 partially done: countdown display, winner reveal card, closing card shipped in PR4b1; QR renderer
+  and video overlay are named seams only, deferred to PR4b2.
+- [ ] PR4b2 — fullscreen draw video overlay + QR panel with offline fallback — not started.
 
 ## Worktree end state
 
-Checked out on `feat/event-raffle-4a-draw-api` (tip `5754f3e`, base `feat/event-raffle-3b-entry-page-tests`).
-No branches pushed; nothing opened as a PR.
+Checked out on `feat/event-raffle-4b1-screen-shell` (tip: this pass's 4 commits, base
+`feat/event-raffle-4a4-draw-route`). No branches pushed; nothing opened as a PR.

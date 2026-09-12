@@ -11,7 +11,12 @@ Actual chain as of the PR4a apply pass (PR2 and PR3 were each further split, sam
 see their sections below for detail): `codex/develop` ← `feat/event-raffle-1a-schema` ←
 `feat/event-raffle-1b-seed-plan` ← `feat/event-raffle-1c-seed-cli` ← `feat/event-raffle-2a-entry-domain` ←
 `feat/event-raffle-2b-entry-route` ← `feat/event-raffle-3a-entry-page` ← `feat/event-raffle-3b-entry-page-tests`
-← `feat/event-raffle-4a-draw-api` (this pass) ← `feat/event-raffle-4b-screen-ui` (not started).
+← `feat/event-raffle-4a1-draw-domain` ← `feat/event-raffle-4a2-screen-domain` ← `feat/event-raffle-4a3-screen-routes`
+← `feat/event-raffle-4a4-draw-route` ← `feat/event-raffle-4b1-screen-shell` (this pass) ←
+`feat/event-raffle-4b2-video-qr` (not started). PR4a's own commits (`fbd2f02`/`d1cf050`/`5754f3e`) were further
+split across the four `4a*` branches above in a pass after the note below was written; see git history on
+those branches for their per-branch verification. PR4b's own split (4b1 shell / 4b2 video+QR) is recorded in
+its section below.
 
 PR1 was split into three chained slices during apply because its authored diff (834 changed lines) exceeded the 400-line budget: `feat/event-raffle-1a-schema` (schema + migration, targets `codex/develop`), `feat/event-raffle-1b-seed-plan` (`lib/raffle/seed-plan.ts` pure helpers + their unit tests, targets 1a), `feat/event-raffle-1c-seed-cli` (`scripts/raffle-seed.ts` CLI + example config + `package.json` entry + CLI-level tests, targets 1b). See `apply-progress.md` for per-branch line counts and verification.
 
@@ -23,7 +28,8 @@ PR1 was split into three chained slices during apply because its authored diff (
 | 2 | Public entry API | PR2 | `npx vitest run tests/api/raffle-entries.test.ts` | `curl -X POST localhost:3000/api/raffle/<slug>/entries` against seeded event | Remove `app/api/raffle/[slug]/entries/route.ts` + `lib/raffle/{entry-validation,event-window,entry}.ts`; no schema change |
 | 3 | Public entry page | PR3 | `npx vitest run components/front/raffle/__tests__/RaffleEntryForm.test.tsx` | Visit `http://localhost:3000/raffle/<slug>` in a browser | Remove `app/raffle/[slug]/page.tsx` + `RaffleEntryForm.tsx`; API from PR2 untouched |
 | 4a | Draw domain + draw/session/state routes | PR4a | `npx vitest run tests/api/raffle-draw.test.ts tests/api/raffle-screen.test.ts` | `curl` the `screen-session`, `screen-state`, then `draw` routes against a seeded event and cookie jar | Remove the 3 new routes + `lib/raffle/{draw,screen-token,screen-state,winner-view}.ts`; entries untouched |
-| 4b | Screen UI | PR4b | `npx vitest run components/front/raffle/__tests__/RaffleScreen.test.tsx` | Open `http://localhost:3000/staff/raffle/<slug>/screen?key=<token>` on a browser/tablet | Remove screen page + presentational components; PR4a APIs untouched |
+| 4b1 | Screen shell: page, container, state machine, polling, countdown, Draw, text reveal, closing state | PR4b1 | `npx vitest run components/front/raffle/__tests__/RaffleScreen.test.tsx components/front/raffle/__tests__/raffleScreenMachine.test.ts` | Open `http://localhost:3000/staff/raffle/<slug>/screen?key=<token>` on a browser/tablet | Remove screen page + `RaffleScreen*`/`raffleScreenMachine.ts`/`useRaffleScreenState.ts`; PR4a APIs untouched |
+| 4b2 | Fullscreen draw video overlay + QR panel with offline fallback | PR4b2 | TBD (not started) | TBD (not started) | Revert `RaffleScreenSeams.tsx`'s two stubs; PR4b1 shell untouched |
 
 ---
 
@@ -128,18 +134,34 @@ the orchestrator, same pattern as PR2/PR3. Nothing pushed, no PR opened.
 
 ---
 
-## PR4b — Screen UI (targets `feat/event-raffle-4a-draw-api`)
+## PR4b — Screen UI (targets `feat/event-raffle-4a-draw-api`, split into PR4b1/PR4b2 — see note below)
 
-- [ ] 4b.1 Create `app/staff/raffle/[slug]/screen/page.tsx` (server component): redirect any request carrying `?key=` to the URL /api/raffle/[slug]/screen-session?key=...; when no valid cookie and no `key`, `notFound()`; else render `<RaffleScreen slug />`. Implements: D2. Spec: Screen Token Authorization.
-- [ ] 4b.2 Create `components/front/raffle/RaffleScreen.tsx` (client container): state machine `waiting → ready → drawing_video → reveal → between_draws → finished` (+ `error`) per D6; polls `useRaffleScreenState(slug)` every 5s, paused during `drawing_video`; clock-drift offset `Date.parse(payload.now) - Date.now()`; reveal only when `videoEnded && drawResult !== null`; POST failure → `error` state with retry, video never replayed. Implements: D6. Spec: Screen Display State, Draw Execution / *Double tap yields one winner* (client half).
-- [ ] 4b.3 Create presentational components: countdown display, QR renderer (`api.qrserver.com` `<img>` with `onError` fallback to local `qrcode` canvas render), fullscreen `<video preload="auto" playsInline muted>` overlay, winner reveal card (`••• ••• <phoneLast4>` + Next draw button), closing/finished card. Implements: D6. Spec: Screen Display State, QR Code Rendering, Draw Execution.
-- [ ] 4b.4 Write `components/front/raffle/__tests__/RaffleScreen.test.tsx`: countdown reaching zero shows the Draw button and sends nothing automatically; reveal fires only when `videoEnded && drawResult`; POST failure shows retry without replaying the video; QR `onError` swaps to the local canvas render; `currentDrawId === null` renders the closing state. Implements: D6. Spec: Screen Display State / *Countdown reaches zero*, QR Code Rendering / *Remote QR image fails*.
+PR4b was split into two chained slices for the same reason PR1/PR2/PR3/PR4a were: the tablet screen shell
+(state machine, polling, countdown, Draw/Next-draw, winner-as-text reveal, closing state) and the fullscreen
+MP4 video overlay + QR panel (with its offline canvas fallback) are independently reviewable, and doing both
+in one PR would repeat PR4a's "forecast 350-400+" overage. **PR4b1** (this apply pass, branch
+`feat/event-raffle-4b1-screen-shell`, targets `feat/event-raffle-4a4-draw-route`) implements the shell only.
+**PR4b2** (not started) implements the video overlay and QR panel against the two named seams PR4b1 leaves
+in place: `RaffleDrawVideoOverlay` and `RaffleQrPanel` in `components/front/raffle/RaffleScreenSeams.tsx`,
+plus `RaffleScreen`'s injectable `isRevealReady` prop (defaults to always-ready; PR4b2 wires it to the
+video's `ended` event instead of touching the reducer).
 
-### Verification
+**Naming deviation from D6/this section's original task text (both PR4b1 and future PR4b2 use it)**: the
+design diagram's `drawing_video` phase is `drawing` here, since PR4b1 has no video; the reveal gate is the
+injectable `isRevealReady` signal (default: always ready) rather than a hardcoded `videoEnded && drawResult`
+check, so PR4b2 can satisfy the same gate without changing `raffleScreenMachine.ts`. `error` is not a
+separate phase — a failed draw returns to `ready` with `error` set, so the same Draw button retries.
 
-- `npx tsc --noEmit`
-- `npx vitest run components/front/raffle/__tests__/RaffleScreen.test.tsx`
-- `npm run lint`
+- [x] 4b.1 Create `app/staff/raffle/[slug]/screen/page.tsx` (server component): redirect any request carrying `?key=` to the URL /api/raffle/[slug]/screen-session?key=...; when no valid cookie and no `key`, `notFound()`; else render `<RaffleScreen slug />`. Implements: D2. Spec: Screen Token Authorization. (PR4b1)
+- [x] 4b.2 Create `components/front/raffle/RaffleScreen.tsx` (client container): state machine `waiting → ready → drawing → reveal → between_draws → finished` per D6 (see naming-deviation note above); polls `useRaffleScreenState(slug)` every 5s, paused during `drawing`/`reveal`; clock-drift offset `Date.parse(payload.now) - Date.now()`; reveal gated behind the injectable `isRevealReady` signal (always-ready in this slice); POST failure → back to `ready` with `error` set, retry is the same Draw button. Implements: D6. Spec: Screen Display State, Draw Execution / *Double tap yields one winner* (client half). (PR4b1)
+- [ ] 4b.3 Create presentational components: countdown display, QR renderer (`api.qrserver.com` `<img>` with `onError` fallback to local `qrcode` canvas render), fullscreen `<video preload="auto" playsInline muted>` overlay, winner reveal card (`••• ••• <phoneLast4>` + Next draw button), closing/finished card. Implements: D6. Spec: Screen Display State, QR Code Rendering, Draw Execution. **Split**: countdown display, winner reveal card, and closing card shipped in PR4b1 (`RaffleScreenView.tsx`). The QR renderer and video overlay are named seams only (`RaffleScreenSeams.tsx`'s `RaffleQrPanel` / `RaffleDrawVideoOverlay`, both stubs) — **PR4b2** implements their real bodies.
+- [x] 4b.4 Write `components/front/raffle/__tests__/RaffleScreen.test.tsx`: countdown reaching zero shows the Draw button and sends nothing automatically; a successful draw reveals the winner; a draw failure renders its error and the same Draw button retries without breaking the machine; `currentDrawId === null` renders the closing state; polling updates the entry count. Implements: D6. Spec: Screen Display State / *Countdown reaches zero*. **Not covered here (PR4b2)**: "reveal fires only when `videoEnded && drawResult`" (no video yet — reveal is gated by `isRevealReady`, tested via `raffleScreenMachine.test.ts`'s `reveal_ready`/`draw_response_received` cases) and "QR `onError` swaps to the local canvas render" (no real QR renderer yet). (PR4b1)
+
+### Verification (PR4b1)
+
+- `npx tsc --noEmit` → clean, no output
+- `npx vitest run components/front/raffle/__tests__/RaffleScreen.test.tsx components/front/raffle/__tests__/raffleScreenMachine.test.ts` → 33/33 passed
+- `npm run lint` → 0 errors, 114 warnings (pre-existing baseline, none new)
 
 ---
 
