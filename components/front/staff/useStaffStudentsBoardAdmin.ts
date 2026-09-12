@@ -25,7 +25,7 @@ import {
 } from "./staffPaymentCardPresentation"
 import {
   buildCurrentMonthStudentsSummary,
-  isOpenCashSettlementRow,
+  isOpenSettlementRow,
   matchesStripeStatus,
   resolveDirectClassRevenueCents,
   resolveStudentCardPayments,
@@ -235,7 +235,7 @@ export function useStaffStudentsBoardAdmin({
     if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(filteredStudentCards.flatMap((item) => {
       if (isHistoryMode) {
-        return item.allPayments.filter(isOpenCashSettlementRow).map((p) => p.id)
+        return item.allPayments.filter(isOpenSettlementRow).map((p) => p.id)
       }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
@@ -287,7 +287,7 @@ export function useStaffStudentsBoardAdmin({
     if (paymentCategoryFilter !== "cash" && !isHistoryMode) return []
     return [...new Set(paginatedStudentCards.flatMap((item) => {
       if (isHistoryMode) {
-        return item.allPayments.filter(isOpenCashSettlementRow).map((p) => p.id)
+        return item.allPayments.filter(isOpenSettlementRow).map((p) => p.id)
       }
       const openIds = getOpenPaymentIds(item.allPayments)
       return openIds.length > 0 ? openIds : item.allPayments.filter((p) => p.paymentChannel === "cash").map((p) => p.id)
