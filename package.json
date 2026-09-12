@@ -29,7 +29,8 @@
     "spec:validate": "node scripts/codex-spec.mjs validate",
     "migrate:clerk": "tsx scripts/migrate-clerk-instance.ts",
     "migrate:clerk:freeze-list": "tsx scripts/generate-clerk-freeze-list.ts",
-    "backfill:special-salsa": "tsx scripts/backfill-special-salsa-special-class.ts"
+    "backfill:special-salsa": "tsx scripts/backfill-special-salsa-special-class.ts",
+    "raffle:seed": "tsx scripts/raffle-seed.ts"
   },
   "prisma": {
     "seed": "node --require ./prisma/register-ts.js prisma/seed.ts"
