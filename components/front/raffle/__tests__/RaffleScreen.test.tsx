@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import RaffleScreen, { resolveDrawFailureMessage } from "@/components/front/raffle/RaffleScreen"
+import { DRAW_ANIMATION_MS } from "@/components/front/raffle/RaffleScreenSeams"
 
 const testGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 testGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -157,6 +158,14 @@ describe("RaffleScreen", () => {
     await act(async () => {
       await Promise.resolve()
     })
+    // No video is playable under jsdom, so the draw animation stands in for
+    // it; the reveal waits for that animation exactly as it would for the
+    // video's `ended`.
+    expect(node.textContent).not.toContain("Jane Doe")
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DRAW_ANIMATION_MS)
+    })
 
     expect(node.textContent).toContain("Jane Doe")
     expect(node.textContent).toContain("1234")
@@ -249,7 +258,7 @@ describe("RaffleScreen", () => {
     expect(node.textContent).toContain("Jane Doe")
   })
 
-  it("a rejected play() does not block the reveal once the draw response arrives", async () => {
+  it("a refused play() still reveals the winner once the animation finishes", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
@@ -280,11 +289,14 @@ describe("RaffleScreen", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DRAW_ANIMATION_MS)
+    })
 
     expect(node.textContent).toContain("Jane Doe")
   })
 
-  it("hides the video overlay outside a draw and shows it while one is in progress", async () => {
+  it("shows the draw overlay only while a draw is in progress", async () => {
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         // Never resolves in this test — only the phase transition matters.
@@ -296,7 +308,7 @@ describe("RaffleScreen", () => {
 
     const node = await render()
     await flushPoll()
-    expect((node.querySelector("video") as HTMLVideoElement).hidden).toBe(true)
+    expect(node.querySelector('[data-testid="raffle-draw-animation"]')).toBeNull()
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500)
@@ -306,7 +318,7 @@ describe("RaffleScreen", () => {
       drawButton.dispatchEvent(new Event("click", { bubbles: true }))
       await Promise.resolve()
     })
-    expect((node.querySelector("video") as HTMLVideoElement).hidden).toBe(false)
+    expect(node.querySelector('[data-testid="raffle-draw-animation"]')).not.toBeNull()
   })
 
   it("shows a retry-able error on a draw failure without breaking the machine", async () => {
