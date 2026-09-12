@@ -211,7 +211,11 @@ export async function POST(req: Request) {
   const settledAt = settlementStatus === "paid" ? new Date().toISOString() : null
   const nextCashPurchaseStatus = settlementStatus === "paid" ? "paid" : "pending"
   const purchasesById = new Map(purchases.map((purchase) => [purchase.id, purchase]))
-  const skipped: Array<{ id: string; reason: "not_found" | "not_cash" | "already_settled" | "settlement_failed" }> = []
+  const skipped: Array<{
+    id: string
+    reason: "not_found" | "not_cash" | "already_settled" | "settlement_failed" | "missing_drop_in_price"
+  }> = []
+  const retried: Array<{ id: string; reason: "already_settled_side_effects_replayed" }> = []
   const retryableSettledPurchases: typeof purchases = []
   const eligiblePurchases = ids.flatMap((id) => {
     const purchase = purchasesById.get(id)
@@ -224,7 +228,10 @@ export async function POST(req: Request) {
       return []
     }
     if (action === "mark_paid" && isSettledCashPurchase(purchase)) {
-      skipped.push({ id, reason: "already_settled" })
+      // Two-phase replay: settlement metadata is already correct, but the
+      // idempotent mark_paid side effects (package sync, credit reservation)
+      // still need to run, so this is reported separately from "skipped".
+      retried.push({ id, reason: "already_settled_side_effects_replayed" })
       retryableSettledPurchases.push(purchase)
       return []
     }
@@ -333,8 +340,9 @@ export async function POST(req: Request) {
   }
 
   // Settle attendance-only debts: collecting cash for a class that never had a
-  // purchase record creates the settled cash purchase (course drop-in price)
-  // and links it back to the attendance so the board folds them together.
+  // purchase record creates a settled cash purchase, priced from the course's
+  // drop-in price, and links it back to the attendance so the board folds
+  // them together. A course with no positive drop-in price is left untouched.
   let attendanceSettledCount = 0
   if (attendanceIds.length > 0) {
     if (action !== "mark_paid") {
@@ -374,34 +382,62 @@ export async function POST(req: Request) {
           skipped.push({ id: `att-${attendanceId}`, reason: "not_found" })
           continue
         }
-        const attendanceMetadata = asObject(attendance.metadata)
-        const linkedPurchaseId = asText(attendanceMetadata.purchaseId)
-        if (linkedPurchaseId) {
-          const linkedPurchase = await prisma.purchase.findUnique({
-            where: { id: linkedPurchaseId },
-            select: { id: true, status: true, metadata: true },
-          })
-          if (linkedPurchase && (isCompletedPaymentStatus(linkedPurchase.status) || isSettledCashPurchase(linkedPurchase))) {
-            skipped.push({ id: `att-${attendanceId}`, reason: "already_settled" })
-            continue
-          }
-        }
         const courseSlug = attendance.session?.courseSlug
         if (!courseSlug) {
           skipped.push({ id: `att-${attendanceId}`, reason: "not_found" })
           continue
         }
-        // Create + link atomically: a purchase left unlinked would escape the
-        // already_settled replay guard and duplicate on the next attempt. One
+        const dropInPriceCents = attendanceDropInPriceBySlug.get(courseSlug)
+        if (!dropInPriceCents) {
+          skipped.push({ id: `att-${attendanceId}`, reason: "missing_drop_in_price" })
+          continue
+        }
+        // Serialize concurrent settlement attempts for the same attendance and
+        // re-read its link under the lock: deciding from a pre-loop snapshot
+        // would let two in-flight requests both create a purchase. One
         // failing attendance never aborts the rest of the batch.
         try {
-          await prisma.$transaction(async (tx) => {
+          const outcome = await prisma.$transaction(async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${attendanceId}))`
+            const freshAttendance = await tx.attendance.findUnique({
+              where: { id: attendanceId },
+              select: { id: true, metadata: true },
+            })
+            if (!freshAttendance) return "not_found" as const
+            const freshMetadata = asObject(freshAttendance.metadata)
+            const linkedPurchaseId = asText(freshMetadata.purchaseId)
+            const linkedPurchase = linkedPurchaseId
+              ? await tx.purchase.findUnique({
+                  where: { id: linkedPurchaseId },
+                  select: { id: true, status: true, metadata: true },
+                })
+              : null
+            if (linkedPurchase) {
+              if (isCompletedPaymentStatus(linkedPurchase.status) || isSettledCashPurchase(linkedPurchase)) {
+                return "already_settled" as const
+              }
+              // The attendance already links a purchase (e.g. pending cash); settle
+              // that one instead of creating a second one for the same debt.
+              await tx.purchase.update({
+                where: { id: linkedPurchase.id },
+                data: {
+                  status: "paid",
+                  metadata: buildSettlementMetadata({
+                    metadata: linkedPurchase.metadata,
+                    settlementStatus: "paid",
+                    settledAt,
+                    settlementUpdatedBy: authResult.userId,
+                  }),
+                },
+              })
+              return "settled" as const
+            }
             const createdPurchase = await tx.purchase.create({
               data: {
                 userId: attendanceUserId,
                 courseSlug,
                 courseTitle: attendance.session?.title || courseSlug,
-                amount: attendanceDropInPriceBySlug.get(courseSlug) || 0,
+                amount: dropInPriceCents,
                 currency: "usd",
                 status: "paid",
                 participants: 1,
@@ -410,20 +446,25 @@ export async function POST(req: Request) {
                   settlementStatus: "paid",
                   settledAt,
                   settlementUpdatedBy: authResult.userId,
-                  attendanceId: attendance.id,
+                  attendanceId: freshAttendance.id,
                   ...(attendance.session?.startsAt ? { date: getDateKeyInTimeZone(attendance.session.startsAt) } : {}),
                 },
               },
             })
             await tx.attendance.update({
-              where: { id: attendance.id },
-              data: { metadata: { ...attendanceMetadata, purchaseId: createdPurchase.id } },
+              where: { id: freshAttendance.id },
+              data: { metadata: { ...freshMetadata, purchaseId: createdPurchase.id } },
             })
+            return "settled" as const
           })
-          attendanceSettledCount += 1
+          if (outcome === "settled") {
+            attendanceSettledCount += 1
+          } else {
+            skipped.push({ id: `att-${attendanceId}`, reason: outcome })
+          }
         } catch (error) {
           console.warn("Unable to settle attendance-only debt", {
-            attendanceId: attendance.id,
+            attendanceId,
             error: error instanceof Error ? error.message : String(error),
           })
           skipped.push({ id: `att-${attendanceId}`, reason: "settlement_failed" })
@@ -436,6 +477,8 @@ export async function POST(req: Request) {
     ok: true,
     updatedCount: eligiblePurchases.length + attendanceSettledCount,
     skipped,
+    retried,
+    retriedCount: retried.length,
     settlementStatus,
     syncedPackageCount,
     packageCreditReservedCount,
