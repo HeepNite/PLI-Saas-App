@@ -6,6 +6,7 @@ import { buildSessionStartsAt, getDateKeyInTimeZone } from "@/lib/class-schedule
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText, isCompletedPaymentStatus, normalizePaymentChannel } from "@/app/api/staff/payments/shared"
+import { ATTENDANCE_DEBT_ROW_ID_PREFIX, isAttendanceDebtRowId } from "@/components/front/staff/staffPaymentFilters"
 
 export const runtime = "nodejs"
 
@@ -187,8 +188,8 @@ export async function POST(req: Request) {
 
   // The board renders attendance-only debts (a class attended or booked with no
   // purchase record) with synthetic "att-<attendanceId>" ids.
-  const attendanceIds = allIds.filter((id) => id.startsWith("att-")).map((id) => id.slice(4))
-  const ids = allIds.filter((id) => !id.startsWith("att-"))
+  const attendanceIds = allIds.filter(isAttendanceDebtRowId).map((id) => id.slice(ATTENDANCE_DEBT_ROW_ID_PREFIX.length))
+  const ids = allIds.filter((id) => !isAttendanceDebtRowId(id))
 
   const purchases = await prisma.purchase.findMany({
     where: { id: { in: ids } },

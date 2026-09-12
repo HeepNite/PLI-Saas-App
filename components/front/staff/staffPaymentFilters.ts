@@ -72,6 +72,18 @@ export const matchesStripeStatus = (
   return !isPaymentPaidForUi(row)
 }
 
+// Prefix used by payments-loader-attendance.ts when it synthesizes attendance-only debt row ids.
+export const ATTENDANCE_DEBT_ROW_ID_PREFIX = "att-"
+export const isAttendanceDebtRowId = (id: string) => id.startsWith(ATTENDANCE_DEBT_ROW_ID_PREFIX)
+
+// Eligible for bulk settlement: unsettled cash purchases, or synthetic attendance-only debt rows.
+export const isOpenSettlementRow = (
+  row: Pick<PaymentRow, "id" | "paymentChannel" | "settlementStatus">
+) => {
+  if (row.settlementStatus === "paid") return false
+  return row.paymentChannel === "cash" || isAttendanceDebtRowId(row.id)
+}
+
 export const matchesStudentSearchQuery = (
   row: Pick<PaymentRow, "customerName" | "customerEmail" | "customerPhone" | "courseTitle" | "courseSlug" | "location" | "activePackage">,
   searchTerm: string
