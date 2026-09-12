@@ -44,7 +44,7 @@ type UseRaffleScreenStateResult = {
  * the reveal being shown is never disturbed by a stale response racing in —
  * and, in PR4b2, while the draw video plays.
  */
-export function useRaffleScreenState(slug: string, paused: boolean): UseRaffleScreenStateResult {
+export function useRaffleScreenState(slug: string, paused: boolean, screenKey?: string): UseRaffleScreenStateResult {
   const [data, setData] = useState<RaffleScreenStatePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const pausedRef = useRef(paused)
@@ -53,7 +53,8 @@ export function useRaffleScreenState(slug: string, paused: boolean): UseRaffleSc
   const poll = useCallback(async () => {
     if (pausedRef.current) return
     try {
-      const res = await fetch(`/api/raffle/${encodeURIComponent(slug)}/screen-state`, { cache: "no-store" })
+      const query = screenKey ? `?key=${encodeURIComponent(screenKey)}` : ""
+      const res = await fetch(`/api/raffle/${encodeURIComponent(slug)}/screen-state${query}`, { cache: "no-store" })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as RaffleScreenStatePayload
       setData(json)
@@ -61,7 +62,7 @@ export function useRaffleScreenState(slug: string, paused: boolean): UseRaffleSc
     } catch (err) {
       setError(err instanceof Error ? err.message : "Poll failed")
     }
-  }, [slug])
+  }, [slug, screenKey])
 
   useEffect(() => {
     poll()

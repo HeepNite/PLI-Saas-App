@@ -34,7 +34,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   const event = await prisma.raffleEvent.findUnique({ where: { slug } })
   if (!event) return notFound()
 
-  const rawToken = req.cookies.get(screenCookieName(slug))?.value
+  // Cookie first; the URL key is the fallback for a screen opened straight
+  // from its link, where the cookie may not have survived the navigation.
+  const rawToken =
+    req.cookies.get(screenCookieName(slug))?.value ?? req.nextUrl.searchParams.get("key") ?? ""
   if (!rawToken || !screenTokenMatches(rawToken, event.screenTokenHash)) return notFound()
 
   const state = await loadScreenState(prisma, slug)
