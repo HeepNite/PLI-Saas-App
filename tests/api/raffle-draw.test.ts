@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { Prisma } from "@prisma/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { hashScreenToken, screenCookieName } from "@/lib/raffle/screen-token"
 
@@ -112,6 +113,31 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
 
     expect(res.status).toBe(409)
     await expect(res.json()).resolves.toEqual({ status: "no_eligible_entries" })
+  })
+
+  it("maps a transaction timeout to 409 draw_in_progress", async () => {
+    mockPrisma.$transaction.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("transaction timed out", {
+        code: "P2028",
+        clientVersion: "6.19.3",
+      })
+    )
+
+    const res = await postDraw("s1", "draw_1")
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ status: "draw_in_progress" })
+  })
+
+  it("maps an unexpected transaction failure to 503 draw_failed", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    mockPrisma.$transaction.mockRejectedValue(new Error("connection reset"))
+
+    const res = await postDraw("s1", "draw_1")
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toEqual({ status: "draw_failed" })
+    consoleError.mockRestore()
   })
 
   it("returns 404 for a missing draw", async () => {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { isRaffleSlug, screenCookieName, screenTokenMatches } from "@/lib/raffle/screen-token"
@@ -8,6 +9,13 @@ import { toWinnerView } from "@/lib/raffle/winner-view"
 export const runtime = "nodejs"
 
 const notFound = () => NextResponse.json({ status: "not_found" }, { status: 404 })
+
+// P2028 is Prisma's interactive-transaction error: the `maxWait` connection
+// wait or the `timeout` transaction lifetime elapsed. Under contention that is
+// an expected outcome, not a server fault — a concurrent request holds the
+// claimed row. `runDraw` is idempotent, so the tablet can safely retry.
+const isTransactionTimeout = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2028"
 
 /**
  * POST /api/raffle/[slug]/draws/[drawId]/draw
@@ -42,10 +50,19 @@ export async function POST(
   const rawToken = req.cookies.get(screenCookieName(slug))?.value
   if (!rawToken || !screenTokenMatches(rawToken, event.screenTokenHash)) return notFound()
 
-  const result = await prisma.$transaction((tx) => runDraw(tx, { eventId: event.id, drawId, now: new Date() }), {
-    maxWait: 5_000,
-    timeout: 10_000,
-  })
+  let result: Awaited<ReturnType<typeof runDraw>>
+  try {
+    result = await prisma.$transaction((tx) => runDraw(tx, { eventId: event.id, drawId, now: new Date() }), {
+      maxWait: 5_000,
+      timeout: 10_000,
+    })
+  } catch (error) {
+    if (isTransactionTimeout(error)) {
+      return NextResponse.json({ status: "draw_in_progress" }, { status: 409 })
+    }
+    console.error("[raffle] draw transaction failed", error)
+    return NextResponse.json({ status: "draw_failed" }, { status: 503 })
+  }
 
   if (result.status === "drawn") {
     return NextResponse.json({ status: "drawn", drawId, winner: toWinnerView(result.winner) })
