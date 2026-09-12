@@ -51,7 +51,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   response.cookies.set(screenCookieName(slug), key, {
     httpOnly: true,
     secure: true,
-    sameSite: "strict",
+    // Lax, not Strict: the tablet reaches this link from another app (a
+    // message, a note), and Safari withholds a Strict cookie on the
+    // redirect that follows such a cross-site navigation, which made the
+    // screen answer 404 on the device it exists for. Lax is still not sent
+    // on cross-site POSTs, so the draw endpoint keeps its protection.
+    sameSite: "lax",
     path: "/",
     maxAge: SCREEN_COOKIE_MAX_AGE_SEC,
   })

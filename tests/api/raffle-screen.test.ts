@@ -38,7 +38,8 @@ describe("GET /api/raffle/[slug]/screen-session", () => {
     const cookie = res.cookies.get(screenCookieName("s1"))
     expect(cookie?.value).toBe(RAW_TOKEN)
     expect(cookie?.httpOnly).toBe(true)
-    expect(cookie?.sameSite).toBe("strict")
+    // Lax so the cookie survives arriving from another app; see the route.
+    expect(cookie?.sameSite).toBe("lax")
   })
 
   it("returns 404 for a wrong key", async () => {
