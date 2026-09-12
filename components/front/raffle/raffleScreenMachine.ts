@@ -72,6 +72,17 @@ export const selectEntryCount = (state: RaffleScreenMachineState): number => sta
 export const selectEntryUrl = (state: RaffleScreenMachineState): string | null =>
   state.lastPayload?.event.entryUrl ?? null
 
+/**
+ * Shared placeholder draw video, used until the first poll lands (so the
+ * browser starts buffering immediately) and whenever the event has not set
+ * its own `videoUrl` — see `lib/raffle/screen-state.ts`'s same fallback.
+ */
+export const DEFAULT_DRAW_VIDEO_URL = "/raffle/draw.mp4"
+
+/** The draw video to play: the event's own if the poll set one, else the shared fallback. */
+export const selectVideoUrl = (state: RaffleScreenMachineState): string =>
+  state.lastPayload?.event.videoUrl ?? DEFAULT_DRAW_VIDEO_URL
+
 /** Countdown derived from the reducer's own clock (`state.nowMs`), never `Date.now()` at render time. */
 export const selectCountdownMs = (state: RaffleScreenMachineState): number =>
   computeCountdownMs(selectCurrentDraw(state)?.drawAt ?? null, state.nowMs, state.serverOffsetMs)

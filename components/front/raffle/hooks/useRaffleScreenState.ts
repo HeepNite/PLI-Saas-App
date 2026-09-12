@@ -20,7 +20,10 @@ export type RaffleScreenDrawPayload = {
  * as the ISO strings they actually arrive as over JSON. */
 export type RaffleScreenStatePayload = {
   now: string
-  event: { slug: string; title: string; entryUrl: string }
+  // `videoUrl` is optional here only so pre-existing test fixtures that predate
+  // it keep compiling; the server always resolves it (event's own, or the
+  // shared fallback) — see `lib/raffle/screen-state.ts`.
+  event: { slug: string; title: string; entryUrl: string; videoUrl?: string }
   entryCount: number
   currentDrawId: string | null
   draws: RaffleScreenDrawPayload[]
