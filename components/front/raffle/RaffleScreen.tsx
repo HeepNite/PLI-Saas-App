@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useReducer } from "react"
+import { useCallback, useEffect, useReducer, useState } from "react"
 import { useRaffleScreenState } from "./hooks/useRaffleScreenState"
 import {
   initialRaffleScreenMachineState,
@@ -9,6 +9,7 @@ import {
   selectCurrentDraw,
   selectEntryCount,
   selectEntryUrl,
+  selectVideoUrl,
 } from "./raffleScreenMachine"
 import RaffleScreenView from "./RaffleScreenView"
 
@@ -34,10 +35,10 @@ export function resolveDrawFailureMessage(httpStatus: number, apiStatus: string 
 type RaffleScreenProps = {
   slug: string
   /**
-   * Injectable reveal-readiness signal (design.md D6). Defaults to always
-   * ready, so this slice reveals the winner as soon as the draw response
-   * arrives. PR4b2 overrides this to wait for the fullscreen video's
-   * `ended` event, without needing to touch the state machine.
+   * Injectable reveal-readiness override (design.md D6), mainly for tests.
+   * When omitted, readiness tracks the fullscreen draw video's own `ended`
+   * event (wired below), so the reveal always waits for both the video
+   * finishing and the draw response, whichever lands second.
    */
   isRevealReady?: () => boolean
 }
@@ -47,8 +48,11 @@ type RaffleScreenProps = {
  * countdown tick. Renders nothing itself — `RaffleScreenView` is the
  * presentational half (container/presentational split, per repo convention).
  */
-export default function RaffleScreen({ slug, isRevealReady = () => true }: RaffleScreenProps) {
+export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps) {
   const [state, dispatch] = useReducer(raffleScreenReducer, initialRaffleScreenMachineState)
+  // Starts `true`: no draw is in flight yet, so there is nothing to wait on.
+  // Reset to `false` the moment a draw starts, set back on the video's `ended`.
+  const [videoEnded, setVideoEnded] = useState(true)
   const paused = state.phase === "drawing" || state.phase === "reveal"
   const { data } = useRaffleScreenState(slug, paused)
 
@@ -62,19 +66,27 @@ export default function RaffleScreen({ slug, isRevealReady = () => true }: Raffl
     return () => clearInterval(id)
   }, [state.phase])
 
-  // Reveal gate (design.md D6): fires as soon as a pending winner exists and
-  // the signal allows it. Default signal is always-true, so this effect
-  // resolves on the very next render after `draw_response_received`.
+  const revealReady = useCallback(
+    () => (isRevealReady ? isRevealReady() : videoEnded),
+    [isRevealReady, videoEnded]
+  )
+
+  // Reveal gate (design.md D6): fires once a pending winner exists AND the
+  // readiness signal allows it — by default the video's `ended` event, so
+  // the reveal waits for whichever of {video, draw response} lands second.
   useEffect(() => {
-    if (state.phase === "drawing" && state.pendingWinner && isRevealReady()) {
+    if (state.phase === "drawing" && state.pendingWinner && revealReady()) {
       dispatch({ type: "reveal_ready" })
     }
-  }, [state.phase, state.pendingWinner, isRevealReady])
+  }, [state.phase, state.pendingWinner, revealReady])
 
   const currentDraw = selectCurrentDraw(state)
 
+  const handleVideoEnded = useCallback(() => setVideoEnded(true), [])
+
   const handleDraw = async () => {
     if (!currentDraw) return
+    setVideoEnded(false)
     dispatch({ type: "draw_tapped" })
     try {
       const res = await fetch(`/api/raffle/${encodeURIComponent(slug)}/draws/${currentDraw.id}/draw`, {
@@ -104,10 +116,12 @@ export default function RaffleScreen({ slug, isRevealReady = () => true }: Raffl
       countdownMs={countdownMs}
       entryCount={selectEntryCount(state)}
       entryUrl={selectEntryUrl(state)}
+      videoUrl={selectVideoUrl(state)}
       winner={state.winner}
       error={state.error}
       onDraw={handleDraw}
       onNextDraw={handleNextDraw}
+      onVideoEnded={handleVideoEnded}
     />
   )
 }
