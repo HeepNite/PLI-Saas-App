@@ -128,6 +128,13 @@ The public URL QR MUST render via the `api.qrserver.com` image endpoint and MUST
 - WHEN the screen renders the QR
 - THEN a locally generated QR code is shown instead
 
+## Authorized event UI amendment — 2026-09-12
+
+- Both public entry and tablet draw surfaces use the supplied Palladium Latin Events logo and event photo, served locally from `public/raffle`. Preserve logo colors and proportions, trim only blank exterior space, and provide a light backing for its black lettering. Photo uses cover sizing with a 70% black overlay.
+- Country appears on its own full-width row above the full-width telephone field, with separate accessible labels and minimum 44px controls. Layout remains usable on phones and tablets.
+- This event uses one tablet and no video: retain the existing six-second no-video animation and reveal gate. Any required event `videoUrl` configuration remains an operational follow-up, not a global video removal or database change in this UI work.
+- Keep submission, validation, authentication, rate limiting, polling and draw logic unchanged. This is a localized authorized amendment, not a new SDD pipeline.
+
 ## Out of Scope
 
 Admin CRUD UI, SMS/OTP verification, multiple winners per draw, native app, i18n beyond English.

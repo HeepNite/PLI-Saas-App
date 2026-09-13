@@ -144,6 +144,21 @@ describe("RaffleEntryForm", () => {
     expect(JSON.parse(init.body)).toEqual({ name: "Jane Doe", phone: "5551234567", country: "US" })
   })
 
+  it("gives country and phone distinct full-width rows and accessible labels", async () => {
+    const node = await render({ slug: "ple-launch", eventTitle: "PLE Launch Night" })
+    const country = node.querySelector("select")!
+    const phone = node.querySelector('input[type="tel"]') as HTMLInputElement
+    expect(country.labels?.[0].textContent).toContain("Country / calling code")
+    expect(phone.labels?.[0].textContent).toBe("Phone")
+    expect(country.closest("label")).not.toBe(phone.closest("label"))
+    expect(country.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    for (const control of [country, phone]) {
+      expect(control.classList.contains("w-full")).toBe(true)
+      expect(control.classList.contains("min-h-11")).toBe(true)
+      expect(control.closest("label")?.classList.contains("block")).toBe(true)
+    }
+  })
+
   it("hides the form and shows a success message once entered", async () => {
     vi.stubGlobal(
       "fetch",

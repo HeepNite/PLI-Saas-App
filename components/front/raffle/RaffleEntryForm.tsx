@@ -191,30 +191,32 @@ export default function RaffleEntryForm({ slug, eventTitle, initiallyClosed = fa
       </label>
 
       <label className="block space-y-1">
+        <span className="text-xs text-black/65 dark:text-white/65">Country / calling code</span>
+        <select
+          value={country}
+          onChange={(e) => setCountry(e.target.value as PhoneCountry)}
+          disabled={isSubmitting}
+          className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
+        >
+          {countryOptions.map((option) => (
+            <option key={option.country} value={option.country}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block space-y-1">
         <span className="text-xs text-black/65 dark:text-white/65">Phone</span>
-        <div className="flex gap-2">
-          <select
-            value={country}
-            onChange={(e) => setCountry(e.target.value as PhoneCountry)}
-            disabled={isSubmitting}
-            className="min-h-11 rounded-md border border-black/15 bg-white px-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
-          >
-            {countryOptions.map((option) => (
-              <option key={option.country} value={option.country}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <input
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel-national"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            disabled={isSubmitting}
-            className="min-h-11 min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
-          />
-        </div>
+        <input
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel-national"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          disabled={isSubmitting}
+          className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
+        />
         {fieldErrors.phone ? (
           <span role="alert" className="text-xs text-[var(--brand,#b61616)]">{fieldErrors.phone}</span>
         ) : null}

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { isRaffleEventClosed } from "@/lib/raffle/event-window"
 import { isRaffleSlug } from "@/lib/raffle/slug"
 import RaffleEntryForm from "@/components/front/raffle/RaffleEntryForm"
+import RaffleBackdrop from "@/components/front/raffle/RaffleBackdrop"
 
 export const dynamic = "force-dynamic"
 
@@ -19,10 +20,12 @@ export default async function RaffleEntryPage({ params }: { params: Promise<{ sl
   const closed = isRaffleEventClosed(event.eventDate, new Date())
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 py-10 dark:bg-neutral-950">
-      <div className="w-full max-w-sm">
-        <RaffleEntryForm slug={slug} eventTitle={event.title} initiallyClosed={closed} />
-      </div>
+    <main>
+      <RaffleBackdrop className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-8">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-950/95 sm:p-6">
+          <RaffleEntryForm slug={slug} eventTitle={event.title} initiallyClosed={closed} />
+        </div>
+      </RaffleBackdrop>
     </main>
   )
 }
