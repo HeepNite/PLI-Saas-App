@@ -64,6 +64,12 @@ export default function RaffleScreenView({
           <p className="text-lg uppercase tracking-widest text-white/50">Winner</p>
           <p className="max-w-full break-words text-4xl font-bold sm:text-6xl">{winner.name}</p>
           <p className="text-2xl text-white/70">{"••• ••• " + winner.phoneLast4}</p>
+          {prizeLabel ? (
+            <div className="max-w-full space-y-1">
+              <p className="text-sm uppercase tracking-widest text-white/70">Prize won</p>
+              <p className="break-words text-2xl font-semibold sm:text-3xl">{prizeLabel}</p>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={onNextDraw}

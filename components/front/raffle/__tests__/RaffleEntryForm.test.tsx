@@ -144,19 +144,43 @@ describe("RaffleEntryForm", () => {
     expect(JSON.parse(init.body)).toEqual({ name: "Jane Doe", phone: "5551234567", country: "US" })
   })
 
-  it("gives country and phone distinct full-width rows and accessible labels", async () => {
+  it("keeps a compact country selector beside the flexible phone with separate labels", async () => {
     const node = await render({ slug: "ple-launch", eventTitle: "PLE Launch Night" })
     const country = node.querySelector("select")!
     const phone = node.querySelector('input[type="tel"]') as HTMLInputElement
-    expect(country.labels?.[0].textContent).toContain("Country / calling code")
+    expect(country.labels?.[0].textContent).toContain("Country")
     expect(phone.labels?.[0].textContent).toBe("Phone")
     expect(country.closest("label")).not.toBe(phone.closest("label"))
+    const countryField = country.closest("label")!
+    const phoneField = phone.closest("label")!
+    expect(countryField.parentElement).toBe(phoneField.parentElement)
+    expect(countryField.parentElement?.classList.contains("flex")).toBe(true)
+    expect(countryField.classList.contains("w-28")).toBe(true)
+    expect(countryField.classList.contains("shrink-0")).toBe(true)
+    expect(phoneField.classList.contains("min-w-0")).toBe(true)
+    expect(phoneField.classList.contains("flex-1")).toBe(true)
+    expect(country.selectedOptions[0].textContent).toBe("US +1")
+    expect(country.selectedOptions[0].getAttribute("aria-label")).toBe("United States +1")
     expect(country.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     for (const control of [country, phone]) {
       expect(control.classList.contains("w-full")).toBe(true)
       expect(control.classList.contains("min-h-11")).toBe(true)
       expect(control.closest("label")?.classList.contains("block")).toBe(true)
     }
+  })
+
+  it("submits the changed country without changing the phone draft", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 201, json: async () => ({ status: "entered" }) })
+    vi.stubGlobal("fetch", fetchMock)
+    const node = await render({ slug: "ple-launch", eventTitle: "PLE Launch Night" })
+    const country = node.querySelector("select")!
+    await act(async () => {
+      country.value = "MX"
+      country.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(country.selectedOptions[0].textContent).toBe("MX +52")
+    await fillAndSubmit(node, "Jane Doe", "5512345678")
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ name: "Jane Doe", phone: "5512345678", country: "MX" })
   })
 
   it("hides the form and shows a success message once entered", async () => {

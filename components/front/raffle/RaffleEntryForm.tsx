@@ -79,8 +79,12 @@ const countryDisplayName = (country: PhoneCountry): string => {
   }
 }
 
-const countryOptions: { country: PhoneCountry; label: string }[] = getPhoneCountryCatalog()
-  .map(({ country, callingCode }) => ({ country, label: `${countryDisplayName(country)} +${callingCode}` }))
+const countryOptions = getPhoneCountryCatalog()
+  .map(({ country, callingCode }) => ({
+    country,
+    label: `${countryDisplayName(country)} +${callingCode}`,
+    compactLabel: `${country} +${callingCode}`,
+  }))
   .sort((left, right) => left.label.localeCompare(right.label))
 
 const DEFAULT_COUNTRY: PhoneCountry = "US" as PhoneCountry
@@ -190,37 +194,41 @@ export default function RaffleEntryForm({ slug, eventTitle, initiallyClosed = fa
         ) : null}
       </label>
 
-      <label className="block space-y-1">
-        <span className="text-xs text-black/65 dark:text-white/65">Country / calling code</span>
-        <select
-          value={country}
-          onChange={(e) => setCountry(e.target.value as PhoneCountry)}
-          disabled={isSubmitting}
-          className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
-        >
-          {countryOptions.map((option) => (
-            <option key={option.country} value={option.country}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="flex items-start gap-2">
+        <label className="block w-28 shrink-0 space-y-1">
+          <span className="text-xs text-black/65 dark:text-white/65">
+            Country<span className="sr-only"> / calling code</span>
+          </span>
+          <select
+            value={country}
+            onChange={(e) => setCountry(e.target.value as PhoneCountry)}
+            disabled={isSubmitting}
+            className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-2 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
+          >
+            {countryOptions.map((option) => (
+              <option key={option.country} value={option.country} aria-label={option.label}>
+                {option.compactLabel}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <label className="block space-y-1">
-        <span className="text-xs text-black/65 dark:text-white/65">Phone</span>
-        <input
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel-national"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          disabled={isSubmitting}
-          className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
-        />
-        {fieldErrors.phone ? (
-          <span role="alert" className="text-xs text-[var(--brand,#b61616)]">{fieldErrors.phone}</span>
-        ) : null}
-      </label>
+        <label className="block min-w-0 flex-1 space-y-1">
+          <span className="text-xs text-black/65 dark:text-white/65">Phone</span>
+          <input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel-national"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            disabled={isSubmitting}
+            className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
+          />
+          {fieldErrors.phone ? (
+            <span role="alert" className="text-xs text-[var(--brand,#b61616)]">{fieldErrors.phone}</span>
+          ) : null}
+        </label>
+      </div>
 
       <button
         type="submit"
