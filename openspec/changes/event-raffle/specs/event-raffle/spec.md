@@ -138,6 +138,13 @@ The public URL QR MUST render via the `api.qrserver.com` image endpoint and MUST
 - Keep submission, validation, authentication, rate limiting, polling and draw logic unchanged. This is a localized authorized amendment, not a new SDD pipeline.
 - Visual follow-up: only raffle primary actions (Enter raffle, Draw, Next draw) MUST use a vertical gradient from exact `#6d1245` (top) to `#401f4c` (bottom), white labels, visible keyboard focus, and distinct disabled styling without fading label contrast. Preserve existing action availability and minimum 44px targets; do not recolor global brand tokens, form errors, or the rest of the site.
 
+## Authorized friendly tablet entrance — 2026-09-13
+
+- `GET /rifa` targets the public test-event slug `raffle-tablet-test-20260912t234420593z`. A valid existing event cookie redirects to its clean staff screen; this alias never grants authorization.
+- Without a valid cookie, return an English access page (HTTP 200) with a password input that submits the existing private key to the existing screen-session exchange. Do not persist or render the key. Explain that opening the original private link once authorizes this browser for the existing 36-hour session; another browser or an expired session needs authorization again.
+- Preserve all existing exchange validation, rate limits, cookie attributes, and invalid-key 404 behavior. Hide floating chrome only on exact `/rifa` (optional trailing slash), preserving unrelated routes. Reuse the raffle backdrop; no schema, environment, phone, or other authentication changes.
+- Implementation order: add alias regression tests, add the entrance using current token helpers and exchange, extend the route visibility policy, then run scoped tests, typecheck, and lint before publishing to `codex/develop`.
+
 ## Out of Scope
 
 Admin CRUD UI, SMS/OTP verification, multiple winners per draw, native app, i18n beyond English.
