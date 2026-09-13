@@ -4,6 +4,7 @@ import { RaffleDrawVideoOverlay, RaffleQrPanel } from "./RaffleScreenSeams"
 import { formatCountdownMs, type RafflePhase } from "./raffleScreenMachine"
 import type { RaffleScreenWinnerPayload } from "./hooks/useRaffleScreenState"
 import RaffleBackdrop from "./RaffleBackdrop"
+import { RAFFLE_PRIMARY_BUTTON_CLASS } from "./raffleButtonStyles"
 
 type RaffleScreenViewProps = {
   phase: RafflePhase
@@ -73,7 +74,7 @@ export default function RaffleScreenView({
           <button
             type="button"
             onClick={onNextDraw}
-            className="min-h-11 rounded-lg bg-[var(--brand,#b61616)] px-6 py-3 text-lg font-semibold text-white transition hover:bg-[var(--brand,#b61616)]/90"
+            className={`${RAFFLE_PRIMARY_BUTTON_CLASS} px-6 py-3 text-lg`}
           >
             Next draw
           </button>
@@ -122,7 +123,7 @@ export default function RaffleScreenView({
           <button
             type="button"
             onClick={onDraw}
-            className="min-h-11 rounded-lg bg-[var(--brand,#b61616)] px-8 py-4 text-xl font-semibold text-white transition hover:bg-[var(--brand,#b61616)]/90"
+            className={`${RAFFLE_PRIMARY_BUTTON_CLASS} px-8 py-4 text-xl`}
           >
             Draw
           </button>
