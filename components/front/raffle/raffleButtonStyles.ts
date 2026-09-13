@@ -1,0 +1,2 @@
+export const RAFFLE_PRIMARY_BUTTON_CLASS =
+  "min-h-11 rounded-lg bg-[linear-gradient(180deg,#6d1245_0%,#401f4c_100%)] font-semibold text-white cursor-pointer transition-[filter] duration-150 enabled:hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#401f4c] disabled:cursor-not-allowed disabled:saturate-50 motion-reduce:transition-none"

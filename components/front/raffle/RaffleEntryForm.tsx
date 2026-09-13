@@ -2,6 +2,7 @@
 
 import React from "react"
 import { getPhoneCountryCatalog } from "@/lib/phone"
+import { RAFFLE_PRIMARY_BUTTON_CLASS } from "./raffleButtonStyles"
 
 type SubmitState = "idle" | "submitting" | "entered" | "already_entered" | "closed" | "error"
 
@@ -233,7 +234,7 @@ export default function RaffleEntryForm({ slug, eventTitle, initiallyClosed = fa
       <button
         type="submit"
         disabled={isSubmitting}
-        className="min-h-11 w-full rounded-lg bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand,#b61616)]/90 disabled:opacity-50"
+        className={`${RAFFLE_PRIMARY_BUTTON_CLASS} w-full px-4 py-2 text-sm`}
       >
         {isSubmitting ? "Submitting..." : "Enter raffle"}
       </button>

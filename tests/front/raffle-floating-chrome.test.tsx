@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import AssistantWidget from "@/components/front/AssistantWidgetMountI18n"
 import FloatingTopHomeButton from "@/components/front/ui/FloatingTopHomeButton"
+import { FloatingChromeProvider } from "@/components/front/ui/FloatingChromeVisibility"
 
 const navigation = vi.hoisted(() => ({ pathname: "/courses" }))
 vi.mock("next/navigation", () => ({
@@ -12,9 +13,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 vi.mock("@/lib/i18n", () => ({ useI18n: () => ({ t: (key: string) => key }) }))
-vi.mock("@/components/front/AssistantWidgetMount", () => ({
-  default: () => <div data-testid="assistant" />,
-}))
 
 const testGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 testGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -38,7 +36,7 @@ describe("raffle floating chrome policy", () => {
       document.body.appendChild(container)
       root = createRoot(container)
     }
-    await act(async () => root!.render(<><AssistantWidget /><FloatingTopHomeButton /></>))
+    await act(async () => root!.render(<FloatingChromeProvider><AssistantWidget /><FloatingTopHomeButton /></FloatingChromeProvider>))
   }
 
   it.each(["/raffle/launch", "/raffle/launch/", "/staff/raffle/launch/screen", "/staff/raffle/launch/screen/"])(
@@ -47,8 +45,8 @@ describe("raffle floating chrome policy", () => {
       await render(pathname)
       expect(container.childElementCount).toBe(0)
       await render("/courses")
-      expect(container.querySelector('[data-testid="assistant"]')).not.toBeNull()
-      expect(container.querySelector("button")).not.toBeNull()
+      expect(container.querySelector('[aria-label="Open assistant"]')).not.toBeNull()
+      expect(container.querySelector('[aria-label="Home"]')).not.toBeNull()
     },
   )
 
@@ -56,14 +54,22 @@ describe("raffle floating chrome policy", () => {
     "preserves both widgets on unrelated %s",
     async (pathname) => {
       await render(pathname)
-      expect(container.querySelector('[data-testid="assistant"]')).not.toBeNull()
-      expect(container.querySelector("button")).not.toBeNull()
+      expect(container.querySelector('[aria-label="Open assistant"]')).not.toBeNull()
+      expect(container.querySelector('[aria-label="Home"]')).not.toBeNull()
     },
   )
 
-  it("does not suppress the assistant on other staff raffle routes", async () => {
+  it("preserves the actual widgets' existing staff-route suppression", async () => {
     await render("/staff/raffle/launch/settings")
-    expect(container.querySelector('[data-testid="assistant"]')).not.toBeNull()
+    expect(container.childElementCount).toBe(0)
+  })
+
+  it("hides existing widgets when navigating into the raffle with a query string", async () => {
+    await render("/courses")
+    expect(container.querySelector('[aria-label="Open assistant"]')).not.toBeNull()
+    window.history.replaceState(null, "", "/raffle/launch?source=poster")
+    await render("/raffle/launch")
+    expect(container.childElementCount).toBe(0)
   })
 
   it("preserves modal scroll-lock suppression", async () => {

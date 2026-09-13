@@ -99,6 +99,22 @@ describe("RaffleEntryForm", () => {
     return container
   }
 
+  it("disables the branded action while submission is pending without fading its label", async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}))
+    vi.stubGlobal("fetch", fetchMock)
+    const node = await render({ slug: "launch", eventTitle: "Launch" })
+    const form = node.querySelector("form")!
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+    const button = node.querySelector('button[type="submit"]') as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(button.textContent).toBe("Submitting...")
+    expect(button.classList.contains("text-white")).toBe(true)
+    expect(button.classList.contains("disabled:saturate-50")).toBe(true)
+    expect(button.className).not.toContain("opacity-")
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   // React tracks the last value it set on a controlled input, so assigning
   // `.value` directly (the instance property) is silently ignored by its
   // change-detection when the subsequent "input" event fires. Writing

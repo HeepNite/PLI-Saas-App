@@ -136,6 +136,7 @@ The public URL QR MUST render via the `api.qrserver.com` image endpoint and MUST
 - Winner reveal also shows the configured `prizeLabel` of the exact drawn/tracked draw alongside the winner name and masked phone. An in-flight poll advancing `currentDrawId` MUST NOT substitute the next draw's prize. Reuse the existing screen-state data; do not configure real prizes from examples or change the database, seed, endpoints, access rules, or reveal gate.
 - This event uses one tablet and no video: retain the existing six-second no-video animation and reveal gate. Any required event `videoUrl` configuration remains an operational follow-up, not a global video removal or database change in this UI work.
 - Keep submission, validation, authentication, rate limiting, polling and draw logic unchanged. This is a localized authorized amendment, not a new SDD pipeline.
+- Visual follow-up: only raffle primary actions (Enter raffle, Draw, Next draw) MUST use a vertical gradient from exact `#6d1245` (top) to `#401f4c` (bottom), white labels, visible keyboard focus, and distinct disabled styling without fading label contrast. Preserve existing action availability and minimum 44px targets; do not recolor global brand tokens, form errors, or the rest of the site.
 
 ## Out of Scope
 
