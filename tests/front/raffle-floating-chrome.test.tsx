@@ -39,7 +39,7 @@ describe("raffle floating chrome policy", () => {
     await act(async () => root!.render(<FloatingChromeProvider><AssistantWidget /><FloatingTopHomeButton /></FloatingChromeProvider>))
   }
 
-  it.each(["/raffle/launch", "/raffle/launch/", "/staff/raffle/launch/screen", "/staff/raffle/launch/screen/"])(
+  it.each(["/rifa", "/rifa/", "/raffle/launch", "/raffle/launch/", "/staff/raffle/launch/screen", "/staff/raffle/launch/screen/"])(
     "hides both widgets on %s and restores them after navigation",
     async (pathname) => {
       await render(pathname)
@@ -50,7 +50,7 @@ describe("raffle floating chrome policy", () => {
     },
   )
 
-  it.each(["/courses", "/raffle", "/raffle-news/launch", "/raffle/launch/details"])(
+  it.each(["/rifa-news", "/rifa/details", "/courses", "/raffle", "/raffle-news/launch", "/raffle/launch/details"])(
     "preserves both widgets on unrelated %s",
     async (pathname) => {
       await render(pathname)
