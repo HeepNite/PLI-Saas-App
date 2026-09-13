@@ -6,9 +6,10 @@ import { detectQrFlow } from "./qr-flow"
 
 /**
  * True while global floating chrome (the chat/assistant widget and the
- * back-to-top button) should be hidden to keep checkout distraction-free.
+ * back-to-top button) should be hidden to keep checkout and raffle distraction-free.
  *
- * Two triggers, OR-ed:
+ * Three triggers, OR-ed:
+ * - Exact public raffle entry and staff raffle screen routes.
  * - `detectQrFlow()` — the URL is part of the QR-mobile flow (`?fromQr` / `?qrBooking`).
  * - A full-screen modal has locked body scroll (`document.body.style.overflow === "hidden"`).
  *   The EnrollModal booking sets this while open, so it reliably covers every step
@@ -36,5 +37,8 @@ export function useHideFloatingChrome(): boolean {
     }
   }, [pathname])
 
-  return hidden
+  const isRaffleSurface = /^\/raffle\/[^/]+\/?$/.test(pathname ?? "")
+    || /^\/staff\/raffle\/[^/]+\/screen\/?$/.test(pathname ?? "")
+
+  return isRaffleSurface || hidden
 }

@@ -131,7 +131,9 @@ The public URL QR MUST render via the `api.qrserver.com` image endpoint and MUST
 ## Authorized event UI amendment — 2026-09-12
 
 - Both public entry and tablet draw surfaces use the supplied Palladium Latin Events logo and event photo, served locally from `public/raffle`. Preserve logo colors and proportions, trim only blank exterior space, and provide a light backing for its black lettering. Photo uses cover sizing with a 70% black overlay.
-- Country appears on its own full-width row above the full-width telephone field, with separate accessible labels and minimum 44px controls. Layout remains usable on phones and tablets.
+- Follow-up authorization supersedes the stacked phone layout: country and telephone stay on one row, including at 320px and 375px. The country selector is 112px wide with compact ISO + calling code text, full accessible option names, and a flexible telephone field that can shrink without horizontal overflow. Preserve separate accessible labels and minimum 44px controls.
+- Hide the global assistant/chat and Home/back-to-top widgets on `/raffle/[slug]` and `/staff/raffle/[slug]/screen` only (optional trailing slash), reusing the existing shared visibility hook. Preserve other routes and existing checkout/modal suppression.
+- Winner reveal also shows the configured `prizeLabel` of the exact drawn/tracked draw alongside the winner name and masked phone. An in-flight poll advancing `currentDrawId` MUST NOT substitute the next draw's prize. Reuse the existing screen-state data; do not configure real prizes from examples or change the database, seed, endpoints, access rules, or reveal gate.
 - This event uses one tablet and no video: retain the existing six-second no-video animation and reveal gate. Any required event `videoUrl` configuration remains an operational follow-up, not a global video removal or database change in this UI work.
 - Keep submission, validation, authentication, rate limiting, polling and draw logic unchanged. This is a localized authorized amendment, not a new SDD pipeline.
 

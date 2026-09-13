@@ -168,7 +168,53 @@ describe("RaffleScreen", () => {
     })
 
     expect(node.textContent).toContain("Jane Doe")
-    expect(node.textContent).toContain("1234")
+    expect(node.textContent).toContain("••• ••• 1234")
+    expect(node.textContent).toContain("Prize won")
+    expect(node.textContent).toContain("Grand Prize")
+  })
+
+  it("keeps the winner's prize tied to the drawn ID when an in-flight poll advances currentDrawId", async () => {
+    let finishPoll: () => void = () => {}
+    const initialPayload = screenStateResponse()
+    const advancedPayload = screenStateResponse({
+      currentDrawId: "draw_2",
+      draws: [
+        { ...initialPayload.draws[0], status: "drawn" },
+        { id: "draw_2", order: 2, prizeLabel: "Second Prize", status: "open", drawAt: new Date().toISOString() },
+      ],
+    })
+    let pollCount = 0
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+        })
+      }
+      pollCount += 1
+      if (pollCount === 1) return Promise.resolve({ ok: true, json: async () => initialPayload })
+      return new Promise((resolve) => {
+        finishPoll = () => resolve({ ok: true, json: async () => advancedPayload })
+      })
+    }))
+    const node = await render()
+    await flushPoll()
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(pollCount).toBe(2)
+    await act(async () => { node.querySelector("button")!.click() })
+    // The request started before polling paused; its response arrives during drawing.
+    await act(async () => { finishPoll() })
+    await act(async () => { await vi.advanceTimersByTimeAsync(DRAW_ANIMATION_MS) })
+
+    expect(node.textContent).toContain("Jane Doe")
+    expect(node.textContent).toContain("••• ••• 1234")
+    expect(node.textContent).toContain("Grand Prize")
+    expect(node.textContent).not.toContain("Second Prize")
+
+    // The advanced payload was retained, but its prize is used only after Next draw.
+    await act(async () => { node.querySelector("button")!.click() })
+    expect(node.textContent).toContain("Second Prize")
+    expect(node.textContent).not.toContain("Jane Doe")
   })
 
   it("reveals only after both the video ends and the draw response arrive — video ends first", async () => {
