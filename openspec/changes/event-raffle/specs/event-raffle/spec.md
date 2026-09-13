@@ -140,10 +140,18 @@ The public URL QR MUST render via the `api.qrserver.com` image endpoint and MUST
 
 ## Authorized friendly tablet entrance — 2026-09-13
 
-- `GET /rifa` targets the public test-event slug `raffle-tablet-test-20260912t234420593z`. A valid existing event cookie redirects to its clean staff screen; this alias never grants authorization.
+- `GET /rifa` targets `latino-night-2026-09-12` (Latino Night), replacing the former test-event target. A valid existing event cookie redirects to its clean staff screen; this alias never grants authorization.
 - Without a valid cookie, return an English access page (HTTP 200) with a password input that submits the existing private key to the existing screen-session exchange. Do not persist or render the key. Explain that opening the original private link once authorizes this browser for the existing 36-hour session; another browser or an expired session needs authorization again.
 - Preserve all existing exchange validation, rate limits, cookie attributes, and invalid-key 404 behavior. Hide floating chrome only on exact `/rifa` (optional trailing slash), preserving unrelated routes. Reuse the raffle backdrop; no schema, environment, phone, or other authentication changes.
 - Implementation order: add alias regression tests, add the entrance using current token helpers and exchange, extend the route visibility policy, then run scoped tests, typecheck, and lint before publishing to `codex/develop`.
+
+## Authorized Latino Night setup — 2026-09-13
+
+- Keep the DEMO entrance at `dev.palladiumlatin.art/rifa`; preserve the existing private key by copying only the former test event's token hash. Cookies remain event-scoped, so the same key must authorize the new event once.
+- Create a new empty event for September 12 in America/New_York, with no copied participants or winners, `videoUrl` equal to the empty string, and previous-winner exclusion enabled. Preserve the existing no-video animation.
+- All five draws share the fixed deadline `2026-09-13T03:58:36Z`, exactly 45 minutes after the captured worker start `2026-09-13T03:13:36Z`. Do not reset the deadline after deployment or introduce spacing or automatic draws. Keep existing client countdown gating unchanged; this amendment adds no server-side time enforcement.
+- Exact prize order: Audífonos Fisher; 1 mes de empanadas Empalife; Audífonos Avalanche; 2 docenas de empanadas Empalife; Paquete de 8 clases Palladium.
+- Delete only `raffle-tablet-test-20260912t234420593z` and its dependent entries/draws after creation readback and deployed alias/public-page verification. Retain it if deployment fails. No schema or production changes.
 
 ## Out of Scope
 
