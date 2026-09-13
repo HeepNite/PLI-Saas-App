@@ -204,7 +204,7 @@ export default function RaffleEntryForm({ slug, eventTitle, initiallyClosed = fa
             value={country}
             onChange={(e) => setCountry(e.target.value as PhoneCountry)}
             disabled={isSubmitting}
-            className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-2 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
+            className="h-11 box-border w-full min-w-0 rounded-md border border-black/15 bg-white px-2 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
           >
             {countryOptions.map((option) => (
               <option key={option.country} value={option.country} aria-label={option.label}>
@@ -223,7 +223,7 @@ export default function RaffleEntryForm({ slug, eventTitle, initiallyClosed = fa
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             disabled={isSubmitting}
-            className="min-h-11 w-full min-w-0 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
+            className="h-11 box-border w-full min-w-0 rounded-md border border-black/15 bg-white px-3 py-2 text-base text-black outline-none focus:border-[var(--brand,#b61616)] disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-white"
           />
           {fieldErrors.phone ? (
             <span role="alert" className="text-xs text-[var(--brand,#b61616)]">{fieldErrors.phone}</span>
