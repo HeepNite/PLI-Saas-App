@@ -13,7 +13,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: { raffleEvent: { findUnique } } }))
 
 import RifaPage from "@/app/rifa/page"
 
-const slug = "raffle-tablet-test-20260912t234420593z"
+const slug = "latino-night-2026-09-12"
 
 describe("GET /rifa", () => {
   beforeEach(() => {
@@ -25,6 +25,7 @@ describe("GET /rifa", () => {
   it("renders the public access page without a redirect or database lookup when unauthorized", async () => {
     const html = renderToStaticMarkup(await RifaPage())
     expect(html).toContain("Raffle tablet access")
+    expect(html).toContain("Latino Night")
     expect(html).toContain('type="password"')
     expect(html).toContain("original private link")
     expect(html).toContain("36 hours")
