@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import RaffleBackdrop from "./RaffleBackdrop"
 
 export type RaffleDrawVideoOverlayProps = {
   /** The event's own draw video if set, otherwise the shared placeholder — see `lib/raffle/screen-state.ts`. */
@@ -38,14 +39,13 @@ function RaffleDrawAnimation({ onEnded }: { onEnded: () => void }) {
   }, [onEnded])
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center overflow-hidden bg-[#13141d]"
-      data-testid="raffle-draw-animation"
-    >
+    <RaffleBackdrop className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-6 overflow-auto px-4 py-6">
+      <div className="relative flex min-h-[65vmin] w-full items-center justify-center overflow-hidden" data-testid="raffle-draw-animation">
       <style>{`
         @keyframes raffle-ring { 0% { transform: scale(.35); opacity: .9 } 100% { transform: scale(2.6); opacity: 0 } }
         @keyframes raffle-spin { to { transform: rotate(360deg) } }
         @keyframes raffle-pulse { 0%,100% { opacity: .55; letter-spacing: .35em } 50% { opacity: 1; letter-spacing: .5em } }
+        @media (prefers-reduced-motion: reduce) { [data-testid="raffle-draw-animation"] * { animation: none !important; } }
       `}</style>
       {[0, 1, 2, 3].map((i) => (
         <span
@@ -71,7 +71,8 @@ function RaffleDrawAnimation({ onEnded }: { onEnded: () => void }) {
       >
         Sorteando
       </p>
-    </div>
+      </div>
+    </RaffleBackdrop>
   )
 }
 
