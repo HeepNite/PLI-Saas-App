@@ -180,7 +180,9 @@ describe("RaffleEntryForm", () => {
     expect(country.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     for (const control of [country, phone]) {
       expect(control.classList.contains("w-full")).toBe(true)
-      expect(control.classList.contains("min-h-11")).toBe(true)
+      expect(control.classList.contains("h-11")).toBe(true)
+      expect(control.classList.contains("box-border")).toBe(true)
+      expect(control.classList.contains("py-2")).toBe(true)
       expect(control.closest("label")?.classList.contains("block")).toBe(true)
     }
   })
