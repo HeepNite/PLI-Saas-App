@@ -177,8 +177,9 @@ const isRefundedCard = (paymentChannel: PaymentChannel, status: unknown) =>
 
 /**
  * A card attempt where no money ever moved (expired, failed, cancelled/canceled while unpaid).
- * This is the ONLY predicate the staff payments board filter uses to hide rows —
- * refunded card purchases are money that did move, so they stay visible there.
+ * This no longer influences isOpenPurchase — a student who started a card checkout and
+ * never finished it still owes the class, so the row stays open/visible. This predicate
+ * only classifies the row so the UI can label it distinctly from a cash-pending row.
  */
 export const isTerminalUnpaidCardAttempt = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
   const paymentChannel = normalizePaymentChannel({
@@ -218,7 +219,6 @@ export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(pur
     settlementStatus,
     isOpen:
       settlementStatus !== SETTLEMENT_STATUS.PAID
-      && !isNeverCompletedCardAttempt(paymentChannel, settlementStatus, purchase.status)
       && !isRefundedCard(paymentChannel, purchase.status)
       && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === PAYMENT_CHANNEL.CASH),
   }

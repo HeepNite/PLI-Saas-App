@@ -299,7 +299,7 @@ describe("staff payments route", () => {
   })
 
   it.each(["expired", "failed", "cancelled", "canceled"])(
-    "excludes a %s-only card history from board debt and purchased rows",
+    "surfaces a %s-only card attempt on the board as outstanding debt",
     async (status) => {
       mockPrisma.purchase.findMany.mockResolvedValue([
         {
@@ -320,13 +320,17 @@ describe("staff payments route", () => {
       const data = await res.json()
 
       expect(res.status).toBe(200)
-      expect(data.items).toEqual([])
-      expect(data.summary).toEqual({
-        totalItems: 0,
+      expect(data.items).toEqual([
+        expect.objectContaining({
+          id: `card_${status}_only`,
+          paymentStatus: status,
+          outstandingBalance: 2500,
+        }),
+      ])
+      expect(data.summary).toMatchObject({
+        totalItems: 1,
         totalCollected: 0,
-        pendingSettlement: 0,
-        paidSettlement: 0,
-        pendingStripe: 0,
+        pendingStripe: 1,
         paidStripe: 0,
       })
     }
@@ -365,7 +369,7 @@ describe("staff payments route", () => {
     expect(data.summary.paidSettlement).toBe(0)
   })
 
-  it("counts a successful retry once without retaining an older expired attempt", async () => {
+  it("keeps a successful retry paid while an older expired attempt still surfaces as debt", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({
         id: "card_paid_retry",
@@ -394,17 +398,25 @@ describe("staff payments route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    expect(data.items).toEqual([
-      expect.objectContaining({
-        id: "card_paid_retry",
-        outstandingBalance: null,
-        classPaid: true,
-      }),
-    ])
+    expect(data.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "card_paid_retry",
+          classPaid: true,
+        }),
+        expect.objectContaining({
+          id: "card_expired_attempt",
+          paymentStatus: "expired",
+          classPaid: false,
+          outstandingBalance: 2500,
+        }),
+      ])
+    )
+    expect(data.items).toHaveLength(2)
     expect(data.summary).toMatchObject({
-      totalItems: 1,
+      totalItems: 2,
       totalCollected: 2500,
-      pendingStripe: 0,
+      pendingStripe: 1,
       paidStripe: 1,
     })
   })
@@ -471,7 +483,7 @@ describe("staff payments route", () => {
     })
   })
 
-  it("keeps terminal attempts visible in a student's payment history without debt", async () => {
+  it("keeps terminal attempts visible in a student's payment history and surfaces them as debt", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       {
         ...buildPurchase({
@@ -495,7 +507,7 @@ describe("staff payments route", () => {
       expect.objectContaining({
         id: "card_expired_history_detail",
         paymentStatus: "expired",
-        outstandingBalance: null,
+        outstandingBalance: 2500,
       }),
     ])
   })

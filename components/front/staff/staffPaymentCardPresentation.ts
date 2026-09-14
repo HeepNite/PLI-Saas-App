@@ -20,7 +20,29 @@ export const getInitials = (firstName: string, lastName: string, email: string) 
   return (email?.trim()?.[0] || "S").toUpperCase()
 }
 
+// Stripe/kiosk-terminal statuses for a card attempt that never completed — no money ever
+// moved. Kept in sync with NEVER_COMPLETED_CARD_ATTEMPT_STATUSES in app/api/staff/payments/shared.ts.
+const NEVER_COMPLETED_CARD_ATTEMPT_STATUSES = new Set(["expired", "failed", "cancelled", "canceled"])
+
+/**
+ * A never-completed card attempt (expired/failed/cancelled/canceled while unpaid) must
+ * read differently from a cash-pending row: staff need to chase the student in person,
+ * not wait for a cash settlement. Returns null for every other open row (cash pending,
+ * refunded, paid, etc.).
+ */
+export const describeOpenPaymentRow = (
+  row: Pick<PaymentRow, "paymentChannel" | "settlementStatus" | "paymentStatus">,
+): { label: string; tone: string } | null => {
+  if (row.paymentChannel !== "card") return null
+  if (row.settlementStatus === "paid") return null
+  if (!NEVER_COMPLETED_CARD_ATTEMPT_STATUSES.has(row.paymentStatus.toLowerCase())) return null
+
+  return { label: "Card attempt not completed", tone: "border-orange-500/45 bg-orange-500/10 text-orange-300" }
+}
+
 export const paymentStateTone = (row: PaymentRow) => {
+  const openDescription = describeOpenPaymentRow(row)
+  if (openDescription) return openDescription.tone
   if (row.paymentChannel === "cash") {
     if (row.settlementStatus === "paid") return "border-emerald-500/40 bg-emerald-500/12 text-emerald-300"
     return "border-amber-500/45 bg-amber-500/10 text-amber-300"

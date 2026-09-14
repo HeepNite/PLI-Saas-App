@@ -15,6 +15,7 @@ import {
   formatStudentPaymentCardSlotLabel,
 } from "@/components/front/staff/studentPaymentCardFormatters"
 import {
+  describeOpenPaymentRow,
   getInitials,
   getOpenPaymentIds,
   paymentStateTone,
@@ -113,6 +114,7 @@ export function PaymentStudentCard({
   const isSelected = studentSelectableIds.some((id) => selectedPaymentIds.includes(id))
   const packageBadge = resolvePackageBadge(payment.activePackage)
   const pointsHistoryEntries = payment.pointsHistory.slice(0, 10)
+  const openPaymentDescription = describeOpenPaymentRow(payment)
 
   return (
     <article
@@ -226,7 +228,7 @@ export function PaymentStudentCard({
           }}
           className={`w-full flex cursor-pointer items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold hover:opacity-80 transition-opacity ${paymentStateTone(payment)}`}
         >
-          Pmt History
+          {openPaymentDescription ? openPaymentDescription.label : "Pmt History"}
         </button>
         <button
           type="button"
@@ -379,13 +381,17 @@ export function PaymentStudentCard({
             </p>
             {historyOpenRows.slice(0, 6).map((row) => {
               const pendingAmountCents = resolvePendingRowAmountCents(row)
+              const rowOpenDescription = describeOpenPaymentRow(row)
+              const pendingStatusLabel = rowOpenDescription
+                ? rowOpenDescription.label.toLowerCase()
+                : row.paymentChannel === "cash" ? "cash pending" : "unpaid"
               return (
                 <p key={`open-row-${row.id}`} className="mt-0.5 inline-flex w-full items-center justify-between gap-2 text-[11px] text-amber-100/75">
                   <span className="truncate">{row.courseTitle || row.courseSlug || "Class"}</span>
                   <span className="shrink-0">
                     {pendingAmountCents === null
                       ? "Price not set · unpaid"
-                      : `${formatMoney(pendingAmountCents, row.currency)} · ${row.paymentChannel === "cash" ? "cash pending" : "unpaid"}`}
+                      : `${formatMoney(pendingAmountCents, row.currency)} · ${pendingStatusLabel}`}
                   </span>
                 </p>
               )
