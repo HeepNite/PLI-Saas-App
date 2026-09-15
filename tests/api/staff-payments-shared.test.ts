@@ -49,7 +49,7 @@ describe("staff payments shared helpers", () => {
     expect(selected.get("user_1")?.packageId).toBe("pkg_new")
   })
 
-  it("reduces outstanding balance from genuine open obligations only", () => {
+  it("reduces outstanding balance from open purchases only", () => {
     const balances = buildOutstandingBalanceByUser([
       {
         userId: "user_1",
@@ -77,7 +77,7 @@ describe("staff payments shared helpers", () => {
       },
     ])
 
-    expect(balances.get("user_1")).toBe(3100)
+    expect(balances.get("user_1")).toBe(4900)
   })
 
   it("excludes settled cash purchases from outstanding balance", () => {
@@ -162,8 +162,8 @@ describe("staff payments shared helpers", () => {
     }).isOpen).toBe(false)
   })
 
-  it.each(["expired", "failed", "cancelled", "canceled", "refunded"])(
-    "treats terminal unpaid card status %s as closed",
+  it.each(["expired", "failed", "cancelled", "canceled"])(
+    "treats a never-completed card status %s as open outstanding debt",
     (status) => {
       expect(isOpenPurchase({
         userId: "u1",
@@ -172,12 +172,23 @@ describe("staff payments shared helpers", () => {
         status,
         stripePaymentIntentId: null,
         stripeCheckoutSessionId: "cs_terminal",
-      }).isOpen).toBe(false)
+      }).isOpen).toBe(true)
     }
   )
 
+  it("treats a refunded card purchase as closed", () => {
+    expect(isOpenPurchase({
+      userId: "u1",
+      amount: 1000,
+      metadata: { paymentChannel: "card", settlementStatus: "pending" },
+      status: "refunded",
+      stripePaymentIntentId: null,
+      stripeCheckoutSessionId: "cs_terminal",
+    }).isOpen).toBe(false)
+  })
+
   it.each(["expired", "failed", "cancelled", "canceled"])(
-    "flags a never-completed card attempt with status %s as terminal and closed",
+    "flags a never-completed card attempt with status %s as terminal but keeps it open as outstanding debt",
     (status) => {
       const purchase = {
         userId: "u1",
@@ -189,7 +200,7 @@ describe("staff payments shared helpers", () => {
       }
 
       expect(isTerminalUnpaidCardAttempt(purchase)).toBe(true)
-      expect(isOpenPurchase(purchase).isOpen).toBe(false)
+      expect(isOpenPurchase(purchase).isOpen).toBe(true)
     }
   )
 
@@ -248,6 +259,43 @@ describe("staff payments shared helpers", () => {
     ])
 
     expect(balances.get("user_refunded")).toBeUndefined()
+  })
+
+  it("counts a never-completed card attempt as outstanding balance", () => {
+    const balances = buildOutstandingBalanceByUser([
+      {
+        userId: "user_never_completed",
+        amount: 2500,
+        metadata: { paymentChannel: "card", settlementStatus: "pending" },
+        status: "expired",
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: "cs_never_completed_balance",
+      },
+    ])
+
+    expect(balances.get("user_never_completed")).toBe(2500)
+  })
+
+  it("suppresses a never-completed card attempt only once its own course+date is already paid", () => {
+    const expiredAttempt = (userId: string) => ({
+      userId, amount: 2500, courseSlug: "salsa-beginners",
+      metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
+      status: "expired", stripePaymentIntentId: null, stripeCheckoutSessionId: `cs_${userId}`,
+    })
+    const paidSibling = {
+      userId: "user_with_sibling", amount: 2500, courseSlug: "salsa-beginners",
+      metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "paid" },
+      status: "paid", stripePaymentIntentId: "pi_sibling", stripeCheckoutSessionId: null,
+    }
+
+    const balances = buildOutstandingBalanceByUser([
+      expiredAttempt("user_no_sibling"),
+      paidSibling,
+      expiredAttempt("user_with_sibling"),
+    ])
+
+    expect(balances.get("user_no_sibling")).toBe(2500)
+    expect(balances.get("user_with_sibling")).toBeUndefined()
   })
 
   it("classifies inconsistent stripe+cash metadata rows as card", () => {
