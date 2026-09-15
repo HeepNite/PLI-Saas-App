@@ -436,7 +436,11 @@ export type SchoolCourseRow = {
   availableTimes: string[]
   scheduleRules: unknown | null
   active: boolean
+  updatedAt?: string
   createdAt: string
+  specialClassOperationsEnabled?: boolean
+  specialClassCapacity?: number | null
+  authoringSlots?: CourseScheduleSlot[]
 }
 
 export type RoomRow = {
@@ -490,6 +494,8 @@ export type PointsRuleRow = {
 }
 
 export type CourseFormState = {
+  courseCatalogId: string | null
+  expectedUpdatedAt: string | null
   slug: string
   title: string
   kind: string
@@ -510,6 +516,8 @@ export type CourseFormState = {
   specialDiscountPrice: string
   availableTimesCsv: string
   active: boolean
+  specialClassOperationsEnabled: boolean
+  specialClassCapacity: string
 }
 
 export type CourseLinkRow = {
@@ -529,10 +537,27 @@ export type CourseLinkFormState = {
 }
 
 export type CourseScheduleSlot = {
+  id?: string
   date?: string
   weekday?: number
   recurring?: boolean
   time: string
+  specialClassId?: string
+  classSessionId?: string
+  specialClassSlug?: string
+  status?: string
+}
+
+export type CourseAuthoringIntent = "save_draft" | "publish"
+
+export type CourseAuthoringResponse = {
+  courseCatalogId?: string
+  revision?: string
+  projections?: Array<{ slotId: string; specialClassId: string; classSessionId: string; slug: string; status: string }>
+  item?: { slug?: string }
+  message?: string
+  error?: string
+  code?: string
 }
 
 export type CourseScheduleRuleEntry = {

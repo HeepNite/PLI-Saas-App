@@ -298,18 +298,52 @@ describe("staff payments route", () => {
     })
   })
 
-  it("excludes an expired-only card history from board debt and purchased rows", async () => {
+  it.each(["expired", "failed", "cancelled", "canceled"])(
+    "excludes a %s-only card history from board debt and purchased rows",
+    async (status) => {
+      mockPrisma.purchase.findMany.mockResolvedValue([
+        {
+          ...buildPurchase({
+            id: `card_${status}_only`,
+            userId: "user_never_completed",
+            amount: 2500,
+            status,
+            metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
+          }),
+          stripePaymentIntentId: null,
+          stripeCheckoutSessionId: `cs_${status}_only`,
+        },
+      ])
+
+      const { GET } = await import("@/app/api/staff/payments/route")
+      const res = await GET(new Request("http://localhost/api/staff/payments"))
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(data.items).toEqual([])
+      expect(data.summary).toEqual({
+        totalItems: 0,
+        totalCollected: 0,
+        pendingSettlement: 0,
+        paidSettlement: 0,
+        pendingStripe: 0,
+        paidStripe: 0,
+      })
+    }
+  )
+
+  it("keeps a refunded card purchase visible on the board without counting it as cash-pending debt", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       {
         ...buildPurchase({
-          id: "card_expired_only",
-          userId: "user_expired",
+          id: "card_refunded_today",
+          userId: "user_refunded_today",
           amount: 2500,
-          status: "expired",
+          status: "refunded",
           metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
         }),
         stripePaymentIntentId: null,
-        stripeCheckoutSessionId: "cs_expired_only",
+        stripeCheckoutSessionId: "cs_refunded_today",
       },
     ])
 
@@ -318,15 +352,17 @@ describe("staff payments route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    expect(data.items).toEqual([])
-    expect(data.summary).toEqual({
-      totalItems: 0,
-      totalCollected: 0,
-      pendingSettlement: 0,
-      paidSettlement: 0,
-      pendingStripe: 0,
-      paidStripe: 0,
-    })
+    expect(data.items).toEqual([
+      expect.objectContaining({
+        id: "card_refunded_today",
+        paymentStatus: "refunded",
+        outstandingBalance: null,
+      }),
+    ])
+    // outstandingBalance is the debt indicator this fix controls: a refund is not outstanding debt.
+    // The cash settlement counters never count a card row either way.
+    expect(data.summary.pendingSettlement).toBe(0)
+    expect(data.summary.paidSettlement).toBe(0)
   })
 
   it("counts a successful retry once without retaining an older expired attempt", async () => {

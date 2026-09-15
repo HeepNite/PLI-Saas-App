@@ -3,6 +3,10 @@ import { QrDecisionController } from "./checkin/qr-decision.controller"
 import { TodayClassesController } from "./checkin/today-classes.controller"
 import { HealthController } from "./health/health.controller"
 import { ConnectionTokenController } from "./terminal/connection-token.controller"
+import { NativeConnectionTokenController } from "./terminal/native-connection-token.controller"
+import { NativePaymentJobsController } from "./terminal/native-payment-jobs.controller"
+import { NativePaymentJobCreationError } from "./terminal/native-payment-jobs.service"
+import { NativeReaderAuthorizationError } from "./terminal/native-reader-auth.service"
 import { PaymentIntentsController } from "./terminal/payment-intents.controller"
 import { INTERNAL_AUTH_HEADER } from "@/lib/nest-gateway/auth"
 import type { CheckinQrDecisionGatewayRequest } from "@/lib/nest-gateway/contracts/checkin-qr-decision"
@@ -29,6 +33,8 @@ export type BackendRequestHandler = (request: Request) => Promise<Response>
 type BackendControllers = {
   connectionTokenController?: Pick<ConnectionTokenController, "post">
   healthController?: Pick<HealthController, "getHealth">
+  nativeConnectionTokenController?: Pick<NativeConnectionTokenController, "post">
+  nativePaymentJobsController?: Pick<NativePaymentJobsController, "get" | "observe" | "post" | "retry">
   paymentIntentsController?: Pick<PaymentIntentsController, "post">
   qrDecisionController?: Pick<QrDecisionController, "getQrDecision">
   todayClassesController?: Pick<TodayClassesController, "getTodayClasses">
@@ -38,6 +44,8 @@ export const createBackendRequestHandler = (
   {
     connectionTokenController = new ConnectionTokenController(),
     healthController = new HealthController(),
+    nativeConnectionTokenController = new NativeConnectionTokenController(),
+    nativePaymentJobsController = new NativePaymentJobsController(),
     paymentIntentsController = new PaymentIntentsController(),
     qrDecisionController = new QrDecisionController(),
     todayClassesController = new TodayClassesController(),
@@ -88,6 +96,62 @@ export const createBackendRequestHandler = (
       }
 
       return Response.json(await connectionTokenController.post(connectionTokenRequest), { status: OK_STATUS })
+    }
+
+    if (request.method === "POST" && pathname === "/terminal/native/connection-token") {
+      try {
+        return Response.json(await nativeConnectionTokenController.post(request), { status: OK_STATUS })
+      } catch (error) {
+        if (error instanceof NativeReaderAuthorizationError) {
+          const headers = error.retryAfterSec
+            ? { "Retry-After": String(error.retryAfterSec) }
+            : undefined
+          return Response.json({ error: error.message }, { status: error.status, headers })
+        }
+        return Response.json({ error: "Unable to process native terminal request" }, { status: INTERNAL_SERVER_ERROR_STATUS })
+      }
+    }
+
+    if (request.method === "POST" && pathname === "/terminal/native/jobs") {
+      try {
+        return Response.json(await nativePaymentJobsController.post(request), { status: OK_STATUS })
+      } catch (error) {
+        if (error instanceof NativeReaderAuthorizationError) {
+          const headers = error.retryAfterSec ? { "Retry-After": String(error.retryAfterSec) } : undefined
+          return Response.json({ error: error.message }, { status: error.status, headers })
+        }
+        if (error instanceof NativePaymentJobCreationError) {
+          return Response.json({ error: error.message }, { status: error.status })
+        }
+        return Response.json({ error: "Unable to process native terminal request" }, { status: INTERNAL_SERVER_ERROR_STATUS })
+      }
+    }
+
+    const nativeJobRoute = pathname.match(/^\/terminal\/native\/jobs\/([^/]+)(?:\/(retry|observations))?$/)
+    const nativeJobAction = nativeJobRoute?.[2]
+    const isNativeJobRequest = Boolean(nativeJobRoute) && (
+      (request.method === "GET" && !nativeJobAction) ||
+      (request.method === "POST" && (nativeJobAction === "retry" || nativeJobAction === "observations"))
+    )
+    if (nativeJobRoute && isNativeJobRequest) {
+      try {
+        const jobId = nativeJobRoute[1]
+        const result = !nativeJobAction
+          ? await nativePaymentJobsController.get(request, jobId)
+          : nativeJobAction === "retry"
+            ? await nativePaymentJobsController.retry(request, jobId)
+            : await nativePaymentJobsController.observe(request, jobId)
+        return Response.json(result, { status: OK_STATUS })
+      } catch (error) {
+        if (error instanceof NativeReaderAuthorizationError) {
+          const headers = error.retryAfterSec ? { "Retry-After": String(error.retryAfterSec) } : undefined
+          return Response.json({ error: error.message }, { status: error.status, headers })
+        }
+        if (error instanceof NativePaymentJobCreationError) {
+          return Response.json({ error: error.message }, { status: error.status })
+        }
+        return Response.json({ error: "Unable to process native terminal request" }, { status: INTERNAL_SERVER_ERROR_STATUS })
+      }
     }
 
     if (request.method === "POST" && pathname === "/internal/terminal/payment-intents") {
