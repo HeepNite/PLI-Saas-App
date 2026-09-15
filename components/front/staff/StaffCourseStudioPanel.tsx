@@ -30,11 +30,11 @@ type CourseStudioForm = {
 type StaffCourseStudioPanelProps = {
   wizard: CourseStudioWizard
   form: CourseStudioForm
-  isSpecialEventCourse: boolean
+  usesConcreteSchedule: boolean
   mainInfo: Omit<React.ComponentProps<typeof StaffCourseMainInfoStep>, "visible">
   pricing: Omit<React.ComponentProps<typeof StaffCoursePricingStep>, "visible">
   media: Omit<React.ComponentProps<typeof StaffCourseMediaStep>, "visible" | "onUploadVideo" | "onUploadImage">
-  schedule: Omit<React.ComponentProps<typeof StaffCourseScheduleStep>, "visible" | "isSpecialEventCourse">
+  schedule: Omit<React.ComponentProps<typeof StaffCourseScheduleStep>, "visible" | "usesConcreteSchedule">
   links: Omit<React.ComponentProps<typeof StaffCourseLinksStep>, "visible">
   preview: Omit<React.ComponentProps<typeof StaffCoursePreviewStep>, "visible">
   publish: Omit<React.ComponentProps<typeof StaffCoursePublishStep>, "visible">
@@ -43,7 +43,7 @@ type StaffCourseStudioPanelProps = {
 export default function StaffCourseStudioPanel({
   wizard,
   form,
-  isSpecialEventCourse,
+  usesConcreteSchedule,
   mainInfo,
   pricing,
   media,
@@ -78,10 +78,10 @@ export default function StaffCourseStudioPanel({
 
             <div style={{ display: wizard.step >= 3 && wizard.step <= 5 ? undefined : "none" }} className="space-y-2">
               <p style={{ display: wizard.step === 3 ? undefined : "none" }} className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
-                {isSpecialEventCourse ? "Special events (calendar builder)" : "Schedules (guided builder)"}
+                {usesConcreteSchedule ? "Concrete dates (calendar builder)" : "Schedules (guided builder)"}
               </p>
               <div className="space-y-5">
-                <StaffCourseScheduleStep visible={wizard.step === 3} isSpecialEventCourse={isSpecialEventCourse} {...schedule} />
+                <StaffCourseScheduleStep visible={wizard.step === 3} usesConcreteSchedule={usesConcreteSchedule} {...schedule} />
                 <StaffCourseLinksStep visible={wizard.step === 4} {...links} />
                 <StaffCoursePreviewStep visible={wizard.step === 5} {...preview} />
               </div>

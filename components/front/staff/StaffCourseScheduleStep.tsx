@@ -15,7 +15,7 @@ import type { CourseFormState, CourseScheduleSlot } from "./staffAdminTypes"
 type StaffCourseScheduleStepProps = {
   visible: boolean
   schoolLoading: boolean
-  isSpecialEventCourse: boolean
+  usesConcreteSchedule: boolean
   courseForm: CourseFormState
   setCourseForm: React.Dispatch<React.SetStateAction<CourseFormState>>
   courseRecurringWeekdays: number[]
@@ -59,7 +59,7 @@ type StaffCourseScheduleStepProps = {
 export default function StaffCourseScheduleStep({
   visible,
   schoolLoading,
-  isSpecialEventCourse,
+  usesConcreteSchedule,
   courseForm,
   setCourseForm,
   courseRecurringWeekdays,
@@ -104,9 +104,9 @@ export default function StaffCourseScheduleStep({
   return (
     <div className="space-y-5">
         <div>
-          {isSpecialEventCourse ? (
+          {usesConcreteSchedule ? (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 dark:border-amber-400/35 dark:bg-amber-500/10">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-amber-300">Special event mode</p>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-amber-300">Concrete schedule</p>
               <p className="mt-1 text-xs text-amber-100/90">
                 This course uses unique dates. The weekly builder is disabled and slots are loaded from the calendar.
               </p>
@@ -201,13 +201,19 @@ export default function StaffCourseScheduleStep({
 
           <div className="space-y-4">
             <p className="text-[11px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
-              {isSpecialEventCourse
+              {usesConcreteSchedule
                 ? "2) Time slot for event dates · Shortcuts (editable)"
                 : "3) Time slot for selected days · Shortcuts (editable)"}
             </p>
-            {isSpecialEventCourse ? (
+            {usesConcreteSchedule ? (
               <div className="mt-3 rounded-md border border-black/10 bg-black/[0.02] p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
                 <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/55">Event dates</p>
+                {courseForm.specialClassOperationsEnabled ? (
+                  <label htmlFor="special-class-capacity" className="mb-3 block text-xs font-semibold text-black/70 dark:text-white/70">
+                    Shared capacity
+                    <input id="special-class-capacity" name="specialClassCapacity" type="number" min={1} max={10000} required value={courseForm.specialClassCapacity} onChange={(event) => setCourseForm((previous) => ({ ...previous, specialClassCapacity: event.target.value }))} className="mt-1 w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[var(--brand,#b61616)] focus-visible:ring-2 focus-visible:ring-[var(--brand,#b61616)] focus-visible:ring-offset-2 dark:border-white/15 dark:bg-white/5 dark:text-white" />
+                  </label>
+                ) : null}
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                   <input
                     type="date"
@@ -386,7 +392,7 @@ export default function StaffCourseScheduleStep({
                   onClick={addCourseScheduleSlot}
                   className="rounded-md border border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-sm font-semibold text-[var(--brand,#ff4b4b)]"
                 >
-                  {isSpecialEventCourse
+                  {usesConcreteSchedule
                     ? courseScheduleDates.length > 1
                       ? "Add event slots"
                       : "Add event slot"
@@ -421,7 +427,7 @@ export default function StaffCourseScheduleStep({
                   </div>
                 ) : null}
               </div>
-              {!isSpecialEventCourse && regularScheduleWarningMessage ? (
+              {!usesConcreteSchedule && regularScheduleWarningMessage ? (
                 <div className="mt-2 rounded-md border border-amber-500/35 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-200">
                   {regularScheduleWarningMessage}
                 </div>
@@ -462,7 +468,7 @@ export default function StaffCourseScheduleStep({
               </div>
             </div>
             <div className="min-w-0">
-              {isSpecialEventCourse ? (
+              {usesConcreteSchedule ? (
                 <div className="rounded-lg border border-[var(--brand,#b61616)]/25 bg-[var(--brand,#b61616)]/8 p-2.5">
                   <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--brand,#ff8a8a)]">Priority rule</p>
                   <p className="mt-1 text-xs text-[var(--brand,#ffd0d0)]">

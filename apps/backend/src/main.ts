@@ -108,7 +108,7 @@ export const createBackendRequestHandler = (
             : undefined
           return Response.json({ error: error.message }, { status: error.status, headers })
         }
-        throw error
+        return Response.json({ error: "Unable to process native terminal request" }, { status: INTERNAL_SERVER_ERROR_STATUS })
       }
     }
 
@@ -123,7 +123,7 @@ export const createBackendRequestHandler = (
         if (error instanceof NativePaymentJobCreationError) {
           return Response.json({ error: error.message }, { status: error.status })
         }
-        throw error
+        return Response.json({ error: "Unable to process native terminal request" }, { status: INTERNAL_SERVER_ERROR_STATUS })
       }
     }
 
@@ -150,7 +150,7 @@ export const createBackendRequestHandler = (
         if (error instanceof NativePaymentJobCreationError) {
           return Response.json({ error: error.message }, { status: error.status })
         }
-        throw error
+        return Response.json({ error: "Unable to process native terminal request" }, { status: INTERNAL_SERVER_ERROR_STATUS })
       }
     }
 
