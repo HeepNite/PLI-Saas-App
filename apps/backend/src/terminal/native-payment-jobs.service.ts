@@ -21,6 +21,7 @@ export type NativePaymentJobRecord = {
   idempotencyKey: string
   providerPaymentId: string | null
   status: string
+  needsReview?: boolean
   classSession: { startsAt: Date }
 }
 
@@ -32,13 +33,19 @@ type SaveNativePaymentJob = {
   amountCents: number
   currency: string
   idempotencyKey: string
-  providerPaymentId: string
+  providerPaymentId: null
 }
 
 export type NativePaymentJobStore = {
   findByIdentity(readerId: string, idempotencyKey: string): Promise<NativePaymentJobRecord | null>
   loadActiveCourses(): Promise<TerminalCourseCatalogLike[]>
   save(input: SaveNativePaymentJob): Promise<NativePaymentJobRecord>
+  attachProviderPayment(job: NativePaymentJobRecord, providerPaymentId: string): Promise<NativePaymentJobRecord>
+}
+
+export type NativePaymentJobRecoveryStore = Pick<NativePaymentJobStore, "findByIdentity"> & {
+  findById(readerId: string, jobId: string): Promise<NativePaymentJobRecord | null>
+  recordClientSuccess(readerId: string, jobId: string): Promise<NativePaymentJobRecord | null>
 }
 
 type PaymentIntentsPort = Pick<PaymentIntentsService, "createPaymentIntent">
@@ -61,15 +68,38 @@ const providerPaymentLookup: ProviderPaymentLookupPort = {
   },
 }
 
-const nativePaymentJobStore: NativePaymentJobStore = {
+const nativePaymentJobStore: NativePaymentJobStore & NativePaymentJobRecoveryStore = {
   findByIdentity: (readerId, idempotencyKey) => prisma.nativePaymentJob.findFirst({
     where: { readerId, idempotencyKey },
+    include: { classSession: { select: { startsAt: true } } },
+  }),
+  findById: (readerId, jobId) => prisma.nativePaymentJob.findFirst({
+    where: { id: jobId, readerId },
     include: { classSession: { select: { startsAt: true } } },
   }),
   loadActiveCourses: () => prisma.courseCatalog.findMany({
     where: { active: true },
     orderBy: [{ createdAt: "asc" }],
     take: 100,
+  }),
+  attachProviderPayment: (job, providerPaymentId) => prisma.nativePaymentJob.update({
+    where: { id: job.id, readerId: job.readerId, idempotencyKey: job.idempotencyKey },
+    data: { providerPaymentId },
+    include: { classSession: { select: { startsAt: true } } },
+  }),
+  recordClientSuccess: (readerId, jobId) => prisma.$transaction(async (tx) => {
+    await tx.nativePaymentJob.updateMany({
+      where: {
+        id: jobId,
+        readerId,
+        status: { in: ["created", "collecting", "client_succeeded", "unknown"] },
+      },
+      data: { status: "client_succeeded" },
+    })
+    return tx.nativePaymentJob.findFirst({
+      where: { id: jobId, readerId },
+      include: { classSession: { select: { startsAt: true } } },
+    })
   }),
   save: (input) => prisma.$transaction(async (tx) => {
     const current = input.currentClass
@@ -102,7 +132,7 @@ const nativePaymentJobStore: NativePaymentJobStore = {
 }
 
 export class NativePaymentJobCreationError extends Error {
-  constructor(readonly status: 400 | 409, message: string) {
+  constructor(readonly status: 400 | 404 | 409, message: string) {
     super(message)
   }
 }
@@ -113,7 +143,7 @@ const paymentIntentIdFromClientSecret = (clientSecret: string) => {
   return clientSecret.slice(0, separatorIndex)
 }
 
-const toResponse = (job: NativePaymentJobRecord, retryIdentity: string, clientSecret?: string) => ({
+const toResponse = (job: NativePaymentJobRecord, retryIdentity?: string, clientSecret?: string) => ({
   id: job.id,
   status: job.status === "created" ? "pending" : job.status,
   readerId: job.readerId,
@@ -121,7 +151,8 @@ const toResponse = (job: NativePaymentJobRecord, retryIdentity: string, clientSe
   courseSlug: job.courseSlugSnapshot,
   amountCents: job.amountCents,
   currency: job.currency,
-  retryIdentity,
+  ...(job.needsReview === undefined ? {} : { needsReview: job.needsReview }),
+  ...(retryIdentity ? { retryIdentity } : {}),
   ...(clientSecret ? { clientSecret } : {}),
 })
 
@@ -130,19 +161,26 @@ export class NativePaymentJobsService {
     private readonly store: NativePaymentJobStore = nativePaymentJobStore,
     private readonly paymentIntents: PaymentIntentsPort = new PaymentIntentsService(),
     private readonly now: () => Date = () => new Date(),
-    private readonly providerPayments: ProviderPaymentLookupPort = providerPaymentLookup
+    private readonly providerPayments: ProviderPaymentLookupPort = providerPaymentLookup,
+    private readonly recoveryStore: NativePaymentJobRecoveryStore = nativePaymentJobStore
   ) {}
+
+  private unavailable(): never {
+    throw new NativePaymentJobCreationError(404, "Native payment job unavailable")
+  }
+
+  private async recoverClientSecret(job: NativePaymentJobRecord) {
+    if (!job.providerPaymentId) throw new Error("Native payment job missing provider payment ID")
+    const providerPayment = await this.providerPayments.retrieve(job.providerPaymentId)
+    if (!providerPayment.client_secret?.trim()) throw new Error("Stripe payment intent missing client secret")
+    return providerPayment.client_secret
+  }
 
   async create(input: { readerId: string; retryIdentity: string }) {
     const idempotencyKey = `native-payment-job:${input.readerId}:${input.retryIdentity}`
     const existing = await this.store.findByIdentity(input.readerId, idempotencyKey)
     if (existing) {
-      if (!existing.providerPaymentId) throw new Error("Native payment job missing provider payment ID")
-      const providerPayment = await this.providerPayments.retrieve(existing.providerPaymentId)
-      if (!providerPayment.client_secret?.trim()) {
-        throw new Error("Stripe payment intent missing client secret")
-      }
-      return toResponse(existing, input.retryIdentity, providerPayment.client_secret)
+      return this.resume(existing, input.retryIdentity)
     }
 
     const now = this.now()
@@ -153,20 +191,7 @@ export class NativePaymentJobsService {
       throw new NativePaymentJobCreationError(409, "No payable class is active")
     }
 
-    const paymentIntent = await this.paymentIntents.createPaymentIntent({
-      amount: amountCents,
-      currency: NATIVE_PAYMENT_CURRENCY,
-      receiptEmail: "",
-      idempotencyKey,
-      metadata: {
-        flowContext: "native_kiosk",
-        readerId: input.readerId,
-        retryIdentity: input.retryIdentity,
-        courseSlug: currentClass.slug,
-        classStartsAt: currentClass.startsAt.toISOString(),
-      },
-    })
-    const job = await this.store.save({
+    const job = await this.reserve({
       readerId: input.readerId,
       currentClass,
       courseSlugSnapshot: currentClass.slug,
@@ -174,8 +199,64 @@ export class NativePaymentJobsService {
       amountCents,
       currency: NATIVE_PAYMENT_CURRENCY,
       idempotencyKey,
-      providerPaymentId: paymentIntentIdFromClientSecret(paymentIntent.clientSecret),
+      providerPaymentId: null,
     })
-    return toResponse(job, input.retryIdentity, paymentIntent.clientSecret)
+    return this.resume(job, input.retryIdentity)
+  }
+
+  private async reserve(input: SaveNativePaymentJob) {
+    try {
+      return await this.store.save(input)
+    } catch (error) {
+      // A concurrent transaction may have won the unique identity reservation.
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+        const winner = await this.store.findByIdentity(input.readerId, input.idempotencyKey)
+        if (winner) return winner
+      }
+      throw error
+    }
+  }
+
+  private async resume(job: NativePaymentJobRecord, retryIdentity: string) {
+    if (job.providerPaymentId) {
+      return toResponse(job, retryIdentity, await this.recoverClientSecret(job))
+    }
+    // Only committed terms may reach Stripe, including after an ambiguous provider response.
+    const paymentIntent = await this.paymentIntents.createPaymentIntent({
+      amount: job.amountCents,
+      currency: job.currency,
+      receiptEmail: "",
+      idempotencyKey: job.idempotencyKey,
+      metadata: {
+        flowContext: "native_kiosk",
+        readerId: job.readerId,
+        retryIdentity,
+        courseSlug: job.courseSlugSnapshot,
+        classStartsAt: job.classSession.startsAt.toISOString(),
+      },
+    })
+    const attached = await this.store.attachProviderPayment(
+      job, paymentIntentIdFromClientSecret(paymentIntent.clientSecret)
+    )
+    return toResponse(attached, retryIdentity, paymentIntent.clientSecret)
+  }
+
+  async recover(input: { readerId: string; jobId: string; retryIdentity: string }) {
+    const idempotencyKey = `native-payment-job:${input.readerId}:${input.retryIdentity}`
+    const job = await this.recoveryStore.findByIdentity(input.readerId, idempotencyKey)
+    if (!job || job.id !== input.jobId) return this.unavailable()
+    return this.resume(job, input.retryIdentity)
+  }
+
+  async get(input: { readerId: string; jobId: string }) {
+    const job = await this.recoveryStore.findById(input.readerId, input.jobId)
+    if (!job) return this.unavailable()
+    return toResponse(job)
+  }
+
+  async observeClientSuccess(input: { readerId: string; jobId: string }) {
+    const job = await this.recoveryStore.recordClientSuccess(input.readerId, input.jobId)
+    if (!job) return this.unavailable()
+    return toResponse(job)
   }
 }

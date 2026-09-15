@@ -10,7 +10,14 @@ export async function expireSpecialClassHolds(specialClassId: string, now = new 
 
 export async function getSpecialClassDetail(id: string, now = new Date()) {
   await expireSpecialClassHolds(id, now)
-  const specialClass = await prisma.specialClass.findUnique({ where: { id }, include: { classSession: true } })
+  const specialClass = await prisma.specialClass.findUnique({
+    where: { id },
+    include: {
+      classSession: true,
+      authoringSlot: { select: { courseCatalog: { select: { id: true, title: true } } } },
+      auditLogs: { orderBy: { createdAt: "desc" }, select: { id: true, action: true, actorRole: true, createdAt: true } },
+    },
+  })
   if (!specialClass) return null
   const [held, paid, checkedIn, roster] = await Promise.all([
     prisma.purchase.count({ where: { specialClassId: id, status: "pending", holdExpiresAt: { gt: now } } }),
@@ -25,8 +32,10 @@ export async function getSpecialClassDetail(id: string, now = new Date()) {
       },
     }),
   ])
+  const { authoringSlot, ...operationalDetail } = specialClass
   return {
-    ...specialClass,
+    ...operationalDetail,
+    authoringCourse: authoringSlot?.courseCatalog ?? null,
     metrics: {
       capacity: specialClass.classSession.capacity,
       available: Math.max(specialClass.classSession.capacity - held - paid, 0),

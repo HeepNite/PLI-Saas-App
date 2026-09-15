@@ -39,8 +39,8 @@ interface CourseCardPanelProps {
   displayTime: string
   qrImage?: string
   terminalPastClasses?: TerminalPastClass[]
-  selectedTerminalPastClass?: { courseSlug: string; time: string } | null
-  onTerminalPastClassSelect?: (selection: { courseSlug: string; time: string }) => void
+  selectedTerminalPastClass?: TerminalPastClass | null
+  onTerminalPastClassSelect?: (selection: TerminalPastClass) => void
   onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   compact?: boolean
@@ -75,6 +75,46 @@ export function CourseCardPanel({
     if (compact && actionSlot) {
       return (
         <div className="mx-[1.25rem] my-0 mt-3 rounded-2xl border border-white/15 bg-white/[0.02] p-4 lg:p-5">
+          {showPastCourses ? (
+            <div className="flex h-full min-h-full flex-col gap-6">
+              <div>
+                <p className="mb-3 text-xs uppercase tracking-[0.2em] text-white/60">Current Course</p>
+                <div
+                  className="grid items-start"
+                  style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
+                >
+                  <div className="self-stretch pr-4">
+                    <CourseCardContent
+                      cardImage={cardImage}
+                      courseTitle={courseTitle}
+                      category={category}
+                      badge={badge}
+                      duration={duration}
+                      students={students}
+                      description={description}
+                      teacher={teacher}
+                      priceLabel={priceLabel}
+                      displayDate={displayDate}
+                      displayTime={displayTime}
+                      variant="split"
+                      compact={compact}
+                    />
+                  </div>
+                  <ActionSection>{actionSlot}</ActionSection>
+                  <div className="relative self-stretch pl-4">
+                    <ColumnDivider side="left" />
+                    <QrSection qrImage={qrImage} compact={compact} />
+                  </div>
+                </div>
+              </div>
+              <PastCoursesList
+                classes={terminalPastClasses || []}
+                onTerminalPastClassSelect={onTerminalPastClassSelect}
+                onExistingClick={onExistingClick}
+                onNewClick={onNewClick}
+              />
+            </div>
+          ) : (
           <div
             className="grid items-start"
             style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
@@ -102,14 +142,6 @@ export function CourseCardPanel({
               <QrSection qrImage={qrImage} compact={compact} />
             </div>
           </div>
-          {showPastCourses && (
-            <div className="mt-4">
-              <PastCoursesList
-                classes={terminalPastClasses || []}
-                onExistingClick={onExistingClick}
-                onNewClick={onNewClick}
-              />
-            </div>
           )}
         </div>
       )
@@ -178,10 +210,12 @@ export function CourseCardPanel({
 
 function PastCoursesList({
   classes,
+  onTerminalPastClassSelect,
   onExistingClick,
   onNewClick,
 }: {
   classes: TerminalPastClass[]
+  onTerminalPastClassSelect?: (selection: TerminalPastClass) => void
   onExistingClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
 }) {
@@ -197,13 +231,18 @@ function PastCoursesList({
           const context = { courseSlug: item.courseSlug, date: item.date, time: item.time }
           return (
             <div
-              key={`${item.courseSlug}-${item.time}`}
+              key={`${item.courseSlug}-${item.date}-${item.time}`}
               className="grid items-stretch rounded-2xl border border-white/15 bg-white/[0.02] p-4"
               style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
             >
               <div className="relative min-h-[148px] pr-5">
                 <span aria-hidden="true" className="absolute inset-y-2 right-0 w-px bg-gradient-to-b from-transparent via-white/12 to-transparent" />
-                <div className="relative h-full overflow-hidden rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => onTerminalPastClassSelect?.(item)}
+                  className="relative h-full w-full overflow-hidden rounded-2xl text-left transition focus:outline-none focus:ring-2 focus:ring-white/70"
+                  aria-label={`Select ${item.title} as the current course`}
+                >
                 <Image
                   src={item.imageUrl || "/images/hero-menu/live-academy.JPG"}
                   alt={item.title}
@@ -227,7 +266,7 @@ function PastCoursesList({
                   <span className="block truncate text-sm font-semibold text-white">{item.title}</span>
                   <span className="mt-0.5 block text-xs text-white/70">{formatPastCourseTime(item.time)}</span>
                 </span>
-                </div>
+                </button>
               </div>
 
               <div className="relative flex h-full flex-col justify-center px-5">
