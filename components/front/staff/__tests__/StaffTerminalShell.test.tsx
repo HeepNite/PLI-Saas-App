@@ -168,17 +168,19 @@ describe("StaffTerminalShell rotation context", () => {
 
     const selectPastClass = captured.props?.onTerminalPastClassSelect as ((selection: {
       courseSlug: string
+      date: string
       time: string
     }) => void)
 
     await act(async () => {
-      selectPastClass({ courseSlug: "salsa-night-beginner", time: "20:10" })
+      selectPastClass({ courseSlug: "salsa-night-beginner", date: "2026-05-22", time: "20:10" })
     })
 
     expect(captured.props).toMatchObject({
       forcedCourseSlug: "salsa-night-beginner",
       selectedTerminalPastClass: {
         courseSlug: "salsa-night-beginner",
+        date: "2026-05-22",
         time: "20:10",
       },
       terminalPastClasses: [

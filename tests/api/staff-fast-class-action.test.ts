@@ -9,7 +9,7 @@ const mockFindConsecutiveLinkBetween = vi.fn()
 const mockTx = {
   classSession: { upsert: vi.fn() },
   attendance: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-  purchase: { findFirst: vi.fn(), create: vi.fn() },
+  purchase: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
 }
 
 const mockPrisma = {
@@ -17,7 +17,7 @@ const mockPrisma = {
   attendance: { findUnique: vi.fn() },
   courseCatalog: { findMany: vi.fn(), findUnique: vi.fn() },
   packagePurchase: { findMany: vi.fn() },
-  purchase: { findFirst: vi.fn() },
+  purchase: { findMany: vi.fn() },
   user: { findUnique: vi.fn() },
   courseLink: { findMany: vi.fn() },
   $transaction: vi.fn(async (callback: (tx: typeof mockTx) => unknown) => callback(mockTx)),
@@ -82,7 +82,7 @@ describe("POST /api/staff/students/fast-class-action", () => {
     mockPrisma.classSession.findUnique.mockReset().mockResolvedValue(null)
     mockPrisma.attendance.findUnique.mockReset().mockResolvedValue(null)
     mockPrisma.packagePurchase.findMany.mockReset().mockResolvedValue([])
-    mockPrisma.purchase.findFirst.mockReset().mockResolvedValue(null)
+    mockPrisma.purchase.findMany.mockReset().mockResolvedValue([])
     mockPrisma.user.findUnique.mockReset().mockResolvedValue({ id: "user_1", email: "student@example.com", name: "Student", phone: "15551234567" })
     mockPrisma.courseLink.findMany.mockReset().mockResolvedValue([])
     mockPrisma.$transaction.mockReset().mockImplementation(async (callback: (tx: typeof mockTx) => unknown) => callback(mockTx))
@@ -90,8 +90,9 @@ describe("POST /api/staff/students/fast-class-action", () => {
     mockTx.attendance.findUnique.mockReset().mockResolvedValue(null)
     mockTx.attendance.create.mockReset().mockResolvedValue({ id: "attendance_1", status: "checked_in_no_package" })
     mockTx.attendance.update.mockReset()
-    mockTx.purchase.findFirst.mockReset().mockResolvedValue(null)
+    mockTx.purchase.findMany.mockReset().mockResolvedValue([])
     mockTx.purchase.create.mockReset().mockResolvedValue({ id: "purchase_1", amount: 2000 })
+    mockTx.purchase.update.mockReset()
     mockReservePackageCreditForAttendanceTx.mockReset()
     mockEnsureAttendancePackagePurchase.mockReset()
     mockFindConsecutiveLinkBetween.mockReset()
@@ -128,28 +129,53 @@ describe("POST /api/staff/students/fast-class-action", () => {
     }))
   })
 
-  it("blocks Fast Pay when the student still has a pending purchase for the current class", async () => {
-    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_existing" })
-    mockPrisma.attendance.findUnique.mockResolvedValue({ id: "attendance_existing" })
-    mockPrisma.purchase.findFirst.mockResolvedValue({ status: "pending" })
+  it("reuses an existing pending purchase instead of blocking when Fast Pay is pressed again", async () => {
+    const existingPendingPurchase = {
+      id: "purchase_existing", userId: "user_1", amount: 2000, status: "pending",
+      metadata: { paymentChannel: "cash", settlementStatus: "pending", attendanceId: "attendance_existing" },
+      stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }
+    mockPrisma.purchase.findMany.mockResolvedValue([existingPendingPurchase])
+    mockTx.purchase.findMany.mockResolvedValue([existingPendingPurchase])
+    mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
+    mockTx.attendance.update.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
+
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "fast_pay",
+      attendanceId: "attendance_existing",
+      purchaseId: "purchase_existing",
+    })
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.update).not.toHaveBeenCalled()
+  })
+
+  it("blocks Fast Pay preview when a Stripe-paid purchase exists for the slot", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([{
+      id: "purchase_stripe_paid", userId: "user_1", amount: 2000, status: "paid",
+      metadata: {}, stripePaymentIntentId: "pi_123", stripeCheckoutSessionId: null,
+    }])
 
     const res = await postFastAction({ userId: "user_1", previewOnly: true })
 
     expect(res.status).toBe(409)
     await expect(res.json()).resolves.toMatchObject({
-      code: "pending_payment",
-      error: "You still have a pending payment. Please resolve it first.",
+      code: "completed_purchase",
+      error: "This student already has a completed purchase for this class.",
       mode: "fast_pay",
     })
     expect(mockPrisma.$transaction).not.toHaveBeenCalled()
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
   })
 
-  it("blocks Fast Sign when the student already has a completed purchase for the current class", async () => {
+  it("blocks Fast Sign preview when the student already has a package-credit-paid purchase for the current class", async () => {
     mockPrisma.packagePurchase.findMany.mockResolvedValue([{ id: "package_purchase_1", packageId: "pkg_10", packageLabel: "10 Classes", isUnlimited: false, remainingCredits: 4, status: "active" }])
-    mockPrisma.classSession.findUnique.mockResolvedValue({ id: "session_existing" })
-    mockPrisma.attendance.findUnique.mockResolvedValue({ id: "attendance_existing" })
-    mockPrisma.purchase.findFirst.mockResolvedValue({ status: "paid" })
+    mockPrisma.purchase.findMany.mockResolvedValue([{
+      id: "purchase_pkg_paid", userId: "user_1", amount: 2000, status: "paid",
+      metadata: { paymentChannel: "package_credit" }, stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
 
     const res = await postFastAction({ userId: "user_1", previewOnly: true })
 
@@ -161,6 +187,76 @@ describe("POST /api/staff/students/fast-class-action", () => {
     })
     expect(mockPrisma.$transaction).not.toHaveBeenCalled()
     expect(mockReservePackageCreditForAttendanceTx).not.toHaveBeenCalled()
+  })
+
+  it("blocks Fast Pay preview when a cash purchase is settled but status is still pending", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([{
+      id: "purchase_settled", userId: "user_1", amount: 2000, status: "pending",
+      metadata: { paymentChannel: "cash", settlementStatus: "paid" }, stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
+
+    const res = await postFastAction({ userId: "user_1", previewOnly: true })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      code: "completed_purchase",
+      error: "This student already has a completed purchase for this class.",
+      mode: "fast_pay",
+    })
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("reuses a web cash-pending purchase and backfills attendanceId", async () => {
+    const pendingRow = {
+      id: "purchase_web_pending", userId: "user_1", amount: 2000, status: "pending",
+      metadata: { paymentChannel: "cash", settlementStatus: "pending" },
+      stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }
+    mockPrisma.purchase.findMany.mockResolvedValue([pendingRow])
+    mockTx.purchase.findMany.mockResolvedValue([pendingRow])
+    mockTx.purchase.update.mockResolvedValue({ ...pendingRow, metadata: { ...pendingRow.metadata, attendanceId: "attendance_1" } })
+
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "fast_pay",
+      attendanceId: "attendance_1",
+      purchaseId: "purchase_web_pending",
+      outstandingBalanceAddedCents: 2000,
+    })
+    expect(mockTx.purchase.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "purchase_web_pending" },
+      data: expect.objectContaining({ metadata: expect.objectContaining({ attendanceId: "attendance_1" }) }),
+    }))
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("creates a new pending cash purchase when only a card-pending purchase exists for the slot", async () => {
+    const cardPendingRow = {
+      id: "purchase_card_pending", userId: "user_1", amount: 2000, status: "pending",
+      metadata: {}, stripePaymentIntentId: null, stripeCheckoutSessionId: "cs_123",
+    }
+    mockPrisma.purchase.findMany.mockResolvedValue([cardPendingRow])
+    mockTx.purchase.findMany.mockResolvedValue([cardPendingRow])
+
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ mode: "fast_pay", purchaseId: "purchase_1" })
+    expect(mockTx.purchase.create).toHaveBeenCalled()
+  })
+
+  it("excludes failed, refunded, and expired purchases from slot resolution via the findMany where clause", async () => {
+    const res = await postFastAction({ userId: "user_1" })
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        status: { notIn: ["failed", "refunded", "expired"] },
+        OR: expect.arrayContaining([expect.objectContaining({ AND: expect.any(Array) })]),
+      }),
+    }))
   })
 
   it("consumes package credit for Fast Sign", async () => {
@@ -190,10 +286,14 @@ describe("POST /api/staff/students/fast-class-action", () => {
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
   })
 
-  it("does not duplicate attendance or charge when Fast Pay is repeated", async () => {
+  it("does not duplicate attendance or charge when Fast Pay is repeated and the pending purchase already has the attendanceId", async () => {
     mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
     mockTx.attendance.update.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
-    mockTx.purchase.findFirst.mockResolvedValue({ id: "purchase_existing", amount: 2000 })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "purchase_existing", userId: "user_1", amount: 2000, status: "pending",
+      metadata: { paymentChannel: "cash", settlementStatus: "pending", attendanceId: "attendance_existing" },
+      stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
 
     const res = await postFastAction({ userId: "user_1" })
 
@@ -205,27 +305,26 @@ describe("POST /api/staff/students/fast-class-action", () => {
     })
     expect(mockTx.attendance.create).not.toHaveBeenCalled()
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.update).not.toHaveBeenCalled()
   })
 
-  it("does not create a new balance when Fast Pay is repeated after the class was paid", async () => {
+  it("blocks Fast Pay via a mid-transaction race when the purchase becomes paid before commit", async () => {
     mockTx.attendance.findUnique.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
     mockTx.attendance.update.mockResolvedValue({ id: "attendance_existing", status: "checked_in_no_package" })
-    mockTx.purchase.findFirst.mockResolvedValue({ id: "purchase_paid", amount: 2000, status: "paid" })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "purchase_paid", userId: "user_1", amount: 2000, status: "paid",
+      metadata: { paymentChannel: "cash" }, stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
 
     const res = await postFastAction({ userId: "user_1" })
 
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body).toMatchObject({
-      mode: "fast_pay",
-      attendanceId: "attendance_existing",
-      purchaseId: "purchase_paid",
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      code: "completed_purchase",
+      error: "This student already has a completed purchase for this class.",
     })
-    expect(body.outstandingBalanceAddedCents).toBeUndefined()
-    expect(mockTx.purchase.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.not.objectContaining({ status: "pending" }),
-    }))
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.update).not.toHaveBeenCalled()
   })
 
   it("reuses existing attendance when Fast Sign is repeated for the same class", async () => {
@@ -417,7 +516,11 @@ describe("POST /api/staff/students/fast-class-action", () => {
       availableTimes: ["20:00"],
     })
     mockTx.attendance.findUnique.mockResolvedValue({ id: "promo_attendance_existing", status: "checked_in_no_package" })
-    mockTx.purchase.findFirst.mockResolvedValue({ id: "promo_purchase_existing", amount: 1000 })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "promo_purchase_existing", userId: "user_1", amount: 1000, status: "pending",
+      metadata: { paymentChannel: "cash", settlementStatus: "pending", attendanceId: "promo_attendance_existing" },
+      stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
 
     const res = await postFastAction({
       userId: "user_1",
@@ -438,9 +541,10 @@ describe("POST /api/staff/students/fast-class-action", () => {
     })
     expect(mockTx.attendance.create).not.toHaveBeenCalled()
     expect(mockTx.purchase.create).not.toHaveBeenCalled()
+    expect(mockTx.purchase.update).not.toHaveBeenCalled()
   })
 
-  it("does not create a new promo balance when accepted promo was already paid", async () => {
+  it("blocks the promo add-on with completed_purchase when its linked slot was already paid", async () => {
     mockFindConsecutiveLinkBetween.mockResolvedValue({
       courseSlugA: "salsa-beginner",
       courseSlugB: "bachata-beginner",
@@ -453,7 +557,46 @@ describe("POST /api/staff/students/fast-class-action", () => {
       availableTimes: ["20:00"],
     })
     mockTx.attendance.findUnique.mockResolvedValue({ id: "promo_attendance_existing", status: "checked_in_no_package" })
-    mockTx.purchase.findFirst.mockResolvedValue({ id: "promo_purchase_paid", amount: 1000, status: "paid" })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "promo_purchase_paid", userId: "user_1", amount: 1000, status: "paid",
+      metadata: { paymentChannel: "cash" }, stripePaymentIntentId: null, stripeCheckoutSessionId: null,
+    }])
+
+    const res = await postFastAction({
+      userId: "user_1",
+      acceptConsecutive: true,
+      promo: {
+        linkedCourseSlug: "bachata-beginner",
+        linkedFromCourseSlug: "salsa-beginner",
+        priceCents: 1000,
+      },
+    })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      code: "completed_purchase",
+      error: "This student already has a completed purchase for this class.",
+    })
+    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("creates a new promo purchase when only a card-pending purchase exists for the linked slot", async () => {
+    mockFindConsecutiveLinkBetween.mockResolvedValue({
+      courseSlugA: "salsa-beginner",
+      courseSlugB: "bachata-beginner",
+      active: true,
+    })
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({
+      ...course,
+      slug: "bachata-beginner",
+      title: "Bachata Beginner",
+      availableTimes: ["20:00"],
+    })
+    mockTx.purchase.findMany.mockResolvedValue([{
+      id: "promo_purchase_card_pending", userId: "user_1", amount: 1000, status: "pending",
+      metadata: {}, stripePaymentIntentId: null, stripeCheckoutSessionId: "cs_456",
+    }])
+    mockTx.purchase.create.mockResolvedValue({ id: "promo_purchase_1", amount: 1000 })
 
     const res = await postFastAction({
       userId: "user_1",
@@ -466,13 +609,7 @@ describe("POST /api/staff/students/fast-class-action", () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body).toMatchObject({
-      mode: "promo_cash",
-      attendanceId: "promo_attendance_existing",
-      purchaseId: "promo_purchase_paid",
-    })
-    expect(body.outstandingBalanceAddedCents).toBeUndefined()
-    expect(mockTx.purchase.create).not.toHaveBeenCalled()
+    await expect(res.json()).resolves.toMatchObject({ mode: "promo_cash", purchaseId: "promo_purchase_1" })
+    expect(mockTx.purchase.create).toHaveBeenCalled()
   })
 })

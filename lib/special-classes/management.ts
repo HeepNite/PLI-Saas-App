@@ -3,7 +3,7 @@ import { CAPACITY_STATUSES } from "@/lib/special-classes/policy"
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3
 
-const isRetryableConflict = (error: unknown) => {
+export const isSpecialClassRetryableConflict = (error: unknown) => {
   if (!error || typeof error !== "object") return false
   const code = Object.hasOwn(error, "code") ? String((error as { code: unknown }).code) : ""
   const meta = Object.hasOwn(error, "meta") ? (error as { meta?: unknown }).meta : null
@@ -21,7 +21,7 @@ export async function runSpecialClassSerializableTransaction<T>(
     try {
       return await db.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     } catch (error) {
-      if (!isRetryableConflict(error) || attempt === MAX_SERIALIZABLE_ATTEMPTS) throw error
+      if (!isSpecialClassRetryableConflict(error) || attempt === MAX_SERIALIZABLE_ATTEMPTS) throw error
     }
   }
   throw new Error("Unable to complete special class transaction")

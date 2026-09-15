@@ -7,8 +7,8 @@ const { definitionAuthorizer, rosterAuthorizer, mockWithStaffGuard, mockPrisma }
   mockPrisma: {
     specialClass: { findMany: vi.fn(), findUnique: vi.fn() },
     specialClassAuditLog: { findUnique: vi.fn() },
-    attendance: { findMany: vi.fn(), findUnique: vi.fn() },
-    purchase: { count: vi.fn() },
+    attendance: { count: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
+    purchase: { count: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }))
@@ -21,7 +21,7 @@ vi.mock("@/lib/security/staff-portal-auth", () => ({
 vi.mock("@/lib/security/with-staff-guard", () => ({ withStaffGuard: (...args: unknown[]) => mockWithStaffGuard(...args) }))
 
 import { GET, POST } from "@/app/api/staff/special-classes/route"
-import { PATCH } from "@/app/api/staff/special-classes/[id]/route"
+import { GET as GET_DETAIL, PATCH } from "@/app/api/staff/special-classes/[id]/route"
 import { POST as POST_ROSTER_ACTION } from "@/app/api/staff/special-classes/[id]/roster/[attendanceId]/actions/route"
 
 const denied = { ok: false as const, response: new Response(JSON.stringify({ error: "Insufficient role" }), { status: 403 }) }
@@ -49,10 +49,54 @@ describe("staff special classes API", () => {
     expect(mockWithStaffGuard.mock.calls[0][1].authorize).toBe(definitionAuthorizer)
   })
 
-  it("rejects a transition out of a terminal state", async () => {
+  it("deprecates direct definition creation after authorization", async () => {
+    const response = await POST(new Request("http://localhost/api/staff/special-classes", { method: "POST", body: "{}" }))
+    expect(response.status).toBe(405)
+    await expect(response.json()).resolves.toEqual({ error: "Create Special Classes in Course Studio." })
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("exposes linked Course Studio identity and audit history in operational detail", async () => {
+    mockPrisma.purchase.updateMany.mockResolvedValue({ count: 0 })
     mockPrisma.specialClass.findUnique.mockResolvedValue({
-      id: "class_1", status: "closed", title: "Closed", description: "Closed class", currency: "usd", priceCents: 2000,
-      coverImageUrl: null, publishedAt: new Date(), cancelledAt: null, classSessionId: "session_1",
+      id: "class_1", classSessionId: "session_1", classSession: { capacity: 12 },
+      authoringSlot: { courseCatalog: { id: "course_1", title: "Source course" } },
+      auditLogs: [{ id: "audit_1", action: "class_published", actorRole: "owner", createdAt: new Date("2030-05-01T12:00:00.000Z") }],
+    })
+    mockPrisma.purchase.count.mockResolvedValue(0)
+    mockPrisma.attendance.count.mockResolvedValue(0)
+    mockPrisma.purchase.findMany.mockResolvedValue([])
+
+    const response = await GET_DETAIL(
+      new Request("http://localhost/api/staff/special-classes/class_1"),
+      { params: Promise.resolve({ id: "class_1" }) },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ item: {
+      authoringCourse: { id: "course_1", title: "Source course" },
+      auditLogs: [{ id: "audit_1", action: "class_published", actorRole: "owner" }],
+    } })
+  })
+
+  it("rejects shared definition fields before entering the operational transaction", async () => {
+    mockPrisma.specialClass.findUnique.mockResolvedValue({
+      id: "class_1", status: "published", title: "Current", description: "Current", currency: "usd", priceCents: 2000,
+      coverImageUrl: null, authoringSlotId: "slot_1", classSessionId: "session_1",
+      classSession: { id: "session_1", startsAt: new Date(Date.now() + 60_000), capacity: 10, durationMinutes: 60, location: null },
+    })
+    const response = await PATCH(
+      new Request("http://localhost/api/staff/special-classes/class_1", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "Bypass" }) }),
+      { params: Promise.resolve({ id: "class_1" }) },
+    )
+    expect(response.status).toBe(422)
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("rejects initial publication of linked drafts outside Course Studio", async () => {
+    mockPrisma.specialClass.findUnique.mockResolvedValue({
+      id: "class_1", status: "draft", title: "Current", description: "Current", currency: "usd", priceCents: 2000,
+      coverImageUrl: null, authoringSlotId: "slot_1", classSessionId: "session_1",
       classSession: { id: "session_1", startsAt: new Date(Date.now() + 60_000), capacity: 10, durationMinutes: 60, location: null },
     })
     const response = await PATCH(
@@ -60,7 +104,51 @@ describe("staff special classes API", () => {
       { params: Promise.resolve({ id: "class_1" }) },
     )
     expect(response.status).toBe(409)
-    expect(mockPrisma.purchase.count).not.toHaveBeenCalled()
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("retains locked operational price and capacity adjustments", async () => {
+    const current = {
+      id: "class_1", status: "published", title: "Current", description: "Current", currency: "usd", priceCents: 2000,
+      coverImageUrl: null, authoringSlotId: "slot_1", classSessionId: "session_1", publishedAt: new Date(), cancelledAt: null,
+      classSession: { id: "session_1", startsAt: new Date(Date.now() + 60_000), capacity: 10, durationMinutes: 60, location: null },
+    }
+    const tx = {
+      $queryRaw: vi.fn(),
+      specialClassAuditLog: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
+      specialClass: {
+        findUnique: vi.fn().mockResolvedValueOnce({ classSessionId: "session_1" }).mockResolvedValueOnce(current),
+        update: vi.fn().mockResolvedValue({ ...current, priceCents: 2500, classSession: { ...current.classSession, capacity: 14 } }),
+      },
+      classSession: { update: vi.fn() },
+      purchase: { updateMany: vi.fn(), count: vi.fn().mockResolvedValue(3) },
+    }
+    mockPrisma.specialClass.findUnique.mockResolvedValue(current)
+    mockPrisma.$transaction.mockImplementation(async (callback: (transaction: typeof tx) => unknown) => callback(tx))
+
+    const response = await PATCH(
+      new Request("http://localhost/api/staff/special-classes/class_1", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priceCents: 2500, capacity: 14 }) }),
+      { params: Promise.resolve({ id: "class_1" }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2)
+    expect(tx.classSession.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ capacity: 14 }) }))
+    expect(tx.specialClass.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ priceCents: 2500 }) }))
+  })
+
+  it("rejects operational adjustments in a terminal state", async () => {
+    mockPrisma.specialClass.findUnique.mockResolvedValue({
+      id: "class_1", status: "closed", title: "Closed", description: "Closed class", currency: "usd", priceCents: 2000,
+      coverImageUrl: null, publishedAt: new Date(), cancelledAt: null, classSessionId: "session_1",
+      classSession: { id: "session_1", startsAt: new Date(Date.now() + 60_000), capacity: 10, durationMinutes: 60, location: null },
+    })
+    const response = await PATCH(
+      new Request("http://localhost/api/staff/special-classes/class_1", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capacity: 11 }) }),
+      { params: Promise.resolve({ id: "class_1" }) },
+    )
+    expect(response.status).toBe(409)
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
   })
 
   it("rejects check-in for a cancelled special class before mutating attendance", async () => {
@@ -114,47 +202,4 @@ describe("staff special classes API", () => {
     expect(audit.afterState.purchases).toEqual([{ id: "purchase_1", status: "cancelled" }, { id: "purchase_2", status: "cancelled" }])
   })
 
-  it("audits the complete class definition and canonical session on creation", async () => {
-    const startsAt = new Date(Date.now() + 86_400_000)
-    const session = { id: "session_created", courseSlug: "special-created", title: "Created class", startsAt, durationMinutes: 75, capacity: 18, location: "Studio A" }
-    const item = {
-      id: "class_created", slug: "created-class", status: "draft", classSessionId: session.id, title: "Created class",
-      description: "Complete definition", coverImageUrl: "https://example.com/cover.jpg", currency: "usd", priceCents: 3200,
-      salesOpenAt: null, salesCloseAt: null, publishedAt: null, cancelledAt: null, createdBy: "staff_1", classSession: session,
-    }
-    const auditCreate = vi.fn()
-    const tx = {
-      classSession: { create: vi.fn().mockResolvedValue(session) },
-      specialClass: { create: vi.fn().mockResolvedValue(item) },
-      specialClassAuditLog: { create: auditCreate },
-    }
-    mockPrisma.$transaction.mockImplementation(async (callback: (transaction: typeof tx) => unknown) => callback(tx))
-
-    const response = await POST(new Request("http://localhost/api/staff/special-classes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-correlation-id": "create-attempt-1" },
-      body: JSON.stringify({
-        slug: item.slug, title: item.title, description: item.description, coverImageUrl: item.coverImageUrl,
-        startsAt: startsAt.toISOString(), courseSlug: session.courseSlug, durationMinutes: session.durationMinutes,
-        capacity: session.capacity, location: session.location, currency: item.currency, priceCents: item.priceCents,
-      }),
-    }))
-
-    expect(response.status).toBe(201)
-    expect(auditCreate).toHaveBeenCalledWith({ data: expect.objectContaining({
-      specialClassId: item.id,
-      classSessionId: session.id,
-      afterState: {
-        specialClass: {
-          id: item.id, slug: item.slug, status: item.status, classSessionId: session.id, title: item.title,
-          description: item.description, coverImageUrl: item.coverImageUrl, currency: item.currency, priceCents: item.priceCents,
-          salesOpenAt: null, salesCloseAt: null, publishedAt: null, cancelledAt: null, createdBy: "staff_1",
-        },
-        classSession: {
-          id: session.id, courseSlug: session.courseSlug, title: session.title, startsAt: startsAt.toISOString(),
-          durationMinutes: session.durationMinutes, capacity: session.capacity, location: session.location,
-        },
-      },
-    }) })
-  })
 })
