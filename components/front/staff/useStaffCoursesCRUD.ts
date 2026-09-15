@@ -2,7 +2,6 @@ import React from "react"
 
 import {
   ISO_DATE_REGEX,
-  SPECIAL_EVENT_COURSE_KINDS,
   type CoursePublicationMode,
   type CourseSpecialDiscountType,
 } from "./staffAdminConstants"
@@ -20,6 +19,8 @@ import {
 } from "./staffCourseScheduleHelpers"
 import type {
   CourseFormState,
+  CourseAuthoringIntent,
+  CourseAuthoringResponse,
   CourseScheduleRulesPayload,
   CourseScheduleSlot,
   CourseSpecialDiscountSettings,
@@ -40,6 +41,7 @@ const usdInputToCents = (value: string) => {
 export type StaffCoursesCRUDInput = {
   schoolCourses: SchoolCourseRow[]
   courseForm: CourseFormState
+  usesConcreteSchedule: boolean
   setCourseForm: React.Dispatch<React.SetStateAction<CourseFormState>>
   courseScheduleSlots: CourseScheduleSlot[]
   setCourseScheduleSlots: React.Dispatch<React.SetStateAction<CourseScheduleSlot[]>>
@@ -87,6 +89,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
   const {
     schoolCourses,
     courseForm,
+    usesConcreteSchedule,
     setCourseForm,
     courseScheduleSlots,
     setCourseScheduleSlots,
@@ -127,11 +130,14 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
     setScheduleTimePickerOpen,
   } = input
 
-  const isSpecialEventCourse = SPECIAL_EVENT_COURSE_KINDS.has(courseForm.kind)
+  const operationRef = React.useRef<Record<CourseAuthoringIntent, { signature: string; id: string } | null>>({ save_draft: null, publish: null })
 
   // ─── Reset / hydration helpers ───────────────────────────────────
   const resetCourseBuilder = React.useCallback(() => {
+    operationRef.current = { save_draft: null, publish: null }
     setCourseForm((() => ({
+      courseCatalogId: null,
+      expectedUpdatedAt: null,
       slug: "",
       title: "",
       kind: "course",
@@ -152,6 +158,8 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       specialDiscountPrice: "",
       availableTimesCsv: "",
       active: true,
+      specialClassOperationsEnabled: false,
+      specialClassCapacity: "",
     }))())
     resetScheduleState(quickScheduleTimes)
     resetUploadState()
@@ -171,12 +179,17 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
   ])
 
   // ─── Save course ─────────────────────────────────────────────────
-  const saveCourseCatalog = React.useCallback(async (event: React.FormEvent) => {
-    event.preventDefault()
+  const saveCourseCatalog = React.useCallback(async (event?: React.FormEvent, intent: CourseAuthoringIntent = "save_draft") => {
+    event?.preventDefault()
     setSchoolError(null)
     setSchoolSuccess(null)
     if (courseSlugConflict.exists) {
       setSchoolError("This slug already exists. Use the suggested slug or choose to edit the existing course.")
+      return
+    }
+    const capacity = Number(courseForm.specialClassCapacity)
+    if (courseForm.specialClassOperationsEnabled && (!Number.isInteger(capacity) || capacity <= 0)) {
+      setSchoolError("Enter a positive shared capacity for Special Class operations.")
       return
     }
     setSchoolBusy("course")
@@ -200,7 +213,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       }
       const scheduleRulesPayload: CourseScheduleRulesPayload | null = (() => {
         const rules =
-          isSpecialEventCourse
+          usesConcreteSchedule
             ? []
             : derivedRules.length > 0
             ? derivedRules
@@ -243,7 +256,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
         if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
         const derivedWeeklyTarget = [...new Set(rules.map((rule) => rule.weekday))].length
         return {
-          mode: isSpecialEventCourse ? "special_event" : "regular",
+          mode: usesConcreteSchedule ? "special_event" : "regular",
           weeklyDaysTarget: Math.max(1, Math.min(7, derivedWeeklyTarget || courseRecurringWeekdays.length || 1)),
           repeatAllMonth: courseRepeatAllMonth,
           recurrenceMode: courseRecurrenceMode,
@@ -255,33 +268,51 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
           specialDiscount,
         }
       })()
+      const coursePayload = {
+        slug: courseForm.slug,
+        title: courseForm.title,
+        kind: courseForm.kind,
+        category: courseForm.category,
+        description: courseForm.description,
+        coverImageUrl: courseForm.previewImageUrl,
+        previewVideoUrl: courseForm.previewVideoUrl,
+        dropInPriceCents: usdInputToCents(courseForm.dropInPriceCents),
+        firstClassPriceCents: usdInputToCents(courseForm.firstClassPriceCents),
+        level: courseForm.level,
+        durationMinutes: courseForm.durationMinutes,
+        location: courseForm.location,
+        defaultRoomId: courseForm.defaultRoomId || null,
+        availableWeekdays: weekdays,
+        availableTimes: times,
+        scheduleRules: scheduleRulesPayload,
+        active: courseForm.active,
+      }
+      const concreteSlots = courseScheduleSlots.filter((slot) => slot.date).map(({ id, date, time }) => ({ ...(id ? { id } : {}), date: date!, time }))
+      const needsAuthoringCommand = courseForm.specialClassOperationsEnabled || concreteSlots.some(({ id }) => Boolean(id)) || Boolean(courseForm.courseCatalogId && courseForm.specialClassCapacity)
+      const body = needsAuthoringCommand ? { ...coursePayload, specialClassOperationsEnabled: courseForm.specialClassOperationsEnabled, specialClassCapacity: capacity || null } : coursePayload
+      if (needsAuthoringCommand) {
+        const signature = JSON.stringify({ intent, body, concreteSlots, courseCatalogId: courseForm.courseCatalogId, expectedUpdatedAt: courseForm.expectedUpdatedAt })
+        if (operationRef.current[intent]?.signature !== signature) operationRef.current[intent] = { signature, id: crypto.randomUUID() }
+        Object.assign(body, { authoringCommand: { intent, operationId: operationRef.current[intent]!.id, ...(courseForm.courseCatalogId ? { courseCatalogId: courseForm.courseCatalogId } : {}), ...(courseForm.expectedUpdatedAt ? { expectedUpdatedAt: courseForm.expectedUpdatedAt } : {}), concreteSlots } })
+      }
       const res = await fetch("/api/staff/school/courses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slug: courseForm.slug,
-          title: courseForm.title,
-          kind: courseForm.kind,
-          category: courseForm.category,
-          description: courseForm.description,
-          coverImageUrl: courseForm.previewImageUrl,
-          previewVideoUrl: courseForm.previewVideoUrl,
-          dropInPriceCents: usdInputToCents(courseForm.dropInPriceCents),
-          firstClassPriceCents: usdInputToCents(courseForm.firstClassPriceCents),
-          level: courseForm.level,
-          durationMinutes: courseForm.durationMinutes,
-          location: courseForm.location,
-          defaultRoomId: courseForm.defaultRoomId || null,
-          availableWeekdays: weekdays,
-          availableTimes: times,
-          scheduleRules: scheduleRulesPayload,
-          active: courseForm.active,
-        }),
+        body: JSON.stringify(body),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json().catch(() => ({})) as CourseAuthoringResponse
       if (!res.ok) {
-        setSchoolError(typeof data?.error === "string" ? data.error : "Unable to save course.")
+        const typedErrors: Record<string, string> = { NOT_PUBLISHABLE: "Complete the required Special Class fields and add a future slot.", AUTHORING_CONFLICT: "This course changed elsewhere. Reload it before saving.", IDEMPOTENCY_KEY_REUSED: "This save no longer matches its retry. Try again." }
+        setSchoolError((data.code && typedErrors[data.code]) || data.error || "Unable to save course.")
         return
+      }
+      if (needsAuthoringCommand) {
+        operationRef.current[intent] = null
+        setCourseForm((previous) => ({ ...previous, courseCatalogId: data.courseCatalogId || previous.courseCatalogId, expectedUpdatedAt: data.revision || previous.expectedUpdatedAt }))
+        if (data.projections) setCourseScheduleSlots((previous) => previous.map((slot, index) => {
+          const projection = data.projections!.find(({ slotId }) => slotId === slot.id) || data.projections![index]
+          return projection ? { ...slot, id: projection.slotId, specialClassId: projection.specialClassId, classSessionId: projection.classSessionId, specialClassSlug: projection.slug, status: projection.status } : slot
+        }))
       }
       const savedSlug = typeof data?.item?.slug === "string" ? data.item.slug : courseForm.slug.trim()
       const draftLinkResult = savedSlug ? await saveDraftCourseLinkForCourse(savedSlug) : { ok: true, skipped: true }
@@ -295,7 +326,8 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
         return
       }
       setSchoolSuccess(draftLinkResult.skipped ? savedMessage : `${savedMessage} Consecutive link saved.`)
-      resetCourseBuilder()
+      if (needsAuthoringCommand) setCourseEditingSlug(savedSlug || null)
+      else resetCourseBuilder()
     } catch {
       setSchoolError("Network error while saving course.")
     } finally {
@@ -311,11 +343,13 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
     courseSlugConflict.exists,
     courseWeekdays,
     fetchSchoolData,
-    isSpecialEventCourse,
+    usesConcreteSchedule,
     loadCourseLinks,
     resetCourseBuilder,
     saveDraftCourseLinkForCourse,
     setCourseEditingSlug,
+    setCourseForm,
+    setCourseScheduleSlots,
     setSchoolBusy,
     setSchoolError,
     setSchoolSuccess,
@@ -334,6 +368,8 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
     const existingCourse = schoolCourses.find((course) => course.slug.toLowerCase() === normalizedSlug)
     if (existingCourse) {
       setCourseForm({
+        courseCatalogId: existingCourse.id,
+        expectedUpdatedAt: existingCourse.updatedAt || null,
         slug: existingCourse.slug,
         title: existingCourse.title,
         kind: existingCourse.kind || "course",
@@ -354,8 +390,11 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
         specialDiscountPrice: "",
         availableTimesCsv: (existingCourse.availableTimes || []).join(", "),
         active: existingCourse.active ?? true,
+        specialClassOperationsEnabled: existingCourse.specialClassOperationsEnabled ?? false,
+        specialClassCapacity: existingCourse.specialClassCapacity?.toString() || "",
       })
       setCourseWeekdays(existingCourse.availableWeekdays || [])
+      setCourseScheduleSlots(existingCourse.authoringSlots || [])
       setCourseHydratedFromQuery(true)
       setCourseEditingSlug(existingCourse.slug)
       loadCourseLinks(existingCourse.slug)
@@ -369,6 +408,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
     setCourseEditingSlug,
     setCourseForm,
     setCourseHydratedFromQuery,
+    setCourseScheduleSlots,
     setCourseSlugConflict,
     setCourseWeekdays,
     setSchoolSuccess,
@@ -393,6 +433,8 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
         ? centsToUsdInput(parsedRules.specialDiscount.priceCents)
         : ""
     setCourseForm({
+      courseCatalogId: item.id,
+      expectedUpdatedAt: item.updatedAt || null,
       slug: item.slug,
       title: item.title,
       kind: item.kind,
@@ -413,6 +455,8 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       specialDiscountPrice,
       availableTimesCsv: item.availableTimes.join(","),
       active: item.active,
+      specialClassOperationsEnabled: item.specialClassOperationsEnabled ?? false,
+      specialClassCapacity: item.specialClassCapacity?.toString() || "",
     })
     setCourseWeekdays(defaultWeekdays)
     setCourseRecurringWeekdays(defaultWeekdays)
@@ -420,7 +464,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
     setCourseRepeatAllMonth(parsedRules?.repeatAllMonth ?? true)
     setCourseRecurrenceMode(parsedRules?.recurrenceMode || "indefinite")
     setCourseRecurrenceEndsAt(parsedRules?.recurrenceEndsAt || "")
-    setCourseScheduleSlots(scheduleSlotsFromRules)
+    setCourseScheduleSlots(item.authoringSlots?.length ? item.authoringSlots : scheduleSlotsFromRules)
     setCourseMirrorEnabled(false)
     setCourseMirrorWeekdays([])
     setCourseScheduleDate("")
@@ -497,12 +541,16 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
     if (!window.confirm(`Are you sure you want to ${label} "${item.title}"?`)) return
     setSchoolError(null)
     setSchoolSuccess(null)
+    if (!item.updatedAt) {
+      setSchoolError("Reload this course before changing its status.")
+      return
+    }
     setSchoolBusy("course")
     try {
       const res = await fetch("/api/staff/school/courses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: item.slug, title: item.title, kind: item.kind, active: next }),
+        body: JSON.stringify({ command: "set_active", courseCatalogId: item.id, expectedUpdatedAt: item.updatedAt, active: next }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {

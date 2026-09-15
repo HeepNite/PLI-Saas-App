@@ -33,13 +33,14 @@ type SaveNativePaymentJob = {
   amountCents: number
   currency: string
   idempotencyKey: string
-  providerPaymentId: string
+  providerPaymentId: null
 }
 
 export type NativePaymentJobStore = {
   findByIdentity(readerId: string, idempotencyKey: string): Promise<NativePaymentJobRecord | null>
   loadActiveCourses(): Promise<TerminalCourseCatalogLike[]>
   save(input: SaveNativePaymentJob): Promise<NativePaymentJobRecord>
+  attachProviderPayment(job: NativePaymentJobRecord, providerPaymentId: string): Promise<NativePaymentJobRecord>
 }
 
 export type NativePaymentJobRecoveryStore = Pick<NativePaymentJobStore, "findByIdentity"> & {
@@ -80,6 +81,11 @@ const nativePaymentJobStore: NativePaymentJobStore & NativePaymentJobRecoverySto
     where: { active: true },
     orderBy: [{ createdAt: "asc" }],
     take: 100,
+  }),
+  attachProviderPayment: (job, providerPaymentId) => prisma.nativePaymentJob.update({
+    where: { id: job.id, readerId: job.readerId, idempotencyKey: job.idempotencyKey },
+    data: { providerPaymentId },
+    include: { classSession: { select: { startsAt: true } } },
   }),
   recordClientSuccess: (readerId, jobId) => prisma.$transaction(async (tx) => {
     await tx.nativePaymentJob.updateMany({
@@ -174,7 +180,7 @@ export class NativePaymentJobsService {
     const idempotencyKey = `native-payment-job:${input.readerId}:${input.retryIdentity}`
     const existing = await this.store.findByIdentity(input.readerId, idempotencyKey)
     if (existing) {
-      return toResponse(existing, input.retryIdentity, await this.recoverClientSecret(existing))
+      return this.resume(existing, input.retryIdentity)
     }
 
     const now = this.now()
@@ -185,20 +191,7 @@ export class NativePaymentJobsService {
       throw new NativePaymentJobCreationError(409, "No payable class is active")
     }
 
-    const paymentIntent = await this.paymentIntents.createPaymentIntent({
-      amount: amountCents,
-      currency: NATIVE_PAYMENT_CURRENCY,
-      receiptEmail: "",
-      idempotencyKey,
-      metadata: {
-        flowContext: "native_kiosk",
-        readerId: input.readerId,
-        retryIdentity: input.retryIdentity,
-        courseSlug: currentClass.slug,
-        classStartsAt: currentClass.startsAt.toISOString(),
-      },
-    })
-    const job = await this.store.save({
+    const job = await this.reserve({
       readerId: input.readerId,
       currentClass,
       courseSlugSnapshot: currentClass.slug,
@@ -206,16 +199,53 @@ export class NativePaymentJobsService {
       amountCents,
       currency: NATIVE_PAYMENT_CURRENCY,
       idempotencyKey,
-      providerPaymentId: paymentIntentIdFromClientSecret(paymentIntent.clientSecret),
+      providerPaymentId: null,
     })
-    return toResponse(job, input.retryIdentity, paymentIntent.clientSecret)
+    return this.resume(job, input.retryIdentity)
+  }
+
+  private async reserve(input: SaveNativePaymentJob) {
+    try {
+      return await this.store.save(input)
+    } catch (error) {
+      // A concurrent transaction may have won the unique identity reservation.
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+        const winner = await this.store.findByIdentity(input.readerId, input.idempotencyKey)
+        if (winner) return winner
+      }
+      throw error
+    }
+  }
+
+  private async resume(job: NativePaymentJobRecord, retryIdentity: string) {
+    if (job.providerPaymentId) {
+      return toResponse(job, retryIdentity, await this.recoverClientSecret(job))
+    }
+    // Only committed terms may reach Stripe, including after an ambiguous provider response.
+    const paymentIntent = await this.paymentIntents.createPaymentIntent({
+      amount: job.amountCents,
+      currency: job.currency,
+      receiptEmail: "",
+      idempotencyKey: job.idempotencyKey,
+      metadata: {
+        flowContext: "native_kiosk",
+        readerId: job.readerId,
+        retryIdentity,
+        courseSlug: job.courseSlugSnapshot,
+        classStartsAt: job.classSession.startsAt.toISOString(),
+      },
+    })
+    const attached = await this.store.attachProviderPayment(
+      job, paymentIntentIdFromClientSecret(paymentIntent.clientSecret)
+    )
+    return toResponse(attached, retryIdentity, paymentIntent.clientSecret)
   }
 
   async recover(input: { readerId: string; jobId: string; retryIdentity: string }) {
     const idempotencyKey = `native-payment-job:${input.readerId}:${input.retryIdentity}`
     const job = await this.recoveryStore.findByIdentity(input.readerId, idempotencyKey)
     if (!job || job.id !== input.jobId) return this.unavailable()
-    return toResponse(job, input.retryIdentity, await this.recoverClientSecret(job))
+    return this.resume(job, input.retryIdentity)
   }
 
   async get(input: { readerId: string; jobId: string }) {
