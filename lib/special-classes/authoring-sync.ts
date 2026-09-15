@@ -86,7 +86,7 @@ export async function synchronizeSpecialClassAuthoring(
   if (input.course.specialClassOperationsEnabled) {
     const complete = slots.length > 0 && input.course.description && input.course.durationMinutes && input.course.durationMinutes > 0 &&
       input.course.dropInPriceCents && input.course.dropInPriceCents > 0 && input.course.specialClassCapacity && input.course.specialClassCapacity > 0 &&
-      (input.course.location || input.course.defaultRoomId) && slots.every(({ startsAt }) => startsAt > new Date())
+      (input.course.location || input.course.defaultRoomId)
     if (!complete) fail("NOT_PUBLISHABLE", 422)
   }
   const payloadHash = hashAuthoringPayload({ ...input, actorClerkUserId: undefined, actorRole: undefined, concreteSlots: slots })
@@ -113,6 +113,13 @@ export async function synchronizeSpecialClassAuthoring(
       if (storedSlots.some(({ specialClass }) => specialClass) && existing?.slug !== input.course.slug) fail("AUTHORING_CONFLICT")
       const storedById = new Map(storedSlots.map((slot) => [slot.id, slot]))
       if (slots.some(({ id }) => id && !storedById.has(id))) fail("SLOT_ID_MISMATCH")
+      const now = new Date()
+      const retainedHistoricalSlot = (slot: typeof slots[number]) => slot.startsAt <= now &&
+        Boolean(slot.id && storedById.get(slot.id)?.startsAt.getTime() === slot.startsAt.getTime())
+      if (input.course.specialClassOperationsEnabled && (
+        !slots.some(({ startsAt }) => startsAt > now) ||
+        slots.some((slot) => slot.startsAt <= now && !retainedHistoricalSlot(slot))
+      )) fail("NOT_PUBLISHABLE", 422)
       const desiredIds = new Set(slots.flatMap(({ id }) => id ? [id] : []))
       const removed = storedSlots.filter(({ id }) => !desiredIds.has(id))
 
@@ -157,6 +164,10 @@ export async function synchronizeSpecialClassAuthoring(
         if (currentSpecialClass && !["draft", "published"].includes(currentSpecialClass.status)) {
           if (moved) fail("SLOT_LIFECYCLE_CONFLICT")
           projections.push({ slotId: stored!.id, specialClassId: currentSpecialClass.id, classSessionId: currentSpecialClass.classSessionId, slug: currentSpecialClass.slug, status: currentSpecialClass.status })
+          continue
+        }
+        if (input.course.specialClassOperationsEnabled && retainedHistoricalSlot(desired)) {
+          if (currentSpecialClass) projections.push({ slotId: stored!.id, specialClassId: currentSpecialClass.id, classSessionId: currentSpecialClass.classSessionId, slug: currentSpecialClass.slug, status: currentSpecialClass.status })
           continue
         }
         const slot = stored

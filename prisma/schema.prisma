@@ -344,6 +344,8 @@ model ClassSession {
   attendances     Attendance[]
   specialClass    SpecialClass?
   specialPurchases Purchase[] @relation("SpecialClassPurchaseSession")
+  nativePaymentJobs NativePaymentJob[]
+  anonymousAttendanceGrants AnonymousAttendanceGrant[]
 
   @@unique([courseSlug, startsAt])
   @@index([courseSlug, startsAt])
@@ -400,6 +402,79 @@ model SpecialClassAuditLog {
   @@index([action, createdAt])
   @@unique([specialClassId, correlationId])
   @@unique([specialClassId, idempotencyKey])
+}
+
+model NativeReader {
+  id          String             @id @default(cuid())
+  name        String
+  tokenHash   String             @unique
+  active      Boolean            @default(true)
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  paymentJobs NativePaymentJob[]
+
+  @@index([active])
+}
+
+model NativePaymentJob {
+  id                  String                     @id @default(cuid())
+  readerId            String
+  reader              NativeReader               @relation(fields: [readerId], references: [id])
+  classSessionId      String
+  classSession        ClassSession               @relation(fields: [classSessionId], references: [id])
+  courseSlugSnapshot  String
+  courseTitleSnapshot String?
+  amountCents         Int
+  currency            String
+  idempotencyKey      String                     @unique
+  providerPaymentId   String?                    @unique
+  status              String                     @default("created")
+  reconcileAfter      DateTime?
+  reconcileAttempts   Int                        @default(0)
+  lastReconcileError  String?
+  lastReconciledAt    DateTime?
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  needsReview         Boolean                    @default(false)
+  reviewReason        String?
+  reviewedAt          DateTime?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  anonymousSale       AnonymousSale?
+  attendanceGrant     AnonymousAttendanceGrant?
+
+  @@index([readerId])
+  @@index([classSessionId])
+  @@unique([id, classSessionId])
+  @@index([status, reconcileAfter])
+  @@index([leaseExpiresAt])
+  @@index([needsReview, reconcileAfter])
+}
+
+model AnonymousSale {
+  id           String            @id @default(cuid())
+  paymentJobId String            @unique
+  paymentJob   NativePaymentJob  @relation(fields: [paymentJobId], references: [id])
+  amountCents  Int
+  currency     String
+  status       String            @default("paid")
+  refundedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model AnonymousAttendanceGrant {
+  id           String            @id @default(cuid())
+  paymentJobId String            @unique
+  sessionId    String
+  paymentJob   NativePaymentJob  @relation(fields: [paymentJobId, sessionId], references: [id, classSessionId])
+  session      ClassSession      @relation(fields: [sessionId], references: [id])
+  grantedAt    DateTime          @default(now())
+
+  @@unique([paymentJobId, sessionId])
+  @@index([sessionId])
 }
 
 model RoomReservation {

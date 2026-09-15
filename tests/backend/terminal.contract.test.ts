@@ -184,6 +184,27 @@ describe("backend terminal contracts", () => {
     )
   })
 
+  it("omits Stripe receipt_email when a terminal request has no receipt email", async () => {
+    const createPaymentIntent = vi.fn().mockResolvedValue({ client_secret: "nest_pi_secret" })
+    const service = new PaymentIntentsService({
+      paymentIntents: {
+        create: createPaymentIntent,
+      },
+    })
+    const input = { ...createPaymentIntentRequest(), receiptEmail: "" }
+
+    await expect(service.createPaymentIntent(input)).resolves.toEqual({ clientSecret: "nest_pi_secret" })
+    expect(createPaymentIntent).toHaveBeenCalledWith(
+      {
+        amount: input.amount,
+        currency: input.currency,
+        payment_method_types: ["card_present"],
+        metadata: input.metadata,
+      },
+      { idempotencyKey: input.idempotencyKey }
+    )
+  })
+
   it("delegates payment-intent responses through the controller layer", async () => {
     const createPaymentIntent = vi.fn().mockResolvedValue({ clientSecret: "nest_pi_secret" })
     const controller = new PaymentIntentsController({ createPaymentIntent })

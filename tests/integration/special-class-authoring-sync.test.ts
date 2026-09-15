@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { SpecialClassAuthoringError, synchronizeSpecialClassAuthoring } from "@/lib/special-classes/authoring-sync"
 import { setupIntegrationDb } from "./db-test-utils"
@@ -56,6 +56,92 @@ describe("Course Studio special-class synchronization", () => {
       concreteSlots: first.projections.map(({ slotId }, index) => ({ id: slotId, date: `2030-06-0${index + 1}`, time: index ? "11:00" : "10:00" })),
     }))
     expect(published.projections.every(({ status }) => status === "published")).toBe(true)
+  }, 120_000)
+
+  it.each(["save_draft", "publish"] as const)("freezes historical %s projections while authoring future slots", async (intent) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(new Date("2030-05-01T12:00:00Z"))
+      const suffix = `history-${intent}`
+      const input = command(suffix, { intent })
+      const created = await synchronizeSpecialClassAuthoring(prisma, input)
+      const [past, future] = created.projections
+      const user = await prisma.user.create({ data: { email: `${suffix}@example.com` } })
+      await prisma.purchase.create({ data: {
+        userId: user.id, courseSlug: input.course.slug, amount: 4500, status: "pending",
+        specialClassId: past.specialClassId, classSessionId: past.classSessionId,
+      } })
+      const historicalState = () => prisma.courseCatalogSpecialClassSlot.findUniqueOrThrow({
+        where: { id: past.slotId }, include: { specialClass: { include: { classSession: true } } },
+      })
+      const historicalAudits = () => prisma.specialClassAuditLog.findMany({ where: { specialClassId: past.specialClassId } })
+      const before = await historicalState()
+      const audits = await historicalAudits()
+      vi.setSystemTime(new Date("2030-06-01T15:00:00Z"))
+      let revision = created.revision
+      const concreteSlots = [
+        { id: past.slotId, date: "2030-06-01", time: "10:00" },
+        { id: future.slotId, date: "2030-06-02", time: "11:00" },
+      ]
+      const changedCourse = { ...input.course, title: "Future title", description: "Future description",
+        coverImageUrl: "/future.jpg", durationMinutes: 90, location: "Future studio",
+        dropInPriceCents: 6000, specialClassCapacity: 20 }
+      for (const nextIntent of ["save_draft", "publish"] as const) {
+        const saved = await synchronizeSpecialClassAuthoring(prisma, command(suffix, {
+          intent: nextIntent, courseCatalogId: created.courseCatalogId, expectedUpdatedAt: revision,
+          course: changedCourse, concreteSlots,
+        }))
+        revision = saved.revision
+        expect(saved.projections.find(({ slotId }) => slotId === past.slotId)).toEqual(past)
+        await expect(historicalState()).resolves.toEqual(before)
+        await expect(historicalAudits()).resolves.toEqual(audits)
+      }
+      await expect(prisma.specialClass.findUniqueOrThrow({ where: { id: future.specialClassId } }))
+        .resolves.toMatchObject({ status: "published", title: "Future title" })
+      const source = await prisma.courseCatalog.findUniqueOrThrow({ where: { id: created.courseCatalogId } })
+      const counts = await mutationCounts()
+      const invalidChanges = [
+        { concreteSlots: [concreteSlots[1]], code: "SLOT_COMMITTED" },
+        { concreteSlots, course: { ...changedCourse, specialClassOperationsEnabled: false }, code: "SLOT_COMMITTED" },
+        { concreteSlots: [{ ...concreteSlots[0], date: "2030-06-03" }, concreteSlots[1]], code: "SLOT_COMMITTED" },
+        { concreteSlots: [concreteSlots[0]], code: "NOT_PUBLISHABLE" },
+        { concreteSlots, course: { ...changedCourse, description: null }, code: "NOT_PUBLISHABLE" },
+        { concreteSlots: [...concreteSlots, { date: "2030-05-31", time: "10:00" }], code: "NOT_PUBLISHABLE" },
+        { concreteSlots: [concreteSlots[0], { ...concreteSlots[1], date: "2030-05-31" }, { date: "2030-06-04", time: "10:00" }], code: "NOT_PUBLISHABLE" },
+        { concreteSlots: [{ date: "2030-06-01", time: "10:00" }, concreteSlots[1]], code: "NOT_PUBLISHABLE" },
+      ]
+      for (const { code, ...change } of invalidChanges) {
+        await expect(synchronizeSpecialClassAuthoring(prisma, command(suffix, {
+          courseCatalogId: source.id, expectedUpdatedAt: revision, course: changedCourse, ...change,
+        }))).rejects.toMatchObject({ code })
+        await expect(mutationCounts()).resolves.toEqual(counts)
+        await expect(prisma.courseCatalog.findUniqueOrThrow({ where: { id: source.id } })).resolves.toEqual(source)
+        await expect(historicalState()).resolves.toEqual(before)
+        await expect(historicalAudits()).resolves.toEqual(audits)
+      }
+      vi.setSystemTime(new Date("2030-06-03T15:00:00Z"))
+      await expect(synchronizeSpecialClassAuthoring(prisma, input)).resolves.toEqual(created)
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 120_000)
+
+  it("allows an uncommitted historical slot to move to a future instant", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(new Date("2030-05-01T12:00:00Z"))
+      const created = await synchronizeSpecialClassAuthoring(prisma, command("historical-move"))
+      vi.setSystemTime(new Date("2030-06-01T15:00:00Z"))
+      const moved = await synchronizeSpecialClassAuthoring(prisma, command("historical-move", {
+        courseCatalogId: created.courseCatalogId, expectedUpdatedAt: created.revision,
+        concreteSlots: created.projections.map(({ slotId }, index) => ({ id: slotId, date: `2030-06-0${index + 3}`, time: "10:00" })),
+      }))
+      expect(moved.projections).toEqual(created.projections)
+      await expect(prisma.classSession.findUniqueOrThrow({ where: { id: created.projections[0].classSessionId } }))
+        .resolves.toMatchObject({ startsAt: new Date("2030-06-03T14:00:00Z") })
+    } finally {
+      vi.useRealTimers()
+    }
   }, 120_000)
 
   it("preserves stable identity on a move and rejects committed removal without mutation", async () => {
