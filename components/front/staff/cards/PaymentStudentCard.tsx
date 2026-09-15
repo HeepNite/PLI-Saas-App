@@ -228,7 +228,12 @@ export function PaymentStudentCard({
           }}
           className={`w-full flex cursor-pointer items-center justify-center rounded-md border px-3 py-1.5 text-[11px] font-semibold hover:opacity-80 transition-opacity ${paymentStateTone(payment)}`}
         >
-          {openPaymentDescription ? openPaymentDescription.label : "Pmt History"}
+          <span className="flex flex-col items-center gap-0.5 leading-tight">
+            <span>Pmt History</span>
+            {openPaymentDescription && (
+              <span className="text-[9px] font-medium normal-case opacity-90">{openPaymentDescription.label}</span>
+            )}
+          </span>
         </button>
         <button
           type="button"

@@ -161,16 +161,20 @@ export type OutstandingBalancePurchase = {
   status: string | null | undefined
   stripePaymentIntentId: string | null
   stripeCheckoutSessionId: string | null
+  courseSlug?: string | null
 }
 
 // Stripe/kiosk-terminal statuses for a card attempt that never completed — no money ever moved.
 // Both "cancelled" and "canceled" spellings appear in stored purchase data.
 const NEVER_COMPLETED_CARD_ATTEMPT_STATUSES = new Set(["expired", "failed", "cancelled", "canceled"])
 
+/** Single source of truth for the never-completed-card-attempt status set; safe to import from client UI code. */
+export const isNeverCompletedCardAttemptStatus = (status: unknown) => NEVER_COMPLETED_CARD_ATTEMPT_STATUSES.has(asText(status).toLowerCase())
+
 const isNeverCompletedCardAttempt = (paymentChannel: PaymentChannel, settlementStatus: SettlementStatus, status: unknown) =>
   paymentChannel === PAYMENT_CHANNEL.CARD
   && settlementStatus !== SETTLEMENT_STATUS.PAID
-  && NEVER_COMPLETED_CARD_ATTEMPT_STATUSES.has(asText(status).toLowerCase())
+  && isNeverCompletedCardAttemptStatus(status)
 
 const isRefundedCard = (paymentChannel: PaymentChannel, status: unknown) =>
   paymentChannel === PAYMENT_CHANNEL.CARD && asText(status).toLowerCase() === PURCHASE_STATUS.REFUNDED
@@ -231,12 +235,36 @@ export const isPendingProcessablePurchase = <TPurchase extends OutstandingBalanc
   return paymentChannel === "unknown" && !purchase.stripePaymentIntentId && !purchase.stripeCheckoutSessionId
 }
 
+const isCompletedForDebtSuppression = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) =>
+  isCompletedPaymentStatus(purchase.status) || normalizeSettlementStatus(asObject(purchase.metadata).settlementStatus) === SETTLEMENT_STATUS.PAID
+
+// Same class = same courseSlug + metadata.date when a date is present; courseSlug alone otherwise
+// (special-class checkouts carry the date in the slug instead of metadata).
+const classKey = (courseSlug: string, date: string) => (date ? `${courseSlug}|${date}` : courseSlug)
+
+/** Per user, keys every completed class so a never-completed card attempt for it can be recognized. */
+const buildCompletedClassKeysByUser = <TPurchase extends OutstandingBalancePurchase>(purchases: TPurchase[]) => {
+  const keysByUser = new Map<string, Set<string>>()
+  for (const purchase of purchases) {
+    if (!purchase.courseSlug || !isCompletedForDebtSuppression(purchase)) continue
+    const keys = keysByUser.get(purchase.userId) ?? new Set<string>()
+    keys.add(purchase.courseSlug).add(classKey(purchase.courseSlug, asText(asObject(purchase.metadata).date)))
+    keysByUser.set(purchase.userId, keys)
+  }
+  return keysByUser
+}
+
+const hasCompletedSiblingClass = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase, keysByUser: Map<string, Set<string>>) =>
+  Boolean(purchase.courseSlug) && (keysByUser.get(purchase.userId)?.has(classKey(purchase.courseSlug!, asText(asObject(purchase.metadata).date))) ?? false)
+
 export const buildOutstandingBalanceByUser = <TPurchase extends OutstandingBalancePurchase>(purchases: TPurchase[]) => {
   const totals = new Map<string, number>()
+  const completedClasses = buildCompletedClassKeysByUser(purchases)
 
   for (const purchase of purchases) {
     const { isOpen } = isOpenPurchase(purchase)
     if (!isOpen) continue
+    if (isTerminalUnpaidCardAttempt(purchase) && hasCompletedSiblingClass(purchase, completedClasses)) continue
 
     totals.set(purchase.userId, (totals.get(purchase.userId) || 0) + purchase.amount)
   }
@@ -248,10 +276,12 @@ export type OpenPurchase = OutstandingBalancePurchase & { id: string; userId: st
 
 export const buildLatestOpenPurchaseByUser = <TPurchase extends OpenPurchase>(purchases: TPurchase[]) => {
   const latestByUser = new Map<string, TPurchase>()
+  const completedClasses = buildCompletedClassKeysByUser(purchases)
 
   for (const purchase of purchases) {
     const { isOpen } = isOpenPurchase(purchase)
     if (!isOpen) continue
+    if (isTerminalUnpaidCardAttempt(purchase) && hasCompletedSiblingClass(purchase, completedClasses)) continue
 
     const current = latestByUser.get(purchase.userId)
     if (!current) {
