@@ -260,6 +260,7 @@ export const loadAuxiliaryData = async (input: AuxiliaryDataInput) => {
           status: string
           stripePaymentIntentId: string | null
           stripeCheckoutSessionId: string | null
+          courseSlug: string
         }>)
       }
       if (paymentsRequest.mode === "today") {
@@ -278,6 +279,7 @@ export const loadAuxiliaryData = async (input: AuxiliaryDataInput) => {
             status: true,
             stripePaymentIntentId: true,
             stripeCheckoutSessionId: true,
+            courseSlug: true,
           },
         })
       }
@@ -290,6 +292,7 @@ export const loadAuxiliaryData = async (input: AuxiliaryDataInput) => {
           status: true,
           stripePaymentIntentId: true,
           stripeCheckoutSessionId: true,
+          courseSlug: true,
         },
       })
     })(),

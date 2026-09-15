@@ -369,7 +369,7 @@ describe("staff payments route", () => {
     expect(data.summary.paidSettlement).toBe(0)
   })
 
-  it("keeps a successful retry paid while an older expired attempt still surfaces as debt", async () => {
+  it("keeps a successful retry paid and stops an older expired attempt for the same class from adding debt", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({
         id: "card_paid_retry",
@@ -408,7 +408,7 @@ describe("staff payments route", () => {
           id: "card_expired_attempt",
           paymentStatus: "expired",
           classPaid: false,
-          outstandingBalance: 2500,
+          outstandingBalance: null,
         }),
       ])
     )

@@ -276,6 +276,28 @@ describe("staff payments shared helpers", () => {
     expect(balances.get("user_never_completed")).toBe(2500)
   })
 
+  it("suppresses a never-completed card attempt only once its own course+date is already paid", () => {
+    const expiredAttempt = (userId: string) => ({
+      userId, amount: 2500, courseSlug: "salsa-beginners",
+      metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
+      status: "expired", stripePaymentIntentId: null, stripeCheckoutSessionId: `cs_${userId}`,
+    })
+    const paidSibling = {
+      userId: "user_with_sibling", amount: 2500, courseSlug: "salsa-beginners",
+      metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "paid" },
+      status: "paid", stripePaymentIntentId: "pi_sibling", stripeCheckoutSessionId: null,
+    }
+
+    const balances = buildOutstandingBalanceByUser([
+      expiredAttempt("user_no_sibling"),
+      paidSibling,
+      expiredAttempt("user_with_sibling"),
+    ])
+
+    expect(balances.get("user_no_sibling")).toBe(2500)
+    expect(balances.get("user_with_sibling")).toBeUndefined()
+  })
+
   it("classifies inconsistent stripe+cash metadata rows as card", () => {
     expect(
       normalizePaymentChannel({

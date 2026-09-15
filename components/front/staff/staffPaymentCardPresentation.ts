@@ -1,4 +1,5 @@
 import type { StudentProfileCard } from "@/components/front/staff/historyCardAggregates"
+import { isNeverCompletedCardAttemptStatus } from "@/app/api/staff/payments/shared"
 
 import { formatIsoDate, formatMoney } from "./staffAdminFormatters"
 import type { PaymentRow } from "./staffAdminTypes"
@@ -20,10 +21,6 @@ export const getInitials = (firstName: string, lastName: string, email: string) 
   return (email?.trim()?.[0] || "S").toUpperCase()
 }
 
-// Stripe/kiosk-terminal statuses for a card attempt that never completed — no money ever
-// moved. Kept in sync with NEVER_COMPLETED_CARD_ATTEMPT_STATUSES in app/api/staff/payments/shared.ts.
-const NEVER_COMPLETED_CARD_ATTEMPT_STATUSES = new Set(["expired", "failed", "cancelled", "canceled"])
-
 /**
  * A never-completed card attempt (expired/failed/cancelled/canceled while unpaid) must
  * read differently from a cash-pending row: staff need to chase the student in person,
@@ -35,7 +32,7 @@ export const describeOpenPaymentRow = (
 ): { label: string; tone: string } | null => {
   if (row.paymentChannel !== "card") return null
   if (row.settlementStatus === "paid") return null
-  if (!NEVER_COMPLETED_CARD_ATTEMPT_STATUSES.has(row.paymentStatus.toLowerCase())) return null
+  if (!isNeverCompletedCardAttemptStatus(row.paymentStatus)) return null
 
   return { label: "Card attempt not completed", tone: "border-orange-500/45 bg-orange-500/10 text-orange-300" }
 }
