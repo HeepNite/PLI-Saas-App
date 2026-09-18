@@ -47,12 +47,14 @@ const getStaffMirrorModels = () => {
   const prismaUnsafe = prisma as unknown as {
     staffAccount?: {
       upsert?: (args: unknown) => Promise<unknown>
+      update?: (args: unknown) => Promise<unknown>
       findUnique?: (args: unknown) => Promise<{
         id: string
         hourlyRate: number | null
         paydayWeekday: number | null
         paymentModelId: string | null
       } | null>
+      findMany?: (args: unknown) => Promise<Array<{ id: string }>>
     }
     staffRoleAudit?: {
       create?: (args: unknown) => Promise<unknown>
@@ -61,7 +63,9 @@ const getStaffMirrorModels = () => {
 
   const hasModels =
     typeof prismaUnsafe.staffAccount?.upsert === "function" &&
+    typeof prismaUnsafe.staffAccount?.update === "function" &&
     typeof prismaUnsafe.staffAccount?.findUnique === "function" &&
+    typeof prismaUnsafe.staffAccount?.findMany === "function" &&
     typeof prismaUnsafe.staffRoleAudit?.create === "function"
 
   if (!hasModels && !staffMirrorModelWarningPrinted) {
@@ -209,6 +213,42 @@ export const syncStaffAccountFromClerkUser = async (user: ClerkStaffUser, option
       },
     })
     const payrollBridgeFields = resolveStaffPayrollBridgeFields(existingAccount, user)
+
+    // `StaffAccount.email` is not unique, so a Clerk user id change (e.g. a
+    // Clerk instance migration) must not create a second row for the same
+    // person. When no row matches the new clerkUserId yet, rebind the
+    // existing row found by email instead of upserting a fresh one.
+    if (!existingAccount) {
+      const accountsWithSameEmail = await models.staffAccount!.findMany!({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { id: true },
+      })
+      if (accountsWithSameEmail.length === 1) {
+        return await models.staffAccount!.update!({
+          where: { id: accountsWithSameEmail[0].id },
+          data: {
+            clerkUserId: user.id,
+            email,
+            phone: primaryPhoneFromUser(user) || null,
+            firstName: user.firstName || null,
+            lastName: user.lastName || null,
+            role: roleToPersist,
+            category: category || null,
+            subCategory: subCategory || null,
+            banned: Boolean(user.banned),
+            locked: Boolean(user.locked),
+            hasPin,
+            lastSignInAt: toDate(user.lastSignInAt),
+            lastCheckInAt,
+            hourlyRate: payrollBridgeFields.hourlyRate,
+            paydayWeekday: payrollBridgeFields.paydayWeekday,
+            paymentModelId: payrollBridgeFields.paymentModelId,
+            source: options.source || "clerk",
+            metadata,
+          },
+        })
+      }
+    }
 
     return await models.staffAccount!.upsert!({
       where: { clerkUserId: user.id },
