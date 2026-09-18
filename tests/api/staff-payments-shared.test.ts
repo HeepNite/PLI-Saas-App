@@ -49,6 +49,64 @@ describe("staff payments shared helpers", () => {
     expect(selected.get("user_1")?.packageId).toBe("pkg_new")
   })
 
+  it("prefers a fresh unused package over an exhausted one that was used more recently", () => {
+    const selected = selectActivePackagesByUser([
+      {
+        userId: "user_1",
+        packageId: "pkg_exhausted",
+        packageLabel: "Exhausted",
+        remainingCredits: 0,
+        isUnlimited: false,
+        expiresAt: null,
+        lastUsedAt: new Date("2026-04-05T10:00:00.000Z"),
+        purchasedAt: new Date("2026-03-01T10:00:00.000Z"),
+        status: "active",
+      },
+      {
+        userId: "user_1",
+        packageId: "pkg_fresh",
+        packageLabel: "Fresh 8/8",
+        remainingCredits: 8,
+        isUnlimited: false,
+        expiresAt: null,
+        lastUsedAt: null,
+        purchasedAt: new Date("2026-04-01T10:00:00.000Z"),
+        status: "active",
+      },
+    ])
+
+    expect(selected.get("user_1")?.packageId).toBe("pkg_fresh")
+  })
+
+  it("treats an unlimited package as usable even with no remainingCredits value", () => {
+    const selected = selectActivePackagesByUser([
+      {
+        userId: "user_1",
+        packageId: "pkg_exhausted",
+        packageLabel: "Exhausted",
+        remainingCredits: 0,
+        isUnlimited: false,
+        expiresAt: null,
+        lastUsedAt: new Date("2026-04-05T10:00:00.000Z"),
+        purchasedAt: new Date("2026-03-01T10:00:00.000Z"),
+        status: "active",
+      },
+      {
+        userId: "user_1",
+        packageId: "pkg_unlimited",
+        packageLabel: "Unlimited",
+        remainingCredits: null,
+        isUnlimited: true,
+        expiresAt: null,
+        lastUsedAt: null,
+        purchasedAt: new Date("2026-03-20T10:00:00.000Z"),
+        status: "active",
+      },
+    ])
+
+    expect(selected.get("user_1")?.packageId).toBe("pkg_unlimited")
+  })
+
   it("reduces outstanding balance from open purchases only", () => {
     const balances = buildOutstandingBalanceByUser([
       {
