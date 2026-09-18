@@ -4,7 +4,7 @@ import { TODAY_MODE_TAKE_LIMIT, type StaffPaymentsRequest } from "@/app/api/staf
 import { getStaffPaymentsTodaySessionBounds } from "@/app/api/staff/payments/payments-time"
 import { asObject, asText, attendanceSlotKey } from "@/app/api/staff/payments/shared"
 import { ATTENDED_CHECKIN_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
-import { SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { PAYMENT_CHANNEL, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 import {
   type EnrichedPurchase,
   type StaffPaymentsTodayWindow,
@@ -214,6 +214,18 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
 
     if (!isAlreadyCoveredByPurchase && !isStandaloneStaffFastActionAttendance(attendanceMetadata)) {
       const packageId = att.packageUsage?.packagePurchase?.packageId || ""
+      // A package credit was already consumed for this attendance (PackageUsageLedger row
+      // exists) even though no $0 package_credit Purchase row was written for it. Synthesize
+      // the row as already paid instead of pending debt — see ensureAttendancePackagePurchase.
+      const isCreditCovered = Boolean(att.packageUsage)
+      const standaloneMetadata: Record<string, unknown> = {
+        attendanceId: att.id,
+        packageId,
+        packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
+        ...(isCreditCovered
+          ? { paymentChannel: PAYMENT_CHANNEL.PACKAGE_CREDIT, settlementStatus: SETTLEMENT_STATUS.PAID }
+          : {}),
+      }
       standaloneItems.push({
         purchase: {
           id: `att-${att.id}`,
@@ -222,28 +234,20 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
           courseTitle: att.session.title || att.session.courseSlug,
           amount: 0,
           currency: "usd",
-          status: "none",
+          status: isCreditCovered ? PURCHASE_STATUS.PAID : "none",
           name: att.user.name,
           email: att.user.email,
           phone: att.user.phone,
           stripePaymentIntentId: null,
           stripeCheckoutSessionId: null,
-          metadata: {
-            attendanceId: att.id,
-            packageId,
-            packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
-          },
+          metadata: standaloneMetadata,
           createdAt: att.checkedInAt,
           updatedAt: att.checkedInAt,
         } as unknown as EnrichedPurchase["purchase"],
         id: `att-${att.id}`,
-        metadata: {
-          attendanceId: att.id,
-          packageId,
-          packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
-        },
+        metadata: standaloneMetadata,
         userId: att.userId,
-        settlementStatus: SETTLEMENT_STATUS.PENDING,
+        settlementStatus: isCreditCovered ? SETTLEMENT_STATUS.PAID : SETTLEMENT_STATUS.PENDING,
         settlementNote: "",
         settledAt: null,
         classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.checkedInAt) : todayNY,

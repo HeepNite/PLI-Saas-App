@@ -211,6 +211,62 @@ describe("staff payments route - attendance only", () => {
         amount: 9000,
       },
     })
+    // A package credit was consumed for this attendance (packageUsage present), so the
+    // synthesized row must be paid by credit, never a pending debt row.
+    expect(data.items[0]).toMatchObject({
+      paymentChannel: "package_credit",
+      settlementStatus: "paid",
+      classPaid: true,
+    })
+    expect(data.summary.pendingSettlement).toBe(0)
+  })
+
+  it("keeps a standalone attendance without a package credit as a pending debt row", async () => {
+    const today = new Date("2026-03-20T18:00:00.000Z")
+
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "attendance_no_credit",
+        userId: "user_no_credit",
+        status: "checked_in",
+        checkedInAt: today,
+        checkedOutAt: null,
+        session: {
+          courseSlug: "salsa-beginners",
+          startsAt: today,
+          title: "Salsa Beginners",
+        },
+        user: {
+          id: "user_no_credit",
+          name: "No Credit Student",
+          email: "nocredit@example.com",
+          phone: "+1 555 4444",
+          clerkId: "clerk_no_credit",
+        },
+        metadata: {},
+        packageUsage: null,
+      },
+    ])
+    mockPrisma.user.findMany.mockResolvedValue([
+      { id: "user_no_credit", clerkId: "clerk_no_credit", name: "No Credit Student" }
+    ])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      { slug: "salsa-beginners", location: "Room 1" }
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      userId: "user_no_credit",
+      attendanceId: "attendance_no_credit",
+      settlementStatus: "pending",
+      classPaid: false,
+    })
+    expect(data.items[0].paymentChannel).not.toBe("package_credit")
   })
 
   it("deduplicates attendance-only rows when a today purchase is already linked", async () => {
