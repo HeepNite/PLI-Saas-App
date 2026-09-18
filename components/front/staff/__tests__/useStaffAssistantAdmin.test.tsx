@@ -52,12 +52,34 @@ describe("useStaffAssistantAdmin", () => {
     return latestState!
   }
 
-  it("initializes assistant config, welcome message, and expanded desktop rail", async () => {
+  it("initializes assistant config, welcome message, and a collapsed rail even on desktop", async () => {
     const state = await renderHookHarness()
 
     expect(state.config.tone).toBe("balanced")
     expect(state.chatMessages[0]?.id).toBe("assistant-welcome")
-    expect(state.isRailCollapsed).toBe(false)
+    expect(state.isRailCollapsed).toBe(true)
+  })
+
+  it("never auto-expands: a desktop-width media query change does not open a still-collapsed rail", async () => {
+    let registeredListener: (() => void) | null = null
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: (_event: string, listener: () => void) => {
+          registeredListener = listener
+        },
+        removeEventListener: vi.fn(),
+      })),
+    })
+
+    const state = await renderHookHarness()
+    expect(state.isRailCollapsed).toBe(true)
+
+    await act(async () => {
+      registeredListener?.()
+    })
+    expect(latestState!.isRailCollapsed).toBe(true)
   })
 
   it("sends chat messages using the active nav label and clears input", async () => {
