@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
-import { buildSessionStartsAt, getDateKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText, isCompletedPaymentStatus, normalizePaymentChannel } from "@/app/api/staff/payments/shared"
@@ -448,7 +448,13 @@ export async function POST(req: Request) {
                   settledAt,
                   settlementUpdatedBy: authResult.userId,
                   attendanceId: freshAttendance.id,
-                  ...(attendance.session?.startsAt ? { date: getDateKeyInTimeZone(attendance.session.startsAt) } : {}),
+                  source: "staff_attendance_settlement",
+                  ...(attendance.session?.startsAt
+                    ? {
+                        date: getDateKeyInTimeZone(attendance.session.startsAt),
+                        time: getTimeKeyInTimeZone(attendance.session.startsAt),
+                      }
+                    : {}),
                 },
               },
             })

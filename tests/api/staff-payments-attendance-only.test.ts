@@ -118,6 +118,24 @@ describe("staff payments route - attendance only", () => {
     updatedAt: new Date(createdAt),
   })
 
+  const buildStandaloneAttendance = ({
+    id, userId, courseSlug, startsAt, checkedInAt, metadata = {},
+  }: {
+    id: string; userId: string; courseSlug: string; startsAt: Date; checkedInAt: Date; metadata?: Record<string, unknown>
+  }) => ({
+    id, userId, status: "checked_in", checkedInAt, checkedOutAt: null,
+    session: { courseSlug, startsAt, title: courseSlug },
+    user: { id: userId, name: userId, email: `${userId}@example.com`, phone: "+1 555 0000", clerkId: `clerk_${userId}` },
+    metadata, packageUsage: null,
+  })
+
+  // Simulates the fix's batched, all-time purchase lookup (an "OR"-shaped where);
+  // every other purchase.findMany call in these tests returns [].
+  const mockPurchasesOutsideWindow = (purchases: Array<Record<string, unknown>>) =>
+    mockPrisma.purchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) =>
+      where && "OR" in where ? purchases : []
+    )
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuthorizePortalSection.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
@@ -419,5 +437,67 @@ describe("staff payments route - attendance only", () => {
 
     expect(res.status).toBe(200)
     expect(data.items).toHaveLength(0)
+  })
+
+  it("does not synthesize a debt row when the class was already paid outside the query window", async () => {
+    // Paid in cash on 2026-07-27; the staff cash-settlement action that recorded the
+    // attendance happened on 2026-08-03. An August history query must not see the July
+    // purchase in its own date-scoped result, so the fix must look it up separately.
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_cash_settled", userId: "user_cash", courseSlug: "salsa-night-beginner",
+      startsAt: new Date("2026-07-27T21:10:00.000Z"), checkedInAt: new Date("2026-08-03T18:00:00.000Z"),
+    })])
+    mockPurchasesOutsideWindow([{
+      id: "purchase_july_cash", userId: "user_cash", courseSlug: "salsa-night-beginner", status: "paid",
+      metadata: { date: "2026-07-27", time: "21:10", settlementStatus: "paid", paymentChannel: "cash" },
+    }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-08-01&to=2026-08-31"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(0)
+  })
+
+  it("counts an attendance's linked purchase as covered even when that purchase's own date is outside the query window", async () => {
+    // "Mark all paid" settled this purchase today; its metadata.date is the class's own
+    // June date, so a July query (matching the attendance's checkedInAt/session) never
+    // sees it in its own date-scoped purchase fetch.
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_linked_outside_window", userId: "user_marked_paid", courseSlug: "bachata-intermediate",
+      startsAt: new Date("2026-07-10T21:10:00.000Z"), checkedInAt: new Date("2026-07-15T18:00:00.000Z"),
+      metadata: { purchaseId: "purchase_june_paid" },
+    })])
+    mockPurchasesOutsideWindow([{
+      id: "purchase_june_paid", userId: "user_marked_paid", courseSlug: "bachata-intermediate", status: "paid",
+      metadata: { date: "2026-06-22", time: "21:10", settlementStatus: "paid" },
+    }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-07-01&to=2026-07-31"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(0)
+  })
+
+  it("uses the class session date for a synthetic row, not the later checked-in date", async () => {
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_late_recorded", userId: "user_late", courseSlug: "salsa-night-beginner",
+      startsAt: new Date("2026-08-05T21:10:00.000Z"), checkedInAt: new Date("2026-08-08T18:00:00.000Z"),
+    })])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-08-01&to=2026-08-31"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      attendanceId: "attendance_late_recorded",
+      classDate: "2026-08-05",
+      classTime: "21:10",
+    })
   })
 })
