@@ -5,14 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 type FakeRow = Record<string, unknown> & { id: string; clerkUserId: string; email: string }
 let rows: FakeRow[] = []
 
+type MigrationRow = { entity: string; oldClerkId: string; newClerkId: string }
+let migrationRows: MigrationRow[] = []
+
 const mockFindUnique = vi.fn(async ({ where }: { where: { clerkUserId: string } }) => {
   const row = rows.find((r) => r.clerkUserId === where.clerkUserId)
   return row ? { id: row.id, hourlyRate: null, paydayWeekday: null, paymentModelId: null } : null
-})
-
-const mockFindMany = vi.fn(async ({ where }: { where: { email: { equals: string } } }) => {
-  const target = where.email.equals.toLowerCase()
-  return rows.filter((r) => (r.email as string).toLowerCase() === target).map((r) => ({ id: r.id }))
 })
 
 const mockUpdate = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
@@ -24,29 +22,71 @@ const mockUpdate = vi.fn(async ({ where, data }: { where: { id: string }; data: 
 
 const mockUpsert = vi.fn()
 
+const mockMigrationFindFirst = vi.fn(
+  async ({ where }: { where: { entity: string; oldClerkId?: string; newClerkId?: string } }) => {
+    return (
+      migrationRows.find(
+        (row) =>
+          row.entity === where.entity &&
+          (where.oldClerkId === undefined || row.oldClerkId === where.oldClerkId) &&
+          (where.newClerkId === undefined || row.newClerkId === where.newClerkId)
+      ) || null
+    )
+  }
+)
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     staffAccount: {
       findUnique: (...args: unknown[]) => (mockFindUnique as (...a: unknown[]) => unknown)(...args),
-      findMany: (...args: unknown[]) => (mockFindMany as (...a: unknown[]) => unknown)(...args),
       update: (...args: unknown[]) => (mockUpdate as (...a: unknown[]) => unknown)(...args),
       upsert: (...args: unknown[]) => (mockUpsert as (...a: unknown[]) => unknown)(...args),
     },
     staffRoleAudit: { create: vi.fn() },
+    clerkIdMigration: {
+      findFirst: (...args: unknown[]) => (mockMigrationFindFirst as (...a: unknown[]) => unknown)(...args),
+    },
   },
 }))
 
-describe("lib/security/staff-account-sync: clerk id rebind by email", () => {
+describe("lib/security/staff-account-sync: clerk id migration rebind", () => {
   beforeEach(() => {
     vi.resetModules()
     rows = [{ id: "staff_existing", clerkUserId: "clerk_dev_old_id", email: "owner@example.com", role: "owner" }]
+    migrationRows = []
     mockFindUnique.mockClear()
-    mockFindMany.mockClear()
     mockUpdate.mockClear()
     mockUpsert.mockClear()
+    mockMigrationFindFirst.mockClear()
   })
 
-  it("rebinds an existing account with the same email to the new clerkUserId instead of creating a second row", async () => {
+  it("rejects a stale clerk id superseded by a migration instead of creating or updating any row", async () => {
+    migrationRows = [{ entity: "staff", oldClerkId: "clerk_dev_old_id", newClerkId: "clerk_prod_new_id" }]
+    rows = [{ id: "staff_existing", clerkUserId: "clerk_prod_new_id", email: "owner@example.com", role: "owner" }]
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      const { syncStaffAccountFromClerkUser } = await import("@/lib/security/staff-account-sync")
+      const result = await syncStaffAccountFromClerkUser({
+        id: "clerk_dev_old_id",
+        firstName: "Owner",
+        lastName: "Person",
+        publicMetadata: { role: "owner" },
+        primaryEmailAddress: { emailAddress: "owner@example.com" },
+      })
+
+      expect(mockUpdate).not.toHaveBeenCalled()
+      expect(mockUpsert).not.toHaveBeenCalled()
+      expect(rows).toHaveLength(1)
+      expect(rows[0].clerkUserId).toBe("clerk_prod_new_id")
+      expect(result).toMatchObject({ id: "staff_existing" })
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
+  it("rebinds the row named by the migration's oldClerkId when the new clerk id has no row yet", async () => {
+    migrationRows = [{ entity: "staff", oldClerkId: "clerk_dev_old_id", newClerkId: "clerk_prod_new_id" }]
     const originalNodeEnv = process.env.NODE_ENV
     vi.stubEnv("NODE_ENV", "production")
     try {
@@ -56,8 +96,7 @@ describe("lib/security/staff-account-sync: clerk id rebind by email", () => {
         firstName: "Owner",
         lastName: "Person",
         publicMetadata: { role: "owner" },
-        // Different casing than the stored row exercises the case-insensitive match.
-        primaryEmailAddress: { emailAddress: "Owner@Example.com" },
+        primaryEmailAddress: { emailAddress: "owner@example.com" },
       })
 
       expect(mockUpdate).toHaveBeenCalledTimes(1)
@@ -66,6 +105,30 @@ describe("lib/security/staff-account-sync: clerk id rebind by email", () => {
       expect(rows[0].id).toBe("staff_existing")
       expect(rows[0].clerkUserId).toBe("clerk_prod_new_id")
       expect(result).toMatchObject({ id: "staff_existing", clerkUserId: "clerk_prod_new_id" })
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
+  it("upserts as before when there is no clerk id migration evidence", async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      const { syncStaffAccountFromClerkUser } = await import("@/lib/security/staff-account-sync")
+      mockUpsert.mockResolvedValueOnce({ id: "staff_new", clerkUserId: "clerk_unseen_id" })
+
+      const result = await syncStaffAccountFromClerkUser({
+        id: "clerk_unseen_id",
+        firstName: "New",
+        lastName: "Hire",
+        publicMetadata: { role: "staff" },
+        primaryEmailAddress: { emailAddress: "new-hire@example.com" },
+      })
+
+      expect(mockUpdate).not.toHaveBeenCalled()
+      expect(mockUpsert).toHaveBeenCalledTimes(1)
+      expect(mockUpsert.mock.calls[0][0]).toMatchObject({ where: { clerkUserId: "clerk_unseen_id" } })
+      expect(result).toMatchObject({ id: "staff_new" })
     } finally {
       vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
     }
