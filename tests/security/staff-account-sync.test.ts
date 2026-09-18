@@ -8,9 +8,12 @@ let rows: FakeRow[] = []
 type MigrationRow = { entity: string; oldClerkId: string; newClerkId: string }
 let migrationRows: MigrationRow[] = []
 
-const mockFindUnique = vi.fn(async ({ where }: { where: { clerkUserId: string } }) => {
+type FindUniqueArgs = { where: { clerkUserId: string }; select?: Record<string, boolean> }
+const mockFindUnique = vi.fn(async ({ where, select }: FindUniqueArgs) => {
   const row = rows.find((r) => r.clerkUserId === where.clerkUserId)
-  return row ? { id: row.id, hourlyRate: null, paydayWeekday: null, paymentModelId: null } : null
+  if (!row) return null
+  const projected = { id: row.id, hourlyRate: null, paydayWeekday: null, paymentModelId: null }
+  return select ? projected : { ...row, ...projected }
 })
 
 const mockUpdate = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
@@ -79,7 +82,57 @@ describe("lib/security/staff-account-sync: clerk id migration rebind", () => {
       expect(mockUpsert).not.toHaveBeenCalled()
       expect(rows).toHaveLength(1)
       expect(rows[0].clerkUserId).toBe("clerk_prod_new_id")
-      expect(result).toMatchObject({ id: "staff_existing" })
+      expect(result).toMatchObject({ id: "staff_existing", clerkUserId: "clerk_prod_new_id" })
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
+  it("rejects a stale clerk id with no successor row without creating or updating any row", async () => {
+    migrationRows = [{ entity: "staff", oldClerkId: "clerk_dev_old_id", newClerkId: "clerk_prod_new_id" }]
+    rows = []
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      const { syncStaffAccountFromClerkUser } = await import("@/lib/security/staff-account-sync")
+      const result = await syncStaffAccountFromClerkUser({
+        id: "clerk_dev_old_id",
+        firstName: "Owner",
+        lastName: "Person",
+        publicMetadata: { role: "owner" },
+        primaryEmailAddress: { emailAddress: "owner@example.com" },
+      })
+
+      expect(mockUpdate).not.toHaveBeenCalled()
+      expect(mockUpsert).not.toHaveBeenCalled()
+      expect(result).toBeNull()
+    } finally {
+      vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
+    }
+  })
+
+  it("still upserts the mirror when the Prisma client has no ClerkIdMigration model", async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      const prismaModule = (await import("@/lib/prisma")) as unknown as { prisma: Record<string, unknown> }
+      const originalMigration = prismaModule.prisma.clerkIdMigration
+      delete prismaModule.prisma.clerkIdMigration
+      const { syncStaffAccountFromClerkUser } = await import("@/lib/security/staff-account-sync")
+      mockUpsert.mockResolvedValueOnce({ id: "staff_new", clerkUserId: "clerk_unseen_id" })
+
+      const result = await syncStaffAccountFromClerkUser({
+        id: "clerk_unseen_id",
+        firstName: "New",
+        lastName: "Hire",
+        publicMetadata: { role: "staff" },
+        primaryEmailAddress: { emailAddress: "new-hire@example.com" },
+      })
+
+      expect(mockMigrationFindFirst).not.toHaveBeenCalled()
+      expect(mockUpsert).toHaveBeenCalledTimes(1)
+      expect(result).toMatchObject({ id: "staff_new" })
+      prismaModule.prisma.clerkIdMigration = originalMigration
     } finally {
       vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test")
     }

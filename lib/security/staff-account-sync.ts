@@ -67,8 +67,7 @@ const getStaffMirrorModels = () => {
     typeof prismaUnsafe.staffAccount?.upsert === "function" &&
     typeof prismaUnsafe.staffAccount?.update === "function" &&
     typeof prismaUnsafe.staffAccount?.findUnique === "function" &&
-    typeof prismaUnsafe.staffRoleAudit?.create === "function" &&
-    typeof prismaUnsafe.clerkIdMigration?.findFirst === "function"
+    typeof prismaUnsafe.staffRoleAudit?.create === "function"
 
   if (!hasModels && !staffMirrorModelWarningPrinted) {
     staffMirrorModelWarningPrinted = true
@@ -78,6 +77,23 @@ const getStaffMirrorModels = () => {
   }
 
   return hasModels ? prismaUnsafe : null
+}
+
+let clerkIdMigrationModelWarningPrinted = false
+
+// `ClerkIdMigration` is an optional capability: when the generated Prisma
+// client lacks it, the migration-evidence checks are skipped and the mirror
+// falls back to upserting by the current clerk id, same as before this
+// evidence-based rebind existed.
+const hasClerkIdMigrationModel = (models: NonNullable<ReturnType<typeof getStaffMirrorModels>>) => {
+  const available = typeof models.clerkIdMigration?.findFirst === "function"
+  if (!available && !clerkIdMigrationModelWarningPrinted) {
+    clerkIdMigrationModelWarningPrinted = true
+    console.warn(
+      "ClerkIdMigration model is not available in Prisma Client runtime. Skipping clerk id migration evidence checks."
+    )
+  }
+  return available
 }
 
 const toDate = (value: number | null | undefined): Date | null => {
@@ -236,20 +252,20 @@ export const syncStaffAccountFromClerkUser = async (user: ClerkStaffUser, option
     // never decide which row a Clerk identity binds to. The only trustworthy
     // signal that two Clerk ids belong to the same person is `ClerkIdMigration`,
     // written by the dev->prod Clerk instance migration script.
-    if (!existingAccount) {
+    if (!existingAccount && hasClerkIdMigrationModel(models)) {
       const staleMigration = await models.clerkIdMigration!.findFirst!({
         where: { entity: "staff", oldClerkId: user.id },
       })
       if (staleMigration) {
         // This Clerk id was superseded by the migration: it must not create
-        // or take over any row. Return the row bound to the new id, if any.
+        // or take over any row. Return the full row bound to the new id, if
+        // any, so the return shape matches every other path.
         console.warn(
           "staff account sync: rejected stale clerk id superseded by a clerk id migration",
           { staleClerkId: user.id, currentClerkId: staleMigration.newClerkId }
         )
         return await models.staffAccount!.findUnique!({
           where: { clerkUserId: staleMigration.newClerkId },
-          select: accountSelect,
         })
       }
 
