@@ -37,21 +37,24 @@ export const useStaffAssistantAdmin = (activeNavLabel: string) => {
   const [configMessage, setConfigMessage] = React.useState<string | null>(null)
   const [chatMessages, setChatMessages] = React.useState<StaffAssistantChatMessage[]>(() => createInitialAssistantMessages())
   const [chatInput, setChatInput] = React.useState("")
-  const [isRailCollapsed, setIsRailCollapsed] = React.useState(false)
+  const [isRailCollapsed, setIsRailCollapsed] = React.useState(true)
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
     const desktopQuery = window.matchMedia("(min-width: 1180px)")
 
-    const syncAssistantLayout = () => {
-      setIsRailCollapsed(!desktopQuery.matches)
+    // The rail starts (and stays) collapsed until the user opens it. Narrow
+    // viewports still force it closed, but reaching desktop width must never
+    // auto-expand it — only the explicit toggle does that.
+    const collapseOnNarrowViewport = () => {
+      if (!desktopQuery.matches) setIsRailCollapsed(true)
     }
 
-    syncAssistantLayout()
-    desktopQuery.addEventListener("change", syncAssistantLayout)
+    collapseOnNarrowViewport()
+    desktopQuery.addEventListener("change", collapseOnNarrowViewport)
 
     return () => {
-      desktopQuery.removeEventListener("change", syncAssistantLayout)
+      desktopQuery.removeEventListener("change", collapseOnNarrowViewport)
     }
   }, [])
 
