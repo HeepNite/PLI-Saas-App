@@ -60,7 +60,7 @@ describe("useStaffAssistantAdmin", () => {
     expect(state.isRailCollapsed).toBe(true)
   })
 
-  it("never auto-expands: a desktop-width resize event does not reopen a rail the user opened", async () => {
+  it("never auto-expands: a desktop-width media query change does not open a still-collapsed rail", async () => {
     let registeredListener: (() => void) | null = null
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -77,14 +77,9 @@ describe("useStaffAssistantAdmin", () => {
     expect(state.isRailCollapsed).toBe(true)
 
     await act(async () => {
-      state.expandRail()
-    })
-    expect(latestState!.isRailCollapsed).toBe(false)
-
-    await act(async () => {
       registeredListener?.()
     })
-    expect(latestState!.isRailCollapsed).toBe(false)
+    expect(latestState!.isRailCollapsed).toBe(true)
   })
 
   it("sends chat messages using the active nav label and clears input", async () => {

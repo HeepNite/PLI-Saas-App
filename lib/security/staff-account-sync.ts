@@ -54,10 +54,12 @@ const getStaffMirrorModels = () => {
         paydayWeekday: number | null
         paymentModelId: string | null
       } | null>
-      findMany?: (args: unknown) => Promise<Array<{ id: string }>>
     }
     staffRoleAudit?: {
       create?: (args: unknown) => Promise<unknown>
+    }
+    clerkIdMigration?: {
+      findFirst?: (args: unknown) => Promise<{ oldClerkId: string; newClerkId: string } | null>
     }
   }
 
@@ -65,8 +67,8 @@ const getStaffMirrorModels = () => {
     typeof prismaUnsafe.staffAccount?.upsert === "function" &&
     typeof prismaUnsafe.staffAccount?.update === "function" &&
     typeof prismaUnsafe.staffAccount?.findUnique === "function" &&
-    typeof prismaUnsafe.staffAccount?.findMany === "function" &&
-    typeof prismaUnsafe.staffRoleAudit?.create === "function"
+    typeof prismaUnsafe.staffRoleAudit?.create === "function" &&
+    typeof prismaUnsafe.clerkIdMigration?.findFirst === "function"
 
   if (!hasModels && !staffMirrorModelWarningPrinted) {
     staffMirrorModelWarningPrinted = true
@@ -202,95 +204,79 @@ export const syncStaffAccountFromClerkUser = async (user: ClerkStaffUser, option
     ...(options.metadata || {}),
   }
 
+  const buildStaffAccountWriteData = (payrollBridgeFields: StaffPayrollBridgeFields) => ({
+    email,
+    phone: primaryPhoneFromUser(user) || null,
+    firstName: user.firstName || null,
+    lastName: user.lastName || null,
+    role: roleToPersist,
+    category: category || null,
+    subCategory: subCategory || null,
+    banned: Boolean(user.banned),
+    locked: Boolean(user.locked),
+    hasPin,
+    lastSignInAt: toDate(user.lastSignInAt),
+    lastCheckInAt,
+    hourlyRate: payrollBridgeFields.hourlyRate,
+    paydayWeekday: payrollBridgeFields.paydayWeekday,
+    paymentModelId: payrollBridgeFields.paymentModelId,
+    source: options.source || "clerk",
+    metadata,
+  })
+
+  const accountSelect = { id: true, hourlyRate: true, paydayWeekday: true, paymentModelId: true } as const
+
   try {
     const existingAccount = await models.staffAccount!.findUnique!({
       where: { clerkUserId: user.id },
-      select: {
-        id: true,
-        hourlyRate: true,
-        paydayWeekday: true,
-        paymentModelId: true,
-      },
+      select: accountSelect,
     })
-    const payrollBridgeFields = resolveStaffPayrollBridgeFields(existingAccount, user)
 
-    // `StaffAccount.email` is not unique, so a Clerk user id change (e.g. a
-    // Clerk instance migration) must not create a second row for the same
-    // person. When no row matches the new clerkUserId yet, rebind the
-    // existing row found by email instead of upserting a fresh one.
+    // `StaffAccount.email` is not unique and is attacker-mutable, so it must
+    // never decide which row a Clerk identity binds to. The only trustworthy
+    // signal that two Clerk ids belong to the same person is `ClerkIdMigration`,
+    // written by the dev->prod Clerk instance migration script.
     if (!existingAccount) {
-      const accountsWithSameEmail = await models.staffAccount!.findMany!({
-        where: { email: { equals: email, mode: "insensitive" } },
-        select: { id: true },
+      const staleMigration = await models.clerkIdMigration!.findFirst!({
+        where: { entity: "staff", oldClerkId: user.id },
       })
-      if (accountsWithSameEmail.length === 1) {
+      if (staleMigration) {
+        // This Clerk id was superseded by the migration: it must not create
+        // or take over any row. Return the row bound to the new id, if any.
+        console.warn(
+          "staff account sync: rejected stale clerk id superseded by a clerk id migration",
+          { staleClerkId: user.id, currentClerkId: staleMigration.newClerkId }
+        )
+        return await models.staffAccount!.findUnique!({
+          where: { clerkUserId: staleMigration.newClerkId },
+          select: accountSelect,
+        })
+      }
+
+      const migratedFrom = await models.clerkIdMigration!.findFirst!({
+        where: { entity: "staff", newClerkId: user.id },
+      })
+      const rowToRebind = migratedFrom
+        ? await models.staffAccount!.findUnique!({
+            where: { clerkUserId: migratedFrom.oldClerkId },
+            select: accountSelect,
+          })
+        : null
+
+      if (rowToRebind) {
+        const payrollBridgeFields = resolveStaffPayrollBridgeFields(rowToRebind, user)
         return await models.staffAccount!.update!({
-          where: { id: accountsWithSameEmail[0].id },
-          data: {
-            clerkUserId: user.id,
-            email,
-            phone: primaryPhoneFromUser(user) || null,
-            firstName: user.firstName || null,
-            lastName: user.lastName || null,
-            role: roleToPersist,
-            category: category || null,
-            subCategory: subCategory || null,
-            banned: Boolean(user.banned),
-            locked: Boolean(user.locked),
-            hasPin,
-            lastSignInAt: toDate(user.lastSignInAt),
-            lastCheckInAt,
-            hourlyRate: payrollBridgeFields.hourlyRate,
-            paydayWeekday: payrollBridgeFields.paydayWeekday,
-            paymentModelId: payrollBridgeFields.paymentModelId,
-            source: options.source || "clerk",
-            metadata,
-          },
+          where: { id: rowToRebind.id },
+          data: { clerkUserId: user.id, ...buildStaffAccountWriteData(payrollBridgeFields) },
         })
       }
     }
 
+    const payrollBridgeFields = resolveStaffPayrollBridgeFields(existingAccount, user)
     return await models.staffAccount!.upsert!({
       where: { clerkUserId: user.id },
-      create: {
-        clerkUserId: user.id,
-        email,
-        phone: primaryPhoneFromUser(user) || null,
-        firstName: user.firstName || null,
-        lastName: user.lastName || null,
-        role: roleToPersist,
-        category: category || null,
-        subCategory: subCategory || null,
-        banned: Boolean(user.banned),
-        locked: Boolean(user.locked),
-        hasPin,
-        lastSignInAt: toDate(user.lastSignInAt),
-        lastCheckInAt,
-        hourlyRate: payrollBridgeFields.hourlyRate,
-        paydayWeekday: payrollBridgeFields.paydayWeekday,
-        paymentModelId: payrollBridgeFields.paymentModelId,
-        source: options.source || "clerk",
-        metadata,
-      },
-      update: {
-        email,
-        phone: primaryPhoneFromUser(user) || null,
-        firstName: user.firstName || null,
-        lastName: user.lastName || null,
-        role: roleToPersist,
-        category: category || null,
-        subCategory: subCategory || null,
-        banned: Boolean(user.banned),
-        locked: Boolean(user.locked),
-        hasPin,
-        lastSignInAt: toDate(user.lastSignInAt),
-        lastCheckInAt,
-        hourlyRate: payrollBridgeFields.hourlyRate,
-        paydayWeekday: payrollBridgeFields.paydayWeekday,
-        paymentModelId: payrollBridgeFields.paymentModelId,
-        source: options.source || "clerk",
-        metadata,
-      },
+      create: { clerkUserId: user.id, ...buildStaffAccountWriteData(payrollBridgeFields) },
+      update: buildStaffAccountWriteData(payrollBridgeFields),
     })
   } catch (error) {
     logMirrorWriteFailure(options.source || "clerk", error)
