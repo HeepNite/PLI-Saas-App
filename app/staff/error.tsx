@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import * as Sentry from "@sentry/nextjs"
 
 export default function StaffError({
   error,
@@ -11,6 +12,7 @@ export default function StaffError({
 }) {
   React.useEffect(() => {
     console.error("Staff error:", error)
+    Sentry.captureException(error, { tags: { area: "staff" } })
   }, [error])
 
   return (
@@ -19,6 +21,9 @@ export default function StaffError({
       <p className="text-sm text-black/60 dark:text-white/60">
         An error occurred in the staff area. Please try again.
       </p>
+      {error.digest ? (
+        <p className="text-xs text-black/40 dark:text-white/40">Reference: {error.digest}</p>
+      ) : null}
       <button
         onClick={reset}
         className="rounded-md bg-[var(--brand,#b61616)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
