@@ -579,7 +579,14 @@ describe("staff payments bulk route", () => {
       amount: 2000,
       status: "paid",
     })
-    expect(createArg.data.metadata).toMatchObject({ paymentChannel: "cash", settlementStatus: "paid", attendanceId: "attendance_1" })
+    expect(createArg.data.metadata).toMatchObject({
+      paymentChannel: "cash",
+      settlementStatus: "paid",
+      attendanceId: "attendance_1",
+      source: "staff_attendance_settlement",
+      date: "2026-08-30",
+      time: "16:00",
+    })
     expect(mockPrisma.attendance.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "attendance_1" },

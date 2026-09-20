@@ -1,8 +1,14 @@
 import { prisma } from "@/lib/prisma"
-import { getDateKeyInTimeZone, getStartOfDayNY, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getDateKeyInTimeZone, getStartOfDayNY, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { TODAY_MODE_TAKE_LIMIT, type StaffPaymentsRequest } from "@/app/api/staff/payments/payments-request"
 import { getStaffPaymentsTodaySessionBounds } from "@/app/api/staff/payments/payments-time"
-import { asObject, asText, attendanceSlotKey, normalizeSettlementStatus } from "@/app/api/staff/payments/shared"
+import {
+  asObject,
+  asText,
+  attendanceSlotKey,
+  isCompletedPaymentStatus,
+  normalizeSettlementStatus,
+} from "@/app/api/staff/payments/shared"
 import { ATTENDED_CHECKIN_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
 import { PAYMENT_CHANNEL, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 import {
@@ -50,6 +56,50 @@ const getNextDateKey = (date: string) => {
   const nextDate = new Date(`${date}T12:00:00.000Z`)
   nextDate.setUTCDate(nextDate.getUTCDate() + 1)
   return nextDate.toISOString().slice(0, 10)
+}
+
+/**
+ * An attendance with no linked purchase resolved above may still already be paid
+ * by a purchase that falls outside this request's own date window — matched by
+ * the same user + courseSlug + class date/time slot (e.g. a cash settlement
+ * recorded days after the class), or by a linked purchase id this loader's
+ * earlier lookup did not resolve. Batch both lookups in one query, across all
+ * time, before any remaining candidate is synthesized as a debt row.
+ */
+const findAttendancesPaidOutsideWindow = async (
+  attendances: Array<{ userId: string; session: { courseSlug: string }; metadata: unknown }>
+): Promise<{ paidSlotKeys: Set<string>; paidPurchaseIds: Set<string> }> => {
+  if (attendances.length === 0) return { paidSlotKeys: new Set(), paidPurchaseIds: new Set() }
+
+  const userIds = [...new Set(attendances.map((a) => a.userId))]
+  const courseSlugs = [...new Set(attendances.map((a) => a.session.courseSlug))]
+  const linkedPurchaseIds = [...new Set(attendances.map((a) => asText(asObject(a.metadata).purchaseId)).filter(Boolean))]
+
+  const purchases = await prisma.purchase.findMany({
+    where: {
+      OR: [
+        { userId: { in: userIds }, courseSlug: { in: courseSlugs } },
+        ...(linkedPurchaseIds.length ? [{ id: { in: linkedPurchaseIds } }] : []),
+      ],
+    },
+    select: { id: true, userId: true, courseSlug: true, status: true, metadata: true },
+  })
+
+  const paidSlotKeys = new Set<string>()
+  const paidPurchaseIds = new Set<string>()
+  for (const purchase of purchases) {
+    const metadata = asObject(purchase.metadata)
+    const isPaid =
+      isCompletedPaymentStatus(purchase.status) || normalizeSettlementStatus(metadata.settlementStatus) === SETTLEMENT_STATUS.PAID
+    if (!isPaid) continue
+    paidPurchaseIds.add(purchase.id)
+    if (!purchase.courseSlug) continue
+    // Same slot-key shape as buildPurchaseAllDedupKeys: a raw timestamp, not an
+    // NY-formatted date/time string, so this never needs its own timezone lookup.
+    const startsAt = buildSessionStartsAt(asText(metadata.date), asText(metadata.time))
+    if (startsAt) paidSlotKeys.add(attendanceSlotKey(purchase.userId, purchase.courseSlug, startsAt.getTime()))
+  }
+  return { paidSlotKeys, paidPurchaseIds }
 }
 
 export const emptyTodayAttendanceOrchestration = (): TodayAttendanceOrchestrationResult => ({
@@ -231,6 +281,14 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
     : []
   const linkedPurchaseById = new Map(linkedPurchases.map((purchase) => [purchase.id, purchase]))
 
+  // Candidates whose linked purchase id, if any, did not resolve above are the
+  // only ones that can still be a synthetic debt row — check them against
+  // purchases paid outside the query window before synthesizing anything.
+  const unresolvedCandidates = standaloneCandidates.filter(
+    ({ linkedPurchaseId }) => !(linkedPurchaseId && linkedPurchaseById.has(linkedPurchaseId))
+  )
+  const paidOutsideWindow = await findAttendancesPaidOutsideWindow(unresolvedCandidates.map((c) => c.att))
+
   for (const { att, linkedPurchaseId } of standaloneCandidates) {
     const packageId = att.packageUsage?.packagePurchase?.packageId || ""
     const linkedPurchase = linkedPurchaseId ? linkedPurchaseById.get(linkedPurchaseId) : undefined
@@ -256,6 +314,12 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
       })
       continue
     }
+
+    const attSlotMs = att.session.startsAt.getTime()
+    const isPaidOutsideWindow =
+      (linkedPurchaseId && paidOutsideWindow.paidPurchaseIds.has(linkedPurchaseId)) ||
+      paidOutsideWindow.paidSlotKeys.has(attendanceSlotKey(att.userId, att.session.courseSlug, attSlotMs))
+    if (isPaidOutsideWindow) continue
 
     // A package credit was already consumed for this attendance (PackageUsageLedger row
     // exists) even though no $0 package_credit Purchase row was written for it. Synthesize
@@ -293,7 +357,10 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
       settlementStatus: isCreditCovered ? SETTLEMENT_STATUS.PAID : SETTLEMENT_STATUS.PENDING,
       settlementNote: "",
       settledAt: null,
-      classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.checkedInAt) : todayNY,
+      // The ClassSession's own start, never checkedInAt — which can be days after
+      // the class (e.g. a staff cash-settlement action recorded after the fact).
+      // "today" mode's own attendance window already bounds the session to todayNY.
+      classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.session.startsAt) : todayNY,
       classTime: getTimeKeyInTimeZone(att.session.startsAt),
       classStartsAt: att.session.startsAt,
     })
