@@ -203,6 +203,7 @@ describe("useStaffStudentsBoardAdmin", () => {
       historyFrom: "2026-03-25",
       historyTo: "2026-03-26",
       payments: [
+        payment({ id: "package-purchase", paymentChannel: "cash", purchaseCategory: "package", amount: 15200, packageId: "pkg-1" }),
         payment({ id: "package-credit", paymentChannel: "package_credit", purchaseCategory: "package", amount: 0, packageId: "pkg-1" }),
         payment({ id: "dropin-card", userId: "student-2", customerName: "Grace Hopper", paymentChannel: "card", purchaseCategory: "dropin", amount: 3000 }),
       ],
@@ -220,6 +221,7 @@ describe("useStaffStudentsBoardAdmin", () => {
 
     expect(state.cardContext).toBe("history")
     expect(state.cardVariant).toMatchObject({ context: "history", showCheckout: false, showHistoryTooltip: true })
+    // One package purchase and one credit-funded class: only the purchase counts as a package.
     expect(state.historyDerivedStats).toMatchObject({ studentCount: 2, checkedInCount: 2, packages: 1, dropIn: 1 })
     expect(state.studentsSummary).toMatchObject({ totalStudents: 7, checkedInStudents: 5, totalRevenueCents: 12000 })
     expect(state.historyReadableRange).toBe("Wed 25 Mar 26 → Thu 26 Mar 26")
