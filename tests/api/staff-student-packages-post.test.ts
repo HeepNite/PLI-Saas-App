@@ -479,6 +479,8 @@ describe("POST /api/staff/students/[userId]/packages", () => {
       expect(metadata.settlementStatus).toBe(SETTLEMENT_STATUS.PENDING)
       expect(metadata.settledAt).toBeNull()
       expect(metadata.requiresCardMigration).toBe(true)
+      // Sale day so history ranges (metadata.date) include the package purchase.
+      expect(metadata.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
       // Package fields are strings, matching validation.packageTotalCredits/etc. serialization in the tablet route.
       expect(typeof metadata.packageTotalCredits).toBe("string")
       expect(typeof metadata.packageIsUnlimited).toBe("string")
