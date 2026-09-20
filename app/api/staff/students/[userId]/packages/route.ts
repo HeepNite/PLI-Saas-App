@@ -6,6 +6,7 @@ import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { getTodayNewYork } from "@/lib/class-schedule"
 
 export const runtime = "nodejs"
 
@@ -427,6 +428,8 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
               paymentChannel: PAYMENT_CHANNEL.CASH,
               settlementStatus: SETTLEMENT_STATUS.PENDING,
               settledAt: null,
+              // Sale day: history ranges scope purchases on metadata.date.
+              date: getTodayNewYork(),
               courseSlug,
               packageId: plan.key,
               packageLabel: plan.label || "",
