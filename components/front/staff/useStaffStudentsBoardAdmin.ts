@@ -337,7 +337,11 @@ export function useStaffStudentsBoardAdmin({
     const pendingCount = filteredStudentCards.filter((item) =>
       item.allPayments.some((payment) => matchesStripeStatus(payment, "pending"))
     ).length
-    const packages = scopedPayments.filter((p) => p.purchaseCategory === "package").length
+    // Package purchases only: classes funded by a package credit also carry a
+    // packageId, but they are consumption, not packages sold in the range.
+    const packages = scopedPayments.filter(
+      (p) => p.purchaseCategory === "package" && p.paymentChannel !== "package_credit"
+    ).length
     const dropIn = scopedPayments.filter((p) => p.purchaseCategory === "dropin").length
     return { studentCount, paidCount, pendingCount, totalCollected, checkedInCount, packages, dropIn }
   }, [filteredStudentCards])
