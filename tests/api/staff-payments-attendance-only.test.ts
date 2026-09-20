@@ -118,6 +118,24 @@ describe("staff payments route - attendance only", () => {
     updatedAt: new Date(createdAt),
   })
 
+  const buildStandaloneAttendance = ({
+    id, userId, courseSlug, startsAt, checkedInAt, metadata = {},
+  }: {
+    id: string; userId: string; courseSlug: string; startsAt: Date; checkedInAt: Date; metadata?: Record<string, unknown>
+  }) => ({
+    id, userId, status: "checked_in", checkedInAt, checkedOutAt: null,
+    session: { courseSlug, startsAt, title: courseSlug },
+    user: { id: userId, name: userId, email: `${userId}@example.com`, phone: "+1 555 0000", clerkId: `clerk_${userId}` },
+    metadata, packageUsage: null,
+  })
+
+  // Simulates the fix's batched, all-time purchase lookup (an "OR"-shaped where);
+  // every other purchase.findMany call in these tests returns [].
+  const mockPurchasesOutsideWindow = (purchases: Array<Record<string, unknown>>) =>
+    mockPrisma.purchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) =>
+      where && "OR" in where ? purchases : []
+    )
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuthorizePortalSection.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
@@ -211,6 +229,62 @@ describe("staff payments route - attendance only", () => {
         amount: 9000,
       },
     })
+    // A package credit was consumed for this attendance (packageUsage present), so the
+    // synthesized row must be paid by credit, never a pending debt row.
+    expect(data.items[0]).toMatchObject({
+      paymentChannel: "package_credit",
+      settlementStatus: "paid",
+      classPaid: true,
+    })
+    expect(data.summary.pendingSettlement).toBe(0)
+  })
+
+  it("keeps a standalone attendance without a package credit as a pending debt row", async () => {
+    const today = new Date("2026-03-20T18:00:00.000Z")
+
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      {
+        id: "attendance_no_credit",
+        userId: "user_no_credit",
+        status: "checked_in",
+        checkedInAt: today,
+        checkedOutAt: null,
+        session: {
+          courseSlug: "salsa-beginners",
+          startsAt: today,
+          title: "Salsa Beginners",
+        },
+        user: {
+          id: "user_no_credit",
+          name: "No Credit Student",
+          email: "nocredit@example.com",
+          phone: "+1 555 4444",
+          clerkId: "clerk_no_credit",
+        },
+        metadata: {},
+        packageUsage: null,
+      },
+    ])
+    mockPrisma.user.findMany.mockResolvedValue([
+      { id: "user_no_credit", clerkId: "clerk_no_credit", name: "No Credit Student" }
+    ])
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      { slug: "salsa-beginners", location: "Room 1" }
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      userId: "user_no_credit",
+      attendanceId: "attendance_no_credit",
+      settlementStatus: "pending",
+      classPaid: false,
+    })
+    expect(data.items[0].paymentChannel).not.toBe("package_credit")
   })
 
   it("deduplicates attendance-only rows when a today purchase is already linked", async () => {
@@ -363,5 +437,89 @@ describe("staff payments route - attendance only", () => {
 
     expect(res.status).toBe(200)
     expect(data.items).toHaveLength(0)
+  })
+
+  it("does not synthesize a debt row when the class was already paid outside the query window", async () => {
+    // Paid in cash on 2026-07-27; the staff cash-settlement action that recorded the
+    // attendance happened on 2026-08-03. An August history query must not see the July
+    // purchase in its own date-scoped result, so the fix must look it up separately.
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_cash_settled", userId: "user_cash", courseSlug: "salsa-night-beginner",
+      startsAt: new Date("2026-07-27T21:10:00.000Z"), checkedInAt: new Date("2026-08-03T18:00:00.000Z"),
+    })])
+    mockPurchasesOutsideWindow([{
+      id: "purchase_july_cash", userId: "user_cash", courseSlug: "salsa-night-beginner", status: "paid",
+      metadata: { date: "2026-07-27", time: "21:10", settlementStatus: "paid", paymentChannel: "cash" },
+    }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-08-01&to=2026-08-31"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(0)
+
+    const orCall = mockPrisma.purchase.findMany.mock.calls.find(([args]) => args?.where && "OR" in args.where)
+    expect(orCall?.[0].where.OR[0]).toMatchObject({ status: { in: ["succeeded", "paid", "completed"] } })
+    expect(orCall?.[0].where.OR[0].createdAt).toEqual({ gte: expect.any(Date), lte: expect.any(Date) })
+  })
+
+  it("skips the outside-window coverage lookup entirely when every attendance is already covered by an in-window purchase", async () => {
+    const classStart = new Date("2026-03-10T18:00:00.000Z")
+    mockPrisma.purchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) =>
+      where && "OR" in where
+        ? []
+        : [buildPurchase({ id: "purchase_covering", userId: "user_covered", metadata: { date: "2026-03-10" }, createdAt: "2026-03-10T18:00:00.000Z" })]
+    )
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_covered", userId: "user_covered", courseSlug: "salsa-beginners", startsAt: classStart, checkedInAt: classStart,
+    })])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-03-10&to=2026-03-10"))
+
+    const orCalls = mockPrisma.purchase.findMany.mock.calls.filter(([args]) => args?.where && "OR" in args.where)
+    expect(orCalls).toHaveLength(0)
+  })
+
+  it("counts an attendance's linked purchase as covered even when that purchase's own date is outside the query window", async () => {
+    // "Mark all paid" settled this purchase today; its metadata.date is the class's own
+    // June date, so a July query (matching the attendance's checkedInAt/session) never
+    // sees it in its own date-scoped purchase fetch.
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_linked_outside_window", userId: "user_marked_paid", courseSlug: "bachata-intermediate",
+      startsAt: new Date("2026-07-10T21:10:00.000Z"), checkedInAt: new Date("2026-07-15T18:00:00.000Z"),
+      metadata: { purchaseId: "purchase_june_paid" },
+    })])
+    mockPurchasesOutsideWindow([{
+      id: "purchase_june_paid", userId: "user_marked_paid", courseSlug: "bachata-intermediate", status: "paid",
+      metadata: { date: "2026-06-22", time: "21:10", settlementStatus: "paid" },
+    }])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-07-01&to=2026-07-31"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(0)
+  })
+
+  it("uses the class session date for a synthetic row, not the later checked-in date", async () => {
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_late_recorded", userId: "user_late", courseSlug: "salsa-night-beginner",
+      startsAt: new Date("2026-08-05T21:10:00.000Z"), checkedInAt: new Date("2026-08-08T18:00:00.000Z"),
+    })])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-08-01&to=2026-08-31"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0]).toMatchObject({
+      attendanceId: "attendance_late_recorded",
+      classDate: "2026-08-05",
+      classTime: "21:10",
+    })
   })
 })
