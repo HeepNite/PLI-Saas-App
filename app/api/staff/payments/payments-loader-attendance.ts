@@ -1,10 +1,17 @@
 import { prisma } from "@/lib/prisma"
-import { getDateKeyInTimeZone, getStartOfDayNY, getTimeKeyInTimeZone } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getDateKeyInTimeZone, getStartOfDayNY, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { TODAY_MODE_TAKE_LIMIT, type StaffPaymentsRequest } from "@/app/api/staff/payments/payments-request"
 import { getStaffPaymentsTodaySessionBounds } from "@/app/api/staff/payments/payments-time"
-import { asObject, asText, attendanceSlotKey, normalizeSettlementStatus } from "@/app/api/staff/payments/shared"
+import {
+  asObject,
+  asText,
+  attendanceSlotKey,
+  COMPLETED_PAYMENT_STATUSES,
+  isCompletedPaymentStatus,
+  normalizeSettlementStatus,
+} from "@/app/api/staff/payments/shared"
 import { ATTENDED_CHECKIN_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
-import { SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { PAYMENT_CHANNEL, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 import {
   type EnrichedPurchase,
   type StaffPaymentsTodayWindow,
@@ -50,6 +57,61 @@ const getNextDateKey = (date: string) => {
   const nextDate = new Date(`${date}T12:00:00.000Z`)
   nextDate.setUTCDate(nextDate.getUTCDate() + 1)
   return nextDate.toISOString().slice(0, 10)
+}
+
+const COVERAGE_LOOKUP_TAKE_LIMIT = 2000
+const COVERAGE_LOOKUP_DATE_PAD_MS = 14 * 24 * 60 * 60 * 1000
+
+/**
+ * An attendance with no linked purchase resolved above may still already be paid
+ * by a purchase that falls outside this request's own date window — matched by
+ * the same user + courseSlug + class date/time slot (e.g. a cash settlement
+ * recorded days after the class), or by a linked purchase id this loader's
+ * earlier lookup did not resolve. Only unresolved candidates reach this lookup,
+ * and the query itself is bounded to completed purchases created near the
+ * candidate sessions — a pending purchase never covers a debt.
+ */
+const findAttendancesPaidOutsideWindow = async (
+  attendances: Array<{ userId: string; session: { courseSlug: string; startsAt: Date }; metadata: unknown }>
+): Promise<{ paidSlotKeys: Set<string>; paidPurchaseIds: Set<string> }> => {
+  if (attendances.length === 0) return { paidSlotKeys: new Set(), paidPurchaseIds: new Set() }
+
+  const userIds = [...new Set(attendances.map((a) => a.userId))]
+  const courseSlugs = [...new Set(attendances.map((a) => a.session.courseSlug))]
+  const linkedPurchaseIds = [...new Set(attendances.map((a) => asText(asObject(a.metadata).purchaseId)).filter(Boolean))]
+  const sessionTimes = attendances.map((a) => a.session.startsAt.getTime())
+  const createdAtWindow = {
+    gte: new Date(Math.min(...sessionTimes) - COVERAGE_LOOKUP_DATE_PAD_MS),
+    lte: new Date(Math.max(...sessionTimes) + COVERAGE_LOOKUP_DATE_PAD_MS),
+  }
+  const completedStatuses = [...COMPLETED_PAYMENT_STATUSES]
+
+  const purchases = await prisma.purchase.findMany({
+    where: {
+      OR: [
+        { userId: { in: userIds }, courseSlug: { in: courseSlugs }, status: { in: completedStatuses }, createdAt: createdAtWindow },
+        ...(linkedPurchaseIds.length ? [{ id: { in: linkedPurchaseIds }, status: { in: completedStatuses } }] : []),
+      ],
+    },
+    select: { id: true, userId: true, courseSlug: true, status: true, metadata: true },
+    take: COVERAGE_LOOKUP_TAKE_LIMIT,
+  })
+
+  const paidSlotKeys = new Set<string>()
+  const paidPurchaseIds = new Set<string>()
+  for (const purchase of purchases) {
+    const metadata = asObject(purchase.metadata)
+    const isPaid =
+      isCompletedPaymentStatus(purchase.status) || normalizeSettlementStatus(metadata.settlementStatus) === SETTLEMENT_STATUS.PAID
+    if (!isPaid) continue
+    paidPurchaseIds.add(purchase.id)
+    if (!purchase.courseSlug) continue
+    // Same slot-key shape as buildPurchaseAllDedupKeys: a raw timestamp, not an
+    // NY-formatted date/time string, so this never needs its own timezone lookup.
+    const startsAt = buildSessionStartsAt(asText(metadata.date), asText(metadata.time))
+    if (startsAt) paidSlotKeys.add(attendanceSlotKey(purchase.userId, purchase.courseSlug, startsAt.getTime()))
+  }
+  return { paidSlotKeys, paidPurchaseIds }
 }
 
 export const emptyTodayAttendanceOrchestration = (): TodayAttendanceOrchestrationResult => ({
@@ -231,6 +293,14 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
     : []
   const linkedPurchaseById = new Map(linkedPurchases.map((purchase) => [purchase.id, purchase]))
 
+  // Candidates whose linked purchase id, if any, did not resolve above are the
+  // only ones that can still be a synthetic debt row — check them against
+  // purchases paid outside the query window before synthesizing anything.
+  const unresolvedCandidates = standaloneCandidates.filter(
+    ({ linkedPurchaseId }) => !(linkedPurchaseId && linkedPurchaseById.has(linkedPurchaseId))
+  )
+  const paidOutsideWindow = await findAttendancesPaidOutsideWindow(unresolvedCandidates.map((c) => c.att))
+
   for (const { att, linkedPurchaseId } of standaloneCandidates) {
     const packageId = att.packageUsage?.packagePurchase?.packageId || ""
     const linkedPurchase = linkedPurchaseId ? linkedPurchaseById.get(linkedPurchaseId) : undefined
@@ -257,6 +327,24 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
       continue
     }
 
+    const attSlotMs = att.session.startsAt.getTime()
+    const isPaidOutsideWindow =
+      (linkedPurchaseId && paidOutsideWindow.paidPurchaseIds.has(linkedPurchaseId)) ||
+      paidOutsideWindow.paidSlotKeys.has(attendanceSlotKey(att.userId, att.session.courseSlug, attSlotMs))
+    if (isPaidOutsideWindow) continue
+
+    // A package credit was already consumed for this attendance (PackageUsageLedger row
+    // exists) even though no $0 package_credit Purchase row was written for it. Synthesize
+    // the row as already paid instead of pending debt — see ensureAttendancePackagePurchase.
+    const isCreditCovered = Boolean(att.packageUsage)
+    const standaloneMetadata: Record<string, unknown> = {
+      attendanceId: att.id,
+      packageId,
+      packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
+      ...(isCreditCovered
+        ? { paymentChannel: PAYMENT_CHANNEL.PACKAGE_CREDIT, settlementStatus: SETTLEMENT_STATUS.PAID }
+        : {}),
+    }
     standaloneItems.push({
       purchase: {
         id: `att-${att.id}`,
@@ -265,31 +353,26 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
         courseTitle: att.session.title || att.session.courseSlug,
         amount: 0,
         currency: "usd",
-        status: "none",
+        status: isCreditCovered ? PURCHASE_STATUS.PAID : "none",
         name: att.user.name,
         email: att.user.email,
         phone: att.user.phone,
         stripePaymentIntentId: null,
         stripeCheckoutSessionId: null,
-        metadata: {
-          attendanceId: att.id,
-          packageId,
-          packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
-        },
+        metadata: standaloneMetadata,
         createdAt: att.checkedInAt,
         updatedAt: att.checkedInAt,
       } as unknown as EnrichedPurchase["purchase"],
       id: `att-${att.id}`,
-      metadata: {
-        attendanceId: att.id,
-        packageId,
-        packagePurchaseId: att.packageUsage?.packagePurchaseId || null,
-      },
+      metadata: standaloneMetadata,
       userId: att.userId,
-      settlementStatus: SETTLEMENT_STATUS.PENDING,
+      settlementStatus: isCreditCovered ? SETTLEMENT_STATUS.PAID : SETTLEMENT_STATUS.PENDING,
       settlementNote: "",
       settledAt: null,
-      classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.checkedInAt) : todayNY,
+      // The ClassSession's own start, never checkedInAt — which can be days after
+      // the class (e.g. a staff cash-settlement action recorded after the fact).
+      // "today" mode's own attendance window already bounds the session to todayNY.
+      classDate: paymentsRequest.mode === "history" ? getDateKeyInTimeZone(att.session.startsAt) : todayNY,
       classTime: getTimeKeyInTimeZone(att.session.startsAt),
       classStartsAt: att.session.startsAt,
     })

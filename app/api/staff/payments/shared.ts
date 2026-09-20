@@ -86,7 +86,15 @@ export type ActivePackageCandidate = {
   status: string
 }
 
-export const compareActivePackages = <TPackage extends Pick<ActivePackageCandidate, "lastUsedAt" | "purchasedAt">>(a: TPackage, b: TPackage) => {
+const isUsableActivePackage = (pkg: Pick<ActivePackageCandidate, "remainingCredits" | "isUnlimited">) =>
+  pkg.isUnlimited || (pkg.remainingCredits ?? 0) > 0
+
+export const compareActivePackages = <
+  TPackage extends Pick<ActivePackageCandidate, "lastUsedAt" | "purchasedAt" | "remainingCredits" | "isUnlimited">
+>(a: TPackage, b: TPackage) => {
+  const usableDiff = Number(isUsableActivePackage(b)) - Number(isUsableActivePackage(a))
+  if (usableDiff !== 0) return usableDiff
+
   const aUsed = a.lastUsedAt ? a.lastUsedAt.getTime() : 0
   const bUsed = b.lastUsedAt ? b.lastUsedAt.getTime() : 0
   if (aUsed !== bUsed) return bUsed - aUsed
