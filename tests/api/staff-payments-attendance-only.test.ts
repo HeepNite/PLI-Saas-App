@@ -529,6 +529,28 @@ describe("staff payments route - attendance only", () => {
 
     expect(res.status).toBe(200)
     expect(data.items).toHaveLength(0)
+
+    const orCall = mockPrisma.purchase.findMany.mock.calls.find(([args]) => args?.where && "OR" in args.where)
+    expect(orCall?.[0].where.OR[0]).toMatchObject({ status: { in: ["succeeded", "paid", "completed"] } })
+    expect(orCall?.[0].where.OR[0].createdAt).toEqual({ gte: expect.any(Date), lte: expect.any(Date) })
+  })
+
+  it("skips the outside-window coverage lookup entirely when every attendance is already covered by an in-window purchase", async () => {
+    const classStart = new Date("2026-03-10T18:00:00.000Z")
+    mockPrisma.purchase.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> }) =>
+      where && "OR" in where
+        ? []
+        : [buildPurchase({ id: "purchase_covering", userId: "user_covered", metadata: { date: "2026-03-10" }, createdAt: "2026-03-10T18:00:00.000Z" })]
+    )
+    mockPrisma.attendance.findMany.mockResolvedValue([buildStandaloneAttendance({
+      id: "attendance_covered", userId: "user_covered", courseSlug: "salsa-beginners", startsAt: classStart, checkedInAt: classStart,
+    })])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    await GET(new Request("http://localhost/api/staff/payments?mode=history&from=2026-03-10&to=2026-03-10"))
+
+    const orCalls = mockPrisma.purchase.findMany.mock.calls.filter(([args]) => args?.where && "OR" in args.where)
+    expect(orCalls).toHaveLength(0)
   })
 
   it("counts an attendance's linked purchase as covered even when that purchase's own date is outside the query window", async () => {

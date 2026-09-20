@@ -6,6 +6,7 @@ import {
   asObject,
   asText,
   attendanceSlotKey,
+  COMPLETED_PAYMENT_STATUSES,
   isCompletedPaymentStatus,
   normalizeSettlementStatus,
 } from "@/app/api/staff/payments/shared"
@@ -58,31 +59,42 @@ const getNextDateKey = (date: string) => {
   return nextDate.toISOString().slice(0, 10)
 }
 
+const COVERAGE_LOOKUP_TAKE_LIMIT = 2000
+const COVERAGE_LOOKUP_DATE_PAD_MS = 14 * 24 * 60 * 60 * 1000
+
 /**
  * An attendance with no linked purchase resolved above may still already be paid
  * by a purchase that falls outside this request's own date window — matched by
  * the same user + courseSlug + class date/time slot (e.g. a cash settlement
  * recorded days after the class), or by a linked purchase id this loader's
- * earlier lookup did not resolve. Batch both lookups in one query, across all
- * time, before any remaining candidate is synthesized as a debt row.
+ * earlier lookup did not resolve. Only unresolved candidates reach this lookup,
+ * and the query itself is bounded to completed purchases created near the
+ * candidate sessions — a pending purchase never covers a debt.
  */
 const findAttendancesPaidOutsideWindow = async (
-  attendances: Array<{ userId: string; session: { courseSlug: string }; metadata: unknown }>
+  attendances: Array<{ userId: string; session: { courseSlug: string; startsAt: Date }; metadata: unknown }>
 ): Promise<{ paidSlotKeys: Set<string>; paidPurchaseIds: Set<string> }> => {
   if (attendances.length === 0) return { paidSlotKeys: new Set(), paidPurchaseIds: new Set() }
 
   const userIds = [...new Set(attendances.map((a) => a.userId))]
   const courseSlugs = [...new Set(attendances.map((a) => a.session.courseSlug))]
   const linkedPurchaseIds = [...new Set(attendances.map((a) => asText(asObject(a.metadata).purchaseId)).filter(Boolean))]
+  const sessionTimes = attendances.map((a) => a.session.startsAt.getTime())
+  const createdAtWindow = {
+    gte: new Date(Math.min(...sessionTimes) - COVERAGE_LOOKUP_DATE_PAD_MS),
+    lte: new Date(Math.max(...sessionTimes) + COVERAGE_LOOKUP_DATE_PAD_MS),
+  }
+  const completedStatuses = [...COMPLETED_PAYMENT_STATUSES]
 
   const purchases = await prisma.purchase.findMany({
     where: {
       OR: [
-        { userId: { in: userIds }, courseSlug: { in: courseSlugs } },
-        ...(linkedPurchaseIds.length ? [{ id: { in: linkedPurchaseIds } }] : []),
+        { userId: { in: userIds }, courseSlug: { in: courseSlugs }, status: { in: completedStatuses }, createdAt: createdAtWindow },
+        ...(linkedPurchaseIds.length ? [{ id: { in: linkedPurchaseIds }, status: { in: completedStatuses } }] : []),
       ],
     },
     select: { id: true, userId: true, courseSlug: true, status: true, metadata: true },
+    take: COVERAGE_LOOKUP_TAKE_LIMIT,
   })
 
   const paidSlotKeys = new Set<string>()
