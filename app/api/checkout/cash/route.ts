@@ -7,6 +7,7 @@ import {
 } from "@/lib/checkout"
 import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/validation"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
+import { getTodayNewYork } from "@/lib/class-schedule"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { upsertUserByIdentifiers } from "@/lib/users"
@@ -81,6 +82,9 @@ export async function POST(req: Request) {
     photoContext,
     validation,
   })
+  // A package sold without a class has no session date. Stamp the sale day so
+  // history ranges (which scope on metadata.date) can find the purchase.
+  const purchaseDate = effectiveSession.date || (validation.packageId ? getTodayNewYork() : effectiveSession.date)
 
   const preparation = await resolveCheckoutPreparation(
     req,
@@ -250,7 +254,7 @@ export async function POST(req: Request) {
             paymentChannel: PAYMENT_CHANNEL.CASH,
             settlementStatus: SETTLEMENT_STATUS.PENDING,
             settledAt: null,
-            date: effectiveSession.date,
+            date: purchaseDate,
             time: effectiveSession.time,
             courseSlug: validation.courseSlug,
             courseTitle: validation.courseTitle,
@@ -303,7 +307,7 @@ export async function POST(req: Request) {
             paymentChannel: PAYMENT_CHANNEL.CASH,
             settlementStatus: SETTLEMENT_STATUS.PENDING,
             settledAt: null,
-            date: effectiveSession.date,
+            date: purchaseDate,
             time: validation.consecutiveLinkedCourseTime ?? effectiveSession.time,
             courseSlug: consecutiveSlug,
             courseTitle: consecutiveTitle || "",
@@ -386,7 +390,7 @@ export async function POST(req: Request) {
         paymentChannel: PAYMENT_CHANNEL.CASH,
         settlementStatus: SETTLEMENT_STATUS.PENDING,
         settledAt: null,
-        date: effectiveSession.date,
+        date: purchaseDate,
         time: effectiveSession.time,
         courseSlug: validation.courseSlug,
         courseTitle: validation.courseTitle,
