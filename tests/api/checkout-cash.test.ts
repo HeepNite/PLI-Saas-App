@@ -163,6 +163,42 @@ describe("checkout cash route", () => {
     })
   })
 
+  it("stamps the sale day on a package bought without a class", async () => {
+    mockValidate.mockResolvedValue({
+      courseSlug: "",
+      courseTitle: "",
+      amountInt: 15200,
+      currency: "usd",
+      date: "",
+      time: "",
+      packageId: "pkg_8class",
+      serviceId: "",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      packageTotalCredits: 8,
+      packageIsUnlimited: false,
+      packageCadence: "twice_per_week",
+      packageMakeUps: 0,
+      packageValidDays: 60,
+      pkg: { label: "Twice per week" },
+    })
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const res = await POST(
+      new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    const metadata = mockPrisma.purchase.create.mock.calls[0]?.[0]?.data?.metadata as Record<string, unknown>
+    expect(metadata.packageId).toBe("pkg_8class")
+    expect(metadata.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
   it("passes kiosk photo context to account preparation", async () => {
     const { POST } = await import("@/app/api/checkout/cash/route")
     const res = await POST(
