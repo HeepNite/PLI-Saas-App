@@ -6,6 +6,7 @@ import {
   asObject,
   asText,
   attendanceSlotKey,
+  COMPLETED_PAYMENT_STATUSES,
   isCompletedPaymentStatus,
   normalizeSettlementStatus,
 } from "@/app/api/staff/payments/shared"
@@ -57,31 +58,43 @@ const getNextDateKey = (date: string) => {
   return nextDate.toISOString().slice(0, 10)
 }
 
+const COVERAGE_LOOKUP_TAKE_LIMIT = 2000
+const COVERAGE_LOOKUP_DATE_PAD_MS = 14 * 24 * 60 * 60 * 1000
+
 /**
  * An attendance may already be paid by a purchase that falls outside this
  * request's own date window — either linked by id (e.g. "Mark all paid" today
  * on a purchase whose metadata.date is an earlier month) or matched by the
  * same user + courseSlug + class date/time slot (e.g. a cash settlement
- * recorded days after the class). Batch both lookups in one query, across all
- * time, before any candidate is synthesized as a debt row.
+ * recorded days after the class). Only attendances not already covered by an
+ * in-window purchase reach this lookup (see isCoveredByInWindowPurchase), and
+ * the query itself is bounded to completed purchases created near the
+ * candidate sessions — a pending purchase never covers a debt.
  */
 const findAttendancesPaidOutsideWindow = async (
-  attendances: Array<{ userId: string; session: { courseSlug: string }; metadata: unknown }>
+  attendances: Array<{ userId: string; session: { courseSlug: string; startsAt: Date }; metadata: unknown }>
 ): Promise<{ paidSlotKeys: Set<string>; paidPurchaseIds: Set<string> }> => {
   if (attendances.length === 0) return { paidSlotKeys: new Set(), paidPurchaseIds: new Set() }
 
   const userIds = [...new Set(attendances.map((a) => a.userId))]
   const courseSlugs = [...new Set(attendances.map((a) => a.session.courseSlug))]
   const linkedPurchaseIds = [...new Set(attendances.map((a) => asText(asObject(a.metadata).purchaseId)).filter(Boolean))]
+  const sessionTimes = attendances.map((a) => a.session.startsAt.getTime())
+  const createdAtWindow = {
+    gte: new Date(Math.min(...sessionTimes) - COVERAGE_LOOKUP_DATE_PAD_MS),
+    lte: new Date(Math.max(...sessionTimes) + COVERAGE_LOOKUP_DATE_PAD_MS),
+  }
+  const completedStatuses = [...COMPLETED_PAYMENT_STATUSES]
 
   const purchases = await prisma.purchase.findMany({
     where: {
       OR: [
-        { userId: { in: userIds }, courseSlug: { in: courseSlugs } },
-        ...(linkedPurchaseIds.length ? [{ id: { in: linkedPurchaseIds } }] : []),
+        { userId: { in: userIds }, courseSlug: { in: courseSlugs }, status: { in: completedStatuses }, createdAt: createdAtWindow },
+        ...(linkedPurchaseIds.length ? [{ id: { in: linkedPurchaseIds }, status: { in: completedStatuses } }] : []),
       ],
     },
     select: { id: true, userId: true, courseSlug: true, status: true, metadata: true },
+    take: COVERAGE_LOOKUP_TAKE_LIMIT,
   })
 
   const paidSlotKeys = new Set<string>()
@@ -99,6 +112,18 @@ const findAttendancesPaidOutsideWindow = async (
     if (startsAt) paidSlotKeys.add(attendanceSlotKey(purchase.userId, purchase.courseSlug, startsAt.getTime()))
   }
   return { paidSlotKeys, paidPurchaseIds }
+}
+
+/** True when an in-window purchase already covers this attendance — by linked id, exact slot, or a same-day user+courseSlug match. */
+const isCoveredByInWindowPurchase = (
+  att: { userId: string; session: { courseSlug: string; startsAt: Date }; metadata: unknown },
+  purchaseDedupKeys: Set<string>,
+  todayScopedPurchases: EnrichedPurchase[]
+) => {
+  const linkedPurchaseId = asText(asObject(att.metadata).purchaseId)
+  if (linkedPurchaseId && purchaseDedupKeys.has(`purchase:${linkedPurchaseId}`)) return true
+  if (purchaseDedupKeys.has(attendanceSlotKey(att.userId, att.session.courseSlug, att.session.startsAt.getTime()))) return true
+  return todayScopedPurchases.some((p) => p.userId === att.userId && p.purchase.courseSlug === att.session.courseSlug)
 }
 
 export const emptyTodayAttendanceOrchestration = (): TodayAttendanceOrchestrationResult => ({
@@ -219,7 +244,10 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
   const todayAttendanceByPurchaseId = new Map<string, TodayAttendanceRow>()
   const dedupedCompletedTodayByUser = new Map<string, Set<string>>()
   const attendedRowsTodayByUser = new Map<string, number>()
-  const paidOutsideWindow = await findAttendancesPaidOutsideWindow(todayAttendances)
+  const outsideWindowCandidates = todayAttendances.filter(
+    (att) => !isCoveredByInWindowPurchase(att, purchaseDedupKeys, todayScopedPurchases)
+  )
+  const paidOutsideWindow = await findAttendancesPaidOutsideWindow(outsideWindowCandidates)
 
   for (const att of todayAttendances) {
     const attendanceMetadata = asObject(att.metadata)
@@ -256,13 +284,9 @@ export const loadTodayStaffPaymentsAttendances = async (input: {
     // Try purchase:ID match first (most reliable), then slot key, then
     // fallback to a simple userId+courseSlug match for same-day dedup.
     const isAlreadyCoveredByPurchase = (() => {
-      if (linkedPurchaseId && purchaseDedupKeys.has(`purchase:${linkedPurchaseId}`)) return true
+      if (isCoveredByInWindowPurchase(att, purchaseDedupKeys, todayScopedPurchases)) return true
       if (linkedPurchaseId && paidOutsideWindow.paidPurchaseIds.has(linkedPurchaseId)) return true
-      if (purchaseDedupKeys.has(attendanceSlotKey(att.userId, att.session.courseSlug, attSlotMs))) return true
-      if (paidOutsideWindow.paidSlotKeys.has(attendanceSlotKey(att.userId, att.session.courseSlug, attSlotMs))) return true
-      return todayScopedPurchases.some(
-        (p) => p.userId === att.userId && p.purchase.courseSlug === att.session.courseSlug
-      )
+      return paidOutsideWindow.paidSlotKeys.has(attendanceSlotKey(att.userId, att.session.courseSlug, attSlotMs))
     })()
 
     if (!isAlreadyCoveredByPurchase && !isStandaloneStaffFastActionAttendance(attendanceMetadata)) {
