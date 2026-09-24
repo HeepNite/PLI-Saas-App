@@ -753,10 +753,19 @@ async function classifyInternalReversal(event: Stripe.Event): Promise<InternalRe
   const paymentIntentId = reversalPaymentIntentId(event)
   if (!paymentIntentId) return null
   const purchase = await prisma.purchase.findUnique({ where: { stripePaymentIntentId: paymentIntentId } })
-  if (purchase && isInternalPurchaseCandidate(purchase)) return { paymentIntentId, purchase }
-  // Only an explicit reserved event marker without a local Purchase is a durable
-  // reconciliation case. Ordinary refunds never trigger a PaymentIntent read.
-  return !purchase && hasInternalReversalMarker(event) ? "missing-binding" : null
+  if (purchase) return isInternalPurchaseCandidate(purchase) ? { paymentIntentId, purchase } : hasInternalReversalMarker(event) ? "missing-binding" : null
+  // Only explicit reserved metadata can nominate an unbound Purchase. The
+  // PaymentIntent retrieval and signed binding validation remain authoritative.
+  if (!hasInternalReversalMarker(event)) return null
+  const purchaseId = (event.data.object as { metadata?: Record<string, unknown> }).metadata?.purchaseId
+  if (typeof purchaseId === "string") {
+    const pendingPurchase = await prisma.purchase.findUnique({ where: { id: purchaseId } })
+    if (pendingPurchase && isInternalPurchaseCandidate(pendingPurchase) &&
+      (pendingPurchase.stripePaymentIntentId === null || pendingPurchase.stripePaymentIntentId === paymentIntentId)) {
+      return { paymentIntentId, purchase: pendingPurchase }
+    }
+  }
+  return "missing-binding"
 }
 
 async function completeInternalWebhookEventTx(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], eventId: string, purchaseId?: string) {
@@ -886,7 +895,11 @@ async function handleInternalReversalEvent(event: Stripe.Event, candidate: Inter
         return
       }
       const tombstoned = await tx.purchase.updateMany({
-        where: { id: purchase.id, status: { in: ["pending", "paid"] } },
+        where: {
+          id: purchase.id,
+          status: { in: ["pending", "paid"] },
+          OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: candidate.paymentIntentId }],
+        },
         data: { status: "reversed" },
       })
       if (tombstoned.count !== 1) {
