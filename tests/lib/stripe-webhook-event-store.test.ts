@@ -108,7 +108,7 @@ describe("webhook-event-store", () => {
       expect(result).toBe("duplicate")
     })
 
-    it("returns duplicate for a genuinely completed row", async () => {
+    it.each(["completed", "manual_resolution"])("returns duplicate for a terminal %s row", async (status) => {
       const { Prisma } = await import("@prisma/client")
       mockCreate.mockRejectedValueOnce(
         new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
@@ -117,7 +117,7 @@ describe("webhook-event-store", () => {
         })
       )
       mockUpdateMany.mockResolvedValueOnce({ count: 0 })
-      mockFindUnique.mockResolvedValueOnce({ eventId: "evt_5", status: "completed" })
+      mockFindUnique.mockResolvedValueOnce({ eventId: "evt_5", status })
 
       const { claimStripeWebhookEvent } = await import("@/lib/stripe/webhook-event-store")
       const result = await claimStripeWebhookEvent("evt_5", "checkout.session.completed")
