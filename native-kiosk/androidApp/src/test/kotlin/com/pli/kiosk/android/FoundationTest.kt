@@ -131,14 +131,43 @@ class FoundationTest {
         assertFalse(c.collectionEnabled)
     }
 
-    @Test fun loginBlockedForUnresolvedAndMissingOriginalSession() {
+    @Test fun loginReplacesExpiredSessionOnlyWithoutAttempt() {
+        val expired = session.copy(expiresAt = now)
+        val replacement = session.copy(association = "replacement")
+        val store = MemoryStore(DurableState(expired))
+        assertEquals(replacement, coordinator(store).login { replacement })
+        assertEquals(DurableState(replacement), store.state)
+
+        val c = coordinator(store)
+        selectAndConfirm(c)
+        c.start()
+        store.state = store.state.copy(session = expired)
+        var logins = 0
+        assertFails { coordinator(store).login { logins++; replacement } }
+        assertEquals(0, logins)
+        assertNotNull(store.state.attempt)
+    }
+
+    @Test fun missingOriginalSessionBlocksResumeAndLoginBeforeCallback() {
         val store = MemoryStore(DurableState(session))
         val c = coordinator(store)
         selectAndConfirm(c)
         c.start()
-        var logins = 0
-        assertFails { c.login { logins++; session } }
         store.state = store.state.copy(session = null)
+        assertFails { coordinator(store).resume() }
+        var logins = 0
+        assertFails { coordinator(store).login { logins++; session } }
+        assertEquals(0, logins)
+        assertNotNull(store.state.attempt)
+    }
+
+    @Test fun missingOriginalSessionBlocksRecoveryAndLogin() {
+        val store = MemoryStore(DurableState(session))
+        val c = coordinator(store)
+        selectAndConfirm(c)
+        c.start()
+        store.state = store.state.copy(session = null)
+        var logins = 0
         assertFails { coordinator(store).resume() }
         assertFails { coordinator(store).login { logins++; session } }
         assertEquals(0, logins)

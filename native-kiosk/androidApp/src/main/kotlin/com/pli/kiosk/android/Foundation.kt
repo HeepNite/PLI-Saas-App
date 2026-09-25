@@ -204,7 +204,7 @@ class PurchaseCoordinator(
     }
 
     fun login(login: () -> StaffSession): StaffSession = exclusive {
-        val state = load()
+        val state = load(allowExpiredSession = true)
         require(state.attempt == null) { "A retained attempt cannot be replaced by login" }
         val session = login()
         validateSession(session)
@@ -325,10 +325,10 @@ class PurchaseCoordinator(
         return if (payment.paid) Outcome.PAID else Outcome.PENDING
     }
 
-    private fun load(): DurableState {
+    private fun load(allowExpiredSession: Boolean = false): DurableState {
         check(!poisoned) { "The coordinator is poisoned after a durable-state failure" }
         return try {
-            store.read().also(::validateState)
+            store.read().also { validateState(it, allowExpiredSession) }
         } catch (error: Exception) {
             poisoned = true
             throw IllegalStateException("Durable state is unavailable or corrupt", error)
@@ -349,8 +349,8 @@ class PurchaseCoordinator(
         "The original staff session is unavailable; reconcile with an operator"
     }.also(::validateSession)
 
-    private fun validateState(state: DurableState) {
-        state.session?.let(::validateSession)
+    private fun validateState(state: DurableState, allowExpiredSession: Boolean = false) {
+        state.session?.let { validateSession(it, allowExpiredSession) }
         val attempt = state.attempt ?: return
         val session = requireNotNull(state.session) { "An attempt requires its original session" }
         validateBinding(session, attempt)
@@ -359,10 +359,10 @@ class PurchaseCoordinator(
         if (attempt.paymentIntentId != null) require(attempt.paymentIntentId.isNotBlank()) { "Invalid payment ID" }
     }
 
-    private fun validateSession(session: StaffSession) {
+    private fun validateSession(session: StaffSession, allowExpired: Boolean = false) {
         require(session.origin == approvedOrigin.value) { "Session origin does not match the approved origin" }
         require(session.association.isNotBlank() && session.cookie.isNotBlank()) { "Session binding is missing" }
-        require(session.expiresAt > clock()) { "The original staff session expired" }
+        require(allowExpired || session.expiresAt > clock()) { "The original staff session expired" }
     }
 
     private fun validateBinding(session: StaffSession, attempt: AttemptState) {
