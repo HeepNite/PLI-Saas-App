@@ -182,7 +182,7 @@ internal interface StaffSessionHttpClient {
 }
 
 /** A small HTTPS-only client with no cookie jar and redirects disabled. */
-class StrictHttpsClient : StaffSessionHttpClient {
+internal class StrictHttpsClient : StaffSessionHttpClient {
     override fun post(endpoint: URL, body: ByteArray, sessionCookie: String?): HttpResponse {
         require(endpoint.protocol == "https" && endpoint.userInfo == null && endpoint.query == null && endpoint.ref.isNullOrEmpty()) {
             "Only a canonical HTTPS endpoint is allowed"

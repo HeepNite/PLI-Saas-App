@@ -12,7 +12,6 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.KeyStore
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -97,10 +96,11 @@ class EncryptedStateStore private constructor(
         private val keyAlias: String,
     ) : StateCryptography {
         override fun encrypt(plaintext: ByteArray): ByteArray {
-            val iv = ByteArray(IV_BYTES).also(SecureRandom()::nextBytes)
             val cipher = Cipher.getInstance(CIPHER).apply {
-                init(Cipher.ENCRYPT_MODE, key(existingKey = false), GCMParameterSpec(TAG_BITS, iv))
+                init(Cipher.ENCRYPT_MODE, key(existingKey = false))
             }
+            val iv = cipher.iv
+            if (iv.size != IV_BYTES) throw IOException("Invalid keystore GCM IV")
             return byteArrayOf(VERSION) + iv + cipher.doFinal(plaintext)
         }
 
