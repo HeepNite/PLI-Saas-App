@@ -111,11 +111,45 @@ class NativeCollectionCompositionTest {
         assertEquals(1, recovery.recoveries.size)
     }
 
+    @Test fun invalidationWhileRecoveryIsPendingRestartsRecoveryWithoutStrandingCancellation() {
+        val executor = QueuedExecutor()
+        val recovery = FakeRecovery(PaymentResult("pi_fixture", "processing", false))
+        val runtime = connectedRuntime(FakeTerminal().apply { discovered = listOf(reader) }, recovery, executor = executor)
+
+        runtime.start(DurableAttempt(ticket, "pi_fixture"), "secret")
+        assertEquals(NativeCollectionState.RECOVERING, runtime.state)
+        runtime.onReaderDisconnected()
+
+        assertEquals(NativeCollectionState.RECOVERING, runtime.state)
+        assertEquals(2, executor.pending)
+        executor.runNext()
+        assertEquals(NativeCollectionState.RECOVERING, runtime.state)
+        executor.runNext()
+        assertEquals(NativeCollectionState.RECONNECT_REQUIRED, runtime.state)
+    }
+
+    @Test fun onlyLatestOverlappingRecoveryMayDecidePaymentStatus() {
+        val executor = QueuedExecutor()
+        val recovery = SequencedRecovery(listOf(
+            PaymentResult("pi_fixture", "succeeded", true),
+            PaymentResult("pi_fixture", "processing", false),
+        ))
+        val runtime = connectedRuntime(FakeTerminal().apply { discovered = listOf(reader) }, recovery, executor = executor)
+
+        runtime.start(DurableAttempt(ticket, "pi_fixture"), "secret")
+        runtime.recover()
+        executor.runNext()
+        assertEquals(NativeCollectionState.RECOVERING, runtime.state)
+        executor.runNext()
+        assertEquals(NativeCollectionState.UNRESOLVED, runtime.state)
+    }
+
     private fun connectedRuntime(
         terminal: FakeTerminal,
-        recovery: FakeRecovery,
+        recovery: PaymentRecovery,
         clock: () -> Long = { now },
-    ): NativeCollectionRuntime = runtime(terminal = terminal, recovery = recovery, clock = clock).also {
+        executor: NativeBackgroundExecutor = DirectNativeBackgroundExecutor,
+    ): NativeCollectionRuntime = runtime(terminal = terminal, recovery = recovery, clock = clock, executor = executor).also {
         it.initialize()
         it.discover()
         it.selectReader(reader)
@@ -127,8 +161,9 @@ class NativeCollectionCompositionTest {
         terminal: FakeTerminal = FakeTerminal(),
         tokens: FakeConnectionTokens = FakeConnectionTokens(),
         permissions: FakePermissions = FakePermissions(),
-        recovery: FakeRecovery = FakeRecovery(PaymentResult("pi_fixture", "processing", false)),
+        recovery: PaymentRecovery = FakeRecovery(PaymentResult("pi_fixture", "processing", false)),
         clock: () -> Long = { now },
+        executor: NativeBackgroundExecutor = DirectNativeBackgroundExecutor,
     ) = NativeCollectionRuntime(
         NativeCollectionConfiguration(origin.value, enabled),
         session,
@@ -138,6 +173,7 @@ class NativeCollectionCompositionTest {
         tokens,
         recovery,
         clock,
+        backgroundExecutor = executor,
     )
 
     private class FakePermissions(var granted: Boolean = true) : BluetoothPermissions {
@@ -163,6 +199,19 @@ class NativeCollectionCompositionTest {
             recoveries += paymentIntentId
             return if (manual) RecoveryState.ManualReconciliation else RecoveryState.FromServer(result)
         }
+    }
+
+    private class SequencedRecovery(results: List<PaymentResult>) : PaymentRecovery {
+        private val remaining = results.toMutableList()
+        override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
+            RecoveryState.FromServer(remaining.removeAt(0))
+    }
+
+    private class QueuedExecutor : NativeBackgroundExecutor {
+        private val tasks = mutableListOf<() -> Unit>()
+        val pending get() = tasks.size
+        override fun execute(task: () -> Unit) { tasks += task }
+        fun runNext() = tasks.removeAt(0).invoke()
     }
 
     private class FakeTerminal : NativeTerminalAdapter {

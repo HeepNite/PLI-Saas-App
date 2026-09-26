@@ -266,6 +266,9 @@ class NativeCollectionRuntime(
     }
     private fun requestCancellation() {
         val operation = activeCancelable
+        // Recovery and resolved states have no Terminal callback capable of completing cancellation.
+        // Supersede any pending recovery and reconcile the same durable intent again instead.
+        if (operation == null) { invalidatePayment(); recoverOriginal(); return }
         // Stripe retrievePaymentIntent has no Cancelable. It is the sole payment step allowed to
         // invalidate its generation and reconcile immediately.
         if (state == NativeCollectionState.RETRIEVING_INTENT && operation === NonCancellableTerminalOperation) {
@@ -299,12 +302,13 @@ class NativeCollectionRuntime(
     private fun recoverIfActive() { if (activeAttempt != null) { invalidatePayment(); recoverOriginal() } }
     private fun recoverOriginal() {
         val attempt = requireNotNull(activeAttempt) { "No active PaymentIntent to recover" }
+        val generation = ++paymentGeneration
         transition(NativeCollectionState.RECOVERING)
         backgroundExecutor.execute {
             val recovered = try { recovery.recover(originalSession, originalTicket, attempt.paymentIntentId) } catch (_: Exception) { RecoveryState.ManualReconciliation }
             synchronized(this) {
                 // A later invalidation/recovery owns state; this worker cannot revive stale context.
-                if (state != NativeCollectionState.RECOVERING || activeAttempt != attempt) return@synchronized
+                if (generation != paymentGeneration || state != NativeCollectionState.RECOVERING || activeAttempt != attempt) return@synchronized
                 when (recovered) {
                     RecoveryState.ManualReconciliation -> transition(NativeCollectionState.MANUAL_RECONCILIATION)
                     is RecoveryState.FromServer -> {
