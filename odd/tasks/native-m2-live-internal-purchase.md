@@ -62,6 +62,13 @@ Only this worktree is writable. No staging, commits, push, review lifecycle, dep
   - [x] N6.6 — Cancellation/recovery never clears unresolved state, creates a replacement intent, auto-reconnects or substitutes a reader.
   - [x] N6.7 — Independent verification passed 69 tests, both debug APK assemblies and clean diff checks after closing all operator/runtime/callback blockers.
   - [x] N6.8 — Rollback disables only the separate native collection build flag while retaining encrypted original-session association, durable unresolved identity and server recovery.
+- [x] R1 — Review backend and Android foundation/durable-state work-unit slices; integrate bounded corrections.
+  - [x] Backend recipient binding and fulfillment/reversal slices approved and acknowledged; correction commit `05732df` closes reversal-before-binding TOCTOU.
+  - [x] Android secure-foundation slice approved and acknowledged; correction commit `c82d0cd` uses the AndroidKeyStore provider-generated AES-GCM IV.
+  - [x] Android durable-state slice `17c269f` approved and acknowledged; correction commit `0d1202d` permits expired-session replacement only for login while preserving retained-attempt and missing-session blocking.
+  - [x] Reader lifecycle `48604e1` approved and acknowledged in lineage `review-49f718f8830e0e85` after correction commit `67ac42c`: invalidation during recovery no longer strands `CANCELLING`, and overlapping recovery callbacks are generation-bound so only the latest request can decide status. Focused TDD observed 2 RED failures then 8/8 GREEN; synthetic-slice Gradle remained blocked only by its intentionally absent manifest.
+  - [ ] Stripe Terminal integration `59fa1b6` and guarded operator flow `9455e4e` remain unreviewed.
+- [ ] R2 — Rerun cumulative Android tests and both debug APK assemblies after all review corrections are integrated.
 - [ ] T7b — Later explicit approvals: runtime credentials/assignments, deployment, activation and physical validation. No payment readiness claim.
 
 ## Retained backend verification history
