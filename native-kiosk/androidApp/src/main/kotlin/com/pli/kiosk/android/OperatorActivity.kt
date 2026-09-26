@@ -89,6 +89,8 @@ class OperatorActivity : Activity() {
     private lateinit var beginAttempt: Button
     private lateinit var login: Button
     private var loginInFlight = false
+    private var lookupInFlight = false
+    private var lookupGeneration = 0L
     private lateinit var status: TextView
     private lateinit var readerChoices: LinearLayout
     private val gatedControls = mutableListOf<Button>()
@@ -187,7 +189,13 @@ class OperatorActivity : Activity() {
         lookup = Button(this).apply {
             text = "Look up student"
             setOnClickListener {
-                val render: (StudentLookupResult?) -> Unit = { result ->
+                val generation = ++lookupGeneration
+                lookupInFlight = true
+                clearSelection(LOOKUP_REQUIRED_MESSAGE)
+                val requestedPhone = phone.text.toString()
+                val render: (StudentLookupResult?) -> Unit = render@{ result ->
+                    if (generation != lookupGeneration) return@render
+                    lookupInFlight = false
                     when (result) {
                         is StudentLookupResult.Unique -> { confirmation.text = "Confirm student: ${displayName(result.student)}"; confirm.isEnabled = true; status.text = LOOKUP_READY_MESSAGE }
                         StudentLookupResult.Missing -> clearSelection("No existing student matches that complete phone.")
@@ -195,8 +203,14 @@ class OperatorActivity : Activity() {
                         StudentLookupResult.Ambiguous -> clearSelection("Student lookup is ambiguous. Reconcile before continuing.")
                         null -> clearSelection(LOOKUP_REQUIRED_MESSAGE)
                     }
+                    updateControlGate()
                 }
-                runtime?.lookupStudentAsync(phone.text.toString(), render) ?: render(runCatching { studentSelection?.lookupStudent(phone.text.toString()) }.getOrNull())
+                try {
+                    runtime?.lookupStudentAsync(requestedPhone, render)
+                        ?: render(runCatching { studentSelection?.lookupStudent(requestedPhone) }.getOrNull())
+                } catch (_: Exception) {
+                    render(StudentLookupResult.Invalid)
+                }
             }
         }
         layout.addView(lookup)
@@ -272,7 +286,7 @@ class OperatorActivity : Activity() {
             }
         }
         if (::login.isInitialized) login.isEnabled = !loginInFlight
-        if (::lookup.isInitialized) lookup.isEnabled = bound?.studentLookupEnabled ?: (studentSelection != null)
+        if (::lookup.isInitialized) lookup.isEnabled = !lookupInFlight && (bound?.studentLookupEnabled ?: (studentSelection != null))
         if (::readerChoices.isInitialized) renderReaders(runtime?.discoveredReaders.orEmpty())
     }
 

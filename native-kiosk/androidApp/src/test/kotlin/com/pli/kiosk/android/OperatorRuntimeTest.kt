@@ -128,6 +128,33 @@ class OperatorRuntimeTest {
     }
 
     @Test
+    fun studentLookupClearsPriorConfirmationAndIgnoresLateCallbacks() {
+        val actions = FakeActions(enabled = true, deferLookups = true)
+        val activity = Robolectric.buildActivity(OperatorActivity::class.java).setup().get()
+        activity.bindRuntime(actions)
+        val root = activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as ViewGroup
+        val phone = (0 until root.childCount).map(root::getChildAt).filterIsInstance<android.widget.EditText>()
+            .single { it.hint == "Complete student phone" }
+        val lookup = buttons(activity).single { it.text == "Look up student" }
+        val confirm = buttons(activity).single { it.text == "Confirm selected student" }
+
+        phone.setText("+15550000000")
+        lookup.performClick()
+        assertFalse(lookup.isEnabled)
+        assertFalse(confirm.isEnabled)
+        actions.completeLookup(0, "First student")
+        assertTrue(confirm.isEnabled)
+
+        phone.setText("+15550000001")
+        lookup.performClick()
+        assertFalse(confirm.isEnabled)
+        actions.completeLookup(0, "Stale student")
+        assertFalse(confirm.isEnabled)
+        actions.completeLookup(1, "Current student")
+        assertTrue(confirm.isEnabled)
+    }
+
+    @Test
     fun activityKeepsCollectionControlsDisabledUnlessEveryRuntimePreconditionIsMet() {
         val actions = FakeActions(enabled = false)
         val activity = Robolectric.buildActivity(OperatorActivity::class.java).setup().get()
@@ -195,8 +222,13 @@ class OperatorRuntimeTest {
         override fun confirm(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable = NativeCancelable {}
     }
 
-    private class FakeActions(var enabled: Boolean, private val loginRequired: Boolean = false) : OperatorRuntime {
+    private class FakeActions(
+        var enabled: Boolean,
+        private val loginRequired: Boolean = false,
+        private val deferLookups: Boolean = false,
+    ) : OperatorRuntime {
         val calls = mutableListOf<String>()
+        private val lookupCallbacks = mutableListOf<(StudentLookupResult) -> Unit>()
         private var loggedIn = !loginRequired
         override val attemptStartEnabled: Boolean get() = enabled && loggedIn
         override val readerDiscoveryEnabled: Boolean get() = enabled
@@ -212,6 +244,13 @@ class OperatorRuntimeTest {
             calls += "lookup:$phone"
             return StudentLookupResult.Unique(MinimumStudentIdentity("Fixture student"))
         }
+        override fun lookupStudentAsync(phone: String, complete: (StudentLookupResult) -> Unit) {
+            calls += "lookup:$phone"
+            if (deferLookups) lookupCallbacks += complete
+            else complete(StudentLookupResult.Unique(MinimumStudentIdentity("Fixture student")))
+        }
+        fun completeLookup(index: Int, name: String) =
+            lookupCallbacks[index](StudentLookupResult.Unique(MinimumStudentIdentity(name)))
         override fun confirmSelectedStudent(): MinimumStudentIdentity {
             calls += "confirm"
             return MinimumStudentIdentity("Fixture student")
