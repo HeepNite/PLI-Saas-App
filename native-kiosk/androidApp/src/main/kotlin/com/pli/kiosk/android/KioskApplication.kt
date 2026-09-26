@@ -10,9 +10,14 @@ class AndroidOperatorBackgroundExecutor : OperatorBackgroundExecutor {
     private val delegate = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "kiosk-network").apply { isDaemon = true } }
     override fun execute(task: () -> Unit) = delegate.execute(task)
 }
+fun interface OperatorUiDispatcher { fun execute(task: () -> Unit) }
 
 /** Transient server-authorized material is passed directly to Terminal and is never retained. */
 data class TransientCollectionStart(val attempt: DurableAttempt, val clientSecret: String)
+data class SelfServiceRollover(
+    val selection: StudentSelectionActions,
+    val startSource: () -> TransientCollectionStart,
+)
 
 /**
  * Production UI binding. Its collection source is a coordinator call, so the original ID is
@@ -21,17 +26,23 @@ data class TransientCollectionStart(val attempt: DurableAttempt, val clientSecre
  */
 class ProductionOperatorRuntime(
     native: NativeCollectionRuntime?,
-    private val selection: StudentSelectionActions,
-    private val startSource: (() -> TransientCollectionStart)?,
+    selection: StudentSelectionActions,
+    startSource: (() -> TransientCollectionStart)?,
     private val loginSource: ((String, CharArray) -> Unit)? = null,
     private val nativeFactory: ((AttemptTicket) -> NativeCollectionRuntime)? = null,
     private val backgroundExecutor: OperatorBackgroundExecutor = DirectOperatorBackgroundExecutor,
+    private val paidRollover: (() -> SelfServiceRollover)? = null,
+    private val uiDispatcher: OperatorUiDispatcher? = null,
 ) : OperatorRuntime {
     private var native: NativeCollectionRuntime? = native
+    private var selection: StudentSelectionActions = selection
+    private var startSource: (() -> TransientCollectionStart)? = startSource
     private var readerListener: ((List<ConnectedReader>) -> Unit)? = null
     private var stateListener: (() -> Unit)? = null
     private var activity: android.app.Activity? = null
     @Volatile private var networkOperationInFlight = false
+
+    init { native?.let(::bindNative) }
 
     override val attemptStartEnabled: Boolean
         get() = !networkOperationInFlight && native == null && (selection as? PurchaseCoordinator)?.canBeginAttempt == true
@@ -63,9 +74,7 @@ class ProductionOperatorRuntime(
         val created = requireNotNull(nativeFactory) { "Native collection composition is unavailable" }
             .invoke(coordinator.retainedTicketForNativeRuntime())
         created.initialize()
-        native = created
-        readerListener?.let(created::setDiscoveryListener)
-        stateListener?.let(created::setStateListener)
+        bindNative(created)
     }
     override fun beginAttemptAsync(complete: (Boolean) -> Unit) = network(complete, ::beginAttempt)
 
@@ -101,17 +110,22 @@ class ProductionOperatorRuntime(
     override fun revalidateContext() = native?.revalidateContext() ?: Unit
     override fun setReaderUpdateListener(listener: (List<ConnectedReader>) -> Unit) {
         readerListener = listener
-        native?.setDiscoveryListener(listener) ?: listener(emptyList())
+        val current = native
+        current?.setDiscoveryListener { readers -> postToUi { if (current === native) listener(readers) } }
+            ?: listener(emptyList())
     }
-    override fun setStateListener(listener: () -> Unit) { stateListener = listener; native?.setStateListener(listener) ?: listener() }
+    override fun setStateListener(listener: () -> Unit) { stateListener = listener; listener() }
 
     private fun network(complete: (Boolean) -> Unit, action: () -> Unit) {
         check(!networkOperationInFlight) { "A network action is already in progress" }
         networkOperationInFlight = true; stateListener?.invoke()
         backgroundExecutor.execute {
             val accepted = runCatching(action).isSuccess
-            networkOperationInFlight = false
-            stateListener?.invoke(); postToUi { complete(accepted) }
+            postToUi {
+                networkOperationInFlight = false
+                stateListener?.invoke()
+                complete(accepted)
+            }
         }
     }
     private fun networkResult(complete: (StudentLookupResult) -> Unit, action: () -> StudentLookupResult) {
@@ -119,12 +133,42 @@ class ProductionOperatorRuntime(
         networkOperationInFlight = true; stateListener?.invoke()
         backgroundExecutor.execute {
             val result = runCatching(action).getOrDefault(StudentLookupResult.Invalid)
-            networkOperationInFlight = false
-            stateListener?.invoke(); postToUi { complete(result) }
+            postToUi {
+                networkOperationInFlight = false
+                stateListener?.invoke()
+                complete(result)
+            }
         }
     }
 
-    private fun postToUi(task: () -> Unit) { activity?.runOnUiThread(task) ?: task() }
+    private fun bindNative(created: NativeCollectionRuntime) {
+        native = created
+        activity?.let(created::attachPermissionOwner)
+        created.setStateListener { onNativeState(created) }
+        readerListener?.let { listener ->
+            created.setDiscoveryListener { readers -> postToUi { if (created === native) listener(readers) } }
+        }
+    }
+    private fun onNativeState(source: NativeCollectionRuntime) {
+        if (source !== native) return
+        if (source.state == NativeCollectionState.PAID) {
+            val replacement = runCatching { paidRollover?.invoke() }.getOrNull()
+            if (replacement != null) {
+                selection = replacement.selection
+                startSource = replacement.startSource
+                native = null
+                postToUi {
+                    readerListener?.invoke(emptyList())
+                    stateListener?.invoke()
+                }
+                return
+            }
+        }
+        postToUi { if (source === native) stateListener?.invoke() }
+    }
+    private fun postToUi(task: () -> Unit) {
+        uiDispatcher?.execute(task) ?: activity?.runOnUiThread(task) ?: task()
+    }
 
     private fun requireNative(): NativeCollectionRuntime = requireNotNull(native) { "Signed ticket binding is required" }
 }
@@ -148,7 +192,7 @@ class KioskApplication : Application() {
         val networkExecutor = AndroidOperatorBackgroundExecutor()
         val store = EncryptedStateStore(this)
         val transport = StaffSessionTransport(origin, System::currentTimeMillis)
-        val purchase = PurchaseCoordinator(origin, store, StaffSessionPurchaseApi(transport), System::currentTimeMillis)
+        var purchase = PurchaseCoordinator(origin, store, StaffSessionPurchaseApi(transport), System::currentTimeMillis)
         val loginSource = { slug: String, pin: CharArray -> purchase.login { transport.login(slug, pin) }; Unit }
         val state = runCatching(store::read).getOrElse { return }
         val nativeForTicket: (AttemptTicket) -> NativeCollectionRuntime = { boundTicket ->
@@ -178,18 +222,30 @@ class KioskApplication : Application() {
         val attempt = state.attempt
         val ticket = attempt?.ticket
         val startSource = { purchase.startCollection() }
+        val paidRollover = {
+            require(purchase.recoverKnownAttempt() == Outcome.PAID) { "Paid rollover requires fresh server authority" }
+            val paidState = store.read()
+            require(paidState.attempt?.resolved == true) { "Paid rollover requires a resolved durable attempt" }
+            store.write(DurableState(paidState.session))
+            purchase = PurchaseCoordinator(origin, store, StaffSessionPurchaseApi(transport), System::currentTimeMillis)
+            SelfServiceRollover(purchase) { purchase.startCollection() }
+        }
         if (session == null || attempt == null || ticket == null || attempt.resolved ||
             attempt.sessionAssociation != session.association || attempt.origin != session.origin
         ) {
             // The configured runtime can log in and bind a student, but no reader work is exposed
             // until beginAttempt has durably retained the opaque signed ticket.
-            operatorRuntime = ProductionOperatorRuntime(null, purchase, startSource, loginSource, nativeForTicket, networkExecutor)
+            operatorRuntime = ProductionOperatorRuntime(
+                null, purchase, startSource, loginSource, nativeForTicket, networkExecutor, paidRollover,
+            )
             return
         }
 
         val native = nativeForTicket(ticket)
         native.initialize()
-        operatorRuntime = ProductionOperatorRuntime(native, purchase, startSource, loginSource, nativeForTicket, networkExecutor)
+        operatorRuntime = ProductionOperatorRuntime(
+            native, purchase, startSource, loginSource, nativeForTicket, networkExecutor, paidRollover,
+        )
     }
 
     /** Test seam for the real composition; fakes replace only terminal/permission transport edges. */

@@ -198,6 +198,35 @@ class N6BlockersTest {
         assertFalse(invokedOnUiThread)
     }
 
+    @Test fun networkCompletionAndFinalStateNotificationUseTheUiDispatcher() {
+        val background = QueueExecutor()
+        val ui = QueueUiDispatcher()
+        val runtime = ProductionOperatorRuntime(
+            native = null,
+            selection = object : StudentSelectionActions {
+                override fun lookupStudent(phone: String) = StudentLookupResult.Invalid
+                override fun confirmSelectedStudent() = MinimumStudentIdentity(null)
+            },
+            startSource = null,
+            loginSource = { _, pin -> pin.fill('\u0000') },
+            backgroundExecutor = background,
+            uiDispatcher = ui,
+        )
+        var notifications = 0
+        var completed = false
+        runtime.setStateListener { notifications++ }
+
+        runtime.loginAsync("staff", charArrayOf('1')) { completed = it }
+        assertEquals(2, notifications)
+        background.runNext()
+
+        assertFalse(completed)
+        assertEquals(2, notifications)
+        ui.runNext()
+        assertTrue(completed)
+        assertEquals(3, notifications)
+    }
+
     @Test fun productionNetworkActionsAreQueuedAndRejectDuplicatesWhileInFlight() {
         val queued = QueueExecutor()
         val runtime = ProductionOperatorRuntime(
@@ -267,6 +296,11 @@ class N6BlockersTest {
         override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): RecoveryState { ids += paymentIntentId; return RecoveryState.FromServer(PaymentResult(paymentIntentId, "processing", false)) }
     }
     private class QueueExecutor : OperatorBackgroundExecutor {
+        private val tasks = ArrayDeque<() -> Unit>()
+        override fun execute(task: () -> Unit) { tasks += task }
+        fun runNext() = tasks.removeFirst().invoke()
+    }
+    private class QueueUiDispatcher : OperatorUiDispatcher {
         private val tasks = ArrayDeque<() -> Unit>()
         override fun execute(task: () -> Unit) { tasks += task }
         fun runNext() = tasks.removeFirst().invoke()

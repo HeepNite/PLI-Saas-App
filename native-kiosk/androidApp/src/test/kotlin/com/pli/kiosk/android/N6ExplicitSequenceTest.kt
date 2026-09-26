@@ -31,8 +31,11 @@ class N6ExplicitSequenceTest {
     @Test
     fun configuredRuntimeRequiresTicketThenRunsOneSameIdSdkSequenceAndServerRecovery() {
         val store = MemoryStore(DurableState(session))
-        val api = Api().apply { prepared = PaymentResult("pi_same", "requires_payment_method", false, "secret_transient") }
-        val coordinator = PurchaseCoordinator(origin, store, api) { now }
+        val api = Api().apply {
+            prepared = PaymentResult("pi_same", "requires_payment_method", false, "secret_transient")
+            refreshed = PaymentResult("pi_same", "succeeded", true)
+        }
+        var coordinator = PurchaseCoordinator(origin, store, api) { now }
         val terminal = SequenceTerminal()
         val reader = ConnectedReader("tmr_fixture", Approved.M2_SERIAL, "stripe_m2", Approved.LOCATION)
         val runtime = ProductionOperatorRuntime(
@@ -52,7 +55,15 @@ class N6ExplicitSequenceTest {
                     { now },
                 )
             },
+            paidRollover = {
+                assertEquals(Outcome.PAID, coordinator.recoverKnownAttempt())
+                val paid = store.state
+                store.write(DurableState(paid.session))
+                coordinator = PurchaseCoordinator(origin, store, api) { now }
+                SelfServiceRollover(coordinator) { coordinator.startCollection() }
+            },
         )
+        runtime.setStateListener {}
 
         assertFalse(runtime.readerDiscoveryEnabled)
         assertFalse(runCatching(runtime::discoverReaders).isSuccess)
@@ -72,8 +83,16 @@ class N6ExplicitSequenceTest {
         runtime.startCollection()
 
         assertEquals(listOf("retrieve:secret_transient", "collect:pi_same", "confirm:pi_same"), terminal.operations)
-        assertEquals("pi_same", store.state.attempt?.paymentIntentId)
+        assertTrue(store.writes.any { it.attempt?.paymentIntentId == "pi_same" })
         assertTrue(store.writes.none { it.toString().contains("secret_transient") })
+        assertEquals(null, store.state.attempt)
+        assertFalse(runtime.attemptStartEnabled)
+
+        runtime.lookupStudent("+15550000001")
+        runtime.confirmSelectedStudent()
+        assertTrue(runtime.attemptStartEnabled)
+        runtime.beginAttempt()
+        assertEquals(2, api.issued)
         assertEquals(1, api.prepares)
     }
 
