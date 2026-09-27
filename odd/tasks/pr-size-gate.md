@@ -25,3 +25,4 @@ Enforce a 400 changed-line review budget for pull requests targeting `main` or `
 - Current GitHub token scopes: `gist`, `read:org`, `repo`; `workflow` is missing.
 - Work branch: `ci/pr-size-gate` in `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/pr-size-gate`.
 - Independent verification: YAML parsed; 400 passed; 401, missing metadata, and invalid metadata failed; no bypass/write permissions; existing CI unchanged; whitespace checks passed.
+- Work-unit commit: `ebfdcd2` (`ci: enforce 400-line pull request limit`).
