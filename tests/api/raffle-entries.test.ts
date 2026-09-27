@@ -32,6 +32,8 @@ const postEntry = (body: unknown, headers: Record<string, string> = {}) =>
 
 describe("POST /api/raffle/[slug]/entries", () => {
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"))
     mockPrisma.raffleEvent.findUnique.mockReset()
     mockPrisma.raffleEvent.findUnique.mockResolvedValue(OPEN_EVENT)
     mockPrisma.raffleEntry.create.mockReset()
@@ -40,6 +42,7 @@ describe("POST /api/raffle/[slug]/entries", () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     delete process.env.ENABLE_RATE_LIMIT_IN_TESTS
   })
 
