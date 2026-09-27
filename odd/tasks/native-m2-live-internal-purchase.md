@@ -76,7 +76,7 @@ Only this worktree is writable. No staging, commits, push, review lifecycle, dep
   - [x] The replacement chain was rebuilt as 24 ordered, compile-safe source/test/documentation slices; every immediate-parent diff is at most 400 changed lines.
   - [x] The reconstructed replacement tree preserves all committed feature behavior and keeps code/tests uncompressed.
   - [x] Replacement child PRs #512–#535 were published under tracker #497 with exact immediate-parent topology, approved issue #427 linkage, one `type:*` label each, no `size:exception` labels, and observed budgets from 116 to 387 changed lines.
-  - [ ] GitHub checks must pass across the complete replacement chain before review or integration proceeds.
+  - [x] GitHub checks passed across PRs #512–#535: JavaScript/TypeScript analysis, CodeQL, Vercel, and Vercel Preview Comments all succeeded with no pending or failed checks at verification time.
 - [ ] T7b — Later explicit approvals: runtime credentials/assignments, deployment, activation and physical validation. No payment readiness claim.
 
 ## Retained backend verification history
