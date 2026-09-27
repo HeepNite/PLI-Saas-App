@@ -32,6 +32,7 @@ export type EnrollmentOption = {
 export type CourseData = {
   slug: string
   title: string
+  category?: string | null
   description: string
   level: "Beginner" | "Intermediate" | "Advanced"
   duration: string
