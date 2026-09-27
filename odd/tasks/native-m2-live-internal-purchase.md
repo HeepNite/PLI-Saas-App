@@ -75,7 +75,7 @@ Only this worktree is writable. No staging, commits, push, review lifecycle, dep
   - [x] Oversized child PRs #498–#505 were closed after establishing 400 changed lines as a hard per-PR cap; `size:exception` is not permitted for this delivery.
   - [x] The replacement chain was rebuilt as 24 ordered, compile-safe source/test/documentation slices; every immediate-parent diff is at most 400 changed lines.
   - [x] The reconstructed replacement tree preserves all committed feature behavior and keeps code/tests uncompressed.
-  - [x] Replacement child PRs #512–#535 were published under tracker #497 with exact immediate-parent topology, approved issue #427 linkage, one `type:*` label each, no `size:exception` labels, and observed budgets from 115 to 387 changed lines.
+  - [x] Replacement child PRs #512–#535 were published under tracker #497 with exact immediate-parent topology, approved issue #427 linkage, one `type:*` label each, no `size:exception` labels, and observed budgets from 116 to 387 changed lines.
   - [ ] GitHub checks must pass across the complete replacement chain before review or integration proceeds.
 - [ ] T7b — Later explicit approvals: runtime credentials/assignments, deployment, activation and physical validation. No payment readiness claim.
 
