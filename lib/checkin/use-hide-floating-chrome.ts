@@ -18,6 +18,9 @@ import { detectQrFlow } from "./qr-flow"
  *
  * Reactive via a MutationObserver on `body`'s style attribute + route changes.
  */
+export const shouldHideFloatingChromeForPath = (pathname: string | null | undefined) =>
+  pathname?.replace(/\/+$/, "") === "/booking"
+
 export function useHideFloatingChrome(): boolean {
   const pathname = usePathname()
   const [hidden, setHidden] = useState(false)
@@ -25,7 +28,7 @@ export function useHideFloatingChrome(): boolean {
   useEffect(() => {
     const check = () => {
       const bodyScrollLocked = document.body.style.overflow === "hidden"
-      setHidden(detectQrFlow() || bodyScrollLocked)
+      setHidden(shouldHideFloatingChromeForPath(pathname) || detectQrFlow() || bodyScrollLocked)
     }
     check()
     const observer = new MutationObserver(check)

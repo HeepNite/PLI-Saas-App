@@ -199,6 +199,7 @@ const mapCatalogRowToCourseData = (
   return {
     slug: row.slug,
     title: row.title || base?.title || "Course",
+    category: row.category,
     description: row.description || base?.description || "Course details coming soon.",
     level: toLevel(row.level, base?.level || "Beginner"),
     duration: durationValue,
