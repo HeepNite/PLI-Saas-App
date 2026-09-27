@@ -70,6 +70,12 @@ Only this worktree is writable. No staging, commits, push, review lifecycle, dep
   - [x] Stripe Terminal integration `59fa1b6` approved and acknowledged in lineage `review-b4441cfd283e76e4` after correction commit `c4e72261`: network completion and final state notifications use the UI dispatcher; fresh server-Paid-only rollover clears the completed local context, requires a new student selection, and needs no front-desk per-sale enablement. Focused tests passed.
   - [x] Guarded operator flow `9455e4e` approved and acknowledged in lineage `review-007e8948e35a46d7` after correction commit `059f924`: lookup requests are serialized, prior confirmation is cleared immediately, and stale callbacks cannot restore an obsolete student. The focused `OperatorRuntimeTest` suite passed. Informational follow-ups remain for discovery gating, duplicate async actions, legacy BLE permission declaration, and defensive lookup exception handling.
 - [x] R2 — Cumulative corrected feature tree passed 75/75 JVM/Robolectric tests, `assembleDebug`, `assembleDebugAndroidTest`, and `git diff --check`; no device, BLE, install, provider, database, deployment, or LIVE operation ran.
+- [ ] R3 — Publish the approved issue #427 feature-branch chain without deploying or merging.
+  - [x] Draft/no-merge tracker PR #497 targets `main`.
+  - [x] Child PRs #498–#505 preserve the ordered contract, backend binding, fulfillment/reversal, Android foundation, durable state, reader lifecycle, Stripe integration, and operator-flow slices.
+  - [x] Every child targets its immediate parent, links issue #427, has exactly one `type:*` label, and carries an explicit `size:exception` after one cohesive slicing pass.
+  - [x] The reconstructed chain matches all 48 committed feature paths byte-for-byte and passed 75/75 JVM/Robolectric tests, both debug APK assemblies, and `git diff --check` on current `main`.
+  - [ ] GitHub checks: CodeQL and JavaScript/TypeScript analysis passed; Vercel remains pending on PRs #499–#505 at last observation.
 - [ ] T7b — Later explicit approvals: runtime credentials/assignments, deployment, activation and physical validation. No payment readiness claim.
 
 ## Retained backend verification history
