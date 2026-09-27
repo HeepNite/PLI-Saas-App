@@ -123,10 +123,84 @@ export const syncPackagePurchaseFromPaidPurchase = async (input: {
     })
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error
-    const replayed = await db.packagePurchase.findUnique({ where: { purchaseId: input.purchaseId } })
+    // P2002 aborts a PostgreSQL interactive transaction. Recover through the
+    // root client rather than issuing any command on the failed transaction.
+    const replayed = await prisma.packagePurchase.findUnique({ where: { purchaseId: input.purchaseId } })
     if (!replayed) throw error
     return replayed
   }
+}
+
+const INTERNAL_GENERAL_CREDIT_PACKAGE_ID = "pli-internal-general-class-credit-v1"
+
+type InternalCreditRevocationResult = "revoked" | "already-revoked" | "not-materialized" | "manual-resolution"
+
+type LinkedPackagePurchase = { purchaseId: string | null }
+
+// A linked Purchase is the financial authority for a package credit. The
+// guarded no-op update both verifies paid eligibility and serializes against a
+// concurrent reversal tombstone for the surrounding transaction. Packages
+// without a linked Purchase retain their existing non-Stripe behavior.
+export const guardPackagePurchaseEligibleForCreditTx = async (
+  tx: PrismaTx,
+  packagePurchase: LinkedPackagePurchase,
+) => {
+  if (!packagePurchase.purchaseId) return true
+  const guarded = await tx.purchase.updateMany({
+    where: { id: packagePurchase.purchaseId, status: "paid" },
+    data: { status: "paid" },
+  })
+  return guarded.count === 1
+}
+
+const isInternalOneCreditPackage = (packagePurchase: {
+  purchaseId: string | null
+  userId: string
+  packageId: string
+  isUnlimited: boolean
+  totalCredits: number | null
+}, input: { purchaseId: string; userId: string }) =>
+  packagePurchase.purchaseId === input.purchaseId &&
+  packagePurchase.userId === input.userId &&
+  packagePurchase.packageId === INTERNAL_GENERAL_CREDIT_PACKAGE_ID &&
+  packagePurchase.isUnlimited === false &&
+  packagePurchase.totalCredits === 1
+
+// This operates inside the caller's transaction. It preserves the financial and
+// usage records: status is the only state changed after all unused-credit guards hold.
+export const revokeUnusedInternalPackagePurchaseTx = async (
+  tx: PrismaTx,
+  input: { purchaseId: string; userId: string },
+): Promise<InternalCreditRevocationResult> => {
+  const packagePurchase = await tx.packagePurchase.findUnique({ where: { purchaseId: input.purchaseId } })
+  if (!packagePurchase) return "not-materialized"
+  if (!isInternalOneCreditPackage(packagePurchase, input)) return "manual-resolution"
+
+  if (packagePurchase.status === "revoked") return "already-revoked"
+  if (packagePurchase.status !== "active" || packagePurchase.remainingCredits !== 1) return "manual-resolution"
+
+  const usage = await tx.packageUsageLedger.findFirst({ where: { packagePurchaseId: packagePurchase.id } })
+  if (usage) return "manual-resolution"
+
+  const revoked = await tx.packagePurchase.updateMany({
+    where: {
+      id: packagePurchase.id,
+      purchaseId: input.purchaseId,
+      userId: input.userId,
+      packageId: INTERNAL_GENERAL_CREDIT_PACKAGE_ID,
+      status: "active",
+      isUnlimited: false,
+      totalCredits: 1,
+      remainingCredits: 1,
+    },
+    data: { status: "revoked" },
+  })
+  if (revoked.count === 1) return "revoked"
+
+  const afterGuard = await tx.packagePurchase.findUnique({ where: { purchaseId: input.purchaseId } })
+  return afterGuard && isInternalOneCreditPackage(afterGuard, input) && afterGuard.status === "revoked"
+    ? "already-revoked"
+    : "manual-resolution"
 }
 
 export const consumePackageCreditForAttendance = async (input: {
@@ -175,39 +249,30 @@ export const consumePackageCreditForAttendance = async (input: {
   if (!selected) return { packagePurchase: null, usage: null, consumed: false }
 
   for (const candidate of ordered) {
-    if (candidate.isUnlimited && candidate.remainingCredits == null) {
-      try {
-        const usage = await prisma.packageUsageLedger.create({
-          data: {
-            packagePurchaseId: candidate.id,
-            userId: input.userId,
-            attendanceId: input.attendanceId,
-            delta: 0,
-            reason: "CHECKIN_UNLIMITED",
-            meta: { courseSlug: input.courseSlug || null },
-          },
-        })
-        return { packagePurchase: candidate, usage, consumed: false }
-      } catch (error) {
-        if (!isUniqueConstraintError(error)) throw error
-        const usage = await prisma.packageUsageLedger.findUnique({
-          where: { attendanceId: input.attendanceId },
-        })
-        if (!usage) throw error
-        const linkedPackage = await prisma.packagePurchase.findUnique({
-          where: { id: usage.packagePurchaseId },
-        })
-        return {
-          packagePurchase: linkedPackage,
-          usage,
-          consumed: usage.delta < 0,
-        }
-      }
-    }
-
     try {
       const transactionResult = await prisma.$transaction(async (tx) => {
+        if (!await guardPackagePurchaseEligibleForCreditTx(tx, candidate)) return null
+
+        if (candidate.isUnlimited && candidate.remainingCredits == null) {
+          const usage = await tx.packageUsageLedger.create({
+            data: {
+              packagePurchaseId: candidate.id,
+              userId: input.userId,
+              attendanceId: input.attendanceId,
+              delta: 0,
+              reason: "CHECKIN_UNLIMITED",
+              meta: { courseSlug: input.courseSlug || null },
+            },
+          })
+          const updatedPackage = await tx.packagePurchase.update({
+            where: { id: candidate.id },
+            data: { lastUsedAt: now },
+          })
+          return { updatedPackage, usage }
+        }
+
         const decremented = await tx.packagePurchase.updateMany({
+
           where: {
             id: candidate.id,
             status: "active",
@@ -253,7 +318,7 @@ export const consumePackageCreditForAttendance = async (input: {
       return {
         packagePurchase: transactionResult.updatedPackage,
         usage: transactionResult.usage,
-        consumed: true,
+        consumed: transactionResult.usage.delta < 0,
       }
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error
@@ -312,6 +377,10 @@ export const reservePackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
 
   if (!selectedPackage) {
     throw new Error("PACKAGE_NOT_AVAILABLE")
+  }
+
+  if (!await guardPackagePurchaseEligibleForCreditTx(tx, selectedPackage)) {
+    throw new Error("PACKAGE_PURCHASE_INELIGIBLE")
   }
 
   if (selectedPackage.isUnlimited && selectedPackage.remainingCredits == null) {
