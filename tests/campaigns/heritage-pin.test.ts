@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest"
 import {
   HERITAGE_PIN_CAMPAIGN_KEY,
+  buildDeliveredHeritagePinMetadata,
+  buildPendingHeritagePinMetadata,
   getHeritagePinCampaignConfig,
   getHeritagePinDateKey,
   isHeritagePinAcquisitionDate,
   isHeritagePinBenefitClassDate,
   normalizeHeritagePinCountryCode,
+  parseHeritagePinEntitlement,
+  resolveHeritagePinAwardCountry,
   resolveHeritagePinPrice,
+  selectHeritagePinEntitlement,
 } from "@/lib/campaigns/heritage-pin"
+import { buildHeritagePinEntitlementsByUser } from "@/lib/campaigns/heritage-pin-entitlement"
 
 describe("Heritage Pin campaign", () => {
   it("uses bounded defaults and accepts a safe first-week-of-November extension", () => {
@@ -64,18 +70,37 @@ describe("Heritage Pin campaign", () => {
     expect(normalizeHeritagePinCountryCode("ZZ")).toBeNull()
   })
 
+  it("admits only a valid public-booking award intent settled inside the acquisition window", () => {
+    expect(resolveHeritagePinAwardCountry({
+      heritagePinIntent: HERITAGE_PIN_CAMPAIGN_KEY,
+      heritagePinCountryCode: "co",
+      heritagePinSource: "public_booking",
+    }, new Date("2026-10-05T14:00:00.000Z"))).toBe("CO")
+    expect(resolveHeritagePinAwardCountry({
+      heritagePinIntent: HERITAGE_PIN_CAMPAIGN_KEY,
+      heritagePinCountryCode: "CO",
+      heritagePinSource: "public_booking",
+    }, new Date("2026-11-05T14:00:00.000Z"))).toBeNull()
+    expect(resolveHeritagePinAwardCountry({
+      heritagePinIntent: HERITAGE_PIN_CAMPAIGN_KEY,
+      heritagePinCountryCode: "CO",
+      heritagePinSource: "kiosk",
+    }, new Date("2026-10-05T14:00:00.000Z"))).toBeNull()
+  })
+
   it("applies the fixed price only to a delivered holder's non-stacked Sunday or Monday drop-in", () => {
-    const delivered = {
-      campaign: HERITAGE_PIN_CAMPAIGN_KEY,
-      sourcePurchaseId: "source",
-      countryCode: "CO",
-      countryName: "Colombia",
-      status: "delivered" as const,
-      earnedAt: "2026-10-01T12:00:00.000Z",
-      deliveredAt: "2026-10-02T12:00:00.000Z",
-      deliveredBy: "staff_1",
-      source: "public_booking" as const,
-    }
+    const delivered = parseHeritagePinEntitlement({
+      id: "source",
+      metadata: {
+        heritagePinCampaign: HERITAGE_PIN_CAMPAIGN_KEY,
+        heritagePinCountryCode: "CO",
+        heritagePinStatus: "delivered",
+        heritagePinEarnedAt: "2026-10-01T12:00:00.000Z",
+        heritagePinDeliveredAt: "2026-10-02T12:00:00.000Z",
+        heritagePinDeliveredBy: "staff_1",
+        heritagePinSource: "public_booking",
+      },
+    })
     const base = {
       entitlement: delivered,
       classDate: "2026-10-04",
@@ -90,11 +115,80 @@ describe("Heritage Pin campaign", () => {
 
     expect(resolveHeritagePinPrice(base)).toMatchObject({ applied: true, amountCents: 1500 })
     expect(resolveHeritagePinPrice({ ...base, classDate: "2026-10-06" })).toMatchObject({ applied: false, reason: "date_ineligible" })
-    expect(resolveHeritagePinPrice({ ...base, entitlement: { ...delivered, status: "pending" } })).toMatchObject({ applied: false, reason: "pin_pending" })
+    expect(resolveHeritagePinPrice({ ...base, entitlement: { ...delivered!, status: "pending" } })).toMatchObject({ applied: false, reason: "pin_pending" })
     expect(resolveHeritagePinPrice({ ...base, coupon: "PLI10" })).toMatchObject({ applied: false, reason: "promotion_conflict" })
     expect(resolveHeritagePinPrice({ ...base, packageId: "pack" })).toMatchObject({ applied: false, reason: "not_single_drop_in" })
     expect(resolveHeritagePinPrice({ ...base, serviceId: "new-student" })).toMatchObject({ applied: false, reason: "promotion_conflict" })
     expect(resolveHeritagePinPrice({ ...base, participants: 2 })).toMatchObject({ applied: false, reason: "not_single_drop_in" })
   })
 
+  it("builds pending metadata without clobbering unrelated purchase fields", () => {
+    expect(buildPendingHeritagePinMetadata(
+      { paymentChannel: "card", stripeFailure: { code: "old" } },
+      { countryCode: "mx", earnedAt: new Date("2026-10-05T14:00:00.000Z") },
+    )).toMatchObject({
+      paymentChannel: "card",
+      stripeFailure: { code: "old" },
+      heritagePinCampaign: HERITAGE_PIN_CAMPAIGN_KEY,
+      heritagePinCountryCode: "MX",
+      heritagePinStatus: "pending",
+      heritagePinSource: "public_booking",
+    })
+  })
+
+  it("marks a pending entitlement delivered while preserving metadata", () => {
+    const pending = buildPendingHeritagePinMetadata(
+      { paymentChannel: "card" },
+      { countryCode: "AR", earnedAt: new Date("2026-10-02T14:00:00.000Z") },
+    )
+    const delivered = buildDeliveredHeritagePinMetadata(pending, {
+      deliveredAt: new Date("2026-10-04T21:00:00.000Z"),
+      deliveredBy: "staff_123",
+    })
+    expect(delivered).toMatchObject({
+      paymentChannel: "card",
+      heritagePinStatus: "delivered",
+      heritagePinDeliveredBy: "staff_123",
+      heritagePinDeliveredAt: "2026-10-04T21:00:00.000Z",
+    })
+  })
+
+  it("fails closed for malformed delivered metadata", () => {
+    expect(parseHeritagePinEntitlement({
+      id: "purchase_bad",
+      metadata: {
+        heritagePinCampaign: HERITAGE_PIN_CAMPAIGN_KEY,
+        heritagePinCountryCode: "CO",
+        heritagePinStatus: "delivered",
+        heritagePinEarnedAt: "2026-10-02T14:00:00.000Z",
+        heritagePinSource: "public_booking",
+      },
+    })).toBeNull()
+  })
+
+  it("selects a delivered entitlement over duplicate pending metadata", () => {
+    const pending = buildPendingHeritagePinMetadata({}, {
+      countryCode: "CO",
+      earnedAt: new Date("2026-10-01T14:00:00.000Z"),
+    })
+    const delivered = buildDeliveredHeritagePinMetadata(pending, {
+      deliveredAt: new Date("2026-10-03T14:00:00.000Z"),
+      deliveredBy: "staff_1",
+    })
+    expect(selectHeritagePinEntitlement([
+      { id: "pending-copy", metadata: pending },
+      { id: "source", metadata: delivered },
+    ])).toMatchObject({ sourcePurchaseId: "source", status: "delivered", countryCode: "CO" })
+  })
+
+  it("builds one resolved entitlement per user", () => {
+    const metadata = buildPendingHeritagePinMetadata({}, {
+      countryCode: "DO",
+      earnedAt: new Date("2026-10-01T14:00:00.000Z"),
+    })
+    expect(buildHeritagePinEntitlementsByUser([
+      { id: "p1", userId: "u1", metadata, createdAt: "2026-10-01T14:00:00.000Z" },
+      { id: "p2", userId: "u2", metadata: {}, createdAt: "2026-10-01T14:00:00.000Z" },
+    ]).get("u1")).toMatchObject({ countryCode: "DO", status: "pending" })
+  })
 })
