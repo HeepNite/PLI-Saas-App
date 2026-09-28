@@ -40,12 +40,14 @@
 
 ## Work Unit 5 — Validation
 
-- [ ] Run all focused campaign/domain/API/component tests.
-- [ ] Run booking and relevant check-in E2E/browser checks.
-- [ ] Verify desktop and 390px branded flow.
-- [ ] Run typecheck and scoped lint.
-- [ ] Run the broader affected test suite required by observed risk.
-- [ ] Record failures, skips, pre-existing drift, and final evidence.
+- [x] Run all focused campaign/domain/API/component tests.
+- [x] Run booking and relevant check-in E2E/browser checks.
+- [x] Verify desktop and 390px branded flow.
+- [x] Run typecheck and scoped lint.
+- [x] Run the broader affected test suite required by observed risk.
+- [x] Record failures, skips, pre-existing drift, and final evidence.
+
+Available validation is green: 3,485 non-integration tests, typecheck, ESLint with zero errors, isolated-port Playwright, and desktop/mobile inspection. Seven unrelated PostgreSQL integration suites remain blocked because this worktree has no `DATABASE_URL`; the attempted full run otherwise reported 3,506 passing tests and 41 skips. Delivery slicing remains required before PR creation.
 
 ## Delivery Notes
 

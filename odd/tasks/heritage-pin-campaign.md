@@ -45,9 +45,11 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Preserved card/cash choices and campaign pricing for validated in-studio kiosk sessions.
   - Evidence: commits `ece7638` and `ae9cf07`; 100 focused tests and `npm run typecheck` passed; scoped ESLint had no errors.
 - [ ] 5. Verify campaign behavior and regressions.
-  - Cover date boundaries, extension configuration, one-pin semantics, pending/delivered transitions, country persistence, pricing, non-stacking, payment-channel gating, branding, and no-flash behavior.
-  - Run focused tests, typecheck, lint, and relevant E2E/browser checks.
-  - Evidence: pending.
+  - Covered date boundaries, extension configuration, one-pin semantics, pending/delivered transitions, country persistence, pricing, non-stacking, payment-channel gating, branding, and the no-flash handoff.
+  - Available checks passed: 3,485 non-integration tests across 373 files, `npm run typecheck`, full ESLint with 0 errors (114 repository warnings), isolated-port Playwright, and desktop/390px browser inspection.
+  - Blocked check: seven unrelated PostgreSQL integration suites require a missing `DATABASE_URL`; the full run otherwise recorded 3,506 passing tests and 41 skips.
+  - Native review did not start: the provider returned an immediate expired consent binding twice and created no lineage. The accumulated branch is also above one review slice and must be split before delivery.
+  - Evidence: pending database-backed integration run and reviewable delivery slicing.
 
 ## Constraints
 
