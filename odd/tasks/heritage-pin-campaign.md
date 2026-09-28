@@ -33,11 +33,11 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Serialized entitlement award by user, derived pending/delivered state, and enforced one-pin semantics.
   - Added staff aggregation, distinct country-pin badges, and an authorized, audited, idempotent delivery action.
   - Evidence: commits `15814400f17933fbeda26c470518bb647537489a`, `2ba1f7ecfd4268f0371d1d29c0994b971039e972`, and `83ff395c5e077b1f62c4bc379f9ef3707e0ea39f`; 166 focused tests passed, `npm run typecheck` passed, scoped ESLint passed, and `git diff --check` passed.
-- [x] 3. Build the branded campaign booking journey.
-  - Added the real-pin campaign announcement, searchable country step, and deterministic graphite-ring flag-pin BOOK controls with accessible motion behavior.
-  - Preserved selected country and occurrence context through registration/sign-in and hosted checkout.
-  - Replaced the breakpoint-specific generic course transition with a branded PLI booking shell and branded boot overlay on every viewport.
-  - Evidence: commits `9fb20d5b` and `c07f020e`; 103 focused tests passed, `npm run typecheck` passed, scoped ESLint had no errors, Playwright passed on an isolated port, and desktop/390px booking plus country-dialog screenshots were inspected.
+- [x] 3. Refine the branded campaign booking journey.
+  - Replaced the dense photo banner with a compact image-free heading using only `¡Feliz Mes de la Herencia Latina!` and `Your country. Your community.`.
+  - Moved the richer promotion into a concise flag-collage dialog shown after ten seconds at most once per session, without interrupting country selection.
+  - Preserved selected country/occurrence context, deterministic graphite-ring flag-pin BOOK controls, and the branded no-flash handoff.
+  - Evidence: commits `9fb20d5b`, `c07f020e`, and `153cac72`; 62 focused tests, typecheck, scoped ESLint, and isolated-port Playwright passed; refreshed header, popup, and close-up flag-button screenshots were inspected.
 - [x] 4. Enforce payment and promotional pricing rules.
   - Derived delivered entitlement from persisted identity/purchase data and normalized eligible Stripe and kiosk cash checkouts to exactly US$15.
   - Excluded pending pins, ineligible dates, multiple participants, packages, coupons, add-ons, new-student pricing, and consecutive offers.
