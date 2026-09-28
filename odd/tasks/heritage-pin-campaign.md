@@ -33,11 +33,11 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Serialized entitlement award by user, derived pending/delivered state, and enforced one-pin semantics.
   - Added staff aggregation, distinct country-pin badges, and an authorized, audited, idempotent delivery action.
   - Evidence: commits `15814400f17933fbeda26c470518bb647537489a`, `2ba1f7ecfd4268f0371d1d29c0994b971039e972`, and `83ff395c5e077b1f62c4bc379f9ef3707e0ea39f`; 166 focused tests passed, `npm run typecheck` passed, scoped ESLint passed, and `git diff --check` passed.
-- [ ] 3. Build the branded campaign booking journey.
-  - Add the campaign announcement/country step for qualifying booking attempts.
-  - Preserve the selected occurrence, PLI logo, campaign summary, and class details.
-  - Remove the intermediate course/home flash on the booking handoff.
-  - Evidence: pending.
+- [x] 3. Build the branded campaign booking journey.
+  - Added the real-pin campaign announcement, searchable country step, and deterministic graphite-ring flag-pin BOOK controls with accessible motion behavior.
+  - Preserved selected country and occurrence context through registration/sign-in and hosted checkout.
+  - Replaced the breakpoint-specific generic course transition with a branded PLI booking shell and branded boot overlay on every viewport.
+  - Evidence: commits `9fb20d5b` and `c07f020e`; 103 focused tests passed, `npm run typecheck` passed, scoped ESLint had no errors, Playwright passed on an isolated port, and desktop/390px booking plus country-dialog screenshots were inspected.
 - [ ] 4. Enforce payment and promotional pricing rules.
   - Require card/wallet for remote personal web booking.
   - Retain cash only for trusted kiosk terminal/session flows.

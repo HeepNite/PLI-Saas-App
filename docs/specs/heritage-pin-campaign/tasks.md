@@ -21,12 +21,12 @@
 
 ## Work Unit 3 — Branded booking journey
 
-- [ ] Add campaign announcement and country-selection interaction to `/booking`.
-- [ ] Carry campaign context through the existing QR booking handoff.
-- [ ] Replace generic QR-course transition/layout with a branded booking shell on every viewport.
-- [ ] Keep logo, selected course, date, time, and campaign summary visible.
-- [ ] Preserve registration, verification, Stripe, sign-in, cancel, and profile redirect behavior.
-- [ ] Add component and browser coverage.
+- [x] Add campaign announcement and country-selection interaction to `/booking`.
+- [x] Carry campaign context through the existing QR booking handoff.
+- [x] Replace generic QR-course transition/layout with a branded booking shell on every viewport.
+- [x] Keep logo, selected course, date, time, and campaign summary visible.
+- [x] Preserve registration, verification, Stripe, sign-in, cancel, and profile redirect behavior.
+- [x] Add component and browser coverage.
 
 ## Work Unit 4 — Payment and price enforcement
 
