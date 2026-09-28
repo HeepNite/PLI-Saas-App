@@ -25,6 +25,7 @@ import {
 } from "@/app/api/staff/payments/shared"
 
 import { ATTENDED_CHECKIN_STATUSES, TODAY_CHECKIN_STATUSES } from "@/lib/attendance-constants"
+import { buildHeritagePinEntitlementsByUser } from "@/lib/campaigns/heritage-pin-entitlement"
 
 export const runtime = "nodejs"
 
@@ -518,6 +519,7 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
   ])
 
   const lastSuccessfulPaymentByUser = buildLastSuccessfulPaymentByUser(purchases)
+  const heritagePinByUser = buildHeritagePinEntitlementsByUser(purchases)
   const latestPurchaseByUser = buildLatestPurchaseByUser(purchases)
   const latestPendingProcessablePurchaseByUser = buildLatestPendingProcessablePurchaseByUser(purchases)
   const latestOpenPurchaseByUser = buildLatestOpenPurchaseByUser(purchases)
@@ -607,6 +609,7 @@ const buildStudentProfileCards = async (users: MatchedUser[]): Promise<StudentPr
       remainingCredits: activePackage?.remainingCredits ?? null,
       outstandingBalance: typeof outstandingBalance === "number" && outstandingBalance > 0 ? outstandingBalance : null,
       pinStatus,
+      heritagePin: heritagePinByUser.get(user.id) || null,
       cashSettlement: latestPendingProcessablePurchase
         ? {
             paymentId: latestPendingProcessablePurchase.id,

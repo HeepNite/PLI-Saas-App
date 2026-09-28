@@ -114,6 +114,21 @@ export const resolvePackageBadge = (activePackage: PackageBadgeInput) => {
 
 export const resolveProfileCardBadges = (student: StudentProfileCard) => {
   const details = resolveProfileCardDetails(student)
+  const heritagePinBadge: ProfileBadge[] = student.heritagePin
+    ? [{
+        key: "heritage-pin",
+        label: student.heritagePin.status === "delivered"
+          ? `Heritage pin · ${student.heritagePin.countryName}`
+          : `Country pin pending · ${student.heritagePin.countryName}`,
+        tone: student.heritagePin.status === "delivered"
+          ? "border-[var(--brand,#b61616)]/55 bg-[var(--brand,#b61616)]/18 text-white"
+          : "border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 text-red-100",
+        title: student.heritagePin.status === "delivered" && student.heritagePin.deliveredAt
+          ? `Delivered ${formatStudentPaymentCardDateTimeLabel(student.heritagePin.deliveredAt)}`
+          : "Physical pin awaiting staff handoff",
+      }]
+    : []
+
   return [
     {
       key: "points",
@@ -135,6 +150,7 @@ export const resolveProfileCardBadges = (student: StudentProfileCard) => {
       key: "package",
       ...resolvePackageBadge(student.activePackage),
     },
+    ...heritagePinBadge,
   ] satisfies ProfileBadge[]
 }
 
