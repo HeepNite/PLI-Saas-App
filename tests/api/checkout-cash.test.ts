@@ -10,6 +10,8 @@ const mockClearPreparedCheckout = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
 const mockPurchaseCreate = vi.fn()
 const mockAdmitSpecialClassCashWalkIn = vi.fn()
+const mockFindHeritagePinEntitlement = vi.fn()
+const mockAuthorizeStaffTerminalSession = vi.fn()
 
 const mockDayOfWeekFindUnique = vi.fn()
 const mockDayOfWeekCreate = vi.fn()
@@ -51,6 +53,14 @@ vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
 }))
 
+vi.mock("@/lib/security/staff-terminal", () => ({
+  authorizeStaffTerminalSession: (...args: unknown[]) => mockAuthorizeStaffTerminalSession(...args),
+}))
+
+vi.mock("@/lib/campaigns/heritage-pin-entitlement", () => ({
+  findHeritagePinEntitlementForUser: (...args: unknown[]) => mockFindHeritagePinEntitlement(...args),
+}))
+
 vi.mock("@/lib/special-classes/fulfillment", () => ({
   admitSpecialClassCashWalkIn: (...args: unknown[]) => mockAdmitSpecialClassCashWalkIn(...args),
 }))
@@ -65,6 +75,10 @@ describe("checkout cash route", () => {
     mockPrisma.purchase.findFirst.mockReset()
     mockPrisma.purchase.create.mockReset()
     mockAdmitSpecialClassCashWalkIn.mockReset()
+    mockFindHeritagePinEntitlement.mockReset()
+    mockFindHeritagePinEntitlement.mockResolvedValue(null)
+    mockAuthorizeStaffTerminalSession.mockReset()
+    mockAuthorizeStaffTerminalSession.mockResolvedValue({ ok: false, reason: "missing_session" })
     mockPrisma.$transaction.mockClear()
     mockDayOfWeekFindUnique.mockReset()
     mockDayOfWeekCreate.mockReset()
@@ -167,6 +181,114 @@ describe("checkout cash route", () => {
         },
       },
     })
+  })
+
+  it("rejects remote cash when no authorized terminal session was resolved", async () => {
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({
+      source: "fallback",
+      terminalAuth: null,
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: "user_123",
+        clerkUser: null,
+        resolvedUserId: "user_123",
+        identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+        account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+      },
+    })
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoContext: "qr_phone" }),
+    }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("authorized studio terminal") })
+    expect(mockUpsertUser).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("does not trust a caller-provided kiosk context without a valid terminal session", async () => {
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({
+      source: "fallback",
+      terminalAuth: null,
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: "user_123",
+        clerkUser: null,
+        resolvedUserId: "user_123",
+        identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+        account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+      },
+    })
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoContext: "kiosk_terminal" }),
+    }))
+
+    expect(response.status).toBe(403)
+    expect(mockAuthorizeStaffTerminalSession).toHaveBeenCalledTimes(1)
+    expect(mockUpsertUser).not.toHaveBeenCalled()
+  })
+
+  it("charges the delivered-holder Heritage price in a trusted kiosk cash flow", async () => {
+    mockValidate.mockResolvedValueOnce({
+      courseSlug: "salsa-feminine-morning",
+      courseTitle: "Salsa feminine style (morning)",
+      amountInt: 2000,
+      currency: "usd",
+      date: "2026-10-04",
+      time: "11:00",
+      packageId: "",
+      serviceId: "dropin",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      packageTotalCredits: null,
+      packageIsUnlimited: false,
+      packageCadence: "",
+      packageMakeUps: 0,
+      packageValidDays: 180,
+      pkg: null,
+      consecutivePriceCents: null,
+      consecutiveLinkedCourseSlug: null,
+      consecutiveCourseTitle: null,
+      consecutiveLinkedCourseTime: null,
+      consecutiveAddOnOnly: false,
+      linkedFromCourseSlug: null,
+    })
+    mockFindHeritagePinEntitlement.mockResolvedValueOnce({
+      campaign: "latin-heritage-2026",
+      sourcePurchaseId: "pin_purchase_1",
+      countryCode: "CO",
+      countryName: "Colombia",
+      status: "delivered",
+      earnedAt: "2026-10-01T12:00:00.000Z",
+      deliveredAt: "2026-10-02T12:00:00.000Z",
+      deliveredBy: "staff_1",
+      source: "public_booking",
+    })
+
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1" }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        amount: 1500,
+        metadata: expect.objectContaining({
+          heritagePinPriceApplied: true,
+          heritagePinEntitlementPurchaseId: "pin_purchase_1",
+        }),
+      }),
+    }))
   })
 
   it("routes special-class cash checkout to atomic cash admission", async () => {
