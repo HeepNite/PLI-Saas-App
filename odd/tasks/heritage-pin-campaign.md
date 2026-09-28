@@ -24,10 +24,10 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
 
 ## Tasks
 
-- [ ] 1. Specify the campaign contract and architecture boundaries.
-  - Create/update requirements, analysis, resolve, design, and execution tasks under `docs/specs/heritage-pin-campaign/`.
-  - Record eligibility, dates, pricing, entitlement lifecycle, payment-channel boundaries, UI copy, and non-goals.
-  - Evidence: pending.
+- [x] 1. Specify the campaign contract and architecture boundaries.
+  - Created requirements, analysis, resolve, design, and execution tasks under `docs/specs/heritage-pin-campaign/`.
+  - Recorded eligibility, dates, pricing, entitlement lifecycle, payment-channel boundaries, UI copy, and non-goals.
+  - Evidence: commit `6f9b18f9b2b7ad568d524761d16f5612d2ae194c`; `git diff --check` passed and all five spec files were present.
 - [ ] 2. Build the country-pin entitlement lifecycle and staff delivery control.
   - Persist structured country-pin metadata from a qualifying paid purchase without a schema migration.
   - Derive pending/delivered state by user and source purchase.

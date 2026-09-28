@@ -7,7 +7,7 @@
 ## Work Unit 1 — Campaign contract
 
 - [x] Document requirements, current-system analysis, resolved product decisions, architecture, risks, and tests.
-- [ ] Verify spec files agree on acquisition, delivery, pricing, cash boundaries, dates, and branding.
+- [x] Verify spec files agree on acquisition, delivery, pricing, cash boundaries, dates, and branding.
 
 ## Work Unit 2 — Entitlement and staff delivery
 
