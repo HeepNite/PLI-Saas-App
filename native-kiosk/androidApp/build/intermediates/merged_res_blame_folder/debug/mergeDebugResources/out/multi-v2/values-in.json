@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.pli.kiosk.android.androidApp-mergeDebugResources-16:/values-in/values-in.xml",
+            "map": [
+                {
+                    "source": "/Users/marianobarrionuevo/.gradle/caches/8.14.3/transforms/3c5160253d6a94e4d1c9f1732d2ba854/transformed/core-1.13.1/res/values-in/values-in.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "55,150,252,349,446,552,670,785",
+                        "endColumns": "94,101,96,96,105,117,114,100",
+                        "endOffsets": "145,247,344,441,547,665,780,881"
+                    }
+                }
+            ]
+        }
+    ]
+}

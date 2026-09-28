@@ -173,7 +173,7 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     mocks.usersQueryRaw.mockResolvedValue([{ id: "student_1", name: "Test Student" }])
     const response = await request({ action: "student-lookup", phone: "+1 (555) 0101" })
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ student: { id: "student_1", name: "Test Student" } })
+    expect(await response.json()).toEqual({ student: { name: "Test Student" } })
     expect(mocks.usersQueryRaw).toHaveBeenCalledOnce()
     const [sql, canonicalPhone] = mocks.usersQueryRaw.mock.calls[0] as [TemplateStringsArray, string]
     expect(sql.join(" ")).toContain(`regexp_replace("phone", '[^0-9]', '', 'g')`)
