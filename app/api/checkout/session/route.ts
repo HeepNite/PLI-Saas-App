@@ -260,7 +260,7 @@ export async function POST(req: Request) {
   if (bookingSource === "public_booking" && !heritagePinCountryCode) {
     return NextResponse.json({ error: "Select a valid country for the Heritage pin." }, { status: 400 })
   }
-  const heritagePinMetadata = bookingSource === "public_booking" && heritagePinCountryCode
+  const heritagePinMetadata: Record<string, string> = bookingSource === "public_booking" && heritagePinCountryCode
     ? {
         heritagePinIntent: HERITAGE_PIN_CAMPAIGN_KEY,
         heritagePinCountryCode,
