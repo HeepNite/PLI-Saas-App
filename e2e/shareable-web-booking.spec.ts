@@ -69,6 +69,13 @@ test("filters the 90-day schedule and hands a future class to QR booking", async
   await expect(page.getByRole("img", { name: "Palladium Latin Art" })).toBeVisible()
   await expect(page.locator("header").getByText("BOOK", { exact: true })).toHaveCount(0)
   await expect(page.getByRole("heading", { name: "Upcoming classes" })).toBeVisible()
+  await expect(page.getByText("Your country. Your community.").first()).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Your country. Your community." })).toHaveCount(0)
+  await page.clock.fastForward(10_000)
+  await expect(page.getByRole("dialog", { name: "Your country. Your community." })).toBeVisible()
+  await expect(page.getByRole("dialog")).not.toContainText("Pins shown are examples")
+  await page.getByRole("button", { name: "EXPLORE CLASSES" }).click()
+  await expect(page.getByRole("dialog", { name: "Your country. Your community." })).toHaveCount(0)
   await expect(page.getByRole("button", { name: /Home|Back to top/ })).toHaveCount(0)
   await expect(page.locator('a[href="/chat"]')).toHaveCount(0)
 

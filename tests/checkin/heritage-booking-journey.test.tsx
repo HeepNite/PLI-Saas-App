@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   HeritageBookButton,
   HeritageCampaignBanner,
+  HeritageCampaignPromoDialog,
   HeritageCountryDialog,
   countryCodeToFlag,
   getDecorativeBookingFlag,
@@ -50,12 +51,21 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).toContain("Book Salsa Timba")
   })
 
-  it("renders the red PLI campaign message and identifies photographed pins as examples", () => {
+  it("keeps the booking header compact, image-free, and limited to the approved copy", () => {
     const html = renderToStaticMarkup(<HeritageCampaignBanner />)
     expect(html).toContain("¡Feliz Mes de la Herencia Latina!")
-    expect(html).toContain("Your country. Your pin. Your community.")
-    expect(html).toContain("Argentina and Mexico country pins shown as examples")
-    expect(html).toContain("bg-[#b61616]")
+    expect(html).toContain("Your country. Your community.")
+    expect(html).not.toContain("<img")
+    expect(html).not.toContain("Book online")
+  })
+
+  it("uses a concise flag collage in the timed promotion instead of the pin photograph", () => {
+    const html = renderToStaticMarkup(<HeritageCampaignPromoDialog onClose={() => undefined} />)
+    expect(html).toContain("Latin American and Caribbean flags")
+    expect(html).toContain("Book online. Choose your country. Pick up your pin.")
+    expect(html).toContain("$15 Sunday &amp; Monday classes after pickup.")
+    expect(html).not.toContain("heritage-country-pins")
+    expect(html).not.toContain("photograph")
   })
 
   it("lets the visitor search and explicitly select a country before continuing", async () => {

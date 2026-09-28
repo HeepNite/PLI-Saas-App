@@ -1,7 +1,6 @@
 "use client"
 
 import React from "react"
-import Image from "next/image"
 import { Search, X } from "lucide-react"
 import {
   getHeritagePinCountryOptions,
@@ -25,32 +24,68 @@ export const isHeritageCampaignAcquiringNow = () => isHeritagePinAcquisitionDate
 
 export function HeritageCampaignBanner() {
   return (
-    <section className="mb-7 w-full overflow-hidden rounded-[28px] border border-white/12 bg-[#151217] text-left shadow-[0_24px_70px_-42px_rgba(213,31,43,0.8)]">
-      <div className="grid grid-cols-[112px_minmax(0,1fr)] items-stretch sm:grid-cols-[168px_minmax(0,1fr)]">
-        <div className="relative min-h-36 overflow-hidden border-r border-white/10 sm:min-h-44">
-          <Image
-            src="/campaigns/heritage-country-pins.webp"
-            alt="Argentina and Mexico country pins shown as examples"
-            fill
-            sizes="(max-width: 640px) 112px, 168px"
-            className="object-cover"
-            priority
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-[#151217]/45" aria-hidden="true" />
+    <div className="mb-6 text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#ef4b55] sm:text-xs">
+        ¡Feliz Mes de la Herencia Latina!
+      </p>
+      <p className="mt-1 text-sm font-bold text-white/72 sm:text-base">
+        Your country. Your community.
+      </p>
+    </div>
+  )
+}
+
+export function HeritageCampaignPromoDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[12900] flex items-center justify-center bg-black/75 p-5 backdrop-blur-sm" role="presentation">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="heritage-promo-title"
+        className="relative w-full max-w-sm overflow-hidden rounded-[30px] border border-white/12 bg-[#151217] p-6 text-center shadow-[0_30px_90px_-35px_rgba(213,31,43,0.75)]"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close Heritage celebration"
+          className="absolute right-3 top-3 rounded-full border border-white/12 p-2 text-white/55 transition hover:bg-white/10 hover:text-white"
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div className="mx-auto grid w-fit grid-cols-4 gap-2" aria-label="Latin American and Caribbean flags">
+          {DECORATIVE_FLAG_CODES.map((code) => (
+            <span
+              key={code}
+              className="flex h-12 w-12 items-center justify-center rounded-full border-[3px] border-[#74747c] bg-[#24242a] text-2xl shadow-[inset_0_0_0_2px_rgba(255,255,255,0.08),0_6px_16px_rgba(0,0,0,0.4)]"
+              aria-hidden="true"
+            >
+              {countryCodeToFlag(code)}
+            </span>
+          ))}
         </div>
-        <div className="flex min-w-0 flex-col justify-center p-4 sm:p-6">
-          <p className="w-fit rounded-full bg-[#b61616] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.09em] text-white sm:text-xs">
-            ¡Feliz Mes de la Herencia Latina!
-          </p>
-          <p className="mt-3 text-lg font-black leading-tight text-white sm:text-2xl">
-            Your country. Your pin. Your community.
-          </p>
-          <p className="mt-2 text-[11px] leading-relaxed text-white/58 sm:text-xs">
-            Book online during the campaign, choose your country, and collect your pin at the studio. Pins shown are examples; more countries are available.
-          </p>
-        </div>
-      </div>
-    </section>
+
+        <p className="mt-6 text-[10px] font-black uppercase tracking-[0.14em] text-[#ef4b55]">
+          ¡Feliz Mes de la Herencia Latina!
+        </p>
+        <h2 id="heritage-promo-title" className="mt-2 text-2xl font-black leading-tight text-white">
+          Your country. Your community.
+        </h2>
+        <p className="mt-3 text-sm font-semibold text-white/68">
+          Book online. Choose your country. Pick up your pin.
+        </p>
+        <p className="mt-2 text-xs text-white/45">
+          $15 Sunday &amp; Monday classes after pickup.
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-6 h-11 w-full rounded-full bg-[#b61616] text-xs font-black tracking-[0.09em] text-white transition hover:bg-[#d51f2b]"
+        >
+          EXPLORE CLASSES
+        </button>
+      </section>
+    </div>
   )
 }
 

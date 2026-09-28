@@ -8,6 +8,7 @@ import type { CourseData } from "@/constants/courses"
 import {
   HeritageBookButton,
   HeritageCampaignBanner,
+  HeritageCampaignPromoDialog,
   HeritageCountryDialog,
   isHeritageCampaignAcquiringNow,
 } from "@/components/front/booking/HeritageCampaignBooking"
@@ -303,6 +304,8 @@ export default function ShareableBookingPage() {
   const [searchQuery, setSearchQuery] = React.useState("")
   const [navigatingId, setNavigatingId] = React.useState<string | null>(null)
   const [pendingOccurrence, setPendingOccurrence] = React.useState<ShareableBookingOccurrence | null>(null)
+  const [promoOpen, setPromoOpen] = React.useState(false)
+  const pendingOccurrenceRef = React.useRef<ShareableBookingOccurrence | null>(null)
   const navigationStartedRef = React.useRef(false)
   const [requestVersion, setRequestVersion] = React.useState(0)
 
@@ -329,6 +332,24 @@ export default function ShareableBookingPage() {
     return () => controller.abort()
   }, [requestVersion])
 
+  React.useEffect(() => {
+    pendingOccurrenceRef.current = pendingOccurrence
+  }, [pendingOccurrence])
+
+  React.useEffect(() => {
+    if (!isHeritageCampaignAcquiringNow()) return
+    const sessionKey = "pli:heritage-promo-seen"
+    if (window.sessionStorage.getItem(sessionKey)) return
+
+    const timer = window.setTimeout(() => {
+      window.sessionStorage.setItem(sessionKey, "true")
+      if (!pendingOccurrenceRef.current && !navigationStartedRef.current) setPromoOpen(true)
+    }, 10_000)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  const closePromo = React.useCallback(() => setPromoOpen(false), [])
+
   const navigateToOccurrence = React.useCallback((occurrence: ShareableBookingOccurrence, countryCode?: string) => {
     if (navigationStartedRef.current) return
     navigationStartedRef.current = true
@@ -343,6 +364,8 @@ export default function ShareableBookingPage() {
   }, [router])
 
   const selectOccurrence = (occurrence: ShareableBookingOccurrence) => {
+    setPromoOpen(false)
+    window.sessionStorage.setItem("pli:heritage-promo-seen", "true")
     if (isHeritageCampaignAcquiringNow()) {
       setPendingOccurrence(occurrence)
       return
@@ -371,6 +394,7 @@ export default function ShareableBookingPage() {
           onRetry={() => setRequestVersion((version) => version + 1)}
         />
       </section>
+      {promoOpen ? <HeritageCampaignPromoDialog onClose={closePromo} /> : null}
       {pendingOccurrence ? (
         <HeritageCountryDialog
           occurrence={pendingOccurrence}
