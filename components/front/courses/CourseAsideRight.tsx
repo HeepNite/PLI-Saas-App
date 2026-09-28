@@ -26,6 +26,8 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       date: searchParams.get("date") || undefined,
       time: searchParams.get("time") || undefined,
       durationMinutes: duration ? Number(duration) : undefined,
+      bookingSource: searchParams.get("bookingSource") === "public_booking" ? "public_booking" as const : undefined,
+      heritagePinCountryCode: searchParams.get("heritagePinCountryCode") || undefined,
     }
   }, [isQrBooking, searchParams])
   const [qrBookingContext, setQrBookingContext] = React.useState(readQrBookingContext)
@@ -93,7 +95,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       params.delete("step")
       changed = true
     }
-    for (const key of ["qrBooking", "date", "time", "durationMinutes", "newStudent", "status"]) {
+    for (const key of ["qrBooking", "date", "time", "durationMinutes", "newStudent", "status", "bookingSource", "heritagePinCountryCode"]) {
       if (params.has(key)) {
         params.delete(key)
         changed = true
