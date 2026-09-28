@@ -22,6 +22,10 @@ import {
 import {
   SPECIAL_SALSA_CLASS,
 } from "@/lib/special-salsa-class/config"
+import {
+  HERITAGE_PIN_CAMPAIGN_KEY,
+  normalizeHeritagePinCountryCode,
+} from "@/lib/campaigns/heritage-pin"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -251,6 +255,18 @@ export async function POST(req: Request) {
     kioskSessionToken,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
+  const bookingSource = typeof body.bookingSource === "string" ? body.bookingSource.trim() : ""
+  const heritagePinCountryCode = normalizeHeritagePinCountryCode(body.heritagePinCountryCode)
+  if (bookingSource === "public_booking" && !heritagePinCountryCode) {
+    return NextResponse.json({ error: "Select a valid country for the Heritage pin." }, { status: 400 })
+  }
+  const heritagePinMetadata = bookingSource === "public_booking" && heritagePinCountryCode
+    ? {
+        heritagePinIntent: HERITAGE_PIN_CAMPAIGN_KEY,
+        heritagePinCountryCode,
+        heritagePinSource: "public_booking",
+      }
+    : {}
   // Mobile-QR check-in booking paid via Stripe HOSTED checkout (full-page redirect).
   // The client sets `checkInBooking: true` on the QR-phone check-in payload so the
   // webhook can complete the booking as a real check-in (attendance = checked-in),
@@ -381,6 +397,7 @@ export async function POST(req: Request) {
         consecutiveLinkedCourseTime: validation.consecutiveLinkedCourseTime || "",
         consecutiveAddOnOnly: String(validation.consecutiveAddOnOnly),
         linkedFromCourseSlug: validation.linkedFromCourseSlug || "",
+        ...heritagePinMetadata,
       },
     })
 
