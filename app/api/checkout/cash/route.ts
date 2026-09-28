@@ -16,6 +16,9 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 import { admitSpecialClassCashWalkIn } from "@/lib/special-classes/fulfillment"
+import { resolveHeritagePinPrice } from "@/lib/campaigns/heritage-pin"
+import { findHeritagePinEntitlementForUser } from "@/lib/campaigns/heritage-pin-entitlement"
+import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 
 export const runtime = "nodejs"
 
@@ -108,6 +111,17 @@ export async function POST(req: Request) {
   }
 
   const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
+  const authorizedTerminalAuth = terminalAuth?.ok
+    ? terminalAuth
+    : photoContext === FLOW_CONTEXT.KIOSK_TERMINAL
+      ? await authorizeStaffTerminalSession()
+      : null
+  if (!authorizedTerminalAuth?.ok) {
+    return NextResponse.json(
+      { error: "Cash payment is available only from an authorized studio terminal." },
+      { status: 403 },
+    )
+  }
   const { userId, clerkUser, resolvedUserId, identity, account } = preparedAccount
 
   const newStudentError = await enforceNewStudentRules({
@@ -134,6 +148,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
   }
 
+  const heritagePinEntitlement = await findHeritagePinEntitlementForUser(prisma, dbUser.id)
+  const heritagePinPricing = resolveHeritagePinPrice({
+    entitlement: heritagePinEntitlement,
+    classDate: effectiveSession.date || validation.date,
+    participants: validation.safeParticipants,
+    serviceId: validation.serviceId,
+    packageId: validation.packageId,
+    coupon: validation.coupon,
+    addonCount: validation.addons?.length ?? 0,
+    consecutivePriceCents: validation.consecutivePriceCents ?? null,
+    consecutiveAddOnOnly: validation.consecutiveAddOnOnly ?? false,
+  })
+  const effectiveAmountCents = heritagePinPricing.applied
+    ? heritagePinPricing.amountCents
+    : validation.amountInt
+  const heritagePinPricingMetadata = heritagePinPricing.applied
+    ? {
+        heritagePinPriceApplied: true,
+        heritagePinPriceCents: heritagePinPricing.amountCents,
+        heritagePinEntitlementPurchaseId: heritagePinPricing.entitlementPurchaseId,
+      }
+    : {}
+
   if (isSpecialClassCheckout) {
     const now = new Date()
     const admission = await admitSpecialClassCashWalkIn(prisma, {
@@ -153,7 +190,7 @@ export async function POST(req: Request) {
     }
 
     const postCommitEffects = [
-      { name: "prepared_checkout_cleanup", result: clearPreparedCheckoutAfterSuccess({ terminalAuth, kioskSessionToken, validation }) },
+      { name: "prepared_checkout_cleanup", result: clearPreparedCheckoutAfterSuccess({ terminalAuth: authorizedTerminalAuth, kioskSessionToken, validation }) },
       ...(photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && effectiveSession.date
         ? [{ name: "day_of_week_counter", result: incrementDayOfWeekCounter(dbUser.id, new Date(`${effectiveSession.date}T12:00:00.000Z`)) }]
         : []),
@@ -227,7 +264,7 @@ export async function POST(req: Request) {
     const consecutiveAmountCents = validation.consecutivePriceCents!
     const consecutiveSlug = validation.consecutiveLinkedCourseSlug!
     const consecutiveTitle = validation.consecutiveCourseTitle || null
-    const primaryAmountCents = validation.amountInt - consecutiveAmountCents
+    const primaryAmountCents = effectiveAmountCents - consecutiveAmountCents
 
     const result = await prisma.$transaction(async (tx) => {
       // Purchase 1: original class
@@ -279,6 +316,7 @@ export async function POST(req: Request) {
             // Consecutive metadata: this purchase has a linked consecutive purchase
             hasConsecutiveLinkedPurchase: true,
             consecutiveLinkedSlug: consecutiveSlug,
+            ...heritagePinPricingMetadata,
           },
         },
       })
@@ -334,7 +372,7 @@ export async function POST(req: Request) {
     })
 
     await clearPreparedCheckoutAfterSuccess({
-      terminalAuth,
+      terminalAuth: authorizedTerminalAuth,
       kioskSessionToken,
       validation,
     })
@@ -372,7 +410,7 @@ export async function POST(req: Request) {
       userId: dbUser.id,
       courseSlug: validation.courseSlug,
       courseTitle: validation.courseTitle,
-      amount: validation.amountInt,
+      amount: effectiveAmountCents,
       currency: validation.currency,
       status: "pending",
       email: identity.resolvedEmail,
@@ -412,12 +450,13 @@ export async function POST(req: Request) {
         phoneRaw: identity.phoneRaw || "",
         cashNote,
         requiresCardMigration: true,
+        ...heritagePinPricingMetadata,
       },
     },
   })
 
   await clearPreparedCheckoutAfterSuccess({
-    terminalAuth,
+    terminalAuth: authorizedTerminalAuth,
     kioskSessionToken,
     validation,
   })
