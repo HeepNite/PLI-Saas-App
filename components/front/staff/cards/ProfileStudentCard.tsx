@@ -43,6 +43,29 @@ export function ProfileStudentCard({
   onRefreshPaymentsBoard,
 }: ProfileStudentCardProps) {
   const canEditStudentInfo = canOperateStudentEdits(currentRole, currentCategory)
+  const [heritagePinBusy, setHeritagePinBusy] = React.useState(false)
+  const [heritagePinError, setHeritagePinError] = React.useState<string | null>(null)
+
+  const markHeritagePinDelivered = async () => {
+    if (!student.heritagePin || student.heritagePin.status !== "pending" || heritagePinBusy) return
+    setHeritagePinBusy(true)
+    setHeritagePinError(null)
+    try {
+      const response = await fetch(`/api/staff/students/${encodeURIComponent(student.userId)}/heritage-pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purchaseId: student.heritagePin.sourcePurchaseId }),
+      })
+      const payload = await response.json().catch(() => null) as { error?: string } | null
+      if (!response.ok) throw new Error(payload?.error || "Unable to mark the country pin delivered.")
+      await onRefreshPaymentsBoard()
+    } catch (error) {
+      setHeritagePinError(error instanceof Error ? error.message : "Unable to mark the country pin delivered.")
+    } finally {
+      setHeritagePinBusy(false)
+    }
+  }
+
   // Mirror legacy logic: identity, badges, detail rows and settlement control.
   const identity = splitCustomerName(student.displayName, student.email)
   const initials = getInitials(identity.firstName, identity.lastName, student.email)
@@ -124,12 +147,26 @@ export function ProfileStudentCard({
           <span
             key={badge.key}
             title={badge.title}
-            className={`${PROFILE_CARD_BADGE_CLASS} ${badge.tone}`}
+            className={`${PROFILE_CARD_BADGE_CLASS} ${badge.key === "heritage-pin" ? "col-span-2" : ""} ${badge.tone}`}
           >
             {badge.label}
           </span>
         ))}
       </div>
+
+      {canEditStudentInfo && student.heritagePin?.status === "pending" ? (
+        <div className="mt-2.5">
+          <button
+            type="button"
+            disabled={heritagePinBusy}
+            onClick={() => void markHeritagePinDelivered()}
+            className="w-full rounded-md border border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/12 px-3 py-2 text-xs font-semibold text-white transition hover:bg-[var(--brand,#b61616)]/20 disabled:cursor-wait disabled:opacity-60"
+          >
+            {heritagePinBusy ? "Marking pin delivered…" : `Mark ${student.heritagePin.countryName} pin delivered`}
+          </button>
+          {heritagePinError ? <p role="alert" className="mt-1.5 text-xs text-red-300">{heritagePinError}</p> : null}
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-2.5 border-t border-white/10 pt-3.5 text-xs text-white/85">
         {detailRows.map((row) => {
