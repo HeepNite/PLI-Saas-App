@@ -6,6 +6,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     packagePurchase: { findUnique: vi.fn(), create: vi.fn() },
     packagePlan: { findUniqueOrThrow: vi.fn(), upsert: vi.fn() },
     purchase: { updateMany: vi.fn() },
+    $transaction: vi.fn(),
   },
 }))
 
@@ -13,6 +14,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }))
 
 import {
   buildPackagePurchasePayload,
+  reservePackageCreditForAttendance,
   reservePackageCreditForAttendanceTx,
   revokeUnusedInternalPackagePurchaseTx,
   syncPackagePurchaseFromPaidPurchase,
@@ -24,6 +26,7 @@ describe("packages helpers", () => {
     mockPrisma.packagePurchase.create.mockReset()
     mockPrisma.packagePlan.findUniqueOrThrow.mockReset()
     mockPrisma.packagePlan.upsert.mockReset()
+    mockPrisma.$transaction.mockReset()
   })
 
   it("returns null when package id is missing", () => {
@@ -197,6 +200,39 @@ describe("packages helpers", () => {
     }))
     expect(tx.packagePurchase.updateMany).not.toHaveBeenCalled()
     expect(tx.packageUsageLedger.create).not.toHaveBeenCalled()
+  })
+
+  it("keeps the paid-purchase guard and credit decrement in one transaction", async () => {
+    const selectedPackage = {
+      id: "package_purchase_1", purchaseId: "purchase_1", userId: "user_1", status: "active",
+      isUnlimited: false, remainingCredits: 1, purchasedAt: new Date("2026-06-01T00:00:00.000Z"), expiresAt: null,
+    }
+    const tx = {
+      packageUsageLedger: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: "usage_1", delta: -1 }),
+      },
+      packagePurchase: {
+        findFirst: vi.fn().mockResolvedValue(selectedPackage),
+        findUnique: vi.fn().mockResolvedValue({ ...selectedPackage, remainingCredits: 0 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update: vi.fn().mockResolvedValue({ ...selectedPackage, remainingCredits: 0, status: "exhausted" }),
+      },
+      purchase: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    }
+    mockPrisma.$transaction.mockImplementation(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx))
+
+    await reservePackageCreditForAttendance({
+      packagePurchaseId: "package_purchase_1", userId: "user_1", attendanceId: "attendance_1",
+    })
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledOnce()
+    expect(tx.purchase.updateMany).toHaveBeenCalledWith({
+      where: { id: "purchase_1", status: "paid" }, data: { status: "paid" },
+    })
+    expect(tx.packagePurchase.updateMany).toHaveBeenCalledOnce()
+    expect(tx.purchase.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.packagePurchase.updateMany.mock.invocationCallOrder[0])
   })
 
   it("does not reserve a package purchased after the attendance timestamp", async () => {
