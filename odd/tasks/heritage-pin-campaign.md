@@ -28,11 +28,11 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Created requirements, analysis, resolve, design, and execution tasks under `docs/specs/heritage-pin-campaign/`.
   - Recorded eligibility, dates, pricing, entitlement lifecycle, payment-channel boundaries, UI copy, and non-goals.
   - Evidence: commit `6f9b18f9b2b7ad568d524761d16f5612d2ae194c`; `git diff --check` passed and all five spec files were present.
-- [ ] 2. Build the country-pin entitlement lifecycle and staff delivery control.
-  - Persist structured country-pin metadata from a qualifying paid purchase without a schema migration.
-  - Derive pending/delivered state by user and source purchase.
-  - Add the staff badge and an audited delivery action.
-  - Evidence: pending.
+- [x] 2. Build the country-pin entitlement lifecycle and staff delivery control.
+  - Persisted structured country-pin intent and entitlement metadata on the source purchase without a schema migration.
+  - Serialized entitlement award by user, derived pending/delivered state, and enforced one-pin semantics.
+  - Added staff aggregation, distinct country-pin badges, and an authorized, audited, idempotent delivery action.
+  - Evidence: commits `15814400f17933fbeda26c470518bb647537489a`, `2ba1f7ecfd4268f0371d1d29c0994b971039e972`, and `83ff395c5e077b1f62c4bc379f9ef3707e0ea39f`; 166 focused tests passed, `npm run typecheck` passed, scoped ESLint passed, and `git diff --check` passed.
 - [ ] 3. Build the branded campaign booking journey.
   - Add the campaign announcement/country step for qualifying booking attempts.
   - Preserve the selected occurrence, PLI logo, campaign summary, and class details.

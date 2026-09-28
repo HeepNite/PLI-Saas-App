@@ -11,13 +11,13 @@
 
 ## Work Unit 2 — Entitlement and staff delivery
 
-- [ ] Add deterministic campaign config/domain helpers and tests.
-- [ ] Admit country/source into hosted checkout metadata.
-- [ ] Award one pending entitlement after a qualifying paid Stripe event.
-- [ ] Load entitlement into staff student aggregates.
-- [ ] Render distinct pending/delivered country-pin badges.
-- [ ] Add authorized, audited, idempotent `Mark delivered` behavior.
-- [ ] Add focused domain/API/component tests.
+- [x] Add deterministic campaign config/domain helpers and tests.
+- [x] Admit country/source into hosted checkout metadata.
+- [x] Award one pending entitlement after a qualifying paid Stripe event.
+- [x] Load entitlement into staff student aggregates.
+- [x] Render distinct pending/delivered country-pin badges.
+- [x] Add authorized, audited, idempotent `Mark delivered` behavior.
+- [x] Add focused domain/API/component tests.
 
 ## Work Unit 3 — Branded booking journey
 
