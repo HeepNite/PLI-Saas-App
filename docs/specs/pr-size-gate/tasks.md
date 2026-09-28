@@ -25,6 +25,6 @@
 
 - [x] Validate the 400-line passing boundary and the 401-line failing boundary.
 - [x] Confirm the workflow does not create an automatic `size:exception` or other bypass.
-- [ ] Publish the workflow and update ruleset `18629768` to require the check for `main` and `codex/develop`.
-  - Blocked: current token lacks workflow and ruleset scope.
-  - Preserve the existing `Typecheck (blocking)` requirement.
+- [ ] Publish the workflow and require the check for `main` and `codex/develop`.
+  - [x] `codex/develop`: workflow merged through PR #538; ruleset `18629768` requires `PR size (blocking)` and preserves `Typecheck (blocking)`.
+  - [ ] `main`: merge the isolated rollout and add a main-only required-check ruleset.
