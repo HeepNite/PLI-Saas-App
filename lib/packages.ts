@@ -457,5 +457,5 @@ export const reservePackageCreditForAttendance = async (input: {
   at?: Date
   reason?: string
 }) => {
-  return reservePackageCreditForAttendanceTx(prisma, input)
+  return prisma.$transaction((tx) => reservePackageCreditForAttendanceTx(tx, input))
 }
