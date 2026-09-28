@@ -10,6 +10,7 @@ import {
   normalizeHeritagePinCountryCode,
   parseHeritagePinEntitlement,
   resolveHeritagePinAwardCountry,
+  resolveHeritagePinPrice,
   selectHeritagePinEntitlement,
 } from "@/lib/campaigns/heritage-pin"
 import { buildHeritagePinEntitlementsByUser } from "@/lib/campaigns/heritage-pin-entitlement"
@@ -85,6 +86,40 @@ describe("Heritage Pin campaign", () => {
       heritagePinCountryCode: "CO",
       heritagePinSource: "kiosk",
     }, new Date("2026-10-05T14:00:00.000Z"))).toBeNull()
+  })
+
+  it("applies the fixed price only to a delivered holder's non-stacked Sunday or Monday drop-in", () => {
+    const delivered = parseHeritagePinEntitlement({
+      id: "source",
+      metadata: {
+        heritagePinCampaign: HERITAGE_PIN_CAMPAIGN_KEY,
+        heritagePinCountryCode: "CO",
+        heritagePinStatus: "delivered",
+        heritagePinEarnedAt: "2026-10-01T12:00:00.000Z",
+        heritagePinDeliveredAt: "2026-10-02T12:00:00.000Z",
+        heritagePinDeliveredBy: "staff_1",
+        heritagePinSource: "public_booking",
+      },
+    })
+    const base = {
+      entitlement: delivered,
+      classDate: "2026-10-04",
+      participants: 1,
+      serviceId: "dropin",
+      packageId: "",
+      coupon: "",
+      addonCount: 0,
+      consecutivePriceCents: null,
+      consecutiveAddOnOnly: false,
+    }
+
+    expect(resolveHeritagePinPrice(base)).toMatchObject({ applied: true, amountCents: 1500 })
+    expect(resolveHeritagePinPrice({ ...base, classDate: "2026-10-06" })).toMatchObject({ applied: false, reason: "date_ineligible" })
+    expect(resolveHeritagePinPrice({ ...base, entitlement: { ...delivered!, status: "pending" } })).toMatchObject({ applied: false, reason: "pin_pending" })
+    expect(resolveHeritagePinPrice({ ...base, coupon: "PLI10" })).toMatchObject({ applied: false, reason: "promotion_conflict" })
+    expect(resolveHeritagePinPrice({ ...base, packageId: "pack" })).toMatchObject({ applied: false, reason: "not_single_drop_in" })
+    expect(resolveHeritagePinPrice({ ...base, serviceId: "new-student" })).toMatchObject({ applied: false, reason: "promotion_conflict" })
+    expect(resolveHeritagePinPrice({ ...base, participants: 2 })).toMatchObject({ applied: false, reason: "not_single_drop_in" })
   })
 
   it("builds pending metadata without clobbering unrelated purchase fields", () => {

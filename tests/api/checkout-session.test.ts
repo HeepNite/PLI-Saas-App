@@ -13,6 +13,7 @@ const mockAdmitSpecialClassReservation = vi.fn()
 const mockUpdateSpecialClassPurchaseSession = vi.fn()
 const mockFailSpecialClassHold = vi.fn()
 const mockPreserveSpecialClassHold = vi.fn()
+const mockFindHeritagePinEntitlement = vi.fn()
 
 vi.mock("@/lib/checkout", () => ({
   resolveCheckoutPreparation: (...args: unknown[]) => mockResolveCheckoutPreparation(...args),
@@ -27,6 +28,10 @@ vi.mock("@/lib/checkout/validation", () => ({
 
 vi.mock("@/lib/checkout/special-class-identity", () => ({
   resolveSpecialClassIdentity: (...args: unknown[]) => mockResolveSpecialClassIdentity(...args),
+}))
+
+vi.mock("@/lib/campaigns/heritage-pin-entitlement", () => ({
+  findHeritagePinEntitlementForIdentity: (...args: unknown[]) => mockFindHeritagePinEntitlement(...args),
 }))
 
 vi.mock("@/lib/checkout/special-class-reservation", () => ({
@@ -69,6 +74,8 @@ describe("checkout session route", () => {
     mockUpdateSpecialClassPurchaseSession.mockReset()
     mockFailSpecialClassHold.mockReset()
     mockPreserveSpecialClassHold.mockReset()
+    mockFindHeritagePinEntitlement.mockReset()
+    mockFindHeritagePinEntitlement.mockResolvedValue(null)
 
     mockValidate.mockResolvedValue({
       courseSlug: "salsa-femenina-matutina",
@@ -199,6 +206,62 @@ describe("checkout session route", () => {
         heritagePinIntent: "latin-heritage-2026",
         heritagePinCountryCode: "MX",
         heritagePinSource: "public_booking",
+      }),
+    }))
+  })
+
+  it("charges the server-authorized Heritage price for an eligible delivered holder", async () => {
+    mockValidate.mockResolvedValueOnce({
+      courseSlug: "salsa-femenina-matutina",
+      courseTitle: "Course booking",
+      amountInt: 2000,
+      currency: "usd",
+      date: "2026-10-04",
+      time: "11:00",
+      packageId: "",
+      serviceId: "dropin",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      pkg: null,
+      packageTotalCredits: null,
+      packageIsUnlimited: false,
+      packageCadence: "",
+      packageMakeUps: 0,
+      packageValidDays: 180,
+      consecutivePriceCents: null,
+      consecutiveLinkedCourseSlug: null,
+      consecutiveCourseTitle: null,
+      consecutiveLinkedCourseTime: null,
+      consecutiveAddOnOnly: false,
+      linkedFromCourseSlug: null,
+    })
+    mockFindHeritagePinEntitlement.mockResolvedValueOnce({
+      campaign: "latin-heritage-2026",
+      sourcePurchaseId: "pin_purchase_1",
+      countryCode: "CO",
+      countryName: "Colombia",
+      status: "delivered",
+      earnedAt: "2026-10-01T12:00:00.000Z",
+      deliveredAt: "2026-10-02T12:00:00.000Z",
+      deliveredBy: "staff_1",
+      source: "public_booking",
+    })
+
+    const { POST } = await import("@/app/api/checkout/session/route")
+    const response = await POST(new Request("http://localhost/api/checkout/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({
+      line_items: [expect.objectContaining({ price_data: expect.objectContaining({ unit_amount: 1500 }) })],
+      metadata: expect.objectContaining({
+        heritagePinPriceApplied: "true",
+        heritagePinPriceCents: "1500",
+        heritagePinEntitlementPurchaseId: "pin_purchase_1",
       }),
     }))
   })

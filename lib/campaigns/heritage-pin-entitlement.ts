@@ -8,7 +8,7 @@ import {
   type HeritagePinEntitlement,
 } from "@/lib/campaigns/heritage-pin"
 
-export type HeritagePinDb = Pick<PrismaClient, "purchase">
+export type HeritagePinDb = Pick<PrismaClient, "purchase" | "user">
 
 const entitlementWhere = (userId: string): Prisma.PurchaseWhereInput => ({
   userId,
@@ -29,6 +29,21 @@ export const findHeritagePinEntitlementForUser = async (
     select: { id: true, userId: true, metadata: true, createdAt: true },
   })
   return selectHeritagePinEntitlement(purchases)
+}
+
+export const findHeritagePinEntitlementForIdentity = async (
+  db: HeritagePinDb,
+  identity: { clerkId?: string | null; email?: string | null; phone?: string | null },
+) => {
+  const or = [
+    identity.clerkId ? { clerkId: identity.clerkId } : null,
+    identity.email ? { email: identity.email } : null,
+    identity.phone ? { phone: identity.phone } : null,
+  ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+  if (!or.length) return null
+
+  const user = await db.user.findFirst({ where: { OR: or }, select: { id: true } })
+  return user ? findHeritagePinEntitlementForUser(db, user.id) : null
 }
 
 export const buildHeritagePinEntitlementsByUser = (

@@ -117,6 +117,48 @@ export const isHeritagePinBenefitClassDate = (
   return weekday === 0 || weekday === 1
 }
 
+export type HeritagePinPricingReason =
+  | "applied"
+  | "entitlement_missing"
+  | "pin_pending"
+  | "date_ineligible"
+  | "not_single_drop_in"
+  | "promotion_conflict"
+
+export const resolveHeritagePinPrice = (input: {
+  entitlement: HeritagePinEntitlement | null
+  classDate: string
+  participants: number
+  serviceId: string
+  packageId: string
+  coupon: string
+  addonCount: number
+  consecutivePriceCents: number | null
+  consecutiveAddOnOnly: boolean
+}) => {
+  if (!input.entitlement) return { applied: false as const, reason: "entitlement_missing" as const }
+  if (input.entitlement.status !== "delivered") return { applied: false as const, reason: "pin_pending" as const }
+  if (!isHeritagePinBenefitClassDate(input.classDate)) return { applied: false as const, reason: "date_ineligible" as const }
+  if (input.participants !== 1 || !input.serviceId || input.packageId) {
+    return { applied: false as const, reason: "not_single_drop_in" as const }
+  }
+  if (
+    input.serviceId === "new-student" ||
+    Boolean(input.coupon) ||
+    input.addonCount > 0 ||
+    input.consecutivePriceCents !== null ||
+    input.consecutiveAddOnOnly
+  ) {
+    return { applied: false as const, reason: "promotion_conflict" as const }
+  }
+  return {
+    applied: true as const,
+    reason: "applied" as const,
+    amountCents: HERITAGE_PIN_PRICE_CENTS,
+    entitlementPurchaseId: input.entitlement.sourcePurchaseId,
+  }
+}
+
 export const normalizeHeritagePinCountryCode = (value: unknown) => {
   if (typeof value !== "string") return null
   const code = value.trim().toUpperCase()
