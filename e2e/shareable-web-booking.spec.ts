@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test"
 
-const getNewYorkDateKey = () => {
+const getNewYorkDateKey = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date())
+  }).formatToParts(date)
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
   return `${values.year}-${values.month}-${values.day}`
 }
@@ -60,7 +60,9 @@ test.beforeEach(async ({ page }) => {
 })
 
 test("filters the 90-day schedule and hands a future class to QR booking", async ({ page }) => {
-  const currentDate = getNewYorkDateKey()
+  const campaignNow = new Date("2026-10-15T16:00:00.000Z")
+  await page.clock.setFixedTime(campaignNow)
+  const currentDate = getNewYorkDateKey(campaignNow)
   const nextMonth = getNextMonthKey(currentDate)
   await page.goto("/booking", { waitUntil: "domcontentloaded" })
 
@@ -90,5 +92,9 @@ test("filters the 90-day schedule and hands a future class to QR booking", async
   await expect(nextMonthCards.first()).toContainText("Beginner Bachata")
 
   await nextMonthCards.first().getByRole("button", { name: /Book Beginner Bachata/ }).click()
-  await expect(page).toHaveURL(new RegExp(`/courses/bachata\\?enroll=1&qrBooking=1&date=${nextMonth}-\\d{2}&time=18%3A00&durationMinutes=60`))
+  await expect(page.getByRole("dialog", { name: /Which country do you represent/ })).toBeVisible()
+  await page.getByRole("searchbox", { name: "Search countries" }).fill("Mexico")
+  await page.getByRole("option", { name: /Mexico/ }).click()
+  await page.getByRole("button", { name: "CONTINUE TO BOOK" }).click()
+  await expect(page).toHaveURL(new RegExp(`/courses/bachata\\?enroll=1&qrBooking=1&date=${nextMonth}-\\d{2}&time=18%3A00&durationMinutes=60&bookingSource=public_booking&heritagePinCountryCode=MX`))
 })
