@@ -177,3 +177,105 @@ export const getHeritagePinCountryName = (countryCode: string, locale = "en") =>
   if (!code) return countryCode
   return new Intl.DisplayNames([locale], { type: "region" }).of(code) || code
 }
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+
+const asIsoDateTime = (value: unknown) => {
+  if (typeof value !== "string" || !value.trim()) return null
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null
+}
+
+export const parseHeritagePinEntitlement = (
+  purchase: HeritagePinPurchaseLike,
+): HeritagePinEntitlement | null => {
+  const metadata = asRecord(purchase.metadata)
+  if (metadata.heritagePinCampaign !== HERITAGE_PIN_CAMPAIGN_KEY) return null
+  const countryCode = normalizeHeritagePinCountryCode(metadata.heritagePinCountryCode)
+  const status = metadata.heritagePinStatus
+  const earnedAt = asIsoDateTime(metadata.heritagePinEarnedAt)
+    || (purchase.createdAt ? asIsoDateTime(purchase.createdAt instanceof Date ? purchase.createdAt.toISOString() : purchase.createdAt) : null)
+  const source = metadata.heritagePinSource
+  if (!countryCode || (status !== "pending" && status !== "delivered") || !earnedAt || source !== "public_booking") {
+    return null
+  }
+
+  const deliveredAt = status === "delivered" ? asIsoDateTime(metadata.heritagePinDeliveredAt) : null
+  const deliveredBy = status === "delivered" && typeof metadata.heritagePinDeliveredBy === "string"
+    ? metadata.heritagePinDeliveredBy.trim() || null
+    : null
+
+  if (status === "delivered" && !deliveredAt) return null
+
+  return {
+    campaign: HERITAGE_PIN_CAMPAIGN_KEY,
+    sourcePurchaseId: purchase.id,
+    countryCode,
+    countryName: getHeritagePinCountryName(countryCode),
+    status,
+    earnedAt,
+    deliveredAt,
+    deliveredBy,
+    source,
+  }
+}
+
+export const selectHeritagePinEntitlement = (
+  purchases: readonly HeritagePinPurchaseLike[],
+): HeritagePinEntitlement | null => {
+  const entitlements = purchases
+    .map(parseHeritagePinEntitlement)
+    .filter((value): value is HeritagePinEntitlement => Boolean(value))
+    .sort((left, right) => {
+      if (left.status !== right.status) return left.status === "delivered" ? -1 : 1
+      return left.earnedAt.localeCompare(right.earnedAt) || left.sourcePurchaseId.localeCompare(right.sourcePurchaseId)
+    })
+  return entitlements[0] || null
+}
+
+export const resolveHeritagePinAwardCountry = (
+  metadata: unknown,
+  settledAt: Date,
+  config = getHeritagePinCampaignConfig(),
+) => {
+  const record = asRecord(metadata)
+  if (record.heritagePinIntent !== HERITAGE_PIN_CAMPAIGN_KEY) return null
+  if (record.heritagePinSource !== "public_booking") return null
+  if (!isHeritagePinAcquisitionDate(settledAt, config)) return null
+  return normalizeHeritagePinCountryCode(record.heritagePinCountryCode)
+}
+
+export const buildPendingHeritagePinMetadata = (
+  metadata: unknown,
+  input: { countryCode: string; earnedAt: Date },
+) => {
+  const countryCode = normalizeHeritagePinCountryCode(input.countryCode)
+  if (!countryCode) throw new Error("Invalid Heritage pin country code")
+  return {
+    ...asRecord(metadata),
+    heritagePinCampaign: HERITAGE_PIN_CAMPAIGN_KEY,
+    heritagePinCountryCode: countryCode,
+    heritagePinStatus: "pending",
+    heritagePinEarnedAt: input.earnedAt.toISOString(),
+    heritagePinSource: "public_booking",
+  }
+}
+
+export const buildDeliveredHeritagePinMetadata = (
+  metadata: unknown,
+  input: { deliveredAt: Date; deliveredBy: string },
+) => {
+  const record = asRecord(metadata)
+  if (record.heritagePinCampaign !== HERITAGE_PIN_CAMPAIGN_KEY || record.heritagePinStatus !== "pending") {
+    throw new Error("Heritage pin is not pending delivery")
+  }
+  const deliveredBy = input.deliveredBy.trim()
+  if (!deliveredBy) throw new Error("Missing Heritage pin delivery actor")
+  return {
+    ...record,
+    heritagePinStatus: "delivered",
+    heritagePinDeliveredAt: input.deliveredAt.toISOString(),
+    heritagePinDeliveredBy: deliveredBy,
+  }
+}
