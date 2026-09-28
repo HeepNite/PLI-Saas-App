@@ -37,6 +37,7 @@ import {
   finalizeSpecialClassNoCapacityCancellation,
   finalizeSpecialClassPaymentFailure,
 } from "@/lib/special-classes/fulfillment"
+import { awardHeritagePinFromPaidPurchase } from "@/lib/campaigns/heritage-pin-entitlement"
 
 export const runtime = "nodejs"
 
@@ -246,6 +247,7 @@ interface ProcessPaidEventParams {
   email: string | undefined
   phone: string | undefined
   source: "stripe_webhook_checkout" | "stripe_webhook_intent"
+  settledAt: Date
 }
 
 async function processPaidStripeEvent(params: ProcessPaidEventParams) {
@@ -264,6 +266,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
     email,
     phone,
     source,
+    settledAt,
   } = params
 
   const participants = parseIntSafe(meta.participants)
@@ -323,6 +326,16 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
     },
   })
   await touchStripeWebhookEventHeartbeat(eventId)
+
+  if (status === "paid") {
+    await awardHeritagePinFromPaidPurchase({
+      userId: user.id,
+      purchaseId: purchase.id,
+      metadata: mergedMetadata,
+      settledAt,
+    })
+    await touchStripeWebhookEventHeartbeat(eventId)
+  }
 
   let consecutivePurchase: { id: string } | null = null
   if (split.hasConsecutiveSplit) {
@@ -480,7 +493,7 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
   }
 }
 
-async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: string) {
+async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: string, settledAt: Date) {
   const amount = session.amount_total ?? 0
   const currency = session.currency || "usd"
   const rawMeta = pickStripeMetadata(session.metadata)
@@ -583,10 +596,11 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
     email,
     phone,
     source: "stripe_webhook_checkout",
+    settledAt,
   })
 }
 
-async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
+async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string, settledAt: Date) {
   const amount = intent.amount ?? 0
   const currency = intent.currency || "usd"
   const meta = pickStripeMetadata(intent.metadata)
@@ -654,6 +668,7 @@ async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string
     email,
     phone,
     source: "stripe_webhook_intent",
+    settledAt,
   })
 }
 
@@ -776,13 +791,13 @@ export async function POST(req: Request) {
   try {
     switch (event.type) {
       case "checkout.session.completed":
-        await handleCheckoutSession(event.data.object as Stripe.Checkout.Session, event.id)
+        await handleCheckoutSession(event.data.object as Stripe.Checkout.Session, event.id, new Date(event.created * 1000))
         break
       case "payment_intent.succeeded":
-        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
+        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id, new Date(event.created * 1000))
         break
       case "payment_intent.amount_capturable_updated":
-        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
+        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id, new Date(event.created * 1000))
         break
       case "payment_intent.payment_failed":
         await handlePaymentIntentFailure(event)
