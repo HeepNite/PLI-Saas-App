@@ -13,7 +13,7 @@ import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
-import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
+import { FLOW_CONTEXT, PAYMENT_CHANNEL, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 import { admitSpecialClassCashWalkIn } from "@/lib/special-classes/fulfillment"
 import { resolveHeritagePinPrice } from "@/lib/campaigns/heritage-pin"
