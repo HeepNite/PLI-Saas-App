@@ -37,7 +37,7 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Replaced the dense photo banner with a compact image-free heading using only `¡Feliz Mes de la Herencia Latina!` and `Your country. Your community.`.
   - Moved the richer promotion into a concise flag-collage dialog shown after ten seconds at most once per session, without interrupting country selection.
   - Preserved selected country/occurrence context, deterministic graphite-ring flag-pin BOOK controls, and the branded no-flash handoff.
-  - Evidence: commits `9fb20d5b`, `c07f020e`, and `153cac72`; 62 focused tests, typecheck, scoped ESLint, and isolated-port Playwright passed; refreshed header, popup, and close-up flag-button screenshots were inspected.
+  - Evidence: commits `9fb20d5b`, `c07f020e`, `153cac72`, and `329375f9`; the compact heading now has real transparent Argentina/Mexico pin cutouts plus a reduced-motion-safe light sweep. Latest checks: 12 focused tests, typecheck, scoped ESLint, and refreshed mobile/header screenshots passed inspection.
 - [x] 4. Enforce payment and promotional pricing rules.
   - Derived delivered entitlement from persisted identity/purchase data and normalized eligible Stripe and kiosk cash checkouts to exactly US$15.
   - Excluded pending pins, ineligible dates, multiple participants, packages, coupons, add-ons, new-student pricing, and consecutive offers.
