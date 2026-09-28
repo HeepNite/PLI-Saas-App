@@ -338,6 +338,20 @@ describe("useEnrollPaymentActions", () => {
       expect(call[0]).toBe("/api/checkout/session")
       expect((call[1].headers as Record<string, string>).Authorization).toBe("Bearer tok-abc")
     })
+
+    it("preserves the selected Heritage country in hosted checkout payloads", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ sessionId: "s1", url: "https://pay" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({
+        bookingSource: "public_booking",
+        heritagePinCountryCode: "CO",
+      }))
+
+      await getResult().requestKioskCheckoutSession()
+
+      const payload = JSON.parse(String(fetchMock.mock.calls[0][1].body))
+      expect(payload).toMatchObject({ bookingSource: "public_booking", heritagePinCountryCode: "CO" })
+    })
   })
 
   // ---------------------------------------------------------------------
