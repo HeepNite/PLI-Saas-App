@@ -48,8 +48,10 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Covered date boundaries, extension configuration, one-pin semantics, pending/delivered transitions, country persistence, pricing, non-stacking, payment-channel gating, branding, and the no-flash handoff.
   - Available checks passed: 3,485 non-integration tests across 373 files, `npm run typecheck`, full ESLint with 0 errors (114 repository warnings), isolated-port Playwright, and desktop/390px browser inspection.
   - Blocked check: seven unrelated PostgreSQL integration suites require a missing `DATABASE_URL`; the full run otherwise recorded 3,506 passing tests and 41 skips.
-  - Native review did not start: the provider returned an immediate expired consent binding twice and created no lineage. The accumulated branch is also above one review slice and must be split before delivery.
-  - Evidence: pending database-backed integration run and reviewable delivery slicing.
+  - The campaign was rebuilt from the current `origin/codex/develop` as a tracker plus nine ordered child branches. Every child is within the 400-line review budget (208–391 lines), and all 38 feature paths match the accepted feature tree exactly.
+  - Slice verification passed: 6 domain tests, 11 metadata tests, 42 entitlement/webhook tests, 7 staff tests, 5 booking-UI tests, 72 booking-flow tests, and 112 final focused tests; final typecheck and `git diff --check` passed.
+  - Native review was not started because inspect selected an unrelated historical base scope instead of the immediate chain parent; review must be bound to each PR slice after publication.
+  - Evidence: pending database-backed integration run, remote PR checks, and slice-bound review.
 
 ## Delivery Strategy
 
