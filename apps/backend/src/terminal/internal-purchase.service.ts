@@ -237,7 +237,10 @@ export const prepareInternalPurchase = async (
   input: InternalPurchaseRequest,
   caller: TerminalConnectionTokenGatewayRequest,
 ) => {
-  if (input.action === "student-lookup") return lookupStudent(input.phone)
+  if (input.action === "student-lookup") {
+    const { student } = await lookupStudent(input.phone)
+    return { student: { name: student.name } }
+  }
   const attempt = "ticket" in input ? readInternalAttempt(input.ticket, caller) : null
   // A visible lookup result is informational only. Bind attempts to a fresh,
   // canonical complete-phone resolution so no client-supplied user ID is trusted.
