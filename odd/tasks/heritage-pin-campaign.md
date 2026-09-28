@@ -38,12 +38,12 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Preserved selected country and occurrence context through registration/sign-in and hosted checkout.
   - Replaced the breakpoint-specific generic course transition with a branded PLI booking shell and branded boot overlay on every viewport.
   - Evidence: commits `9fb20d5b` and `c07f020e`; 103 focused tests passed, `npm run typecheck` passed, scoped ESLint had no errors, Playwright passed on an isolated port, and desktop/390px booking plus country-dialog screenshots were inspected.
-- [ ] 4. Enforce payment and promotional pricing rules.
-  - Require card/wallet for remote personal web booking.
-  - Retain cash only for trusted kiosk terminal/session flows.
-  - Apply the non-stackable $15 price for delivered pin holders on eligible Sunday/Monday dates.
-  - Enforce rules server-side as well as in UI.
-  - Evidence: pending.
+- [x] 4. Enforce payment and promotional pricing rules.
+  - Derived delivered entitlement from persisted identity/purchase data and normalized eligible Stripe and kiosk cash checkouts to exactly US$15.
+  - Excluded pending pins, ineligible dates, multiple participants, packages, coupons, add-ons, new-student pricing, and consecutive offers.
+  - Removed onsite payment from remote QR/public booking and rejected direct cash requests unless server-verified terminal authority succeeds.
+  - Preserved card/cash choices and campaign pricing for validated in-studio kiosk sessions.
+  - Evidence: commits `ece7638` and `ae9cf07`; 100 focused tests and `npm run typecheck` passed; scoped ESLint had no errors.
 - [ ] 5. Verify campaign behavior and regressions.
   - Cover date boundaries, extension configuration, one-pin semantics, pending/delivered transitions, country persistence, pricing, non-stacking, payment-channel gating, branding, and no-flash behavior.
   - Run focused tests, typecheck, lint, and relevant E2E/browser checks.

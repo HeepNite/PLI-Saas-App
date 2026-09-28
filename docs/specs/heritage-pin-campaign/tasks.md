@@ -30,13 +30,13 @@
 
 ## Work Unit 4 — Payment and price enforcement
 
-- [ ] Add server-authoritative delivered-entitlement lookup for checkout.
-- [ ] Apply fixed US$15 pricing only to eligible Sunday/Monday drop-ins in the benefit window.
-- [ ] Reject stacking with coupons/packages/new-student/consecutive offers.
-- [ ] Hide onsite payment in remote public booking.
-- [ ] Reject remote cash server-side.
-- [ ] Preserve cash for validated in-studio kiosk terminal/session flows.
-- [ ] Add focused pricing and payment-channel tests.
+- [x] Add server-authoritative delivered-entitlement lookup for checkout.
+- [x] Apply fixed US$15 pricing only to eligible Sunday/Monday drop-ins in the benefit window.
+- [x] Reject stacking with coupons/packages/new-student/consecutive offers.
+- [x] Hide onsite payment in remote public booking.
+- [x] Reject remote cash server-side.
+- [x] Preserve cash for validated in-studio kiosk terminal/session flows.
+- [x] Add focused pricing and payment-channel tests.
 
 ## Work Unit 5 — Validation
 
