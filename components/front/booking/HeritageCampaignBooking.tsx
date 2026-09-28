@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import Image from "next/image"
 import { Search, X } from "lucide-react"
 import {
   getHeritagePinCountryOptions,
@@ -24,13 +25,46 @@ export const isHeritageCampaignAcquiringNow = () => isHeritagePinAcquisitionDate
 
 export function HeritageCampaignBanner() {
   return (
-    <div className="mb-6 text-center">
-      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#ef4b55] sm:text-xs">
-        ¡Feliz Mes de la Herencia Latina!
-      </p>
-      <p className="mt-1 text-sm font-bold text-white/72 sm:text-base">
-        Your country. Your community.
-      </p>
+    <div className="mb-6 flex justify-center">
+      <div className="relative flex w-full max-w-sm items-center justify-center gap-2 overflow-hidden py-1 text-center sm:gap-3">
+        <Image
+          src="/campaigns/mexico-pin.png"
+          alt=""
+          width={64}
+          height={64}
+          aria-hidden="true"
+          className="relative z-10 h-11 w-11 shrink-0 -rotate-6 object-contain drop-shadow-[0_6px_10px_rgba(0,0,0,0.55)] sm:h-14 sm:w-14"
+        />
+        <div className="relative z-10 min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-[0.11em] text-[#ef4b55] sm:text-xs sm:tracking-[0.14em]">
+            ¡Feliz Mes de la Herencia Latina!
+          </p>
+          <p className="mt-1 text-xs font-bold text-white/72 sm:text-base">
+            Your country. Your community.
+          </p>
+        </div>
+        <Image
+          src="/campaigns/argentina-pin.png"
+          alt=""
+          width={64}
+          height={64}
+          aria-hidden="true"
+          className="relative z-10 h-11 w-11 shrink-0 rotate-6 object-contain drop-shadow-[0_6px_10px_rgba(0,0,0,0.55)] sm:h-14 sm:w-14"
+        />
+        <span className="heritage-light pointer-events-none absolute inset-y-0 z-20 w-20 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent blur-[1px] motion-reduce:hidden" aria-hidden="true" />
+        <style jsx>{`
+          @keyframes heritage-light-sweep {
+            0%, 18% { left: -30%; opacity: 0; }
+            28% { opacity: 0.65; }
+            58% { opacity: 0.4; }
+            72%, 100% { left: 110%; opacity: 0; }
+          }
+          .heritage-light {
+            left: -30%;
+            animation: heritage-light-sweep 4.5s ease-in-out infinite;
+          }
+        `}</style>
+      </div>
     </div>
   )
 }

@@ -51,11 +51,14 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).toContain("Book Salsa Timba")
   })
 
-  it("keeps the booking header compact, image-free, and limited to the approved copy", () => {
+  it("keeps the booking header compact with real pin cutouts and an accessible light sweep", () => {
     const html = renderToStaticMarkup(<HeritageCampaignBanner />)
     expect(html).toContain("¡Feliz Mes de la Herencia Latina!")
     expect(html).toContain("Your country. Your community.")
-    expect(html).not.toContain("<img")
+    expect(html).toContain("%2Fcampaigns%2Fmexico-pin.png")
+    expect(html).toContain("%2Fcampaigns%2Fargentina-pin.png")
+    expect(html).toContain("heritage-light-sweep")
+    expect(html).toContain("motion-reduce:hidden")
     expect(html).not.toContain("Book online")
   })
 

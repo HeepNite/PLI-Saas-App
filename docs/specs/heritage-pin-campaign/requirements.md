@@ -93,25 +93,26 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 ## Branded Booking Journey Requirements
 
 1. Public booking MUST display campaign messaging during the active acquisition window.
-2. The booking header MUST remain compact and image-free: `¡Feliz Mes de la Herencia Latina!` followed only by `Your country. Your community.` above `Upcoming classes`.
-3. The richer campaign promotion MUST appear as a dismissible dialog after ten seconds, at most once per browser session, without UI copy announcing that a popup will appear.
-4. The timed promotion MUST use a concise flag collage instead of the supplied real-pin photograph and MUST keep explanatory copy short enough to scan immediately.
-5. The timed promotion MUST not open over the country-selection dialog or interrupt a booking already in progress.
-6. Campaign-only treatment MUST disappear automatically outside the configured acquisition window.
-7. Campaign copy MUST concisely communicate that online booking earns a selected-country pin and that the delivered-pin benefit is US$15 on eligible Sunday/Monday classes.
-8. Selecting `BOOK` MUST preserve the selected course, date, time, and country through the existing registration/checkout flow.
-9. Navigation MUST immediately show a branded PLI transition instead of the general course/home page.
-10. The compact form MUST retain the PLI logo and a concise summary of the selected class and campaign.
-11. Campaign styling MUST remain within the PLI near-black, institutional red, and white palette. Additional color comes only from the flags; campaign chrome MUST NOT introduce gold and MUST NOT reduce toolbar or class-list usability.
-12. During the active campaign, eligible circular `BOOK` actions MUST resemble enamel pins through a dark graphite/silver rim, depth, and a rotating set of different national flags.
-13. Flag assignment to class buttons MUST be deterministic, decorative, and drawn from a centralized Latin American/Caribbean display set. It MUST NOT preselect or claim the visitor's country.
-14. On hover or keyboard focus, a flag-pin action SHOULD perform a short 3D turn from the flag face to a PLI-red `BOOK` face. Pointer activation MUST still book with one click.
-15. Because touch devices have no hover, mobile flag pins MUST retain a visible `BOOK` badge and book on the first tap. With reduced-motion preferences, the control MUST use a non-rotating transition while keeping `BOOK` visible.
-16. Every flag-pin action MUST retain its complete accessible booking name on desktop and phone.
-17. After country selection, the wizard SHOULD render the visitor's selected flag as a circular pin preview with the confirmation `We’ll have your pin ready.`
-18. Existing phone verification, Clerk account creation/sign-in, Stripe checkout, and `/client-profile` completion MUST remain authoritative.
-19. Abandoning before successful payment MUST create no entitlement and the campaign may be offered again on a later attempt.
-20. Once an entitlement exists, the system MUST not award another pin; known users should see their current pending/delivered status instead of a duplicate acquisition promise.
+2. The booking header MUST remain compact: `¡Feliz Mes de la Herencia Latina!` followed only by `Your country. Your community.` above `Upcoming classes`, flanked by transparent PNG cutouts of the real Argentina and Mexico pins.
+3. A subtle light sweep SHOULD travel left-to-right across the compact campaign heading, and MUST disable under reduced-motion preferences.
+4. The richer campaign promotion MUST appear as a dismissible dialog after ten seconds, at most once per browser session, without UI copy announcing that a popup will appear.
+5. The timed promotion MUST use a concise flag collage instead of the supplied real-pin photograph and MUST keep explanatory copy short enough to scan immediately.
+6. The timed promotion MUST not open over the country-selection dialog or interrupt a booking already in progress.
+7. Campaign-only treatment MUST disappear automatically outside the configured acquisition window.
+8. Campaign copy MUST concisely communicate that online booking earns a selected-country pin and that the delivered-pin benefit is US$15 on eligible Sunday/Monday classes.
+9. Selecting `BOOK` MUST preserve the selected course, date, time, and country through the existing registration/checkout flow.
+10. Navigation MUST immediately show a branded PLI transition instead of the general course/home page.
+11. The compact form MUST retain the PLI logo and a concise summary of the selected class and campaign.
+12. Campaign styling MUST remain within the PLI near-black, institutional red, and white palette. Additional color comes only from the flags; campaign chrome MUST NOT introduce gold and MUST NOT reduce toolbar or class-list usability.
+13. During the active campaign, eligible circular `BOOK` actions MUST resemble enamel pins through a dark graphite/silver rim, depth, and a rotating set of different national flags.
+14. Flag assignment to class buttons MUST be deterministic, decorative, and drawn from a centralized Latin American/Caribbean display set. It MUST NOT preselect or claim the visitor's country.
+15. On hover or keyboard focus, a flag-pin action SHOULD perform a short 3D turn from the flag face to a PLI-red `BOOK` face. Pointer activation MUST still book with one click.
+16. Because touch devices have no hover, mobile flag pins MUST retain a visible `BOOK` badge and book on the first tap. With reduced-motion preferences, the control MUST use a non-rotating transition while keeping `BOOK` visible.
+17. Every flag-pin action MUST retain its complete accessible booking name on desktop and phone.
+18. After country selection, the wizard SHOULD render the visitor's selected flag as a circular pin preview with the confirmation `We’ll have your pin ready.`
+19. Existing phone verification, Clerk account creation/sign-in, Stripe checkout, and `/client-profile` completion MUST remain authoritative.
+20. Abandoning before successful payment MUST create no entitlement and the campaign may be offered again on a later attempt.
+21. Once an entitlement exists, the system MUST not award another pin; known users should see their current pending/delivered status instead of a duplicate acquisition promise.
 
 ## Security and Data Rules
 
