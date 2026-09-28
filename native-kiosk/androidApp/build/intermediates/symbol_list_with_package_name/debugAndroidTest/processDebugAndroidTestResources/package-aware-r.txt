@@ -1,3 +1,0 @@
-com.pli.kiosk.android.test
-style WhiteBackgroundDialogTheme
-style WhiteBackgroundTheme
