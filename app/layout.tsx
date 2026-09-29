@@ -38,7 +38,7 @@ export default async function RootLayout({children,}: Readonly<{ children: React
         <head>
           <script
             dangerouslySetInnerHTML={{
-              __html: `(function(){if(/[?&]qrBooking=1/.test(location.search)){var d=document.createElement("div");d.id="qr-boot-loader";d.style.cssText="position:fixed;inset:0;z-index:99999;background:#09070d;display:flex;align-items:center;justify-content:center";d.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding:24px"><img src="/logo/logo-white.png" alt="Palladium Latin Art" width="144" style="height:auto"><p style="margin:6px 0 0;border-radius:999px;background:#b61616;padding:7px 12px;font:800 10px sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#fff">Heritage pin booking</p><div style="width:32px;height:32px;border:2px solid rgba(255,255,255,.25);border-top-color:#d51f2b;border-radius:50%;animation:qrspin 1s linear infinite"></div><p style="margin:0;font:500 14px sans-serif;color:rgba(255,255,255,.62)">Loading your booking\\u2026</p></div><style>@keyframes qrspin{to{transform:rotate(360deg)}}</style>';document.documentElement.appendChild(d)}})()`,
+              __html: `(function(){if(/[?&]qrBooking=1/.test(location.search)){document.documentElement.dataset.qrBooking="true"}})()`,
             }}
           />
         </head>

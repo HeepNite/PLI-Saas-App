@@ -96,6 +96,33 @@ describe("BookingPageContent", () => {
     expect(html).toContain(">BOOK<")
   })
 
+  it("cycles decorative flags across the visible filtered rows", () => {
+    const occurrences: ShareableBookingOccurrence[] = Array.from({ length: 9 }, (_, index) => ({
+      ...readyOccurrence,
+      id: `course-${index}:2026-06-11:19:00`,
+      slug: `course-${index}`,
+      title: `Course ${index}`,
+      classType: index === 0 || index === 8 ? "bachata" : "salsa-cubana",
+    }))
+    const html = renderToStaticMarkup(
+      <BookingPageContent
+        status="ready"
+        occurrences={occurrences}
+        selectedMonth="2026-06"
+        selectedClassType="bachata"
+        searchQuery=""
+        onMonthChange={() => undefined}
+        onClassTypeChange={() => undefined}
+        onSearchQueryChange={() => undefined}
+        navigatingId={null}
+        onSelect={() => undefined}
+      />
+    )
+
+    expect(html).toContain("🇦🇷")
+    expect(html).toContain("🇲🇽")
+  })
+
   it("keeps discovery controls visible when no classes match", () => {
     const html = renderToStaticMarkup(
       <BookingPageContent
